@@ -29,6 +29,13 @@ pub struct HarnessOutput {
 pub trait RoleHarness: Send + Sync {
     fn run_role(&self, node_id: &str, task: &ActiveForgeRoleTask) -> Result<HarnessOutput>;
     fn exists_on_base_ref(&self, base_ref: &str, path: &str) -> bool;
+    /// Where this harness runs commands from — the assay workspace.
+    ///
+    /// DECLARED HERE (2026-09-20) because the OpenCode harness implemented it without the trait knowing: it sat
+    /// inside `impl RoleHarness for OpenCodeHarness` as an undeclared extra, which is `E0407`, while a caller
+    /// reached for it through the harness and got `E0599`. Both errors were the same missing line. The full path
+    /// is spelled out rather than imported so this file needs no new `use`.
+    fn assay_cwd(&self) -> &std::path::Path;
     fn run_command(&self, command: &str) -> CommandResult;
 }
 

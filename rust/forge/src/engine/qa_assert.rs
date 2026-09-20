@@ -90,12 +90,10 @@ fn marker_name(line: &str) -> Option<String> {
             .trim_start();
         rest.strip_prefix('-').unwrap_or(rest).trim()
     } else if text.starts_with(['✔', '✓', '✖', '✗', '✘']) {
-        text.chars()
-            .next()
-            .and_then(|_| Some(text.chars().skip(1).collect::<String>()))
-            .as_deref()
-            .map(str::trim)
-            .unwrap_or("")
+        // Borrow the remainder from `text` itself. `.as_deref()` on a temporary String is what E0716 refused: the
+        // &str this branch produces has to live as long as `line`, not as long as a dropped temporary.
+        let after_symbol = &text[text.chars().next().map_or(0, |c: char| c.len_utf8())..];
+        after_symbol.trim()
     } else {
         return None;
     };

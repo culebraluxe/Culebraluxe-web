@@ -298,7 +298,7 @@ impl<S: TxStore> ForgeRuntime<S> {
     }
 
     pub fn complete_role_task(
-        &self,
+        &mut self,
         task_id: &str,
         worker_id: &str,
         transition: Option<&str>,

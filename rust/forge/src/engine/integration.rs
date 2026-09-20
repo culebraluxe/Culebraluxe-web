@@ -47,7 +47,7 @@ pub fn attest_integration(
         Ok(v) => v,
         Err(e) => {
             return IntegrationAttestation {
-                artifact_sha: Some(sha),
+                artifact_sha: Some(sha.clone()),
                 integrated_ref: base_ref,
                 integrated: false,
                 build,
@@ -58,7 +58,7 @@ pub fn attest_integration(
     };
     if !integrated {
         return IntegrationAttestation {
-            artifact_sha: Some(sha),
+            artifact_sha: Some(sha.clone()),
             integrated_ref: base_ref,
             integrated: false,
             build,
@@ -78,24 +78,29 @@ pub fn attest_integration(
     }
     if let Some(b) = &build {
         if b.exit_code != 0 {
+            // The reason is computed BEFORE `build` is moved into the attestation. Reading `b` after the move is
+            // exactly what the borrow checker refused (E0505); one local, identical output.
+            let reason = format!("build exited {} ({})", b.exit_code, b.command);
             return IntegrationAttestation {
-                artifact_sha: Some(sha),
+                artifact_sha: Some(sha.clone()),
                 integrated_ref: base_ref,
                 integrated: true,
                 build,
                 proofs,
-                reason: Some(format!("build exited {} ({})", b.exit_code, b.command)),
+                reason: Some(reason),
             };
         }
     }
     if let Some(failed) = proofs.as_ref().and_then(|p| p.iter().find(|x| x.exit_code != 0)) {
+        // Same shape as the build branch above: the reason is built before `proofs` is moved.
+        let reason = format!("frozen proof exited {} ({})", failed.exit_code, failed.command);
         return IntegrationAttestation {
-            artifact_sha: Some(sha),
+            artifact_sha: Some(sha.clone()),
             integrated_ref: base_ref,
             integrated: true,
             build,
             proofs,
-            reason: Some(format!("frozen proof exited {} ({})", failed.exit_code, failed.command)),
+            reason: Some(reason),
         };
     }
     IntegrationAttestation {

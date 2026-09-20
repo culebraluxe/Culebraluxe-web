@@ -14,9 +14,9 @@ pub fn merge_forge_workflow_evidence(
     let clear = if release_failure_resolved { "true" } else { "false" };
     let opt = |v: &Option<String>| v.as_deref().map(sql_literal).unwrap_or_else(|| "NULL".into());
     let opt_bool = |v: Option<bool>| match v {
-        Some(true) => "true".into(),
-        Some(false) => "false".into(),
-        None => "NULL".into(),
+        Some(true) => String::from("true"),
+        Some(false) => String::from("false"),
+        None => String::from("NULL"),
     };
     let sql = format!(
         "INSERT INTO forge_workflow_evidence (
