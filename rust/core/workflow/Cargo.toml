@@ -9,3 +9,7 @@ domain = { path = "../domain" }
 db = { path = "../db" }
 sqlx.workspace = true
 tokio.workspace = true
+
+[[bin]]
+name = "workflow"
+path = "src/bin/workflow.rs"

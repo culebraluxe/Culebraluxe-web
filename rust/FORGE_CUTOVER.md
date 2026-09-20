@@ -27,3 +27,7 @@ Neon schema stays. TypeScript must stop being the execution path.
 
 ## Rule
 No new Forge behavior lands in TypeScript. Dual-write of reducer + engine is refused.
+
+## Flipped
+`package.json` `forge:engine` now runs `cargo run -p forge --bin forge`.
+`scripts/forge-engine-worker.ts` is a shim that execs that binary.
