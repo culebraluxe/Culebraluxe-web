@@ -413,7 +413,10 @@ impl<R: FormRepository> FormService<R> {
             "form.listing_context_bound",
             request.form_instance_id.clone(),
             BTreeMap::from([
-                ("formInstanceId".into(), json!(request.form_instance_id.clone())),
+                (
+                    "formInstanceId".into(),
+                    json!(request.form_instance_id.clone()),
+                ),
                 ("personId".into(), json!(request.person_id.clone())),
                 ("propertyId".into(), json!(request.property_id.clone())),
             ]),
@@ -534,7 +537,6 @@ impl<R: FormRepository> FormService<R> {
         audit_result(&self.runtime, "form", operation, context, decision, &result).await?;
         result
     }
-
 }
 
 enum FormBind<'a> {
