@@ -209,6 +209,32 @@ jobs:
   # probes and records a receipt; the FORGE CHAIN NEVER BUILDS AND NEVER DEPLOYS.
   # ---------------------------------------------------------------------------
 
+
+  rust:
+    name: rust core
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: rust toolchain
+        run: |
+          rustc --version
+          cargo --version
+          rustfmt --version
+
+      - name: rust format
+        working-directory: rust
+        run: cargo fmt --all -- --check
+
+      - name: rust tests
+        working-directory: rust
+        run: cargo test --workspace --all-targets
+
+      - name: rust compile
+        working-directory: rust
+        run: cargo check --workspace --all-targets
+
   database:
     name: database-backed gates
     # Parked until dev credentials exist as secrets. A skipped gate is visibly skipped; a gate that
@@ -243,3 +269,7 @@ jobs:
 
       - name: application and forge-engine suites
         run: pnpm test:app
+
+      - name: rust database/service smoke
+        working-directory: rust
+        run: cargo run -p cli -- db-smoke

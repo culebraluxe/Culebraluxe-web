@@ -5,9 +5,10 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
-domain = { path = "../core/domain" }
 db = { path = "../core/db" }
-workflow = { path = "../core/workflow" }
+domain = { path = "../core/domain" }
 forge = { path = "../forge" }
 integrations = { path = "../integrations" }
 server = { path = "../server" }
+tokio.workspace = true
+workflow = { path = "../core/workflow" }

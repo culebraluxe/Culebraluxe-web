@@ -5,7 +5,9 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
-domain = { path = "../core/domain" }
-db = { path = "../core/db" }
+async-trait.workspace = true
 auth = { path = "../core/auth" }
+db = { path = "../core/db" }
+domain = { path = "../core/domain" }
 integrations = { path = "../integrations" }
+thiserror.workspace = true
