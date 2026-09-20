@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { getActivityFeed } from '@/db/activity-feed'
+import { getClientsPage, type ClientSummary } from '@/db/clients'
 import { AuthError } from '@/lib/auth/errors'
 import { getPortalActingUser } from '@/lib/auth/portal-session'
 import { withApiHandler } from '@/lib/error-capture-seam'
@@ -20,6 +21,8 @@ import { withApiHandler } from '@/lib/error-capture-seam'
 // boundary — so only the screens whose real columns have actually been read get real rows here. Everything else
 // answers `[]` and the screen says "Nothing to show yet", which is honest: an invented column is a lie the next
 // reader has to disprove.
+//
+// Wired so far: `activity` (getActivityFeed) and `clients` (getClientsPage, the client directory read model).
 //
 // AUTHORITY: authenticated portal users only. A per-screen authority check (who may read expenses, who may read
 // flight recorder) has to be decided per screen and is NOT yet applied here — so this route stays read-only, and any
@@ -44,6 +47,25 @@ function activityRows(
   }))
 }
 
+/**
+ * Columns taken from `ClientSummary`, not invented: the row shows what the directory already resolves — a name that
+ * says whether it was resolved (`nameResolved`), the role, where they are, who owns them, and when they were last
+ * contacted. The read model does the work; this is a projection, and it stays one.
+ */
+function clientRows(client: ClientSummary): RustUiRow {
+  return {
+    id: client.id,
+    cells: [
+      client.nameResolved ? client.displayName : `${client.displayName} (unresolved)`,
+      client.role,
+      client.location ?? '—',
+      client.assignedAgent ?? '—',
+      client.lastContactLabel ?? 'No contact yet',
+    ],
+    badge: client.status,
+  }
+}
+
 async function GETHandler(req: NextRequest): Promise<Response> {
   try {
     await getPortalActingUser()
@@ -60,6 +82,12 @@ async function GETHandler(req: NextRequest): Promise<Response> {
   switch (screen) {
     case 'activity':
       return NextResponse.json(activityRows(await getActivityFeed(50)))
+    case 'clients': {
+      // The first page of the same directory the live screen shows, through the same read model, so the two cannot
+      // disagree about who a client is.
+      const page = await getClientsPage({ sort: 'name', page: 1, pageSize: 50 })
+      return NextResponse.json(page.rows.map(clientRows))
+    }
     default:
       return NextResponse.json([])
   }
