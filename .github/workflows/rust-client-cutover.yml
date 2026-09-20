@@ -24,6 +24,9 @@ jobs:
       - name: Rust workspace compile (all targets)
         working-directory: rust
         run: cargo check --workspace --all-targets
-      - name: Rust client/server targeted tests
+      # THE WHOLE WORKSPACE'S TESTS, not a hand-picked list. `-p domain -p db -p server` was the only test step and
+      # it is exactly how a failing WhatsApp normalisation test stayed invisible: those three packages never ran it.
+      # The check step above already compiled everything, so this run is cheap in CI.
+      - name: Rust workspace tests
         working-directory: rust
-        run: cargo test -p domain -p db -p server --all-targets
+        run: cargo test --workspace
