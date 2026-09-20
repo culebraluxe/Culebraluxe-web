@@ -13,6 +13,7 @@ pub mod evidence_gate;
 pub mod executor;
 pub mod facts;
 pub mod failure;
+pub mod integration;
 pub mod git_publish;
 pub mod graph;
 pub mod neon_sql;
@@ -27,7 +28,9 @@ pub mod qa_adjudicate;
 pub mod qa_assert;
 pub mod qa_repair;
 pub mod receipt;
+pub mod release_receipt;
 pub mod release;
+pub mod role_slice;
 pub mod role_mapping;
 pub mod runner;
 pub mod runtime;
@@ -56,3 +59,6 @@ pub use writer::{
 pub use xml::{definition_from_xml, parse_process_definition_xml};
 
 pub use validate::{validate_definition_xml, validate_forge_sdlc_v6, DefinitionValidationReport};
+
+pub use role_slice::{assay_route_arrangement, derive_release_evidence, forge_lane_surface};
+pub use release_receipt::{assess_release_receipt, ReleaseEvidence};
