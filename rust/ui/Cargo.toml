@@ -1,0 +1,13 @@
+[package]
+name = "ui"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# The MVI core has NO dependencies on purpose. Model, messages, the reducer and the view are pure Rust, so the whole
+# interaction model is testable on the ordinary host target — no browser, no DOM, no WASM toolchain. `wasm-bindgen`
+# and `web-sys` arrive with the WASM shell in a later step, behind a feature, and the core must not need them.
+[dependencies]
+
+[lib]
+crate-type = ["rlib"]

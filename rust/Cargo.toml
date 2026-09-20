@@ -10,6 +10,7 @@ members = [
     "server",
     "integrations",
     "cli",
+    "ui",
 ]
 
 [workspace.package]
