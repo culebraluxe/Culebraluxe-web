@@ -245,3 +245,30 @@ correlation IDs, and database incident IDs without exposing connection details.
 This slice is intentionally read-first. No HTTP business-write route is exposed
 until the transport and identity boundary are proven. Vault issuance is not
 reachable from HTTP until the artifact-render/provider adapter is wired.
+
+
+## Slice 5B: Edge bridge + container
+
+The Next/Auth.js edge now has a dormant GET-only Rust client contract. It
+forwards only the authenticated provider + stable provider subject, the shared
+internal transport key, and correlation/causation IDs. It never forwards a
+trusted role list or SecurityLevel; Rust Security resolves those from canonical
+database state.
+
+Pure bridge helpers are covered by the existing Node harness tests, including
+production URL behavior, minimum internal-key length, correlation/causation
+headers, and the invariant that role/security headers are absent.
+
+`rust/Dockerfile` packages the Axum binary as a non-root, provider-neutral
+container with `/healthz` liveness probing. No production route is switched by
+this slice.
+
+Build from repository root:
+
+```bash
+docker build -f rust/Dockerfile -t culebraluxe-rust-api .
+```
+
+Runtime configuration remains external:
+`DATABASE_URL_DEV` / `DATABASE_URL_PROD`, explicit environment target,
+`CULEBRA_INTERNAL_API_KEY`, and optional `RUST_API_BIND`.

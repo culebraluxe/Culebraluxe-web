@@ -3,6 +3,11 @@ import 'server-only'
 import { randomUUID } from 'node:crypto'
 
 import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
+import {
+  buildRustBridgeHeaders,
+  resolveInternalApiKey,
+  resolveRustApiBaseUrl,
+} from '@/lib/rust-api/contract'
 
 export type RustApiSuccess<T> = {
   ok: true
@@ -52,13 +57,8 @@ type RustApiReadOptions = {
 }
 
 function rustApiBaseUrl(): string {
-  const configured = process.env.RUST_API_BASE_URL?.trim()
-  if (configured) return configured.replace(/\/+$/, '')
-
-  if (process.env.NODE_ENV !== 'production') {
-    return 'http://127.0.0.1:8080'
-  }
-
+  const value = resolveRustApiBaseUrl(process.env.RUST_API_BASE_URL, process.env.NODE_ENV)
+  if (value) return value
   throw new RustApiError({
     status: 503,
     code: 'RUST_API_UNAVAILABLE',
@@ -68,16 +68,14 @@ function rustApiBaseUrl(): string {
 }
 
 function internalApiKey(): string {
-  const key = process.env.CULEBRA_INTERNAL_API_KEY?.trim()
-  if (!key || key.length < 16) {
-    throw new RustApiError({
-      status: 503,
-      code: 'RUST_API_UNAVAILABLE',
-      message: 'CULEBRA_INTERNAL_API_KEY is not configured.',
-      retryable: false,
-    })
-  }
-  return key
+  const value = resolveInternalApiKey(process.env.CULEBRA_INTERNAL_API_KEY)
+  if (value) return value
+  throw new RustApiError({
+    status: 503,
+    code: 'RUST_API_UNAVAILABLE',
+    message: 'CULEBRA_INTERNAL_API_KEY is not configured.',
+    retryable: false,
+  })
 }
 
 /**
@@ -101,16 +99,12 @@ export async function rustApiRead<T>(
   }
 
   const correlationId = options.correlationId?.trim() || randomUUID()
-  const headers = new Headers({
-    accept: 'application/json',
-    'x-culebra-internal-key': internalApiKey(),
-    'x-culebra-auth-provider': identity.provider,
-    'x-culebra-auth-sub': identity.providerSubject,
-    'x-culebra-correlation-id': correlationId,
+  const headers = buildRustBridgeHeaders({
+    identity,
+    internalApiKey: internalApiKey(),
+    correlationId,
+    causationId: options.causationId,
   })
-  if (options.causationId?.trim()) {
-    headers.set('x-culebra-causation-id', options.causationId.trim())
-  }
 
   let response: Response
   try {
