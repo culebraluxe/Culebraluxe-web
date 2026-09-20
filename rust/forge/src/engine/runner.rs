@@ -10,7 +10,8 @@ use crate::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::phase::{ForgePhaseAgent, RoleEffectPorts};
 use crate::engine::execution_target::{assert_forge_execution_target, env_pairs_from_process};
-use crate::engine::hold::{deliverable_enforcement_enabled, open_forge_hold_record, OpenHold};
+use crate::engine::hold::{deliverable_enforcement_enabled, parse_deliverable_reprompt_budget, open_forge_hold_record, OpenHold};
+use crate::engine::self_heal::{attempt_budget, build_self_heal_directive};
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::engine::writer::ForgeStateWriter;
 use workflow::{Result, WorkflowError};
@@ -58,11 +59,62 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
                     .map_err(|e| WorkflowError::generic(e.0))?;
             }
         }
-        let _ = deliverable_enforcement_enabled(std::env::var("FORGE_ENFORCE_DELIVERABLES").ok().as_deref());
-        let out = self.harness.run_role(node_id, task)?;
+        let enforce = deliverable_enforcement_enabled(std::env::var("FORGE_ENFORCE_DELIVERABLES").ok().as_deref());
+        let budget = attempt_budget(
+            enforce,
+            parse_deliverable_reprompt_budget(std::env::var("FORGE_DELIVERABLE_RETRIES").ok().as_deref()),
+        );
+        let mut prior_reply: Option<String> = None;
+        let mut evidence = self.current.clone();
+        let mut last_raw = String::new();
+        let mut last_out_sha = None;
+        let mut last_assay = vec![];
+        let mut last_mapped = false;
+        for attempt in 0..budget {
+            let out = self.harness.run_role(node_id, task)?;
+            last_raw = out.raw.clone();
+            last_out_sha = out.candidate_sha.clone();
+            last_assay = out.assay_commands.clone();
+            last_mapped = out.acceptance_mapped;
+            let ports = RoleEffectPorts::default();
+            evidence = forge_agent_collect(node_id, self.current.clone(), &out.raw, &ports)
+                .map_err(WorkflowError::generic)?;
+            if attempt + 1 < budget {
+                let agent = ForgePhaseAgent::new(node_id).map_err(WorkflowError::generic)?;
+                let missing = agent.missing_deliverables(
+                    &evidence,
+                    &out.raw,
+                    !out.raw.is_empty(),
+                    evidence.findings.is_some(),
+                );
+                if missing.is_empty() {
+                    break;
+                }
+                let _directive = build_self_heal_directive(
+                    node_id,
+                    &missing.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+                    None,
+                    evidence
+                        .deliverable_rejection
+                        .as_deref()
+                        .map(|s| vec![s.to_string()])
+                        .unwrap_or_default()
+                        .as_slice(),
+                    prior_reply.as_deref(),
+                );
+                prior_reply = Some(out.raw);
+                continue;
+            }
+            break;
+        }
+        let out_raw = last_raw;
+        let out = crate::engine::runner::HarnessOutput {
+            raw: out_raw.clone(),
+            candidate_sha: last_out_sha,
+            assay_commands: last_assay,
+            acceptance_mapped: last_mapped,
+        };
         let ports = RoleEffectPorts::default();
-        let mut evidence = forge_agent_collect(node_id, self.current.clone(), &out.raw, &ports)
-            .map_err(WorkflowError::generic)?;
 
         if node_id == "architect" || node_id == "repair_architect" {
             let handoff = parse_architect_handoff(&out.raw);

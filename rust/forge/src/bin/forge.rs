@@ -7,7 +7,8 @@ use forge::engine::executor::{drive_forge_story, DriveForgeStoryOptions};
 use forge::engine::facts::ForgeGateEvidence;
 use forge::engine::git_publish::{GitReleaseOps, HostReleaseExecutor};
 use forge::engine::opencode::OpenCodeHarness;
-use forge::engine::packet::StoryPacket;
+use forge::engine::packet::{ExecutionWorkspace, StoryPacket};
+use forge::engine::worktree::{provision_worker_workspace, resolve_approved_base_ref};
 use forge::engine::runner::ProductionRoleRunner;
 use forge::engine::runtime::ForgeRuntime;
 use forge::engine::vendor_session::database_url;
@@ -37,6 +38,30 @@ fn main() {
             harness.story_id = Some(story.clone());
         }
         Err(e) => eprintln!("story packet: {e} (using env packet)"),
+    }
+    if env::var("FORGE_PROVISION").ok().as_deref() == Some("1") {
+        match provision_worker_workspace(
+            env::current_dir().ok().as_deref(),
+            &story,
+            env::var("FORGE_RUN_ID").ok().as_deref(),
+            Some(&resolve_approved_base_ref()),
+            None,
+        ) {
+            Ok(ws) => {
+                eprintln!("worktree {} branch {} base {}", ws.worktree_path.display(), ws.branch_name, ws.base_commit);
+                harness.workspace = ws.worktree_path.clone();
+                harness.execution_workspace = Some(ExecutionWorkspace {
+                    worktree_path: ws.worktree_path.display().to_string(),
+                    branch_name: ws.branch_name,
+                    base_ref: ws.base_ref,
+                    base_commit: ws.base_commit,
+                });
+            }
+            Err(e) => {
+                eprintln!("provision: {e}");
+                std::process::exit(2);
+            }
+        }
     }
     let repo = env::current_dir().unwrap_or_else(|_| ".".into());
     let release = Arc::new(HostReleaseExecutor {

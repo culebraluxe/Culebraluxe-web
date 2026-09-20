@@ -35,12 +35,14 @@ pub mod release;
 pub mod role_slice;
 pub mod role_mapping;
 pub mod split_join;
+pub mod self_heal;
 pub mod runner;
 pub mod runtime;
 pub mod topology;
 pub mod validate;
 pub mod version_policy;
 pub mod vendor_session;
+pub mod worktree;
 pub mod writer;
 pub mod xml;
 
@@ -69,3 +71,6 @@ pub use release_receipt::{assess_release_receipt, ReleaseEvidence};
 pub use execution_target::{assert_forge_lane_may_start, assert_forge_execution_target};
 pub use split_join::{reduce_split, split_join_hold_reasons};
 pub use hold::{open_forge_hold_record, OpenHold};
+
+pub use worktree::{derive_branch_name, derive_worktree_path, provision_worker_workspace};
+pub use self_heal::{attempt_budget, build_self_heal_directive};
