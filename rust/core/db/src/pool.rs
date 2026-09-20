@@ -105,7 +105,12 @@ impl Database {
         use sqlx::Either;
         use sqlx::Row;
         let mut out = Vec::new();
-        let mut stream = sqlx::raw_sql(sql).fetch_many(self.pool());
+        let mut connection = self
+            .pool
+            .acquire()
+            .await
+            .map_err(|error| DbFailure::from_sqlx("db.run_text.acquire", &error))?;
+        let mut stream = sqlx::raw_sql(sql).fetch_many(&mut *connection);
         while let Some(item) = stream.try_next().await.map_err(|error| DbFailure::from_sqlx("db.run_text", &error))? {
             let Either::Right(row) = item else { continue };
             let mut cols = Vec::new();
