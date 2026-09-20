@@ -2,14 +2,16 @@
 //!
 //! The canonical SQL migration history remains at repository-level
 //! `db/migrations/`. This crate is the only Rust workspace crate that owns a
-//! PostgreSQL pool. Domain-specific DAOs live here and receive that shared pool
-//! through `Database`; callers never construct raw pools.
+//! PostgreSQL pool or transaction. Domain-specific DAOs receive database
+//! capability from here; callers never construct raw pools or SQLx transactions.
 
 mod error;
 mod pool;
 mod project;
+mod transaction;
 
 pub use domain;
 pub use error::{DbFailure, DbFailureKind, DbResult};
 pub use pool::{resolve_declared_target, Database, DbTarget};
-pub use project::ProjectDao;
+pub use project::{ProjectDao, ProjectTxDao};
+pub use transaction::DbTransaction;

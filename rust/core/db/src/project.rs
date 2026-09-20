@@ -1,4 +1,4 @@
-use crate::{Database, DbFailure, DbResult};
+use crate::{Database, DbFailure, DbResult, DbTransaction};
 use chrono::{DateTime, Utc};
 use domain::{
     CompleteProjectRequest, CreateProjectRequest, Project, ProjectStatus, UpdateProjectRequest,
@@ -218,6 +218,171 @@ impl ProjectDao {
         )
         .bind(&request.id)
         .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("project.complete", &error))?;
+
+        row.map(Project::try_from).transpose()
+    }
+}
+
+
+pub struct ProjectTxDao<'a> {
+    tx: &'a mut DbTransaction,
+}
+
+impl<'a> ProjectTxDao<'a> {
+    pub fn new(tx: &'a mut DbTransaction) -> Self {
+        Self { tx }
+    }
+
+    pub async fn get(&mut self, id: &str) -> DbResult<Option<Project>> {
+        let row = sqlx::query_as::<_, ProjectRow>(
+            r#"
+            select id, name, owner, status, description, areas,
+                   starts_at, ends_at, created_at, updated_at,
+                   project_type, playbook_id, playbook_version,
+                   person_id, property_id, contract_id
+            from project
+            where id = $1
+            limit 1
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(self.tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("project.get", &error))?;
+
+        row.map(Project::try_from).transpose()
+    }
+
+    pub async fn list(&mut self) -> DbResult<Vec<Project>> {
+        let rows = sqlx::query_as::<_, ProjectRow>(
+            r#"
+            select id, name, owner, status, description, areas,
+                   starts_at, ends_at, created_at, updated_at,
+                   project_type, playbook_id, playbook_version,
+                   person_id, property_id, contract_id
+            from project
+            order by created_at desc, id
+            "#,
+        )
+        .fetch_all(self.tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("project.list", &error))?;
+
+        rows.into_iter().map(Project::try_from).collect()
+    }
+
+    pub async fn create(&mut self, request: &CreateProjectRequest) -> DbResult<Project> {
+        let areas: Vec<String> = request
+            .areas
+            .iter()
+            .map(|area| area.as_str().to_owned())
+            .collect();
+
+        let row = sqlx::query_as::<_, ProjectRow>(
+            r#"
+            insert into project (
+                id, name, owner, description, areas, starts_at, ends_at,
+                project_type, playbook_id, playbook_version,
+                person_id, property_id, contract_id
+            )
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            returning id, name, owner, status, description, areas,
+                      starts_at, ends_at, created_at, updated_at,
+                      project_type, playbook_id, playbook_version,
+                      person_id, property_id, contract_id
+            "#,
+        )
+        .bind(&request.id)
+        .bind(&request.name)
+        .bind(&request.owner)
+        .bind(&request.description)
+        .bind(areas)
+        .bind(request.starts_at)
+        .bind(request.ends_at)
+        .bind(&request.project_type)
+        .bind(&request.playbook_id)
+        .bind(request.playbook_version)
+        .bind(&request.person_id)
+        .bind(&request.property_id)
+        .bind(&request.contract_id)
+        .fetch_one(self.tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("project.create", &error))?;
+
+        Project::try_from(row)
+    }
+
+    pub async fn update(&mut self, request: &UpdateProjectRequest) -> DbResult<Option<Project>> {
+        let areas: Option<Vec<String>> = request
+            .areas
+            .as_ref()
+            .map(|values| values.iter().map(|area| area.as_str().to_owned()).collect());
+        let status = request.status.as_ref().map(ProjectStatus::as_str);
+
+        let row = sqlx::query_as::<_, ProjectRow>(
+            r#"
+            update project
+            set name = coalesce($2, name),
+                owner = coalesce($3, owner),
+                status = coalesce($4, status),
+                description = coalesce($5, description),
+                areas = coalesce($6, areas),
+                starts_at = coalesce($7, starts_at),
+                ends_at = coalesce($8, ends_at),
+                project_type = coalesce($9, project_type),
+                playbook_id = coalesce($10, playbook_id),
+                playbook_version = coalesce($11, playbook_version),
+                person_id = coalesce($12, person_id),
+                property_id = coalesce($13, property_id),
+                contract_id = coalesce($14, contract_id),
+                updated_at = now()
+            where id = $1
+            returning id, name, owner, status, description, areas,
+                      starts_at, ends_at, created_at, updated_at,
+                      project_type, playbook_id, playbook_version,
+                      person_id, property_id, contract_id
+            "#,
+        )
+        .bind(&request.id)
+        .bind(&request.name)
+        .bind(&request.owner)
+        .bind(status)
+        .bind(&request.description)
+        .bind(areas)
+        .bind(request.starts_at)
+        .bind(request.ends_at)
+        .bind(&request.project_type)
+        .bind(&request.playbook_id)
+        .bind(request.playbook_version)
+        .bind(&request.person_id)
+        .bind(&request.property_id)
+        .bind(&request.contract_id)
+        .fetch_optional(self.tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("project.update", &error))?;
+
+        row.map(Project::try_from).transpose()
+    }
+
+    pub async fn complete(
+        &mut self,
+        request: &CompleteProjectRequest,
+    ) -> DbResult<Option<Project>> {
+        let row = sqlx::query_as::<_, ProjectRow>(
+            r#"
+            update project
+            set status = 'done', updated_at = now()
+            where id = $1
+            returning id, name, owner, status, description, areas,
+                      starts_at, ends_at, created_at, updated_at,
+                      project_type, playbook_id, playbook_version,
+                      person_id, property_id, contract_id
+            "#,
+        )
+        .bind(&request.id)
+        .fetch_optional(self.tx.connection())
         .await
         .map_err(|error| DbFailure::from_sqlx("project.complete", &error))?;
 

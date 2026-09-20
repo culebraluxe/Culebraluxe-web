@@ -74,3 +74,29 @@ The smoke command connects only to the explicitly declared target, runs
 `select 1`, then calls the Rust `ProjectService.list()` path. It prints only
 the target, project count, and non-sensitive project identity/status metadata.
 It performs no writes and never prints a database URL or credential.
+
+
+## Slice 2: service kernel + transactions
+
+The shared `core/service` crate owns transport-neutral service context and the
+authorization, audit, and domain-event ports. Project is the first consumer.
+
+The database crate remains the only Rust owner of SQLx pool and transaction
+mechanics. `Database::begin()` returns an opaque `DbTransaction`, and
+`ProjectTxDao` binds repository operations to that transaction without leaking
+SQLx transaction types into the server/service layer.
+
+The DEV-only transaction smoke is:
+
+```bash
+APP_ENV=dev cargo run -p cli -- tx-smoke
+```
+
+It refuses PROD, creates a unique Project inside one transaction, reads it,
+updates it from open to doing through `ProjectService`, verifies audit and
+domain-event capture, explicitly rolls back, then verifies through the pooled DAO
+that the test row does not exist.
+
+GitHub Actions keeps this database smoke parked behind `RUST_DB_CI=true` until
+`DATABASE_URL_DEV` is configured as an Actions secret. Normal Rust format,
+unit-test, and compile gates remain mandatory on every push.

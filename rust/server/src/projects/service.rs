@@ -101,7 +101,15 @@ fn validate_playbook_version(version: Option<i32>) -> Result<(), ProjectServiceE
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_trait::async_trait;
+    use db::DbResult;
     use domain::{ProjectStatus, WbsCategory};
+    use service::{
+        CapturingAuditPort, CapturingDomainEventPort, DefaultAuthorizationPort, ServiceActor,
+        ServiceActorKind,
+    };
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     fn create_request(name: &str, playbook_version: Option<i32>) -> CreateProjectRequest {
         CreateProjectRequest {
@@ -119,6 +127,80 @@ mod tests {
             property_id: None,
             contract_id: None,
         }
+    }
+
+    struct CountingRepository {
+        creates: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl ProjectRepository for CountingRepository {
+        async fn get(&mut self, _id: &str) -> DbResult<Option<Project>> {
+            unreachable!("authorization test must not reach repository")
+        }
+
+        async fn list(&mut self) -> DbResult<Vec<Project>> {
+            unreachable!("authorization test must not reach repository")
+        }
+
+        async fn create(&mut self, _request: &CreateProjectRequest) -> DbResult<Project> {
+            self.creates.fetch_add(1, Ordering::SeqCst);
+            unreachable!("guest command must be denied before repository create")
+        }
+
+        async fn update(
+            &mut self,
+            _request: &UpdateProjectRequest,
+        ) -> DbResult<Option<Project>> {
+            unreachable!("authorization test must not reach repository")
+        }
+
+        async fn complete(
+            &mut self,
+            _request: &CompleteProjectRequest,
+        ) -> DbResult<Option<Project>> {
+            unreachable!("authorization test must not reach repository")
+        }
+    }
+
+    #[tokio::test]
+    async fn guest_command_is_denied_before_repository_and_audited() {
+        let creates = Arc::new(AtomicUsize::new(0));
+        let audit = CapturingAuditPort::default();
+        let events = CapturingDomainEventPort::default();
+        let infrastructure = ServiceInfrastructure::new(
+            Arc::new(DefaultAuthorizationPort),
+            Arc::new(audit.clone()),
+            Arc::new(events.clone()),
+        );
+        let mut service = ProjectService::new(
+            CountingRepository {
+                creates: creates.clone(),
+            },
+            infrastructure,
+        );
+        let context = ServiceContext {
+            actor: ServiceActor {
+                id: None,
+                kind: ServiceActorKind::System,
+            },
+            correlation_id: "guest-denial".into(),
+            causation_id: None,
+            principal: None,
+        };
+
+        let error = service
+            .create(&create_request("Denied", None), &context)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ProjectServiceError::Runtime(ServiceRuntimeError::Forbidden { .. })
+        ));
+        assert_eq!(creates.load(Ordering::SeqCst), 0);
+        assert_eq!(audit.events().len(), 1);
+        assert!(events.events().is_empty());
     }
 
     #[test]

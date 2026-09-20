@@ -1,4 +1,5 @@
 use crate::error::{DbFailure, DbResult};
+use crate::transaction::DbTransaction;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::PgPool;
 use std::env;
@@ -83,6 +84,15 @@ impl Database {
             .await
             .map_err(|error| DbFailure::from_sqlx("db.ping", &error))?;
         Ok(())
+    }
+
+    pub async fn begin(&self, operation: &'static str) -> DbResult<DbTransaction> {
+        let transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|error| DbFailure::from_sqlx(operation, &error))?;
+        Ok(DbTransaction::new(transaction, operation))
     }
 
     pub(crate) fn pool(&self) -> &PgPool {

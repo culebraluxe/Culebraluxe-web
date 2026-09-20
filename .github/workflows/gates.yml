@@ -258,6 +258,10 @@ jobs:
         working-directory: rust
         run: cargo run -p cli -- db-smoke
 
+      - name: Rust transaction + service rollback proof
+        working-directory: rust
+        run: cargo run -p cli -- tx-smoke
+
   database:
     name: database-backed gates
     # Parked until dev credentials exist as secrets. A skipped gate is visibly skipped; a gate that

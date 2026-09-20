@@ -10,5 +10,7 @@ domain = { path = "../core/domain" }
 forge = { path = "../forge" }
 integrations = { path = "../integrations" }
 server = { path = "../server" }
+service = { path = "../core/service" }
 tokio.workspace = true
+uuid.workspace = true
 workflow = { path = "../core/workflow" }
