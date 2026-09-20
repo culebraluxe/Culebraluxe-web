@@ -1,6 +1,7 @@
 use crate::CoreServices;
 use db::Database;
 use service::ServiceInfrastructure;
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 mod context;
@@ -16,14 +17,33 @@ pub struct ApiConfig {
 
 impl ApiConfig {
     pub fn from_env() -> Result<Self, String> {
-        let value = std::env::var("CULEBRA_INTERNAL_API_KEY")
-            .map_err(|_| "CULEBRA_INTERNAL_API_KEY is required".to_owned())?;
-        let trimmed = value.trim();
-        if trimmed.len() < 16 {
-            return Err("CULEBRA_INTERNAL_API_KEY must be at least 16 characters".into());
+        if let Ok(value) = std::env::var("CULEBRA_INTERNAL_API_KEY") {
+            let trimmed = value.trim();
+            if trimmed.len() >= 16 {
+                return Ok(Self {
+                    internal_api_key: Arc::from(trimmed),
+                });
+            }
         }
+
+        let auth_secret = std::env::var("AUTH_SECRET")
+            .map_err(|_| "CULEBRA_INTERNAL_API_KEY or AUTH_SECRET is required".to_owned())?;
+        let auth_secret = auth_secret.trim();
+        if auth_secret.len() < 16 {
+            return Err("AUTH_SECRET must be at least 16 characters for bridge-key derivation".into());
+        }
+
+        let mut digest = Sha256::new();
+        digest.update(b"culebraluxe-rust-bridge:v1:");
+        digest.update(auth_secret.as_bytes());
+        let internal_api_key = digest
+            .finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+
         Ok(Self {
-            internal_api_key: Arc::from(trimmed),
+            internal_api_key: Arc::from(internal_api_key),
         })
     }
 }
