@@ -17,9 +17,13 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      # THE WORKSPACE, NOT JUST `server`. Until 2026-09-20 this job compiled `domain`, `db` and `server` only, so
+      # `workflow`, `integrations` and `forge` — the crates that produce the Forge engine and the `re-workflow`
+      # binary — were never compiled by any gate. The workspace held 39 compile errors behind a green check,
+      # including 23 undefined-behaviour casts and two `include_str!` paths to files that did not exist.
+      - name: Rust workspace compile (all targets)
+        working-directory: rust
+        run: cargo check --workspace --all-targets
       - name: Rust client/server targeted tests
         working-directory: rust
         run: cargo test -p domain -p db -p server --all-targets
-      - name: Rust client/server targeted compile
-        working-directory: rust
-        run: cargo check -p server --all-targets
