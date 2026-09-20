@@ -17,14 +17,18 @@ pub fn validate_definition_xml(xml: &str) -> DefinitionValidationReport {
     let mut report = DefinitionValidationReport::default();
     let parsed = match definition_from_xml(xml) {
         Ok(d) => d,
-        Err(XmlError::Parse(m)) => {
-            report.xml_errors.push(m.clone());
-            report.errors.push(format!("[xml] {m}"));
-            return report;
-        }
-        Err(XmlError::Grammar(m)) => {
-            report.grammar_errors.push(m.clone());
-            report.errors.push(format!("[grammar] {m}"));
+        Err(XmlError(m)) => {
+            let layer = if m.contains("missing") || m.contains("expected") || m.contains("unknown") {
+                "grammar"
+            } else {
+                "xml"
+            };
+            if layer == "grammar" {
+                report.grammar_errors.push(m.clone());
+            } else {
+                report.xml_errors.push(m.clone());
+            }
+            report.errors.push(format!("[{layer}] {m}"));
             return report;
         }
     };
