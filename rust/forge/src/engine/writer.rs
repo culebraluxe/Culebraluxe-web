@@ -6,11 +6,9 @@ pub trait ForgeStateWriter: Send + Sync {
     fn mark_story_in_progress(&self, story_id: &str) -> Result<(), String>;
     fn append_run_detail(&self, run_id: &str, detail: &str) -> Result<(), String>;
 }
-
 pub trait ForgeReleaseExecutor: Send + Sync {
     fn execute(&self, command_type: &str, input: &workflow::Value) -> ApplicationCommandResult;
 }
-
 pub trait ForgeEvidenceReader: Send + Sync {
     fn read(&self, story_id: &str) -> crate::engine::facts::ForgeGateEvidence;
 }
@@ -29,4 +27,14 @@ impl ForgeReleaseExecutor for OkRelease {
     fn execute(&self, command_type: &str, _input: &workflow::Value) -> ApplicationCommandResult {
         ApplicationCommandResult { command_id: command_type.to_string(), outcome: ApplicationCommandOutcome::Success, message: None }
     }
+}
+
+pub fn required_string(input: &workflow::Value, key: &str) -> Result<String, String> {
+    input.get(key).and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(|s| s.to_string()).ok_or_else(|| format!("{key} is required"))
+}
+pub fn optional_string(input: &workflow::Value, key: &str) -> Option<String> {
+    input.get(key).and_then(|v| v.as_str()).map(|s| s.to_string())
+}
+pub fn cmd_result(command_id: &str, outcome: ApplicationCommandOutcome, message: Option<String>) -> ApplicationCommandResult {
+    ApplicationCommandResult { command_id: command_id.to_string(), outcome, message }
 }
