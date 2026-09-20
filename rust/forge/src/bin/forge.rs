@@ -17,13 +17,37 @@ use std::env;
 use std::sync::Arc;
 use workflow::{MemoryStore, NeonStore, TxStore};
 
+fn flag(args: &[String], name: &str) -> Option<String> {
+    args.windows(2).find(|w| w[0] == name).map(|w| w[1].clone())
+}
+
 fn main() {
-    let story = env::var("FORGE_STORY_ID").unwrap_or_default();
+    let args: Vec<String> = env::args().collect();
+    let story = flag(&args, "--story")
+        .or_else(|| env::var("FORGE_STORY_ID").ok())
+        .unwrap_or_default();
     if story.trim().is_empty() {
-        eprintln!("FORGE_STORY_ID is required");
+        eprintln!("usage: forge --story <id> [--work-type FEATURE|FAST|BUG|HOTFIX|RESEARCH|MIGRATION]");
         std::process::exit(2);
     }
-    let work_type = env::var("FORGE_WORK_TYPE").unwrap_or_else(|_| "FEATURE".into());
+    let work_type = flag(&args, "--work-type")
+        .or_else(|| env::var("FORGE_WORK_TYPE").ok())
+        .unwrap_or_else(|| "FEATURE".into());
+    const ALLOWED: &[&str] = &["FEATURE", "FAST", "BUG", "HOTFIX", "RESEARCH", "MIGRATION"];
+    if !ALLOWED.contains(&work_type.as_str()) {
+        eprintln!("invalid --work-type {work_type}");
+        std::process::exit(2);
+    }
+    if let Err(e) = forge::engine::execution_target::assert_forge_lane_may_start(
+        &forge::engine::execution_target::env_pairs_from_process(),
+    ) {
+        eprintln!("{e}");
+        std::process::exit(2);
+    }
+    let brain = forge::engine::routing_brain::parse_forge_routing_brain(
+        env::var("FORGE_ROUTING_BRAIN").ok().as_deref(),
+    );
+    eprintln!("routing-brain={brain:?}");
     let mut harness = match OpenCodeHarness::from_env() {
         Ok(h) => h,
         Err(e) => {
