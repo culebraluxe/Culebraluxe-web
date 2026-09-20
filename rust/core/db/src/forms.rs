@@ -190,10 +190,12 @@ impl FormDao {
         &self,
         request: &CreateFormInstanceRequest,
     ) -> DbResult<FormInstance> {
-        let field_values = serde_json::to_value(&request.field_values)
-            .map_err(|error| DbFailure::schema_mismatch("form.create.serialize_fields", error.to_string()))?;
-        let sections = serde_json::to_value(&request.sections)
-            .map_err(|error| DbFailure::schema_mismatch("form.create.serialize_sections", error.to_string()))?;
+        let field_values = serde_json::to_value(&request.field_values).map_err(|error| {
+            DbFailure::schema_mismatch("form.create.serialize_fields", error.to_string())
+        })?;
+        let sections = serde_json::to_value(&request.sections).map_err(|error| {
+            DbFailure::schema_mismatch("form.create.serialize_sections", error.to_string())
+        })?;
 
         let row = sqlx::query_as::<_, FormRow>(
             r#"
@@ -257,14 +259,18 @@ impl FormDao {
             .as_ref()
             .map(serde_json::to_value)
             .transpose()
-            .map_err(|error| DbFailure::schema_mismatch("form.update.serialize_fields", error.to_string()))?;
+            .map_err(|error| {
+                DbFailure::schema_mismatch("form.update.serialize_fields", error.to_string())
+            })?;
         let sections = request
             .input
             .sections
             .as_ref()
             .map(serde_json::to_value)
             .transpose()
-            .map_err(|error| DbFailure::schema_mismatch("form.update.serialize_sections", error.to_string()))?;
+            .map_err(|error| {
+                DbFailure::schema_mismatch("form.update.serialize_sections", error.to_string())
+            })?;
 
         let row = sqlx::query_as::<_, FormRow>(
             r#"
@@ -589,10 +595,7 @@ impl FormDao {
         .map_err(|error| DbFailure::from_sqlx("form.get_showing_id", &error))
     }
 
-    pub async fn bind_showing(
-        &self,
-        request: &BindFormInstanceToShowingRequest,
-    ) -> DbResult<bool> {
+    pub async fn bind_showing(&self, request: &BindFormInstanceToShowingRequest) -> DbResult<bool> {
         let id = sqlx::query_scalar::<_, String>(
             r#"
             update document_form_instance
@@ -611,7 +614,10 @@ impl FormDao {
         Ok(id.is_some())
     }
 
-    pub async fn list_signer_people(&self, form_instance_id: &str) -> DbResult<Vec<FormSignerPerson>> {
+    pub async fn list_signer_people(
+        &self,
+        form_instance_id: &str,
+    ) -> DbResult<Vec<FormSignerPerson>> {
         let form = sqlx::query_as::<_, SignerFormRow>(
             r#"
             select f.deal_id::text as deal_id,

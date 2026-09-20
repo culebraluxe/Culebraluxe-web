@@ -46,10 +46,7 @@ pub trait FormRepository: Send {
         request: &BindListingFormContextRequest,
     ) -> DbResult<bool>;
     async fn get_showing_id(&mut self, form_instance_id: &str) -> DbResult<Option<String>>;
-    async fn bind_showing(
-        &mut self,
-        request: &BindFormInstanceToShowingRequest,
-    ) -> DbResult<bool>;
+    async fn bind_showing(&mut self, request: &BindFormInstanceToShowingRequest) -> DbResult<bool>;
     async fn list_signer_people(
         &mut self,
         form_instance_id: &str,
@@ -124,10 +121,7 @@ impl FormRepository for FormDao {
         FormDao::get_showing_id(self, form_instance_id).await
     }
 
-    async fn bind_showing(
-        &mut self,
-        request: &BindFormInstanceToShowingRequest,
-    ) -> DbResult<bool> {
+    async fn bind_showing(&mut self, request: &BindFormInstanceToShowingRequest) -> DbResult<bool> {
         FormDao::bind_showing(self, request).await
     }
 
@@ -304,7 +298,11 @@ impl<R: FormRepository> FormService<R> {
             context,
         )
         .await?;
-        let result = self.repository.deal_facts(deal_id).await.map_err(Into::into);
+        let result = self
+            .repository
+            .deal_facts(deal_id)
+            .await
+            .map_err(Into::into);
         audit_result(&self.runtime, "form", OP, context, decision, &result).await?;
         result
     }
@@ -349,7 +347,11 @@ impl<R: FormRepository> FormService<R> {
             context,
         )
         .await?;
-        let result = self.repository.latest_evidence(request).await.map_err(Into::into);
+        let result = self
+            .repository
+            .latest_evidence(request)
+            .await
+            .map_err(Into::into);
         audit_result(&self.runtime, "form", OP, context, decision, &result).await?;
         result
     }
@@ -388,7 +390,10 @@ impl<R: FormRepository> FormService<R> {
             "form.instance_bound_direct",
             request.form_instance_id.clone(),
             BTreeMap::from([
-                ("formInstanceId".into(), json!(request.form_instance_id.clone())),
+                (
+                    "formInstanceId".into(),
+                    json!(request.form_instance_id.clone()),
+                ),
                 ("personId".into(), json!(request.person_id.clone())),
                 ("propertyId".into(), json!(request.property_id.clone())),
             ]),
@@ -433,7 +438,11 @@ impl<R: FormRepository> FormService<R> {
             context,
         )
         .await?;
-        let result = self.repository.get_showing_id(form_instance_id).await.map_err(Into::into);
+        let result = self
+            .repository
+            .get_showing_id(form_instance_id)
+            .await
+            .map_err(Into::into);
         audit_result(&self.runtime, "form", OP, context, decision, &result).await?;
         result
     }
@@ -448,7 +457,10 @@ impl<R: FormRepository> FormService<R> {
             "form.instance_bound_showing",
             request.form_instance_id.clone(),
             BTreeMap::from([
-                ("formInstanceId".into(), json!(request.form_instance_id.clone())),
+                (
+                    "formInstanceId".into(),
+                    json!(request.form_instance_id.clone()),
+                ),
                 ("showingId".into(), json!(request.showing_id.clone())),
             ]),
             context,
@@ -522,7 +534,6 @@ impl<R: FormRepository> FormService<R> {
         audit_result(&self.runtime, "form", operation, context, decision, &result).await?;
         result
     }
-
 
 }
 
