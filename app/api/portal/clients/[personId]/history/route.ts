@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from "next/server"
 import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
 import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 
-import { getClientContactHistory } from "@/db/contact-history"
+import { rustApiRead } from '@/lib/rust-api/client'
 import { captureServerError } from '@/lib/server-error-capture'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
 // ---------------------------------------------------------------------------
-// CLIENTS — contact history for a selected canonical Person.
+// CLIENTS — authenticated transport bridge for canonical contact history.
 // Server-side paginated (SQL ORDER BY occurred_at DESC + LIMIT/OFFSET), ~20/page.
 // ---------------------------------------------------------------------------
 
@@ -33,8 +33,15 @@ async function GETHandler(
   const recent = url.get("recent") === "true"
 
   try {
-    const result = await getClientContactHistory(personId, { page, pageSize, recent })
-    return NextResponse.json(result)
+    const rustParams = new URLSearchParams({
+      page: String(page),
+      pageSize: String(pageSize),
+      recent: String(recent),
+    })
+    const result = await rustApiRead<unknown>(
+      `/v1/clients/${encodeURIComponent(personId)}/history?${rustParams.toString()}`,
+    )
+    return NextResponse.json(result.value)
   } catch (err) {
     // An empty page reads as "this client has no history" and hides a failed read.
     captureServerError('/api/portal/clients/[personId]/history', err, {
