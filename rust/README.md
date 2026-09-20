@@ -345,3 +345,17 @@ Provider ids and raw statuses remain confined to the BoldSign adapter/store.
 Canonical Signature and Vault state continue to use neutral lifecycle values and
 signed-document lineage only. Axum signature write routes remain disabled until
 the adapter and reconciliation slice are green together.
+
+
+## Slice 6E: WhatsApp normalized payloads
+
+After raw-body signature verification, Rust can now deserialize Meta webhook
+payloads with permissive unknown-field handling and normalize only messages for
+the configured WhatsApp phone-number id. Inbound messages and outbound echoes
+share one neutral event model with stable provider message ids, normalized E.164
+counterparty identity, observed/occurred timestamps, optional display name,
+thread context, bounded NFKC message summaries, and provider media references.
+
+The normalized event deliberately excludes the raw Meta payload and credentials.
+It is an adapter output only; durable inbox/ODS persistence remains behind the
+existing canonical intake boundary until that Rust persistence slice is ported.

@@ -39,3 +39,4 @@ sqlx = { version = "0.9", default-features = false, features = [
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal", "time"] }
 uuid = { version = "1", features = ["v4", "serde"] }
+unicode-normalization = "0.1"

@@ -1,3 +1,10 @@
+mod payload;
+
+pub use payload::{
+    parse_webhook, MetaWhatsAppWebhookPayload, NormalizedWhatsAppEvent, WhatsAppAttachment,
+    WhatsAppDirection,
+};
+
 //! Meta WhatsApp Cloud API trust boundary.
 //!
 //! Rust owns verification of the webhook challenge and the exact raw-body
