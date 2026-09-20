@@ -1,4 +1,21 @@
-import { WorkflowEngine } from '../../workflow_engine/lib/workflow/engine'
+
+import { spawnSync } from 'node:child_process'
+
+function rustForgeTask(args: string[]): string {
+  const bin = process.env.FORGE_TASK_BIN
+  const r = bin
+    ? spawnSync(bin, args, { encoding: 'utf8', env: process.env })
+    : spawnSync(
+        'cargo',
+        ['run', '--manifest-path', 'rust/Cargo.toml', '-p', 'forge', '--bin', 'forge-task', '--quiet', '--', ...args],
+        { encoding: 'utf8', env: process.env },
+      )
+  if (r.status !== 0) {
+    throw new Error((r.stderr || r.stdout || `forge-task ${args.join(' ')} failed`).trim())
+  }
+  return (r.stdout || '').trim()
+}
+
 import { FORGE_SDLC_KEY, FORGE_SDLC_VERSION } from '../definitions/forge-sdlc'
 import { engineConfigured, engineSql } from '../engine-client'
 import { startWorkflowCore } from '../start-core'
@@ -86,21 +103,13 @@ export async function startForgeWorkflow(
       // Initial evidence is not durable until startProcess returns its instance
       // id. Keep that exact input visible while the synchronous start traversal
       // evaluates entry decisions; immediately persist it after creation.
-      const engine = new WorkflowEngine(engineSql(), {
-        app: await createForgeApplicationPort({
-          evidenceReader: async () => ({
-            workType: input.workType,
-            ...(input.evidence ?? {}),
-          }),
-        }),
-      })
-      const { processInstanceId } = await engine.startProcess({
-        definitionKey: FORGE_SDLC_KEY,
-        version: FORGE_SDLC_VERSION,
-        startedBy: 'forge',
-        variables: { workType: input.workType, ...facts },
-        subject: { subjectType: 'story', subjectId: id },
-      })
+      const processInstanceId = rustForgeTask([
+        'start',
+        '--story',
+        id,
+        '--work-type',
+        input.workType,
+      ])
       const { mergeForgeWorkflowEvidence } = await import('../../db/forge-workflow-evidence')
       await mergeForgeWorkflowEvidence(processInstanceId, id, {
         workType: input.workType,
@@ -270,9 +279,7 @@ export async function completeForgeRoleTask(
   if (!task?.process_instance_id || !task?.story_id) {
     throw new Error(`Forge task ${taskId} is missing its workflow/story relationship`)
   }
-  const engine = new WorkflowEngine(engineSql(), {
-    app: await createDurableForgeApplicationPort(evidence),
-  })
+  // Transition is the Rust engine CAS. TS only writes evidence after a win.
 
   // THE TRANSITION GOES FIRST — IT IS THE CAS THAT DECIDES THE WINNER.
   //
@@ -290,12 +297,15 @@ export async function completeForgeRoleTask(
   // plainly: a losing QA worker can still record a disposition. Closing that needs one
   // shared transaction across the engine and the ledger writers, which is a larger
   // change than this one.
-  await engine.completeTask({
+  rustForgeTask([
+    'complete',
+    '--task',
     taskId,
-    userId: opts.userId ?? 'forge',
-    transitionName: opts.transitionName ?? 'complete',
-    formData: evidence,
-  })
+    '--user',
+    opts.userId ?? 'forge',
+    '--transition',
+    opts.transitionName ?? 'complete',
+  ])
 
   // Only a worker that WON the transition reaches here. The evidence merge and any
   // repair/replan increment now commit as ONE exactly-once unit behind a claim-first
@@ -449,10 +459,7 @@ export async function claimForgeRoleTask(taskId: string, workerId: string): Prom
   if (!engineConfigured()) {
     throw new Error('Workflow engine database is not configured.')
   }
-  const engine = new WorkflowEngine(engineSql(), {
-    app: await createDurableForgeApplicationPort(),
-  })
-  await engine.claimTask(taskId, workerId)
+  rustForgeTask(['claim', '--task', taskId, '--user', workerId])
 }
 
 /** Release a claimed task after an interrupted/failed external launch. */
@@ -460,10 +467,7 @@ export async function releaseForgeRoleTask(taskId: string, workerId: string): Pr
   if (!engineConfigured()) {
     throw new Error('Workflow engine database is not configured.')
   }
-  const engine = new WorkflowEngine(engineSql(), {
-    app: await createDurableForgeApplicationPort(),
-  })
-  await engine.releaseTask(taskId, workerId)
+  rustForgeTask(['release', '--task', taskId, '--user', workerId])
 }
 
 /**
@@ -481,14 +485,9 @@ export async function cancelForgeInstance(
   if (!engineConfigured()) {
     throw new Error('Workflow engine database is not configured.')
   }
-  const engine = new WorkflowEngine(engineSql(), {
-    app: await createDurableForgeApplicationPort(),
-  })
-  await engine.cancelProcess({
-    processInstanceId: instanceId,
-    actor: opts.actor,
-    reason: opts.reason,
-  })
+  const args = ['cancel', '--instance', instanceId]
+  if (opts.reason) args.push('--reason', opts.reason)
+  rustForgeTask(args)
 }
 
 export type ForgeStoryboardProjection =

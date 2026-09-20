@@ -12,6 +12,8 @@ use crate::engine::phase::{ForgePhaseAgent, RoleEffectPorts};
 use crate::engine::execution_target::{assert_forge_execution_target, env_pairs_from_process};
 use crate::engine::hold::{deliverable_enforcement_enabled, parse_deliverable_reprompt_budget, open_forge_hold_record, OpenHold};
 use crate::engine::scope::candidate_own_changed_files;
+use crate::engine::worktree::git_changed_files;
+use crate::engine::observer::record_forge_observer;
 use crate::engine::self_heal::{attempt_budget, build_self_heal_directive};
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::engine::writer::ForgeStateWriter;
@@ -147,11 +149,12 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
             if let Some(sha) = out.candidate_sha.clone() {
                 evidence.candidate_sha = Some(sha.clone());
                 if let Some(base) = evidence.extra.get("recordedBase").and_then(|v| v.as_str()) {
+                    let repo = std::env::current_dir().unwrap_or_else(|_| ".".into());
                     match candidate_own_changed_files(
                         Some(&sha),
                         Some(base),
                         &[sha.clone()],
-                        |_| vec![],
+                        |c| git_changed_files(&repo, base, c),
                         |anc, desc| self.harness.exists_on_base_ref(anc, desc),
                     ) {
                         crate::engine::scope::CandidateOwnChanges::Fail { reason } => {
@@ -192,7 +195,11 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
             }
         }
 
+        let sid = if task.story_id.is_empty() { task.process_instance_id.as_str() } else { task.story_id.as_str() };
+        let _ = record_forge_observer(sid, node_id, "role.completed", &format!("node={node_id}"));
+
         if let Some(reason) = evidence.deliverable_rejection.clone() {
+
             if let Some(writer) = self.writer {
                 let sid = if task.story_id.is_empty() { &task.process_instance_id } else { &task.story_id };
                 let _ = writer.mark_story_human_hold(sid, &reason);

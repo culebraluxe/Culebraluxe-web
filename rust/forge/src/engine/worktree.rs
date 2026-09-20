@@ -183,3 +183,13 @@ mod tests {
         assert!(branch.starts_with("agent/"));
     }
 }
+
+pub fn git_changed_files(repo: &std::path::Path, base: &str, sha: &str) -> Vec<String> {
+    let out = std::process::Command::new("git")
+        .current_dir(repo)
+        .args(["diff", "--name-only", &format!("{base}...{sha}")])
+        .output()
+        .ok();
+    out.map(|o| String::from_utf8_lossy(&o.stdout).lines().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+        .unwrap_or_default()
+}

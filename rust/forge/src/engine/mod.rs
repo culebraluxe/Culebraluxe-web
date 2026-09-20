@@ -1,3 +1,4 @@
+pub mod observer;
 pub mod re_runtime;
 pub mod re_receipt;
 pub mod re_port;
