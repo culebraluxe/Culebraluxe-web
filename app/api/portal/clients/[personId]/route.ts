@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from "next/server"
 import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
 import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 
-import { getClientById } from "@/db/clients"
+import { rustApiRead } from '@/lib/rust-api/client'
 import { captureServerError } from '@/lib/server-error-capture'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
 // ---------------------------------------------------------------------------
-// CLIENTS — full canonical Client detail for one person (working-pane read).
+// CLIENTS — authenticated transport bridge for one canonical Client detail.
 // The restored ClientManager loads the selected person's detail independently
 // so the detail pane never requires loading every Person.
 // ---------------------------------------------------------------------------
@@ -29,8 +29,10 @@ async function GETHandler(
   }
   const { personId } = await params
   try {
-    const client = await getClientById(personId)
-    return NextResponse.json({ client })
+    const result = await rustApiRead<unknown>(
+      `/v1/clients/${encodeURIComponent(personId)}`,
+    )
+    return NextResponse.json({ client: result.value })
   } catch (err) {
     // Fail loudly instead of returning an empty client, which reads as "no such client" and hides an
     // outage. The gateway already logged the typed failure server-side.
