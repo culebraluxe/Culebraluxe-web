@@ -18,12 +18,14 @@ version = "0.1.0"
 publish = false
 
 [workspace.dependencies]
+base64 = "0.22"
 axum = "0.8"
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 hmac = "0.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls"] }
 sha2 = "0.10"
 subtle = "2"
 sqlx = { version = "0.9", default-features = false, features = [
@@ -35,5 +37,5 @@ sqlx = { version = "0.9", default-features = false, features = [
     "json",
 ] }
 thiserror = "2"
-tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal"] }
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal", "time"] }
 uuid = { version = "1", features = ["v4", "serde"] }

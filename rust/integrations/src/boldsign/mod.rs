@@ -1,3 +1,10 @@
+mod client;
+mod provider;
+mod store;
+
+pub use client::BoldSignClient;
+pub use provider::BoldSignSignatureProvider;
+
 //! BoldSign provider edge.
 //!
 //! Provider vocabulary and ids stay in this module. Canonical signature state

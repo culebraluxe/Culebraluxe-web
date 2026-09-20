@@ -324,3 +324,24 @@ Configuration remains external through `WHATSAPP_APP_SECRET`,
 `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_OWNED_PHONE_E164`, and
 `WHATSAPP_VERIFY_TOKEN`. E.164 normalization is bounded and rejects malformed
 owned-line configuration rather than guessing.
+
+
+## Slice 6D: Concrete BoldSign provider
+
+The Rust BoldSign adapter now implements the provider-neutral
+`SignatureProvider` port. It loads the immutable issued PDF and its frozen
+signature anchors from Vault lineage, converts PDF bottom-left coordinates to
+BoldSign field coordinates, binds each signer to the declared role/slot, and
+uses Email OTP with reassignment explicitly disabled.
+
+Legal-envelope creation is deliberately single-attempt. A timeout, transport
+failure, or retryable provider error leaves an ambiguous active provider state
+and is recorded without an automatic resend; this prevents duplicate legally
+signable envelopes. Status polling, revocation, signed-PDF download, and audit
+trail download use bounded retries because those operations are read-only or
+convergent.
+
+Provider ids and raw statuses remain confined to the BoldSign adapter/store.
+Canonical Signature and Vault state continue to use neutral lifecycle values and
+signed-document lineage only. Axum signature write routes remain disabled until
+the adapter and reconciliation slice are green together.
