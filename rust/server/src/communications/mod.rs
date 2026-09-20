@@ -85,7 +85,10 @@ impl<R: CommsRepository> CommsService<R> {
             let sources = self.repository.sources(&request.person_id).await?;
             let evidence = self.repository.evidence(&request.person_id).await?;
             let last_contact = self.repository.last_contact(&request.person_id).await?;
-            let page = self.repository.moments(&request.person_id, limit, 0).await?;
+            let page = self
+                .repository
+                .moments(&request.person_id, limit, 0)
+                .await?;
 
             let summary = summarize_relationship_evidence(&evidence);
             let active_count = active_source_count(&sources);
@@ -107,9 +110,7 @@ impl<R: CommsRepository> CommsService<R> {
                     first_observed_at: summary.first_observed_at,
                     last_inbound_at: summary.last_inbound_at,
                     last_outbound_at: summary.last_outbound_at,
-                    last_contact_at: last_contact
-                        .at
-                        .or(summary.last_meaningful_contact_at),
+                    last_contact_at: last_contact.at.or(summary.last_meaningful_contact_at),
                     last_contact_label: last_contact.label,
                     active_source_count: active_count,
                     source_count: COMMS_SOURCE_SLOT_COUNT,
@@ -142,12 +143,7 @@ impl<R: CommsRepository> CommsService<R> {
         .await?;
 
         let result = async {
-            let page_size = clamp(
-                request.page_size,
-                1,
-                COMMS_MAX_PAGE_SIZE,
-                COMMS_PAGE_SIZE,
-            );
+            let page_size = clamp(request.page_size, 1, COMMS_MAX_PAGE_SIZE, COMMS_PAGE_SIZE);
             let page = clamp(request.page, 1, i64::MAX, 1);
             let rows = self
                 .repository

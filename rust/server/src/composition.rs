@@ -9,8 +9,8 @@ use crate::security::SecurityService;
 use crate::showings::ShowingService;
 use crate::wbs::WbsService;
 use db::{
-    CommsDao, ContractDao, Database, FirmDao, PersonDao, ProjectDao, PropertyDao, SecurityDao, ShowingDao,
-    WbsDao,
+    CommsDao, ContractDao, Database, FirmDao, PersonDao, ProjectDao, PropertyDao, SecurityDao,
+    ShowingDao, WbsDao,
 };
 use service::ServiceInfrastructure;
 use std::sync::Arc;

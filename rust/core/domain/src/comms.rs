@@ -273,8 +273,7 @@ pub fn moment_channel_for(value: Option<&str>) -> Option<CommsMomentChannel> {
 }
 
 pub fn is_facetime_interaction(source_system: Option<&str>, event_type: Option<&str>) -> bool {
-    source_system
-        .is_some_and(|value| value.trim().eq_ignore_ascii_case("apple_facetime"))
+    source_system.is_some_and(|value| value.trim().eq_ignore_ascii_case("apple_facetime"))
         || event_type.is_some_and(|value| value.trim().eq_ignore_ascii_case("facetime_call"))
 }
 
@@ -287,7 +286,10 @@ pub fn summarize_relationship_evidence(rows: &[RelationshipEvidenceRecord]) -> R
         .collect();
 
     RelationshipSummary {
-        first_observed_at: earliest(rows.iter().filter_map(|row| row.first_observed_at.as_deref())),
+        first_observed_at: earliest(
+            rows.iter()
+                .filter_map(|row| row.first_observed_at.as_deref()),
+        ),
         last_meaningful_contact_at: latest(meaningful.iter().filter_map(|row| {
             row.last_observed_at
                 .as_deref()
@@ -343,8 +345,10 @@ pub fn source_dto(record: CommsSourceRecord) -> CommsSource {
 pub fn moment_dto(record: CommsMomentRecord) -> CommsMoment {
     let stored = moment_channel_for(record.channel.as_deref());
     let channel = if stored == Some(CommsMomentChannel::Call)
-        && is_facetime_interaction(record.source_system.as_deref(), record.event_type.as_deref())
-    {
+        && is_facetime_interaction(
+            record.source_system.as_deref(),
+            record.event_type.as_deref(),
+        ) {
         Some(CommsMomentChannel::Facetime)
     } else {
         stored

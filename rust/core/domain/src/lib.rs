@@ -50,7 +50,7 @@ pub use comms::{
     source_channel_for, source_dto, summarize_relationship_evidence, CommsAggregate,
     CommsDirection, CommsMoment, CommsMomentChannel, CommsMomentPage, CommsMomentRecord,
     CommsPanel, CommsSource, CommsSourceChannel, CommsSourceRecord, CommsTimeline,
-    GetCommsPanelRequest, GetCommsTimelineRequest, LastContactRecord,
-    RelationshipEvidenceRecord, RelationshipSummary, COMMS_MAX_PAGE_SIZE, COMMS_MOMENT_LIMIT,
-    COMMS_PAGE_SIZE, COMMS_SOURCE_SLOT_COUNT,
+    GetCommsPanelRequest, GetCommsTimelineRequest, LastContactRecord, RelationshipEvidenceRecord,
+    RelationshipSummary, COMMS_MAX_PAGE_SIZE, COMMS_MOMENT_LIMIT, COMMS_PAGE_SIZE,
+    COMMS_SOURCE_SLOT_COUNT,
 };
