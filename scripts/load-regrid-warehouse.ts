@@ -82,7 +82,10 @@ function sourceColumns(row: Row): Record<string, string | boolean | null> {
     regrid_qoz: /^(yes|y|true|t|1)$/i.test(compact(row.qoz) ?? '') ? true : null,
     // Promoted by migration 202 from the fields that carry data. `estate` is NOT here on purpose: sampling showed
     // its values are record references ('1522', '763', 'N/A'), not a yes/no, so it stays in the receipt table.
-    regrid_gis_acreage: num(row.gisacre),
+    // `ll_gisacre`, NOT `gisacre`. Measured: `gisacre` is non-null in all 2138 rows but holds an EMPTY STRING, so
+    // the first version of this mapping promoted nothing and the column filled 0 rows while its siblings filled.
+    // `ll_gisacre` is the field that actually carries the acreage — the same one `lot_size` already reads.
+    regrid_gis_acreage: num(row.ll_gisacre),
     regrid_gis_square_feet: num(row.ll_gissqft),
     regrid_census_tract: compact(row.census_tract),
     regrid_land_type: compact(row.tipo),
@@ -107,14 +110,34 @@ function sourceColumns(row: Row): Record<string, string | boolean | null> {
   }
 }
 
-/** One line per conflicting parent column, so "the better source won" is auditable rather than asserted. */
+/**
+ * One line per conflicting parent column, so "the better source won" is auditable rather than asserted.
+ *
+ * A DIFFERENCE IS NOT ALWAYS A CONFLICT, and the first version of this report cried wolf: `property.latitude` is
+ * stored at 7 decimal places and `property.lot_size` at 2, so a value this loader itself wrote came back looking
+ * different ("18.3093850" vs "18.309385", "32.47" vs "32.46603") and every re-run reported dozens of conflicts that
+ * were nothing but the column's storage precision. Numbers are therefore compared with a tolerance proportional to
+ * the storage — 0.01 absolute or 1e-4 relative — which treats those pairs as the SAME fact while still reporting a
+ * genuine disagreement. Text is compared case- and space-insensitively, so Regrid's "BO DELICIAS 17A" against a
+ * hand-entered "Bo. Delicias 17a" is still reported, because that is a real difference a human made.
+ */
+function sameValue(held: string, offered: string): boolean {
+  const left = Number(held)
+  const right = Number(offered)
+  if (Number.isFinite(left) && Number.isFinite(right)) {
+    return Math.abs(left - right) <= Math.max(0.01, Math.abs(right) * 1e-4)
+  }
+  const normalize = (value: string): string => value.replace(/\s+/g, ' ').trim().toUpperCase()
+  return normalize(held) === normalize(offered)
+}
+
 function conflicts(row: Row, existing: Record<string, unknown>): string[] {
   const found: string[] = []
   const proposed = promotions(row)
   for (const column of Object.keys(proposed)) {
     const held = compact(existing[column])
     const offered = proposed[column]
-    if (held !== null && offered !== null && held !== offered) {
+    if (held !== null && offered !== null && !sameValue(held, offered)) {
       found.push(`${column}: kept ${JSON.stringify(held)}, Regrid offered ${JSON.stringify(offered)}`)
     }
   }
@@ -671,37 +694,52 @@ async function afterProperties(
 
   // FILL-ONLY, like every other parent column: an existing person keeps whatever anyone already knew. The legal
   // address fills the same way — an address somebody already recorded is not replaced by one a vendor supplied.
+  //
+  // BATCHED, because the first version issued one UPDATE per person and that is thousands of round trips: the same
+  // mistake the property side already had fixed, measured at over three minutes against Neon. Each chunk is ONE
+  // statement joining a VALUES list on the id.
+  const enrichment: Array<Array<string | null>> = []
   for (const [key, personId] of resolved) {
     const person = identities.get(key)
     if (person?.legalAddress) counters.legalAddresses += 1
+    enrichment.push([
+      personId,
+      person !== undefined && looksLikeEntity(person.name) ? person.name : null,
+      person?.location ?? null,
+      person?.legalAddress?.line1 ?? null,
+      person?.legalAddress?.line2 ?? null,
+      person?.legalAddress?.city ?? null,
+      person?.legalAddress?.state ?? null,
+      person?.legalAddress?.postalCode ?? null,
+      person?.legalAddress?.country ?? null,
+      SOURCE,
+    ])
+  }
+  for (const part of chunk(enrichment)) {
+    const tuples = part
+      .map((_, at) => {
+        const base = at * 10
+        return `($${base + 1}::uuid, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}::text)`
+      })
+      .join(', ')
     await tx.query(
-      `update person
-          set company = coalesce(company, $2),
-              location = coalesce(location, $3),
-              legal_address_line1 = coalesce(legal_address_line1, $4),
-              legal_address_line2 = coalesce(legal_address_line2, $5),
-              legal_address_city = coalesce(legal_address_city, $6),
-              legal_address_state = coalesce(legal_address_state, $7),
-              legal_address_postal_code = coalesce(legal_address_postal_code, $8),
-              legal_address_country = coalesce(legal_address_country, $9),
+      `update person p
+          set company = coalesce(p.company, v.company),
+              location = coalesce(p.location, v.location),
+              legal_address_line1 = coalesce(p.legal_address_line1, v.line1),
+              legal_address_line2 = coalesce(p.legal_address_line2, v.line2),
+              legal_address_city = coalesce(p.legal_address_city, v.city),
+              legal_address_state = coalesce(p.legal_address_state, v.state),
+              legal_address_postal_code = coalesce(p.legal_address_postal_code, v.postal_code),
+              legal_address_country = coalesce(p.legal_address_country, v.country),
               legal_address_source = case
-                when legal_address_source is null and $4 is not null then $10
-                else legal_address_source
+                when p.legal_address_source is null and v.line1 is not null then v.source
+                else p.legal_address_source
               end,
               updated_at = now()
-        where id = $1`,
-      [
-        personId,
-        person !== undefined && looksLikeEntity(person.name) ? person.name : null,
-        person?.location ?? null,
-        person?.legalAddress?.line1 ?? null,
-        person?.legalAddress?.line2 ?? null,
-        person?.legalAddress?.city ?? null,
-        person?.legalAddress?.state ?? null,
-        person?.legalAddress?.postalCode ?? null,
-        person?.legalAddress?.country ?? null,
-        SOURCE,
-      ],
+         from (values ${tuples}) as v(id, company, location, line1, line2, city, state, postal_code, country, source)
+        where p.id = v.id`,
+      part.flat(),
     )
   }
 
