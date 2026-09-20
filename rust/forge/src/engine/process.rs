@@ -16,7 +16,7 @@ pub struct WakeResult {
 impl<S: TxStore> ForgeRuntime<S> {
     /// Idempotent wake: reconcile, reuse the active instance, or start one.
     pub fn wake_story(
-        &self,
+        &mut self,
         story_id: &str,
         work_type: &str,
         evidence: ForgeGateEvidence,
@@ -43,7 +43,7 @@ impl<S: TxStore> ForgeRuntime<S> {
     }
 
     /// Resume door: claim the open task if needed. Does not complete it.
-    pub fn resume_open(&self, story_id: &str, worker_id: &str) -> Result<OpenForgeTask> {
+    pub fn resume_open(&mut self, story_id: &str, worker_id: &str) -> Result<OpenForgeTask> {
         let _ = self.reconcile_completions(story_id)?;
         let instance_id = self.find_active_instance(story_id)?.ok_or_else(|| {
             WorkflowError::NotFound(format!("no active FORGE_SDLC instance for {story_id}"))

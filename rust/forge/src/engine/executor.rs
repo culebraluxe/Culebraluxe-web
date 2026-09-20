@@ -125,7 +125,7 @@ pub enum LaneFailureSettlement {
 }
 
 pub fn settle_forge_lane_failure<S: TxStore>(
-    rt: &ForgeRuntime<S>,
+    rt: &mut ForgeRuntime<S>,
     task_id: &str,
     actor: &str,
     lane_err: &WorkflowError,
@@ -269,7 +269,7 @@ impl<'a> DriveForgeStoryOptions<'a> {
 }
 
 pub fn drive_forge_story<S: TxStore>(
-    rt: &ForgeRuntime<S>,
+    rt: &mut ForgeRuntime<S>,
     story_id: &str,
     opts: DriveForgeStoryOptions<'_>,
 ) -> Result<DriveForgeStoryResult> {
@@ -423,7 +423,7 @@ pub fn drive_forge_story<S: TxStore>(
     })
 }
 
-fn instance_status<S: TxStore>(rt: &ForgeRuntime<S>, instance_id: &str) -> Result<String> {
+fn instance_status<S: TxStore>(rt: &mut ForgeRuntime<S>, instance_id: &str) -> Result<String> {
     Ok(format!(
         "{:?}",
         rt.engine().get_process_instance(instance_id)?.status
