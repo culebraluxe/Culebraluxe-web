@@ -1,3 +1,6 @@
+pub mod re_port;
+pub mod re_facts;
+pub mod re_commands;
 pub mod migration_guard;
 pub mod hold_resolve;
 pub mod shaping;
@@ -102,3 +105,6 @@ pub use scope::{candidate_own_changed_files, recorded_scope_base, story_scope_ba
 pub use decisions::{lane_needs_decisions, with_decision_context, list_active_decisions};
 
 pub use xml::{parse_re_supermodel, RE_SUPERMODEL_KEY, RE_SUPERMODEL_V1_XML};
+
+pub use re_port::{CompositeApplicationPort, ReApplicationPort};
+pub use re_commands::{XML_COMMAND_NODE_TYPES, assert_command_nodes_routed};
