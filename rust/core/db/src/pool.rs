@@ -110,7 +110,8 @@ impl Database {
             .acquire()
             .await
             .map_err(|error| DbFailure::from_sqlx("db.run_text.acquire", &error))?;
-        let mut stream = sqlx::raw_sql(sql).fetch_many(&mut *connection);
+        let mut stream = sqlx::raw_sql(sqlx::AssertSqlSafe(sql.to_owned()))
+            .fetch_many(&mut *connection);
         while let Some(item) = stream.try_next().await.map_err(|error| DbFailure::from_sqlx("db.run_text", &error))? {
             let Either::Right(row) = item else { continue };
             let mut cols = Vec::new();
