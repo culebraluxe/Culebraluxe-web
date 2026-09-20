@@ -61,8 +61,13 @@ where
         let decision = self
             .authorize("project.read", OPERATION, OperationKind::Query, context)
             .await?;
-        let result = self.repository.get(id).await.map_err(ProjectServiceError::from);
-        self.audit_result(OPERATION, context, decision, &result).await?;
+        let result = self
+            .repository
+            .get(id)
+            .await
+            .map_err(ProjectServiceError::from);
+        self.audit_result(OPERATION, context, decision, &result)
+            .await?;
         result
     }
 
@@ -74,8 +79,13 @@ where
         let decision = self
             .authorize("project.read", OPERATION, OperationKind::Query, context)
             .await?;
-        let result = self.repository.list().await.map_err(ProjectServiceError::from);
-        self.audit_result(OPERATION, context, decision, &result).await?;
+        let result = self
+            .repository
+            .list()
+            .await
+            .map_err(ProjectServiceError::from);
+        self.audit_result(OPERATION, context, decision, &result)
+            .await?;
         result
     }
 
@@ -107,7 +117,8 @@ where
         }
         .await;
 
-        self.audit_result(OPERATION, context, decision, &result).await?;
+        self.audit_result(OPERATION, context, decision, &result)
+            .await?;
         result
     }
 
@@ -143,7 +154,8 @@ where
         }
         .await;
 
-        self.audit_result(OPERATION, context, decision, &result).await?;
+        self.audit_result(OPERATION, context, decision, &result)
+            .await?;
         result
     }
 
@@ -178,7 +190,8 @@ where
         }
         .await;
 
-        self.audit_result(OPERATION, context, decision, &result).await?;
+        self.audit_result(OPERATION, context, decision, &result)
+            .await?;
         result
     }
 
