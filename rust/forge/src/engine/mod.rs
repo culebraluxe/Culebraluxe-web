@@ -100,3 +100,5 @@ pub use agent_work::{claim_next_agent_work, claim_specific_agent_work};
 
 pub use scope::{candidate_own_changed_files, recorded_scope_base, story_scope_base};
 pub use decisions::{lane_needs_decisions, with_decision_context, list_active_decisions};
+
+pub use xml::{parse_re_supermodel, RE_SUPERMODEL_KEY, RE_SUPERMODEL_V1_XML};

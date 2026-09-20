@@ -1,0 +1,641 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ============================================================================
+  RE_supermodel-v1 — Residential Real-Estate Transaction Supermodel
+
+  Authoritative source format for the residential transaction workflow. This
+  file is parsed (mini-xml -> xml-parser) into a ProcessGraph, validated
+  (graph-validator), and deployed (upsertProcessDefinition). The XML node id IS
+  the workflow state identity; `label` is presentation metadata; `description`
+  is optional explanatory copy. There is no second workflow-state enum.
+
+  The model is deliberately jurisdiction-neutral. No element, attribute, node,
+  or condition names a jurisdiction. Operating differences (PR/Culebra vs FL)
+  are expressed ONLY as facts/capabilities supplied by workflow_app:
+
+      closingAgentRole            string  ("notario" | "title_company" | ...)
+      requiresNotario             bool
+      requiresTitleCompany        bool
+      requiresCrimClearance       bool
+      requiresRegistryFollowup    bool
+      requiresHoaClearance        bool
+      requiresSurvey              bool
+      financingApplicable         bool | null
+      appraisalApplicable         bool | null
+      lenderClearToClose          bool | null
+      closingDocumentsReady       bool
+      inspectionApplicable        bool | null
+      insuranceApplicable         bool | null
+      inspectionDeadline          ISO-8601 string (timer dueAtVariable; CRM-22)
+      inspectionDeadlineScheduled bool   a canonical inspection deadline exists
+      financingDeadline           ISO-8601 string (timer dueAtVariable; CRM-22)
+      financingDeadlineScheduled  bool   a canonical financing deadline exists
+
+  appraisalApplicable (CRM-19) is the canonical deal.appraisal_required fact
+  (workflow_app/facts.ts), resolved by the explicit application command
+  deal.set_appraisal_required (routed, application-only — like
+  deal.set_financing_type, never a workflow command-node). NULL is never
+  silently skipped: the appraisal_applicable decision routes null to the
+  explicit appraisal_applicability_unresolved task for human/application
+  resolution, which re-evaluates on resolved.
+
+  lenderClearToClose (CRM-20) is the canonical deal.lender_clear_to_close fact
+  (workflow_app/facts.ts), recorded by the explicit application command
+  deal.set_lender_clear_to_close (routed, application-only — never a workflow
+  command-node; lender provider behavior is never modeled in the engine).
+  Consumed ONLY for financed deals (financingApplicable == true) at the
+  closing-readiness gate: true = cleared, false = pending (blocks readiness),
+  null = explicit resolution task. Cash/non-financed deals are routed around
+  the fact entirely, so they are unaffected.
+
+  Closing-readiness and closing-date facts (Story 122 / 124 / 125 / 135 / 136):
+
+      closingConfirmationRequired  bool   when set, closing_readiness_gate adds a
+                                          final brokerage confirmation task before
+                                          ready_to_close — readiness is a human
+                                          task, never a persisted fact or command
+      closingDateScheduled         bool   a canonical target closing date exists
+      closingDate                  ISO-8601 string (timer dueAtVariable)
+
+  closingDocumentsReady (CRM-21) is the derived closing-document readiness
+  fact. It is NOT a human checkmark and never a persisted boolean: the
+  application derives it deterministically from the required packet contents
+  (workflow_app/transaction-packet.ts — the DOC-02 rule catalog) and the
+  signed/final states of the canonical transaction_document rows (the DOC-01
+  draft -> ready -> sent -> signed lineage; only 'signed' is final). The
+  closing_documents_gate consumes it before closing readiness: false lands in
+  the closing_documents_pending task and blocks readiness until the packet is
+  complete and signed; the gate re-evaluates with refreshed facts on resolved.
+
+  Transaction deadlines (CRM-22) — the application/domain OWNS canonical
+  milestone dates; this model only projects them into timer semantics:
+
+      inspectionDeadline          deal.inspection_deadline   P&S inspection-period
+                                                                contingency date
+      financingDeadline           deal.financing_deadline    P&S financing-commitment
+                                                                contingency date
+      closingDate                 deal.closing_date          closing target
+
+  Only milestones justified by actual business use get a deadline monitor:
+  inspection and financing are P&S contingency dates, closing is the closing
+  target. Appraisal / title / tax-CRIM / funds / closing-documents have NO
+  canonical date source — they are process-internal obligations driven by the
+  closing date, so this model deliberately creates NO timers for them (no
+  artificial dates, no parallel SLA framework). Each deadline monitor is an
+  OPTIONAL fork branch gated by an applicability decision (inspectionApplicable
+  / financingApplicable) and a scheduled decision (inspectionDeadlineScheduled
+  / financingDeadlineScheduled); with no canonical date the branch joins
+  immediately and NO timer is created. The timer nodes read their due date
+  from the canonical fact (due-at-variable) — a deadline never exists without
+  an application source. On deadline passage the branch escalates to a human
+  task; amending the date issues the canonical deadline command
+  (deal.set_inspection_deadline / deal.set_financing_deadline) and the SAME
+  instance continues — the timer is re-armed at the timer node; a pending
+  timer for a changed canonical date is rescheduled deterministically by the
+  generic deadline-timer seam (workflow_app/deadline-timer.ts).
+
+  Command inventory — COMPLETE for this XML (reconciliation only; see
+  workflow_app/command-types.ts, the authoritative registry):
+
+      deal.set_stage_under_contract   command-node mark_under_contract  -> db/deal-stage.ts
+      deal.set_stage_closed           command-node mark_closed          -> db/deal-stage.ts
+      deal.set_closing_date           command-node set_closing_date     -> db/deal-closing-date.ts
+      deal.set_inspection_deadline    command-node set_inspection_deadline  -> db/deal-deadline.ts (CRM-22)
+      deal.set_financing_deadline     command-node set_financing_deadline   -> db/deal-deadline.ts (CRM-22)
+
+  Routed but NOT referenced by any command-node (application-only):
+
+      deal.set_financing_type         -> db/deal-financing.ts  (financing is read as the
+                                          financingApplicable fact; never set via a
+                                          workflow command in this model)
+      deal.set_appraisal_required     -> db/deal-appraisal.ts (appraisal is read as the
+                                          appraisalApplicable fact from
+                                          deal.appraisal_required; resolved by this
+                                          explicit application command — CRM-19)
+      deal.set_lender_clear_to_close  -> db/deal-lender-clearance.ts (lender clear-to-close
+                                          is read as the lenderClearToClose fact from
+                                          deal.lender_clear_to_close; recorded by this
+                                          explicit application command — CRM-20)
+
+  There is NO command-node deal.set_closing_readiness_verified: closing readiness
+  is the human task-node `closing_readiness` (resolved -> ready_to_close), gated
+  by the closing_readiness_gate decision (financed deals first clear the
+  lender_clearance_gate on lenderClearToClose == true, then an optional
+  closing_confirmation_gate adds the brokerage confirmation when
+  closingConfirmationRequired is set). Every command-node above has a router
+  case — enforced by workflow_app/tests/command-inventory.test.ts and
+  parseReSupermodel().
+
+  Simple cash/clean transactions take the short path: title/legal, tax /
+  municipal (CRIM) clearance, funds ready, closing documents, closing
+  readiness, closing, and (if applicable) recording follow-up. Financing,
+  appraisal, inspection, HOA, survey, and insurance branches are each gated by
+  an applicability decision that routes straight to the join when not
+  applicable — so no placeholder tasks are created (Story 120).
+  ============================================================================
+-->
+<process-definition
+  key="RE_supermodel"
+  version="1"
+  name="Residential Real-Estate Transaction Supermodel"
+  description="Offer accepted through closing and post-closing recording/registry follow-up. Jurisdiction-neutral; operating patterns are expressed as facts, never as engine behavior."
+>
+  <!-- Portal timeline presentation order (Story 128). Presentation metadata
+       only — never used for state identity or routing. -->
+  <display-order>
+    <node ref="offer_accepted"/>
+    <node ref="pns_preparation"/>
+    <node ref="pns_executed"/>
+    <node ref="under_contract"/>
+    <node ref="title_work"/>
+    <node ref="tax_clearance"/>
+    <node ref="funds_ready"/>
+    <node ref="closing_documents"/>
+    <node ref="inspection"/>
+    <node ref="financing"/>
+    <node ref="appraisal"/>
+    <node ref="ready_to_close"/>
+    <node ref="closing"/>
+    <node ref="closed_state"/>
+    <node ref="recording"/>
+    <node ref="post_closing_complete"/>
+  </display-order>
+
+  <!-- =====================================================================
+       Segment 1 — Offer Accepted -> Contract / P&amp;S -> Under Contract
+       ===================================================================== -->
+  <start-state id="start" label="Start">
+    <transition name="offer_accepted" to="offer_accepted"/>
+  </start-state>
+
+  <state id="offer_accepted" label="Offer Accepted" description="A buyer offer has been accepted and the transaction is opening.">
+    <transition name="prepare" to="pns_preparation"/>
+  </state>
+
+  <task-node id="pns_preparation" label="Contract / P&amp;S Preparation" responsibility="brokerage"
+    description="Brokerage prepares the purchase and sale (P&amp;S) contract from the accepted offer.">
+    <transition name="prepared" to="pns_executed"/>
+    <transition name="cancel" to="transaction_cancelled"/>
+  </task-node>
+
+  <task-node id="pns_executed" label="Contract / P&amp;S Executed" responsibility="brokerage"
+    description="Brokerage obtains a fully executed contract and records the target closing date.">
+    <transition name="executed" to="mark_under_contract"/>
+    <transition name="cancel" to="transaction_cancelled"/>
+  </task-node>
+
+  <command-node id="mark_under_contract" label="Mark Under Contract" responsibility="brokerage"
+    command-type="deal.set_stage_under_contract" transition="to_under_contract">
+    <transition name="to_under_contract" to="under_contract"/>
+  </command-node>
+
+  <state id="under_contract" label="Under Contract" description="Canonical deal.stage is under_contract; parallel transaction work begins.">
+    <transition name="begin_tracks" to="fork_tracks"/>
+  </state>
+
+  <!-- =====================================================================
+       Segment 2 — Concurrent / conditional transaction tracks
+       Every branch is required=true so an applicable optional track cannot be
+       skipped at the join. Optional tracks are gated by an applicability
+       decision that routes "not applicable" straight to the join, so a simple
+       transaction never creates placeholder tasks.
+       ===================================================================== -->
+  <fork id="fork_tracks" label="Parallel Transaction Work"
+    description="Concurrent work tracks: required title/tax/funds/documents plus conditional inspection, financing, appraisal, insurance, survey, HOA. CRM-22 adds two OPTIONAL deadline-monitor branches (inspection / financing contingency dates); they skip straight to the join when no canonical deadline exists and are skipped by the join (timer cancelled) when the milestone completes first.">
+    <transition name="title" to="title_work" required="true"/>
+    <transition name="tax" to="tax_clearance" required="true"/>
+    <transition name="funds" to="funds_ready" required="true"/>
+    <transition name="documents" to="closing_documents" required="true"/>
+    <transition name="inspection" to="inspection_applicable" required="true"/>
+    <transition name="financing" to="financing_applicable" required="true"/>
+    <transition name="appraisal" to="appraisal_applicable" required="true"/>
+    <transition name="insurance" to="insurance_applicable" required="true"/>
+    <transition name="survey" to="survey_applicable" required="true"/>
+    <transition name="hoa" to="hoa_applicable" required="true"/>
+    <transition name="inspection_deadline" to="inspection_deadline_applicable" required="false"/>
+    <transition name="financing_deadline" to="financing_deadline_applicable" required="false"/>
+  </fork>
+
+  <!-- Title / legal (required) -->
+  <task-node id="title_work" label="Title / Legal" responsibility="title_company"
+    description="Title and legal readiness: search, defects, and cure. Includes jurisdiction-specific closing professional readiness.">
+    <transition name="done" to="join_tracks"/>
+    <transition name="issue" to="title_blocker"/>
+    <transition name="cancel" to="transaction_cancelled"/>
+  </task-node>
+  <task-node id="title_blocker" label="Resolve Title Defect" responsibility="title_company"
+    description="Title defect / cure path (Story 121-F).">
+    <transition name="resolved" to="title_work"/>
+    <transition name="escalate" to="transaction_failed"/>
+  </task-node>
+
+  <!-- Tax / municipal (CRIM) clearance (required) -->
+  <task-node id="tax_clearance" label="Tax / Municipal Clearance" responsibility="brokerage"
+    description="Tax and municipal obligations clear; in PR configuration this is CRIM clearance (fact requiresCrimClearance).">
+    <transition name="done" to="join_tracks"/>
+    <transition name="issue" to="tax_blocker"/>
+    <transition name="cancel" to="transaction_cancelled"/>
+  </task-node>
+  <task-node id="tax_blocker" label="Resolve Tax / CRIM Blocker" responsibility="brokerage"
+    description="Tax/CRIM blocker path (Story 121-J).">
+    <transition name="resolved" to="tax_clearance"/>
+    <transition name="escalate" to="transaction_failed"/>
+  </task-node>
+
+  <!-- Funds readiness (required) -->
+  <task-node id="funds_ready" label="Funds Ready" responsibility="buyer"
+    description="Proof of funds / wire readiness confirmed for the closing.">
+    <transition name="done" to="join_tracks"/>
+    <transition name="issue" to="funds_blocker"/>
+    <transition name="cancel" to="transaction_cancelled"/>
+  </task-node>
+  <task-node id="funds_blocker" label="Resolve Funds" responsibility="buyer"
+    description="Funds-not-ready path (Story 121).">
+    <transition name="resolved" to="funds_ready"/>
+    <transition name="escalate" to="transaction_failed"/>
+  </task-node>
+
+  <!-- Closing-document readiness (required) -->
+  <task-node id="closing_documents" label="Closing Documents" responsibility="brokerage"
+    description="Closing-document readiness: deed, settlement statement, closing package prepared.">
+    <transition name="done" to="join_tracks"/>
+    <transition name="issue" to="closing_documents_blocker"/>
+    <transition name="cancel" to="transaction_cancelled"/>
+  </task-node>
+  <task-node id="closing_documents_blocker" label="Resolve Closing Documents" responsibility="brokerage"
+    description="Closing-document issue path.">
+    <transition name="resolved" to="closing_documents"/>
+    <transition name="escalate" to="transaction_failed"/>
+  </task-node>
+
+  <!-- Inspection (conditional) -->
+  <decision id="inspection_applicable" label="Inspection Applicable" refresh-facts="true"
+    description="Inspection runs only when the inspectionApplicable fact is set; otherwise the branch joins immediately (Story 120).">
+    <on condition="inspectionApplicable == true" transition="run"/>
+    <transition name="skip" to="join_tracks"/>
+    <transition name="run" to="inspection"/>
+  </decision>
+  <task-node id="inspection" label="Inspection" responsibility="inspector"
+    description="Property inspection performed by the independent inspector SME.">
+    <transition name="done" to="join_tracks"/>
+    <transition name="issue" to="inspection_blocker"/>
+    <transition name="cancel" to="transaction_cancelled"/>
+  </task-node>
+  <task-node id="inspection_blocker" label="Resolve Inspection Issue / Repairs" responsibility="inspector"
+    description="Inspection issue / repair negotiation path (Story 121-E).">
+    <transition name="resolved" to="inspection"/>
+    <transition name="escalate" to="transaction_failed"/>
+  </task-node>
+
+  <!-- Inspection-period deadline monitor (CRM-22, OPTIONAL fork branch).
+       Activates only when the inspection track is applicable AND a canonical
+       inspection deadline exists (deal.inspection_deadline — the P&S
+       inspection-period contingency date). With no canonical date the branch
+       joins immediately: NO timer is created and no deadline is invented. If
+       the deadline passes while the inspection is outstanding, the branch
+       escalates to a human task; amending issues deal.set_inspection_deadline
+       and the SAME instance continues (timer re-armed). When the inspection
+       (and every other required track) completes, the join skips this
+       still-active optional branch and cancels its pending timer. -->
+  <decision id="inspection_deadline_applicable" label="Inspection Deadline Applicable" refresh-facts="true"
+    description="The inspection-period deadline monitor activates only when the inspection track is applicable (inspectionApplicable == true); it never invents a deadline for a transaction without an inspection period.">
+    <on condition="inspectionApplicable == true" transition="scheduled"/>
+    <transition name="skip" to="join_tracks"/>
+    <transition name="scheduled" to="inspection_deadline_scheduled"/>
+  </decision>
+  <decision id="inspection_deadline_scheduled" label="Inspection Deadline Scheduled" refresh-facts="true"
+    description="The monitor waits on a timer only when a canonical inspection deadline exists (inspectionDeadlineScheduled == true, from deal.inspection_deadline); with no canonical date the branch joins immediately — a deadline is never invented.">
+    <on condition="inspectionDeadlineScheduled == true" transition="monitor"/>
+    <transition name="skip" to="join_tracks"/>
+    <transition name="monitor" to="inspection_deadline_timer"/>
+  </decision>
+  <timer id="inspection_deadline_timer" label="Inspection Deadline" due-at-variable="inspectionDeadline" on-fire="escalate"
+    description="Waits for the canonical inspection-period deadline (deal.inspection_deadline); reschedules on amendment via the generic deadline-timer seam (CRM-22).">
+    <transition name="escalate" to="inspection_deadline_escalation"/>
+  </timer>
+  <task-node id="inspection_deadline_escalation" label="Inspection Deadline Escalation" responsibility="brokerage"
+    description="The canonical inspection-period deadline (deal.inspection_deadline) has passed. Amend/extend the deadline (deal.set_inspection_deadline) or proceed regardless.">
+    <transition name="extend" to="set_inspection_deadline"/>
+    <transition name="proceed" to="join_tracks"/>
+  </task-node>
+  <command-node id="set_inspection_deadline" label="Amend Inspection Deadline" responsibility="brokerage"
+    command-type="deal.set_inspection_deadline" transition="reschedule">
+    <transition name="reschedule" to="inspection_deadline_timer"/>
+  </command-node>
+
+  <!-- Financing (conditional; independent from appraisal) -->
+  <decision id="financing_applicable" label="Financing Applicable" refresh-facts="true"
+    description="Financing runs only when financingApplicable is true (Story 120; no financing branch for cash).">
+    <on condition="financingApplicable == true" transition="run"/>
+    <transition name="skip" to="join_tracks"/>
+    <transition name="run" to="financing"/>
+  </decision>
+  <task-node id="financing" label="Financing" responsibility="lender"
+    description="Financing processed by the lender; failure terminates the transaction (Story 121-G).">
+    <transition name="done" to="join_tracks"/>
+    <transition name="fail" to="financing_failed"/>
+  </task-node>
+
+  <!-- Financing-commitment deadline monitor (CRM-22, OPTIONAL fork branch).
+       Activates only when financing is applicable AND a canonical financing
+       deadline exists (deal.financing_deadline — the P&S financing-commitment
+       contingency date). With no canonical date the branch joins immediately:
+       NO timer is created and no deadline is invented. If the deadline passes
+       while financing is outstanding, the branch escalates to a human task;
+       amending issues deal.set_financing_deadline and the SAME instance
+       continues (timer re-armed). When financing (and every other required
+       track) completes, the join skips this still-active optional branch and
+       cancels its pending timer. -->
+  <decision id="financing_deadline_applicable" label="Financing Deadline Applicable" refresh-facts="true"
+    description="The financing-commitment deadline monitor activates only when financing is applicable (financingApplicable == true); it never invents a deadline for a cash transaction.">
+    <on condition="financingApplicable == true" transition="scheduled"/>
+    <transition name="skip" to="join_tracks"/>
+    <transition name="scheduled" to="financing_deadline_scheduled"/>
+  </decision>
+  <decision id="financing_deadline_scheduled" label="Financing Deadline Scheduled" refresh-facts="true"
+    description="The monitor waits on a timer only when a canonical financing deadline exists (financingDeadlineScheduled == true, from deal.financing_deadline); with no canonical date the branch joins immediately — a deadline is never invented.">
+    <on condition="financingDeadlineScheduled == true" transition="monitor"/>
+    <transition name="skip" to="join_tracks"/>
+    <transition name="monitor" to="financing_deadline_timer"/>
+  </decision>
+  <timer id="financing_deadline_timer" label="Financing Deadline" due-at-variable="financingDeadline" on-fire="escalate"
+    description="Waits for the canonical financing-commitment deadline (deal.financing_deadline); reschedules on amendment via the generic deadline-timer seam (CRM-22).">
+    <transition name="escalate" to="financing_deadline_escalation"/>
+  </timer>
+  <task-node id="financing_deadline_escalation" label="Financing Deadline Escalation" responsibility="brokerage"
+    description="The canonical financing-commitment deadline (deal.financing_deadline) has passed. Amend/extend the deadline (deal.set_financing_deadline) or proceed regardless.">
+    <transition name="extend" to="set_financing_deadline"/>
+    <transition name="proceed" to="join_tracks"/>
+  </task-node>
+  <command-node id="set_financing_deadline" label="Amend Financing Deadline" responsibility="brokerage"
+    command-type="deal.set_financing_deadline" transition="reschedule">
+    <transition name="reschedule" to="financing_deadline_timer"/>
+  </command-node>
+
+  <!-- Appraisal (conditional; INDEPENDENT of financing — Story 123) -->
+  <decision id="appraisal_applicable" label="Appraisal Applicable" refresh-facts="true"
+    description="Appraisal runs only when appraisalApplicable is true. It is not coupled to financing: cash deals may appraise, financed deals may skip. NULL is never silently skipped: it routes to the explicit appraisal_applicability_unresolved task for human/application resolution (CRM-19).">
+    <on condition="appraisalApplicable == true" transition="run"/>
+    <on condition="appraisalApplicable == null" transition="unresolved"/>
+    <transition name="skip" to="join_tracks"/>
+    <transition name="run" to="appraisal"/>
+    <transition name="unresolved" to="appraisal_applicability_unresolved"/>
+  </decision>
+  <task-node id="appraisal_applicability_unresolved" label="Resolve Appraisal Applicability" responsibility="brokerage"
+    description="The canonical deal.appraisal_required fact is unresolved (null). A human/application must resolve whether an appraisal is required (lender/buyer/seller request) before the branch may proceed. resolved re-evaluates the decision with refreshed facts; escalate terminates the transaction (CRM-19).">
+    <transition name="resolved" to="appraisal_applicable"/>
+    <transition name="escalate" to="transaction_failed"/>
+  </task-node>
+  <task-node id="appraisal" label="Appraisal" responsibility="appraiser"
+    description="Independent appraiser performs the appraisal. Value may become a canonical fact later.">
+    <transition name="done" to="join_tracks"/>
+    <transition name="issue" to="appraisal_blocker"/>
+    <transition name="cancel" to="transaction_cancelled"/>
+  </task-node>
+  <task-node id="appraisal_blocker" label="Resolve Appraisal Gap" responsibility="appraiser"
+    description="Appraisal gap / issue path (Story 121-H).">
+    <transition name="resolved" to="appraisal"/>
+    <transition name="escalate" to="transaction_failed"/>
+  </task-node>
+
+  <!-- Insurance (conditional) -->
+  <decision id="insurance_applicable" label="Insurance Applicable" refresh-facts="true"
+    description="Insurance runs only when insuranceApplicable is true (Story 121-K).">
+    <on condition="insuranceApplicable == true" transition="run"/>
+    <transition name="skip" to="join_tracks"/>
+    <transition name="run" to="insurance"/>
+  </decision>
+  <task-node id="insurance" label="Insurance" responsibility="other_sme"
+    description="Hazard / title insurance binder obtained.">
+    <transition name="done" to="join_tracks"/>
+    <transition name="issue" to="insurance_blocker"/>
+    <transition name="cancel" to="transaction_cancelled"/>
+  </task-node>
+  <task-node id="insurance_blocker" label="Resolve Insurance Blocker" responsibility="other_sme"
+    description="Insurance blocker path (Story 121).">
+    <transition name="resolved" to="insurance"/>
+    <transition name="escalate" to="transaction_failed"/>
+  </task-node>
+
+  <!-- Survey (conditional) -->
+  <decision id="survey_applicable" label="Survey Applicable" refresh-facts="true"
+    description="Survey runs only when requiresSurvey is true (Story 121-K).">
+    <on condition="requiresSurvey == true" transition="run"/>
+    <transition name="skip" to="join_tracks"/>
+    <transition name="run" to="survey"/>
+  </decision>
+  <task-node id="survey" label="Survey" responsibility="other_sme"
+    description="Boundary survey completed when required.">
+    <transition name="done" to="join_tracks"/>
+    <transition name="issue" to="survey_blocker"/>
+    <transition name="cancel" to="transaction_cancelled"/>
+  </task-node>
+  <task-node id="survey_blocker" label="Resolve Survey Issue" responsibility="other_sme"
+    description="Survey issue path (Story 121).">
+    <transition name="resolved" to="survey"/>
+    <transition name="escalate" to="transaction_failed"/>
+  </task-node>
+
+  <!-- HOA / condo (conditional) -->
+  <decision id="hoa_applicable" label="HOA / Condo Applicable" refresh-facts="true"
+    description="HOA/condo clearance runs only when requiresHoaClearance is true (Story 121-K).">
+    <on condition="requiresHoaClearance == true" transition="run"/>
+    <transition name="skip" to="join_tracks"/>
+    <transition name="run" to="hoa_clearance"/>
+  </decision>
+  <task-node id="hoa_clearance" label="HOA / Condo Clearance" responsibility="other_sme"
+    description="HOA/condo estoppel and clearance obtained.">
+    <transition name="done" to="join_tracks"/>
+    <transition name="issue" to="hoa_blocker"/>
+    <transition name="cancel" to="transaction_cancelled"/>
+  </task-node>
+  <task-node id="hoa_blocker" label="Resolve HOA Issue" responsibility="other_sme"
+    description="HOA issue path (Story 121).">
+    <transition name="resolved" to="hoa_clearance"/>
+    <transition name="escalate" to="transaction_failed"/>
+  </task-node>
+
+  <!-- =====================================================================
+       Segment 3 — Closing Readiness (Story 124 / 136 / CRM-20 / CRM-21)
+       Closing readiness is structural + fact-backed + optional confirmation,
+       never a magic boolean. The fork/join already guarantees every applicable
+       required obligation is cleared/waived/resolved before this segment is
+       reached. The closing_documents_gate first requires the canonical
+       closing-document packet to be complete AND signed/final
+       (closingDocumentsReady == true, CRM-21 — derived from the packet catalog
+       + transaction_document signed lineage; false lands in
+       closing_documents_pending and blocks readiness). For financed deals
+       (financingApplicable == true) the canonical lender clear-to-close fact
+       (deal.lender_clear_to_close) must also be true before readiness: null
+       routes to an explicit resolution task, false is a pending state that
+       blocks readiness (CRM-20). Cash/non-financed deals are routed around the
+       lender fact entirely. The gate then only adds the final brokerage
+       confirmation when the closingConfirmationRequired fact is set; otherwise
+       it proceeds straight to ready-to-close. Confirmation cannot override
+       blockers because it comes AFTER the join.
+       ===================================================================== -->
+  <join id="join_tracks" label="Transaction Tracks Joined">
+    <transition name="assess" to="closing_documents_gate"/>
+  </join>
+
+  <decision id="closing_documents_gate" label="Closing Documents Gate" refresh-facts="true"
+    description="CRM-21: closing readiness requires the canonical closing-document packet to be complete AND signed/final. closingDocumentsReady is a deterministic derived fact — from required packet contents and the DOC-01 signed lineage — never a bare human checkmark. false lands in closing_documents_pending and blocks readiness; the gate re-evaluates on resolved.">
+    <on condition="closingDocumentsReady == true" transition="cleared"/>
+    <transition name="pending" to="closing_documents_pending"/>
+    <transition name="cleared" to="closing_readiness_gate"/>
+  </decision>
+
+  <task-node id="closing_documents_pending" label="Closing Documents Pending" responsibility="brokerage"
+    description="The canonical closing-document packet is not yet complete/signed (closingDocumentsReady == false): required closing documents are missing or still in a pre-signed state. Prepare/sign the required closing documents (deed, settlement statement, closing package) and mark this resolved; the gate re-evaluates with refreshed facts. escalate terminates the transaction (CRM-21).">
+    <transition name="resolved" to="closing_documents_gate"/>
+    <transition name="escalate" to="transaction_failed"/>
+  </task-node>
+
+  <decision id="closing_readiness_gate" label="Closing Readiness Gate" refresh-facts="true"
+    description="Eligibility is enforced by the join (all applicable required work cleared) and the closing_documents_gate (closingDocumentsReady == true). Financed deals are routed through the lender clear-to-close gate first; a final brokerage confirmation is added only when closingConfirmationRequired is true.">
+    <on condition="financingApplicable == true" transition="lender"/>
+    <on condition="closingConfirmationRequired == true" transition="confirm"/>
+    <transition name="ready" to="ready_to_close"/>
+    <transition name="lender" to="lender_clearance_gate"/>
+    <transition name="confirm" to="closing_readiness"/>
+  </decision>
+
+  <decision id="lender_clearance_gate" label="Lender Clear-to-Close Gate" refresh-facts="true"
+    description="Financed deals only: the canonical deal.lender_clear_to_close fact must be true before closing readiness. NULL (unresolved) routes to an explicit resolution task; false is a pending state that blocks readiness (CRM-20).">
+    <on condition="lenderClearToClose == true" transition="cleared"/>
+    <on condition="lenderClearToClose == null" transition="unresolved"/>
+    <transition name="pending" to="lender_clearance_pending"/>
+    <transition name="cleared" to="closing_confirmation_gate"/>
+    <transition name="unresolved" to="lender_clearance_resolution"/>
+  </decision>
+
+  <task-node id="lender_clearance_resolution" label="Resolve Lender Clear-to-Close" responsibility="brokerage"
+    description="The canonical deal.lender_clear_to_close fact is unresolved (null). A human/application must record whether the lender has cleared the transaction (true) or not (false) before closing readiness may proceed. resolved re-evaluates the gate with refreshed facts; escalate terminates the transaction (CRM-20).">
+    <transition name="resolved" to="lender_clearance_gate"/>
+    <transition name="escalate" to="transaction_failed"/>
+  </task-node>
+
+  <task-node id="lender_clearance_pending" label="Lender Clearance Pending" responsibility="lender"
+    description="The lender has not cleared the transaction (deal.lender_clear_to_close = false); the deal cannot be closing-ready. When the lender clears, record it (deal.set_lender_clear_to_close) and mark this resolved; the gate re-evaluates with refreshed facts. escalate terminates the transaction (CRM-20).">
+    <transition name="resolved" to="lender_clearance_gate"/>
+    <transition name="escalate" to="transaction_failed"/>
+  </task-node>
+
+  <decision id="closing_confirmation_gate" label="Closing Confirmation Gate" refresh-facts="true"
+    description="Reached after lender clearance (financed) or directly (cash): the final brokerage confirmation is added only when closingConfirmationRequired is true.">
+    <on condition="closingConfirmationRequired == true" transition="confirm"/>
+    <transition name="ready" to="ready_to_close"/>
+    <transition name="confirm" to="closing_readiness"/>
+  </decision>
+
+  <task-node id="closing_readiness" label="Confirm Closing Readiness" responsibility="brokerage"
+    description="Closing coordinator confirms all applicable required work is cleared: P&amp;S terms, title/legal, tax/CRIM, professional ready, funds, lender clear-to-close, appraisal/inspection resolved.">
+    <transition name="resolved" to="ready_to_close"/>
+  </task-node>
+
+
+  <!-- =====================================================================
+       Segment 4 — Closing (Story 122)
+       ready_to_close -> closing task; the target closing date is monitored by
+       an optional deadline branch. If the canonical closing date passes, a
+       closing-date escalation task appears; extending the date (amend) issues
+       deal.set_closing_date and the SAME instance continues — the timer
+       reschedules; the workflow never restarts because a date changed.
+       ===================================================================== -->
+  <state id="ready_to_close" label="Ready to Close" description="All applicable required work is cleared; the transaction may close.">
+    <transition name="schedule" to="closing_schedule"/>
+  </state>
+
+  <fork id="closing_schedule" label="Closing Schedule"
+    description="Required closing branch plus an optional closing-date deadline monitor.">
+    <transition name="closing" to="closing" required="true"/>
+    <transition name="deadline" to="closing_deadline_applicable" required="false"/>
+  </fork>
+
+  <task-node id="closing" label="Closing" responsibility="brokerage"
+    description="Closing conducted by the jurisdiction closing professional (fact closingAgentRole resolves notario vs title/attorney).">
+    <transition name="closed" to="mark_closed"/>
+    <transition name="cancel" to="transaction_cancelled"/>
+  </task-node>
+
+  <command-node id="mark_closed" label="Mark Closed" responsibility="brokerage"
+    command-type="deal.set_stage_closed" transition="to_closed">
+    <transition name="to_closed" to="closed_state"/>
+  </command-node>
+
+  <state id="closed_state" label="Closed" description="Canonical deal.stage is closed; post-closing work may continue.">
+    <transition name="join" to="closing_schedule_join"/>
+  </state>
+
+  <decision id="closing_deadline_applicable" label="Closing Deadline Applicable" refresh-facts="true"
+    description="The closing-date monitor activates only when a canonical closing date is scheduled.">
+    <on condition="closingDateScheduled == true" transition="monitor"/>
+    <transition name="skip" to="closing_schedule_join"/>
+    <transition name="monitor" to="closing_date_timer"/>
+  </decision>
+
+  <timer id="closing_date_timer" label="Target Closing Date" due-at-variable="closingDate" on-fire="escalate"
+    description="Waits for the canonical target closing date; reschedules on amendment via the existing timer seam (Story 122).">
+    <transition name="escalate" to="closing_date_escalation"/>
+  </timer>
+
+  <task-node id="closing_date_escalation" label="Closing Date Escalation" responsibility="brokerage"
+    description="The target closing date passed without closing. Amend/extend the date (Story 121-I) or proceed regardless.">
+    <transition name="extend" to="set_closing_date"/>
+    <transition name="proceed" to="closing_schedule_join"/>
+  </task-node>
+
+  <command-node id="set_closing_date" label="Amend Closing Date" responsibility="brokerage"
+    command-type="deal.set_closing_date" transition="reschedule">
+    <transition name="reschedule" to="closing_date_timer"/>
+  </command-node>
+
+  <join id="closing_schedule_join" label="Closing Complete">
+    <transition name="post" to="post_closing"/>
+  </join>
+
+  <!-- =====================================================================
+       Segment 5 — Post-Closing (Story 125)
+       deal.stage may be closed while the workflow continues recording/registry
+       follow-up. Optional and gated by requiresRegistryFollowup.
+       ===================================================================== -->
+  <state id="post_closing" label="Post-Closing" description="Closed transaction; optional recording / registry follow-up.">
+    <transition name="followup" to="recording_applicable"/>
+  </state>
+
+  <decision id="recording_applicable" label="Recording Applicable" refresh-facts="true"
+    description="Recording / registry follow-up runs only when requiresRegistryFollowup is true (Story 125).">
+    <on condition="requiresRegistryFollowup == true" transition="run"/>
+    <transition name="skip" to="post_closing_complete"/>
+    <transition name="run" to="recording"/>
+  </decision>
+
+  <task-node id="recording" label="Recording / Registry Follow-up" responsibility="other_sme"
+    description="Deed and instruments recorded at the registry; follow-up until recorded.">
+    <transition name="done" to="post_closing_complete"/>
+    <transition name="issue" to="recording_blocker"/>
+    <transition name="cancel" to="transaction_failed"/>
+  </task-node>
+
+  <task-node id="recording_blocker" label="Resolve Recording Blocker" responsibility="other_sme"
+    description="Registry / recording issue path (Story 121-L).">
+    <transition name="resolved" to="recording"/>
+    <transition name="escalate" to="transaction_failed"/>
+  </task-node>
+
+  <!-- =====================================================================
+       Terminal outcomes
+       ===================================================================== -->
+  <end-state id="post_closing_complete" label="Post-Closing Complete" outcome="completed"
+    description="Transaction closed and post-closing follow-up complete."/>
+
+  <end-state id="transaction_cancelled" label="Transaction Cancelled" outcome="cancelled"
+    description="The transaction was cancelled before completion."/>
+
+  <end-state id="transaction_failed" label="Transaction Failed" outcome="failed"
+    description="An unresolvable issue terminated the transaction."/>
+
+  <end-state id="financing_failed" label="Financing Failed" outcome="failed"
+    description="Financing fell through and the transaction failed (Story 121-G)."/>
+
+</process-definition>

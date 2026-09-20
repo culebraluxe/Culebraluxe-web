@@ -426,3 +426,24 @@ pub fn definition_from_xml(source: &str) -> Result<ProcessDefinition, XmlError> 
 }
 
 pub const FORGE_SDLC_V6_XML: &str = include_str!("../../../definitions/FORGE_SDLC-v6.xml");
+
+pub const RE_SUPERMODEL_KEY: &str = "RE_supermodel";
+pub const RE_SUPERMODEL_VERSION: i32 = 1;
+pub const RE_SUPERMODEL_V1_XML: &str = include_str!("../../../definitions/RE_supermodel-v1.xml");
+
+pub fn parse_re_supermodel() -> Result<ProcessDefinition, XmlError> {
+    definition_from_xml(RE_SUPERMODEL_V1_XML)
+}
+
+#[cfg(test)]
+mod re_xml_tests {
+    use super::*;
+    #[test]
+    fn re_supermodel_parses() {
+        let def = parse_re_supermodel().expect("RE_supermodel-v1.xml must parse");
+        assert_eq!(def.key, RE_SUPERMODEL_KEY);
+        assert_eq!(def.version, RE_SUPERMODEL_VERSION);
+        assert!(def.definition.nodes.contains_key(&def.definition.start_node_id));
+        assert!(def.definition.nodes.len() >= 50, "got {}", def.definition.nodes.len());
+    }
+}
