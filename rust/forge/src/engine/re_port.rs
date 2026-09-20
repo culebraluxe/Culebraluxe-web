@@ -9,6 +9,7 @@ use crate::engine::re_commands::*;
 use crate::engine::re_facts::{
     contract_workflow_facts, deal_workflow_facts, resolve_legacy_deal_id_for_contract,
 };
+use crate::engine::re_receipt::{claim_receipt, finalize_receipt};
 use crate::engine::vendor_session::{psql_query, sql_literal};
 
 pub struct ReApplicationPort;
@@ -111,12 +112,45 @@ fn set_column(deal_id: &str, column: &str, value: &str) -> Result<(), String> {
 
 impl ApplicationPort for ReApplicationPort {
     fn execute_command(&self, req: &ApplicationCommandRequest) -> ApplicationCommandResult {
+        let out = self.execute_command_inner(req);
+        if out.message.as_deref() != Some("replayed") {
+            let _ = finalize_receipt(&req.command_id, out.outcome.as_str(), req.subject_id.as_deref(), out.message.as_deref());
+        }
+        out
+    }
+
+    fn read_facts(&self, subject: &WorkflowSubject) -> Value {
+        match subject.subject_type.as_str() {
+            "contract" => contract_workflow_facts(&subject.subject_id),
+            "deal" => deal_workflow_facts(&subject.subject_id),
+            _ => Value::object(),
+        }
+    }
+}
+
+impl ReApplicationPort {
+    fn execute_command_inner(&self, req: &ApplicationCommandRequest) -> ApplicationCommandResult {
         if !is_routed(&req.command_type) {
             return result(
                 &req.command_id,
                 ApplicationCommandOutcome::NotFound,
                 format!("Unknown command type: {}", req.command_type),
             );
+        }
+        match claim_receipt(&req.command_id, None) {
+            Ok(Some(existing)) => {
+                let outcome = match existing.outcome.as_str() {
+                    "success" => ApplicationCommandOutcome::Success,
+                    "conflict" => ApplicationCommandOutcome::Conflict,
+                    "not_found" => ApplicationCommandOutcome::NotFound,
+                    "precondition_failure" => ApplicationCommandOutcome::PreconditionFailure,
+                    "validation_failure" => ApplicationCommandOutcome::ValidationFailure,
+                    _ => ApplicationCommandOutcome::Success,
+                };
+                return result(&req.command_id, outcome, existing.message.unwrap_or_else(|| "replayed".into()));
+            }
+            Ok(None) => {}
+            Err(_) => {}
         }
         if req.subject_type.as_deref() == Some("contract")
             && req.command_type == DEAL_SET_STAGE_UNDER_CONTRACT
@@ -225,13 +259,6 @@ impl ApplicationPort for ReApplicationPort {
         }
     }
 
-    fn read_facts(&self, subject: &WorkflowSubject) -> Value {
-        match subject.subject_type.as_str() {
-            "contract" => contract_workflow_facts(&subject.subject_id),
-            "deal" => deal_workflow_facts(&subject.subject_id),
-            _ => Value::object(),
-        }
-    }
 }
 
 /// Forge commands stay on ForgeApplicationPort; RE commands on ReApplicationPort.

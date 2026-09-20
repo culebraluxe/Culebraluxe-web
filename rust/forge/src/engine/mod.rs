@@ -1,3 +1,5 @@
+pub mod re_runtime;
+pub mod re_receipt;
 pub mod re_port;
 pub mod re_facts;
 pub mod re_commands;
@@ -108,3 +110,5 @@ pub use xml::{parse_re_supermodel, RE_SUPERMODEL_KEY, RE_SUPERMODEL_V1_XML};
 
 pub use re_port::{CompositeApplicationPort, ReApplicationPort};
 pub use re_commands::{XML_COMMAND_NODE_TYPES, assert_command_nodes_routed};
+
+pub use re_runtime::{start_residential_transaction, reconcile_closing_timer, complete_workflow_task};

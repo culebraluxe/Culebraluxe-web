@@ -13,3 +13,7 @@ domain = { path = "../core/domain" }
 db = { path = "../core/db" }
 workflow = { path = "../core/workflow" }
 integrations = { path = "../integrations" }
+
+[[bin]]
+name = "re-workflow"
+path = "src/bin/re_workflow.rs"
