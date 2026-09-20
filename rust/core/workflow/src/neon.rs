@@ -136,14 +136,14 @@ impl Store for NeonTx<'_> {
     }
 
     fn load_definition(
-        &self,
+        &mut self,
         key: &str,
         version: Option<i32>,
         tenant_id: Option<&str>,
     ) -> Result<ProcessDefinition> {
         // Store trait is &self; NeonTx methods that query need &mut for connection.
         // Reborrow via pointer — connection() needs &mut DbTransaction.
-        let this = unsafe { &mut *(self as *const Self as *mut Self) };
+        let this = self;
         let row = match (version, tenant_id) {
             (Some(v), Some(tid)) => fetch_optional_q(
                 this,
@@ -182,8 +182,8 @@ impl Store for NeonTx<'_> {
             .and_then(|r| map_definition(&r))
     }
 
-    fn definition_by_id(&self, id: &str) -> Result<ProcessDefinition> {
-        let this = unsafe { &mut *(self as *const Self as *mut Self) };
+    fn definition_by_id(&mut self, id: &str) -> Result<ProcessDefinition> {
+        let this = self;
         let row = fetch_one_q(
             this,
             sqlx::query(
@@ -254,12 +254,12 @@ impl Store for NeonTx<'_> {
     }
 
     fn find_active_by_subject(
-        &self,
+        &mut self,
         definition_id: &str,
         subject_type: &str,
         subject_id: &str,
     ) -> Result<Option<ProcessInstance>> {
-        let this = unsafe { &mut *(self as *const Self as *mut Self) };
+        let this = self;
         let row = fetch_optional_q(
             this,
             sqlx::query(
@@ -275,8 +275,8 @@ impl Store for NeonTx<'_> {
         }
     }
 
-    fn get_instance(&self, id: &str) -> Result<ProcessInstance> {
-        let this = unsafe { &mut *(self as *const Self as *mut Self) };
+    fn get_instance(&mut self, id: &str) -> Result<ProcessInstance> {
+        let this = self;
         one_instance(this, id, false)
     }
 
@@ -344,8 +344,8 @@ impl Store for NeonTx<'_> {
         Ok(token)
     }
 
-    fn get_token(&self, id: &str) -> Result<Token> {
-        let this = unsafe { &mut *(self as *const Self as *mut Self) };
+    fn get_token(&mut self, id: &str) -> Result<Token> {
+        let this = self;
         one_token(this, id, false)
     }
 
@@ -383,8 +383,8 @@ impl Store for NeonTx<'_> {
         )
     }
 
-    fn count_active_tokens(&self, instance_id: &str) -> Result<i32> {
-        let this = unsafe { &mut *(self as *const Self as *mut Self) };
+    fn count_active_tokens(&mut self, instance_id: &str) -> Result<i32> {
+        let this = self;
         count_sql(
             this,
             "SELECT count(*)::int AS cnt FROM tokens WHERE process_instance_id = $1::uuid AND status = 'active'",
@@ -392,8 +392,8 @@ impl Store for NeonTx<'_> {
         )
     }
 
-    fn list_active_tokens(&self, instance_id: &str) -> Result<Vec<Token>> {
-        let this = unsafe { &mut *(self as *const Self as *mut Self) };
+    fn list_active_tokens(&mut self, instance_id: &str) -> Result<Vec<Token>> {
+        let this = self;
         list_tokens(
             this,
             "SELECT id::text AS id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id, parent_token_id::text AS parent_token_id, node_id, status, outcome, required, is_able_to_reactivate_parent, extract(epoch from started_at)*1000 AS started_at, extract(epoch from ended_at)*1000 AS ended_at, version FROM tokens WHERE process_instance_id = $1::uuid AND status = 'active'",
@@ -401,8 +401,8 @@ impl Store for NeonTx<'_> {
         )
     }
 
-    fn count_required_active_siblings(&self, parent_id: &str) -> Result<i32> {
-        let this = unsafe { &mut *(self as *const Self as *mut Self) };
+    fn count_required_active_siblings(&mut self, parent_id: &str) -> Result<i32> {
+        let this = self;
         count_sql(
             this,
             "SELECT count(*)::int AS cnt FROM tokens
@@ -411,8 +411,8 @@ impl Store for NeonTx<'_> {
         )
     }
 
-    fn list_optional_active_siblings(&self, parent_id: &str) -> Result<Vec<Token>> {
-        let this = unsafe { &mut *(self as *const Self as *mut Self) };
+    fn list_optional_active_siblings(&mut self, parent_id: &str) -> Result<Vec<Token>> {
+        let this = self;
         list_tokens(
             this,
             "SELECT id::text AS id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id, parent_token_id::text AS parent_token_id, node_id, status, outcome, required, is_able_to_reactivate_parent, extract(epoch from started_at)*1000 AS started_at, extract(epoch from ended_at)*1000 AS ended_at, version FROM tokens WHERE parent_token_id = $1::uuid AND status = 'active' AND required = false",
@@ -420,8 +420,8 @@ impl Store for NeonTx<'_> {
         )
     }
 
-    fn list_children(&self, parent_id: &str) -> Result<Vec<Token>> {
-        let this = unsafe { &mut *(self as *const Self as *mut Self) };
+    fn list_children(&mut self, parent_id: &str) -> Result<Vec<Token>> {
+        let this = self;
         list_tokens(
             this,
             "SELECT id::text AS id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id, parent_token_id::text AS parent_token_id, node_id, status, outcome, required, is_able_to_reactivate_parent, extract(epoch from started_at)*1000 AS started_at, extract(epoch from ended_at)*1000 AS ended_at, version FROM tokens WHERE parent_token_id = $1::uuid",
@@ -429,8 +429,8 @@ impl Store for NeonTx<'_> {
         )
     }
 
-    fn tokens_for_instance(&self, instance_id: &str) -> Result<Vec<Token>> {
-        let this = unsafe { &mut *(self as *const Self as *mut Self) };
+    fn tokens_for_instance(&mut self, instance_id: &str) -> Result<Vec<Token>> {
+        let this = self;
         list_tokens(
             this,
             "SELECT id::text AS id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id, parent_token_id::text AS parent_token_id, node_id, status, outcome, required, is_able_to_reactivate_parent, extract(epoch from started_at)*1000 AS started_at, extract(epoch from ended_at)*1000 AS ended_at, version FROM tokens WHERE process_instance_id = $1::uuid ORDER BY started_at",
@@ -468,8 +468,8 @@ impl Store for NeonTx<'_> {
         Ok(task)
     }
 
-    fn get_task(&self, id: &str) -> Result<Task> {
-        let this = unsafe { &mut *(self as *const Self as *mut Self) };
+    fn get_task(&mut self, id: &str) -> Result<Task> {
+        let this = self;
         one_task(this, id, false)
     }
 
@@ -504,8 +504,8 @@ impl Store for NeonTx<'_> {
         Ok(n == 1)
     }
 
-    fn tasks_for_instance(&self, instance_id: &str) -> Result<Vec<Task>> {
-        let this = unsafe { &mut *(self as *const Self as *mut Self) };
+    fn tasks_for_instance(&mut self, instance_id: &str) -> Result<Vec<Task>> {
+        let this = self;
         list_tasks(
             this,
             "SELECT id::text AS id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id, token_id::text AS token_id, node_id, name, description, status, assignee, candidates, swimlane, priority, extract(epoch from due_date)*1000 AS due_date, form_key, form_data::text AS form_data, extract(epoch from created_at)*1000 AS created_at, extract(epoch from claimed_at)*1000 AS claimed_at, extract(epoch from completed_at)*1000 AS completed_at, completed_by, version FROM tasks WHERE process_instance_id = $1::uuid ORDER BY created_at",
@@ -513,8 +513,8 @@ impl Store for NeonTx<'_> {
         )
     }
 
-    fn open_tasks_for_instance(&self, instance_id: &str) -> Result<Vec<Task>> {
-        let this = unsafe { &mut *(self as *const Self as *mut Self) };
+    fn open_tasks_for_instance(&mut self, instance_id: &str) -> Result<Vec<Task>> {
+        let this = self;
         list_tasks(
             this,
             "SELECT id::text AS id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id, token_id::text AS token_id, node_id, name, description, status, assignee, candidates, swimlane, priority, extract(epoch from due_date)*1000 AS due_date, form_key, form_data::text AS form_data, extract(epoch from created_at)*1000 AS created_at, extract(epoch from claimed_at)*1000 AS claimed_at, extract(epoch from completed_at)*1000 AS completed_at, completed_by, version FROM tasks WHERE process_instance_id = $1::uuid AND status IN ('ready','reserved','in_progress')",
@@ -522,8 +522,8 @@ impl Store for NeonTx<'_> {
         )
     }
 
-    fn open_tasks_for_token(&self, token_id: &str) -> Result<Vec<Task>> {
-        let this = unsafe { &mut *(self as *const Self as *mut Self) };
+    fn open_tasks_for_token(&mut self, token_id: &str) -> Result<Vec<Task>> {
+        let this = self;
         list_tasks(
             this,
             "SELECT id::text AS id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id, token_id::text AS token_id, node_id, name, description, status, assignee, candidates, swimlane, priority, extract(epoch from due_date)*1000 AS due_date, form_key, form_data::text AS form_data, extract(epoch from created_at)*1000 AS created_at, extract(epoch from claimed_at)*1000 AS claimed_at, extract(epoch from completed_at)*1000 AS completed_at, completed_by, version FROM tasks WHERE token_id = $1::uuid AND status IN ('ready','reserved','in_progress')",
@@ -531,8 +531,8 @@ impl Store for NeonTx<'_> {
         )
     }
 
-    fn active_tasks_for_user(&self, user_id: &str, tenant_id: Option<&str>) -> Result<Vec<Task>> {
-        let this = unsafe { &mut *(self as *const Self as *mut Self) };
+    fn active_tasks_for_user(&mut self, user_id: &str, tenant_id: Option<&str>) -> Result<Vec<Task>> {
+        let this = self;
         let rows = if let Some(tid) = tenant_id {
             fetch_all_q(
                 this,
@@ -594,8 +594,8 @@ impl Store for NeonTx<'_> {
         Ok(job)
     }
 
-    fn get_job(&self, id: &str) -> Result<Job> {
-        let this = unsafe { &mut *(self as *const Self as *mut Self) };
+    fn get_job(&mut self, id: &str) -> Result<Job> {
+        let this = self;
         one_job(this, id, false)
     }
 
@@ -688,8 +688,8 @@ impl Store for NeonTx<'_> {
         Ok(n as usize)
     }
 
-    fn open_jobs_for_instance(&self, instance_id: &str) -> Result<Vec<Job>> {
-        let this = unsafe { &mut *(self as *const Self as *mut Self) };
+    fn open_jobs_for_instance(&mut self, instance_id: &str) -> Result<Vec<Job>> {
+        let this = self;
         list_jobs(
             this,
             "SELECT id::text AS id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id, token_id::text AS token_id, type AS job_type, extract(epoch from due_at)*1000 AS due_at, status, locked_by, extract(epoch from locked_until)*1000 AS locked_until, attempts, max_attempts, payload::text AS payload, last_error, extract(epoch from created_at)*1000 AS created_at, extract(epoch from updated_at)*1000 AS updated_at, extract(epoch from completed_at)*1000 AS completed_at FROM jobs WHERE process_instance_id = $1::uuid AND status IN ('pending','locked')",
@@ -697,8 +697,8 @@ impl Store for NeonTx<'_> {
         )
     }
 
-    fn open_jobs_for_token(&self, token_id: &str) -> Result<Vec<Job>> {
-        let this = unsafe { &mut *(self as *const Self as *mut Self) };
+    fn open_jobs_for_token(&mut self, token_id: &str) -> Result<Vec<Job>> {
+        let this = self;
         list_jobs(
             this,
             "SELECT id::text AS id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id, token_id::text AS token_id, type AS job_type, extract(epoch from due_at)*1000 AS due_at, status, locked_by, extract(epoch from locked_until)*1000 AS locked_until, attempts, max_attempts, payload::text AS payload, last_error, extract(epoch from created_at)*1000 AS created_at, extract(epoch from updated_at)*1000 AS updated_at, extract(epoch from completed_at)*1000 AS completed_at FROM jobs WHERE token_id = $1::uuid AND status IN ('pending','locked')",
@@ -706,8 +706,8 @@ impl Store for NeonTx<'_> {
         )
     }
 
-    fn list_overdue_jobs(&self, now: i64, limit: usize) -> Result<Vec<Job>> {
-        let this = unsafe { &mut *(self as *const Self as *mut Self) };
+    fn list_overdue_jobs(&mut self, now: i64, limit: usize) -> Result<Vec<Job>> {
+        let this = self;
         let rows = fetch_all_q(
             this,
             sqlx::query(
@@ -772,8 +772,8 @@ impl Store for NeonTx<'_> {
         Ok(())
     }
 
-    fn history(&self, instance_id: &str, limit: usize) -> Result<Vec<ProcessEvent>> {
-        let this = unsafe { &mut *(self as *const Self as *mut Self) };
+    fn history(&mut self, instance_id: &str, limit: usize) -> Result<Vec<ProcessEvent>> {
+        let this = self;
         let sql = "SELECT id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id,
                     token_id::text AS token_id, task_id::text AS task_id, job_id::text AS job_id,
                     event_type, node_id, actor, data::text AS data,
@@ -806,8 +806,8 @@ impl Store for NeonTx<'_> {
             .collect())
     }
 
-    fn command_visit_count(&self, instance_id: &str, node_id: &str) -> Result<i32> {
-        let this = unsafe { &mut *(self as *const Self as *mut Self) };
+    fn command_visit_count(&mut self, instance_id: &str, node_id: &str) -> Result<i32> {
+        let this = self;
         let row = fetch_one_q(
             this,
             sqlx::query(
@@ -850,7 +850,7 @@ impl Store for NeonTx<'_> {
     }
 
     fn find_instances(
-        &self,
+        &mut self,
         tenant_id: Option<&str>,
         status: Option<&[ProcessStatus]>,
         definition_key: Option<&str>,
@@ -858,7 +858,7 @@ impl Store for NeonTx<'_> {
         limit: usize,
         offset: usize,
     ) -> Result<Vec<ProcessInstance>> {
-        let this = unsafe { &mut *(self as *const Self as *mut Self) };
+        let this = self;
         let mut qb = QueryBuilder::<Postgres>::new(
             "SELECT pi.id::text AS id, pi.tenant_id::text AS tenant_id, \
              pi.definition_id::text AS definition_id, pi.business_key, \

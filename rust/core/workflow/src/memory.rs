@@ -75,7 +75,7 @@ impl Store for MemoryTx<'_> {
     }
 
     fn load_definition(
-        &self,
+        &mut self,
         key: &str,
         version: Option<i32>,
         tenant_id: Option<&str>,
@@ -102,7 +102,7 @@ impl Store for MemoryTx<'_> {
             .ok_or_else(|| WorkflowError::generic(format!("Process definition not found: {key}")))
     }
 
-    fn definition_by_id(&self, id: &str) -> Result<ProcessDefinition> {
+    fn definition_by_id(&mut self, id: &str) -> Result<ProcessDefinition> {
         self.inner
             .definitions
             .get(id)
@@ -134,7 +134,7 @@ impl Store for MemoryTx<'_> {
     }
 
     fn find_active_by_subject(
-        &self,
+        &mut self,
         definition_id: &str,
         subject_type: &str,
         subject_id: &str,
@@ -157,7 +157,7 @@ impl Store for MemoryTx<'_> {
         Ok(())
     }
 
-    fn get_instance(&self, id: &str) -> Result<ProcessInstance> {
+    fn get_instance(&mut self, id: &str) -> Result<ProcessInstance> {
         self.inner
             .instances
             .get(id)
@@ -204,7 +204,7 @@ impl Store for MemoryTx<'_> {
         Ok(token)
     }
 
-    fn get_token(&self, id: &str) -> Result<Token> {
+    fn get_token(&mut self, id: &str) -> Result<Token> {
         self.inner
             .tokens
             .get(id)
@@ -242,7 +242,7 @@ impl Store for MemoryTx<'_> {
         Ok(())
     }
 
-    fn count_active_tokens(&self, instance_id: &str) -> Result<i32> {
+    fn count_active_tokens(&mut self, instance_id: &str) -> Result<i32> {
         Ok(self
             .inner
             .tokens
@@ -251,7 +251,7 @@ impl Store for MemoryTx<'_> {
             .count() as i32)
     }
 
-    fn list_active_tokens(&self, instance_id: &str) -> Result<Vec<Token>> {
+    fn list_active_tokens(&mut self, instance_id: &str) -> Result<Vec<Token>> {
         Ok(self
             .inner
             .tokens
@@ -261,7 +261,7 @@ impl Store for MemoryTx<'_> {
             .collect())
     }
 
-    fn count_required_active_siblings(&self, parent_id: &str) -> Result<i32> {
+    fn count_required_active_siblings(&mut self, parent_id: &str) -> Result<i32> {
         Ok(self
             .inner
             .tokens
@@ -274,7 +274,7 @@ impl Store for MemoryTx<'_> {
             .count() as i32)
     }
 
-    fn list_optional_active_siblings(&self, parent_id: &str) -> Result<Vec<Token>> {
+    fn list_optional_active_siblings(&mut self, parent_id: &str) -> Result<Vec<Token>> {
         Ok(self
             .inner
             .tokens
@@ -288,7 +288,7 @@ impl Store for MemoryTx<'_> {
             .collect())
     }
 
-    fn list_children(&self, parent_id: &str) -> Result<Vec<Token>> {
+    fn list_children(&mut self, parent_id: &str) -> Result<Vec<Token>> {
         Ok(self
             .inner
             .tokens
@@ -298,7 +298,7 @@ impl Store for MemoryTx<'_> {
             .collect())
     }
 
-    fn tokens_for_instance(&self, instance_id: &str) -> Result<Vec<Token>> {
+    fn tokens_for_instance(&mut self, instance_id: &str) -> Result<Vec<Token>> {
         let mut v: Vec<_> = self
             .inner
             .tokens
@@ -315,7 +315,7 @@ impl Store for MemoryTx<'_> {
         Ok(task)
     }
 
-    fn get_task(&self, id: &str) -> Result<Task> {
+    fn get_task(&mut self, id: &str) -> Result<Task> {
         self.inner
             .tasks
             .get(id)
@@ -357,7 +357,7 @@ impl Store for MemoryTx<'_> {
         }
     }
 
-    fn tasks_for_instance(&self, instance_id: &str) -> Result<Vec<Task>> {
+    fn tasks_for_instance(&mut self, instance_id: &str) -> Result<Vec<Task>> {
         let mut v: Vec<_> = self
             .inner
             .tasks
@@ -369,7 +369,7 @@ impl Store for MemoryTx<'_> {
         Ok(v)
     }
 
-    fn open_tasks_for_instance(&self, instance_id: &str) -> Result<Vec<Task>> {
+    fn open_tasks_for_instance(&mut self, instance_id: &str) -> Result<Vec<Task>> {
         Ok(self
             .inner
             .tasks
@@ -379,7 +379,7 @@ impl Store for MemoryTx<'_> {
             .collect())
     }
 
-    fn open_tasks_for_token(&self, token_id: &str) -> Result<Vec<Task>> {
+    fn open_tasks_for_token(&mut self, token_id: &str) -> Result<Vec<Task>> {
         Ok(self
             .inner
             .tasks
@@ -389,7 +389,7 @@ impl Store for MemoryTx<'_> {
             .collect())
     }
 
-    fn active_tasks_for_user(&self, user_id: &str, tenant_id: Option<&str>) -> Result<Vec<Task>> {
+    fn active_tasks_for_user(&mut self, user_id: &str, tenant_id: Option<&str>) -> Result<Vec<Task>> {
         Ok(self
             .inner
             .tasks
@@ -425,7 +425,7 @@ impl Store for MemoryTx<'_> {
         Ok(job)
     }
 
-    fn get_job(&self, id: &str) -> Result<Job> {
+    fn get_job(&mut self, id: &str) -> Result<Job> {
         self.inner
             .jobs
             .get(id)
@@ -506,7 +506,7 @@ impl Store for MemoryTx<'_> {
         Ok(n)
     }
 
-    fn open_jobs_for_instance(&self, instance_id: &str) -> Result<Vec<Job>> {
+    fn open_jobs_for_instance(&mut self, instance_id: &str) -> Result<Vec<Job>> {
         Ok(self
             .inner
             .jobs
@@ -519,7 +519,7 @@ impl Store for MemoryTx<'_> {
             .collect())
     }
 
-    fn open_jobs_for_token(&self, token_id: &str) -> Result<Vec<Job>> {
+    fn open_jobs_for_token(&mut self, token_id: &str) -> Result<Vec<Job>> {
         Ok(self
             .inner
             .jobs
@@ -532,7 +532,7 @@ impl Store for MemoryTx<'_> {
             .collect())
     }
 
-    fn list_overdue_jobs(&self, now: i64, limit: usize) -> Result<Vec<Job>> {
+    fn list_overdue_jobs(&mut self, now: i64, limit: usize) -> Result<Vec<Job>> {
         let mut v: Vec<_> = self
             .inner
             .jobs
@@ -552,7 +552,7 @@ impl Store for MemoryTx<'_> {
         Ok(())
     }
 
-    fn history(&self, instance_id: &str, limit: usize) -> Result<Vec<ProcessEvent>> {
+    fn history(&mut self, instance_id: &str, limit: usize) -> Result<Vec<ProcessEvent>> {
         let mut v: Vec<_> = self
             .inner
             .events
@@ -565,7 +565,7 @@ impl Store for MemoryTx<'_> {
         Ok(v)
     }
 
-    fn command_visit_count(&self, instance_id: &str, node_id: &str) -> Result<i32> {
+    fn command_visit_count(&mut self, instance_id: &str, node_id: &str) -> Result<i32> {
         Ok(self
             .inner
             .commands
@@ -604,7 +604,7 @@ impl Store for MemoryTx<'_> {
     }
 
     fn find_instances(
-        &self,
+        &mut self,
         tenant_id: Option<&str>,
         status: Option<&[ProcessStatus]>,
         definition_key: Option<&str>,
