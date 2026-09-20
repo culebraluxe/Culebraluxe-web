@@ -153,3 +153,77 @@ export async function rustApiRead<T>(
 
   return payload
 }
+
+
+/**
+ * Multipart write bridge for commands that are already authenticated and
+ * validated at the Next edge. Rust re-resolves the canonical user and owns the
+ * business transaction.
+ */
+export async function rustApiWriteForm<T>(
+  path: `/v1/${string}`,
+  formData: FormData,
+  options: RustApiReadOptions = {},
+): Promise<RustApiSuccess<T>> {
+  const identity = await createAuthJsSessionAdapter().getSession()
+  if (!identity) {
+    throw new RustApiError({
+      status: 401,
+      code: 'AUTH_IDENTITY_REQUIRED',
+      message: 'An authenticated provider identity is required.',
+    })
+  }
+
+  const correlationId = options.correlationId?.trim() || randomUUID()
+  const headers = buildRustBridgeHeaders({
+    identity,
+    internalApiKey: internalApiKey(),
+    correlationId,
+    causationId: options.causationId,
+  })
+
+  let response: Response
+  try {
+    response = await fetch(`${rustApiBaseUrl()}${path}`, {
+      method: 'POST',
+      headers,
+      body: formData,
+      cache: 'no-store',
+    })
+  } catch (cause) {
+    throw new RustApiError({
+      status: 503,
+      code: 'RUST_API_UNAVAILABLE',
+      message: cause instanceof Error ? cause.message : 'Rust API request failed.',
+      retryable: true,
+      correlationId,
+    })
+  }
+
+  let payload: RustApiSuccess<T> | RustApiFailure
+  try {
+    payload = (await response.json()) as RustApiSuccess<T> | RustApiFailure
+  } catch {
+    throw new RustApiError({
+      status: 502,
+      code: 'RUST_API_INVALID_RESPONSE',
+      message: 'Rust API returned a non-JSON response.',
+      retryable: true,
+      correlationId,
+    })
+  }
+
+  if (!response.ok || !payload.ok) {
+    const failure = payload as RustApiFailure
+    throw new RustApiError({
+      status: response.status,
+      code: failure.error?.code ?? 'RUST_API_FAILURE',
+      message: failure.error?.message ?? 'Rust API request failed.',
+      retryable: failure.error?.retryable ?? response.status >= 500,
+      correlationId: failure.correlationId ?? correlationId,
+      incidentId: failure.error?.incidentId ?? null,
+    })
+  }
+
+  return payload
+}
