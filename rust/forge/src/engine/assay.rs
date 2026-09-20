@@ -10,6 +10,7 @@ pub struct CommandResult {
     pub passed: bool,
     pub excerpt: String,
     pub unmeasurable: bool,
+    pub output: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

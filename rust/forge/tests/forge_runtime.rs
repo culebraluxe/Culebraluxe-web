@@ -519,6 +519,7 @@ impl runner::RoleHarness for ScriptedHarness {
             passed: self.cmd_ok,
             excerpt: String::new(),
             unmeasurable: false,
+            output: String::new(),
         }
     }
 }

@@ -266,6 +266,7 @@ impl RoleHarness for OpenCodeHarness {
                     passed: code == 0,
                     excerpt: text.chars().take(240).collect(),
                     unmeasurable: false,
+                    output: text.to_string(),
                 }
             }
             Err(e) => CommandResult {
@@ -274,6 +275,7 @@ impl RoleHarness for OpenCodeHarness {
                 passed: false,
                 excerpt: e.to_string(),
                 unmeasurable: true,
+                output: String::new(),
             },
         }
     }
