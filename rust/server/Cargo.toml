@@ -13,6 +13,7 @@ db = { path = "../core/db" }
 domain = { path = "../core/domain" }
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 service = { path = "../core/service" }
 thiserror.workspace = true
 tokio.workspace = true
