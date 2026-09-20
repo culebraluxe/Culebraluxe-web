@@ -1,8 +1,16 @@
 //! Port of forge-architect-directive.ts.
 
 pub fn build_architect_directive(base_ref: &str, frozen_proofs: &[String]) -> String {
-    let proofs: Vec<_> = frozen_proofs.iter().map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
-    let base = if base_ref.is_empty() { "<missing — HOLD if you cannot name the SHA you inspected>" } else { base_ref };
+    let proofs: Vec<_> = frozen_proofs
+        .iter()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let base = if base_ref.is_empty() {
+        "<missing — HOLD if you cannot name the SHA you inspected>"
+    } else {
+        base_ref
+    };
     format!(
         "ARCHITECT: survey the frozen story against the pinned baseRef. Do not implement. Do not choose SOLO/SMITH/SPLIT.\n\
 baseRef={base}\n\

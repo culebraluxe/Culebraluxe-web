@@ -139,7 +139,12 @@ mod tests {
             Some("challenge".into())
         );
         assert_eq!(
-            verify_handshake(Some("subscribe"), Some("wrong"), Some("challenge"), &expected),
+            verify_handshake(
+                Some("subscribe"),
+                Some("wrong"),
+                Some("challenge"),
+                &expected
+            ),
             None
         );
     }

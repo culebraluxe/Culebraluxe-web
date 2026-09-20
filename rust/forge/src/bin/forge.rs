@@ -8,10 +8,10 @@ use forge::engine::facts::ForgeGateEvidence;
 use forge::engine::git_publish::{GitReleaseOps, HostReleaseExecutor};
 use forge::engine::opencode::OpenCodeHarness;
 use forge::engine::packet::{ExecutionWorkspace, StoryPacket};
-use forge::engine::worktree::{provision_worker_workspace, resolve_approved_base_ref};
 use forge::engine::runner::ProductionRoleRunner;
 use forge::engine::runtime::ForgeRuntime;
 use forge::engine::vendor_session::database_url;
+use forge::engine::worktree::{provision_worker_workspace, resolve_approved_base_ref};
 use forge::engine::writer::{ForgeReleaseExecutor, ForgeStateWriter, NullWriter};
 use std::env;
 use std::sync::Arc;
@@ -27,7 +27,9 @@ fn main() {
         .or_else(|| env::var("FORGE_STORY_ID").ok())
         .unwrap_or_default();
     if story.trim().is_empty() {
-        eprintln!("usage: forge --story <id> [--work-type FEATURE|FAST|BUG|HOTFIX|RESEARCH|MIGRATION]");
+        eprintln!(
+            "usage: forge --story <id> [--work-type FEATURE|FAST|BUG|HOTFIX|RESEARCH|MIGRATION]"
+        );
         std::process::exit(2);
     }
     let work_type = flag(&args, "--work-type")
@@ -72,7 +74,12 @@ fn main() {
             None,
         ) {
             Ok(ws) => {
-                eprintln!("worktree {} branch {} base {}", ws.worktree_path.display(), ws.branch_name, ws.base_commit);
+                eprintln!(
+                    "worktree {} branch {} base {}",
+                    ws.worktree_path.display(),
+                    ws.branch_name,
+                    ws.base_commit
+                );
                 harness.workspace = ws.worktree_path.clone();
                 harness.execution_workspace = Some(ExecutionWorkspace {
                     worktree_path: ws.worktree_path.display().to_string(),

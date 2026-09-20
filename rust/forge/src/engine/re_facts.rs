@@ -55,7 +55,10 @@ pub fn resolve_legacy_deal_id_for_contract(contract_id: &str) -> Option<String> 
          WHERE c.id = {} LIMIT 1",
         sql_literal(contract_id)
     );
-    psql_query(&sql).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty() && s != "\\N")
+    psql_query(&sql)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty() && s != "\\N")
 }
 
 pub fn deal_workflow_facts(deal_id: &str) -> Value {
@@ -94,12 +97,33 @@ pub fn deal_workflow_facts(deal_id: &str) -> Value {
     insert_str_opt(&mut facts, "inspectionDeadline", inspection);
     insert_str_opt(&mut facts, "financingDeadline", financing_dl);
     facts.insert("closingDateScheduled", Value::from(closing_date.is_some()));
-    facts.insert("inspectionDeadlineScheduled", Value::from(inspection.is_some()));
-    facts.insert("financingDeadlineScheduled", Value::from(financing_dl.is_some()));
-    insert_bool_opt(&mut facts, "financingApplicable", financing_applicable_from_type(financing_type));
-    insert_bool_opt(&mut facts, "appraisalApplicable", appraisal_applicable_from_required(appraisal));
-    insert_bool_opt(&mut facts, "lenderClearToClose", appraisal_applicable_from_required(lender));
-    facts.insert("closingDocumentsReady", Value::from(closing_documents_ready(deal_id)));
+    facts.insert(
+        "inspectionDeadlineScheduled",
+        Value::from(inspection.is_some()),
+    );
+    facts.insert(
+        "financingDeadlineScheduled",
+        Value::from(financing_dl.is_some()),
+    );
+    insert_bool_opt(
+        &mut facts,
+        "financingApplicable",
+        financing_applicable_from_type(financing_type),
+    );
+    insert_bool_opt(
+        &mut facts,
+        "appraisalApplicable",
+        appraisal_applicable_from_required(appraisal),
+    );
+    insert_bool_opt(
+        &mut facts,
+        "lenderClearToClose",
+        appraisal_applicable_from_required(lender),
+    );
+    facts.insert(
+        "closingDocumentsReady",
+        Value::from(closing_documents_ready(deal_id)),
+    );
     facts
 }
 

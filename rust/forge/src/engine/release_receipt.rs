@@ -16,8 +16,24 @@ pub struct ReleaseEvidence {
 }
 
 const PLACEHOLDERS: &[&str] = &[
-    "n/a", "na", "none", "null", "nil", "tbd", "todo", "unknown", "placeholder",
-    "synthetic", "fake", "mock", "dummy", "test", "manual", "waived", "x", "-",
+    "n/a",
+    "na",
+    "none",
+    "null",
+    "nil",
+    "tbd",
+    "todo",
+    "unknown",
+    "placeholder",
+    "synthetic",
+    "fake",
+    "mock",
+    "dummy",
+    "test",
+    "manual",
+    "waived",
+    "x",
+    "-",
 ];
 
 pub fn is_placeholder_receipt_id(receipt_id: Option<&str>) -> bool {
@@ -71,7 +87,10 @@ pub fn assess_release_receipt(receipt: Option<&ReleaseEvidence>) -> ReceiptAsses
             )),
         };
     }
-    ReceiptAssessment { ok: true, reason: None }
+    ReceiptAssessment {
+        ok: true,
+        reason: None,
+    }
 }
 
 pub fn deployment_receipt_failure_reason(
@@ -88,7 +107,10 @@ pub fn deployment_receipt_failure_reason(
     let receipt = receipt.unwrap();
     let published = published_sha.unwrap().trim().to_ascii_lowercase();
     let artifact = receipt.artifact_sha.trim().to_ascii_lowercase();
-    if published != artifact && !published.starts_with(&artifact) && !artifact.starts_with(&published) {
+    if published != artifact
+        && !published.starts_with(&artifact)
+        && !artifact.starts_with(&published)
+    {
         return Some(format!(
             "published sha {published} does not match deployed artifact {}",
             receipt.artifact_sha

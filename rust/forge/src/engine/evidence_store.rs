@@ -11,8 +11,16 @@ pub fn merge_forge_workflow_evidence(
 ) -> Result<(), String> {
     let pid = sql_literal(process_instance_id);
     let sid = sql_literal(story_id);
-    let clear = if release_failure_resolved { "true" } else { "false" };
-    let opt = |v: &Option<String>| v.as_deref().map(sql_literal).unwrap_or_else(|| "NULL".into());
+    let clear = if release_failure_resolved {
+        "true"
+    } else {
+        "false"
+    };
+    let opt = |v: &Option<String>| {
+        v.as_deref()
+            .map(sql_literal)
+            .unwrap_or_else(|| "NULL".into())
+    };
     let opt_bool = |v: Option<bool>| match v {
         Some(true) => String::from("true"),
         Some(false) => String::from("false"),

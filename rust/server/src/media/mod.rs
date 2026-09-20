@@ -132,5 +132,4 @@ impl<R: MediaRepository> MediaService<R> {
         audit_result(&self.runtime, "media", OP, context, decision, &result).await?;
         result
     }
-
 }

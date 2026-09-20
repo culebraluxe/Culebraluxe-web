@@ -1,7 +1,7 @@
 //! Port of workflow_app/definitions/deploy.ts. Same process_definitions table.
 
-use crate::engine::version_policy::{classify_deploy, DeployDecision};
 use crate::engine::vendor_session::{psql_query, sql_literal};
+use crate::engine::version_policy::{classify_deploy, DeployDecision};
 use crate::engine::xml::definition_from_xml;
 use workflow::json_codec::{graph_from_json, graph_to_json};
 
@@ -21,7 +21,9 @@ pub struct DeployDefinitionResult {
     pub created: bool,
 }
 
-pub fn upsert_process_definition(input: DeployDefinitionInput) -> Result<DeployDefinitionResult, String> {
+pub fn upsert_process_definition(
+    input: DeployDefinitionInput,
+) -> Result<DeployDefinitionResult, String> {
     let incoming = graph_from_json(&input.graph_json).map_err(|e| e.to_string())?;
     let key = sql_literal(&input.key);
     let existing = psql_query(&format!(
@@ -41,7 +43,10 @@ pub fn upsert_process_definition(input: DeployDefinitionInput) -> Result<DeployD
         let cnt: i32 = used.trim().parse().unwrap_or(0);
         match classify_deploy(true, cnt, previous.as_ref(), &incoming) {
             DeployDecision::Reject { message } => {
-                return Err(format!("{message} (definition '{}' v{})", input.key, input.version));
+                return Err(format!(
+                    "{message} (definition '{}' v{})",
+                    input.key, input.version
+                ));
             }
             _ => {}
         }

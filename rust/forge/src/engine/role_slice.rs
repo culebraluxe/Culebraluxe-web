@@ -26,7 +26,10 @@ pub enum RoutingReview {
     Ok { proposal: LeadProposal },
 }
 
-pub fn assay_route_arrangement(review: &RoutingReview, proofs: &[String]) -> Option<VerifyExistingArrangement> {
+pub fn assay_route_arrangement(
+    review: &RoutingReview,
+    proofs: &[String],
+) -> Option<VerifyExistingArrangement> {
     let RoutingReview::Ok { proposal } = review else {
         return None;
     };
@@ -122,7 +125,11 @@ pub fn derive_release_evidence(
         "origin/main",
         |sha, r#ref| Ok(git_is_ancestor(cwd, sha, r#ref)),
         None,
-        if proofs.is_empty() { None } else { Some(proofs.to_vec()) },
+        if proofs.is_empty() {
+            None
+        } else {
+            Some(proofs.to_vec())
+        },
     );
     release_evidence_from_integration(&attestation)
 }
@@ -157,7 +164,10 @@ mod tests {
         let mut form = BTreeMap::new();
         form.insert(
             "surface".into(),
-            Value::Array(vec![Value::String("src/a.rs".into()), Value::String("src/b.rs".into())]),
+            Value::Array(vec![
+                Value::String("src/a.rs".into()),
+                Value::String("src/b.rs".into()),
+            ]),
         );
         let surface = forge_lane_surface(Some(&Value::Object(form))).unwrap();
         assert_eq!(surface, vec!["src/a.rs", "src/b.rs"]);

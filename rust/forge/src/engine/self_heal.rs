@@ -53,7 +53,8 @@ mod tests {
     #[test]
     fn prior_reply_is_tailed_not_headed() {
         let prior = format!("{}END-CONTRACT", "x".repeat(4010));
-        let d = build_self_heal_directive("lead", &["leadDecision".into()], None, &[], Some(&prior));
+        let d =
+            build_self_heal_directive("lead", &["leadDecision".into()], None, &[], Some(&prior));
         assert!(d.contains("END-CONTRACT"));
         assert!(d.contains("repair this"));
         assert!(!d.contains(&"x".repeat(20).repeat(10)[..20]) || d.contains("END-CONTRACT"));

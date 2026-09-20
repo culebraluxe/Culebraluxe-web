@@ -389,7 +389,11 @@ impl Store for MemoryTx<'_> {
             .collect())
     }
 
-    fn active_tasks_for_user(&mut self, user_id: &str, tenant_id: Option<&str>) -> Result<Vec<Task>> {
+    fn active_tasks_for_user(
+        &mut self,
+        user_id: &str,
+        tenant_id: Option<&str>,
+    ) -> Result<Vec<Task>> {
         Ok(self
             .inner
             .tasks

@@ -121,8 +121,7 @@ impl<R: ClientRepository> ClientService<R> {
             };
             let (rows, total) = self.repository.directory_page(&normalized).await?;
             let person_ids: Vec<String> = rows.iter().map(|row| row.id.clone()).collect();
-            let evidence =
-                group_evidence(self.repository.evidence_for_people(&person_ids).await?);
+            let evidence = group_evidence(self.repository.evidence_for_people(&person_ids).await?);
             let rows = rows
                 .into_iter()
                 .map(|row| ClientSummary {
@@ -292,10 +291,7 @@ impl<R: ClientRepository> ClientService<R> {
                 .into_iter()
                 .filter_map(|(id, row)| (id == request.person_id).then_some(row))
                 .collect();
-            let covered_sources = self
-                .repository
-                .covered_sources(&request.person_id)
-                .await?;
+            let covered_sources = self.repository.covered_sources(&request.person_id).await?;
             Ok(build_contact_history(
                 events,
                 &evidence,

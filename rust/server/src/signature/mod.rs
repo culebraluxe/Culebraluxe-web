@@ -498,10 +498,7 @@ impl<R: SignatureRepository> SignatureService<R> {
                     .download_signed_artifact(signature_request_id)
                     .await
                     .map_err(|message| {
-                        CoreServiceError::business(
-                            "SIGNATURE_ARTIFACT_DOWNLOAD_FAILED",
-                            message,
-                        )
+                        CoreServiceError::business("SIGNATURE_ARTIFACT_DOWNLOAD_FAILED", message)
                     })?,
             )
         } else {
@@ -607,9 +604,9 @@ impl<R: SignatureRepository> SignatureService<R> {
                 if reconciliation.outcome != SignatureCommandOutcome::Success {
                     return Err(CoreServiceError::business(
                         "SIGNATURE_RECONCILIATION_FAILED",
-                        reconciliation.message.unwrap_or_else(|| {
-                            "Signed-artifact reconciliation failed.".into()
-                        }),
+                        reconciliation
+                            .message
+                            .unwrap_or_else(|| "Signed-artifact reconciliation failed.".into()),
                     ));
                 }
             }

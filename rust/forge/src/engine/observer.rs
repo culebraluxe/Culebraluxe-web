@@ -2,7 +2,12 @@
 
 use crate::engine::vendor_session::{psql_query, sql_literal};
 
-pub fn record_forge_observer(story_id: &str, node_id: &str, event_type: &str, summary: &str) -> Result<(), String> {
+pub fn record_forge_observer(
+    story_id: &str,
+    node_id: &str,
+    event_type: &str,
+    summary: &str,
+) -> Result<(), String> {
     let event_id = format!("forge:{story_id}:{node_id}:{event_type}");
     let sql = format!(
         "INSERT INTO workflow_trace (event_type, system, occurred_at, outcome, summary, source_system, source_event_id, workflow_instance_id) \

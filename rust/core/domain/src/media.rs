@@ -17,7 +17,6 @@ pub struct MediaAsset {
     pub url: String,
 }
 
-
 pub const MAX_MEDIA_UPLOAD_BYTES: usize = 50 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,11 +39,7 @@ pub struct UploadPropertyMediaResult {
 }
 
 pub fn sanitize_media_filename(name: &str) -> String {
-    let base = name
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or_default()
-        .trim();
+    let base = name.rsplit(['/', '\\']).next().unwrap_or_default().trim();
     let mut cleaned = String::with_capacity(base.len().min(255));
     let mut previous_dot = false;
     for ch in base.chars() {

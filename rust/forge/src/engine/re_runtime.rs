@@ -1,8 +1,8 @@
 //! RE_supermodel host: start, deadline timers, task complete. Replaces workflow_app/runtime.ts.
 
 use workflow::{
-    CompleteTaskParams, EngineOptions, NeonStore, ProcessStatus, Result, StartProcessParams,
-    Value, WorkflowEngine, WorkflowError, WorkflowSubject,
+    CompleteTaskParams, EngineOptions, NeonStore, ProcessStatus, Result, StartProcessParams, Value,
+    WorkflowEngine, WorkflowError, WorkflowSubject,
 };
 
 use crate::engine::re_commands::{assert_command_nodes_routed, XML_COMMAND_NODE_TYPES};
@@ -70,7 +70,11 @@ pub fn find_active_instance(subject_type: &str, subject_id: &str) -> Result<Opti
     );
     let raw = psql_query(&sql).map_err(WorkflowError::generic)?;
     let id = raw.trim();
-    Ok(if id.is_empty() { None } else { Some(id.to_string()) })
+    Ok(if id.is_empty() {
+        None
+    } else {
+        Some(id.to_string())
+    })
 }
 
 pub struct StartResult {
@@ -80,7 +84,10 @@ pub struct StartResult {
 
 pub fn start_residential_transaction(subject_type: &str, subject_id: &str) -> Result<StartResult> {
     if let Some(id) = find_active_instance(subject_type, subject_id)? {
-        return Ok(StartResult { instance_id: id, started: false });
+        return Ok(StartResult {
+            instance_id: id,
+            started: false,
+        });
     }
     let facts = match subject_type {
         "contract" => contract_workflow_facts(subject_id),
@@ -103,7 +110,10 @@ pub fn start_residential_transaction(subject_type: &str, subject_id: &str) -> Re
             instance_id: r.process_instance_id,
             started: true,
         }),
-        Err(e) if e.code() == "INSTANCE_ALREADY_ACTIVE" || e.to_string().contains("already exists") => {
+        Err(e)
+            if e.code() == "INSTANCE_ALREADY_ACTIVE"
+                || e.to_string().contains("already exists") =>
+        {
             let winner = find_active_instance(subject_type, subject_id)?
                 .ok_or_else(|| WorkflowError::generic(e.to_string()))?;
             Ok(StartResult {
@@ -115,7 +125,11 @@ pub fn start_residential_transaction(subject_type: &str, subject_id: &str) -> Re
     }
 }
 
-pub fn reconcile_deadline_timer(instance_id: &str, timer_node_id: &str, deadline: Option<&str>) -> Result<&'static str> {
+pub fn reconcile_deadline_timer(
+    instance_id: &str,
+    timer_node_id: &str,
+    deadline: Option<&str>,
+) -> Result<&'static str> {
     let Some(deadline) = deadline.map(str::trim).filter(|s| !s.is_empty()) else {
         return Ok("unchanged");
     };
@@ -136,16 +150,24 @@ pub fn reconcile_deadline_timer(instance_id: &str, timer_node_id: &str, deadline
     if due_at == deadline || job_id.is_empty() {
         return Ok("unchanged");
     }
-    let due_ms = parse_iso_millis(deadline).ok_or_else(|| WorkflowError::generic("invalid deadline"))?;
+    let due_ms =
+        parse_iso_millis(deadline).ok_or_else(|| WorkflowError::generic("invalid deadline"))?;
     re_engine()?.reschedule_timer(job_id, due_ms, "system")?;
     Ok("rescheduled")
 }
 
-pub fn reconcile_closing_timer(instance_id: &str, closing_date: Option<&str>) -> Result<&'static str> {
+pub fn reconcile_closing_timer(
+    instance_id: &str,
+    closing_date: Option<&str>,
+) -> Result<&'static str> {
     reconcile_deadline_timer(instance_id, CLOSING_TIMER_NODE_ID, closing_date)
 }
 
-pub fn complete_workflow_task(application_task_id: &str, user_id: &str, transition: Option<&str>) -> Result<String> {
+pub fn complete_workflow_task(
+    application_task_id: &str,
+    user_id: &str,
+    transition: Option<&str>,
+) -> Result<String> {
     let raw = psql_query(&format!(
         "SELECT workflow_task_id FROM workflow_task_correlation WHERE application_task_id = {} LIMIT 1",
         sql_literal(application_task_id)

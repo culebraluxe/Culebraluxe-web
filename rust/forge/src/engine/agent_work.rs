@@ -17,7 +17,10 @@ fn lock() -> Result<(), String> {
     psql_query(&format!("SELECT pg_advisory_xact_lock({AGENT_CLAIM_LOCK})")).map(|_| ())
 }
 
-pub fn claim_specific_agent_work(work_item_id: &str, worker_id: &str) -> Result<Option<AgentWorkItem>, String> {
+pub fn claim_specific_agent_work(
+    work_item_id: &str,
+    worker_id: &str,
+) -> Result<Option<AgentWorkItem>, String> {
     lock()?;
     let id = sql_literal(work_item_id);
     let group = psql_query(&format!(
@@ -101,7 +104,13 @@ fn parse_item(raw: &str) -> Option<AgentWorkItem> {
         id: cols.first().unwrap_or(&"").trim().to_string(),
         story_id: cols.get(1).unwrap_or(&"").trim().to_string(),
         state: cols.get(2).unwrap_or(&"").trim().to_string(),
-        claimed_by: cols.get(3).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
-        role: cols.get(4).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+        claimed_by: cols
+            .get(3)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()),
+        role: cols
+            .get(4)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()),
     })
 }

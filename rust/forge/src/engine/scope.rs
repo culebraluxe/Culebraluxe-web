@@ -9,7 +9,10 @@ fn normalize(value: Option<&str>) -> Option<String> {
     }
 }
 
-pub fn story_scope_base(story_commits: &[Option<String>], read_parent: impl Fn(&str) -> Option<String>) -> Option<String> {
+pub fn story_scope_base(
+    story_commits: &[Option<String>],
+    read_parent: impl Fn(&str) -> Option<String>,
+) -> Option<String> {
     let mut earliest = None;
     for c in story_commits {
         if let Some(sha) = normalize(c.as_deref()) {
@@ -44,7 +47,10 @@ pub fn candidate_own_changed_files(
 ) -> CandidateOwnChanges {
     let Some(candidate) = normalize(candidate_sha) else {
         return CandidateOwnChanges::Fail {
-            reason: format!("candidate {:?} is not a commit", candidate_sha.unwrap_or("(none)")),
+            reason: format!(
+                "candidate {:?} is not a commit",
+                candidate_sha.unwrap_or("(none)")
+            ),
         };
     };
     let base = recorded_base.unwrap_or("").trim();
@@ -55,7 +61,9 @@ pub fn candidate_own_changed_files(
     }
     if !is_ancestor(base, &candidate) {
         return CandidateOwnChanges::Fail {
-            reason: format!("candidate {candidate} is not a descendant of its recorded base {base}"),
+            reason: format!(
+                "candidate {candidate} is not a descendant of its recorded base {base}"
+            ),
         };
     }
     let mut commits = vec![candidate.clone()];
@@ -76,7 +84,9 @@ pub fn candidate_own_changed_files(
         }
     }
     changed.sort();
-    CandidateOwnChanges::Ok { changed_files: changed }
+    CandidateOwnChanges::Ok {
+        changed_files: changed,
+    }
 }
 
 #[cfg(test)]

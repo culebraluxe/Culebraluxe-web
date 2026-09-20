@@ -119,7 +119,10 @@ pub fn split_join_hold_reasons(
         ));
     }
     if !reduction.failed.is_empty() {
-        reasons.push(format!("split children failed: {}", reduction.failed.join(", ")));
+        reasons.push(format!(
+            "split children failed: {}",
+            reduction.failed.join(", ")
+        ));
     }
     if !reduction.cancelled.is_empty() {
         reasons.push(format!(
@@ -173,7 +176,10 @@ mod tests {
     fn sibling_conflict_is_hold() {
         let reasons = split_join_hold_reasons(
             &["a".into(), "b".into()],
-            &[child("a", "completed", &["src/x.rs"]), child("b", "completed", &["src/x.rs"])],
+            &[
+                child("a", "completed", &["src/x.rs"]),
+                child("b", "completed", &["src/x.rs"]),
+            ],
             &[],
         );
         assert!(reasons.iter().any(|r| r.contains("same output")));

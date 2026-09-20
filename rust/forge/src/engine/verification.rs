@@ -8,11 +8,19 @@ pub struct AnchorEvidence {
     pub verified_sha: Option<String>,
 }
 
-pub fn evaluate_verification(required: &[&str], evidence: &[AnchorEvidence], candidate_sha: Option<&str>) -> (bool, Vec<String>) {
+pub fn evaluate_verification(
+    required: &[&str],
+    evidence: &[AnchorEvidence],
+    candidate_sha: Option<&str>,
+) -> (bool, Vec<String>) {
     let mut blockers = Vec::new();
     for kind in required {
-        let system = evidence.iter().find(|e| e.kind == *kind && e.source == "system");
-        let agent_claims = evidence.iter().any(|e| e.kind == *kind && e.source == "agent");
+        let system = evidence
+            .iter()
+            .find(|e| e.kind == *kind && e.source == "system");
+        let agent_claims = evidence
+            .iter()
+            .any(|e| e.kind == *kind && e.source == "agent");
         match system {
             None => blockers.push(if agent_claims {
                 format!("{kind} anchor: agent testimony cannot satisfy an anchor requirement")
@@ -25,7 +33,9 @@ pub fn evaluate_verification(required: &[&str], evidence: &[AnchorEvidence], can
                 }
                 if let (Some(got), Some(want)) = (system.verified_sha.as_deref(), candidate_sha) {
                     if got != want {
-                        blockers.push(format!("{kind} anchor verified wrong SHA ({got}, expected {want})"));
+                        blockers.push(format!(
+                            "{kind} anchor verified wrong SHA ({got}, expected {want})"
+                        ));
                     }
                 }
             }

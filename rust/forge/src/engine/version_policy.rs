@@ -24,9 +24,16 @@ pub fn definition_version_policy(row_exists: bool, instance_count: i32) -> Defin
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeployDecision {
-    Insert { reason: &'static str },
-    Update { duplicate: bool, reason: &'static str },
-    Reject { message: &'static str },
+    Insert {
+        reason: &'static str,
+    },
+    Update {
+        duplicate: bool,
+        reason: &'static str,
+    },
+    Reject {
+        message: &'static str,
+    },
 }
 
 pub fn graphs_equal(a: &ProcessGraph, b: &ProcessGraph) -> bool {
@@ -61,7 +68,16 @@ mod tests {
 
     #[test]
     fn executed_version_is_immutable() {
-        match classify_deploy(true, 1, None, &ProcessGraph { nodes: Default::default(), start_node_id: "s".into(), display_order: None }) {
+        match classify_deploy(
+            true,
+            1,
+            None,
+            &ProcessGraph {
+                nodes: Default::default(),
+                start_node_id: "s".into(),
+                display_order: None,
+            },
+        ) {
             DeployDecision::Reject { .. } => {}
             other => panic!("{other:?}"),
         }
@@ -69,7 +85,16 @@ mod tests {
 
     #[test]
     fn missing_row_inserts() {
-        match classify_deploy(false, 0, None, &ProcessGraph { nodes: Default::default(), start_node_id: "s".into(), display_order: None }) {
+        match classify_deploy(
+            false,
+            0,
+            None,
+            &ProcessGraph {
+                nodes: Default::default(),
+                start_node_id: "s".into(),
+                display_order: None,
+            },
+        ) {
             DeployDecision::Insert { .. } => {}
             other => panic!("{other:?}"),
         }

@@ -81,10 +81,7 @@ impl BoldSignStore {
         .map_err(|error| DbFailure::from_sqlx("boldsign.store.get_by_request", &error))
     }
 
-    pub async fn get_by_envelope(
-        &self,
-        envelope_id: &str,
-    ) -> DbResult<Option<BoldSignRequest>> {
+    pub async fn get_by_envelope(&self, envelope_id: &str) -> DbResult<Option<BoldSignRequest>> {
         sqlx::query_as::<_, BoldSignRequestRow>(
             r#"
             select signature_request_id::text as signature_request_id,

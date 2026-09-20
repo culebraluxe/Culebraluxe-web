@@ -13,7 +13,9 @@ pub struct OpenHold {
 }
 
 fn opt(v: &Option<String>) -> String {
-    v.as_deref().map(sql_literal).unwrap_or_else(|| "NULL".into())
+    v.as_deref()
+        .map(sql_literal)
+        .unwrap_or_else(|| "NULL".into())
 }
 
 pub fn open_forge_hold_record(input: &OpenHold) -> Result<String, String> {

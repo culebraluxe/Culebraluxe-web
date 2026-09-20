@@ -52,7 +52,9 @@ pub fn attest_integration(
                 integrated: false,
                 build,
                 proofs,
-                reason: Some(format!("could not verify containment of sha in {integrated_ref}: {e}")),
+                reason: Some(format!(
+                    "could not verify containment of sha in {integrated_ref}: {e}"
+                )),
             };
         }
     };
@@ -91,9 +93,15 @@ pub fn attest_integration(
             };
         }
     }
-    if let Some(failed) = proofs.as_ref().and_then(|p| p.iter().find(|x| x.exit_code != 0)) {
+    if let Some(failed) = proofs
+        .as_ref()
+        .and_then(|p| p.iter().find(|x| x.exit_code != 0))
+    {
         // Same shape as the build branch above: the reason is built before `proofs` is moved.
-        let reason = format!("frozen proof exited {} ({})", failed.exit_code, failed.command);
+        let reason = format!(
+            "frozen proof exited {} ({})",
+            failed.exit_code, failed.command
+        );
         return IntegrationAttestation {
             artifact_sha: Some(sha.clone()),
             integrated_ref: base_ref,
@@ -113,7 +121,9 @@ pub fn attest_integration(
     }
 }
 
-pub fn release_evidence_from_integration(attestation: &IntegrationAttestation) -> Option<ReleaseEvidence> {
+pub fn release_evidence_from_integration(
+    attestation: &IntegrationAttestation,
+) -> Option<ReleaseEvidence> {
     if !attestation.integrated {
         return None;
     }
@@ -131,7 +141,11 @@ pub fn release_evidence_from_integration(attestation: &IntegrationAttestation) -
     Some(ReleaseEvidence {
         kind: ReleaseReceiptKind::Integration,
         artifact_sha: sha.to_string(),
-        receipt_id: format!("integration:{}@{}", attestation.integrated_ref, &sha[..sha.len().min(12)]),
+        receipt_id: format!(
+            "integration:{}@{}",
+            attestation.integrated_ref,
+            &sha[..sha.len().min(12)]
+        ),
         success: true,
     })
 }

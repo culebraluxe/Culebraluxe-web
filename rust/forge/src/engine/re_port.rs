@@ -1,8 +1,8 @@
 //! Port of workflow_app/application-port.ts + command-router.ts.
 
 use workflow::{
-    ApplicationCommandOutcome, ApplicationCommandRequest, ApplicationCommandResult, ApplicationPort,
-    Value, WorkflowSubject,
+    ApplicationCommandOutcome, ApplicationCommandRequest, ApplicationCommandResult,
+    ApplicationPort, Value, WorkflowSubject,
 };
 
 use crate::engine::re_commands::*;
@@ -26,7 +26,11 @@ impl Default for ReApplicationPort {
     }
 }
 
-fn result(id: &str, outcome: ApplicationCommandOutcome, message: impl Into<String>) -> ApplicationCommandResult {
+fn result(
+    id: &str,
+    outcome: ApplicationCommandOutcome,
+    message: impl Into<String>,
+) -> ApplicationCommandResult {
     ApplicationCommandResult {
         command_id: id.to_string(),
         outcome,
@@ -43,7 +47,10 @@ fn resolve_deal_id(req: &ApplicationCommandRequest) -> Result<String, Applicatio
             result(
                 &req.command_id,
                 ApplicationCommandOutcome::PreconditionFailure,
-                format!("Contract {id} has no unambiguous legacy Deal correlation for command {}.", req.command_type),
+                format!(
+                    "Contract {id} has no unambiguous legacy Deal correlation for command {}.",
+                    req.command_type
+                ),
             )
         }),
         (_, None) => Err(result(
@@ -114,7 +121,12 @@ impl ApplicationPort for ReApplicationPort {
     fn execute_command(&self, req: &ApplicationCommandRequest) -> ApplicationCommandResult {
         let out = self.execute_command_inner(req);
         if out.message.as_deref() != Some("replayed") {
-            let _ = finalize_receipt(&req.command_id, out.outcome.as_str(), req.subject_id.as_deref(), out.message.as_deref());
+            let _ = finalize_receipt(
+                &req.command_id,
+                out.outcome.as_str(),
+                req.subject_id.as_deref(),
+                out.message.as_deref(),
+            );
         }
         out
     }
@@ -147,7 +159,11 @@ impl ReApplicationPort {
                     "validation_failure" => ApplicationCommandOutcome::ValidationFailure,
                     _ => ApplicationCommandOutcome::Success,
                 };
-                return result(&req.command_id, outcome, existing.message.unwrap_or_else(|| "replayed".into()));
+                return result(
+                    &req.command_id,
+                    outcome,
+                    existing.message.unwrap_or_else(|| "replayed".into()),
+                );
             }
             Ok(None) => {}
             Err(_) => {}
@@ -258,7 +274,6 @@ impl ReApplicationPort {
             ),
         }
     }
-
 }
 
 /// Forge commands stay on ForgeApplicationPort; RE commands on ReApplicationPort.

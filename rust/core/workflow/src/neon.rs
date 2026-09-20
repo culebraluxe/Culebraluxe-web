@@ -531,7 +531,11 @@ impl Store for NeonTx<'_> {
         )
     }
 
-    fn active_tasks_for_user(&mut self, user_id: &str, tenant_id: Option<&str>) -> Result<Vec<Task>> {
+    fn active_tasks_for_user(
+        &mut self,
+        user_id: &str,
+        tenant_id: Option<&str>,
+    ) -> Result<Vec<Task>> {
         let this = self;
         let rows = if let Some(tid) = tenant_id {
             fetch_all_q(
@@ -782,12 +786,7 @@ impl Store for NeonTx<'_> {
                  WHERE process_instance_id = $1::uuid
                  ORDER BY created_at DESC, id DESC
                  LIMIT $2";
-        let rows = fetch_all_q(
-            this,
-            sqlx::query(sql)
-                .bind(instance_id)
-                .bind(limit as i64),
-        )?;
+        let rows = fetch_all_q(this, sqlx::query(sql).bind(instance_id).bind(limit as i64))?;
         Ok(rows
             .iter()
             .map(|row| ProcessEvent {

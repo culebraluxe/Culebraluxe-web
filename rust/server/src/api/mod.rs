@@ -30,7 +30,9 @@ impl ApiConfig {
             .map_err(|_| "CULEBRA_INTERNAL_API_KEY or AUTH_SECRET is required".to_owned())?;
         let auth_secret = auth_secret.trim();
         if auth_secret.len() < 16 {
-            return Err("AUTH_SECRET must be at least 16 characters for bridge-key derivation".into());
+            return Err(
+                "AUTH_SECRET must be at least 16 characters for bridge-key derivation".into(),
+            );
         }
 
         let mut digest = Sha256::new();

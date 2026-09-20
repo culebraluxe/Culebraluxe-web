@@ -12,7 +12,10 @@ pub fn sanitize_execution_segment(input: &str) -> String {
     out.trim_matches('-').to_string()
 }
 
-pub fn resolve_workspace_run_id(execution_id: &str, split_child_id: Option<&str>) -> Result<String, String> {
+pub fn resolve_workspace_run_id(
+    execution_id: &str,
+    split_child_id: Option<&str>,
+) -> Result<String, String> {
     let execution = execution_id.trim();
     if execution.is_empty() {
         return Err("Forge workspace executionId is required".into());
@@ -25,7 +28,10 @@ pub fn resolve_workspace_run_id(execution_id: &str, split_child_id: Option<&str>
     })
 }
 
-pub fn forge_execution_generation_key(process_instance_id: &str, replan_attempts: i32) -> Result<String, String> {
+pub fn forge_execution_generation_key(
+    process_instance_id: &str,
+    replan_attempts: i32,
+) -> Result<String, String> {
     let pid = sanitize_execution_segment(process_instance_id);
     if pid.is_empty() {
         return Err("Forge processInstanceId is required for workspace lineage".into());

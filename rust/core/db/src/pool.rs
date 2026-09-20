@@ -1,8 +1,8 @@
 use crate::error::{DbFailure, DbResult};
 use crate::transaction::DbTransaction;
+use futures_util::TryStreamExt;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::PgPool;
-use futures_util::TryStreamExt;
 use std::env;
 use std::str::FromStr;
 use std::time::Duration;
@@ -121,9 +121,13 @@ impl Database {
             .acquire()
             .await
             .map_err(|error| DbFailure::from_sqlx("db.run_text.acquire", &error))?;
-        let mut stream = sqlx::raw_sql(sqlx::AssertSqlSafe(sql.to_owned()))
-            .fetch_many(&mut *connection);
-        while let Some(item) = stream.try_next().await.map_err(|error| DbFailure::from_sqlx("db.run_text", &error))? {
+        let mut stream =
+            sqlx::raw_sql(sqlx::AssertSqlSafe(sql.to_owned())).fetch_many(&mut *connection);
+        while let Some(item) = stream
+            .try_next()
+            .await
+            .map_err(|error| DbFailure::from_sqlx("db.run_text", &error))?
+        {
             let Either::Right(row) = item else { continue };
             let mut cols = Vec::new();
             for i in 0..row.len() {

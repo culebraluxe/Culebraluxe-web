@@ -40,11 +40,17 @@ pub struct QaReport {
     pub failed_conditions: Vec<String>,
 }
 
-pub fn acceptance_map_changed(frozen: &[AcceptanceCondition], current: &[AcceptanceCondition]) -> bool {
+pub fn acceptance_map_changed(
+    frozen: &[AcceptanceCondition],
+    current: &[AcceptanceCondition],
+) -> bool {
     if frozen.len() != current.len() {
         return true;
     }
-    frozen.iter().zip(current).any(|(a, b)| a.id != b.id || a.assertions != b.assertions)
+    frozen
+        .iter()
+        .zip(current)
+        .any(|(a, b)| a.id != b.id || a.assertions != b.assertions)
 }
 
 pub fn adjudicate_negative_control(
@@ -54,7 +60,10 @@ pub fn adjudicate_negative_control(
 ) -> (bool, bool, bool, Vec<String>) {
     // missing, unmeasurable, survived, killing
     let refs: Vec<String> = if control.assertions.is_empty() {
-        conditions.iter().flat_map(|c| c.assertions.clone()).collect()
+        conditions
+            .iter()
+            .flat_map(|c| c.assertions.clone())
+            .collect()
     } else {
         control.assertions.clone()
     };
@@ -66,7 +75,12 @@ pub fn adjudicate_negative_control(
     }
     let killing: Vec<String> = refs
         .into_iter()
-        .filter(|r| matches!(assertion_resolution(&result.output, r), AssertionResolution::Failed))
+        .filter(|r| {
+            matches!(
+                assertion_resolution(&result.output, r),
+                AssertionResolution::Failed
+            )
+        })
         .collect();
     (false, false, killing.is_empty(), killing)
 }
@@ -112,7 +126,10 @@ pub fn adjudicate_qa(
             if arch.migration_ran != Some(true) {
                 blockers.push(format!(
                     "MIGRATION_UNMEASURABLE {}",
-                    arch.migration_findings.first().cloned().unwrap_or_else(|| "migration lint did not run".into())
+                    arch.migration_findings
+                        .first()
+                        .cloned()
+                        .unwrap_or_else(|| "migration lint did not run".into())
                 ));
             } else if arch.migration_findings.is_empty() {
                 blockers.push("MIGRATION migration lint reported a failure".into());
@@ -127,7 +144,13 @@ pub fn adjudicate_qa(
     let proof: String = commands
         .iter()
         .filter(|c| !c.unmeasurable)
-        .map(|c| if c.output.is_empty() { c.excerpt.as_str() } else { c.output.as_str() })
+        .map(|c| {
+            if c.output.is_empty() {
+                c.excerpt.as_str()
+            } else {
+                c.output.as_str()
+            }
+        })
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -144,7 +167,10 @@ pub fn adjudicate_qa(
             .iter()
             .map(|r| (r.clone(), assertion_resolution(&proof, r)))
             .collect();
-        let failed: Vec<_> = outcomes.iter().filter(|(_, r)| matches!(r, AssertionResolution::Failed)).collect();
+        let failed: Vec<_> = outcomes
+            .iter()
+            .filter(|(_, r)| matches!(r, AssertionResolution::Failed))
+            .collect();
         if !failed.is_empty() {
             failed_conditions.push(condition.id.clone());
             for (r#ref, _) in failed {
@@ -152,7 +178,10 @@ pub fn adjudicate_qa(
             }
             continue;
         }
-        if outcomes.iter().any(|(_, r)| matches!(r, AssertionResolution::Passed)) {
+        if outcomes
+            .iter()
+            .any(|(_, r)| matches!(r, AssertionResolution::Passed))
+        {
             continue;
         }
         unproven.push(condition.id.clone());
@@ -162,8 +191,13 @@ pub fn adjudicate_qa(
                 AssertionResolution::Skipped => {
                     blockers.push(format!("ASSERTION_SKIPPED {} {ref}", condition.id));
                 }
-                AssertionResolution::Absent { reason, detail } if !matches!(reason, crate::engine::qa_assert::AbsentReason::NotRun) => {
-                    blockers.push(format!("ASSERTION_ORIGIN_UNMET {} {ref} — {detail}", condition.id));
+                AssertionResolution::Absent { reason, detail }
+                    if !matches!(reason, crate::engine::qa_assert::AbsentReason::NotRun) =>
+                {
+                    blockers.push(format!(
+                        "ASSERTION_ORIGIN_UNMET {} {ref} — {detail}",
+                        condition.id
+                    ));
                 }
                 _ => blockers.push(format!("ASSERTION_NOT_RUN {} {ref}", condition.id)),
             }
@@ -180,7 +214,8 @@ pub fn adjudicate_qa(
     let mut negative_unmeasurable = false;
     let mut negative_survived = false;
     if let Some(control) = &plan.negative_control {
-        let (missing, unmeas, survived, _) = adjudicate_negative_control(control, negative_result, &plan.conditions);
+        let (missing, unmeas, survived, _) =
+            adjudicate_negative_control(control, negative_result, &plan.conditions);
         negative_missing = missing;
         negative_unmeasurable = unmeas;
         negative_survived = survived;
@@ -201,9 +236,16 @@ pub fn adjudicate_qa(
             || b == "ASSAY_COMMAND_DRIFT"
     });
     let negative_failure = negative_missing || negative_unmeasurable;
-    let verdict = if command_failure || migration_failure || !failed_conditions.is_empty() || negative_failure {
+    let verdict = if command_failure
+        || migration_failure
+        || !failed_conditions.is_empty()
+        || negative_failure
+    {
         AssayVerdict::Fail
-    } else if !unproven.is_empty() || blockers.iter().any(|b| b == "ACCEPTANCE_MAP_CHANGED") || negative_survived {
+    } else if !unproven.is_empty()
+        || blockers.iter().any(|b| b == "ACCEPTANCE_MAP_CHANGED")
+        || negative_survived
+    {
         AssayVerdict::Unproven
     } else if !blockers.is_empty() {
         AssayVerdict::Fail
@@ -211,7 +253,12 @@ pub fn adjudicate_qa(
         AssayVerdict::Pass
     };
 
-    QaReport { verdict, blockers, unproven, failed_conditions }
+    QaReport {
+        verdict,
+        blockers,
+        unproven,
+        failed_conditions,
+    }
 }
 
 #[cfg(test)]
@@ -234,10 +281,19 @@ mod tests {
     fn unmapped_clause_is_unproven() {
         let plan = AssayPlan {
             commands: vec!["npm test".into()],
-            conditions: vec![AcceptanceCondition { id: "C1".into(), assertions: vec![] }],
+            conditions: vec![AcceptanceCondition {
+                id: "C1".into(),
+                assertions: vec![],
+            }],
             negative_control: None,
         };
-        let report = adjudicate_qa(&plan, &[cmd("npm test", "ok 1 - x\n", true)], None, None, None);
+        let report = adjudicate_qa(
+            &plan,
+            &[cmd("npm test", "ok 1 - x\n", true)],
+            None,
+            None,
+            None,
+        );
         assert_eq!(report.verdict, AssayVerdict::Unproven);
         assert!(report.blockers.iter().any(|b| b == "UNPROVEN C1"));
     }

@@ -1,8 +1,9 @@
 //! Residential transaction host. Replaces workflow_app/runtime.ts engine door.
 
 use forge::engine::re_runtime::{
-    complete_engine_task, complete_workflow_task, reclaim_stale_jobs, reclaim_stale_jobs_for_instance,
-    reconcile_closing_timer, reconcile_deadline_timer, start_residential_transaction,
+    complete_engine_task, complete_workflow_task, reclaim_stale_jobs,
+    reclaim_stale_jobs_for_instance, reconcile_closing_timer, reconcile_deadline_timer,
+    start_residential_transaction,
 };
 use std::env;
 
@@ -42,10 +43,13 @@ fn main() {
         "complete-engine-task" => {
             let task = flag(&args, "--task").expect("--task");
             let user = flag(&args, "--user").unwrap_or_else(|| "system".into());
-            complete_engine_task(&task, &user, flag(&args, "--transition").as_deref()).map(|_| "ok".into())
+            complete_engine_task(&task, &user, flag(&args, "--transition").as_deref())
+                .map(|_| "ok".into())
         }
         "reclaim" => {
-            let batch = flag(&args, "--batch").and_then(|s| s.parse().ok()).unwrap_or(50);
+            let batch = flag(&args, "--batch")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(50);
             reclaim_stale_jobs(batch).map(|n| format!("reclaimed={n}"))
         }
         "reclaim-instance" => {
@@ -55,7 +59,9 @@ fn main() {
         _ => {
             eprintln!("usage: re-workflow start-deal --id <dealId>");
             eprintln!("       re-workflow start-contract --id <contractId>");
-            eprintln!("       re-workflow timer --instance <id> [--node closing_date_timer] [--date ISO]");
+            eprintln!(
+                "       re-workflow timer --instance <id> [--node closing_date_timer] [--date ISO]"
+            );
             eprintln!("       re-workflow complete-task --application-task <id> [--user id]");
             eprintln!("       re-workflow complete-engine-task --task <id> [--user id]");
             eprintln!("       re-workflow reclaim [--batch N]");

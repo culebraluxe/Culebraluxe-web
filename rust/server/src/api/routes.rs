@@ -9,10 +9,10 @@ use axum::{
     Json, Router,
 };
 use domain::{
-    ClientAdminPageRequest, ClientDirectoryPageRequest, ClientHistoryRequest,
-    GetCommsPanelRequest, GetCommsTimelineRequest, SearchPeopleRequest, UploadPropertyMediaRequest,
-    VaultActorScope, VaultArtifactFailure, VaultCommandOutcome, VaultRenderRequest,
-    VaultRenderedArtifact, MAX_MEDIA_UPLOAD_BYTES,
+    ClientAdminPageRequest, ClientDirectoryPageRequest, ClientHistoryRequest, GetCommsPanelRequest,
+    GetCommsTimelineRequest, SearchPeopleRequest, UploadPropertyMediaRequest, VaultActorScope,
+    VaultArtifactFailure, VaultCommandOutcome, VaultRenderRequest, VaultRenderedArtifact,
+    MAX_MEDIA_UPLOAD_BYTES,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -253,9 +253,9 @@ async fn clients(
                 .map_err(|error| correlate(ApiError::from(error), &resolved))?,
         )
     } else {
-        let status = query.status.filter(|value| {
-            matches!(value.as_str(), "new" | "warm" | "active" | "referral")
-        });
+        let status = query
+            .status
+            .filter(|value| matches!(value.as_str(), "new" | "warm" | "active" | "referral"));
         let role = query
             .role
             .filter(|value| matches!(value.as_str(), "buyer" | "seller" | "both"));

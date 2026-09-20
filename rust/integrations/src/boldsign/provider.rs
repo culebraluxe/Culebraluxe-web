@@ -216,14 +216,12 @@ impl SignatureProvider for BoldSignSignatureProvider {
                     .await
                     .map_err(|error| (error.to_string(), false))?;
             }
-            let row = row
-                .filter(|row| row.envelope_id.is_some())
-                .ok_or_else(|| {
-                    (
-                        "BoldSign send did not produce a durable provider envelope.".into(),
-                        false,
-                    )
-                })?;
+            let row = row.filter(|row| row.envelope_id.is_some()).ok_or_else(|| {
+                (
+                    "BoldSign send did not produce a durable provider envelope.".into(),
+                    false,
+                )
+            })?;
 
             Ok::<_, (String, bool)>(SignatureProviderSendResult {
                 ok: true,
@@ -242,12 +240,7 @@ impl SignatureProvider for BoldSignSignatureProvider {
                     "error"
                 };
                 self.store
-                    .record_error(
-                        &request.signature_request_id,
-                        &message,
-                        retryable,
-                        status,
-                    )
+                    .record_error(&request.signature_request_id, &message, retryable, status)
                     .await
                     .map_err(|error| error.to_string())?;
                 Ok(SignatureProviderSendResult {
@@ -305,7 +298,12 @@ impl SignatureProvider for BoldSignSignatureProvider {
                     "error"
                 };
                 self.store
-                    .record_error(signature_request_id, &error.message, error.retryable, status)
+                    .record_error(
+                        signature_request_id,
+                        &error.message,
+                        error.retryable,
+                        status,
+                    )
                     .await
                     .map_err(|failure| failure.to_string())?;
                 Ok(SignatureProviderStatusResult {
@@ -572,10 +570,7 @@ fn resolve_recipient_anchor_sets(
 
         let selected = if matches.len() == 1 {
             matches[0].2.clone()
-        } else if role.is_none()
-            && slot_id.is_none()
-            && sets.len() == request.recipients.len()
-        {
+        } else if role.is_none() && slot_id.is_none() && sets.len() == request.recipients.len() {
             sets[index].2.clone()
         } else {
             return Err((
@@ -590,12 +585,13 @@ fn resolve_recipient_anchor_sets(
     Ok(resolved)
 }
 
-fn anchor_sets(
-    anchors: &[SignatureAnchor],
-) -> Vec<(String, Option<String>, Vec<SignatureAnchor>)> {
+fn anchor_sets(anchors: &[SignatureAnchor]) -> Vec<(String, Option<String>, Vec<SignatureAnchor>)> {
     let mut order = Vec::<(String, Option<String>)>::new();
     let mut seen = BTreeSet::new();
-    for anchor in anchors.iter().filter(|anchor| anchor.kind == AnchorKind::Signature) {
+    for anchor in anchors
+        .iter()
+        .filter(|anchor| anchor.kind == AnchorKind::Signature)
+    {
         let key = (anchor.role.clone(), anchor.slot_id.clone());
         if seen.insert(key.clone()) {
             order.push(key);

@@ -34,7 +34,10 @@ pub fn story_ready_to_run_reasons(
             .filter(|l| !l.is_empty())
             .collect();
         let unmapped = clauses.iter().any(|c| {
-            map.iter().find(|(k, _)| k == c).map(|(_, v)| v.is_empty()).unwrap_or(true)
+            map.iter()
+                .find(|(k, _)| k == c)
+                .map(|(_, v)| v.is_empty())
+                .unwrap_or(true)
         });
         if unmapped {
             reasons.push("ready-gate:unmapped-acceptance");

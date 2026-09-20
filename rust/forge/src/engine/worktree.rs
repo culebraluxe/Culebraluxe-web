@@ -23,7 +23,11 @@ pub fn git_binary() -> String {
             return t.to_string();
         }
     }
-    for c in ["/usr/bin/git", "/opt/homebrew/bin/git", "/usr/local/bin/git"] {
+    for c in [
+        "/usr/bin/git",
+        "/opt/homebrew/bin/git",
+        "/usr/local/bin/git",
+    ] {
         if Path::new(c).exists() {
             return c.to_string();
         }
@@ -126,28 +130,55 @@ pub fn provision_worker_workspace(
     if base_ref.is_empty() {
         return Err("baseRef is required: pass an explicit approved integration base.".into());
     }
-    let base_commit = git(&repo_root, &["rev-parse", "--verify", &format!("{base_ref}^{{commit}}")])
-        .map_err(|e| format!("base ref {base_ref:?} could not be resolved to a commit: {e}"))?;
+    let base_commit = git(
+        &repo_root,
+        &["rev-parse", "--verify", &format!("{base_ref}^{{commit}}")],
+    )
+    .map_err(|e| format!("base ref {base_ref:?} could not be resolved to a commit: {e}"))?;
     if base_commit.len() != 40 || !base_commit.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(format!("base ref {base_ref:?} could not be resolved to a commit."));
+        return Err(format!(
+            "base ref {base_ref:?} could not be resolved to a commit."
+        ));
     }
     let run = derive_run_id(run_id);
     let branch_name = derive_branch_name(story_id, &run);
-    let root = worktrees_root
-        .map(PathBuf::from)
-        .unwrap_or_else(|| repo_root.parent().unwrap_or(&repo_root).join(DEFAULT_WORKTREES_DIRNAME));
+    let root = worktrees_root.map(PathBuf::from).unwrap_or_else(|| {
+        repo_root
+            .parent()
+            .unwrap_or(&repo_root)
+            .join(DEFAULT_WORKTREES_DIRNAME)
+    });
     if root == repo_root || root.starts_with(&repo_root) {
-        return Err(format!("worktreesRoot must be OUTSIDE the primary checkout: {}", root.display()));
+        return Err(format!(
+            "worktreesRoot must be OUTSIDE the primary checkout: {}",
+            root.display()
+        ));
     }
     let worktree_path = derive_worktree_path(&root, story_id, &run);
     if worktree_path.starts_with(&repo_root) {
-        return Err(format!("worktree path must be outside the primary checkout: {}", worktree_path.display()));
+        return Err(format!(
+            "worktree path must be outside the primary checkout: {}",
+            worktree_path.display()
+        ));
     }
-    if git(&repo_root, &["show-ref", "--verify", "--quiet", &format!("refs/heads/{branch_name}")]).is_ok() {
+    if git(
+        &repo_root,
+        &[
+            "show-ref",
+            "--verify",
+            "--quiet",
+            &format!("refs/heads/{branch_name}"),
+        ],
+    )
+    .is_ok()
+    {
         return Err(format!("branch already exists unexpectedly: {branch_name}"));
     }
     if worktree_path.exists() {
-        return Err(format!("worktree path already exists unexpectedly: {}", worktree_path.display()));
+        return Err(format!(
+            "worktree path already exists unexpectedly: {}",
+            worktree_path.display()
+        ));
     }
     std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
     git(
@@ -190,6 +221,12 @@ pub fn git_changed_files(repo: &std::path::Path, base: &str, sha: &str) -> Vec<S
         .args(["diff", "--name-only", &format!("{base}...{sha}")])
         .output()
         .ok();
-    out.map(|o| String::from_utf8_lossy(&o.stdout).lines().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
-        .unwrap_or_default()
+    out.map(|o| {
+        String::from_utf8_lossy(&o.stdout)
+            .lines()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    })
+    .unwrap_or_default()
 }

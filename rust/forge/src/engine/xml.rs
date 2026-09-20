@@ -443,7 +443,14 @@ mod re_xml_tests {
         let def = parse_re_supermodel().expect("RE_supermodel-v1.xml must parse");
         assert_eq!(def.key, RE_SUPERMODEL_KEY);
         assert_eq!(def.version, RE_SUPERMODEL_VERSION);
-        assert!(def.definition.nodes.contains_key(&def.definition.start_node_id));
-        assert!(def.definition.nodes.len() >= 50, "got {}", def.definition.nodes.len());
+        assert!(def
+            .definition
+            .nodes
+            .contains_key(&def.definition.start_node_id));
+        assert!(
+            def.definition.nodes.len() >= 50,
+            "got {}",
+            def.definition.nodes.len()
+        );
     }
 }

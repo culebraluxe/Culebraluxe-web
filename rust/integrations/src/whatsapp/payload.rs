@@ -270,8 +270,18 @@ fn message_summary(message: &MetaWhatsAppMessage) -> Option<String> {
         .text
         .as_ref()
         .and_then(|text| text.body.as_deref())
-        .or_else(|| message.image.as_ref().and_then(|media| media.caption.as_deref()))
-        .or_else(|| message.video.as_ref().and_then(|media| media.caption.as_deref()))
+        .or_else(|| {
+            message
+                .image
+                .as_ref()
+                .and_then(|media| media.caption.as_deref())
+        })
+        .or_else(|| {
+            message
+                .video
+                .as_ref()
+                .and_then(|media| media.caption.as_deref())
+        })
         .or_else(|| {
             message
                 .document
@@ -279,7 +289,11 @@ fn message_summary(message: &MetaWhatsAppMessage) -> Option<String> {
                 .and_then(|media| media.caption.as_deref())
         })?;
 
-    let normalized = raw.nfkc().collect::<String>().replace("\r\n", "\n").replace('\r', "\n");
+    let normalized = raw
+        .nfkc()
+        .collect::<String>()
+        .replace("\r\n", "\n")
+        .replace('\r', "\n");
     let trimmed = normalized.trim();
     if trimmed.is_empty() {
         return None;

@@ -2,9 +2,8 @@ use crate::{Database, DbFailure, DbResult, DbTransaction};
 use chrono::{DateTime, Utc};
 use domain::{
     normalize_signature_email, ApplySignatureStatusRequest, SendSignatureRequest,
-    SignatureArtifactDownload, SignatureCommandOutcome, SignatureCommandResult,
-    SignatureRecipient, SignatureRequest, SignatureRequestResult, SignatureRequestStatus,
-    SignatureStatusResult,
+    SignatureArtifactDownload, SignatureCommandOutcome, SignatureCommandResult, SignatureRecipient,
+    SignatureRequest, SignatureRequestResult, SignatureRequestStatus, SignatureStatusResult,
 };
 use serde_json::{json, Value};
 use sqlx::FromRow;
@@ -43,7 +42,6 @@ struct ReconcileRow {
     signed_audit_media_id: Option<String>,
     signed_at: Option<DateTime<Utc>>,
 }
-
 
 #[derive(Debug, Clone)]
 struct IssuedSlot {
@@ -754,7 +752,6 @@ impl SignatureDao {
         .await
     }
 
-
     pub async fn reconciliation_needs_artifact(
         &self,
         event_id: &str,
@@ -1219,7 +1216,6 @@ impl SignatureDao {
         }
     }
 }
-
 
 async fn insert_signature_media(
     connection: &mut sqlx::PgConnection,

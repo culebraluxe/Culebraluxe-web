@@ -346,19 +346,27 @@ pub fn relationship_activity(rows: &[RelationshipEvidenceRecord]) -> Relationshi
             source,
             channel,
             first_observed_at: earliest(
-                group.iter().filter_map(|row| row.first_observed_at.as_deref()),
+                group
+                    .iter()
+                    .filter_map(|row| row.first_observed_at.as_deref()),
             ),
             observed_communication_count: in_count + out_count,
             inbound_count: in_count,
             outbound_count: out_count,
             last_observed_at: latest(
-                group.iter().filter_map(|row| row.last_observed_at.as_deref()),
+                group
+                    .iter()
+                    .filter_map(|row| row.last_observed_at.as_deref()),
             ),
             last_inbound_at: latest(
-                group.iter().filter_map(|row| row.last_inbound_at.as_deref()),
+                group
+                    .iter()
+                    .filter_map(|row| row.last_inbound_at.as_deref()),
             ),
             last_outbound_at: latest(
-                group.iter().filter_map(|row| row.last_outbound_at.as_deref()),
+                group
+                    .iter()
+                    .filter_map(|row| row.last_outbound_at.as_deref()),
             ),
             two_way: group.iter().any(|row| row.is_two_way),
             coverage_limited: group
@@ -377,12 +385,18 @@ pub fn relationship_activity(rows: &[RelationshipEvidenceRecord]) -> Relationshi
     RelationshipActivity {
         has_evidence: true,
         sources,
-        first_observed_at: earliest(rows.iter().filter_map(|row| row.first_observed_at.as_deref())),
+        first_observed_at: earliest(
+            rows.iter()
+                .filter_map(|row| row.first_observed_at.as_deref()),
+        ),
         inbound_count,
         outbound_count,
         observed_communication_count: inbound_count + outbound_count,
         two_way: rows.iter().any(|row| row.is_two_way),
-        last_observed_at: latest(rows.iter().filter_map(|row| row.last_observed_at.as_deref())),
+        last_observed_at: latest(
+            rows.iter()
+                .filter_map(|row| row.last_observed_at.as_deref()),
+        ),
         last_meaningful_contact_at: latest(meaningful.iter().filter_map(|row| {
             row.last_observed_at
                 .as_deref()

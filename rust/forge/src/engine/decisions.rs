@@ -15,8 +15,16 @@ pub struct DecisionSource {
     pub owner: Option<String>,
 }
 
-pub fn decision_domain_for_story(workstream: Option<&str>, operating_surface: Option<&str>) -> &'static str {
-    let token = format!("{} {}", workstream.unwrap_or(""), operating_surface.unwrap_or("")).to_ascii_uppercase();
+pub fn decision_domain_for_story(
+    workstream: Option<&str>,
+    operating_surface: Option<&str>,
+) -> &'static str {
+    let token = format!(
+        "{} {}",
+        workstream.unwrap_or(""),
+        operating_surface.unwrap_or("")
+    )
+    .to_ascii_uppercase();
     if token.contains("CRM") || token.contains("CONTACT") || token.contains("DEAL") {
         "crm"
     } else if token.contains("WEB") || token.contains("SITE") || token.contains("MARKETING") {
@@ -44,7 +52,11 @@ pub fn render_decision_block(decisions: &[DecisionSource]) -> String {
         "They outlive this session and are not up for re-litigation by the lane that is acting on them.".into(),
     ];
     for d in decisions {
-        let owner = d.owner.as_deref().map(|o| format!(" ({o})")).unwrap_or_default();
+        let owner = d
+            .owner
+            .as_deref()
+            .map(|o| format!(" ({o})"))
+            .unwrap_or_default();
         lines.push(format!("- {}: {}{owner}", d.key, d.statement));
     }
     lines.push(
@@ -53,7 +65,10 @@ pub fn render_decision_block(decisions: &[DecisionSource]) -> String {
     lines.join("\n")
 }
 
-pub fn with_decision_context(instructions: Option<&str>, decisions: Result<&[DecisionSource], ()>) -> Option<String> {
+pub fn with_decision_context(
+    instructions: Option<&str>,
+    decisions: Result<&[DecisionSource], ()>,
+) -> Option<String> {
     let base = instructions.unwrap_or("").trim();
     match decisions {
         Err(()) => {
@@ -64,11 +79,13 @@ pub fn with_decision_context(instructions: Option<&str>, decisions: Result<&[Dec
         }
         Ok(list) => {
             let block = render_decision_block(list);
-            let parts = [base, block.as_str()]
-                .into_iter()
-                .filter(|s| !s.is_empty());
+            let parts = [base, block.as_str()].into_iter().filter(|s| !s.is_empty());
             let joined = parts.collect::<Vec<_>>().join("\n\n");
-            if joined.is_empty() { None } else { Some(joined) }
+            if joined.is_empty() {
+                None
+            } else {
+                Some(joined)
+            }
         }
     }
 }
@@ -95,7 +112,10 @@ pub fn list_active_decisions(domain: &str, limit: usize) -> Result<Vec<DecisionS
             DecisionSource {
                 key: cols.next().unwrap_or("").trim().to_string(),
                 statement: cols.next().unwrap_or("").trim().to_string(),
-                owner: cols.next().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+                owner: cols
+                    .next()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty()),
             }
         })
         .collect())

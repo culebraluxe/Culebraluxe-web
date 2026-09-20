@@ -146,16 +146,10 @@ impl BoldSignClient {
                     )
                     .text(format!("{field_prefix}.isRequired"), "true");
                 if let Some(font_size) = field.font_size {
-                    form = form.text(
-                        format!("{field_prefix}.fontSize"),
-                        font_size.to_string(),
-                    );
+                    form = form.text(format!("{field_prefix}.fontSize"), font_size.to_string());
                 }
                 if let Some(date_format) = &field.date_format {
-                    form = form.text(
-                        format!("{field_prefix}.dateFormat"),
-                        date_format.clone(),
-                    );
+                    form = form.text(format!("{field_prefix}.dateFormat"), date_format.clone());
                 }
             }
         }
@@ -210,8 +204,7 @@ impl BoldSignClient {
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .ok_or_else(|| BoldSignClientError {
-                    message: "BoldSign document properties response is missing documentId."
-                        .into(),
+                    message: "BoldSign document properties response is missing documentId.".into(),
                     retryable: false,
                 })?
                 .to_owned();
@@ -339,7 +332,10 @@ impl BoldSignClient {
                 .map_err(classify_transport_error)?;
             let status = response.status();
             if !status.is_success() {
-                return Err(http_error(status, response.text().await.unwrap_or_default()));
+                return Err(http_error(
+                    status,
+                    response.text().await.unwrap_or_default(),
+                ));
             }
             let bytes = response
                 .bytes()
@@ -451,10 +447,7 @@ fn classify_transport_error(error: reqwest::Error) -> BoldSignClientError {
 }
 
 fn http_error(status: StatusCode, body: String) -> BoldSignClientError {
-    let retryable = matches!(
-        status.as_u16(),
-        408 | 425 | 429 | 500 | 502 | 503 | 504
-    );
+    let retryable = matches!(status.as_u16(), 408 | 425 | 429 | 500 | 502 | 503 | 504);
     let excerpt = body.chars().take(200).collect::<String>();
     BoldSignClientError {
         message: format!(
@@ -469,4 +462,3 @@ fn http_error(status: StatusCode, body: String) -> BoldSignClientError {
         retryable,
     }
 }
-

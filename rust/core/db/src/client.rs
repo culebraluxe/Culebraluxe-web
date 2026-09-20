@@ -1,8 +1,8 @@
 use crate::{Database, DbFailure, DbResult};
 use domain::{
-    AssignableAgent, ClientAdminPageRequest, ClientAdminRow, ClientDetail, ClientDirectoryPageRequest,
-    ClientDirectoryRecord, ClientHistoryEventRecord, ClientInteraction, ClientLastContact,
-    ClientNextAction, ClientPropertyInterest, RelationshipEvidenceRecord,
+    AssignableAgent, ClientAdminPageRequest, ClientAdminRow, ClientDetail,
+    ClientDirectoryPageRequest, ClientDirectoryRecord, ClientHistoryEventRecord, ClientInteraction,
+    ClientLastContact, ClientNextAction, ClientPropertyInterest, RelationshipEvidenceRecord,
 };
 use serde_json::{json, Value};
 use sqlx::FromRow;

@@ -837,7 +837,6 @@ impl<S: TxStore> WorkflowEngine<S> {
             .with_tx(|tx| tx.active_tasks_for_user(user_id, tenant_id))
     }
 
-
     pub fn complete_job(&self, job_id: &str, worker_id: &str) -> Result<()> {
         self.store.with_tx(|tx| {
             let job = tx.lock_job(job_id)?;
@@ -924,9 +923,8 @@ impl<S: TxStore> WorkflowEngine<S> {
     }
 
     pub fn reclaim_stale_jobs_for_instance(&self, process_instance_id: &str) -> Result<usize> {
-        self.store.with_tx(|tx| {
-            tx.reclaim_stale_jobs(self.now(), 10_000, Some(process_instance_id))
-        })
+        self.store
+            .with_tx(|tx| tx.reclaim_stale_jobs(self.now(), 10_000, Some(process_instance_id)))
     }
 
     pub fn requeue_job(&self, job_id: &str, actor: &str) -> Result<()> {

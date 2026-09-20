@@ -59,7 +59,11 @@ pub trait Store {
     fn tasks_for_instance(&mut self, instance_id: &str) -> Result<Vec<Task>>;
     fn open_tasks_for_instance(&mut self, instance_id: &str) -> Result<Vec<Task>>;
     fn open_tasks_for_token(&mut self, token_id: &str) -> Result<Vec<Task>>;
-    fn active_tasks_for_user(&mut self, user_id: &str, tenant_id: Option<&str>) -> Result<Vec<Task>>;
+    fn active_tasks_for_user(
+        &mut self,
+        user_id: &str,
+        tenant_id: Option<&str>,
+    ) -> Result<Vec<Task>>;
     fn patch_ready_task_form(&mut self, token_id: &str, form_data: Value) -> Result<()>;
 
     fn insert_job(&mut self, job: Job) -> Result<Job>;

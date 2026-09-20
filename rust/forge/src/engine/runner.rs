@@ -6,16 +6,19 @@ use crate::engine::architect::{
     assess_architect_handoff, parse_architect_handoff, ArchitectAssessment,
 };
 use crate::engine::assay::{collect_assay_evidence, CommandResult};
+use crate::engine::execution_target::{assert_forge_execution_target, env_pairs_from_process};
 use crate::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::facts::ForgeGateEvidence;
-use crate::engine::phase::{ForgePhaseAgent, RoleEffectPorts};
-use crate::engine::execution_target::{assert_forge_execution_target, env_pairs_from_process};
-use crate::engine::hold::{deliverable_enforcement_enabled, parse_deliverable_reprompt_budget, open_forge_hold_record, OpenHold};
-use crate::engine::scope::candidate_own_changed_files;
-use crate::engine::worktree::git_changed_files;
+use crate::engine::hold::{
+    deliverable_enforcement_enabled, open_forge_hold_record, parse_deliverable_reprompt_budget,
+    OpenHold,
+};
 use crate::engine::observer::record_forge_observer;
-use crate::engine::self_heal::{attempt_budget, build_self_heal_directive};
+use crate::engine::phase::{ForgePhaseAgent, RoleEffectPorts};
 use crate::engine::runtime::ActiveForgeRoleTask;
+use crate::engine::scope::candidate_own_changed_files;
+use crate::engine::self_heal::{attempt_budget, build_self_heal_directive};
+use crate::engine::worktree::git_changed_files;
 use crate::engine::writer::ForgeStateWriter;
 use workflow::{Result, WorkflowError};
 
@@ -69,10 +72,14 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
                     .map_err(|e| WorkflowError::generic(e.0))?;
             }
         }
-        let enforce = deliverable_enforcement_enabled(std::env::var("FORGE_ENFORCE_DELIVERABLES").ok().as_deref());
+        let enforce = deliverable_enforcement_enabled(
+            std::env::var("FORGE_ENFORCE_DELIVERABLES").ok().as_deref(),
+        );
         let budget = attempt_budget(
             enforce,
-            parse_deliverable_reprompt_budget(std::env::var("FORGE_DELIVERABLE_RETRIES").ok().as_deref()),
+            parse_deliverable_reprompt_budget(
+                std::env::var("FORGE_DELIVERABLE_RETRIES").ok().as_deref(),
+            ),
         );
         let mut prior_reply: Option<String> = None;
         let mut evidence = self.current.clone();
@@ -202,19 +209,30 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
             }
         }
 
-        let sid = if task.story_id.is_empty() { task.process_instance_id.as_str() } else { task.story_id.as_str() };
+        let sid = if task.story_id.is_empty() {
+            task.process_instance_id.as_str()
+        } else {
+            task.story_id.as_str()
+        };
         let _ = record_forge_observer(sid, node_id, "role.completed", &format!("node={node_id}"));
 
         if let Some(reason) = evidence.deliverable_rejection.clone() {
-
             if let Some(writer) = self.writer {
-                let sid = if task.story_id.is_empty() { &task.process_instance_id } else { &task.story_id };
+                let sid = if task.story_id.is_empty() {
+                    &task.process_instance_id
+                } else {
+                    &task.story_id
+                };
                 let _ = writer.mark_story_human_hold(sid, &reason);
             }
             let _ = open_forge_hold_record(&OpenHold {
                 process_instance_id: task.process_instance_id.clone(),
                 task_id: Some(task.task_id.clone()),
-                story_id: if task.story_id.is_empty() { task.process_instance_id.clone() } else { task.story_id.clone() },
+                story_id: if task.story_id.is_empty() {
+                    task.process_instance_id.clone()
+                } else {
+                    task.story_id.clone()
+                },
                 reason,
                 originating_node: Some(node_id.into()),
                 failure_class: Some("DELIVERABLE_REJECTED".into()),
