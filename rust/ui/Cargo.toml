@@ -4,10 +4,35 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
-# The MVI core has NO dependencies on purpose. Model, messages, the reducer and the view are pure Rust, so the whole
-# interaction model is testable on the ordinary host target — no browser, no DOM, no WASM toolchain. `wasm-bindgen`
-# and `web-sys` arrive with the WASM shell in a later step, behind a feature, and the core must not need them.
+# The MVI core (`model`, `update`, `view`) has no browser dependencies at all — it compiles and its tests run on the
+# ordinary host target, which is the point: the interaction model is testable without a browser, a DOM or a WASM
+# toolchain. `wasm-bindgen` and `web-sys` arrive only with the `wasm` feature, used by `shell` for the mount and the
+# click bridge.
+#
+# The shell deliberately does NOT depend on `wasm-bindgen-futures` or `reqwest`: the browser never calls the Rust
+# API directly. The TypeScript host owns the network (it holds the session and the server-side credentials), fetches
+# from the application's own routes, and hands the result to `rows_loaded` as JSON. One bridge, one direction, no
+# credentials in the WASM module.
 [dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+console_error_panic_hook = { version = "0.1", optional = true }
+wasm-bindgen = { version = "0.2", optional = true }
+web-sys = { version = "0.3", optional = true, features = [
+    "CustomEvent",
+    "CustomEventInit",
+    "Document",
+    "Element",
+    "Event",
+    "EventTarget",
+    "HtmlElement",
+    "MouseEvent",
+    "Window",
+] }
+
+[features]
+default = []
+wasm = ["dep:wasm-bindgen", "dep:web-sys", "dep:console_error_panic_hook"]
 
 [lib]
-crate-type = ["rlib"]
+crate-type = ["cdylib", "rlib"]

@@ -2,6 +2,12 @@
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
 
+/* The Rust UI renders the same token classes this application already uses (`bg-card`, `text-muted-foreground`,
+   `rounded-lg border`), so the port reuses the design system instead of growing a second one. Tailwind only has to
+   be told to look inside the Rust view module — without this line every class the Rust UI emits is a class Tailwind
+   never generates, and the port would look unstyled for a reason that has nothing to do with styling. */
+@source '../rust/ui/src/**/*.rs';
+
 /* Tailwind v4 ignores node_modules by default; scan @ilamy/calendar so its
    shadcn token utilities (bg-background, text-muted-foreground, …) generate. */
 @source "../node_modules/@ilamy/calendar/dist";

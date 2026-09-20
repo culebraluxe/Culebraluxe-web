@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "node scripts/dev-start.mjs",
     "dev:raw": "next dev",
+    "ui:build": "bash scripts/rust-ui-build.sh",
+    "ui:build:release": "RUST_UI_PROFILE=release bash scripts/rust-ui-build.sh",
     "contacts:sync:prod": "bash scripts/contacts-sync.sh",
     "ods:load": "bash scripts/ods-load.sh contacts",
     "ods:load:imessage": "bash scripts/ods-load.sh imessage",

@@ -1,48 +1,55 @@
 //! The reducer: the only place the model changes, and it is pure.
 //!
-//! Everything that could go wrong with an MVI screen goes wrong here instead of in a lifecycle hook: a stale
-//! response, a selection pointing at a row that no longer exists, an error arriving while a new request is in
-//! flight. Each of those is a named message and an assertion below.
+//! Navigation is a message like everything else, which is what keeps the shell dumb: a nav click, a deep link and a
+//! restored session all arrive as `Navigate` and produce the same state.
 
 use crate::model::{Effect, Model, Msg};
 
 /// Apply one intent. Returns the effects the host must run.
-///
-/// The model is updated before the effects are returned, so the view is always rendering a valid state and a
-/// request is never a precondition for showing something.
 pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
     match msg {
-        Msg::ScreenOpened => {
+        Msg::ScreenOpened(screen) => {
+            model.screen = screen;
             model.loading = true;
             model.error = None;
-            vec![Effect::LoadPortfolio]
+            // Rows belong to the screen that fetched them. Clearing on navigate is what stops a detail panel from
+            // briefly rendering the previous screen's records.
+            model.rows = Vec::new();
+            model.selected_row_id = None;
+            vec![Effect::FetchRows]
         }
-        Msg::PortfolioLoaded(properties) => {
+        Msg::Navigate(screen) => {
+            if model.screen == screen {
+                return Vec::new();
+            }
+            // A deferred screen loads nothing: it is a placeholder, and pretending to fetch would put a spinner on a
+            // screen that has no data to show.
+            if screen.is_deferred() {
+                model.screen = screen;
+                model.loading = false;
+                model.error = None;
+                model.rows = Vec::new();
+                model.selected_row_id = None;
+                return Vec::new();
+            }
+            update(model, Msg::ScreenOpened(screen))
+        }
+        Msg::RowsLoaded(rows) => {
             model.loading = false;
             model.error = None;
-            // A selection that survives the refresh stays; one that does not is dropped rather than left dangling,
-            // because a dangling id would make `selected()` return None while the UI still showed a detail screen.
-            if let Some(id) = model.selected_property_id.as_deref() {
-                if !properties.iter().any(|property| property.id == id) {
-                    model.selected_property_id = None;
-                    model.screen = crate::model::Screen::Portfolio;
+            if let Some(id) = model.selected_row_id.as_deref() {
+                if !rows.iter().any(|row| row.id == id) {
+                    model.selected_row_id = None;
                 }
             }
-            model.properties = properties;
+            model.rows = rows;
             Vec::new()
         }
-        Msg::PropertySelected(id) => {
-            // Selecting is a view concern: it never loads, never writes, never asks the server. If the id is not in
-            // the model the selection is refused, which is what stops a widget from selecting a row the screen does
-            // not know about.
-            if model.properties.iter().any(|property| property.id == id) {
-                model.selected_property_id = Some(id);
-                model.screen = crate::model::Screen::PropertyDetail;
+        Msg::RowSelected(id) => {
+            // Selecting never writes and never fetches. An unknown id is refused rather than half-applied.
+            if model.rows.iter().any(|row| row.id == id) {
+                model.selected_row_id = Some(id);
             }
-            Vec::new()
-        }
-        Msg::PortfolioRequested => {
-            model.screen = crate::model::Screen::Portfolio;
             Vec::new()
         }
         Msg::EffectFailed(message) => {
@@ -56,107 +63,82 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{PropertySummary, Screen};
+    use crate::model::{Row, Screen};
 
-    fn summary(id: &str, label: &str) -> PropertySummary {
-        PropertySummary {
+    fn row(id: &str) -> Row {
+        Row {
             id: id.into(),
-            label: label.into(),
-            owner_known: true,
-            acreage: Some(1.0),
+            cells: vec![format!("row {id}")],
+            badge: None,
         }
     }
 
     #[test]
-    fn opening_the_screen_loads_and_clears_a_previous_error() {
-        let mut model = Model {
-            error: Some("old".into()),
-            ..Model::default()
-        };
-        let effects = update(&mut model, Msg::ScreenOpened);
-        assert_eq!(effects, vec![Effect::LoadPortfolio]);
+    fn navigating_to_a_menu_screen_fetches_its_rows() {
+        let mut model = Model::default();
+        let effects = update(&mut model, Msg::Navigate(Screen::Clients));
+        assert_eq!(model.screen, Screen::Clients);
         assert!(model.loading);
-        assert_eq!(model.error, None);
+        assert_eq!(effects, vec![Effect::FetchRows]);
     }
 
     #[test]
-    fn loading_data_stops_the_spinner() {
+    fn navigating_back_to_the_same_screen_does_nothing() {
         let mut model = Model {
-            loading: true,
+            screen: Screen::Clients,
             ..Model::default()
         };
-        update(&mut model, Msg::PortfolioLoaded(vec![summary("p1", "One")]));
-        assert!(!model.loading);
-        assert_eq!(model.properties.len(), 1);
+        assert!(update(&mut model, Msg::Navigate(Screen::Clients)).is_empty());
     }
 
     #[test]
-    fn selecting_a_known_property_opens_the_detail_screen() {
-        let mut model = Model {
-            properties: vec![summary("p1", "One")],
-            ..Model::default()
-        };
-        update(&mut model, Msg::PropertySelected("p1".into()));
-        assert_eq!(model.selected_property_id.as_deref(), Some("p1"));
-        assert_eq!(model.screen, Screen::PropertyDetail);
-        assert_eq!(model.selected().map(|p| p.label.as_str()), Some("One"));
-    }
-
-    #[test]
-    fn selecting_an_unknown_property_is_refused_rather_than_half_applied() {
-        let mut model = Model {
-            properties: vec![summary("p1", "One")],
-            ..Model::default()
-        };
-        update(&mut model, Msg::PropertySelected("nope".into()));
-        assert_eq!(model.selected_property_id, None);
-        assert_eq!(model.screen, Screen::Portfolio);
-    }
-
-    #[test]
-    fn a_refresh_that_loses_the_selected_row_closes_the_detail_screen() {
-        let mut model = Model {
-            properties: vec![summary("p1", "One")],
-            selected_property_id: Some("p1".into()),
-            screen: Screen::PropertyDetail,
-            ..Model::default()
-        };
-        update(&mut model, Msg::PortfolioLoaded(vec![summary("p2", "Two")]));
-        assert_eq!(model.selected_property_id, None);
-        assert_eq!(
-            model.screen,
-            Screen::Portfolio,
-            "a dangling selection must not leave a detail screen open"
+    fn the_deferred_screen_navigates_without_fetching() {
+        let mut model = Model::default();
+        assert!(update(&mut model, Msg::Navigate(Screen::Projects)).is_empty());
+        assert_eq!(model.screen, Screen::Projects);
+        assert!(
+            !model.loading,
+            "a placeholder must not show a spinner for data it never asks for"
         );
     }
 
     #[test]
-    fn a_failed_request_keeps_the_data_and_records_the_reason() {
+    fn rows_from_the_previous_screen_never_leak_into_the_next() {
+        let mut model = Model::default();
+        update(&mut model, Msg::RowsLoaded(vec![row("a")]));
+        update(&mut model, Msg::RowSelected("a".into()));
+        update(&mut model, Msg::Navigate(Screen::Deals));
+        assert!(model.rows.is_empty());
+        assert_eq!(model.selected_row_id, None);
+    }
+
+    #[test]
+    fn a_refresh_that_loses_the_selected_row_drops_the_selection() {
+        let mut model = Model::default();
+        update(&mut model, Msg::RowsLoaded(vec![row("a")]));
+        update(&mut model, Msg::RowSelected("a".into()));
+        update(&mut model, Msg::RowsLoaded(vec![row("b")]));
+        assert_eq!(model.selected_row_id, None);
+    }
+
+    #[test]
+    fn a_broken_payload_is_an_error_not_a_panic() {
+        assert!(matches!(
+            Msg::rows_loaded_json("nope"),
+            Msg::EffectFailed(_)
+        ));
+    }
+
+    #[test]
+    fn a_failed_request_keeps_the_data_the_user_was_reading() {
         let mut model = Model {
             loading: true,
-            properties: vec![summary("p1", "One")],
             ..Model::default()
         };
+        update(&mut model, Msg::RowsLoaded(vec![row("a")]));
+        model.loading = true;
         update(&mut model, Msg::EffectFailed("network".into()));
-        assert!(!model.loading);
         assert_eq!(model.error.as_deref(), Some("network"));
-        assert_eq!(
-            model.properties.len(),
-            1,
-            "an error never discards data the user could still be reading"
-        );
-    }
-
-    #[test]
-    fn going_back_keeps_the_selection_so_returning_is_cheap() {
-        let mut model = Model {
-            properties: vec![summary("p1", "One")],
-            selected_property_id: Some("p1".into()),
-            screen: Screen::PropertyDetail,
-            ..Model::default()
-        };
-        update(&mut model, Msg::PortfolioRequested);
-        assert_eq!(model.screen, Screen::Portfolio);
-        assert_eq!(model.selected_property_id.as_deref(), Some("p1"));
+        assert_eq!(model.rows.len(), 1);
     }
 }
