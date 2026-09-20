@@ -6,8 +6,8 @@ pub mod firm;
 pub mod person;
 pub mod project;
 pub mod property;
-pub mod showing;
 pub mod security;
+pub mod showing;
 
 pub use firm::{FieldPatch, Firm, UpsertFirmRequest};
 pub use person::{
