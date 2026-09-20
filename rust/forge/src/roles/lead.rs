@@ -1,4 +1,2 @@
-//! Lead role boundary.
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Lead;
+//! Lead lane.
+pub use crate::engine::graph::{plan_smith_layers, split_eligibility};

@@ -1,4 +1,2 @@
-//! Smith role boundary.
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Smith;
+//! Smith lane.
+pub use crate::engine::graph::SmithWorkNode;

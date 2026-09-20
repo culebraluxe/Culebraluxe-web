@@ -29,6 +29,7 @@ pub mod role_mapping;
 pub mod runner;
 pub mod runtime;
 pub mod topology;
+pub mod validate;
 pub mod vendor_session;
 pub mod writer;
 pub mod xml;
@@ -53,3 +54,5 @@ pub use writer::{
     RecordingWriter,
 };
 pub use db_writer::DbForgeStateWriter;
+
+pub use validate::{validate_definition_xml, validate_forge_sdlc_v6, DefinitionValidationReport};

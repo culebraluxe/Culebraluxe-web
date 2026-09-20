@@ -1,7 +1,3 @@
-//! DEV_OPS role boundary.
-//!
-//! Release identity, promotion, and Git-facing release concerns belong here or
-//! under the Forge release module.
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct DevOps;
+//! DevOps / release lane.
+pub use crate::engine::release::DbForgeReleaseExecutor;
+pub use crate::engine::git_publish::HostReleaseExecutor;
