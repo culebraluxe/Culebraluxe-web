@@ -281,7 +281,7 @@ fn message_summary(message: &MetaWhatsAppMessage) -> Option<String> {
 
     let normalized = raw.nfkc().collect::<String>().replace("
 ", "
-").replace('', "
+").replace('\r', "
 ");
     let trimmed = normalized.trim();
     if trimmed.is_empty() {

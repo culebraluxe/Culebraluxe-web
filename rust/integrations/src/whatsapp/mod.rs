@@ -1,14 +1,17 @@
+//! Meta WhatsApp Cloud API trust boundary.
+//!
+//! Rust owns verification of the webhook challenge and the exact raw-body
+//! X-Hub-Signature-256 HMAC before any payload reaches canonical intake.
+//!
+//! The `//!` block sits FIRST in this file on purpose: an inner doc comment after any item is `E0753`, which is
+//! how this file arrived and why `cargo check --workspace` failed on the WhatsApp port.
+
 mod payload;
 
 pub use payload::{
     parse_webhook, MetaWhatsAppWebhookPayload, NormalizedWhatsAppEvent, WhatsAppAttachment,
     WhatsAppDirection,
 };
-
-//! Meta WhatsApp Cloud API trust boundary.
-//!
-//! Rust owns verification of the webhook challenge and the exact raw-body
-//! X-Hub-Signature-256 HMAC before any payload reaches canonical intake.
 
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
