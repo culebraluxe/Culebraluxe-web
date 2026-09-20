@@ -17,7 +17,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
     );
     let app = build_router(db.clone(), infrastructure, config);
 
-    let bind = std::env::var("RUST_API_BIND").unwrap_or_else(|_| "127.0.0.1:8080".into());
+    let bind = std::env::var("RUST_API_BIND")
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            std::env::var("PORT")
+                .ok()
+                .map(|port| format!("0.0.0.0:{}", port.trim()))
+        })
+        .unwrap_or_else(|| "127.0.0.1:8080".into());
     let listener = TcpListener::bind(&bind).await?;
 
     println!(
