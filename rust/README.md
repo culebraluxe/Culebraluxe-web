@@ -100,3 +100,42 @@ that the test row does not exist.
 GitHub Actions keeps this database smoke parked behind `RUST_DB_CI=true` until
 `DATABASE_URL_DEV` is configured as an Actions secret. Normal Rust format,
 unit-test, and compile gates remain mandatory on every push.
+
+
+## Slice 3: required core services
+
+The required TypeScript service-composition kernel is now represented in Rust:
+
+- Person
+- Firm
+- Property (canonical place/address + Person relationship operations)
+- Contract
+- Showing
+- Security
+- WBS
+- Project
+
+`server::CoreServices` is the Rust composition root. Every service shares the
+single `Database` pool and the shared authorization/audit/event
+`ServiceInfrastructure`.
+
+Cross-domain validation does not reach across repository boundaries.
+`ServiceDirectory` resolves Person, Firm, and Property existence through the
+owning Rust service contract; Showing and Contract use that seam.
+
+Property public-listing/media projections remain in TypeScript during this
+slice. Those are public read-model/presentation surfaces, not canonical
+Property business ownership. Optional Comms/Form/Vault services likewise remain
+outside this required-core slice.
+
+Important parity preserved by this slice:
+
+- Person identity uniqueness/normalization remains canonical.
+- Property Person-link upsert is atomic and preserves omitted-vs-explicit-clear
+  field semantics through `FieldPatch<T>`.
+- Showing refuses to rebind one Showing id to another Person/Property.
+- Security identity resolution fails closed.
+- WBS keeps its fixed categories and entity-link vocabulary.
+- Contract keeps contextual Role vocabulary, predecessor lineage, mutable-draft
+  rules, effective-state projection, and stronger authorization for
+  `contract.execute`.
