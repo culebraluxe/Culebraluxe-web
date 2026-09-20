@@ -22,6 +22,13 @@ test('internal api key requires at least sixteen trimmed characters', () => {
   assert.equal(resolveInternalApiKey(undefined), null)
   assert.equal(resolveInternalApiKey(' short '), null)
   assert.equal(resolveInternalApiKey(` ${syntheticKey} `), syntheticKey)
+
+  const derived = resolveInternalApiKey(undefined, 'auth-secret-value-long-enough')
+  assert.equal(derived?.length, 64)
+  assert.equal(
+    derived,
+    resolveInternalApiKey(undefined, 'auth-secret-value-long-enough'),
+  )
 })
 
 test('bridge forwards provider identity but no role or security level', () => {
