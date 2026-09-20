@@ -12,10 +12,7 @@ use std::collections::BTreeMap;
 #[async_trait]
 pub trait PersonRepository: Send {
     async fn get(&mut self, person_id: &str) -> DbResult<Option<Person>>;
-    async fn find_by_identity(
-        &mut self,
-        identity: &PersonIdentity,
-    ) -> DbResult<Option<Person>>;
+    async fn find_by_identity(&mut self, identity: &PersonIdentity) -> DbResult<Option<Person>>;
     async fn set_display_name(
         &mut self,
         request: &SetPersonDisplayNameRequest,
@@ -24,10 +21,7 @@ pub trait PersonRepository: Send {
         &mut self,
         request: &AttachPersonIdentityRequest,
     ) -> DbResult<PersonIdentity>;
-    async fn search(
-        &mut self,
-        request: &SearchPeopleRequest,
-    ) -> DbResult<Vec<PersonSearchResult>>;
+    async fn search(&mut self, request: &SearchPeopleRequest) -> DbResult<Vec<PersonSearchResult>>;
 }
 
 #[async_trait]
@@ -36,10 +30,7 @@ impl PersonRepository for PersonDao {
         PersonDao::get(self, person_id).await
     }
 
-    async fn find_by_identity(
-        &mut self,
-        identity: &PersonIdentity,
-    ) -> DbResult<Option<Person>> {
+    async fn find_by_identity(&mut self, identity: &PersonIdentity) -> DbResult<Option<Person>> {
         PersonDao::find_by_identity(self, identity).await
     }
 
@@ -57,10 +48,7 @@ impl PersonRepository for PersonDao {
         PersonDao::attach_identity(self, request).await
     }
 
-    async fn search(
-        &mut self,
-        request: &SearchPeopleRequest,
-    ) -> DbResult<Vec<PersonSearchResult>> {
+    async fn search(&mut self, request: &SearchPeopleRequest) -> DbResult<Vec<PersonSearchResult>> {
         PersonDao::search(self, request).await
     }
 }
