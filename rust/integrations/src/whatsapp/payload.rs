@@ -279,10 +279,7 @@ fn message_summary(message: &MetaWhatsAppMessage) -> Option<String> {
                 .and_then(|media| media.caption.as_deref())
         })?;
 
-    let normalized = raw.nfkc().collect::<String>().replace("
-", "
-").replace('\r', "
-");
+    let normalized = raw.nfkc().collect::<String>().replace("\r\n", "\n").replace('\r', "\n");
     let trimmed = normalized.trim();
     if trimmed.is_empty() {
         return None;
