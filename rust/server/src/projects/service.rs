@@ -148,10 +148,7 @@ mod tests {
             unreachable!("guest command must be denied before repository create")
         }
 
-        async fn update(
-            &mut self,
-            _request: &UpdateProjectRequest,
-        ) -> DbResult<Option<Project>> {
+        async fn update(&mut self, _request: &UpdateProjectRequest) -> DbResult<Option<Project>> {
             unreachable!("authorization test must not reach repository")
         }
 

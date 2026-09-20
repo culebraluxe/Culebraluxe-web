@@ -16,7 +16,5 @@ pub use authorization::{
 pub use context::{
     OperationKind, ServiceActor, ServiceActorKind, ServiceContext, ServicePrincipal,
 };
-pub use events::{
-    CapturingDomainEventPort, DomainEventPort, ServiceDomainEvent,
-};
+pub use events::{CapturingDomainEventPort, DomainEventPort, ServiceDomainEvent};
 pub use runtime::{ServiceInfrastructure, ServicePortError, ServiceRuntime, ServiceRuntimeError};

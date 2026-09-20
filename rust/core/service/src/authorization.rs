@@ -1,6 +1,4 @@
-use crate::{
-    OperationKind, ServiceActor, ServicePortError, ServicePrincipal,
-};
+use crate::{OperationKind, ServiceActor, ServicePortError, ServicePrincipal};
 use async_trait::async_trait;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

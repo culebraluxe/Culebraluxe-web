@@ -1,7 +1,6 @@
 use crate::{
-    AuditPort, AuthorizationDecision, AuthorizationPort, AuthorizationRequest,
-    DomainEventPort, OperationKind, ServiceAuditEvent, ServiceContext,
-    ServiceDomainEvent, ServiceOutcome,
+    AuditPort, AuthorizationDecision, AuthorizationPort, AuthorizationRequest, DomainEventPort,
+    OperationKind, ServiceAuditEvent, ServiceContext, ServiceDomainEvent, ServiceOutcome,
 };
 use std::collections::BTreeMap;
 use std::sync::Arc;

@@ -225,7 +225,6 @@ impl ProjectDao {
     }
 }
 
-
 pub struct ProjectTxDao<'a> {
     tx: &'a mut DbTransaction,
 }
