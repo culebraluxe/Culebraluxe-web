@@ -16,7 +16,7 @@
 //   human:  poisoned command receipts, failed/error instance disposition,
 //           any destructive reset
 // ---------------------------------------------------------------------------
-import { engineConfigured, engineSql } from './engine-client'
+import { engineConfigured } from './engine-client'
 import { reconcileWorkflows } from './reconcile'
 import type { ReconcileReport } from './reconcile'
 

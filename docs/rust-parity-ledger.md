@@ -32,18 +32,16 @@ to the import graph, and before acting on a deletion candidate.
 
 ## TypeScript modules under the subjects
 
-- `db/` and `services/`: **207** modules
+- `db/` and `services/`: **204** modules
 - reachable from shipped code: **204**
-- not imported by any shipped file (REVIEW, not delete): **3**
+- not imported by any shipped file (REVIEW, not delete): **0**
 
 Reachable means "some file under app/, components/, lib/, workflow_app/ or scripts/ imports it, directly or
 through another module". The list below is a review queue, with each candidate's referencers printed.
 
 ### Review candidates
 
-- `services/regrid/csv.test.ts` — referenced by: **nothing imports it, not even a test**
-- `services/regrid/property-enrichment.test.ts` — referenced by: **nothing imports it, not even a test**
-- `services/regrid/regrid-client.test.ts` — referenced by: **nothing imports it, not even a test**
+(none)
 
 ## What this cannot tell you
 

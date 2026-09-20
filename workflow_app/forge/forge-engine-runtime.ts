@@ -1,4 +1,3 @@
-
 import { spawnSync } from 'node:child_process'
 
 function rustForgeTask(args: string[]): string {
@@ -15,30 +14,14 @@ function rustForgeTask(args: string[]): string {
   return (r.stdout || '').trim()
 }
 
-import { FORGE_SDLC_KEY, FORGE_SDLC_VERSION } from '../definitions/forge-sdlc'
+import { FORGE_SDLC_KEY } from '../definitions/forge-sdlc'
 import { engineConfigured, engineSql } from '../engine-client'
 import { startWorkflowCore } from '../start-core'
-import { createForgeApplicationPort } from './application-port'
 import { captureServerError } from '../../lib/server-error-capture'
 import type { QueryExecutor } from '../../db/query-executor'
 import type { ForgeGateEvidence } from './forge-facts'
 
-async function createDurableForgeApplicationPort(pendingEvidence?: ForgeGateEvidence) {
-  const { readForgeWorkflowEvidence } = await import('../../db/forge-workflow-evidence')
-  const { createDbForgeReleaseExecutor } = await import('./db-release-executor')
-  return createForgeApplicationPort({
-    evidenceReader: readForgeWorkflowEvidence,
-    releaseExecutor: createDbForgeReleaseExecutor(undefined, {
-      // Release commands run inside the transition that follows QA, before the evidence row is
-      // merged - so the in-flight evidence has to ride along here too, or the publish lineage check
-      // refuses on a `qaVerifiedSha` that is merely not persisted yet.
-      ...(pendingEvidence ? { pendingEvidence } : {}),
-    }),
-    // The transition reads facts BEFORE the evidence row is merged (see the CAS note below), so the
-    // in-flight evidence of this very task must ride along or every gate judges a stale turn.
-    ...(pendingEvidence ? { pendingEvidence } : {}),
-  })
-}
+
 
 // ---------------------------------------------------------------------------
 // ENG-FORGE-V10 — Forge engine runtime.
@@ -95,7 +78,7 @@ export async function startForgeWorkflow(
   return startWorkflowCore(storyId, {
     findActive: (id) => findActiveForgeInstance(id),
     readFacts: async () => ({ ...(input.evidence ?? {}) }),
-    start: async (id, facts) => {
+    start: async (id, _facts) => {
       if (!engineConfigured()) {
         throw new Error('Workflow engine database is not configured.')
       }

@@ -3,7 +3,6 @@ import { getDealWorkflowFacts } from './facts'
 import { getContractWorkflowFacts } from './contract-facts'
 import {
   RESIDENTIAL_TRANSACTION_KEY,
-  RESIDENTIAL_TRANSACTION_VERSION,
 } from './workflow-config'
 import { startWorkflowCore } from './start-core'
 import { parseStart, rustReWorkflow } from './rust-re-host'

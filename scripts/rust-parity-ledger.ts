@@ -69,7 +69,12 @@ function resolveSpec(spec: string, fromFile: string): string | null {
 
 const roots = ROOTS.map((root) => resolve(root))
 const allFiles = roots.flatMap((root) => walk(root))
-const subjects = SUBJECTS.flatMap((dir) => walk(resolve(dir)))
+// Test files are excluded from the subjects on purpose: nothing IMPORTS a test, so counting them as "unreachable"
+// would fill the review queue with false candidates. The first run of this ledger did exactly that — all three
+// candidates were *.test.ts files under services/regrid/.
+const subjects = SUBJECTS.flatMap((dir) => walk(resolve(dir))).filter(
+  (file) => !/\.(test|spec)\.tsx?$/.test(file),
+)
 
 // Reachability: breadth-first from the shipped roots.
 const reachable = new Set<string>()

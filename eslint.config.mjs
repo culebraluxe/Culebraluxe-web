@@ -71,6 +71,10 @@ export default tseslint.config(
       'output/**',
       'public/**',
       // Vendored / separate projects that happen to live in this tree.
+      // `.venv` is a Python virtualenv created 2026-09-20 for YAML tooling; it ships vendored JS we do not own, and
+      // without this line ESLint walks it and fails on `self` in pip's bundled urllib3 worker.
+      '.venv/**',
+      'venv/**',
       'gsd-core/**',
       'praxis/**',
       'claude-orchestrate/**',

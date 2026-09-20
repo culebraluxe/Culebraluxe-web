@@ -65,7 +65,7 @@ export async function reconcileDeadlineTimer(
   timerNodeId: string,
   deadline: string | null,
 ): Promise<DeadlineTimerResult> {
-  const { engineConfigured, engineSql } = await import('./engine-client')
+  const { engineConfigured } = await import('./engine-client')
   if (!engineConfigured()) return { action: 'unchanged', jobId: null }
 
   const { rustReWorkflow } = await import('./rust-re-host')
