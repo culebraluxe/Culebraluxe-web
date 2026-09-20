@@ -1,6 +1,14 @@
 use super::ProjectRepository;
 use db::DbFailure;
 use domain::{CompleteProjectRequest, CreateProjectRequest, Project, UpdateProjectRequest};
+use serde_json::json;
+use service::{
+    AuthorizationDecision, OperationKind, ServiceContext, ServiceInfrastructure, ServiceOutcome,
+    ServiceRuntime, ServiceRuntimeError,
+};
+use std::collections::BTreeMap;
+
+const DOMAIN: &str = "project";
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProjectServiceError {
@@ -10,55 +18,216 @@ pub enum ProjectServiceError {
     NotFound(String),
     #[error(transparent)]
     Database(#[from] DbFailure),
+    #[error(transparent)]
+    Runtime(#[from] ServiceRuntimeError),
+}
+
+impl ProjectServiceError {
+    fn code(&self) -> &'static str {
+        match self {
+            Self::Validation { code, .. } => code,
+            Self::NotFound(_) => "PROJECT_NOT_FOUND",
+            Self::Database(_) => "DATABASE",
+            Self::Runtime(ServiceRuntimeError::Authorization(_)) => "AUTHORIZATION_UNAVAILABLE",
+            Self::Runtime(ServiceRuntimeError::Forbidden { .. }) => "FORBIDDEN",
+            Self::Runtime(ServiceRuntimeError::Audit(_)) => "AUDIT_UNAVAILABLE",
+            Self::Runtime(ServiceRuntimeError::Event(_)) => "DOMAIN_EVENT_UNAVAILABLE",
+        }
+    }
 }
 
 pub struct ProjectService<R> {
     repository: R,
+    runtime: ServiceRuntime,
 }
 
 impl<R> ProjectService<R>
 where
     R: ProjectRepository,
 {
-    pub fn new(repository: R) -> Self {
-        Self { repository }
+    pub fn new(repository: R, infrastructure: ServiceInfrastructure) -> Self {
+        Self {
+            repository,
+            runtime: ServiceRuntime::new(infrastructure),
+        }
     }
 
-    pub async fn get(&self, id: &str) -> Result<Option<Project>, ProjectServiceError> {
-        Ok(self.repository.get(id).await?)
+    pub async fn get(
+        &mut self,
+        id: &str,
+        context: &ServiceContext,
+    ) -> Result<Option<Project>, ProjectServiceError> {
+        const OPERATION: &str = "project.get";
+        let decision = self
+            .authorize("project.read", OPERATION, OperationKind::Query, context)
+            .await?;
+        let result = self.repository.get(id).await.map_err(ProjectServiceError::from);
+        self.audit_result(OPERATION, context, decision, &result).await?;
+        result
     }
 
-    pub async fn list(&self) -> Result<Vec<Project>, ProjectServiceError> {
-        Ok(self.repository.list().await?)
+    pub async fn list(
+        &mut self,
+        context: &ServiceContext,
+    ) -> Result<Vec<Project>, ProjectServiceError> {
+        const OPERATION: &str = "project.list";
+        let decision = self
+            .authorize("project.read", OPERATION, OperationKind::Query, context)
+            .await?;
+        let result = self.repository.list().await.map_err(ProjectServiceError::from);
+        self.audit_result(OPERATION, context, decision, &result).await?;
+        result
     }
 
     pub async fn create(
-        &self,
+        &mut self,
         request: &CreateProjectRequest,
+        context: &ServiceContext,
     ) -> Result<Project, ProjectServiceError> {
-        validate_create(request)?;
-        Ok(self.repository.create(request).await?)
+        const OPERATION: &str = "project.create";
+        let decision = self
+            .authorize("project.write", OPERATION, OperationKind::Command, context)
+            .await?;
+
+        let result = async {
+            validate_create(request)?;
+            let project = self.repository.create(request).await?;
+            self.runtime
+                .emit(
+                    "project.created",
+                    Some(project.id.clone()),
+                    BTreeMap::from([
+                        ("id".into(), json!(project.id.clone())),
+                        ("name".into(), json!(project.name.clone())),
+                    ]),
+                    context,
+                )
+                .await?;
+            Ok(project)
+        }
+        .await;
+
+        self.audit_result(OPERATION, context, decision, &result).await?;
+        result
     }
 
     pub async fn update(
-        &self,
+        &mut self,
         request: &UpdateProjectRequest,
+        context: &ServiceContext,
     ) -> Result<Project, ProjectServiceError> {
-        validate_update(request)?;
-        self.repository
-            .update(request)
-            .await?
-            .ok_or_else(|| ProjectServiceError::NotFound(request.id.clone()))
+        const OPERATION: &str = "project.update";
+        let decision = self
+            .authorize("project.write", OPERATION, OperationKind::Command, context)
+            .await?;
+
+        let result = async {
+            validate_update(request)?;
+            let project = self
+                .repository
+                .update(request)
+                .await?
+                .ok_or_else(|| ProjectServiceError::NotFound(request.id.clone()))?;
+            self.runtime
+                .emit(
+                    "project.updated",
+                    Some(project.id.clone()),
+                    BTreeMap::from([
+                        ("id".into(), json!(project.id.clone())),
+                        ("status".into(), json!(project.status.as_str())),
+                    ]),
+                    context,
+                )
+                .await?;
+            Ok(project)
+        }
+        .await;
+
+        self.audit_result(OPERATION, context, decision, &result).await?;
+        result
     }
 
     pub async fn complete(
-        &self,
+        &mut self,
         request: &CompleteProjectRequest,
+        context: &ServiceContext,
     ) -> Result<Project, ProjectServiceError> {
-        self.repository
-            .complete(request)
-            .await?
-            .ok_or_else(|| ProjectServiceError::NotFound(request.id.clone()))
+        const OPERATION: &str = "project.complete";
+        let decision = self
+            .authorize("project.write", OPERATION, OperationKind::Command, context)
+            .await?;
+
+        let result = async {
+            let project = self
+                .repository
+                .complete(request)
+                .await?
+                .ok_or_else(|| ProjectServiceError::NotFound(request.id.clone()))?;
+            self.runtime
+                .emit(
+                    "project.completed",
+                    Some(project.id.clone()),
+                    BTreeMap::from([
+                        ("id".into(), json!(project.id.clone())),
+                        ("name".into(), json!(project.name.clone())),
+                    ]),
+                    context,
+                )
+                .await?;
+            Ok(project)
+        }
+        .await;
+
+        self.audit_result(OPERATION, context, decision, &result).await?;
+        result
+    }
+
+    async fn authorize(
+        &self,
+        action: &'static str,
+        operation: &'static str,
+        kind: OperationKind,
+        context: &ServiceContext,
+    ) -> Result<AuthorizationDecision, ProjectServiceError> {
+        match self
+            .runtime
+            .authorize(DOMAIN, action, operation, kind, context)
+            .await
+        {
+            Ok(decision) => Ok(decision),
+            Err(error @ ServiceRuntimeError::Forbidden { ref decision, .. }) => {
+                self.runtime
+                    .audit(
+                        DOMAIN,
+                        operation,
+                        context,
+                        ServiceOutcome::Failure,
+                        Some("FORBIDDEN".into()),
+                        decision.clone(),
+                    )
+                    .await?;
+                Err(error.into())
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    async fn audit_result<T>(
+        &self,
+        operation: &'static str,
+        context: &ServiceContext,
+        decision: AuthorizationDecision,
+        result: &Result<T, ProjectServiceError>,
+    ) -> Result<(), ProjectServiceError> {
+        let (outcome, error_code) = match result {
+            Ok(_) => (ServiceOutcome::Success, None),
+            Err(error) => (ServiceOutcome::Failure, Some(error.code().to_owned())),
+        };
+
+        self.runtime
+            .audit(DOMAIN, operation, context, outcome, error_code, decision)
+            .await?;
+        Ok(())
     }
 }
 
@@ -170,7 +339,7 @@ mod tests {
             Arc::new(audit.clone()),
             Arc::new(events.clone()),
         );
-        let mut service = ProjectService::new(
+        let mut project_service = ProjectService::new(
             CountingRepository {
                 creates: creates.clone(),
             },
@@ -186,7 +355,7 @@ mod tests {
             principal: None,
         };
 
-        let error = service
+        let error = project_service
             .create(&create_request("Denied", None), &context)
             .await
             .unwrap_err();
