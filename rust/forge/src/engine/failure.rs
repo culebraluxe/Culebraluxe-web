@@ -1,11 +1,19 @@
-//! Port of failure-classifier.ts.
+//! Port of `workflow_app/forge/failure-classifier.ts`.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ForgeFailureClass {
-    MissingContext, BadImplementation, BadArchitecture, BadToolContract,
-    EnvironmentFailure, MissingGuardrail, WeakTest, DependencyFailure,
-    DeploymentFailure, Unknown,
+    MissingContext,
+    BadImplementation,
+    BadArchitecture,
+    BadToolContract,
+    EnvironmentFailure,
+    MissingGuardrail,
+    WeakTest,
+    DependencyFailure,
+    DeploymentFailure,
+    Unknown,
 }
+
 impl ForgeFailureClass {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -39,11 +47,23 @@ impl ForgeFailureClass {
 }
 
 #[derive(Debug, Clone)]
-pub struct ForgeFailureClassification { pub class: ForgeFailureClass, pub reason: String, pub unknown: bool }
+pub struct ForgeFailureClassification {
+    pub class: ForgeFailureClass,
+    pub reason: String,
+    pub unknown: bool,
+}
 
-pub fn classify_failure(candidate: Option<&str>, observed: Option<&str>, detail: Option<&str>) -> ForgeFailureClassification {
+pub fn classify_failure(
+    candidate: Option<&str>,
+    observed: Option<&str>,
+    detail: Option<&str>,
+) -> ForgeFailureClassification {
     if let Some(c) = candidate.and_then(ForgeFailureClass::parse) {
-        return ForgeFailureClassification { class: c, reason: detail.unwrap_or(c.as_str()).into(), unknown: false };
+        return ForgeFailureClassification {
+            class: c,
+            reason: detail.unwrap_or(c.as_str()).into(),
+            unknown: false,
+        };
     }
     let mapped = match observed {
         Some("deploy") => Some(ForgeFailureClass::DeploymentFailure),
@@ -56,20 +76,42 @@ pub fn classify_failure(candidate: Option<&str>, observed: Option<&str>, detail:
         _ => None,
     };
     if let Some(cls) = mapped {
-        return ForgeFailureClassification { class: cls, reason: detail.unwrap_or(cls.as_str()).into(), unknown: false };
+        return ForgeFailureClassification {
+            class: cls,
+            reason: detail.unwrap_or(cls.as_str()).into(),
+            unknown: false,
+        };
     }
-    ForgeFailureClassification { class: ForgeFailureClass::Unknown, reason: detail.unwrap_or("unclassifiable failure").into(), unknown: true }
+    ForgeFailureClassification {
+        class: ForgeFailureClass::Unknown,
+        reason: detail.unwrap_or("unclassifiable failure").into(),
+        unknown: true,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ForgeFailureRouting {
-    Repair { owner: &'static str, attempts: u32 },
-    Hold { reason: String, attempts: u32 },
+    Repair {
+        owner: &'static str,
+        attempts: u32,
+    },
+    Hold {
+        reason: String,
+        attempts: u32,
+    },
 }
 
 pub fn route_failure(class: ForgeFailureClass, attempts: u32, max_attempts: u32) -> ForgeFailureRouting {
     if attempts >= max_attempts {
-        return ForgeFailureRouting::Hold { reason: format!("retry budget exhausted ({}/{}) for {}", attempts, max_attempts, class.as_str()), attempts };
+        return ForgeFailureRouting::Hold {
+            reason: format!(
+                "retry budget exhausted ({}/{}) for {}",
+                attempts,
+                max_attempts,
+                class.as_str()
+            ),
+            attempts,
+        };
     }
     let owner = match class {
         ForgeFailureClass::MissingContext => Some("scout"),
@@ -81,7 +123,13 @@ pub fn route_failure(class: ForgeFailureClass, attempts: u32, max_attempts: u32)
         ForgeFailureClass::DependencyFailure | ForgeFailureClass::Unknown => None,
     };
     match owner {
-        Some(o) => ForgeFailureRouting::Repair { owner: o, attempts },
-        None => ForgeFailureRouting::Hold { reason: format!("{} requires operator/Lead intervention", class.as_str()), attempts },
+        Some(o) => ForgeFailureRouting::Repair {
+            owner: o,
+            attempts,
+        },
+        None => ForgeFailureRouting::Hold {
+            reason: format!("{} requires operator/Lead intervention", class.as_str()),
+            attempts,
+        },
     }
 }

@@ -1,4 +1,4 @@
-//! Assay adjudicate + collect.
+//! Port of agents/qa/run.ts adjudicate + assay-collect.ts (no SHA conjunct).
 
 use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::phase::RoleEffectPorts;
@@ -27,33 +27,49 @@ pub struct AssayReport {
 
 pub fn adjudicate_assay(commands: &[String], results: &[CommandResult], acceptance_mapped: bool) -> AssayReport {
     if commands.is_empty() {
-        return AssayReport { verdict: AssayVerdict::Fail, blockers: vec!["NO_ASSAY_COMMANDS"] };
+        return AssayReport {
+            verdict: AssayVerdict::Fail,
+            blockers: vec!["NO_ASSAY_COMMANDS"],
+        };
     }
     if results.iter().any(|r| r.unmeasurable) {
-        return AssayReport { verdict: AssayVerdict::Fail, blockers: vec!["COMMAND_UNMEASURABLE"] };
+        return AssayReport {
+            verdict: AssayVerdict::Fail,
+            blockers: vec!["COMMAND_UNMEASURABLE"],
+        };
     }
     if results.iter().any(|r| !r.passed) {
-        return AssayReport { verdict: AssayVerdict::Fail, blockers: vec!["CMD_FAIL"] };
+        return AssayReport {
+            verdict: AssayVerdict::Fail,
+            blockers: vec!["CMD_FAIL"],
+        };
     }
     if !acceptance_mapped {
-        return AssayReport { verdict: AssayVerdict::Unproven, blockers: vec!["ACCEPTANCE_MAP_MISSING"] };
+        return AssayReport {
+            verdict: AssayVerdict::Unproven,
+            blockers: vec!["ACCEPTANCE_MAP_MISSING"],
+        };
     }
-    AssayReport { verdict: AssayVerdict::Pass, blockers: vec![] }
+    AssayReport {
+        verdict: AssayVerdict::Pass,
+        blockers: vec![],
+    }
 }
 
 pub fn collect_assay_evidence(
     mut evidence: ForgeGateEvidence,
-    _ports: &RoleEffectPorts,
+    ports: &RoleEffectPorts,
     run_command: Option<&dyn Fn(&str) -> CommandResult>,
     assay_commands: &[String],
     acceptance_mapped: bool,
 ) -> ForgeGateEvidence {
-    let Some(run) = run_command else {
+    if run_command.is_none() {
         evidence.qa_passed = Some(false);
         evidence.deliverable_rejection =
             Some("QA FAIL: the lane was handed assay commands but no way to run them.".into());
         return evidence;
-    };
+    }
+    let run = run_command.unwrap();
     let results: Vec<CommandResult> = assay_commands.iter().map(|c| run(c)).collect();
     let report = adjudicate_assay(assay_commands, &results, acceptance_mapped);
     if report.verdict != AssayVerdict::Pass {

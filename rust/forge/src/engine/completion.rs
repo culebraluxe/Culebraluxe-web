@@ -1,8 +1,10 @@
 //! Completion unit — engine transition already won (ENG-13).
-//! Receipt id: forge.completion:{taskId}. Absence of a receipt IS the crash window.
+//! Evidence merge + repair/replan increment are one claim-first receipt.
+//! Receipt id: `forge.completion:{taskId}`. Absence of a receipt IS the crash window.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
+
 use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::runtime::completion_receipt_id;
 
@@ -22,7 +24,11 @@ pub trait CompletionLedger: Send + Sync {
     fn merge_evidence(&self, rec: &CompletionRecord);
     fn increment_repair(&self, story_id: &str);
     fn increment_replan(&self, story_id: &str);
-    fn watermark(&self, prefix: &str) -> Option<i64> { let _ = prefix; None }
+    /// Newest finalized receipt time for `forge.completion:` — reconcile watermark.
+    fn watermark(&self, prefix: &str) -> Option<i64> {
+        let _ = prefix;
+        None
+    }
 }
 
 #[derive(Default)]
@@ -37,25 +43,44 @@ pub struct MemoryLedger {
 }
 
 impl MemoryLedger {
-    pub fn new() -> Self { Self::default() }
-    pub fn repairs(&self, story_id: &str) -> u32 { *self.repairs.lock().unwrap().get(story_id).unwrap_or(&0) }
-    pub fn replans(&self, story_id: &str) -> u32 { *self.replans.lock().unwrap().get(story_id).unwrap_or(&0) }
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn repairs(&self, story_id: &str) -> u32 {
+        *self.repairs.lock().unwrap().get(story_id).unwrap_or(&0)
+    }
+    pub fn replans(&self, story_id: &str) -> u32 {
+        *self.replans.lock().unwrap().get(story_id).unwrap_or(&0)
+    }
     pub fn evidence_for(&self, story_id: &str) -> Option<ForgeGateEvidence> {
         self.evidence.lock().unwrap().get(story_id).cloned()
     }
 }
 
 impl CompletionLedger for MemoryLedger {
-    fn claim(&self, receipt_id: &str) -> bool { self.claimed.lock().unwrap().insert(receipt_id.to_string()) }
+    fn claim(&self, receipt_id: &str) -> bool {
+        self.claimed.lock().unwrap().insert(receipt_id.to_string())
+    }
     fn finalize(&self, receipt_id: &str) {
         self.finalized.lock().unwrap().insert(receipt_id.to_string());
         let mut clock = self.clock.lock().unwrap();
         *clock += 1;
-        self.finalized_at.lock().unwrap().insert(receipt_id.to_string(), *clock);
+        self.finalized_at
+            .lock()
+            .unwrap()
+            .insert(receipt_id.to_string(), *clock);
     }
-    fn has_final(&self, receipt_id: &str) -> bool { self.finalized.lock().unwrap().contains(receipt_id) }
+    fn has_final(&self, receipt_id: &str) -> bool {
+        self.finalized.lock().unwrap().contains(receipt_id)
+    }
     fn watermark(&self, prefix: &str) -> Option<i64> {
-        self.finalized_at.lock().unwrap().iter().filter(|(id, _)| id.starts_with(prefix)).map(|(_, t)| *t).max()
+        self.finalized_at
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(id, _)| id.starts_with(prefix))
+            .map(|(_, t)| *t)
+            .max()
     }
     fn merge_evidence(&self, rec: &CompletionRecord) {
         let mut map = self.evidence.lock().unwrap();
@@ -65,13 +90,20 @@ impl CompletionLedger for MemoryLedger {
         };
         map.insert(rec.story_id.clone(), next);
     }
-    fn increment_repair(&self, story_id: &str) { *self.repairs.lock().unwrap().entry(story_id.to_string()).or_insert(0) += 1; }
-    fn increment_replan(&self, story_id: &str) { *self.replans.lock().unwrap().entry(story_id.to_string()).or_insert(0) += 1; }
+    fn increment_repair(&self, story_id: &str) {
+        *self.repairs.lock().unwrap().entry(story_id.to_string()).or_insert(0) += 1;
+    }
+    fn increment_replan(&self, story_id: &str) {
+        *self.replans.lock().unwrap().entry(story_id.to_string()).or_insert(0) += 1;
+    }
 }
 
+/// Apply the post-transition unit exactly once. Loser/re-run claims nothing.
 pub fn apply_completion_unit(ledger: &dyn CompletionLedger, rec: CompletionRecord) -> bool {
     let id = completion_receipt_id(&rec.task_id);
-    if !ledger.claim(&id) { return false; }
+    if !ledger.claim(&id) {
+        return false;
+    }
     ledger.merge_evidence(&rec);
     match rec.node_id.as_deref() {
         Some("repair_smith") => ledger.increment_repair(&rec.story_id),

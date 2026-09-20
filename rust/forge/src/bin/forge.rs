@@ -1,4 +1,5 @@
 //! Cutover host. Engine + Forge + OpenCode.
+//! Story packet + vendor session use existing Neon via DATABASE_URL / psql.
 
 use forge::engine::definition::forge_sdlc_definition;
 use forge::engine::executor::{drive_forge_story, DriveForgeStoryOptions};

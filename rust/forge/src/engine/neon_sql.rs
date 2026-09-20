@@ -1,4 +1,6 @@
-//! SQL against the EXISTING Neon tables. Do not invent columns.
+//! SQL the process binary issues against the EXISTING Neon tables.
+//! Copied from `db/workflow-command-receipt.ts` and `db/forge-workflow-evidence.ts`.
+//! Do not invent columns. Do not add a second receipt table.
 
 pub const CLAIM_RECEIPT: &str = "\
 INSERT INTO workflow_command_receipt (command_id, outcome, aggregate_id, message, actor_app_user_id)
@@ -35,6 +37,7 @@ SELECT forge_repair_attempts, forge_replan_attempts, forge_last_qa_disposition
   FROM storyboard_story
  WHERE id = $1";
 
+/// Increment observers on the canonical story row (repair_smith / repair_architect).
 pub const INC_REPAIR: &str = "\
 UPDATE storyboard_story
    SET forge_repair_attempts = coalesce(forge_repair_attempts, 0) + 1

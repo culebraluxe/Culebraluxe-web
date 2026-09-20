@@ -1,4 +1,4 @@
-//! Port of evidence-gate.ts.
+//! Port of `workflow_app/forge/evidence-gate.ts`.
 
 #[derive(Debug, Clone)]
 pub struct CandidateEvidence {

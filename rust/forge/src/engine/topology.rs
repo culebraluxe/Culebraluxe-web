@@ -1,8 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
+
 use workflow::{NodeDefinition, ProcessGraph};
 
 pub const FORGE_SDLC_KEY: &str = "FORGE_SDLC";
 pub const FORGE_SDLC_VERSION: i32 = 6;
+
 pub const POSITIONS: &[&str] = &["scout", "architect", "lead", "smith", "qa", "dev_ops"];
 
 #[derive(Debug, Clone)]
@@ -29,23 +31,33 @@ pub fn topology_from_graph(key: &str, version: i32, graph: &ProcessGraph) -> For
     for (id, node) in &graph.nodes {
         match node.node_type.as_str() {
             "task" | "command" => {
-                tasks.insert(id.clone(), ForgeTaskShape {
-                    id: id.clone(),
-                    label: node.name.clone(),
-                    responsibility: node.responsibility.clone().or_else(|| {
-                        node.candidate_groups.as_ref().and_then(|g| g.first().cloned())
-                    }),
-                });
+                tasks.insert(
+                    id.clone(),
+                    ForgeTaskShape {
+                        id: id.clone(),
+                        label: node.name.clone(),
+                        responsibility: node.responsibility.clone().or_else(|| {
+                            node.candidate_groups
+                                .as_ref()
+                                .and_then(|g| g.first().cloned())
+                        }),
+                    },
+                );
             }
-            "end" => { end_ids.insert(id.clone()); }
+            "end" => {
+                end_ids.insert(id.clone());
+            }
             "dynamic-fork" => dynamic_fork_id = Some(id.clone()),
             _ => {}
         }
     }
     ForgeSdlcTopology {
-        key: key.to_string(), version,
+        key: key.to_string(),
+        version,
         node_ids: graph.nodes.keys().cloned().collect(),
-        tasks, end_ids, dynamic_fork_id,
+        tasks,
+        end_ids,
+        dynamic_fork_id,
     }
 }
 
@@ -55,23 +67,36 @@ pub fn structural_problems(t: &ForgeSdlcTopology) -> Vec<String> {
         problems.push(format!("FORGE_SDLC key is '{}', expected '{FORGE_SDLC_KEY}'", t.key));
     }
     if t.version != FORGE_SDLC_VERSION {
-        problems.push(format!("FORGE_SDLC version is '{}', expected {FORGE_SDLC_VERSION}", t.version));
+        problems.push(format!(
+            "FORGE_SDLC version is '{}', expected {FORGE_SDLC_VERSION}",
+            t.version
+        ));
     }
     for id in ["start", "classify_work", "execution_shape", "qa_result", "hold"] {
-        if !t.node_ids.contains(id) { problems.push(format!("required superset node '{id}' missing")); }
+        if !t.node_ids.contains(id) {
+            problems.push(format!("required superset node '{id}' missing"));
+        }
     }
     for end in ["complete", "cancelled", "failed", "archive_research"] {
-        if !t.end_ids.contains(end) { problems.push(format!("required terminus '{end}' missing")); }
+        if !t.end_ids.contains(end) {
+            problems.push(format!("required terminus '{end}' missing"));
+        }
     }
     match &t.dynamic_fork_id {
-        Some(id) if t.tasks.contains_key(id) => problems.push(format!("dynamic-fork '{id}' must not be a task/command node")),
+        Some(id) if t.tasks.contains_key(id) => {
+            problems.push(format!("dynamic-fork '{id}' must not be a task/command node"));
+        }
         None => problems.push("FORGE_SDLC must declare a dynamic SPLIT fork (split_dispatch)".into()),
         _ => {}
     }
     for task in t.tasks.values() {
         let r = task.responsibility.as_deref().unwrap_or("");
         if !POSITIONS.contains(&r) {
-            problems.push(format!("node '{}' has responsibility '{}', which is not a Forge position", task.id, if r.is_empty() { "(none)" } else { r }));
+            problems.push(format!(
+                "node '{}' has responsibility '{}', which is not a Forge position",
+                task.id,
+                if r.is_empty() { "(none)" } else { r }
+            ));
         }
     }
     problems
@@ -79,15 +104,27 @@ pub fn structural_problems(t: &ForgeSdlcTopology) -> Vec<String> {
 
 pub fn ensure_topology(t: &ForgeSdlcTopology) -> Result<(), String> {
     let problems = structural_problems(t);
-    if problems.is_empty() { Ok(()) } else {
-        Err(format!("FORGE_SDLC topology invariant violated:\n{}", problems.iter().map(|p| format!("  - {p}")).collect::<Vec<_>>().join("\n")))
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "FORGE_SDLC topology invariant violated:\n{}",
+            problems
+                .iter()
+                .map(|p| format!("  - {p}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        ))
     }
 }
 
+/// Bind a Forge position onto a node (stored as candidate group + description).
 pub fn with_position(mut node: NodeDefinition, position: &str) -> NodeDefinition {
     node.description = Some(position.to_string());
     let mut groups = node.candidate_groups.unwrap_or_default();
-    if !groups.iter().any(|g| g == position) { groups.insert(0, position.to_string()); }
+    if !groups.iter().any(|g| g == position) {
+        groups.insert(0, position.to_string());
+    }
     node.candidate_groups = Some(groups);
     node
 }

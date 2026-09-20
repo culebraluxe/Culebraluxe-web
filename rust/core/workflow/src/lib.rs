@@ -22,3 +22,4 @@ pub use memory::MemoryStore;
 pub use store::{Store, TxStore};
 pub use types::*;
 pub use value::Value;
+

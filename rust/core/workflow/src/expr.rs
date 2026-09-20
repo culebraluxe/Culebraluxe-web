@@ -13,7 +13,11 @@ pub fn evaluate_condition(expression: &str, variables: &Value) -> Result<bool> {
     })?;
     let present = variables.as_object().map(|m| m.contains_key(name)).unwrap_or(false);
     let lhs = variables.get(name).cloned().unwrap_or(Value::Null);
-    let equal = if !present { false } else { json_eq(&lhs, &rhs) };
+    let equal = if !present {
+        false
+    } else {
+        json_eq(&lhs, &rhs)
+    };
     match op {
         "==" => Ok(equal),
         "!=" => Ok(!equal),
@@ -84,5 +88,46 @@ fn json_eq(lhs: &Value, rhs: &Value) -> bool {
         (Value::String(a), Value::String(b)) => a == b,
         (Value::Number(a), Value::Number(b)) => a == b,
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::value::obj;
+
+    #[test]
+    fn supported_forms() {
+        assert!(is_supported_expression("approved == true"));
+        assert!(is_supported_expression("status != \"draft\""));
+        assert!(is_supported_expression("count == 3"));
+        assert!(is_supported_expression("flag == null"));
+        assert!(!is_supported_expression("a && b"));
+        assert!(!is_supported_expression("a === true"));
+        assert!(!is_supported_expression("a > 1"));
+    }
+
+    #[test]
+    fn eval_equality() {
+        let vars = obj([
+            ("approved", Value::Bool(true)),
+            ("status", Value::from("open")),
+            ("count", Value::from(3)),
+            ("flag", Value::Null),
+        ]);
+        assert!(evaluate_condition("approved == true", &vars).unwrap());
+        assert!(!evaluate_condition("approved == false", &vars).unwrap());
+        assert!(evaluate_condition("status != \"draft\"", &vars).unwrap());
+        assert!(evaluate_condition("count == 3", &vars).unwrap());
+        assert!(evaluate_condition("flag == null", &vars).unwrap());
+        assert!(!evaluate_condition("missing == null", &vars).unwrap());
+        assert!(evaluate_condition("missing != null", &vars).unwrap());
+    }
+
+    #[test]
+    fn rejects_garbage() {
+        let vars = Value::object();
+        assert!(evaluate_condition("foo === true", &vars).is_err());
+        assert!(evaluate_condition("1 == 1", &vars).is_err());
     }
 }

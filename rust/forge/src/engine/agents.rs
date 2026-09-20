@@ -1,4 +1,4 @@
-//! Port of role-agents collect() hooks.
+//! Port of `workflow_app/forge/agents/role-agents.ts` collect() hooks.
 
 use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::phase::{ForgePhaseAgent, RoleEffectPorts};
@@ -30,7 +30,6 @@ pub fn forge_agent_collect(
         }
         "research_architect" => Ok(marked.merge_over(&evidence)),
         n if agent.is_architect => {
-            let _ = n;
             let mut next = marked.merge_over(&evidence);
             if next.findings.is_none() && next.research_disposition.is_none() {
                 next.deliverable_rejection = Some(
@@ -41,6 +40,7 @@ pub fn forge_agent_collect(
             Ok(next)
         }
         "lead_pre" => {
+            // PRE: chat JSON cannot set leadDecision.
             let mut stripped = marked;
             stripped.lead_decision = None;
             stripped.split_count = None;
@@ -49,16 +49,12 @@ pub fn forge_agent_collect(
         n if agent.plan.lead_phase == Some(LeadPhase::Implement)
             || agent.plan.lead_phase == Some(LeadPhase::Post) =>
         {
-            let _ = n;
             let mut stripped = marked;
             stripped.lead_decision = None;
             stripped.split_count = None;
             Ok(stripped.merge_over(&evidence))
         }
-        n if agent.is_scout => {
-            let _ = n;
-            Ok(marked.merge_over(&evidence))
-        }
+        n if agent.is_scout => Ok(marked.merge_over(&evidence)),
         n if matches!(
             n,
             "smith" | "smith_split_work" | "repair_smith" | "fast_smith" | "fast_repair_smith"

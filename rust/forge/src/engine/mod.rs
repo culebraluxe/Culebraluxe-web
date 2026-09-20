@@ -34,3 +34,18 @@ pub use commands::is_routed as forge_command_is_routed;
 pub use definition::{forge_sdlc_compact_definition, forge_sdlc_definition, forge_sdlc_graph};
 pub use xml::{definition_from_xml, parse_process_definition_xml};
 pub use facts::ForgeGateEvidence;
+pub use graph::{fake_edge_candidates, plan_smith_layers, split_eligibility, SmithWorkNode};
+pub use port::ForgeApplicationPort;
+pub use process::WakeResult;
+pub use receipt::{replay_outcome, CommandReceipt, ReceiptOutcome, ReplayDecision};
+pub use runtime::{
+    completion_receipt_id, ActiveForgeRoleTask, ForgeRuntime, OpenForgeTask,
+};
+pub use topology::{
+    ensure_topology, topology_from_graph, FORGE_SDLC_KEY, FORGE_SDLC_VERSION,
+};
+pub use completion::{apply_completion_unit, CompletionLedger, CompletionRecord, MemoryLedger};
+pub use writer::{
+    ForgeEvidenceReader, ForgeReleaseExecutor, ForgeStateWriter, NullWriter, OkRelease,
+    RecordingWriter,
+};

@@ -1,4 +1,5 @@
 //! Production role runner control plane.
+//! Model/worktree execution is injected via `RoleHarness` — same door as the TS runner.
 
 use crate::engine::agents::forge_agent_collect;
 use crate::engine::architect::{assess_architect_handoff, parse_architect_handoff, ArchitectAssessment};
@@ -22,6 +23,7 @@ pub trait RoleHarness: Send + Sync {
     fn run_command(&self, command: &str) -> CommandResult;
 }
 
+/// Control-plane runner: harness produces raw output; collect + gates decide evidence.
 pub struct ProductionRoleRunner<'a> {
     pub harness: &'a dyn RoleHarness,
     pub current: ForgeGateEvidence,
@@ -75,7 +77,12 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
         }
 
         let agent = ForgePhaseAgent::new(node_id).map_err(WorkflowError::generic)?;
-        let missing = agent.missing_deliverables(&evidence, &out.raw, !out.raw.is_empty(), evidence.findings.is_some());
+        let missing = agent.missing_deliverables(
+            &evidence,
+            &out.raw,
+            !out.raw.is_empty(),
+            evidence.findings.is_some(),
+        );
         if !missing.is_empty() && evidence.deliverable_rejection.is_none() {
             evidence.deliverable_rejection = Some(format!("role did not deliver {}", missing.join(", ")));
         }
@@ -85,6 +92,9 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
             }
         }
 
-        Ok(ForgeRoleOutcome { transition_name: Some("complete".into()), evidence })
+        Ok(ForgeRoleOutcome {
+            transition_name: Some("complete".into()),
+            evidence,
+        })
     }
 }
