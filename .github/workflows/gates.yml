@@ -44,7 +44,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   static:
@@ -225,20 +225,7 @@ jobs:
 
       - name: rust format
         working-directory: rust
-        run: cargo fmt --all
-
-      - name: commit canonical rustfmt output
-        if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
-        run: |
-          if git diff --quiet -- rust; then
-            echo "rustfmt produced no changes"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add rust
-          git commit -m "style(rust): apply canonical rustfmt"
-          git push origin HEAD:main
+        run: cargo fmt --all -- --check
 
       - name: rust tests
         working-directory: rust

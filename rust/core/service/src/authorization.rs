@@ -55,26 +55,6 @@ impl AuthorizationPort for DefaultAuthorizationPort {
             });
         }
 
-        if request.domain == "contract" && request.operation == "contract.execute" {
-            let rank = match level {
-                "ROOT" => 3,
-                "BUSINESS_POWER_USER" => 2,
-                "USER" => 1,
-                _ => 0,
-            };
-            let allowed = rank >= 2;
-            return Ok(AuthorizationDecision {
-                allowed,
-                reason: if allowed {
-                    format!("rule:contract.execute: {level} meets required BUSINESS_POWER_USER")
-                } else {
-                    format!("rule:contract.execute: {level} is below required BUSINESS_POWER_USER")
-                },
-                policy_id: "rule:contract.execute".into(),
-                mode: "enforced",
-            });
-        }
-
         if request.kind == OperationKind::Query {
             return Ok(AuthorizationDecision {
                 allowed: true,
