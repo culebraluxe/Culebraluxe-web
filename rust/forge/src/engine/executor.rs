@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 
 use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::path::shared_path;
+use crate::engine::role_slice::forge_lane_surface;
 use crate::engine::runtime::{ActiveForgeRoleTask, ForgeRuntime};
 use crate::engine::writer::ForgeStateWriter;
 use workflow::{Result, TaskStatus, TxStore, WorkflowError};
@@ -340,11 +341,7 @@ pub fn drive_forge_story<S: TxStore>(
                 let node = task.node_id.clone().unwrap_or_default();
                 WaveLane {
                     fanout: node == "smith_split_work",
-                    surface: if node == "smith_split_work" {
-                        None
-                    } else {
-                        None
-                    },
+                    surface: forge_lane_surface(None),
                     lane: node,
                     task,
                 }
