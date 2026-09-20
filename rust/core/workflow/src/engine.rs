@@ -837,6 +837,172 @@ impl<S: TxStore> WorkflowEngine<S> {
             .with_tx(|tx| tx.active_tasks_for_user(user_id, tenant_id))
     }
 
+
+    pub fn complete_job(&self, job_id: &str, worker_id: &str) -> Result<()> {
+        self.store.with_tx(|tx| {
+            let job = tx.lock_job(job_id)?;
+            if job.locked_by.as_deref() != Some(worker_id) {
+                if job.status.is_settled() {
+                    return Ok(());
+                }
+                return Err(WorkflowError::generic("Job is not locked by this worker"));
+            }
+            let mut next = job.clone();
+            next.status = JobStatus::Completed;
+            next.completed_at = Some(self.now());
+            next.locked_by = None;
+            next.locked_until = None;
+            tx.update_job(&next)?;
+            if let Some(pid) = job.process_instance_id {
+                self.event(
+                    tx,
+                    EventInput {
+                        tenant_id: job.tenant_id,
+                        process_instance_id: pid,
+                        token_id: job.token_id,
+                        job_id: Some(job_id.to_string()),
+                        event_type: "job.completed",
+                        actor: worker_id.to_string(),
+                        data: json!({"type": job.job_type}),
+                        ..Default::default()
+                    },
+                )?;
+            }
+            Ok(())
+        })
+    }
+
+    pub fn create_job(
+        &self,
+        process_instance_id: Option<&str>,
+        token_id: Option<&str>,
+        tenant_id: Option<&str>,
+        job_type: &str,
+        due_at: i64,
+        payload: Value,
+        max_attempts: Option<i32>,
+    ) -> Result<String> {
+        self.store.with_tx(|tx| {
+            if let Some(pid) = process_instance_id {
+                let inst = tx.lock_instance(pid)?;
+                if inst.status != ProcessStatus::Active {
+                    return Err(WorkflowError::conflict(
+                        "PROCESS_NOT_ACTIVE",
+                        format!(
+                            "Process {pid} is not active (status={:?}); cannot create job",
+                            inst.status
+                        ),
+                    ));
+                }
+            }
+            let now = self.now();
+            let job = Job {
+                id: tx.new_id("job"),
+                tenant_id: tenant_id.map(str::to_string),
+                process_instance_id: process_instance_id.map(str::to_string),
+                token_id: token_id.map(str::to_string),
+                job_type: job_type.to_string(),
+                due_at,
+                status: JobStatus::Pending,
+                locked_by: None,
+                locked_until: None,
+                attempts: 0,
+                max_attempts: max_attempts.unwrap_or(5),
+                payload,
+                last_error: None,
+                created_at: now,
+                updated_at: now,
+                completed_at: None,
+            };
+            Ok(tx.insert_job(job)?.id)
+        })
+    }
+
+    pub fn reclaim_stale_jobs(&self, batch: usize) -> Result<usize> {
+        self.store
+            .with_tx(|tx| tx.reclaim_stale_jobs(self.now(), batch, None))
+    }
+
+    pub fn reclaim_stale_jobs_for_instance(&self, process_instance_id: &str) -> Result<usize> {
+        self.store.with_tx(|tx| {
+            tx.reclaim_stale_jobs(self.now(), 10_000, Some(process_instance_id))
+        })
+    }
+
+    pub fn requeue_job(&self, job_id: &str, actor: &str) -> Result<()> {
+        self.store.with_tx(|tx| {
+            let peek = tx.get_job(job_id)?;
+            if let Some(pid) = &peek.process_instance_id {
+                let inst = tx.lock_instance(pid)?;
+                if inst.status != ProcessStatus::Active {
+                    return Err(WorkflowError::conflict(
+                        "JOB_NOT_REQUEUEABLE",
+                        format!(
+                            "Process {pid} is not active (status={:?}); job {job_id} cannot be requeued",
+                            inst.status
+                        ),
+                    ));
+                }
+            }
+            let mut job = tx.lock_job(job_id)?;
+            if job.status != JobStatus::Failed {
+                return Err(WorkflowError::conflict(
+                    "JOB_NOT_REQUEUEABLE",
+                    format!("Job {job_id} cannot be requeued (status={:?})", job.status),
+                ));
+            }
+            job.status = JobStatus::Pending;
+            job.attempts = 0;
+            job.last_error = None;
+            job.locked_by = None;
+            job.locked_until = None;
+            job.due_at = self.now();
+            tx.update_job(&job)?;
+            if let Some(pid) = job.process_instance_id {
+                self.event(
+                    tx,
+                    EventInput {
+                        tenant_id: job.tenant_id,
+                        process_instance_id: pid,
+                        token_id: job.token_id,
+                        job_id: Some(job_id.to_string()),
+                        event_type: "job.requeued",
+                        actor: actor.to_string(),
+                        ..Default::default()
+                    },
+                )?;
+            }
+            Ok(())
+        })
+    }
+
+    pub fn get_job(&self, id: &str) -> Result<Job> {
+        self.store.with_tx(|tx| tx.get_job(id))
+    }
+
+    pub fn get_token(&self, id: &str) -> Result<Token> {
+        self.store.with_tx(|tx| tx.get_token(id))
+    }
+
+    pub fn list_overdue_jobs(&self, limit: usize) -> Result<Vec<Job>> {
+        self.store
+            .with_tx(|tx| tx.list_overdue_jobs(self.now(), limit))
+    }
+
+    pub fn get_process_instance_with_details(
+        &self,
+        id: &str,
+    ) -> Result<(ProcessInstance, Vec<Token>, Vec<Task>, Vec<Job>)> {
+        self.store.with_tx(|tx| {
+            Ok((
+                tx.get_instance(id)?,
+                tx.tokens_for_instance(id)?,
+                tx.tasks_for_instance(id)?,
+                tx.open_jobs_for_instance(id)?,
+            ))
+        })
+    }
+
     // ------------------------------------------------------------------
     // internals
     // ------------------------------------------------------------------

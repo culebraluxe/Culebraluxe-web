@@ -27,8 +27,22 @@ fn main() {
                 }
             }
         }
+        "reclaim" => {
+            let n = host_engine()
+                .reclaim_stale_jobs(
+                    flag(&args, "--batch")
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(20),
+                )
+                .unwrap_or_else(|e| {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                });
+            println!("reclaimed={n}");
+        }
         "help" | _ => {
             eprintln!("usage: workflow start --definition <id> [--subject <id>] [--actor <id>]");
+            eprintln!("       workflow reclaim [--batch N]");
             if cmd != "help" {
                 std::process::exit(2);
             }
