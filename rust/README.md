@@ -194,3 +194,20 @@ state, not the immutable business record. Listing context cannot be rebound
 after issuance history exists, Showing bindings are non-transferable, and the
 Listing/Purchase-and-Sale signer path keeps the configured Lisa Penfield
 SELLER_BROKER rule.
+
+
+## Slice 4C: Vault
+
+Vault moves transaction-document state, immutable issuance lineage, signed-artifact
+state, source idempotency, command receipts, media bytes, and form-to-Contract
+binding into Rust.
+
+Issuance remains one authoritative transaction: claim command receipt, read the
+Form snapshot and signer context, invoke the required artifact-render port,
+persist PDF media, supersede the prior issued document, append the immutable
+transaction_document row, mark the Form issued, finalize the receipt, then
+commit once. Renderer/provider code does not own issuance truth.
+
+The Rust model makes signed media + signed time one SignedArtifactRef and DOC-06
+issuance evidence one all-or-nothing IssuedDocumentEvidence, so partial records
+are not representable through the service contract.

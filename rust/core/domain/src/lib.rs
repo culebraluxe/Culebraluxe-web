@@ -11,6 +11,7 @@ pub mod project;
 pub mod property;
 pub mod security;
 pub mod showing;
+pub mod vault;
 pub mod wbs;
 
 pub use firm::{FieldPatch, Firm, UpsertFirmRequest};
@@ -61,4 +62,13 @@ pub use forms::{
     BindListingFormContextRequest, CreateFormInstanceRequest, DealFormFacts, DirectFormContext,
     FormInstance, FormInstanceEvidence, FormInstanceListItem, FormInstanceStatus, FormSignerPerson,
     LatestFormEvidenceRequest, UpdateFormInstanceInput, UpdateFormInstanceRequest,
+};
+
+pub use vault::{
+    ContractIssuedLineage, CreateTransactionDocumentRequest, IssuedDocumentEvidence,
+    IssuedDocumentForFormInstance, IssuedDocumentListItem, IssueDocumentRequest,
+    NextIssuedVersionRequest, SignedArtifactRef, TransactionDocument, TransactionDocumentSource,
+    TransactionDocumentState, TransactionDocumentType, TransitionTransactionDocumentRequest,
+    VaultActorScope, VaultArtifactFailure, VaultCommandOutcome, VaultCommandResult,
+    VaultMediaBytes, VaultRenderRequest, VaultRenderedArtifact,
 };

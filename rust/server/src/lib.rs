@@ -17,6 +17,7 @@ pub mod properties;
 pub mod security;
 pub mod service_support;
 pub mod showings;
+pub mod vault;
 pub mod wbs;
 
 pub use composition::CoreServices;

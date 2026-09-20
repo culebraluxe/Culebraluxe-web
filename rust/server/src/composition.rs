@@ -8,10 +8,11 @@ use crate::projects::ProjectService;
 use crate::properties::PropertyService;
 use crate::security::SecurityService;
 use crate::showings::ShowingService;
+use crate::vault::{VaultArtifactPort, VaultService};
 use crate::wbs::WbsService;
 use db::{
     CommsDao, ContractDao, Database, FirmDao, FormDao, PersonDao, ProjectDao, PropertyDao,
-    SecurityDao, ShowingDao, WbsDao,
+    SecurityDao, ShowingDao, VaultDao, WbsDao,
 };
 use service::ServiceInfrastructure;
 use std::sync::Arc;
@@ -81,6 +82,17 @@ impl CoreServices {
     pub fn security(&self) -> SecurityService<SecurityDao> {
         SecurityService::new(
             SecurityDao::new(self.db.clone()),
+            self.infrastructure.clone(),
+        )
+    }
+
+    pub fn vault(
+        &self,
+        artifacts: Arc<dyn VaultArtifactPort>,
+    ) -> VaultService<VaultDao> {
+        VaultService::new(
+            VaultDao::new(self.db.clone()),
+            artifacts,
             self.infrastructure.clone(),
         )
     }

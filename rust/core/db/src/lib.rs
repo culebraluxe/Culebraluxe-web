@@ -17,6 +17,7 @@ mod property;
 mod security;
 mod showing;
 mod transaction;
+mod vault;
 mod wbs;
 
 pub use comms::CommsDao;
@@ -32,4 +33,5 @@ pub use property::PropertyDao;
 pub use security::SecurityDao;
 pub use showing::ShowingDao;
 pub use transaction::DbTransaction;
+pub use vault::VaultDao;
 pub use wbs::WbsDao;
