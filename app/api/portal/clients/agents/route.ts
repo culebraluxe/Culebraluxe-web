@@ -2,12 +2,12 @@ import { NextResponse } from "next/server"
 import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
 import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 
-import { listAssignableAgents } from "@/db/person-admin"
+import { rustApiRead } from '@/lib/rust-api/client'
 import { captureServerError } from '@/lib/server-error-capture'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
 // ---------------------------------------------------------------------------
-// CLIENTS — assignable agents for the New/Edit client forms. A small bounded
+// CLIENTS — authenticated Rust bridge for assignable agents. A small bounded
 // list fetched once by the ClientManager working pane.
 // ---------------------------------------------------------------------------
 
@@ -24,8 +24,8 @@ async function GETHandler() {
     )
   }
   try {
-    const agents = await listAssignableAgents()
-    return NextResponse.json(agents)
+    const result = await rustApiRead<unknown>('/v1/clients/agents')
+    return NextResponse.json(result.value)
   } catch (err) {
     // An empty list reads as "there are no assignable agents" and hides a failed read. The form's
     // loader already falls back on a non-2xx response.
