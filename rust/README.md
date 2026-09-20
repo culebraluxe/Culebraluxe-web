@@ -100,3 +100,20 @@ that the test row does not exist.
 GitHub Actions keeps this database smoke parked behind `RUST_DB_CI=true` until
 `DATABASE_URL_DEV` is configured as an Actions secret. Normal Rust format,
 unit-test, and compile gates remain mandatory on every push.
+
+
+## Slice 3A: Person + Firm
+
+The first reduced core-service migration slice ports only the two vanilla
+canonical services:
+
+- Person: get, identity lookup, display-name write, identity attach, operator search.
+- Firm: get, exact name lookup, create/enrich upsert.
+
+Both use the shared Rust service authorization/audit/event kernel and the single
+Rust SQLx pool. Person preserves canonical identity ownership and phone/email
+normalization. Firm preserves the TypeScript distinction between an omitted
+optional field and an explicit null through `FieldPatch<T>`.
+
+This slice intentionally does not include Property, Contract, Showing, Security,
+or WBS. Each later slice must be green before the next domain is added.
