@@ -1,0 +1,12 @@
+{
+  "repo": "https://github.com/0xNyk/council-of-high-intelligence.git",
+  "tag": "v1.2.0",
+  "sha": "REPLACE_WITH_SUBMODULE_HEAD",
+  "adapterVersion": "1.0.0",
+  "protocolFiles": ["SKILL.md", "agents"],
+  "ignored": [
+    "install.sh",
+    ".claude-plugin",
+    "scripts/council-simulation-checklist.sh"
+  ]
+}

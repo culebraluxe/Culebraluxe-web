@@ -778,13 +778,14 @@ async function afterProperties(
   for (const fact of facts) {
     const personId = resolved.get(fact.key)
     if (!personId) continue
-    const tie = `${personId}|${fact.propertyId}|${fact.relationType}`
-    if (tieSeen.has(tie)) continue
-    tieSeen.add(tie)
-    tieRows.push([personId, fact.propertyId, fact.relationType, 'current', SOURCE, fact.key])
     // The owner's ADDRESS OF RECORD is a relation of its own in this warehouse's vocabulary (`legal_address`), so
-    // the legal address is reachable from the person AND from the parcel without mistaking it for the parcel's own
-    // address. Only the owner row carries an address in this record; a prior owner or a buyer does not.
+    // the address is reachable from the person AND from the parcel without mistaking it for the parcel's address.
+    // Only the owner row carries an address in this record; a prior owner or a buyer does not.
+    //
+    // THIS BLOCK SITS BEFORE THE `continue` THAT SKIPS AN EXISTING TIE, and that placement is the fix for a real
+    // defect: with it after, the legal-address tie was only ever written when the owner tie was also new, so a
+    // re-run over parcels whose owner tie already existed silently wrote no legal-address ties at all (measured:
+    // "ties written: 0" while 1120 persons carried an address).
     if (fact.legalAddress !== null) {
       const legalTie = `${personId}|${fact.propertyId}|legal_address`
       if (!tieSeen.has(legalTie)) {
@@ -792,6 +793,10 @@ async function afterProperties(
         tieRows.push([personId, fact.propertyId, 'legal_address', 'current', SOURCE, fact.key])
       }
     }
+    const tie = `${personId}|${fact.propertyId}|${fact.relationType}`
+    if (tieSeen.has(tie)) continue
+    tieSeen.add(tie)
+    tieRows.push([personId, fact.propertyId, fact.relationType, 'current', SOURCE, fact.key])
   }
   counters.relations = tieRows.length
   for (const part of chunk(tieRows)) {
