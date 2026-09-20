@@ -68,7 +68,10 @@ function rustApiBaseUrl(): string {
 }
 
 function internalApiKey(): string {
-  const value = resolveInternalApiKey(process.env.CULEBRA_INTERNAL_API_KEY)
+  const value = resolveInternalApiKey(
+    process.env.CULEBRA_INTERNAL_API_KEY,
+    process.env.AUTH_SECRET,
+  )
   if (value) return value
   throw new RustApiError({
     status: 503,
