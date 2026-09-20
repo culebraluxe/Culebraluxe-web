@@ -11,8 +11,8 @@ mod person;
 mod pool;
 mod project;
 mod property;
-mod showing;
 mod security;
+mod showing;
 mod transaction;
 
 pub use domain;
