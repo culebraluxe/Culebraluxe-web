@@ -795,11 +795,11 @@ impl<S: TxStore> WorkflowEngine<S> {
         self.store.with_tx(|tx| tx.get_task(id))
     }
 
-    pub fn tasks_for_instance(&self, id: &str) -> Result<Vec<Task>> {
+    pub fn tasks_for_instance(&mut self, id: &str) -> Result<Vec<Task>> {
         self.store.with_tx(|tx| tx.tasks_for_instance(id))
     }
 
-    pub fn tokens_for_instance(&self, id: &str) -> Result<Vec<Token>> {
+    pub fn tokens_for_instance(&mut self, id: &str) -> Result<Vec<Token>> {
         self.store.with_tx(|tx| tx.tokens_for_instance(id))
     }
 
