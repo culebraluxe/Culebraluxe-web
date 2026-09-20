@@ -10,8 +10,9 @@ use axum::{
 };
 use domain::{
     ClientAdminPageRequest, ClientDirectoryPageRequest, ClientHistoryRequest,
-    GetCommsPanelRequest, GetCommsTimelineRequest, SearchPeopleRequest, VaultActorScope,
-    VaultArtifactFailure, VaultCommandOutcome, VaultRenderRequest, VaultRenderedArtifact,
+    GetCommsPanelRequest, GetCommsTimelineRequest, SearchPeopleRequest, UploadPropertyMediaRequest,
+    VaultActorScope, VaultArtifactFailure, VaultCommandOutcome, VaultRenderRequest,
+    VaultRenderedArtifact, MAX_MEDIA_UPLOAD_BYTES,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
