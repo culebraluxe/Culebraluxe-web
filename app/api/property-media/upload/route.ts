@@ -2,11 +2,8 @@ import { NextResponse } from 'next/server'
 
 import { captureServerError } from '@/lib/server-error-capture'
 import { guardPortalUpload } from '@/lib/auth/portal-session'
-import { sql } from '@/db/client'
-import {
-  MAX_MEDIA_UPLOAD_BYTES,
-  sanitizeUploadFilename,
-} from '@/lib/media/upload-policy'
+import { MAX_MEDIA_UPLOAD_BYTES } from '@/lib/media/upload-policy'
+import { rustApiWriteForm } from '@/lib/rust-api/client'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
 export const runtime = 'nodejs'
@@ -73,67 +70,24 @@ async function POSTHandler(request: Request) {
       )
     }
 
-    const bytes = new Uint8Array(
-      await file.arrayBuffer(),
+    const rustFormData = new FormData()
+    rustFormData.set('role', role)
+    if (typeof altText === 'string' && altText.trim().length > 0) {
+      rustFormData.set('altText', altText.trim())
+    }
+    rustFormData.set('file', file, file.name)
+
+    const result = await rustApiWriteForm<{
+      ok: true
+      mediaId: string
+      propertyId: string
+      role: 'hero' | 'gallery'
+    }>(
+      `/v1/properties/${encodeURIComponent(propertyId)}/media`,
+      rustFormData,
     )
 
-    const mediaRows = await sql`
-      INSERT INTO media (
-        file_data,
-        filename,
-        mime_type,
-        file_size,
-        alt_text,
-        media_type
-      )
-      VALUES (
-        ${bytes},
-        ${sanitizeUploadFilename(file.name)},
-        ${file.type},
-        ${file.size},
-        ${
-          typeof altText === 'string' &&
-          altText.trim().length > 0
-            ? altText.trim()
-            : null
-        },
-        'image'
-      )
-      RETURNING id
-    `
-
-    const mediaId = String(mediaRows[0].id)
-
-    if (role === 'hero') {
-      await sql`
-        UPDATE property_media
-        SET role = 'gallery'
-        WHERE property_id = ${propertyId}
-          AND role = 'hero'
-      `
-    }
-
-    await sql`
-      INSERT INTO property_media (
-        property_id,
-        media_id,
-        role,
-        sort_order
-      )
-      VALUES (
-        ${propertyId},
-        ${mediaId},
-        ${role},
-        0
-      )
-    `
-
-    return NextResponse.json({
-      ok: true,
-      mediaId,
-      propertyId,
-      role,
-    })
+    return NextResponse.json(result.value)
   } catch (error) {
     captureServerError('/api/property-media/upload', error, { route: '/api/property-media/upload' })
     console.error('Property media upload failed:', error)
