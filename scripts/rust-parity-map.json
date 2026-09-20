@@ -1,0 +1,173 @@
+{
+  "note": "Capability pairing for the Rust port. Hand-maintained, MACHINE-VERIFIED: scripts/rust-parity-ledger.ts fails if any path or route listed here does not exist, so this file cannot rot silently. rustStatus says what exists in Rust; productionPath says what actually serves production today. Those are different questions and conflating them is how a port gets reported as 'done' while nothing has cut over.",
+  "statuses": {
+    "rustStatus": ["built", "partial", "not-started"],
+    "productionPath": ["typescript", "rust", "shadow"]
+  },
+  "capabilities": [
+    {
+      "id": "clients",
+      "rustStatus": "built",
+      "productionPath": "typescript",
+      "routes": [
+        "/v1/clients",
+        "/v1/clients/agents",
+        "/v1/clients/{person_id}",
+        "/v1/clients/{person_id}/history"
+      ],
+      "rustModules": [
+        "rust/server/src/clients",
+        "rust/core/db/src/client.rs",
+        "rust/core/domain/src/client.rs"
+      ],
+      "tsFiles": ["db/clients.ts", "db/client-read-models.ts"]
+    },
+    {
+      "id": "people",
+      "rustStatus": "built",
+      "productionPath": "typescript",
+      "routes": ["/v1/people/search", "/v1/people/{id}", "/v1/people/{id}/properties"],
+      "rustModules": [
+        "rust/server/src/people",
+        "rust/core/db/src/person.rs",
+        "rust/core/domain/src/person.rs"
+      ],
+      "tsFiles": ["db/person-admin.ts"]
+    },
+    {
+      "id": "properties",
+      "rustStatus": "built",
+      "productionPath": "typescript",
+      "routes": ["/v1/properties/{id}"],
+      "rustModules": [
+        "rust/server/src/properties",
+        "rust/core/db/src/property.rs",
+        "rust/core/domain/src/property.rs"
+      ],
+      "tsFiles": ["db/listing-property-service-repository.ts"]
+    },
+    {
+      "id": "contracts",
+      "rustStatus": "built",
+      "productionPath": "typescript",
+      "routes": ["/v1/contracts", "/v1/contracts/{id}"],
+      "rustModules": [
+        "rust/server/src/contracts",
+        "rust/core/db/src/contract.rs",
+        "rust/core/domain/src/contract.rs"
+      ],
+      "tsFiles": ["db/contract-service-repository.ts"]
+    },
+    {
+      "id": "forms",
+      "rustStatus": "built",
+      "productionPath": "typescript",
+      "routes": ["/v1/forms", "/v1/forms/{id}"],
+      "rustModules": ["rust/server/src/forms", "rust/core/db/src/forms.rs", "rust/core/domain/src/forms.rs"],
+      "tsFiles": ["db/form-service-repository.ts"]
+    },
+    {
+      "id": "comms",
+      "rustStatus": "built",
+      "productionPath": "typescript",
+      "routes": ["/v1/comms/{person_id}/panel", "/v1/comms/{person_id}/timeline"],
+      "rustModules": [
+        "rust/server/src/communications",
+        "rust/core/db/src/comms.rs",
+        "rust/core/domain/src/comms.rs"
+      ],
+      "tsFiles": ["db/comms-service-repository.ts"]
+    },
+    {
+      "id": "calendar",
+      "rustStatus": "built",
+      "productionPath": "typescript",
+      "routes": ["/v1/calendar"],
+      "rustModules": [
+        "rust/server/src/calendar",
+        "rust/core/db/src/calendar.rs",
+        "rust/core/domain/src/calendar.rs"
+      ],
+      "tsFiles": []
+    },
+    {
+      "id": "vault",
+      "rustStatus": "built",
+      "productionPath": "typescript",
+      "routes": ["/v1/vault/documents", "/v1/vault/documents/{id}"],
+      "rustModules": ["rust/server/src/vault", "rust/core/db/src/vault.rs", "rust/core/domain/src/vault.rs"],
+      "tsFiles": []
+    },
+    {
+      "id": "projects",
+      "rustStatus": "built",
+      "productionPath": "typescript",
+      "routes": ["/v1/projects", "/v1/projects/{id}"],
+      "rustModules": [
+        "rust/server/src/projects",
+        "rust/core/db/src/project.rs",
+        "rust/core/domain/src/project.rs"
+      ],
+      "tsFiles": []
+    },
+    {
+      "id": "firms",
+      "rustStatus": "built",
+      "productionPath": "typescript",
+      "routes": [],
+      "rustModules": ["rust/server/src/firms", "rust/core/db/src/firm.rs", "rust/core/domain/src/firm.rs"],
+      "tsFiles": ["db/firm-service-repository.ts"],
+      "note": "Built in Rust with no route attached, so nothing can call it yet."
+    },
+    {
+      "id": "signature",
+      "rustStatus": "built",
+      "productionPath": "typescript",
+      "routes": [],
+      "rustModules": [
+        "rust/server/src/signature",
+        "rust/core/db/src/signature.rs",
+        "rust/core/domain/src/signature.rs"
+      ],
+      "tsFiles": ["db/bold-sign-request.ts", "db/broker-signature.ts"],
+      "note": "The BoldSign adapter and reconciliation exist in Rust; the production webhook still runs through TypeScript because Signature routes are not attached to Axum."
+    },
+    {
+      "id": "showings",
+      "rustStatus": "built",
+      "productionPath": "typescript",
+      "routes": [],
+      "rustModules": [
+        "rust/server/src/showings",
+        "rust/core/db/src/showing.rs",
+        "rust/core/domain/src/showing.rs"
+      ],
+      "tsFiles": []
+    },
+    {
+      "id": "wbs",
+      "rustStatus": "built",
+      "productionPath": "typescript",
+      "routes": [],
+      "rustModules": ["rust/server/src/wbs", "rust/core/db/src/wbs.rs", "rust/core/domain/src/wbs.rs"],
+      "tsFiles": []
+    },
+    {
+      "id": "whatsapp-intake",
+      "rustStatus": "partial",
+      "productionPath": "typescript",
+      "routes": [],
+      "rustModules": [
+        "rust/integrations/src/whatsapp",
+        "rust/core/db/src/whatsapp.rs"
+      ],
+      "tsFiles": [],
+      "note": "Rust verifies and normalises Meta payloads; durable inbox/ODS persistence and production webhook processing still belong to TypeScript."
+    }
+  ],
+  "knownUnmappedRoutes": [
+    "/healthz",
+    "/readyz",
+    "/v1/whoami"
+  ]
+}
