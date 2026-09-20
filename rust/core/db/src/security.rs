@@ -23,7 +23,11 @@ impl SecurityDao {
         Self { db }
     }
 
-    pub async fn resolve_provider_subject(&self, provider: &str, subject: &str) -> DbResult<Option<String>> {
+    pub async fn resolve_provider_subject(
+        &self,
+        provider: &str,
+        subject: &str,
+    ) -> DbResult<Option<String>> {
         sqlx::query_scalar::<_, String>(
             r#"
             select app_user_id::text

@@ -12,7 +12,10 @@ struct FirmRow {
 }
 
 fn compact(value: Option<&str>) -> Option<String> {
-    value.map(str::trim).filter(|value| !value.is_empty()).map(str::to_owned)
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
 }
 
 fn map_firm(row: FirmRow) -> Firm {

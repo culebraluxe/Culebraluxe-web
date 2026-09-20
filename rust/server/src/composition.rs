@@ -38,10 +38,7 @@ impl CoreServices {
     }
 
     pub fn person(&self) -> PersonService<PersonDao> {
-        PersonService::new(
-            PersonDao::new(self.db.clone()),
-            self.infrastructure.clone(),
-        )
+        PersonService::new(PersonDao::new(self.db.clone()), self.infrastructure.clone())
     }
 
     pub fn firm(&self) -> FirmService<FirmDao> {

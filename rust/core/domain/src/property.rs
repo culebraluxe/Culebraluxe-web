@@ -151,7 +151,10 @@ mod tests {
             FieldPatch::<String>::Unchanged.apply(Some("old".into())),
             Some("old".into())
         );
-        assert_eq!(FieldPatch::<String>::Set(None).apply(Some("old".into())), None);
+        assert_eq!(
+            FieldPatch::<String>::Set(None).apply(Some("old".into())),
+            None
+        );
         assert_eq!(
             FieldPatch::Set(Some("new".to_string())).apply(Some("old".into())),
             Some("new".into())

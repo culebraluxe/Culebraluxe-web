@@ -78,15 +78,7 @@ impl<R: WbsRepository> WbsService<R> {
         decision: service::AuthorizationDecision,
         result: Result<T, CoreServiceError>,
     ) -> Result<T, CoreServiceError> {
-        audit_result(
-            &self.runtime,
-            "wbs",
-            operation,
-            context,
-            decision,
-            &result,
-        )
-        .await?;
+        audit_result(&self.runtime, "wbs", operation, context, decision, &result).await?;
         result
     }
 
@@ -142,7 +134,11 @@ impl<R: WbsRepository> WbsService<R> {
             context,
         )
         .await?;
-        let result = self.repository.list_project_items().await.map_err(Into::into);
+        let result = self
+            .repository
+            .list_project_items()
+            .await
+            .map_err(Into::into);
         self.finish_query(OP, context, decision, result).await
     }
 
@@ -242,8 +238,14 @@ impl<R: WbsRepository> WbsService<R> {
         id: &str,
         context: &ServiceContext,
     ) -> Result<WbsItem, CoreServiceError> {
-        self.set_status("wbs.complete", "wbs.completed", id, WbsStatus::Done, context)
-            .await
+        self.set_status(
+            "wbs.complete",
+            "wbs.completed",
+            id,
+            WbsStatus::Done,
+            context,
+        )
+        .await
     }
 
     pub async fn dismiss(
@@ -284,10 +286,7 @@ impl<R: WbsRepository> WbsService<R> {
                 .set_status(id, status)
                 .await?
                 .ok_or_else(|| {
-                    CoreServiceError::business(
-                        "WBS_NOT_FOUND",
-                        format!("WBS item not found: {id}"),
-                    )
+                    CoreServiceError::business("WBS_NOT_FOUND", format!("WBS item not found: {id}"))
                 })?;
             self.emit(event_type, &item, context).await?;
             Ok(item)

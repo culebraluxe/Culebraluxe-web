@@ -105,7 +105,11 @@ impl WbsDao {
         rows.into_iter().map(map_row).collect()
     }
 
-    pub async fn list_for_entity(&self, entity_type: WbsEntityType, id: &str) -> DbResult<Vec<WbsItem>> {
+    pub async fn list_for_entity(
+        &self,
+        entity_type: WbsEntityType,
+        id: &str,
+    ) -> DbResult<Vec<WbsItem>> {
         let rows = sqlx::query_as::<_, WbsRow>(
             &format!(
                 "{SELECT} where entity_type = $1 and entity_id = $2 order by due_at nulls last, sort_order nulls last, id"
@@ -140,7 +144,12 @@ impl WbsDao {
         .bind(request.due_at.as_deref())
         .bind(request.owner.as_deref())
         .bind(request.order)
-        .bind(request.entity.as_ref().map(|entity| entity.entity_type.as_str()))
+        .bind(
+            request
+                .entity
+                .as_ref()
+                .map(|entity| entity.entity_type.as_str()),
+        )
         .bind(request.entity.as_ref().map(|entity| entity.id.as_str()))
         .fetch_one(self.db.pool())
         .await
@@ -170,7 +179,11 @@ impl WbsDao {
         .bind(base.due_at.as_deref())
         .bind(base.owner.as_deref())
         .bind(base.order)
-        .bind(base.entity.as_ref().map(|entity| entity.entity_type.as_str()))
+        .bind(
+            base.entity
+                .as_ref()
+                .map(|entity| entity.entity_type.as_str()),
+        )
         .bind(base.entity.as_ref().map(|entity| entity.id.as_str()))
         .bind(base.project_id.as_deref())
         .bind(base.parent_id.as_deref())

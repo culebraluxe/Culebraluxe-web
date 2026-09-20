@@ -143,13 +143,15 @@ async fn load_contract_pool(db: &Database, contract_id: &str) -> DbResult<Option
     .await
     .map_err(|error| DbFailure::from_sqlx("contract.get.firm_roles", &error))?;
 
-    Ok(Some(map_contract(row, property_id, person_roles, firm_roles)))
+    Ok(Some(map_contract(
+        row,
+        property_id,
+        person_roles,
+        firm_roles,
+    )))
 }
 
-async fn load_contract_tx(
-    tx: &mut DbTransaction,
-    contract_id: &str,
-) -> DbResult<Option<Contract>> {
+async fn load_contract_tx(tx: &mut DbTransaction, contract_id: &str) -> DbResult<Option<Contract>> {
     let row = sqlx::query_as::<_, ContractRow>(
         r#"
         select id::text as id, contract_type, form_template_id,
@@ -225,7 +227,12 @@ async fn load_contract_tx(
     .await
     .map_err(|error| DbFailure::from_sqlx("contract.tx.get.firm_roles", &error))?;
 
-    Ok(Some(map_contract(row, property_id, person_roles, firm_roles)))
+    Ok(Some(map_contract(
+        row,
+        property_id,
+        person_roles,
+        firm_roles,
+    )))
 }
 
 fn map_contract(
@@ -266,11 +273,7 @@ fn map_contract(
     }
 }
 
-async fn role_id(
-    tx: &mut DbTransaction,
-    scope: &str,
-    code: &str,
-) -> DbResult<String> {
+async fn role_id(tx: &mut DbTransaction, scope: &str, code: &str) -> DbResult<String> {
     sqlx::query_scalar::<_, String>(
         r#"
         select id::text
@@ -348,7 +351,9 @@ async fn replace_mappings(
                 .bind(Value::Object(attributes.clone()))
                 .execute(tx.connection())
                 .await
-                .map_err(|error| DbFailure::from_sqlx("contract.replace_mappings.person", &error))?;
+                .map_err(|error| {
+                    DbFailure::from_sqlx("contract.replace_mappings.person", &error)
+                })?;
             }
             ContractRole::Firm {
                 firm_id,

@@ -66,7 +66,10 @@ impl ShowingDao {
         row.map(map_showing).transpose()
     }
 
-    pub async fn save_report(&self, request: &SaveShowingReportRequest) -> DbResult<Option<Showing>> {
+    pub async fn save_report(
+        &self,
+        request: &SaveShowingReportRequest,
+    ) -> DbResult<Option<Showing>> {
         let status = if request.outcome.is_some() {
             "completed"
         } else if request.showing_date.is_some() {

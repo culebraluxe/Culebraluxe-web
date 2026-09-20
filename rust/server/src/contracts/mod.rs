@@ -29,10 +29,7 @@ pub trait ContractRepository: Send {
         &mut self,
         contract_id: &str,
     ) -> DbResult<Option<ContractEffectiveState>>;
-    async fn execute(
-        &mut self,
-        request: &ExecuteContractRequest,
-    ) -> DbResult<Option<Contract>>;
+    async fn execute(&mut self, request: &ExecuteContractRequest) -> DbResult<Option<Contract>>;
 }
 
 #[async_trait]
@@ -70,10 +67,7 @@ impl ContractRepository for ContractDao {
         ContractDao::get_effective_state(self, contract_id).await
     }
 
-    async fn execute(
-        &mut self,
-        request: &ExecuteContractRequest,
-    ) -> DbResult<Option<Contract>> {
+    async fn execute(&mut self, request: &ExecuteContractRequest) -> DbResult<Option<Contract>> {
         ContractDao::execute(self, request).await
     }
 }
@@ -180,7 +174,8 @@ impl<R: ContractRepository> ContractService<R> {
             validate_role_codes(&request.roles)?;
             self.assert_parties(request, context).await?;
             let contract = self.repository.create_from_form(request).await?;
-            self.emit_created("contract.created", &contract, context).await?;
+            self.emit_created("contract.created", &contract, context)
+                .await?;
             Ok(contract)
         }
         .await;
@@ -298,16 +293,12 @@ impl<R: ContractRepository> ContractService<R> {
                 ));
             }
 
-            let contract = self
-                .repository
-                .execute(request)
-                .await?
-                .ok_or_else(|| {
-                    CoreServiceError::business(
-                        "CONTRACT_NOT_FOUND",
-                        format!("Contract not found: {}", request.contract_id),
-                    )
-                })?;
+            let contract = self.repository.execute(request).await?.ok_or_else(|| {
+                CoreServiceError::business(
+                    "CONTRACT_NOT_FOUND",
+                    format!("Contract not found: {}", request.contract_id),
+                )
+            })?;
 
             self.runtime
                 .emit(
@@ -394,7 +385,10 @@ impl<R: ContractRepository> ContractService<R> {
                 BTreeMap::from([
                     ("contractId".into(), json!(contract.id.clone())),
                     ("contractType".into(), json!(contract.contract_type.clone())),
-                    ("formTemplateId".into(), json!(contract.form_template_id.clone())),
+                    (
+                        "formTemplateId".into(),
+                        json!(contract.form_template_id.clone()),
+                    ),
                     ("propertyId".into(), json!(contract.property_id.clone())),
                     (
                         "predecessorContractId".into(),

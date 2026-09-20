@@ -115,7 +115,11 @@ impl<R: ShowingRepository> ShowingService<R> {
                 ));
             }
 
-            if !self.lookup.person_exists(&request.person_id, context).await? {
+            if !self
+                .lookup
+                .person_exists(&request.person_id, context)
+                .await?
+            {
                 return Err(CoreServiceError::business(
                     "PERSON_NOT_FOUND",
                     format!("Person not found: {}", request.person_id),
@@ -132,19 +136,15 @@ impl<R: ShowingRepository> ShowingService<R> {
                 ));
             }
 
-            let showing = self
-                .repository
-                .save_report(request)
-                .await?
-                .ok_or_else(|| {
-                    CoreServiceError::business(
-                        "SHOWING_BINDING_CONFLICT",
-                        format!(
-                            "Showing {} is already bound to a different Person or Property.",
-                            request.showing_id
-                        ),
-                    )
-                })?;
+            let showing = self.repository.save_report(request).await?.ok_or_else(|| {
+                CoreServiceError::business(
+                    "SHOWING_BINDING_CONFLICT",
+                    format!(
+                        "Showing {} is already bound to a different Person or Property.",
+                        request.showing_id
+                    ),
+                )
+            })?;
 
             self.runtime
                 .emit(

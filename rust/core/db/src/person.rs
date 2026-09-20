@@ -45,7 +45,10 @@ fn map_person(row: PersonRow) -> Person {
 }
 
 fn semantic_phone(value: &str) -> String {
-    let digits: String = value.chars().filter(|character| character.is_ascii_digit()).collect();
+    let digits: String = value
+        .chars()
+        .filter(|character| character.is_ascii_digit())
+        .collect();
     if digits.len() == 11 && digits.starts_with('1') {
         digits[1..].to_owned()
     } else {
@@ -196,7 +199,10 @@ impl PersonDao {
         .await
         .map_err(|error| DbFailure::from_sqlx("person.attach_identity.lookup", &error))?;
 
-        if existing.iter().any(|row| row.person_id != request.person_id) {
+        if existing
+            .iter()
+            .any(|row| row.person_id != request.person_id)
+        {
             return Err(DbFailure::schema_mismatch(
                 "person.attach_identity",
                 format!("identity already belongs to another Person: {kind}:{normalized}"),

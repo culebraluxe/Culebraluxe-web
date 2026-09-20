@@ -1,9 +1,7 @@
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
 use db::{DbResult, SecurityDao};
-use domain::{
-    resolve_security_level, ActingUser, SecurityIdentityResolution, SecurityPrincipal,
-};
+use domain::{resolve_security_level, ActingUser, SecurityIdentityResolution, SecurityPrincipal};
 use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
 
 #[async_trait]

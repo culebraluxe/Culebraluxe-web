@@ -142,7 +142,11 @@ impl<R: PropertyRepository> PropertyService<R> {
             context,
         )
         .await?;
-        let result = self.repository.for_person(person_id).await.map_err(Into::into);
+        let result = self
+            .repository
+            .for_person(person_id)
+            .await
+            .map_err(Into::into);
         audit_result(&self.runtime, "property", OP, context, decision, &result).await?;
         result
     }
@@ -174,7 +178,10 @@ impl<R: PropertyRepository> PropertyService<R> {
                         ("relation".into(), json!(linked.relation.as_str())),
                         (
                             "sourceType".into(),
-                            json!(request.source_type.clone().unwrap_or_else(|| "manual".into())),
+                            json!(request
+                                .source_type
+                                .clone()
+                                .unwrap_or_else(|| "manual".into())),
                         ),
                     ]),
                     context,
@@ -247,16 +254,12 @@ impl<R: PropertyRepository> PropertyService<R> {
         )
         .await?;
         let result = async {
-            let property = self
-                .repository
-                .set_status(request)
-                .await?
-                .ok_or_else(|| {
-                    CoreServiceError::business(
-                        "PROPERTY_NOT_FOUND",
-                        format!("Property not found: {}", request.property_id),
-                    )
-                })?;
+            let property = self.repository.set_status(request).await?.ok_or_else(|| {
+                CoreServiceError::business(
+                    "PROPERTY_NOT_FOUND",
+                    format!("Property not found: {}", request.property_id),
+                )
+            })?;
             self.runtime
                 .emit(
                     "property.status_changed",

@@ -44,18 +44,20 @@ pub enum SecurityIdentityResolution {
 }
 
 pub fn resolve_security_level(role_codes: &[String]) -> SecurityLevel {
-    role_codes.iter().fold(SecurityLevel::Guest, |current, role| {
-        let candidate = match role.trim().to_lowercase().as_str() {
-            "root" | "owner" => SecurityLevel::Root,
-            "business_power" | "business_power_user" | "bus_power_user" | "agent" => {
-                SecurityLevel::BusinessPowerUser
-            }
-            "user" | "ops" | "viewer" => SecurityLevel::User,
-            "guest" | "client" => SecurityLevel::Guest,
-            _ => SecurityLevel::Guest,
-        };
-        current.max(candidate)
-    })
+    role_codes
+        .iter()
+        .fold(SecurityLevel::Guest, |current, role| {
+            let candidate = match role.trim().to_lowercase().as_str() {
+                "root" | "owner" => SecurityLevel::Root,
+                "business_power" | "business_power_user" | "bus_power_user" | "agent" => {
+                    SecurityLevel::BusinessPowerUser
+                }
+                "user" | "ops" | "viewer" => SecurityLevel::User,
+                "guest" | "client" => SecurityLevel::Guest,
+                _ => SecurityLevel::Guest,
+            };
+            current.max(candidate)
+        })
 }
 
 #[cfg(test)]

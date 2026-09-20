@@ -3,8 +3,7 @@ use chrono::{DateTime, Utc};
 use domain::{
     FieldPatch, FindPropertyByAddressRequest, PersonPropertyContext, PersonPropertyRelation,
     Property, PropertyAddress, PropertyAddressPatch, PropertyForPerson,
-    SetPropertyDisplayNameRequest,
-    SetPropertyStatusRequest, UpsertPropertyForPersonRequest,
+    SetPropertyDisplayNameRequest, SetPropertyStatusRequest, UpsertPropertyForPersonRequest,
 };
 use sqlx::{FromRow, PgConnection};
 
@@ -167,9 +166,7 @@ const PROPERTY_COLUMNS: &str = r#"
 "#;
 
 async fn get_on(connection: &mut PgConnection, property_id: &str) -> DbResult<Option<Property>> {
-    let query = format!(
-        "select {PROPERTY_COLUMNS} from property p where p.id = $1::uuid limit 1"
-    );
+    let query = format!("select {PROPERTY_COLUMNS} from property p where p.id = $1::uuid limit 1");
     let row = sqlx::query_as::<_, PropertyRow>(&query)
         .bind(property_id)
         .fetch_optional(connection)
@@ -251,17 +248,11 @@ fn merge_address(
     PropertyAddress {
         address_line1: apply_patch(&patch.address_line1, base.address_line1.clone()),
         city: apply_patch(&patch.city, base.city.clone()),
-        state_or_province: apply_patch(
-            &patch.state_or_province,
-            base.state_or_province.clone(),
-        ),
+        state_or_province: apply_patch(&patch.state_or_province, base.state_or_province.clone()),
         neighborhood: apply_patch(&patch.neighborhood, base.neighborhood.clone()),
         postal_code: apply_patch(&patch.postal_code, base.postal_code.clone()),
         country: apply_patch(&patch.country, base.country.clone()),
-        iso_country_code: apply_patch(
-            &patch.iso_country_code,
-            base.iso_country_code.clone(),
-        ),
+        iso_country_code: apply_patch(&patch.iso_country_code, base.iso_country_code.clone()),
     }
 }
 
@@ -276,9 +267,8 @@ impl PropertyDao {
     }
 
     pub async fn get(&self, property_id: &str) -> DbResult<Option<Property>> {
-        let query = format!(
-            "select {PROPERTY_COLUMNS} from property p where p.id = $1::uuid limit 1"
-        );
+        let query =
+            format!("select {PROPERTY_COLUMNS} from property p where p.id = $1::uuid limit 1");
         let row = sqlx::query_as::<_, PropertyRow>(&query)
             .bind(property_id)
             .fetch_optional(self.db.pool())
@@ -448,7 +438,11 @@ async fn upsert_for_person_tx(
     tx: &mut DbTransaction,
     request: &UpsertPropertyForPersonRequest,
 ) -> DbResult<PropertyForPerson> {
-    let mut current = match request.property_id.as_deref().and_then(|value| compact(Some(value))) {
+    let mut current = match request
+        .property_id
+        .as_deref()
+        .and_then(|value| compact(Some(value)))
+    {
         Some(id) => get_on(tx.connection(), &id).await?,
         None => None,
     };
@@ -482,30 +476,43 @@ async fn upsert_for_person_tx(
         }
     }
 
-    let address = merge_address(current.as_ref().map(|value| &value.address), request.address.as_ref());
+    let address = merge_address(
+        current.as_ref().map(|value| &value.address),
+        request.address.as_ref(),
+    );
     let local_name = apply_patch(
         &request.local_name,
         current.as_ref().and_then(|value| value.local_name.clone()),
     );
     let legal_owner_name = apply_patch(
         &request.legal_owner_name,
-        current.as_ref().and_then(|value| value.legal_owner_name.clone()),
+        current
+            .as_ref()
+            .and_then(|value| value.legal_owner_name.clone()),
     );
     let catastro_number = apply_patch(
         &request.catastro_number,
-        current.as_ref().and_then(|value| value.catastro_number.clone()),
+        current
+            .as_ref()
+            .and_then(|value| value.catastro_number.clone()),
     );
     let registry_entry = apply_patch(
         &request.registry_entry,
-        current.as_ref().and_then(|value| value.registry_entry.clone()),
+        current
+            .as_ref()
+            .and_then(|value| value.registry_entry.clone()),
     );
     let finca_number = apply_patch(
         &request.finca_number,
-        current.as_ref().and_then(|value| value.finca_number.clone()),
+        current
+            .as_ref()
+            .and_then(|value| value.finca_number.clone()),
     );
     let registry_section = apply_patch(
         &request.registry_section,
-        current.as_ref().and_then(|value| value.registry_section.clone()),
+        current
+            .as_ref()
+            .and_then(|value| value.registry_section.clone()),
     );
 
     if current.is_none() && address.address_line1.is_none() && local_name.is_none() {
