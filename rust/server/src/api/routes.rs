@@ -9,6 +9,7 @@ use axum::{
     Json, Router,
 };
 use domain::{
+    ClientAdminPageRequest, ClientDirectoryPageRequest, ClientHistoryRequest,
     GetCommsPanelRequest, GetCommsTimelineRequest, SearchPeopleRequest, VaultActorScope,
     VaultArtifactFailure, VaultCommandOutcome, VaultRenderRequest, VaultRenderedArtifact,
 };
@@ -60,6 +61,33 @@ struct PeopleSearchQuery {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct ClientsQuery {
+    view: Option<String>,
+    search: Option<String>,
+    status: Option<String>,
+    role: Option<String>,
+    sort: Option<String>,
+    page: Option<i64>,
+    page_size: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ClientHistoryQuery {
+    page: Option<i64>,
+    page_size: Option<i64>,
+    recent: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+enum ClientPageResponse {
+    Directory(domain::ClientsPageResult),
+    Admin(domain::ClientAdminPageResult),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct CommsPanelQuery {
     moment_limit: Option<i64>,
 }
@@ -93,6 +121,10 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/whoami", get(whoami))
         .route("/v1/projects", get(projects))
         .route("/v1/projects/{id}", get(project))
+        .route("/v1/clients", get(clients))
+        .route("/v1/clients/agents", get(client_agents))
+        .route("/v1/clients/{person_id}/history", get(client_history))
+        .route("/v1/clients/{person_id}", get(client_detail))
         .route("/v1/people/search", get(search_people))
         .route("/v1/people/{id}", get(person))
         .route("/v1/people/{id}/properties", get(properties_for_person))
@@ -186,6 +218,114 @@ async fn project(
                 &resolved,
             )
         })?;
+    Ok(success(value, &resolved))
+}
+
+async fn clients(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Query(query): Query<ClientsQuery>,
+) -> Result<Json<ApiSuccess<ClientPageResponse>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().clients();
+    let page = query.page.unwrap_or(1).max(1);
+    let page_size = query.page_size.unwrap_or(50).clamp(1, 50);
+    let search = query.search.unwrap_or_default();
+
+    let value = if query.view.as_deref() == Some("admin") {
+        ClientPageResponse::Admin(
+            service
+                .admin(
+                    &ClientAdminPageRequest {
+                        search,
+                        page,
+                        page_size,
+                    },
+                    &resolved.service,
+                )
+                .await
+                .map_err(|error| correlate(ApiError::from(error), &resolved))?,
+        )
+    } else {
+        let status = query.status.filter(|value| {
+            matches!(value.as_str(), "new" | "warm" | "active" | "referral")
+        });
+        let role = query
+            .role
+            .filter(|value| matches!(value.as_str(), "buyer" | "seller" | "both"));
+        let sort = query
+            .sort
+            .filter(|value| matches!(value.as_str(), "name" | "created" | "recent"))
+            .unwrap_or_else(|| "name".into());
+
+        ClientPageResponse::Directory(
+            service
+                .directory(
+                    &ClientDirectoryPageRequest {
+                        search,
+                        status,
+                        role,
+                        sort,
+                        page,
+                        page_size,
+                    },
+                    &resolved.service,
+                )
+                .await
+                .map_err(|error| correlate(ApiError::from(error), &resolved))?,
+        )
+    };
+
+    Ok(success(value, &resolved))
+}
+
+async fn client_detail(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(person_id): Path<String>,
+) -> Result<Json<ApiSuccess<Option<domain::ClientDetail>>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().clients();
+    let value = service
+        .detail(&person_id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn client_agents(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<Vec<domain::AssignableAgent>>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().clients();
+    let value = service
+        .agents(&resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn client_history(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(person_id): Path<String>,
+    Query(query): Query<ClientHistoryQuery>,
+) -> Result<Json<ApiSuccess<domain::ClientContactHistoryResult>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().clients();
+    let value = service
+        .history(
+            &ClientHistoryRequest {
+                person_id,
+                page: query.page.unwrap_or(1).max(1),
+                page_size: query.page_size.unwrap_or(20).clamp(1, 50),
+                recent: query.recent.unwrap_or(false),
+            },
+            &resolved.service,
+        )
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(value, &resolved))
 }
 
