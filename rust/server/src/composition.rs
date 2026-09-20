@@ -13,8 +13,8 @@ use crate::showings::ShowingService;
 use crate::vault::{VaultArtifactPort, VaultService};
 use crate::wbs::WbsService;
 use db::{
-    CalendarDao, CommsDao, ContractDao, Database, FirmDao, FormDao, MediaDao, PersonDao, ProjectDao, PropertyDao,
-    SecurityDao, ShowingDao, VaultDao, WbsDao,
+    CalendarDao, CommsDao, ContractDao, Database, FirmDao, FormDao, MediaDao, PersonDao,
+    ProjectDao, PropertyDao, SecurityDao, ShowingDao, VaultDao, WbsDao,
 };
 use service::ServiceInfrastructure;
 use std::sync::Arc;
