@@ -72,7 +72,10 @@ macro_rules! property_sql {
 }
 
 fn compact(value: Option<&str>) -> Option<String> {
-    value.map(str::trim).filter(|v| !v.is_empty()).map(str::to_owned)
+    value
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_owned)
 }
 
 fn one_line(value: Option<&str>) -> Option<String> {
@@ -169,7 +172,11 @@ fn map_relation(row: PropertyRelationRow) -> DbResult<PropertyForPerson> {
 }
 
 fn normalize(value: &str) -> String {
-    value.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+    value
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
 }
 
 fn apply_patch(patch: &FieldPatch<String>, current: Option<String>) -> Option<String> {
@@ -412,7 +419,11 @@ async fn upsert_for_person_tx(
     tx: &mut DbTransaction,
     request: &UpsertPropertyForPersonRequest,
 ) -> DbResult<PropertyForPerson> {
-    let mut current = match request.property_id.as_deref().and_then(|v| compact(Some(v))) {
+    let mut current = match request
+        .property_id
+        .as_deref()
+        .and_then(|v| compact(Some(v)))
+    {
         Some(id) => get_on(tx.connection(), &id).await?,
         None => None,
     };
@@ -455,23 +466,33 @@ async fn upsert_for_person_tx(
     );
     let legal_owner_name = apply_patch(
         &request.legal_owner_name,
-        current.as_ref().and_then(|value| value.legal_owner_name.clone()),
+        current
+            .as_ref()
+            .and_then(|value| value.legal_owner_name.clone()),
     );
     let catastro_number = apply_patch(
         &request.catastro_number,
-        current.as_ref().and_then(|value| value.catastro_number.clone()),
+        current
+            .as_ref()
+            .and_then(|value| value.catastro_number.clone()),
     );
     let registry_entry = apply_patch(
         &request.registry_entry,
-        current.as_ref().and_then(|value| value.registry_entry.clone()),
+        current
+            .as_ref()
+            .and_then(|value| value.registry_entry.clone()),
     );
     let finca_number = apply_patch(
         &request.finca_number,
-        current.as_ref().and_then(|value| value.finca_number.clone()),
+        current
+            .as_ref()
+            .and_then(|value| value.finca_number.clone()),
     );
     let registry_section = apply_patch(
         &request.registry_section,
-        current.as_ref().and_then(|value| value.registry_section.clone()),
+        current
+            .as_ref()
+            .and_then(|value| value.registry_section.clone()),
     );
 
     if current.is_none() && address.address_line1.is_none() && local_name.is_none() {
