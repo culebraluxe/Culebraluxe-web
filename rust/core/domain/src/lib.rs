@@ -5,6 +5,7 @@
 pub mod comms;
 pub mod contract;
 pub mod firm;
+pub mod forms;
 pub mod person;
 pub mod project;
 pub mod property;
@@ -53,4 +54,11 @@ pub use comms::{
     GetCommsPanelRequest, GetCommsTimelineRequest, LastContactRecord, RelationshipEvidenceRecord,
     RelationshipSummary, COMMS_MAX_PAGE_SIZE, COMMS_MOMENT_LIMIT, COMMS_PAGE_SIZE,
     COMMS_SOURCE_SLOT_COUNT,
+};
+
+pub use forms::{
+    BindFormInstanceToDirectContextRequest, BindFormInstanceToShowingRequest,
+    BindListingFormContextRequest, CreateFormInstanceRequest, DealFormFacts, DirectFormContext,
+    FormInstance, FormInstanceEvidence, FormInstanceListItem, FormInstanceStatus, FormSignerPerson,
+    LatestFormEvidenceRequest, UpdateFormInstanceInput, UpdateFormInstanceRequest,
 };

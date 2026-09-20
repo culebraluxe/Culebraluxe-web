@@ -180,3 +180,17 @@ The Rust port keeps Phone and FaceTime as distinct source rows, recovers
 FaceTime moments from the intake delineation when interaction.channel is
 `call`, excludes bulk/service evidence from meaningful-contact freshness,
 reads warehouse/read-model relations only, and never reads an ODS `l_` table.
+
+
+## Slice 4B: Forms
+
+Forms moves the mutable document-form-instance domain into Rust. It owns
+create/get/update/list, bounded deal prefill facts, participant seeding, latest
+form evidence, direct/listing/showing lineage bindings, and signer-person
+resolution.
+
+The port preserves the important boundary: a Form instance is mutable working
+state, not the immutable business record. Listing context cannot be rebound
+after issuance history exists, Showing bindings are non-transferable, and the
+Listing/Purchase-and-Sale signer path keeps the configured Lisa Penfield
+SELLER_BROKER rule.

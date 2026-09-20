@@ -1,6 +1,7 @@
 use crate::communications::CommsService;
 use crate::contracts::ContractService;
 use crate::firms::FirmService;
+use crate::forms::FormService;
 use crate::lookup::ServiceDirectory;
 use crate::people::PersonService;
 use crate::projects::ProjectService;
@@ -9,7 +10,7 @@ use crate::security::SecurityService;
 use crate::showings::ShowingService;
 use crate::wbs::WbsService;
 use db::{
-    CommsDao, ContractDao, Database, FirmDao, PersonDao, ProjectDao, PropertyDao, SecurityDao,
+    CommsDao, ContractDao, Database, FirmDao, FormDao, PersonDao, ProjectDao, PropertyDao, SecurityDao,
     ShowingDao, WbsDao,
 };
 use service::ServiceInfrastructure;
@@ -44,6 +45,10 @@ impl CoreServices {
 
     pub fn firm(&self) -> FirmService<FirmDao> {
         FirmService::new(FirmDao::new(self.db.clone()), self.infrastructure.clone())
+    }
+
+    pub fn forms(&self) -> FormService<FormDao> {
+        FormService::new(FormDao::new(self.db.clone()), self.infrastructure.clone())
     }
 
     pub fn property(&self) -> PropertyService<PropertyDao> {
