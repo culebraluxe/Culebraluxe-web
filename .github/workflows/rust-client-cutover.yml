@@ -1,0 +1,21 @@
+name: rust-client-cutover-check
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  client-cutover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust client/server targeted tests
+        working-directory: rust
+        run: cargo test -p domain -p db -p server --all-targets
+      - name: Rust client/server targeted compile
+        working-directory: rust
+        run: cargo check -p server --all-targets
