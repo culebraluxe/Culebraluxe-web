@@ -684,6 +684,76 @@ impl<S: TxStore> WorkflowEngine<S> {
         })
     }
 
+    pub fn cancel_timer(&self, job_id: &str, actor: &str) -> Result<()> {
+        self.store.with_tx(|tx| {
+            let peek = tx.get_job(job_id)?;
+            if let Some(pid) = &peek.process_instance_id {
+                let _ = tx.lock_instance(pid)?;
+            }
+            let mut job = tx.lock_job(job_id)?;
+            if job.status.is_settled() {
+                return Ok(());
+            }
+            job.status = JobStatus::Cancelled;
+            job.locked_by = None;
+            job.locked_until = None;
+            job.completed_at = Some(self.now());
+            tx.update_job(&job)?;
+            if let Some(pid) = job.process_instance_id {
+                self.event(
+                    tx,
+                    EventInput {
+                        tenant_id: job.tenant_id,
+                        process_instance_id: pid,
+                        token_id: job.token_id,
+                        job_id: Some(job_id.to_string()),
+                        event_type: "job.cancelled",
+                        actor: actor.to_string(),
+                        ..Default::default()
+                    },
+                )?;
+            }
+            Ok(())
+        })
+    }
+
+    pub fn reschedule_timer(&self, job_id: &str, due_at: i64, actor: &str) -> Result<()> {
+        self.store.with_tx(|tx| {
+            let peek = tx.get_job(job_id)?;
+            if let Some(pid) = &peek.process_instance_id {
+                let _ = tx.lock_instance(pid)?;
+            }
+            let mut job = tx.lock_job(job_id)?;
+            if job.status.is_settled() {
+                return Err(WorkflowError::conflict(
+                    "JOB_SETTLED",
+                    format!("Job {job_id} cannot be rescheduled in status {:?}", job.status),
+                ));
+            }
+            job.status = JobStatus::Pending;
+            job.due_at = due_at;
+            job.locked_by = None;
+            job.locked_until = None;
+            tx.update_job(&job)?;
+            if let Some(pid) = job.process_instance_id {
+                self.event(
+                    tx,
+                    EventInput {
+                        tenant_id: job.tenant_id,
+                        process_instance_id: pid,
+                        token_id: job.token_id,
+                        job_id: Some(job_id.to_string()),
+                        event_type: "job.rescheduled",
+                        actor: actor.to_string(),
+                        data: json!({"dueAt": due_at}),
+                        ..Default::default()
+                    },
+                )?;
+            }
+            Ok(())
+        })
+    }
+
     pub fn get_process_instance(&self, id: &str) -> Result<ProcessInstance> {
         self.store.with_tx(|tx| tx.get_instance(id))
     }
