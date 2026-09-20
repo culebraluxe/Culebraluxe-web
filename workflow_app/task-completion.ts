@@ -53,20 +53,19 @@ export async function completeWorkflowTask(
   input: CompleteWorkflowTaskInput,
 ): Promise<void> {
   const { findWorkflowTaskId } = await import('./correlation')
-  const { engineSql } = await import('./engine-client')
-  const { createApplicationPort } = await import('./application-port')
-  const { WorkflowEngine } = await import('../workflow_engine/lib/workflow/engine')
+  const { rustReWorkflow } = await import('./rust-re-host')
 
   await completeWorkflowTaskCore(input, {
     findWorkflowTaskId,
-    completeEngineTask: async (workflowTaskId, i) => {
-      const engine = new WorkflowEngine(engineSql(), { app: createApplicationPort() })
-      await engine.completeTask({
-        taskId: workflowTaskId,
-        userId: i.userId,
-        formData: i.formData ?? {},
-        transitionName: i.transitionName,
-      })
+    completeEngineTask: async (_workflowTaskId, i) => {
+      rustReWorkflow([
+        'complete-task',
+        '--application-task',
+        i.applicationTaskId,
+        '--user',
+        i.userId,
+        ...(i.transitionName ? ['--transition', i.transitionName] : []),
+      ])
     },
   })
 }

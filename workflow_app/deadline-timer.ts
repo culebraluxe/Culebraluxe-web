@@ -68,29 +68,14 @@ export async function reconcileDeadlineTimer(
   const { engineConfigured, engineSql } = await import('./engine-client')
   if (!engineConfigured()) return { action: 'unchanged', jobId: null }
 
-  const { WorkflowEngine } = await import('../workflow_engine/lib/workflow/engine')
-  const { createApplicationPort } = await import('./application-port')
-  const esql = engineSql()
-  const engine = () =>
-    new WorkflowEngine(esql, { app: createApplicationPort() })
-
-  return reconcileDeadlineTimerCore(instanceId, timerNodeId, deadline, {
-    findPendingTimer: async (id, nodeId) => {
-      const rows = await esql`
-        select id, due_at::text as due_at
-        from jobs
-        where process_instance_id = ${id}
-          and status = 'pending'
-          and type = 'timer'
-          and payload->>'nodeId' = ${nodeId}
-        limit 1
-      `
-      const r = rows[0]
-      return r
-        ? { jobId: r.id as string, dueAt: r.due_at as string }
-        : null
-    },
-    reschedule: async (jobId, dueAt) =>
-      engine().rescheduleTimerJob({ jobId, newDueAt: dueAt, actor: 'system' }),
-  })
+  const { rustReWorkflow } = await import('./rust-re-host')
+  rustReWorkflow([
+    'timer',
+    '--instance',
+    instanceId,
+    '--node',
+    timerNodeId,
+    ...(deadline ? ['--date', deadline] : []),
+  ])
+  return { action: deadline ? 'rescheduled' : 'unchanged', jobId: null }
 }

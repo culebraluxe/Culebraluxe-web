@@ -1,5 +1,3 @@
-import { WorkflowEngine } from '../workflow_engine/lib/workflow/engine'
-import { createApplicationPort } from './application-port'
 import { engineConfigured, engineSql } from './engine-client'
 import { getDealWorkflowFacts } from './facts'
 import { getContractWorkflowFacts } from './contract-facts'
@@ -8,6 +6,7 @@ import {
   RESIDENTIAL_TRANSACTION_VERSION,
 } from './workflow-config'
 import { startWorkflowCore } from './start-core'
+import { parseStart, rustReWorkflow } from './rust-re-host'
 
 // Legacy Deal starter is retained until the rest of the transaction surface is
 // strangled. New P&S execution uses the Contract starter below.
@@ -54,21 +53,8 @@ export async function startResidentialTransactionWorkflow(
       const facts = await getDealWorkflowFacts(id)
       return facts ? (facts as unknown as Record<string, any>) : null
     },
-    start: async (id, facts) => {
-      if (!engineConfigured()) {
-        throw new Error('Workflow engine database is not configured.')
-      }
-      const engine = new WorkflowEngine(engineSql(), {
-        app: createApplicationPort(),
-      })
-      const { processInstanceId } = await engine.startProcess({
-        definitionKey: RESIDENTIAL_TRANSACTION_KEY,
-        version: RESIDENTIAL_TRANSACTION_VERSION,
-        startedBy: 'system',
-        variables: facts,
-        subject: { subjectType: 'deal', subjectId: id },
-      })
-      return processInstanceId
+    start: async (id) => {
+      return parseStart(rustReWorkflow(['start-deal', '--id', id])).instanceId
     },
   })
 }
@@ -86,21 +72,8 @@ export async function startResidentialContractWorkflow(
       const facts = await getContractWorkflowFacts(id)
       return facts ? (facts as Record<string, any>) : null
     },
-    start: async (id, facts) => {
-      if (!engineConfigured()) {
-        throw new Error('Workflow engine database is not configured.')
-      }
-      const engine = new WorkflowEngine(engineSql(), {
-        app: createApplicationPort(),
-      })
-      const { processInstanceId } = await engine.startProcess({
-        definitionKey: RESIDENTIAL_TRANSACTION_KEY,
-        version: RESIDENTIAL_TRANSACTION_VERSION,
-        startedBy: 'system',
-        variables: facts,
-        subject: { subjectType: 'contract', subjectId: id },
-      })
-      return processInstanceId
+    start: async (id) => {
+      return parseStart(rustReWorkflow(['start-contract', '--id', id])).instanceId
     },
   })
 }

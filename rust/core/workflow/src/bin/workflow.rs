@@ -56,7 +56,18 @@ fn flag(args: &[String], name: &str) -> Option<String> {
 
 fn host_engine() -> WorkflowEngine<NeonStore> {
     match NeonStore::connect_from_env() {
-        Ok(store) => WorkflowEngine::new(store, EngineOptions::default()),
+        Ok(store) => WorkflowEngine::new(
+            store,
+            EngineOptions {
+                app: None,
+                now: Box::new(|| {
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis() as i64)
+                        .unwrap_or(0)
+                }),
+            },
+        ),
         Err(e) => {
             eprintln!("neon: {e}");
             std::process::exit(2);

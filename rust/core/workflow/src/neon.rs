@@ -738,7 +738,38 @@ impl Store for NeonTx<'_> {
             .bind(&event.node_id)
             .bind(&event.actor)
             .bind(data),
-        )
+        )?;
+        // Observer-only. Never fail the engine step.
+        let source_event_id = format!(
+            "engine:{}:{}:{}:{}",
+            event.process_instance_id,
+            event.event_type,
+            event.node_id.as_deref().unwrap_or("-"),
+            event.created_at
+        );
+        let _ = run_exec(
+            self,
+            sqlx::query(
+                "INSERT INTO workflow_execution_trace_event (
+                    workflow_instance_id, workflow_node_id, event_type, system,
+                    occurred_at, outcome, summary, source_system, source_event_id,
+                    task_id, timer_job_id
+                 ) VALUES (
+                    $1::uuid, $2, $3, 'workflow', now(), 'ok', $4,
+                    'workflow_engine', $5, $6::uuid, $7::uuid
+                 )
+                 ON CONFLICT (source_system, source_event_id)
+                 WHERE source_event_id IS NOT NULL DO NOTHING",
+            )
+            .bind(&event.process_instance_id)
+            .bind(&event.node_id)
+            .bind(&event.event_type)
+            .bind(&event.event_type)
+            .bind(&source_event_id)
+            .bind(&event.task_id)
+            .bind(&event.job_id),
+        );
+        Ok(())
     }
 
     fn history(&self, instance_id: &str, limit: usize) -> Result<Vec<ProcessEvent>> {

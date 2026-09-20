@@ -182,3 +182,20 @@ pub fn instance_is_active(id: &str) -> Result<bool> {
     let inst = re_engine()?.get_process_instance(id)?;
     Ok(inst.status == ProcessStatus::Active)
 }
+
+pub fn reclaim_stale_jobs(batch: usize) -> Result<usize> {
+    re_engine()?.reclaim_stale_jobs(batch)
+}
+
+pub fn reclaim_stale_jobs_for_instance(instance_id: &str) -> Result<usize> {
+    re_engine()?.reclaim_stale_jobs_for_instance(instance_id)
+}
+
+pub fn complete_engine_task(task_id: &str, user_id: &str, transition: Option<&str>) -> Result<()> {
+    re_engine()?.complete_task(CompleteTaskParams {
+        task_id: task_id.into(),
+        user_id: user_id.into(),
+        form_data: Value::object(),
+        transition_name: transition.map(str::to_string),
+    })
+}

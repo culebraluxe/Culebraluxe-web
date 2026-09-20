@@ -147,7 +147,6 @@ export async function createCrm26Consumer(
 ): Promise<Crm26AgreementExecutionConsumer> {
   const { interactiveSql } = await import('../../lib/neon-interactive')
   const { engineConfigured, engineSql } = await import('../../workflow_app/engine-client')
-  const { createApplicationPort } = await import('../../workflow_app/application-port')
   const { RESIDENTIAL_TRANSACTION_KEY } = await import('../../workflow_app/workflow-config')
   const { startResidentialContractWorkflow } = await import('../../workflow_app/runtime')
   const { ContractService, CONTRACT_OPERATIONS } = await import('../../services/contract')
@@ -227,11 +226,15 @@ export async function createCrm26Consumer(
           return (rows[0]?.id as string | undefined) ?? null
         },
         completeEngineTask: async (taskId, userId, transitionName) => {
-          const { WorkflowEngine } = await import('../../workflow_engine/lib/workflow/engine')
-          const engine = new WorkflowEngine(engineSql() as never, {
-            app: createApplicationPort(),
-          })
-          await engine.completeTask({ taskId, userId, transitionName })
+          const { rustReWorkflow } = await import('../../workflow_app/rust-re-host')
+          rustReWorkflow([
+            'complete-engine-task',
+            '--task',
+            taskId,
+            '--user',
+            userId,
+            ...(transitionName ? ['--transition', transitionName] : []),
+          ])
         },
       }),
     ...overrides,
