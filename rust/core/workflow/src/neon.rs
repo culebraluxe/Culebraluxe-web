@@ -2,7 +2,9 @@
 //! Same tables and lock order as the TypeScript kernel. No new schema.
 
 use db::{Database, DbTransaction};
-use sqlx::{postgres::PgRow, Row};
+use sqlx::postgres::{PgArguments, PgRow};
+use sqlx::query::Query;
+use sqlx::{PgConnection, Postgres, QueryBuilder, Row};
 
 use crate::error::{Result, WorkflowError};
 use crate::ids::uuid_v4;
@@ -87,68 +89,46 @@ struct NeonTx<'a> {
 }
 
 impl NeonTx<'_> {
-    fn exec(&mut self, fut: impl std::future::Future<Output = sqlx::Result<u64>>) -> Result<u64> {
-        self.handle
-            .block_on(fut)
-            .map_err(|e| WorkflowError::generic(e.to_string()))
-    }
-
-    fn fetch_all(
-        &mut self,
-        fut: impl std::future::Future<Output = sqlx::Result<Vec<PgRow>>>,
-    ) -> Result<Vec<PgRow>> {
-        self.handle
-            .block_on(fut)
-            .map_err(|e| WorkflowError::generic(e.to_string()))
-    }
-
-    fn fetch_one(
-        &mut self,
-        fut: impl std::future::Future<Output = sqlx::Result<PgRow>>,
-    ) -> Result<PgRow> {
-        self.handle
-            .block_on(fut)
-            .map_err(|e| WorkflowError::generic(e.to_string()))
+    fn conn(&mut self) -> &mut PgConnection {
+        self.tx.connection()
     }
 }
 
-const INST_COLS: &str =
-    "id::text AS id, tenant_id::text AS tenant_id, definition_id::text AS definition_id,
-    business_key, status, outcome,
-    extract(epoch from started_at)*1000 AS started_at,
-    extract(epoch from ended_at)*1000 AS ended_at,
-    started_by, parent_instance_id::text AS parent_instance_id,
-    root_token_id::text AS root_token_id, subject_type, subject_id,
-    variables::text AS variables, version";
+fn exec_q<'q>(tx: &mut NeonTx<'_>, q: Query<'q, Postgres, PgArguments>) -> Result<u64> {
+    let handle = tx.handle.clone();
+    let conn = tx.conn();
+    handle
+        .block_on(q.execute(conn))
+        .map(|r| r.rows_affected())
+        .map_err(|e| WorkflowError::generic(e.to_string()))
+}
 
-const TOKEN_COLS: &str = "id::text AS id, tenant_id::text AS tenant_id,
-    process_instance_id::text AS process_instance_id,
-    parent_token_id::text AS parent_token_id, node_id, status, outcome, required,
-    is_able_to_reactivate_parent,
-    extract(epoch from started_at)*1000 AS started_at,
-    extract(epoch from ended_at)*1000 AS ended_at, version";
+fn fetch_all_q<'q>(tx: &mut NeonTx<'_>, q: Query<'q, Postgres, PgArguments>) -> Result<Vec<PgRow>> {
+    let handle = tx.handle.clone();
+    let conn = tx.conn();
+    handle
+        .block_on(q.fetch_all(conn))
+        .map_err(|e| WorkflowError::generic(e.to_string()))
+}
 
-const TASK_COLS: &str = "id::text AS id, tenant_id::text AS tenant_id,
-    process_instance_id::text AS process_instance_id, token_id::text AS token_id,
-    node_id, name, description, status, assignee, candidates, swimlane, priority,
-    extract(epoch from due_date)*1000 AS due_date, form_key, form_data::text AS form_data,
-    extract(epoch from created_at)*1000 AS created_at,
-    extract(epoch from claimed_at)*1000 AS claimed_at,
-    extract(epoch from completed_at)*1000 AS completed_at,
-    completed_by, version";
+fn fetch_one_q<'q>(tx: &mut NeonTx<'_>, q: Query<'q, Postgres, PgArguments>) -> Result<PgRow> {
+    let handle = tx.handle.clone();
+    let conn = tx.conn();
+    handle
+        .block_on(q.fetch_one(conn))
+        .map_err(|e| WorkflowError::generic(e.to_string()))
+}
 
-const JOB_COLS: &str = "id::text AS id, tenant_id::text AS tenant_id,
-    process_instance_id::text AS process_instance_id, token_id::text AS token_id,
-    type AS job_type, extract(epoch from due_at)*1000 AS due_at, status, locked_by,
-    extract(epoch from locked_until)*1000 AS locked_until,
-    attempts, max_attempts, payload::text AS payload, last_error,
-    extract(epoch from created_at)*1000 AS created_at,
-    extract(epoch from updated_at)*1000 AS updated_at,
-    extract(epoch from completed_at)*1000 AS completed_at";
-
-const DEF_COLS: &str =
-    "id::text AS id, tenant_id::text AS tenant_id, key, version, name, description,
-    definition::text AS definition, status";
+fn fetch_optional_q<'q>(
+    tx: &mut NeonTx<'_>,
+    q: Query<'q, Postgres, PgArguments>,
+) -> Result<Option<PgRow>> {
+    let handle = tx.handle.clone();
+    let conn = tx.conn();
+    handle
+        .block_on(q.fetch_optional(conn))
+        .map_err(|e| WorkflowError::generic(e.to_string()))
+}
 
 impl Store for NeonTx<'_> {
     fn new_id(&mut self, _prefix: &str) -> String {
@@ -164,45 +144,53 @@ impl Store for NeonTx<'_> {
         // Store trait is &self; NeonTx methods that query need &mut for connection.
         // Reborrow via pointer — connection() needs &mut DbTransaction.
         let this = unsafe { &mut *(self as *const Self as *mut Self) };
-        let sql = match (version, tenant_id) {
-            (Some(_), Some(_)) => format!(
-                "SELECT {DEF_COLS} FROM process_definitions
-                 WHERE key = $1 AND version = $2 AND status = 'active' AND tenant_id = $3::uuid"
-            ),
-            (Some(_), None) => format!(
-                "SELECT {DEF_COLS} FROM process_definitions
-                 WHERE key = $1 AND version = $2 AND status = 'active' AND tenant_id IS NULL"
-            ),
-            (None, Some(_)) => format!(
-                "SELECT {DEF_COLS} FROM process_definitions
-                 WHERE key = $1 AND status = 'active' AND tenant_id = $2::uuid
-                 ORDER BY version DESC LIMIT 1"
-            ),
-            (None, None) => format!(
-                "SELECT {DEF_COLS} FROM process_definitions
-                 WHERE key = $1 AND status = 'active' AND tenant_id IS NULL
-                 ORDER BY version DESC LIMIT 1"
-            ),
+        let row = match (version, tenant_id) {
+            (Some(v), Some(tid)) => fetch_optional_q(
+                this,
+                sqlx::query(
+                    "SELECT id::text AS id, tenant_id::text AS tenant_id, key, version, name, description, definition::text AS definition, status FROM process_definitions WHERE key = $1 AND version = $2 AND status = 'active' AND tenant_id = $3::uuid",
+                )
+                .bind(key)
+                .bind(v)
+                .bind(tid),
+            )?,
+            (Some(v), None) => fetch_optional_q(
+                this,
+                sqlx::query(
+                    "SELECT id::text AS id, tenant_id::text AS tenant_id, key, version, name, description, definition::text AS definition, status FROM process_definitions WHERE key = $1 AND version = $2 AND status = 'active' AND tenant_id IS NULL",
+                )
+                .bind(key)
+                .bind(v),
+            )?,
+            (None, Some(tid)) => fetch_optional_q(
+                this,
+                sqlx::query(
+                    "SELECT id::text AS id, tenant_id::text AS tenant_id, key, version, name, description, definition::text AS definition, status FROM process_definitions WHERE key = $1 AND status = 'active' AND tenant_id = $2::uuid ORDER BY version DESC LIMIT 1",
+                )
+                .bind(key)
+                .bind(tid),
+            )?,
+            (None, None) => fetch_optional_q(
+                this,
+                sqlx::query(
+                    "SELECT id::text AS id, tenant_id::text AS tenant_id, key, version, name, description, definition::text AS definition, status FROM process_definitions WHERE key = $1 AND status = 'active' AND tenant_id IS NULL ORDER BY version DESC LIMIT 1",
+                )
+                .bind(key),
+            )?,
         };
-        let conn = this.tx.connection();
-        let mut q = sqlx::query(&sql).bind(key);
-        if let Some(v) = version {
-            q = q.bind(v);
-        }
-        if let Some(tid) = tenant_id {
-            q = q.bind(tid);
-        }
-        let rows = this.fetch_all(q.fetch_all(&mut *conn))?;
-        rows.first()
-            .ok_or_else(|| WorkflowError::generic(format!("Process definition not found: {key}")))
-            .and_then(map_definition)
+        row.ok_or_else(|| WorkflowError::generic(format!("Process definition not found: {key}")))
+            .and_then(|r| map_definition(&r))
     }
 
     fn definition_by_id(&self, id: &str) -> Result<ProcessDefinition> {
         let this = unsafe { &mut *(self as *const Self as *mut Self) };
-        let sql = format!("SELECT {DEF_COLS} FROM process_definitions WHERE id = $1::uuid");
-        let conn = this.tx.connection();
-        let row = this.fetch_one(sqlx::query(&sql).bind(id).fetch_one(&mut *conn))?;
+        let row = fetch_one_q(
+            this,
+            sqlx::query(
+                "SELECT id::text AS id, tenant_id::text AS tenant_id, key, version, name, description, definition::text AS definition, status FROM process_definitions WHERE id = $1::uuid",
+            )
+            .bind(id),
+        )?;
         map_definition(&row)
     }
 
@@ -229,31 +217,28 @@ impl Store for NeonTx<'_> {
 
     fn insert_instance(&mut self, inst: ProcessInstance) -> Result<ProcessInstance> {
         let vars = stringify(&inst.variables);
-        let conn = self.tx.connection();
-        self.handle
-            .block_on(
-                sqlx::query(
-                    "INSERT INTO process_instances (
-                        id, tenant_id, definition_id, business_key, status, started_by,
-                        variables, subject_type, subject_id, started_at
-                     ) VALUES (
-                        $1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7::jsonb, $8, $9,
-                        to_timestamp($10::double precision / 1000.0)
-                     )",
-                )
-                .bind(&inst.id)
-                .bind(&inst.tenant_id)
-                .bind(&inst.definition_id)
-                .bind(&inst.business_key)
-                .bind(process_status(inst.status))
-                .bind(&inst.started_by)
-                .bind(&vars)
-                .bind(&inst.subject_type)
-                .bind(&inst.subject_id)
-                .bind(inst.started_at)
-                .execute(&mut *conn),
+        exec_q(
+            self,
+            sqlx::query(
+                "INSERT INTO process_instances (
+                    id, tenant_id, definition_id, business_key, status, started_by,
+                    variables, subject_type, subject_id, started_at
+                 ) VALUES (
+                    $1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7::jsonb, $8, $9,
+                    to_timestamp($10::double precision / 1000.0)
+                 )",
             )
-            .map_err(|e| WorkflowError::generic(e.to_string()))?;
+            .bind(&inst.id)
+            .bind(&inst.tenant_id)
+            .bind(&inst.definition_id)
+            .bind(&inst.business_key)
+            .bind(process_status(inst.status))
+            .bind(&inst.started_by)
+            .bind(&vars)
+            .bind(&inst.subject_type)
+            .bind(&inst.subject_id)
+            .bind(inst.started_at),
+        )?;
         Ok(inst)
     }
 
@@ -275,21 +260,17 @@ impl Store for NeonTx<'_> {
         subject_id: &str,
     ) -> Result<Option<ProcessInstance>> {
         let this = unsafe { &mut *(self as *const Self as *mut Self) };
-        let sql = format!(
-            "SELECT {INST_COLS} FROM process_instances
-             WHERE definition_id = $1::uuid AND subject_type = $2 AND subject_id = $3
-               AND status = 'active' LIMIT 1"
-        );
-        let conn = this.tx.connection();
-        let rows = this.fetch_all(
-            sqlx::query(&sql)
-                .bind(definition_id)
-                .bind(subject_type)
-                .bind(subject_id)
-                .fetch_all(&mut *conn),
+        let row = fetch_optional_q(
+            this,
+            sqlx::query(
+                "SELECT id::text AS id, tenant_id::text AS tenant_id, definition_id::text AS definition_id, business_key, status, outcome, extract(epoch from started_at)*1000 AS started_at, extract(epoch from ended_at)*1000 AS ended_at, started_by, parent_instance_id::text AS parent_instance_id, root_token_id::text AS root_token_id, subject_type, subject_id, variables::text AS variables, version FROM process_instances WHERE definition_id = $1::uuid AND subject_type = $2 AND subject_id = $3 AND status = 'active' LIMIT 1",
+            )
+            .bind(definition_id)
+            .bind(subject_type)
+            .bind(subject_id),
         )?;
-        match rows.first() {
-            Some(row) => map_instance(row).map(Some),
+        match row {
+            Some(row) => map_instance(&row).map(Some),
             None => Ok(None),
         }
     }
@@ -415,9 +396,7 @@ impl Store for NeonTx<'_> {
         let this = unsafe { &mut *(self as *const Self as *mut Self) };
         list_tokens(
             this,
-            &format!(
-                "SELECT {TOKEN_COLS} FROM tokens WHERE process_instance_id = $1::uuid AND status = 'active'"
-            ),
+            "SELECT id::text AS id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id, parent_token_id::text AS parent_token_id, node_id, status, outcome, required, is_able_to_reactivate_parent, extract(epoch from started_at)*1000 AS started_at, extract(epoch from ended_at)*1000 AS ended_at, version FROM tokens WHERE process_instance_id = $1::uuid AND status = 'active'",
             instance_id,
         )
     }
@@ -436,10 +415,7 @@ impl Store for NeonTx<'_> {
         let this = unsafe { &mut *(self as *const Self as *mut Self) };
         list_tokens(
             this,
-            &format!(
-                "SELECT {TOKEN_COLS} FROM tokens
-                 WHERE parent_token_id = $1::uuid AND status = 'active' AND required = false"
-            ),
+            "SELECT id::text AS id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id, parent_token_id::text AS parent_token_id, node_id, status, outcome, required, is_able_to_reactivate_parent, extract(epoch from started_at)*1000 AS started_at, extract(epoch from ended_at)*1000 AS ended_at, version FROM tokens WHERE parent_token_id = $1::uuid AND status = 'active' AND required = false",
             parent_id,
         )
     }
@@ -448,7 +424,7 @@ impl Store for NeonTx<'_> {
         let this = unsafe { &mut *(self as *const Self as *mut Self) };
         list_tokens(
             this,
-            &format!("SELECT {TOKEN_COLS} FROM tokens WHERE parent_token_id = $1::uuid"),
+            "SELECT id::text AS id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id, parent_token_id::text AS parent_token_id, node_id, status, outcome, required, is_able_to_reactivate_parent, extract(epoch from started_at)*1000 AS started_at, extract(epoch from ended_at)*1000 AS ended_at, version FROM tokens WHERE parent_token_id = $1::uuid",
             parent_id,
         )
     }
@@ -457,9 +433,7 @@ impl Store for NeonTx<'_> {
         let this = unsafe { &mut *(self as *const Self as *mut Self) };
         list_tokens(
             this,
-            &format!(
-                "SELECT {TOKEN_COLS} FROM tokens WHERE process_instance_id = $1::uuid ORDER BY started_at"
-            ),
+            "SELECT id::text AS id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id, parent_token_id::text AS parent_token_id, node_id, status, outcome, required, is_able_to_reactivate_parent, extract(epoch from started_at)*1000 AS started_at, extract(epoch from ended_at)*1000 AS ended_at, version FROM tokens WHERE process_instance_id = $1::uuid ORDER BY started_at",
             instance_id,
         )
     }
@@ -534,9 +508,7 @@ impl Store for NeonTx<'_> {
         let this = unsafe { &mut *(self as *const Self as *mut Self) };
         list_tasks(
             this,
-            &format!(
-                "SELECT {TASK_COLS} FROM tasks WHERE process_instance_id = $1::uuid ORDER BY created_at"
-            ),
+            "SELECT id::text AS id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id, token_id::text AS token_id, node_id, name, description, status, assignee, candidates, swimlane, priority, extract(epoch from due_date)*1000 AS due_date, form_key, form_data::text AS form_data, extract(epoch from created_at)*1000 AS created_at, extract(epoch from claimed_at)*1000 AS claimed_at, extract(epoch from completed_at)*1000 AS completed_at, completed_by, version FROM tasks WHERE process_instance_id = $1::uuid ORDER BY created_at",
             instance_id,
         )
     }
@@ -545,10 +517,7 @@ impl Store for NeonTx<'_> {
         let this = unsafe { &mut *(self as *const Self as *mut Self) };
         list_tasks(
             this,
-            &format!(
-                "SELECT {TASK_COLS} FROM tasks WHERE process_instance_id = $1::uuid
-                 AND status IN ('ready','reserved','in_progress')"
-            ),
+            "SELECT id::text AS id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id, token_id::text AS token_id, node_id, name, description, status, assignee, candidates, swimlane, priority, extract(epoch from due_date)*1000 AS due_date, form_key, form_data::text AS form_data, extract(epoch from created_at)*1000 AS created_at, extract(epoch from claimed_at)*1000 AS claimed_at, extract(epoch from completed_at)*1000 AS completed_at, completed_by, version FROM tasks WHERE process_instance_id = $1::uuid AND status IN ('ready','reserved','in_progress')",
             instance_id,
         )
     }
@@ -557,38 +526,31 @@ impl Store for NeonTx<'_> {
         let this = unsafe { &mut *(self as *const Self as *mut Self) };
         list_tasks(
             this,
-            &format!(
-                "SELECT {TASK_COLS} FROM tasks WHERE token_id = $1::uuid
-                 AND status IN ('ready','reserved','in_progress')"
-            ),
+            "SELECT id::text AS id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id, token_id::text AS token_id, node_id, name, description, status, assignee, candidates, swimlane, priority, extract(epoch from due_date)*1000 AS due_date, form_key, form_data::text AS form_data, extract(epoch from created_at)*1000 AS created_at, extract(epoch from claimed_at)*1000 AS claimed_at, extract(epoch from completed_at)*1000 AS completed_at, completed_by, version FROM tasks WHERE token_id = $1::uuid AND status IN ('ready','reserved','in_progress')",
             token_id,
         )
     }
 
     fn active_tasks_for_user(&self, user_id: &str, tenant_id: Option<&str>) -> Result<Vec<Task>> {
         let this = unsafe { &mut *(self as *const Self as *mut Self) };
-        let sql = if tenant_id.is_some() {
-            format!(
-                "SELECT {TASK_COLS} FROM tasks
-                 WHERE status IN ('ready','reserved','in_progress')
-                   AND (assignee = $1 OR $1 = ANY(candidates))
-                   AND tenant_id = $2::uuid
-                 ORDER BY priority DESC, created_at ASC"
-            )
+        let rows = if let Some(tid) = tenant_id {
+            fetch_all_q(
+                this,
+                sqlx::query(
+                    "SELECT id::text AS id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id, token_id::text AS token_id, node_id, name, description, status, assignee, candidates, swimlane, priority, extract(epoch from due_date)*1000 AS due_date, form_key, form_data::text AS form_data, extract(epoch from created_at)*1000 AS created_at, extract(epoch from claimed_at)*1000 AS claimed_at, extract(epoch from completed_at)*1000 AS completed_at, completed_by, version FROM tasks WHERE status IN ('ready','reserved','in_progress') AND (assignee = $1 OR $1 = ANY(candidates)) AND tenant_id = $2::uuid ORDER BY priority DESC, created_at ASC",
+                )
+                .bind(user_id)
+                .bind(tid),
+            )?
         } else {
-            format!(
-                "SELECT {TASK_COLS} FROM tasks
-                 WHERE status IN ('ready','reserved','in_progress')
-                   AND (assignee = $1 OR $1 = ANY(candidates))
-                 ORDER BY priority DESC, created_at ASC"
-            )
+            fetch_all_q(
+                this,
+                sqlx::query(
+                    "SELECT id::text AS id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id, token_id::text AS token_id, node_id, name, description, status, assignee, candidates, swimlane, priority, extract(epoch from due_date)*1000 AS due_date, form_key, form_data::text AS form_data, extract(epoch from created_at)*1000 AS created_at, extract(epoch from claimed_at)*1000 AS claimed_at, extract(epoch from completed_at)*1000 AS completed_at, completed_by, version FROM tasks WHERE status IN ('ready','reserved','in_progress') AND (assignee = $1 OR $1 = ANY(candidates)) ORDER BY priority DESC, created_at ASC",
+                )
+                .bind(user_id),
+            )?
         };
-        let conn = this.tx.connection();
-        let mut q = sqlx::query(&sql).bind(user_id);
-        if let Some(tid) = tenant_id {
-            q = q.bind(tid);
-        }
-        let rows = this.fetch_all(q.fetch_all(&mut *conn))?;
         rows.iter().map(map_task).collect()
     }
 
@@ -675,30 +637,15 @@ impl Store for NeonTx<'_> {
         lease_until: i64,
         limit: usize,
     ) -> Result<Vec<Job>> {
-        let sql = format!(
-            "UPDATE jobs SET
-                status = 'locked', locked_by = $1,
-                locked_until = to_timestamp($3::double precision / 1000.0),
-                attempts = attempts + 1
-             WHERE id IN (
-                SELECT id FROM jobs
-                WHERE status = 'pending'
-                  AND due_at <= to_timestamp($2::double precision / 1000.0)
-                  AND attempts < max_attempts
-                ORDER BY due_at ASC
-                LIMIT $4
-                FOR UPDATE SKIP LOCKED
-             )
-             RETURNING {JOB_COLS}"
-        );
-        let conn = self.tx.connection();
-        let rows = self.fetch_all(
-            sqlx::query(&sql)
-                .bind(worker_id)
-                .bind(now)
-                .bind(lease_until)
-                .bind(limit as i64)
-                .fetch_all(&mut *conn),
+        let rows = fetch_all_q(
+            self,
+            sqlx::query(
+                "UPDATE jobs SET status = 'locked', locked_by = $1, locked_until = to_timestamp($3::double precision / 1000.0), attempts = attempts + 1 WHERE id IN (SELECT id FROM jobs WHERE status = 'pending' AND due_at <= to_timestamp($2::double precision / 1000.0) AND attempts < max_attempts ORDER BY due_at ASC LIMIT $4 FOR UPDATE SKIP LOCKED) RETURNING id::text AS id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id, token_id::text AS token_id, type AS job_type, extract(epoch from due_at)*1000 AS due_at, status, locked_by, extract(epoch from locked_until)*1000 AS locked_until, attempts, max_attempts, payload::text AS payload, last_error, extract(epoch from created_at)*1000 AS created_at, extract(epoch from updated_at)*1000 AS updated_at, extract(epoch from completed_at)*1000 AS completed_at",
+            )
+            .bind(worker_id)
+            .bind(now)
+            .bind(lease_until)
+            .bind(limit as i64),
         )?;
         rows.iter().map(map_job).collect()
     }
@@ -745,10 +692,7 @@ impl Store for NeonTx<'_> {
         let this = unsafe { &mut *(self as *const Self as *mut Self) };
         list_jobs(
             this,
-            &format!(
-                "SELECT {JOB_COLS} FROM jobs WHERE process_instance_id = $1::uuid
-                 AND status IN ('pending','locked')"
-            ),
+            "SELECT id::text AS id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id, token_id::text AS token_id, type AS job_type, extract(epoch from due_at)*1000 AS due_at, status, locked_by, extract(epoch from locked_until)*1000 AS locked_until, attempts, max_attempts, payload::text AS payload, last_error, extract(epoch from created_at)*1000 AS created_at, extract(epoch from updated_at)*1000 AS updated_at, extract(epoch from completed_at)*1000 AS completed_at FROM jobs WHERE process_instance_id = $1::uuid AND status IN ('pending','locked')",
             instance_id,
         )
     }
@@ -757,27 +701,20 @@ impl Store for NeonTx<'_> {
         let this = unsafe { &mut *(self as *const Self as *mut Self) };
         list_jobs(
             this,
-            &format!(
-                "SELECT {JOB_COLS} FROM jobs WHERE token_id = $1::uuid
-                 AND status IN ('pending','locked')"
-            ),
+            "SELECT id::text AS id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id, token_id::text AS token_id, type AS job_type, extract(epoch from due_at)*1000 AS due_at, status, locked_by, extract(epoch from locked_until)*1000 AS locked_until, attempts, max_attempts, payload::text AS payload, last_error, extract(epoch from created_at)*1000 AS created_at, extract(epoch from updated_at)*1000 AS updated_at, extract(epoch from completed_at)*1000 AS completed_at FROM jobs WHERE token_id = $1::uuid AND status IN ('pending','locked')",
             token_id,
         )
     }
 
     fn list_overdue_jobs(&self, now: i64, limit: usize) -> Result<Vec<Job>> {
         let this = unsafe { &mut *(self as *const Self as *mut Self) };
-        let sql = format!(
-            "SELECT {JOB_COLS} FROM jobs
-             WHERE status = 'pending' AND due_at < to_timestamp($1::double precision / 1000.0)
-             ORDER BY due_at ASC LIMIT $2"
-        );
-        let conn = this.tx.connection();
-        let rows = this.fetch_all(
-            sqlx::query(&sql)
-                .bind(now)
-                .bind(limit as i64)
-                .fetch_all(&mut *conn),
+        let rows = fetch_all_q(
+            this,
+            sqlx::query(
+                "SELECT id::text AS id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id, token_id::text AS token_id, type AS job_type, extract(epoch from due_at)*1000 AS due_at, status, locked_by, extract(epoch from locked_until)*1000 AS locked_until, attempts, max_attempts, payload::text AS payload, last_error, extract(epoch from created_at)*1000 AS created_at, extract(epoch from updated_at)*1000 AS updated_at, extract(epoch from completed_at)*1000 AS completed_at FROM jobs WHERE status = 'pending' AND due_at < to_timestamp($1::double precision / 1000.0) ORDER BY due_at ASC LIMIT $2",
+            )
+            .bind(now)
+            .bind(limit as i64),
         )?;
         rows.iter().map(map_job).collect()
     }
@@ -814,12 +751,11 @@ impl Store for NeonTx<'_> {
                  WHERE process_instance_id = $1::uuid
                  ORDER BY created_at DESC, id DESC
                  LIMIT $2";
-        let conn = this.tx.connection();
-        let rows = this.fetch_all(
+        let rows = fetch_all_q(
+            this,
             sqlx::query(sql)
                 .bind(instance_id)
-                .bind(limit as i64)
-                .fetch_all(&mut *conn),
+                .bind(limit as i64),
         )?;
         Ok(rows
             .iter()
@@ -841,15 +777,14 @@ impl Store for NeonTx<'_> {
 
     fn command_visit_count(&self, instance_id: &str, node_id: &str) -> Result<i32> {
         let this = unsafe { &mut *(self as *const Self as *mut Self) };
-        let conn = this.tx.connection();
-        let row = this.fetch_one(
+        let row = fetch_one_q(
+            this,
             sqlx::query(
                 "SELECT count(*)::int AS visit_count FROM process_commands
                  WHERE process_instance_id = $1::uuid AND node_id = $2",
             )
             .bind(instance_id)
-            .bind(node_id)
-            .fetch_one(&mut *conn),
+            .bind(node_id),
         )?;
         Ok(row.try_get("visit_count").unwrap_or(0))
     }
@@ -893,53 +828,31 @@ impl Store for NeonTx<'_> {
         offset: usize,
     ) -> Result<Vec<ProcessInstance>> {
         let this = unsafe { &mut *(self as *const Self as *mut Self) };
-        let mut sql = format!(
-            "SELECT pi.id::text AS id, pi.tenant_id::text AS tenant_id,
-                    pi.definition_id::text AS definition_id, pi.business_key,
-                    pi.status, pi.outcome,
-                    extract(epoch from pi.started_at)*1000 AS started_at,
-                    extract(epoch from pi.ended_at)*1000 AS ended_at,
-                    pi.started_by, pi.parent_instance_id::text AS parent_instance_id,
-                    pi.root_token_id::text AS root_token_id,
-                    pi.subject_type, pi.subject_id, pi.variables::text AS variables, pi.version
-             FROM process_instances pi
-             JOIN process_definitions pd ON pd.id = pi.definition_id
-             WHERE 1=1"
+        let mut qb = QueryBuilder::<Postgres>::new(
+            "SELECT pi.id::text AS id, pi.tenant_id::text AS tenant_id, \
+             pi.definition_id::text AS definition_id, pi.business_key, \
+             pi.status, pi.outcome, \
+             extract(epoch from pi.started_at)*1000 AS started_at, \
+             extract(epoch from pi.ended_at)*1000 AS ended_at, \
+             pi.started_by, pi.parent_instance_id::text AS parent_instance_id, \
+             pi.root_token_id::text AS root_token_id, \
+             pi.subject_type, pi.subject_id, pi.variables::text AS variables, pi.version \
+             FROM process_instances pi \
+             JOIN process_definitions pd ON pd.id = pi.definition_id \
+             WHERE 1=1",
         );
-        let mut i = 1;
-        if tenant_id.is_some() {
-            sql.push_str(&format!(" AND pi.tenant_id = ${i}::uuid"));
-            i += 1;
+        if let Some(tid) = tenant_id {
+            qb.push(" AND pi.tenant_id = ");
+            qb.push_bind(tid);
+            qb.push("::uuid");
         }
-        if definition_key.is_some() {
-            sql.push_str(&format!(" AND pd.key = ${i}"));
-            i += 1;
+        if let Some(key) = definition_key {
+            qb.push(" AND pd.key = ");
+            qb.push_bind(key);
         }
-        if business_key.is_some() {
-            sql.push_str(&format!(" AND pi.business_key = ${i}"));
-            i += 1;
-        }
-        if let Some(ss) = status {
-            let labels: Vec<&str> = ss.iter().copied().map(process_status).collect();
-            sql.push_str(&format!(" AND pi.status = ANY(${i})"));
-            i += 1;
-            let _ = labels;
-        }
-        sql.push_str(&format!(
-            " ORDER BY pi.started_at DESC LIMIT ${i} OFFSET ${}",
-            i + 1
-        ));
-
-        let conn = this.tx.connection();
-        let mut q = sqlx::query(&sql);
-        if let Some(t) = tenant_id {
-            q = q.bind(t);
-        }
-        if let Some(k) = definition_key {
-            q = q.bind(k);
-        }
-        if let Some(b) = business_key {
-            q = q.bind(b);
+        if let Some(bk) = business_key {
+            qb.push(" AND pi.business_key = ");
+            qb.push_bind(bk);
         }
         if let Some(ss) = status {
             let labels: Vec<String> = ss
@@ -947,93 +860,86 @@ impl Store for NeonTx<'_> {
                 .copied()
                 .map(|s| process_status(s).to_string())
                 .collect();
-            q = q.bind(labels);
+            qb.push(" AND pi.status = ANY(");
+            qb.push_bind(labels);
+            qb.push(")");
         }
-        q = q.bind(limit as i64).bind(offset as i64);
-        let rows = this.fetch_all(q.fetch_all(&mut *conn))?;
+        qb.push(" ORDER BY pi.started_at DESC LIMIT ");
+        qb.push_bind(limit as i64);
+        qb.push(" OFFSET ");
+        qb.push_bind(offset as i64);
+        let query = qb.build();
+        let handle = this.handle.clone();
+        let conn = this.conn();
+        let rows = handle
+            .block_on(query.fetch_all(conn))
+            .map_err(|e| WorkflowError::generic(e.to_string()))?;
         rows.iter().map(map_instance).collect()
     }
 }
 
-fn run_exec<'q>(
-    tx: &mut NeonTx<'_>,
-    q: sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>,
-) -> Result<()> {
-    run_exec_n(tx, q).map(|_| ())
+fn run_exec<'q>(tx: &mut NeonTx<'_>, q: Query<'q, Postgres, PgArguments>) -> Result<()> {
+    exec_q(tx, q).map(|_| ())
 }
 
-fn run_exec_n<'q>(
-    tx: &mut NeonTx<'_>,
-    q: sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>,
-) -> Result<u64> {
-    let conn = tx.tx.connection();
-    tx.handle
-        .block_on(q.execute(&mut *conn))
-        .map(|r| r.rows_affected())
-        .map_err(|e| WorkflowError::generic(e.to_string()))
+fn run_exec_n<'q>(tx: &mut NeonTx<'_>, q: Query<'q, Postgres, PgArguments>) -> Result<u64> {
+    exec_q(tx, q)
 }
+
+const GET_INSTANCE: &str = "SELECT id::text AS id, tenant_id::text AS tenant_id, definition_id::text AS definition_id, business_key, status, outcome, extract(epoch from started_at)*1000 AS started_at, extract(epoch from ended_at)*1000 AS ended_at, started_by, parent_instance_id::text AS parent_instance_id, root_token_id::text AS root_token_id, subject_type, subject_id, variables::text AS variables, version FROM process_instances WHERE id = $1::uuid";
+const LOCK_INSTANCE: &str = "SELECT id::text AS id, tenant_id::text AS tenant_id, definition_id::text AS definition_id, business_key, status, outcome, extract(epoch from started_at)*1000 AS started_at, extract(epoch from ended_at)*1000 AS ended_at, started_by, parent_instance_id::text AS parent_instance_id, root_token_id::text AS root_token_id, subject_type, subject_id, variables::text AS variables, version FROM process_instances WHERE id = $1::uuid FOR UPDATE";
+const GET_TOKEN: &str = "SELECT id::text AS id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id, parent_token_id::text AS parent_token_id, node_id, status, outcome, required, is_able_to_reactivate_parent, extract(epoch from started_at)*1000 AS started_at, extract(epoch from ended_at)*1000 AS ended_at, version FROM tokens WHERE id = $1::uuid";
+const LOCK_TOKEN: &str = "SELECT id::text AS id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id, parent_token_id::text AS parent_token_id, node_id, status, outcome, required, is_able_to_reactivate_parent, extract(epoch from started_at)*1000 AS started_at, extract(epoch from ended_at)*1000 AS ended_at, version FROM tokens WHERE id = $1::uuid FOR UPDATE";
+const GET_TASK: &str = "SELECT id::text AS id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id, token_id::text AS token_id, node_id, name, description, status, assignee, candidates, swimlane, priority, extract(epoch from due_date)*1000 AS due_date, form_key, form_data::text AS form_data, extract(epoch from created_at)*1000 AS created_at, extract(epoch from claimed_at)*1000 AS claimed_at, extract(epoch from completed_at)*1000 AS completed_at, completed_by, version FROM tasks WHERE id = $1::uuid";
+const LOCK_TASK: &str = "SELECT id::text AS id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id, token_id::text AS token_id, node_id, name, description, status, assignee, candidates, swimlane, priority, extract(epoch from due_date)*1000 AS due_date, form_key, form_data::text AS form_data, extract(epoch from created_at)*1000 AS created_at, extract(epoch from claimed_at)*1000 AS claimed_at, extract(epoch from completed_at)*1000 AS completed_at, completed_by, version FROM tasks WHERE id = $1::uuid FOR UPDATE";
+const GET_JOB: &str = "SELECT id::text AS id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id, token_id::text AS token_id, type AS job_type, extract(epoch from due_at)*1000 AS due_at, status, locked_by, extract(epoch from locked_until)*1000 AS locked_until, attempts, max_attempts, payload::text AS payload, last_error, extract(epoch from created_at)*1000 AS created_at, extract(epoch from updated_at)*1000 AS updated_at, extract(epoch from completed_at)*1000 AS completed_at FROM jobs WHERE id = $1::uuid";
+const LOCK_JOB: &str = "SELECT id::text AS id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id, token_id::text AS token_id, type AS job_type, extract(epoch from due_at)*1000 AS due_at, status, locked_by, extract(epoch from locked_until)*1000 AS locked_until, attempts, max_attempts, payload::text AS payload, last_error, extract(epoch from created_at)*1000 AS created_at, extract(epoch from updated_at)*1000 AS updated_at, extract(epoch from completed_at)*1000 AS completed_at FROM jobs WHERE id = $1::uuid FOR UPDATE";
 
 fn one_instance(tx: &mut NeonTx<'_>, id: &str, lock: bool) -> Result<ProcessInstance> {
-    let lock_sql = if lock { " FOR UPDATE" } else { "" };
-    let sql = format!("SELECT {INST_COLS} FROM process_instances WHERE id = $1::uuid{lock_sql}");
-    let conn = tx.tx.connection();
-    let rows = tx.fetch_all(sqlx::query(&sql).bind(id).fetch_all(&mut *conn))?;
-    rows.first()
-        .ok_or_else(|| WorkflowError::NotFound(format!("Process not found: {id}")))
-        .and_then(map_instance)
+    let sql = if lock { LOCK_INSTANCE } else { GET_INSTANCE };
+    let row = fetch_optional_q(tx, sqlx::query(sql).bind(id))?
+        .ok_or_else(|| WorkflowError::NotFound(format!("Process not found: {id}")))?;
+    map_instance(&row)
 }
 
 fn one_token(tx: &mut NeonTx<'_>, id: &str, lock: bool) -> Result<Token> {
-    let lock_sql = if lock { " FOR UPDATE" } else { "" };
-    let sql = format!("SELECT {TOKEN_COLS} FROM tokens WHERE id = $1::uuid{lock_sql}");
-    let conn = tx.tx.connection();
-    let rows = tx.fetch_all(sqlx::query(&sql).bind(id).fetch_all(&mut *conn))?;
-    rows.first()
-        .ok_or_else(|| WorkflowError::NotFound(format!("Token not found: {id}")))
-        .and_then(map_token)
+    let sql = if lock { LOCK_TOKEN } else { GET_TOKEN };
+    let row = fetch_optional_q(tx, sqlx::query(sql).bind(id))?
+        .ok_or_else(|| WorkflowError::NotFound(format!("Token not found: {id}")))?;
+    map_token(&row)
 }
 
 fn one_task(tx: &mut NeonTx<'_>, id: &str, lock: bool) -> Result<Task> {
-    let lock_sql = if lock { " FOR UPDATE" } else { "" };
-    let sql = format!("SELECT {TASK_COLS} FROM tasks WHERE id = $1::uuid{lock_sql}");
-    let conn = tx.tx.connection();
-    let rows = tx.fetch_all(sqlx::query(&sql).bind(id).fetch_all(&mut *conn))?;
-    rows.first()
-        .ok_or_else(|| WorkflowError::NotFound(format!("Task not found: {id}")))
-        .and_then(map_task)
+    let sql = if lock { LOCK_TASK } else { GET_TASK };
+    let row = fetch_optional_q(tx, sqlx::query(sql).bind(id))?
+        .ok_or_else(|| WorkflowError::NotFound(format!("Task not found: {id}")))?;
+    map_task(&row)
 }
 
 fn one_job(tx: &mut NeonTx<'_>, id: &str, lock: bool) -> Result<Job> {
-    let lock_sql = if lock { " FOR UPDATE" } else { "" };
-    let sql = format!("SELECT {JOB_COLS} FROM jobs WHERE id = $1::uuid{lock_sql}");
-    let conn = tx.tx.connection();
-    let rows = tx.fetch_all(sqlx::query(&sql).bind(id).fetch_all(&mut *conn))?;
-    rows.first()
-        .ok_or_else(|| WorkflowError::NotFound(format!("Job not found: {id}")))
-        .and_then(map_job)
+    let sql = if lock { LOCK_JOB } else { GET_JOB };
+    let row = fetch_optional_q(tx, sqlx::query(sql).bind(id))?
+        .ok_or_else(|| WorkflowError::NotFound(format!("Job not found: {id}")))?;
+    map_job(&row)
 }
 
-fn list_tokens(tx: &mut NeonTx<'_>, sql: &str, id: &str) -> Result<Vec<Token>> {
-    let conn = tx.tx.connection();
-    let rows = tx.fetch_all(sqlx::query(sql).bind(id).fetch_all(&mut *conn))?;
+fn list_tokens(tx: &mut NeonTx<'_>, sql: &'static str, id: &str) -> Result<Vec<Token>> {
+    let rows = fetch_all_q(tx, sqlx::query(sql).bind(id))?;
     rows.iter().map(map_token).collect()
 }
 
-fn list_tasks(tx: &mut NeonTx<'_>, sql: &str, id: &str) -> Result<Vec<Task>> {
-    let conn = tx.tx.connection();
-    let rows = tx.fetch_all(sqlx::query(sql).bind(id).fetch_all(&mut *conn))?;
+fn list_tasks(tx: &mut NeonTx<'_>, sql: &'static str, id: &str) -> Result<Vec<Task>> {
+    let rows = fetch_all_q(tx, sqlx::query(sql).bind(id))?;
     rows.iter().map(map_task).collect()
 }
 
-fn list_jobs(tx: &mut NeonTx<'_>, sql: &str, id: &str) -> Result<Vec<Job>> {
-    let conn = tx.tx.connection();
-    let rows = tx.fetch_all(sqlx::query(sql).bind(id).fetch_all(&mut *conn))?;
+fn list_jobs(tx: &mut NeonTx<'_>, sql: &'static str, id: &str) -> Result<Vec<Job>> {
+    let rows = fetch_all_q(tx, sqlx::query(sql).bind(id))?;
     rows.iter().map(map_job).collect()
 }
 
-fn count_sql(tx: &mut NeonTx<'_>, sql: &str, id: &str) -> Result<i32> {
-    let conn = tx.tx.connection();
-    let row = tx.fetch_one(sqlx::query(sql).bind(id).fetch_one(&mut *conn))?;
+fn count_sql(tx: &mut NeonTx<'_>, sql: &'static str, id: &str) -> Result<i32> {
+    let row = fetch_one_q(tx, sqlx::query(sql).bind(id))?;
     Ok(row.try_get("cnt").unwrap_or(0))
 }
 
