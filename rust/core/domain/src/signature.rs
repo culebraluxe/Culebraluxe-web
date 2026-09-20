@@ -82,7 +82,7 @@ impl SignatureRequestStatus {
 impl TryFrom<&str> for SignatureRequestStatus {
     type Error = String;
 
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
+    fn try_from(value: &str) -> Result<Self, String> {
         match value {
             "requested" => Ok(Self::Requested),
             "sent" => Ok(Self::Sent),
