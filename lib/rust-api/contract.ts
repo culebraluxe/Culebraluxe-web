@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 export type RustBridgeIdentity = {
   provider: string
   providerSubject: string
@@ -12,9 +14,20 @@ export function resolveRustApiBaseUrl(
   return nodeEnv === 'production' ? null : 'http://127.0.0.1:8080'
 }
 
-export function resolveInternalApiKey(value: string | undefined): string | null {
+export function resolveInternalApiKey(
+  value: string | undefined,
+  authSecret?: string,
+): string | null {
   const key = value?.trim()
-  return key && key.length >= 16 ? key : null
+  if (key && key.length >= 16) return key
+
+  const secret = authSecret?.trim()
+  if (!secret || secret.length < 16) return null
+
+  return createHash('sha256')
+    .update('culebraluxe-rust-bridge:v1:')
+    .update(secret)
+    .digest('hex')
 }
 
 export function buildRustBridgeHeaders(input: {
