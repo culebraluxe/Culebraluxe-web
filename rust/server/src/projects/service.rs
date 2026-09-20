@@ -208,7 +208,7 @@ where
             .await
         {
             Ok(decision) => Ok(decision),
-            Err(error @ ServiceRuntimeError::Forbidden { ref decision, .. }) => {
+            Err(ServiceRuntimeError::Forbidden { reason, decision }) => {
                 self.runtime
                     .audit(
                         DOMAIN,
@@ -219,7 +219,7 @@ where
                         decision.clone(),
                     )
                     .await?;
-                Err(error.into())
+                Err(ServiceRuntimeError::Forbidden { reason, decision }.into())
             }
             Err(error) => Err(error.into()),
         }
