@@ -8,6 +8,7 @@ pub mod project;
 pub mod property;
 pub mod security;
 pub mod showing;
+pub mod wbs;
 
 pub use firm::{FieldPatch, Firm, UpsertFirmRequest};
 pub use person::{
@@ -31,3 +32,7 @@ pub use security::{
 };
 
 pub use showing::{SaveShowingReportRequest, Showing, ShowingReportOutcome};
+
+pub use wbs::{
+    CreateWbsItemRequest, SaveWbsItemRequest, WbsEntityLink, WbsEntityType, WbsItem, WbsStatus,
+};

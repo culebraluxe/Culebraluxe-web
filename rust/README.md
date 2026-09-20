@@ -142,3 +142,14 @@ binding-conflict protection, report validation, and service audit/events.
 
 Both DAOs use static SQL and were rechecked against the live DEV schema before
 publication.
+
+
+## Slice 3D: WBS
+
+WBS is salvaged from the original sweep with its fixed category/status/entity
+vocabulary, Project scoping, due work queries, create/save/complete/dismiss
+commands, and service audit/events.
+
+The rejected runtime-built SELECT strings were replaced with compile-time static
+SQL accepted by SQLx 0.9. The DAO was rechecked against the live DEV
+`wbs_item` schema before publication.

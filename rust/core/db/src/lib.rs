@@ -14,6 +14,7 @@ mod property;
 mod security;
 mod showing;
 mod transaction;
+mod wbs;
 
 pub use domain;
 pub use error::{DbFailure, DbFailureKind, DbResult};
@@ -25,3 +26,4 @@ pub use property::PropertyDao;
 pub use security::SecurityDao;
 pub use showing::ShowingDao;
 pub use transaction::DbTransaction;
+pub use wbs::WbsDao;
