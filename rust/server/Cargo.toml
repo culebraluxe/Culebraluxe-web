@@ -7,6 +7,7 @@ publish.workspace = true
 [dependencies]
 async-trait.workspace = true
 auth = { path = "../core/auth" }
+chrono.workspace = true
 db = { path = "../core/db" }
 domain = { path = "../core/domain" }
 integrations = { path = "../integrations" }

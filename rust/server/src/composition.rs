@@ -1,8 +1,10 @@
+use crate::calendar::CalendarService;
 use crate::communications::CommsService;
 use crate::contracts::ContractService;
 use crate::firms::FirmService;
 use crate::forms::FormService;
 use crate::lookup::ServiceDirectory;
+use crate::media::MediaService;
 use crate::people::PersonService;
 use crate::projects::ProjectService;
 use crate::properties::PropertyService;
@@ -11,7 +13,7 @@ use crate::showings::ShowingService;
 use crate::vault::{VaultArtifactPort, VaultService};
 use crate::wbs::WbsService;
 use db::{
-    CommsDao, ContractDao, Database, FirmDao, FormDao, PersonDao, ProjectDao, PropertyDao,
+    CalendarDao, CommsDao, ContractDao, Database, FirmDao, FormDao, MediaDao, PersonDao, ProjectDao, PropertyDao,
     SecurityDao, ShowingDao, VaultDao, WbsDao,
 };
 use service::ServiceInfrastructure;
@@ -40,6 +42,10 @@ impl CoreServices {
         }
     }
 
+    pub fn media(&self) -> MediaService<MediaDao> {
+        MediaService::new(MediaDao::new(self.db.clone()), self.infrastructure.clone())
+    }
+
     pub fn person(&self) -> PersonService<PersonDao> {
         PersonService::new(PersonDao::new(self.db.clone()), self.infrastructure.clone())
     }
@@ -55,6 +61,13 @@ impl CoreServices {
     pub fn property(&self) -> PropertyService<PropertyDao> {
         PropertyService::new(
             PropertyDao::new(self.db.clone()),
+            self.infrastructure.clone(),
+        )
+    }
+
+    pub fn calendar(&self) -> CalendarService<CalendarDao> {
+        CalendarService::new(
+            CalendarDao::new(self.db.clone()),
             self.infrastructure.clone(),
         )
     }

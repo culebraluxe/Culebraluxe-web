@@ -2,10 +2,12 @@
 //!
 //! This crate must not depend on database, HTTP, process, or provider adapters.
 
+pub mod calendar;
 pub mod comms;
 pub mod contract;
 pub mod firm;
 pub mod forms;
+pub mod media;
 pub mod person;
 pub mod project;
 pub mod property;
@@ -72,3 +74,9 @@ pub use vault::{
     VaultActorScope, VaultArtifactFailure, VaultCommandOutcome, VaultCommandResult,
     VaultMediaBytes, VaultRenderRequest, VaultRenderedArtifact,
 };
+
+pub use calendar::{
+    CalendarCommandReceipt, CalendarEvent, CalendarEventKind, CreateAppleCalendarEventRequest,
+};
+
+pub use media::MediaAsset;

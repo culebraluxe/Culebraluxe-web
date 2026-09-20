@@ -211,3 +211,16 @@ commit once. Renderer/provider code does not own issuance truth.
 The Rust model makes signed media + signed time one SignedArtifactRef and DOC-06
 issuance evidence one all-or-nothing IssuedDocumentEvidence, so partial records
 are not representable through the service contract.
+
+
+## Slice 4D: Calendar + Media
+
+Calendar and Media finish the small application-service sweep.
+
+Calendar reads canonical Showings plus durable Apple Calendar landing rows and
+queues explicit Apple Calendar writes through the existing outbox route. Apple
+Calendar/EventKit remains authoritative at the native Mac gateway; Rust does not
+replace the Swift/native edge.
+
+Media is intentionally read-only and projects canonical assets from
+`property_media + media` without copying, renaming, or deleting files.

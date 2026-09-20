@@ -5,11 +5,13 @@
 //! PostgreSQL pool or transaction. Domain-specific DAOs receive database
 //! capability from here; callers never construct raw pools or SQLx transactions.
 
+mod calendar;
 mod comms;
 mod contract;
 mod error;
 mod firm;
 mod forms;
+mod media;
 mod person;
 mod pool;
 mod project;
@@ -20,12 +22,14 @@ mod transaction;
 mod vault;
 mod wbs;
 
+pub use calendar::CalendarDao;
 pub use comms::CommsDao;
 pub use contract::ContractDao;
 pub use domain;
 pub use error::{DbFailure, DbFailureKind, DbResult};
 pub use firm::FirmDao;
 pub use forms::FormDao;
+pub use media::MediaDao;
 pub use person::PersonDao;
 pub use pool::{resolve_declared_target, Database, DbTarget};
 pub use project::{ProjectDao, ProjectTxDao};
