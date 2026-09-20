@@ -10,6 +10,7 @@ mod firm;
 mod person;
 mod pool;
 mod project;
+mod property;
 mod transaction;
 
 pub use domain;
@@ -18,4 +19,5 @@ pub use firm::FirmDao;
 pub use person::PersonDao;
 pub use pool::{resolve_declared_target, Database, DbTarget};
 pub use project::{ProjectDao, ProjectTxDao};
+pub use property::PropertyDao;
 pub use transaction::DbTransaction;

@@ -5,6 +5,7 @@
 pub mod firm;
 pub mod person;
 pub mod project;
+pub mod property;
 
 pub use firm::{FieldPatch, Firm, UpsertFirmRequest};
 pub use person::{
@@ -14,4 +15,10 @@ pub use person::{
 pub use project::{
     CompleteProjectRequest, CreateProjectRequest, Project, ProjectStatus, UpdateProjectRequest,
     WbsCategory,
+};
+
+pub use property::{
+    FindPropertyByAddressRequest, PersonPropertyContext, PersonPropertyRelation, Property,
+    PropertyAddress, PropertyAddressPatch, PropertyForPerson, SetPropertyDisplayNameRequest,
+    SetPropertyStatusRequest, UpsertPropertyForPersonRequest,
 };

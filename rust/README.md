@@ -117,3 +117,16 @@ optional field and an explicit null through `FieldPatch<T>`.
 
 This slice intentionally does not include Property, Contract, Showing, Security,
 or WBS. Each later slice must be green before the next domain is added.
+
+
+## Slice 3B: Property
+
+Canonical Property ownership is now ported to Rust on top of the green
+Person/Firm slice. The service preserves address lookup, Person-to-Property
+relationship context, display/status writes, and atomic Property + relationship
+upserts. Optional field writes preserve omitted-vs-explicit-clear semantics via
+the shared `FieldPatch<T>` type.
+
+The original bulk-sweep Property service was salvaged, but its persistence layer
+was rewritten to use compile-time static SQL accepted by SQLx 0.9; no
+`AssertSqlSafe` escape hatch is used.
