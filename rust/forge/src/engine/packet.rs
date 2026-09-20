@@ -70,6 +70,16 @@ pub fn build_task_text(
     packet: &StoryPacket,
     workspace: Option<&ExecutionWorkspace>,
 ) -> String {
+    build_task_text_with_context(node_id, task_id, packet, workspace, None)
+}
+
+pub fn build_task_text_with_context(
+    node_id: &str,
+    task_id: &str,
+    packet: &StoryPacket,
+    workspace: Option<&ExecutionWorkspace>,
+    decision_block: Option<&str>,
+) -> String {
     let mut parts = Vec::new();
     parts.push(format!(
         "Execute SDLC story {}: {}.",
@@ -108,6 +118,9 @@ pub fn build_task_text(
         parts.push(format!(
             "Acceptance criteria (do not mark Complete unless these are satisfied): {a}"
         ));
+    }
+    if let Some(block) = decision_block.map(str::trim).filter(|s| !s.is_empty()) {
+        parts.push(block.to_string());
     }
     if let Some(w) = workspace {
         parts.push(format!(

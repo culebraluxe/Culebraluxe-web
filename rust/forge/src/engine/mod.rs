@@ -7,6 +7,7 @@ pub mod commands;
 pub mod completion;
 pub mod db_writer;
 pub mod deploy;
+pub mod decisions;
 pub mod definition;
 pub mod dispatch;
 pub mod evidence_store;
@@ -37,6 +38,7 @@ pub mod role_slice;
 pub mod role_mapping;
 pub mod split_join;
 pub mod self_heal;
+pub mod scope;
 pub mod runner;
 pub mod runtime;
 pub mod topology;
@@ -79,3 +81,6 @@ pub use self_heal::{attempt_budget, build_self_heal_directive};
 
 pub use workspace_id::{resolve_forge_execution_run_id, forge_execution_generation_key};
 pub use agent_work::{claim_next_agent_work, claim_specific_agent_work};
+
+pub use scope::{candidate_own_changed_files, recorded_scope_base, story_scope_base};
+pub use decisions::{lane_needs_decisions, with_decision_context, list_active_decisions};

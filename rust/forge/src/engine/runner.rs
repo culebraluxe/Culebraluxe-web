@@ -11,6 +11,7 @@ use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::phase::{ForgePhaseAgent, RoleEffectPorts};
 use crate::engine::execution_target::{assert_forge_execution_target, env_pairs_from_process};
 use crate::engine::hold::{deliverable_enforcement_enabled, parse_deliverable_reprompt_budget, open_forge_hold_record, OpenHold};
+use crate::engine::scope::candidate_own_changed_files;
 use crate::engine::self_heal::{attempt_budget, build_self_heal_directive};
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::engine::writer::ForgeStateWriter;
@@ -143,8 +144,24 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
                 | "fast_repair_smith"
                 | "lead_solo_implement"
         ) {
-            if let Some(sha) = out.candidate_sha {
-                evidence.candidate_sha = Some(sha);
+            if let Some(sha) = out.candidate_sha.clone() {
+                evidence.candidate_sha = Some(sha.clone());
+                if let Some(base) = evidence.extra.get("recordedBase").and_then(|v| v.as_str()) {
+                    match candidate_own_changed_files(
+                        Some(&sha),
+                        Some(base),
+                        &[sha.clone()],
+                        |_| vec![],
+                        |anc, desc| self.harness.exists_on_base_ref(anc, desc),
+                    ) {
+                        crate::engine::scope::CandidateOwnChanges::Fail { reason } => {
+                            if evidence.deliverable_rejection.is_none() {
+                                evidence.deliverable_rejection = Some(reason);
+                            }
+                        }
+                        crate::engine::scope::CandidateOwnChanges::Ok { .. } => {}
+                    }
+                }
             }
         }
 
