@@ -1,0 +1,496 @@
+use super::context::{resolve_request_context, ResolvedRequestContext};
+use super::{ApiError, ApiState};
+use crate::vault::VaultArtifactPort;
+use async_trait::async_trait;
+use axum::{
+    extract::{Path, Query, State},
+    http::HeaderMap,
+    routing::get,
+    Json, Router,
+};
+use domain::{
+    GetCommsPanelRequest, GetCommsTimelineRequest, SearchPeopleRequest, VaultActorScope,
+    VaultArtifactFailure, VaultCommandOutcome, VaultRenderRequest, VaultRenderedArtifact,
+};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use std::sync::Arc;
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ApiSuccess<T> {
+    ok: bool,
+    value: T,
+    correlation_id: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HealthResponse {
+    ok: bool,
+    service: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReadyResponse {
+    ok: bool,
+    database_target: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WhoAmI {
+    app_user_id: String,
+    display_name: String,
+    email: Option<String>,
+    account_type: String,
+    role_codes: Vec<String>,
+    authority_codes: Vec<String>,
+    person_id: Option<String>,
+    security_level: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct PeopleSearchQuery {
+    #[serde(default)]
+    query: String,
+    limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CommsPanelQuery {
+    moment_limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CommsTimelineQuery {
+    page: Option<i64>,
+    page_size: Option<i64>,
+}
+
+struct UnavailableVaultArtifactPort;
+
+#[async_trait]
+impl VaultArtifactPort for UnavailableVaultArtifactPort {
+    async fn render_issued_document(
+        &self,
+        _request: VaultRenderRequest,
+    ) -> Result<VaultRenderedArtifact, VaultArtifactFailure> {
+        Err(VaultArtifactFailure {
+            outcome: VaultCommandOutcome::PreconditionFailure,
+            message: "Vault artifact renderer is not configured on this transport.".into(),
+        })
+    }
+}
+
+pub fn router(state: ApiState) -> Router {
+    Router::new()
+        .route("/healthz", get(health))
+        .route("/readyz", get(ready))
+        .route("/v1/whoami", get(whoami))
+        .route("/v1/projects", get(projects))
+        .route("/v1/projects/{id}", get(project))
+        .route("/v1/people/search", get(search_people))
+        .route("/v1/people/{id}", get(person))
+        .route("/v1/people/{id}/properties", get(properties_for_person))
+        .route("/v1/properties/{id}", get(property))
+        .route("/v1/properties/{id}/media", get(property_media))
+        .route("/v1/contracts", get(contracts))
+        .route("/v1/contracts/{id}", get(contract))
+        .route(
+            "/v1/process-instances/{id}/contracts",
+            get(contracts_for_process_instance),
+        )
+        .route("/v1/forms", get(forms))
+        .route("/v1/forms/{id}", get(form))
+        .route("/v1/comms/{person_id}/panel", get(comms_panel))
+        .route("/v1/comms/{person_id}/timeline", get(comms_timeline))
+        .route("/v1/calendar", get(calendar))
+        .route("/v1/vault/documents", get(vault_documents))
+        .route("/v1/vault/documents/{id}", get(vault_document))
+        .with_state(state)
+}
+
+async fn health() -> Json<HealthResponse> {
+    Json(HealthResponse {
+        ok: true,
+        service: "culebraluxe-rust",
+    })
+}
+
+async fn ready(State(state): State<ApiState>) -> Result<Json<ReadyResponse>, ApiError> {
+    state.db().ping().await.map_err(ApiError::from_db)?;
+    Ok(Json(ReadyResponse {
+        ok: true,
+        database_target: state.db().target().as_str().to_owned(),
+    }))
+}
+
+async fn whoami(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<WhoAmI>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let level = resolved
+        .service
+        .principal
+        .as_ref()
+        .map(|principal| principal.level.clone())
+        .unwrap_or_else(|| "GUEST".into());
+    let actor = resolved.acting_user.clone();
+    Ok(success(
+        WhoAmI {
+            app_user_id: actor.app_user_id,
+            display_name: actor.display_name,
+            email: actor.email,
+            account_type: actor.account_type,
+            role_codes: actor.role_codes,
+            authority_codes: actor.authority_codes,
+            person_id: actor.person_id,
+            security_level: level,
+        },
+        &resolved,
+    ))
+}
+
+async fn projects(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<Vec<domain::Project>>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().project();
+    let value = service
+        .list(&resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn project(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<ApiSuccess<domain::Project>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().project();
+    let value = service
+        .get(&id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?
+        .ok_or_else(|| {
+            correlate(
+                ApiError::not_found("PROJECT_NOT_FOUND", format!("Project not found: {id}")),
+                &resolved,
+            )
+        })?;
+    Ok(success(value, &resolved))
+}
+
+async fn search_people(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Query(query): Query<PeopleSearchQuery>,
+) -> Result<Json<ApiSuccess<Vec<domain::PersonSearchResult>>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().person();
+    let value = service
+        .search(
+            &SearchPeopleRequest {
+                query: query.query,
+                limit: query.limit,
+            },
+            &resolved.service,
+        )
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn person(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<ApiSuccess<domain::Person>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().person();
+    let value = service
+        .get(&id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?
+        .ok_or_else(|| {
+            correlate(
+                ApiError::not_found("PERSON_NOT_FOUND", format!("Person not found: {id}")),
+                &resolved,
+            )
+        })?;
+    Ok(success(value, &resolved))
+}
+
+async fn properties_for_person(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<ApiSuccess<domain::PersonPropertyContext>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().property();
+    let value = service
+        .for_person(&id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn property(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<ApiSuccess<domain::Property>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().property();
+    let value = service
+        .get(&id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?
+        .ok_or_else(|| {
+            correlate(
+                ApiError::not_found("PROPERTY_NOT_FOUND", format!("Property not found: {id}")),
+                &resolved,
+            )
+        })?;
+    Ok(success(value, &resolved))
+}
+
+async fn property_media(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<ApiSuccess<Vec<domain::MediaAsset>>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().media();
+    let value = service
+        .for_property(&id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn contracts(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<Vec<domain::ContractSummary>>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().contract();
+    let value = service
+        .list(&resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn contract(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<ApiSuccess<domain::Contract>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().contract();
+    let value = service
+        .get(&id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?
+        .ok_or_else(|| {
+            correlate(
+                ApiError::not_found("CONTRACT_NOT_FOUND", format!("Contract not found: {id}")),
+                &resolved,
+            )
+        })?;
+    Ok(success(value, &resolved))
+}
+
+async fn contracts_for_process_instance(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<ApiSuccess<Vec<domain::ContractSummary>>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().contract();
+    let value = service
+        .list_for_process_instance(&id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn forms(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<Vec<domain::FormInstanceListItem>>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().forms();
+    let value = service
+        .list_instances(&resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn form(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<ApiSuccess<domain::FormInstance>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().forms();
+    let value = service
+        .get_instance(&id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?
+        .ok_or_else(|| {
+            correlate(
+                ApiError::not_found("FORM_NOT_FOUND", format!("Form instance not found: {id}")),
+                &resolved,
+            )
+        })?;
+    Ok(success(value, &resolved))
+}
+
+async fn comms_panel(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(person_id): Path<String>,
+    Query(query): Query<CommsPanelQuery>,
+) -> Result<Json<ApiSuccess<domain::CommsPanel>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().comms();
+    let value = service
+        .panel(
+            &GetCommsPanelRequest {
+                person_id,
+                moment_limit: query.moment_limit,
+            },
+            &resolved.service,
+        )
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn comms_timeline(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(person_id): Path<String>,
+    Query(query): Query<CommsTimelineQuery>,
+) -> Result<Json<ApiSuccess<domain::CommsTimeline>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().comms();
+    let value = service
+        .timeline(
+            &GetCommsTimelineRequest {
+                person_id,
+                page: query.page,
+                page_size: query.page_size,
+            },
+            &resolved.service,
+        )
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn calendar(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<Vec<domain::CalendarEvent>>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().calendar();
+    let value = service
+        .list(&resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn vault_documents(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<Vec<domain::IssuedDocumentListItem>>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let scope = VaultActorScope {
+        account_type: resolved.acting_user.account_type.clone(),
+        person_id: resolved.acting_user.person_id.clone(),
+    };
+    let mut service = state
+        .services()
+        .vault(Arc::new(UnavailableVaultArtifactPort));
+    let value = service
+        .list_issued_documents(Some(&scope), &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn vault_document(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<ApiSuccess<domain::TransactionDocument>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state
+        .services()
+        .vault(Arc::new(UnavailableVaultArtifactPort));
+    let value = service
+        .get_document(&id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?
+        .ok_or_else(|| {
+            correlate(
+                ApiError::not_found(
+                    "VAULT_DOCUMENT_NOT_FOUND",
+                    format!("Vault document not found: {id}"),
+                ),
+                &resolved,
+            )
+        })?;
+    Ok(success(value, &resolved))
+}
+
+fn success<T>(value: T, resolved: &ResolvedRequestContext) -> Json<ApiSuccess<T>> {
+    Json(ApiSuccess {
+        ok: true,
+        value,
+        correlation_id: resolved.service.correlation_id.clone(),
+    })
+}
+
+fn correlate(error: ApiError, resolved: &ResolvedRequestContext) -> ApiError {
+    error.with_correlation(resolved.service.correlation_id.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transport_failure_for_vault_renderer_is_explicit() {
+        let failure = VaultArtifactFailure {
+            outcome: VaultCommandOutcome::PreconditionFailure,
+            message: "not configured".into(),
+        };
+        assert_eq!(failure.outcome, VaultCommandOutcome::PreconditionFailure);
+    }
+
+    #[test]
+    fn api_success_shape_is_camel_case() {
+        let body = ApiSuccess {
+            ok: true,
+            value: json!({"hello": "world"}),
+            correlation_id: "corr-1".into(),
+        };
+        let value = serde_json::to_value(body).unwrap();
+        assert_eq!(value["correlationId"], "corr-1");
+        assert_eq!(value["ok"], true);
+    }
+}

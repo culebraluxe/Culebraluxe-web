@@ -224,3 +224,24 @@ replace the Swift/native edge.
 
 Media is intentionally read-only and projects canonical assets from
 `property_media + media` without copying, renaming, or deleting files.
+
+
+## Slice 5A: Axum read transport
+
+The Rust backend now has a real Axum HTTP boundary without moving production
+traffic yet. The binary defaults to `127.0.0.1:8080`, refuses to start without
+`CULEBRA_INTERNAL_API_KEY`, and exposes public liveness/readiness plus
+authenticated read routes for the already-ported service kernel.
+
+Auth.js remains the authentication edge. The trusted Next/server edge forwards
+only provider + stable provider subject; Rust Security resolves the canonical
+active app_user, roles, and SecurityLevel from the database. The transport does
+not trust forwarded role or level headers.
+
+Success responses preserve the service-kernel envelope shape:
+`{ ok, value, correlationId }`. Errors preserve typed codes, retryability,
+correlation IDs, and database incident IDs without exposing connection details.
+
+This slice is intentionally read-first. No HTTP business-write route is exposed
+until the transport and identity boundary are proven. Vault issuance is not
+reachable from HTTP until the artifact-render/provider adapter is wired.

@@ -6,14 +6,16 @@ publish.workspace = true
 
 [dependencies]
 async-trait.workspace = true
+axum.workspace = true
 auth = { path = "../core/auth" }
 chrono.workspace = true
 db = { path = "../core/db" }
 domain = { path = "../core/domain" }
 integrations = { path = "../integrations" }
+serde.workspace = true
 serde_json.workspace = true
 service = { path = "../core/service" }
 thiserror.workspace = true
-
-[dev-dependencies]
 tokio.workspace = true
+uuid.workspace = true
+
