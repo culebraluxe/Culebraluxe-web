@@ -6,6 +6,8 @@ pub mod firm;
 pub mod person;
 pub mod project;
 pub mod property;
+pub mod showing;
+pub mod security;
 
 pub use firm::{FieldPatch, Firm, UpsertFirmRequest};
 pub use person::{
@@ -22,3 +24,10 @@ pub use property::{
     PropertyAddress, PropertyAddressPatch, PropertyForPerson, SetPropertyDisplayNameRequest,
     SetPropertyStatusRequest, UpsertPropertyForPersonRequest,
 };
+
+pub use security::{
+    resolve_security_level, ActingUser, SecurityIdentityResolution, SecurityLevel,
+    SecurityPrincipal,
+};
+
+pub use showing::{SaveShowingReportRequest, Showing, ShowingReportOutcome};

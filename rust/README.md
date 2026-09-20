@@ -130,3 +130,15 @@ the shared `FieldPatch<T>` type.
 The original bulk-sweep Property service was salvaged, but its persistence layer
 was rewritten to use compile-time static SQL accepted by SQLx 0.9; no
 `AssertSqlSafe` escape hatch is used.
+
+
+## Slice 3C: Security + Showing
+
+Security and Showing are salvaged from the original core-service sweep.
+Security keeps provider-subject resolution, active-user principal loading,
+role/authority projection, level resolution, and fail-closed behavior.
+Showing keeps Person/Property ownership checks through `ServiceDirectory`,
+binding-conflict protection, report validation, and service audit/events.
+
+Both DAOs use static SQL and were rechecked against the live DEV schema before
+publication.
