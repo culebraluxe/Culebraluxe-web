@@ -3,12 +3,11 @@ import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
 import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 
 import { captureServerError } from '@/lib/server-error-capture'
-import { getClientsPage } from "@/db/clients"
-import { getClientAdminPage } from "@/db/client-admin"
+import { rustApiRead } from '@/lib/rust-api/client'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
 // ---------------------------------------------------------------------------
-// CLIENTS — server-side pagination over the canonical `person` parent.
+// CLIENTS — authenticated transport bridge to the Rust Client read service.
 //
 // The primary Clients screen pages the canonical/parent dataset (person), NOT
 // the L/ODS staging tables. This endpoint returns only the current page
@@ -46,23 +45,32 @@ async function GETHandler(req: NextRequest) {
   const pageSize = intParam(params.get("pageSize"), 50, 1, 50)
 
   try {
-    if (view === "admin") {
-      const result = await getClientAdminPage({ search, page, pageSize })
-      return NextResponse.json(result)
+    const rustParams = new URLSearchParams({
+      view,
+      search,
+      page: String(page),
+      pageSize: String(pageSize),
+    })
+
+    if (view !== "admin") {
+      const status = VALID_STATUS.includes(params.get("status") ?? "")
+        ? (params.get("status") as string)
+        : undefined
+      const role = VALID_ROLE.includes(params.get("role") ?? "")
+        ? (params.get("role") as string)
+        : undefined
+      const sort = VALID_SORTS.includes(params.get("sort") ?? "")
+        ? (params.get("sort") as string)
+        : "name"
+      if (status) rustParams.set("status", status)
+      if (role) rustParams.set("role", role)
+      rustParams.set("sort", sort)
     }
 
-    const status = VALID_STATUS.includes(params.get("status") ?? "")
-      ? (params.get("status") as string)
-      : undefined
-    const role = VALID_ROLE.includes(params.get("role") ?? "")
-      ? (params.get("role") as string)
-      : undefined
-    const sort = VALID_SORTS.includes(params.get("sort") ?? "")
-      ? (params.get("sort") as string)
-      : "name"
-
-    const result = await getClientsPage({ search, status, role, sort, page, pageSize })
-    return NextResponse.json(result)
+    const result = await rustApiRead<unknown>(
+      `/v1/clients?${rustParams.toString()}`,
+    )
+    return NextResponse.json(result.value)
   } catch (err) {
     captureServerError('/api/portal/clients', err, { route: '/api/portal/clients' })
     // The canonical clients seam is unavailable. Fail loudly instead of
