@@ -3,8 +3,8 @@ use super::{ApiError, ApiState};
 use crate::vault::VaultArtifactPort;
 use async_trait::async_trait;
 use axum::{
-    extract::{Path, Query, State},
-    http::HeaderMap,
+    extract::{DefaultBodyLimit, Multipart, Path, Query, State},
+    http::{HeaderMap, StatusCode},
     routing::get,
     Json, Router,
 };
@@ -129,7 +129,12 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/people/{id}", get(person))
         .route("/v1/people/{id}/properties", get(properties_for_person))
         .route("/v1/properties/{id}", get(property))
-        .route("/v1/properties/{id}/media", get(property_media))
+        .route(
+            "/v1/properties/{id}/media",
+            get(property_media)
+                .post(upload_property_media)
+                .layer(DefaultBodyLimit::max(MAX_MEDIA_UPLOAD_BYTES + 1024 * 1024)),
+        )
         .route("/v1/contracts", get(contracts))
         .route("/v1/contracts/{id}", get(contract))
         .route(
@@ -414,6 +419,97 @@ async fn property_media(
         .for_property(&id, &resolved.service)
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn upload_property_media(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(property_id): Path<String>,
+    mut multipart: Multipart,
+) -> Result<Json<ApiSuccess<domain::UploadPropertyMediaResult>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut role: Option<String> = None;
+    let mut alt_text: Option<String> = None;
+    let mut file: Option<(String, String, Vec<u8>)> = None;
+
+    while let Some(field) = multipart.next_field().await.map_err(|error| {
+        ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "MEDIA_MULTIPART_INVALID",
+            format!("Invalid media upload: {error}"),
+            false,
+        )
+        .with_correlation(resolved.service.correlation_id.clone())
+    })? {
+        let name = field.name().unwrap_or_default().to_owned();
+        match name.as_str() {
+            "role" => {
+                role = Some(field.text().await.map_err(|error| {
+                    ApiError::new(
+                        StatusCode::BAD_REQUEST,
+                        "MEDIA_ROLE_INVALID",
+                        format!("Invalid media role: {error}"),
+                        false,
+                    )
+                    .with_correlation(resolved.service.correlation_id.clone())
+                })?);
+            }
+            "altText" => {
+                alt_text = Some(field.text().await.map_err(|error| {
+                    ApiError::new(
+                        StatusCode::BAD_REQUEST,
+                        "MEDIA_ALT_TEXT_INVALID",
+                        format!("Invalid media alt text: {error}"),
+                        false,
+                    )
+                    .with_correlation(resolved.service.correlation_id.clone())
+                })?);
+            }
+            "file" => {
+                let filename = field.file_name().unwrap_or("upload").to_owned();
+                let mime_type = field.content_type().unwrap_or_default().to_owned();
+                let bytes = field.bytes().await.map_err(|error| {
+                    ApiError::new(
+                        StatusCode::BAD_REQUEST,
+                        "MEDIA_FILE_INVALID",
+                        format!("Invalid media file: {error}"),
+                        false,
+                    )
+                    .with_correlation(resolved.service.correlation_id.clone())
+                })?;
+                file = Some((filename, mime_type, bytes.to_vec()));
+            }
+            _ => {}
+        }
+    }
+
+    let (filename, mime_type, bytes) = file.ok_or_else(|| {
+        ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "MEDIA_FILE_REQUIRED",
+            "Image file is required.",
+            false,
+        )
+        .with_correlation(resolved.service.correlation_id.clone())
+    })?;
+
+    let mut service = state.services().media();
+    let value = service
+        .upload_property_media(
+            UploadPropertyMediaRequest {
+                property_id,
+                role: role.unwrap_or_default(),
+                filename,
+                mime_type,
+                alt_text,
+                bytes,
+            },
+            &resolved.service,
+        )
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+
     Ok(success(value, &resolved))
 }
 
