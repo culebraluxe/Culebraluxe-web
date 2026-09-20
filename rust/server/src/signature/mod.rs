@@ -117,13 +117,7 @@ impl SignatureRepository for SignatureDao {
         signature_request_id: &str,
         actor_app_user_id: Option<&str>,
     ) -> DbResult<SignatureCommandResult> {
-        SignatureDao::cancel(
-            self,
-            command_id,
-            signature_request_id,
-            actor_app_user_id,
-        )
-        .await
+        SignatureDao::cancel(self, command_id, signature_request_id, actor_app_user_id).await
     }
 
     async fn decline(
@@ -132,13 +126,7 @@ impl SignatureRepository for SignatureDao {
         signature_request_id: &str,
         actor_app_user_id: Option<&str>,
     ) -> DbResult<SignatureCommandResult> {
-        SignatureDao::decline(
-            self,
-            command_id,
-            signature_request_id,
-            actor_app_user_id,
-        )
-        .await
+        SignatureDao::decline(self, command_id, signature_request_id, actor_app_user_id).await
     }
 }
 
@@ -252,7 +240,11 @@ impl<R: SignatureRepository> SignatureService<R> {
                     "transactionDocumentId is required.",
                 ));
             }
-            if request.message.as_ref().is_some_and(|message| message.len() > 500) {
+            if request
+                .message
+                .as_ref()
+                .is_some_and(|message| message.len() > 500)
+            {
                 return Err(CoreServiceError::business(
                     "SIGNATURE_MESSAGE_TOO_LONG",
                     "message must be 500 characters or fewer.",
@@ -456,11 +448,7 @@ impl<R: SignatureRepository> SignatureService<R> {
         let result = async {
             let command = self
                 .repository
-                .decline(
-                    command_id,
-                    signature_request_id,
-                    actor_app_user_id(context),
-                )
+                .decline(command_id, signature_request_id, actor_app_user_id(context))
                 .await?;
             emit_status_event(
                 &self.runtime,
@@ -554,7 +542,10 @@ async fn emit_status_event(
                 event_type,
                 command.aggregate_id.clone(),
                 BTreeMap::from([
-                    ("signatureRequestId".into(), json!(command.aggregate_id.clone())),
+                    (
+                        "signatureRequestId".into(),
+                        json!(command.aggregate_id.clone()),
+                    ),
                     ("status".into(), json!(status.as_str())),
                 ]),
                 context,

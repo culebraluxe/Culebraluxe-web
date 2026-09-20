@@ -273,11 +273,9 @@ fn validate_bound_recipients(
                 ));
             }
         }
-        if slot
-            .email
-            .as_deref()
-            .is_none_or(|email| normalize_signature_email(email) != normalize_signature_email(&recipient.email))
-        {
+        if slot.email.as_deref().is_none_or(|email| {
+            normalize_signature_email(email) != normalize_signature_email(&recipient.email)
+        }) {
             return Err(format!(
                 "Recipient for slot '{slot_id}' does not match the immutable issued participant."
             ));
@@ -845,9 +843,7 @@ impl SignatureDao {
                     .bind(from.as_str())
                     .fetch_optional(tx.connection())
                     .await
-                    .map_err(|error| {
-                        DbFailure::from_sqlx("signature.transition.update", &error)
-                    })?;
+                    .map_err(|error| DbFailure::from_sqlx("signature.transition.update", &error))?;
 
                     let Some(updated) = updated else {
                         let outcome = SignatureCommandOutcome::Conflict;

@@ -12,8 +12,8 @@ pub mod person;
 pub mod project;
 pub mod property;
 pub mod security;
-pub mod signature;
 pub mod showing;
+pub mod signature;
 pub mod vault;
 pub mod wbs;
 

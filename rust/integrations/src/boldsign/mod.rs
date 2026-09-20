@@ -4,9 +4,7 @@
 //! receives only neutral status/event values.
 
 use db::{Database, DbFailure, DbResult};
-use domain::{
-    SignatureProviderEvent, SignatureRequestStatus, SignatureWebhookVerification,
-};
+use domain::{SignatureProviderEvent, SignatureRequestStatus, SignatureWebhookVerification};
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -43,10 +41,8 @@ impl BoldSignConfig {
             max_attempts: positive_env("BOLDSIGN_MAX_ATTEMPTS", 3)? as u32,
             retry_base_delay_ms: positive_env("BOLDSIGN_RETRY_BASE_DELAY_MS", 150)?,
             retry_max_delay_ms: positive_env("BOLDSIGN_RETRY_MAX_DELAY_MS", 1_200)?,
-            webhook_tolerance_seconds: positive_env(
-                "BOLDSIGN_WEBHOOK_TOLERANCE_SECONDS",
-                300,
-            )? as i64,
+            webhook_tolerance_seconds: positive_env("BOLDSIGN_WEBHOOK_TOLERANCE_SECONDS", 300)?
+                as i64,
         })
     }
 }
@@ -55,7 +51,9 @@ fn required_env(key: &str) -> Result<String, String> {
     let value = std::env::var(key).unwrap_or_default();
     let trimmed = value.trim();
     if trimmed.is_empty() {
-        return Err(format!("BoldSign config is incomplete; set required env key {key}."));
+        return Err(format!(
+            "BoldSign config is incomplete; set required env key {key}."
+        ));
     }
     Ok(trimmed.to_owned())
 }
@@ -140,8 +138,8 @@ pub fn map_webhook_event(
 }
 
 pub fn parse_webhook_payload(raw_body: &str) -> Result<BoldSignWebhookEvent, String> {
-    let value: Value =
-        serde_json::from_str(raw_body).map_err(|_| "BoldSign webhook payload is not valid JSON.")?;
+    let value: Value = serde_json::from_str(raw_body)
+        .map_err(|_| "BoldSign webhook payload is not valid JSON.")?;
     let event = value
         .get("event")
         .and_then(Value::as_object)
@@ -234,8 +232,7 @@ fn parse_signature_header(header: &str) -> Result<(i64, Vec<String>), String> {
     match (timestamp, signatures.is_empty()) {
         (Some(timestamp), false) => Ok((timestamp, signatures)),
         _ => Err(
-            "BoldSign webhook signature header is malformed (expected t=<ts>, s0=<hmac>)."
-                .into(),
+            "BoldSign webhook signature header is malformed (expected t=<ts>, s0=<hmac>).".into(),
         ),
     }
 }
@@ -298,12 +295,16 @@ impl BoldSignWebhookAdapter {
         .ok_or_else(|| {
             DbFailure::schema_mismatch(
                 "boldsign.webhook.resolve_envelope",
-                format!("BoldSign webhook for unknown envelope {}.", event.envelope_id),
+                format!(
+                    "BoldSign webhook for unknown envelope {}.",
+                    event.envelope_id
+                ),
             )
         })?;
 
-        let payload: Value = serde_json::from_str(raw_body)
-            .map_err(|error| DbFailure::schema_mismatch("boldsign.webhook.payload", error.to_string()))?;
+        let payload: Value = serde_json::from_str(raw_body).map_err(|error| {
+            DbFailure::schema_mismatch("boldsign.webhook.payload", error.to_string())
+        })?;
         sqlx::query(
             r#"
             insert into bold_sign_webhook_event (

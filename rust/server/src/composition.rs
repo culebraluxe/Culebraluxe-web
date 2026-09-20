@@ -9,8 +9,8 @@ use crate::people::PersonService;
 use crate::projects::ProjectService;
 use crate::properties::PropertyService;
 use crate::security::SecurityService;
-use crate::signature::{SignatureProvider, SignatureService};
 use crate::showings::ShowingService;
+use crate::signature::{SignatureProvider, SignatureService};
 use crate::vault::{VaultArtifactPort, VaultService};
 use crate::wbs::WbsService;
 use db::{

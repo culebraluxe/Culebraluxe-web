@@ -72,17 +72,9 @@ impl SignatureRequestStatus {
             ),
             Self::Signed => matches!(
                 target,
-                Self::Completed
-                    | Self::Declined
-                    | Self::Voided
-                    | Self::Expired
-                    | Self::Error
+                Self::Completed | Self::Declined | Self::Voided | Self::Expired | Self::Error
             ),
-            Self::Completed
-            | Self::Declined
-            | Self::Voided
-            | Self::Expired
-            | Self::Error => false,
+            Self::Completed | Self::Declined | Self::Voided | Self::Expired | Self::Error => false,
         }
     }
 }
@@ -181,7 +173,6 @@ pub struct SignatureStatusResult {
     pub signature_request: SignatureRequest,
     pub transitioned: bool,
 }
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -403,6 +394,8 @@ mod tests {
         let mut r = recipient("one@example.test", 1);
         r.execution_role = Some("BUYER".into());
         let errors = validate_signature_recipients(&[r]);
-        assert!(errors.iter().any(|error| error.contains("supplied together")));
+        assert!(errors
+            .iter()
+            .any(|error| error.contains("supplied together")));
     }
 }
