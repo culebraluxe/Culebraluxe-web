@@ -32,6 +32,44 @@ questions on purpose: a port can be complete and still cut over to nothing.
 - **signature** — All four endpoints are attached to Axum: send, get, refresh, and the provider webhook — the webhook at the PRODUCTION path /api/integrations/boldsign/webhook, so BoldSign's configured URL does not have to change to cut over. The webhook is deliberately unauthenticated by the internal API key: BoldSign signs the raw body and that HMAC is verified inside the service against a System actor with no principal, because a webhook cannot present an application identity. Constructing the BoldSign provider required adding `integrations` to the server crate; without it the adapter was unreachable from the composition root, which is how this capability sat as 'built, 0 routes'. KNOWN GAP, deliberately not guessed: the TypeScript webhook answers 200 {acknowledged:true} for events it will not act on so BoldSign stops retrying, and answers 401 for a missing/invalid signature. The Rust service's outcome enum has no no-op variant, so the 200-for-non-actionable half of that retry contract is NOT mirrored yet — mapping it blind could mask real errors. productionPath stays 'typescript' until a receipt shows the Rust path serving real traffic. rust/server/tests/signature_routes.rs fails if the router and this map disagree.
 - **whatsapp-intake** — Rust verifies and normalises Meta payloads; durable inbox/ODS persistence and production webhook processing still belong to TypeScript.
 
+## Rust UI (the portal screen port)
+
+The portal is being ported screen by screen into `rust/ui`, on MVI: `Model` is the whole screen state, `Msg` is
+everything that can happen to it, `update` is the only thing that changes it and is pure, `view` renders the model
+without deciding anything. The pattern is not decoration — it is what makes a screen testable without a browser.
+
+**Scope is the portal menu.** `Screen::ALL` in `rust/ui/src/model.rs` is the port's to-do list, and
+`Screen::portal_path()` records which live `/portal/*` route each variant replaces. Project Management is the one
+deliberate placeholder: it holds three third-party widgets (tree, Gantt, calendar) and the plan for letting Rust own
+the container while each widget keeps its own subtree comes before any of them moves.
+
+**Build it (required before the host page renders anything):**
+
+```
+pnpm ui:build            # debug; pnpm ui:build:release for a sized artifact
+```
+
+`wasm-pack` cannot build this crate: it forwards `--out-dir` to `cargo build`, which renamed that flag to
+`--artifact-dir`, so it fails before compiling. `scripts/rust-ui-build.sh` does what wasm-pack would have — cargo,
+then `wasm-bindgen` pinned to the crate's own `wasm-bindgen` version (a mismatch is a hard error) — and is marked for
+deletion when wasm-pack catches up. Output is generated and gitignored: `lib/rust-ui/ui.js` (imported by the host)
+and `public/rust-ui/ui_bg.wasm` (fetched by URL).
+
+**The boundary, which is the part worth keeping:**
+
+- The **host** owns the network. `app/portal/rust-preview/page.tsx` mounts the module, listens for the
+  `rust-ui:effects` DOM event the shell announces, fetches rows from an application route, and hands the JSON back
+  through `rows_loaded`. The WASM module holds no credential and performs no request.
+- **One owner of application state** — the Rust model. A widget owns its own rendering only.
+- **`app/api/portal/rust-ui/rows/route.ts` requires a session** and answers rows per screen name. Only `activity`
+  and `clients` have real rows so far; the rest answer `[]` and the screen says "Nothing to show yet", because an
+  invented column is a lie the next reader has to disprove. A per-screen authority check is NOT yet applied — do not
+  add a screen with a narrower audience than "any signed-in portal user" until its authority is chosen.
+- The view **escapes every interpolated value**, and the tests go through `render()` rather than through `escape()`
+  so a forgotten call site fails the build instead of shipping.
+- Tailwind scans `rust/ui/src/**/*.rs` (`@source` in `app/globals.css`), so the port reuses the existing tokens
+  rather than growing a second design system.
+
 ## The live Rust surface
 
 28 routes mounted (read from the router, not from this file):
