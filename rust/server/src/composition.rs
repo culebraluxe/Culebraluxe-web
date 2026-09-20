@@ -9,12 +9,13 @@ use crate::people::PersonService;
 use crate::projects::ProjectService;
 use crate::properties::PropertyService;
 use crate::security::SecurityService;
+use crate::signature::{SignatureProvider, SignatureService};
 use crate::showings::ShowingService;
 use crate::vault::{VaultArtifactPort, VaultService};
 use crate::wbs::WbsService;
 use db::{
     CalendarDao, CommsDao, ContractDao, Database, FirmDao, FormDao, MediaDao, PersonDao,
-    ProjectDao, PropertyDao, SecurityDao, ShowingDao, VaultDao, WbsDao,
+    ProjectDao, PropertyDao, SecurityDao, ShowingDao, SignatureDao, VaultDao, WbsDao,
 };
 use service::ServiceInfrastructure;
 use std::sync::Arc;
@@ -88,6 +89,17 @@ impl CoreServices {
         ShowingService::new(
             ShowingDao::new(self.db.clone()),
             Arc::new(self.directory.clone()),
+            self.infrastructure.clone(),
+        )
+    }
+
+    pub fn signature(
+        &self,
+        provider: Arc<dyn SignatureProvider>,
+    ) -> SignatureService<SignatureDao> {
+        SignatureService::new(
+            SignatureDao::new(self.db.clone()),
+            provider,
             self.infrastructure.clone(),
         )
     }

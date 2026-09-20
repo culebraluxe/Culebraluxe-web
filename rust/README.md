@@ -272,3 +272,26 @@ docker build -f rust/Dockerfile -t culebraluxe-rust-api .
 Runtime configuration remains external:
 `DATABASE_URL_DEV` / `DATABASE_URL_PROD`, explicit environment target,
 `CULEBRA_INTERNAL_API_KEY`, and optional `RUST_API_BIND`.
+
+
+## Slice 6A: Signature seam + BoldSign trust edge
+
+The provider-neutral signature lifecycle is now represented in Rust: canonical
+signature requests, immutable envelope recipients, one-active-envelope
+idempotency, neutral status transitions, and the revoke-first cancellation
+ordering required before an active legal envelope slot may be released.
+
+The canonical send boundary revalidates slot-bound recipients against the exact
+issued document's immutable `source_snapshot.issuedParticipants`. The client is
+never authoritative for execution role, slot identity, or signer mailbox.
+
+The BoldSign adapter boundary now owns status normalization plus webhook trust:
+timestamped HMAC-SHA256 verification over the exact raw request body, replay
+tolerance, provider-event dedupe, provider-envelope lookup, and fail-closed
+handling for reassignment/authentication/identity-verification events.
+Recipient-level Signed activity remains neutral Viewed until BoldSign proves the
+whole envelope Completed.
+
+Signature writes are not exposed through Axum yet. Signed-artifact
+reconciliation and concrete outbound BoldSign delivery remain the next adapter
+step before transport cutover.

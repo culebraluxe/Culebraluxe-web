@@ -12,6 +12,7 @@ pub mod person;
 pub mod project;
 pub mod property;
 pub mod security;
+pub mod signature;
 pub mod showing;
 pub mod vault;
 pub mod wbs;
@@ -80,3 +81,13 @@ pub use calendar::{
 };
 
 pub use media::MediaAsset;
+
+pub use signature::{
+    normalize_signature_email, validate_signature_recipients, ApplySignatureStatusRequest,
+    IssuedParticipantSlot, SendSignatureRequest, SignatureArtifactDownload,
+    SignatureCommandOutcome, SignatureCommandResult, SignatureProviderActionResult,
+    SignatureProviderEvent, SignatureProviderSendRequest, SignatureProviderSendResult,
+    SignatureProviderStatusResult, SignatureRecipient, SignatureRecipientRole, SignatureRequest,
+    SignatureRequestResult, SignatureRequestStatus, SignatureStatusResult,
+    SignatureWebhookVerification,
+};

@@ -17,6 +17,7 @@ pub mod people;
 pub mod projects;
 pub mod properties;
 pub mod security;
+pub mod signature;
 pub mod service_support;
 pub mod showings;
 pub mod vault;
