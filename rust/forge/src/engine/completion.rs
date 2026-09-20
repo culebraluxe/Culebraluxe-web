@@ -62,7 +62,10 @@ impl CompletionLedger for MemoryLedger {
         self.claimed.lock().unwrap().insert(receipt_id.to_string())
     }
     fn finalize(&self, receipt_id: &str) {
-        self.finalized.lock().unwrap().insert(receipt_id.to_string());
+        self.finalized
+            .lock()
+            .unwrap()
+            .insert(receipt_id.to_string());
         let mut clock = self.clock.lock().unwrap();
         *clock += 1;
         self.finalized_at
@@ -91,10 +94,20 @@ impl CompletionLedger for MemoryLedger {
         map.insert(rec.story_id.clone(), next);
     }
     fn increment_repair(&self, story_id: &str) {
-        *self.repairs.lock().unwrap().entry(story_id.to_string()).or_insert(0) += 1;
+        *self
+            .repairs
+            .lock()
+            .unwrap()
+            .entry(story_id.to_string())
+            .or_insert(0) += 1;
     }
     fn increment_replan(&self, story_id: &str) {
-        *self.replans.lock().unwrap().entry(story_id.to_string()).or_insert(0) += 1;
+        *self
+            .replans
+            .lock()
+            .unwrap()
+            .entry(story_id.to_string())
+            .or_insert(0) += 1;
     }
 }
 

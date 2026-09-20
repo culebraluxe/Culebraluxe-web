@@ -39,7 +39,10 @@ fn scope_denied(events: &[TraceEvent]) -> Vec<Alert> {
             code: "SCOPE_DENIED",
             severity: "hold-recommend",
             story_id: e.story_id.clone(),
-            reason: e.reason.clone().unwrap_or_else(|| "candidate paths outside allowedScope".into()),
+            reason: e
+                .reason
+                .clone()
+                .unwrap_or_else(|| "candidate paths outside allowedScope".into()),
             event_seqs: vec![e.seq],
         })
         .collect()
@@ -49,8 +52,12 @@ fn sibling_collision(events: &[TraceEvent]) -> Vec<Alert> {
     use std::collections::{BTreeMap, BTreeSet};
     let mut by_file: BTreeMap<&str, Vec<&TraceEvent>> = BTreeMap::new();
     for e in events {
-        if !matches!(e.kind.as_str(), "git.commit" | "scope.check") { continue; }
-        if e.verdict.as_deref() != Some("allow") { continue; }
+        if !matches!(e.kind.as_str(), "git.commit" | "scope.check") {
+            continue;
+        }
+        if e.verdict.as_deref() != Some("allow") {
+            continue;
+        }
         for p in &e.paths {
             by_file.entry(p.as_str()).or_default().push(e);
         }
@@ -59,9 +66,20 @@ fn sibling_collision(events: &[TraceEvent]) -> Vec<Alert> {
     for (path, hits) in by_file {
         let owners: BTreeSet<String> = hits
             .iter()
-            .map(|h| format!("{}:{}", h.node_id.as_deref().unwrap_or(""), h.assignment_id.as_deref().or(h.task_id.as_deref()).unwrap_or("")))
+            .map(|h| {
+                format!(
+                    "{}:{}",
+                    h.node_id.as_deref().unwrap_or(""),
+                    h.assignment_id
+                        .as_deref()
+                        .or(h.task_id.as_deref())
+                        .unwrap_or("")
+                )
+            })
             .collect();
-        if owners.len() < 2 { continue; }
+        if owners.len() < 2 {
+            continue;
+        }
         alerts.push(Alert {
             code: "SIBLING_FILE_COLLISION",
             severity: "hold-recommend",
@@ -78,8 +96,12 @@ fn unchanged_retry(events: &[TraceEvent]) -> Vec<Alert> {
     let mut seen: BTreeMap<&str, &TraceEvent> = BTreeMap::new();
     let mut alerts = Vec::new();
     for e in events {
-        if e.kind != "hold" { continue; }
-        let Some(hash) = e.retry_hash.as_deref() else { continue };
+        if e.kind != "hold" {
+            continue;
+        }
+        let Some(hash) = e.retry_hash.as_deref() else {
+            continue;
+        };
         if let Some(prior) = seen.get(hash) {
             alerts.push(Alert {
                 code: "RETRY_UNCHANGED_INPUT",
@@ -101,9 +123,16 @@ mod tests {
     #[test]
     fn denies_scope() {
         let events = [TraceEvent {
-            seq: 1, kind: "scope.check".into(), verdict: Some("deny".into()),
-            story_id: "s1".into(), node_id: Some("smith".into()), task_id: None,
-            reason: None, paths: vec![], retry_hash: None, assignment_id: None,
+            seq: 1,
+            kind: "scope.check".into(),
+            verdict: Some("deny".into()),
+            story_id: "s1".into(),
+            node_id: Some("smith".into()),
+            task_id: None,
+            reason: None,
+            paths: vec![],
+            retry_hash: None,
+            assignment_id: None,
         }];
         assert_eq!(evaluate_alerts(&events)[0].code, "SCOPE_DENIED");
     }

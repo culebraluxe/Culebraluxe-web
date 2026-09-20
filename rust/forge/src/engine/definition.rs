@@ -4,8 +4,8 @@
 use std::collections::BTreeMap;
 
 use workflow::{
-    DecisionArm, NodeDefinition, ProcessDefinition, ProcessGraph, ProcessOutcome,
-    TransitionDefinition, DefinitionStatus,
+    DecisionArm, DefinitionStatus, NodeDefinition, ProcessDefinition, ProcessGraph, ProcessOutcome,
+    TransitionDefinition,
 };
 
 use crate::engine::topology::{with_position, FORGE_SDLC_KEY, FORGE_SDLC_VERSION};
@@ -46,50 +46,47 @@ pub fn forge_sdlc_graph() -> ProcessGraph {
         "start".into(),
         node("start", "start", vec![t("go", "classify_work")]),
     );
-    nodes.insert(
-        "classify_work".into(),
-        {
-            let mut n = node(
-                "classify_work",
-                "decision",
-                vec![
-                    t("feature", "execution_shape"),
-                    t("bug", "execution_shape"),
-                    t("hotfix", "execution_shape"),
-                    t("migration", "execution_shape"),
-                    t("research", "archive_research"),
-                    t("fast", "execution_shape"),
-                ],
-            );
-            n.decisions = Some(vec![
-                DecisionArm {
-                    condition: "workType == \"RESEARCH\"".into(),
-                    transition: "research".into(),
-                },
-                DecisionArm {
-                    condition: "workType == \"FEATURE\"".into(),
-                    transition: "feature".into(),
-                },
-                DecisionArm {
-                    condition: "workType == \"BUG\"".into(),
-                    transition: "bug".into(),
-                },
-                DecisionArm {
-                    condition: "workType == \"HOTFIX\"".into(),
-                    transition: "hotfix".into(),
-                },
-                DecisionArm {
-                    condition: "workType == \"MIGRATION\"".into(),
-                    transition: "migration".into(),
-                },
-                DecisionArm {
-                    condition: "workType == \"FAST\"".into(),
-                    transition: "fast".into(),
-                },
-            ]);
-            n
-        },
-    );
+    nodes.insert("classify_work".into(), {
+        let mut n = node(
+            "classify_work",
+            "decision",
+            vec![
+                t("feature", "execution_shape"),
+                t("bug", "execution_shape"),
+                t("hotfix", "execution_shape"),
+                t("migration", "execution_shape"),
+                t("research", "archive_research"),
+                t("fast", "execution_shape"),
+            ],
+        );
+        n.decisions = Some(vec![
+            DecisionArm {
+                condition: "workType == \"RESEARCH\"".into(),
+                transition: "research".into(),
+            },
+            DecisionArm {
+                condition: "workType == \"FEATURE\"".into(),
+                transition: "feature".into(),
+            },
+            DecisionArm {
+                condition: "workType == \"BUG\"".into(),
+                transition: "bug".into(),
+            },
+            DecisionArm {
+                condition: "workType == \"HOTFIX\"".into(),
+                transition: "hotfix".into(),
+            },
+            DecisionArm {
+                condition: "workType == \"MIGRATION\"".into(),
+                transition: "migration".into(),
+            },
+            DecisionArm {
+                condition: "workType == \"FAST\"".into(),
+                transition: "fast".into(),
+            },
+        ]);
+        n
+    });
     nodes.insert(
         "execution_shape".into(),
         with_position(
@@ -108,11 +105,17 @@ pub fn forge_sdlc_graph() -> ProcessGraph {
     );
     nodes.insert(
         "lead_implement".into(),
-        with_position(node("lead_implement", "task", vec![t("complete", "qa_result")]), "lead"),
+        with_position(
+            node("lead_implement", "task", vec![t("complete", "qa_result")]),
+            "lead",
+        ),
     );
     nodes.insert(
         "smith".into(),
-        with_position(node("smith", "task", vec![t("complete", "lead_post")]), "smith"),
+        with_position(
+            node("smith", "task", vec![t("complete", "lead_post")]),
+            "smith",
+        ),
     );
     nodes.insert(
         "split_dispatch".into(),
@@ -129,7 +132,10 @@ pub fn forge_sdlc_graph() -> ProcessGraph {
     );
     nodes.insert(
         "lead_post".into(),
-        with_position(node("lead_post", "task", vec![t("complete", "qa_result")]), "lead"),
+        with_position(
+            node("lead_post", "task", vec![t("complete", "qa_result")]),
+            "lead",
+        ),
     );
     nodes.insert(
         "qa_result".into(),
@@ -149,12 +155,19 @@ pub fn forge_sdlc_graph() -> ProcessGraph {
     );
     nodes.insert(
         "repair_smith".into(),
-        with_position(node("repair_smith", "task", vec![t("complete", "qa_result")]), "smith"),
+        with_position(
+            node("repair_smith", "task", vec![t("complete", "qa_result")]),
+            "smith",
+        ),
     );
     nodes.insert(
         "repair_architect".into(),
         with_position(
-            node("repair_architect", "task", vec![t("complete", "execution_shape")]),
+            node(
+                "repair_architect",
+                "task",
+                vec![t("complete", "execution_shape")],
+            ),
             "architect",
         ),
     );
@@ -167,12 +180,22 @@ pub fn forge_sdlc_graph() -> ProcessGraph {
     nodes.insert(
         "hold".into(),
         with_position(
-            node("hold", "task", vec![t("resume", "execution_shape"), t("cancel", "cancelled")]),
+            node(
+                "hold",
+                "task",
+                vec![t("resume", "execution_shape"), t("cancel", "cancelled")],
+            ),
             "lead",
         ),
     );
-    nodes.insert("complete".into(), end("complete", ProcessOutcome::Completed));
-    nodes.insert("cancelled".into(), end("cancelled", ProcessOutcome::Cancelled));
+    nodes.insert(
+        "complete".into(),
+        end("complete", ProcessOutcome::Completed),
+    );
+    nodes.insert(
+        "cancelled".into(),
+        end("cancelled", ProcessOutcome::Cancelled),
+    );
     nodes.insert("failed".into(), end("failed", ProcessOutcome::Failed));
     nodes.insert(
         "archive_research".into(),

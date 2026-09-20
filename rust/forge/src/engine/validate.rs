@@ -18,7 +18,8 @@ pub fn validate_definition_xml(xml: &str) -> DefinitionValidationReport {
     let parsed = match definition_from_xml(xml) {
         Ok(d) => d,
         Err(XmlError(m)) => {
-            let layer = if m.contains("missing") || m.contains("expected") || m.contains("unknown") {
+            let layer = if m.contains("missing") || m.contains("expected") || m.contains("unknown")
+            {
                 "grammar"
             } else {
                 "xml"
@@ -40,24 +41,35 @@ pub fn validate_definition_xml(xml: &str) -> DefinitionValidationReport {
         if let Some(ts) = &node.transitions {
             for t in ts {
                 if !graph.nodes.contains_key(&t.to) {
-                    report.graph_errors.push(format!("{id} transitions to unknown node {}", t.to));
+                    report
+                        .graph_errors
+                        .push(format!("{id} transitions to unknown node {}", t.to));
                 }
             }
         }
         if node.node_type == "command" {
             if let Some(ct) = &node.command_type {
                 if !commands::is_routed(ct) {
-                    report.application_errors.push(format!(
-                        "command-node {id} uses unroutable command {ct}"
-                    ));
+                    report
+                        .application_errors
+                        .push(format!("command-node {id} uses unroutable command {ct}"));
                 }
             } else {
-                report.application_errors.push(format!("command-node {id} has no commandType"));
+                report
+                    .application_errors
+                    .push(format!("command-node {id} has no commandType"));
             }
         }
     }
-    report.errors.extend(report.graph_errors.iter().map(|m| format!("[graph] {m}")));
-    report.errors.extend(report.application_errors.iter().map(|m| format!("[application] {m}")));
+    report
+        .errors
+        .extend(report.graph_errors.iter().map(|m| format!("[graph] {m}")));
+    report.errors.extend(
+        report
+            .application_errors
+            .iter()
+            .map(|m| format!("[application] {m}")),
+    );
     report.valid = report.errors.is_empty();
     report
 }

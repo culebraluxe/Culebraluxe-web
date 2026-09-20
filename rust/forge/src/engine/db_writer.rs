@@ -16,13 +16,14 @@ impl DbForgeStateWriter {
 }
 
 impl ForgeStateWriter for DbForgeStateWriter {
-    fn mark_story_in_progress(&self, story_id: &str, ) -> Result<(), String> {
+    fn mark_story_in_progress(&self, story_id: &str) -> Result<(), String> {
         let id = sql_literal(story_id);
         psql_query(&format!(
             "UPDATE storyboard_story
                 SET status = 'In Progress', completion = 0, completed_at = NULL, updated_at = now()
               WHERE id = {id}"
-        )).map(|_| ())
+        ))
+        .map(|_| ())
     }
 
     fn mark_story_human_hold(&self, story_id: &str, reason: &str) -> Result<(), String> {
@@ -60,7 +61,8 @@ impl ForgeStateWriter for DbForgeStateWriter {
                     completed_at = COALESCE(completed_at, now()),
                     updated_at = now()
               WHERE id = {id}"
-        )).map(|_| ())
+        ))
+        .map(|_| ())
     }
 
     fn append_run_detail(&self, run_id: &str, detail: &str) -> Result<(), String> {

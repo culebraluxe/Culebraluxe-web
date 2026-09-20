@@ -82,11 +82,7 @@ impl ForgeStateWriter for RecordingWriter {
 pub struct OkRelease;
 
 impl ForgeReleaseExecutor for OkRelease {
-    fn execute(
-        &self,
-        command_type: &str,
-        _input: &workflow::Value,
-    ) -> ApplicationCommandResult {
+    fn execute(&self, command_type: &str, _input: &workflow::Value) -> ApplicationCommandResult {
         ApplicationCommandResult {
             command_id: command_type.to_string(),
             outcome: ApplicationCommandOutcome::Success,
@@ -105,7 +101,10 @@ pub fn required_string(input: &workflow::Value, key: &str) -> Result<String, Str
 }
 
 pub fn optional_string(input: &workflow::Value, key: &str) -> Option<String> {
-    input.get(key).and_then(|v| v.as_str()).map(|s| s.to_string())
+    input
+        .get(key)
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
 }
 
 pub fn cmd_result(

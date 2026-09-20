@@ -25,13 +25,17 @@ pub fn preview_publish(repo: &Path, candidate: &str) -> PublishOutcome {
             reason: "no candidate commit recorded".into(),
         };
     }
-    if git(repo, &["cat-file", "-e", &format!("{candidate}^{{commit}}")]).is_err() {
+    if git(
+        repo,
+        &["cat-file", "-e", &format!("{candidate}^{{commit}}")],
+    )
+    .is_err()
+    {
         return PublishOutcome::NoCandidate {
             reason: format!("candidate {candidate} is not a commit in {repo:?}"),
         };
     }
-    let remote = git(repo, &["ls-remote", "origin", "refs/heads/main"])
-        .unwrap_or_default();
+    let remote = git(repo, &["ls-remote", "origin", "refs/heads/main"]).unwrap_or_default();
     let remote_main = remote.split_whitespace().next().unwrap_or("").to_string();
     if remote_main.is_empty() {
         return PublishOutcome::PublishConflict {
@@ -43,7 +47,12 @@ pub fn preview_publish(repo: &Path, candidate: &str) -> PublishOutcome {
             published_main_hash: candidate.into(),
         };
     }
-    if git(repo, &["merge-base", "--is-ancestor", &remote_main, candidate]).is_err() {
+    if git(
+        repo,
+        &["merge-base", "--is-ancestor", &remote_main, candidate],
+    )
+    .is_err()
+    {
         return PublishOutcome::PublishConflict {
             reason: format!(
                 "origin/main ({}) is not an ancestor of candidate {} — push would NOT fast-forward",
@@ -53,13 +62,14 @@ pub fn preview_publish(repo: &Path, candidate: &str) -> PublishOutcome {
         };
     }
     if std::env::var("FORGE_ALLOW_PUBLISH").ok().as_deref() == Some("1") {
-        match git(repo, &["push", "origin", &format!("{candidate}:refs/heads/main")]) {
+        match git(
+            repo,
+            &["push", "origin", &format!("{candidate}:refs/heads/main")],
+        ) {
             Ok(_) => PublishOutcome::Published {
                 published_main_hash: candidate.into(),
             },
-            Err(e) => PublishOutcome::PublishConflict {
-                reason: e,
-            },
+            Err(e) => PublishOutcome::PublishConflict { reason: e },
         }
     } else {
         PublishOutcome::Published {
@@ -71,10 +81,16 @@ pub fn preview_publish(repo: &Path, candidate: &str) -> PublishOutcome {
 pub struct EmptyEvidence;
 
 impl crate::engine::release::EvidenceStore for EmptyEvidence {
-    fn read(&self, _story_id: &str) -> crate::engine::facts::ForgeGateEvidence { Default::default() }
+    fn read(&self, _story_id: &str) -> crate::engine::facts::ForgeGateEvidence {
+        Default::default()
+    }
     fn merge(&self, _i: &str, _s: &str, _p: crate::engine::facts::ForgeGateEvidence) {}
-    fn latest_refresh_command_id(&self, _i: &str) -> Option<String> { None }
-    fn frozen_proofs(&self, _s: &str) -> Vec<String> { vec![] }
+    fn latest_refresh_command_id(&self, _i: &str) -> Option<String> {
+        None
+    }
+    fn frozen_proofs(&self, _s: &str) -> Vec<String> {
+        vec![]
+    }
 }
 
 pub struct HostReleaseExecutor {
@@ -82,10 +98,26 @@ pub struct HostReleaseExecutor {
 }
 
 impl crate::engine::writer::ForgeReleaseExecutor for HostReleaseExecutor {
-    fn execute(&self, command_type: &str, input: &workflow::Value) -> workflow::ApplicationCommandResult {
-        let story_id = input.get("storyId").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let process_instance_id = input.get("processInstanceId").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let command_id = input.get("commandId").and_then(|v| v.as_str()).unwrap_or(command_type).to_string();
+    fn execute(
+        &self,
+        command_type: &str,
+        input: &workflow::Value,
+    ) -> workflow::ApplicationCommandResult {
+        let story_id = input
+            .get("storyId")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let process_instance_id = input
+            .get("processInstanceId")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let command_id = input
+            .get("commandId")
+            .and_then(|v| v.as_str())
+            .unwrap_or(command_type)
+            .to_string();
         crate::engine::release::DbForgeReleaseExecutor {
             operations: GitReleaseOps {
                 repo_root: self.ops.repo_root.clone(),
@@ -107,7 +139,12 @@ pub struct GitReleaseOps {
 }
 
 impl ForgeReleaseOperations for GitReleaseOps {
-    fn apply_migrations(&self, target: &str, files: &[String], command_id: &str) -> ForgeOperationResult {
+    fn apply_migrations(
+        &self,
+        target: &str,
+        files: &[String],
+        command_id: &str,
+    ) -> ForgeOperationResult {
         if files.is_empty() {
             return ForgeOperationResult {
                 success: false,
@@ -124,7 +161,9 @@ impl ForgeReleaseOperations for GitReleaseOps {
     fn verify_migrations(&self, target: &str, files: &[String]) -> ForgeOperationResult {
         ForgeOperationResult {
             success: false,
-            detail: format!("verify {files:?} on {target} against forge_migration_execution + schema_migration"),
+            detail: format!(
+                "verify {files:?} on {target} against forge_migration_execution + schema_migration"
+            ),
         }
     }
     fn refresh_derived(&self, models: &[String], command_id: &str) -> ForgeOperationResult {

@@ -7,9 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::engine::assay::CommandResult;
-use crate::engine::opencode_client::{
-    start_opencode_run, OpenCodeRunResult, OpenCodeStartOptions,
-};
+use crate::engine::opencode_client::{start_opencode_run, OpenCodeRunResult, OpenCodeStartOptions};
 use crate::engine::packet::{build_task_text, ExecutionWorkspace, StoryPacket};
 use crate::engine::runner::{HarnessOutput, RoleHarness};
 use crate::engine::runtime::ActiveForgeRoleTask;
@@ -101,9 +99,7 @@ impl OpenCodeHarness {
                 .ok()
                 .filter(|s| !s.trim().is_empty())
                 .map(PathBuf::from)
-                .unwrap_or_else(|| {
-                    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-                }),
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))),
             model: resolve_opencode_model(None)?,
             env: None,
             auto_approve: true,
@@ -163,7 +159,12 @@ impl OpenCodeHarness {
     }
 
     fn task_text(&self, node_id: &str, task: &ActiveForgeRoleTask) -> String {
-        build_task_text(node_id, &task.task_id, &self.packet, self.execution_workspace.as_ref())
+        build_task_text(
+            node_id,
+            &task.task_id,
+            &self.packet,
+            self.execution_workspace.as_ref(),
+        )
     }
 }
 
@@ -189,8 +190,8 @@ impl RoleHarness for OpenCodeHarness {
         } else {
             None
         };
-        let continue_session = session_continuity_enabled() && session.is_none()
-            && session_marker_path(&cwd).exists();
+        let continue_session =
+            session_continuity_enabled() && session.is_none() && session_marker_path(&cwd).exists();
         let opts = OpenCodeStartOptions {
             cli_bin: &self.cli_bin,
             cwd: &cwd,

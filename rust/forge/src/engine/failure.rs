@@ -91,17 +91,15 @@ pub fn classify_failure(
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ForgeFailureRouting {
-    Repair {
-        owner: &'static str,
-        attempts: u32,
-    },
-    Hold {
-        reason: String,
-        attempts: u32,
-    },
+    Repair { owner: &'static str, attempts: u32 },
+    Hold { reason: String, attempts: u32 },
 }
 
-pub fn route_failure(class: ForgeFailureClass, attempts: u32, max_attempts: u32) -> ForgeFailureRouting {
+pub fn route_failure(
+    class: ForgeFailureClass,
+    attempts: u32,
+    max_attempts: u32,
+) -> ForgeFailureRouting {
     if attempts >= max_attempts {
         return ForgeFailureRouting::Hold {
             reason: format!(
@@ -118,15 +116,14 @@ pub fn route_failure(class: ForgeFailureClass, attempts: u32, max_attempts: u32)
         ForgeFailureClass::BadImplementation => Some("smith"),
         ForgeFailureClass::BadArchitecture => Some("architect"),
         ForgeFailureClass::BadToolContract | ForgeFailureClass::MissingGuardrail => Some("lead"),
-        ForgeFailureClass::EnvironmentFailure | ForgeFailureClass::DeploymentFailure => Some("dev_ops"),
+        ForgeFailureClass::EnvironmentFailure | ForgeFailureClass::DeploymentFailure => {
+            Some("dev_ops")
+        }
         ForgeFailureClass::WeakTest => Some("qa"),
         ForgeFailureClass::DependencyFailure | ForgeFailureClass::Unknown => None,
     };
     match owner {
-        Some(o) => ForgeFailureRouting::Repair {
-            owner: o,
-            attempts,
-        },
+        Some(o) => ForgeFailureRouting::Repair { owner: o, attempts },
         None => ForgeFailureRouting::Hold {
             reason: format!("{} requires operator/Lead intervention", class.as_str()),
             attempts,

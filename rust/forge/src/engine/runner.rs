@@ -2,7 +2,9 @@
 //! Model/worktree execution is injected via `RoleHarness` — same door as the TS runner.
 
 use crate::engine::agents::forge_agent_collect;
-use crate::engine::architect::{assess_architect_handoff, parse_architect_handoff, ArchitectAssessment};
+use crate::engine::architect::{
+    assess_architect_handoff, parse_architect_handoff, ArchitectAssessment,
+};
 use crate::engine::assay::{collect_assay_evidence, CommandResult};
 use crate::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::facts::ForgeGateEvidence;
@@ -60,7 +62,15 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
             }
         }
 
-        if matches!(node_id, "smith" | "smith_split_work" | "repair_smith" | "fast_smith" | "fast_repair_smith" | "lead_solo_implement") {
+        if matches!(
+            node_id,
+            "smith"
+                | "smith_split_work"
+                | "repair_smith"
+                | "fast_smith"
+                | "fast_repair_smith"
+                | "lead_solo_implement"
+        ) {
             if let Some(sha) = out.candidate_sha {
                 evidence.candidate_sha = Some(sha);
             }
@@ -84,7 +94,8 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
             evidence.findings.is_some(),
         );
         if !missing.is_empty() && evidence.deliverable_rejection.is_none() {
-            evidence.deliverable_rejection = Some(format!("role did not deliver {}", missing.join(", ")));
+            evidence.deliverable_rejection =
+                Some(format!("role did not deliver {}", missing.join(", ")));
         }
         if let Some(route) = agent.routing_decision_missing(&evidence) {
             if evidence.deliverable_rejection.is_none() {

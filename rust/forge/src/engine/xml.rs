@@ -4,8 +4,8 @@
 use std::collections::BTreeMap;
 
 use workflow::{
-    DecisionArm, NodeDefinition, ProcessDefinition, ProcessGraph, ProcessOutcome,
-    TransitionDefinition, DefinitionStatus,
+    DecisionArm, DefinitionStatus, NodeDefinition, ProcessDefinition, ProcessGraph, ProcessOutcome,
+    TransitionDefinition,
 };
 
 #[derive(Debug)]

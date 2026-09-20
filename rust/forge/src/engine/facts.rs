@@ -3,7 +3,9 @@
 
 use workflow::Value;
 
-use crate::engine::qa_repair::{route_qa_result, QaDisposition, QaVerdict, RepairAttemptState, RepairBudget};
+use crate::engine::qa_repair::{
+    route_qa_result, QaDisposition, QaVerdict, RepairAttemptState, RepairBudget,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct ForgeGateEvidence {
@@ -111,7 +113,9 @@ impl ForgeGateEvidence {
             dev_migration_applied: self.dev_migration_applied.or(base.dev_migration_applied),
             dev_migration_verified: self.dev_migration_verified.or(base.dev_migration_verified),
             prod_migration_applied: self.prod_migration_applied.or(base.prod_migration_applied),
-            prod_migration_verified: self.prod_migration_verified.or(base.prod_migration_verified),
+            prod_migration_verified: self
+                .prod_migration_verified
+                .or(base.prod_migration_verified),
             derived_refresh_required: self
                 .derived_refresh_required
                 .or(base.derived_refresh_required),
@@ -185,7 +189,9 @@ pub fn forge_lineage_error(evidence: &ForgeGateEvidence, stage: &str) -> Option<
         };
         let published = normalized_sha(evidence.published_sha.as_deref()).unwrap();
         if deployed != published {
-            return Some(format!("deployed {deployed}, expected published {published}"));
+            return Some(format!(
+                "deployed {deployed}, expected published {published}"
+            ));
         }
         return None;
     }
@@ -203,7 +209,9 @@ pub fn forge_lineage_error(evidence: &ForgeGateEvidence, stage: &str) -> Option<
         None => return Some("productionVerifiedSha is missing or invalid".into()),
     };
     if verified != expected {
-        return Some(format!("production verified {verified}, expected {expected}"));
+        return Some(format!(
+            "production verified {verified}, expected {expected}"
+        ));
     }
     None
 }
@@ -249,11 +257,17 @@ pub fn project_forge_gate_facts(evidence: &ForgeGateEvidence) -> Value {
     let mut facts = evidence.extra.clone();
     let enums = [
         ("workType", evidence.work_type.as_deref()),
-        ("researchDisposition", evidence.research_disposition.as_deref()),
+        (
+            "researchDisposition",
+            evidence.research_disposition.as_deref(),
+        ),
         ("leadDecision", evidence.lead_decision.as_deref()),
         ("disposition", evidence.disposition.as_deref()),
         ("failureClass", evidence.failure_class.as_deref()),
-        ("failedReleaseStage", evidence.failed_release_stage.as_deref()),
+        (
+            "failedReleaseStage",
+            evidence.failed_release_stage.as_deref(),
+        ),
         ("resumeTarget", evidence.resume_target.as_deref()),
     ];
     for (k, v) in enums {
@@ -293,7 +307,10 @@ pub fn project_forge_gate_facts(evidence: &ForgeGateEvidence) -> Value {
         None
     };
 
-    let repair_el = matches!(qa_route, Some(crate::engine::qa_repair::RepairRouting::Smith { .. }));
+    let repair_el = matches!(
+        qa_route,
+        Some(crate::engine::qa_repair::RepairRouting::Smith { .. })
+    );
     let replan_el = matches!(
         qa_route,
         Some(crate::engine::qa_repair::RepairRouting::Architect { .. })
@@ -301,13 +318,22 @@ pub fn project_forge_gate_facts(evidence: &ForgeGateEvidence) -> Value {
     let pairs: Vec<(&str, bool)> = vec![
         ("scoutRequired", evidence.scout_required.unwrap_or(false)),
         ("rootCauseKnown", evidence.root_cause_known.unwrap_or(false)),
-        ("diagnosisBlocked", evidence.diagnosis_blocked.unwrap_or(false)),
-        ("architectureSuspect", evidence.architecture_suspect.unwrap_or(false)),
+        (
+            "diagnosisBlocked",
+            evidence.diagnosis_blocked.unwrap_or(false),
+        ),
+        (
+            "architectureSuspect",
+            evidence.architecture_suspect.unwrap_or(false),
+        ),
         (
             "architectureReviewRequired",
             evidence.architecture_review_required.unwrap_or(false),
         ),
-        ("qaReviewRequired", evidence.qa_review_required.unwrap_or(false)),
+        (
+            "qaReviewRequired",
+            evidence.qa_review_required.unwrap_or(false),
+        ),
         ("qaReviewPassed", evidence.qa_review_passed.unwrap_or(false)),
         ("qaPassed", evidence.qa_passed == Some(true)),
         ("qaRepairEligible", repair_el),
@@ -317,11 +343,26 @@ pub fn project_forge_gate_facts(evidence: &ForgeGateEvidence) -> Value {
             evidence.publish_succeeded == Some(true)
                 && forge_lineage_error(evidence, "publish").is_none(),
         ),
-        ("migrationRequired", evidence.migration_required.unwrap_or(false)),
-        ("devMigrationApplied", evidence.dev_migration_applied.unwrap_or(false)),
-        ("devMigrationVerified", evidence.dev_migration_verified.unwrap_or(false)),
-        ("prodMigrationApplied", evidence.prod_migration_applied.unwrap_or(false)),
-        ("prodMigrationVerified", evidence.prod_migration_verified.unwrap_or(false)),
+        (
+            "migrationRequired",
+            evidence.migration_required.unwrap_or(false),
+        ),
+        (
+            "devMigrationApplied",
+            evidence.dev_migration_applied.unwrap_or(false),
+        ),
+        (
+            "devMigrationVerified",
+            evidence.dev_migration_verified.unwrap_or(false),
+        ),
+        (
+            "prodMigrationApplied",
+            evidence.prod_migration_applied.unwrap_or(false),
+        ),
+        (
+            "prodMigrationVerified",
+            evidence.prod_migration_verified.unwrap_or(false),
+        ),
         (
             "derivedRefreshRequired",
             evidence.derived_refresh_required.unwrap_or(false),
@@ -334,7 +375,10 @@ pub fn project_forge_gate_facts(evidence: &ForgeGateEvidence) -> Value {
             "derivedRefreshVerified",
             evidence.derived_refresh_verified.unwrap_or(false),
         ),
-        ("deploymentRequired", evidence.deployment_required.unwrap_or(false)),
+        (
+            "deploymentRequired",
+            evidence.deployment_required.unwrap_or(false),
+        ),
         (
             "deploymentDeferred",
             evidence.deployment_deferred_to_batch.is_some(),
@@ -357,12 +401,18 @@ pub fn project_forge_gate_facts(evidence: &ForgeGateEvidence) -> Value {
             "deploymentProducerConfigured",
             forge_deployment_producer_configured(evidence),
         ),
-        ("deploymentBlocked", forge_deploy_hold_reason(evidence).is_some()),
+        (
+            "deploymentBlocked",
+            forge_deploy_hold_reason(evidence).is_some(),
+        ),
     ];
     for (k, v) in pairs {
         facts.insert(k, Value::from(v));
     }
-    facts.insert("fastEligible", Value::from(forge_fast_eligibility(evidence)));
+    facts.insert(
+        "fastEligible",
+        Value::from(forge_fast_eligibility(evidence)),
+    );
     if let Some(s) = &evidence.candidate_sha {
         facts.insert("candidateSha", Value::from(s.as_str()));
     }

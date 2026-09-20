@@ -1,12 +1,14 @@
 use std::sync::Arc;
 
 use workflow::{
-    json, CompleteTaskParams, EngineOptions, MemoryStore, ProcessStatus, Result, StartProcessParams,
-    StartProcessResult, Task, TaskStatus, TxStore, Value, WorkflowEngine, WorkflowError,
-    WorkflowSubject,
+    json, CompleteTaskParams, EngineOptions, MemoryStore, ProcessStatus, Result,
+    StartProcessParams, StartProcessResult, Task, TaskStatus, TxStore, Value, WorkflowEngine,
+    WorkflowError, WorkflowSubject,
 };
 
-use crate::engine::completion::{apply_completion_unit, CompletionLedger, CompletionRecord, MemoryLedger};
+use crate::engine::completion::{
+    apply_completion_unit, CompletionLedger, CompletionRecord, MemoryLedger,
+};
 use crate::engine::definition::forge_sdlc_definition;
 use crate::engine::facts::{evidence_from_value, ForgeGateEvidence};
 use crate::engine::port::ForgeApplicationPort;
@@ -166,7 +168,10 @@ impl<S: TxStore> ForgeRuntime<S> {
         )?;
         Ok(rows
             .into_iter()
-            .find(|i| i.subject_type.as_deref() == Some("story") && i.subject_id.as_deref() == Some(story_id))
+            .find(|i| {
+                i.subject_type.as_deref() == Some("story")
+                    && i.subject_id.as_deref() == Some(story_id)
+            })
             .map(|i| i.id))
     }
 
@@ -278,7 +283,12 @@ impl<S: TxStore> ForgeRuntime<S> {
         self.engine.release_task(task_id, worker_id)
     }
 
-    pub fn cancel_instance(&self, instance_id: &str, actor: &str, reason: Option<&str>) -> Result<()> {
+    pub fn cancel_instance(
+        &self,
+        instance_id: &str,
+        actor: &str,
+        reason: Option<&str>,
+    ) -> Result<()> {
         self.engine.cancel_process(workflow::CancelProcessParams {
             process_instance_id: instance_id.into(),
             actor: actor.into(),
@@ -294,11 +304,10 @@ impl<S: TxStore> ForgeRuntime<S> {
         evidence: ForgeGateEvidence,
     ) -> Result<String> {
         let task = self.engine.get_task(task_id)?;
-        let instance = self.engine.get_process_instance(&task.process_instance_id)?;
-        let story_id = instance
-            .subject_id
-            .clone()
-            .unwrap_or_default();
+        let instance = self
+            .engine
+            .get_process_instance(&task.process_instance_id)?;
+        let story_id = instance.subject_id.clone().unwrap_or_default();
         let tokens = self.engine.tokens_for_instance(&instance.id)?;
         let node_id = task.node_id.clone().or_else(|| {
             task.token_id.as_ref().and_then(|id| {
@@ -340,7 +349,9 @@ impl<S: TxStore> ForgeRuntime<S> {
         let events = self.engine.history(&instance_id, 200)?;
         let tasks = self.engine.tasks_for_instance(&instance_id)?;
         let tokens = self.engine.tokens_for_instance(&instance_id)?;
-        let watermark = self.ledger.watermark(crate::engine::neon_sql::RECEIPT_PREFIX);
+        let watermark = self
+            .ledger
+            .watermark(crate::engine::neon_sql::RECEIPT_PREFIX);
         let mut applied = 0;
         for ev in events.into_iter().rev() {
             if ev.event_type != "task.completed" {
@@ -357,20 +368,21 @@ impl<S: TxStore> ForgeRuntime<S> {
             if self.ledger.has_final(&completion_receipt_id(&task_id)) {
                 continue;
             }
-            let form = ev.data.get("formData").cloned().unwrap_or_else(Value::object);
-            let node_id = tasks
-                .iter()
-                .find(|t| t.id == task_id)
-                .and_then(|t| {
-                    t.node_id.clone().or_else(|| {
-                        t.token_id.as_ref().and_then(|id| {
-                            tokens
-                                .iter()
-                                .find(|tk| &tk.id == id)
-                                .map(|tk| tk.node_id.clone())
-                        })
+            let form = ev
+                .data
+                .get("formData")
+                .cloned()
+                .unwrap_or_else(Value::object);
+            let node_id = tasks.iter().find(|t| t.id == task_id).and_then(|t| {
+                t.node_id.clone().or_else(|| {
+                    t.token_id.as_ref().and_then(|id| {
+                        tokens
+                            .iter()
+                            .find(|tk| &tk.id == id)
+                            .map(|tk| tk.node_id.clone())
                     })
-                });
+                })
+            });
             if apply_completion_unit(
                 self.ledger.as_ref(),
                 CompletionRecord {
@@ -390,9 +402,12 @@ impl<S: TxStore> ForgeRuntime<S> {
 
 fn map_role_task(t: Task, tokens: &[workflow::Token]) -> ActiveForgeRoleTask {
     let node_id = t.node_id.clone().or_else(|| {
-        t.token_id
-            .as_ref()
-            .and_then(|id| tokens.iter().find(|tk| &tk.id == id).map(|tk| tk.node_id.clone()))
+        t.token_id.as_ref().and_then(|id| {
+            tokens
+                .iter()
+                .find(|tk| &tk.id == id)
+                .map(|tk| tk.node_id.clone())
+        })
     });
     ActiveForgeRoleTask {
         task_id: t.id,

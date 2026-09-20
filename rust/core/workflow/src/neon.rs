@@ -112,7 +112,8 @@ impl NeonTx<'_> {
     }
 }
 
-const INST_COLS: &str = "id::text AS id, tenant_id::text AS tenant_id, definition_id::text AS definition_id,
+const INST_COLS: &str =
+    "id::text AS id, tenant_id::text AS tenant_id, definition_id::text AS definition_id,
     business_key, status, outcome,
     extract(epoch from started_at)*1000 AS started_at,
     extract(epoch from ended_at)*1000 AS ended_at,
@@ -145,7 +146,8 @@ const JOB_COLS: &str = "id::text AS id, tenant_id::text AS tenant_id,
     extract(epoch from updated_at)*1000 AS updated_at,
     extract(epoch from completed_at)*1000 AS completed_at";
 
-const DEF_COLS: &str = "id::text AS id, tenant_id::text AS tenant_id, key, version, name, description,
+const DEF_COLS: &str =
+    "id::text AS id, tenant_id::text AS tenant_id, key, version, name, description,
     definition::text AS definition, status";
 
 impl Store for NeonTx<'_> {
@@ -923,7 +925,10 @@ impl Store for NeonTx<'_> {
             i += 1;
             let _ = labels;
         }
-        sql.push_str(&format!(" ORDER BY pi.started_at DESC LIMIT ${i} OFFSET ${}", i + 1));
+        sql.push_str(&format!(
+            " ORDER BY pi.started_at DESC LIMIT ${i} OFFSET ${}",
+            i + 1
+        ));
 
         let conn = this.tx.connection();
         let mut q = sqlx::query(&sql);
@@ -937,7 +942,11 @@ impl Store for NeonTx<'_> {
             q = q.bind(b);
         }
         if let Some(ss) = status {
-            let labels: Vec<String> = ss.iter().copied().map(|s| process_status(s).to_string()).collect();
+            let labels: Vec<String> = ss
+                .iter()
+                .copied()
+                .map(|s| process_status(s).to_string())
+                .collect();
             q = q.bind(labels);
         }
         q = q.bind(limit as i64).bind(offset as i64);
@@ -946,7 +955,10 @@ impl Store for NeonTx<'_> {
     }
 }
 
-fn run_exec<'q>(tx: &mut NeonTx<'_>, q: sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>) -> Result<()> {
+fn run_exec<'q>(
+    tx: &mut NeonTx<'_>,
+    q: sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>,
+) -> Result<()> {
     run_exec_n(tx, q).map(|_| ())
 }
 
@@ -1038,7 +1050,10 @@ fn s_f64(row: &PgRow, col: &str) -> i64 {
         .unwrap_or(0.0) as i64
 }
 fn s_opt_f64(row: &PgRow, col: &str) -> Option<i64> {
-    row.try_get::<Option<f64>, _>(col).ok().flatten().map(|n| n as i64)
+    row.try_get::<Option<f64>, _>(col)
+        .ok()
+        .flatten()
+        .map(|n| n as i64)
 }
 fn s_i64(row: &PgRow, col: &str) -> i64 {
     row.try_get::<i64, _>(col).unwrap_or(0)
@@ -1057,7 +1072,9 @@ fn map_instance(row: &PgRow) -> Result<ProcessInstance> {
         definition_id: s_get(row, "definition_id"),
         business_key: s_opt(row, "business_key"),
         status: parse_process_status(&s_get(row, "status")),
-        outcome: s_opt(row, "outcome").as_deref().and_then(parse_process_outcome),
+        outcome: s_opt(row, "outcome")
+            .as_deref()
+            .and_then(parse_process_outcome),
         started_at: s_f64(row, "started_at"),
         ended_at: s_opt_f64(row, "ended_at"),
         started_by: s_opt(row, "started_by"),
@@ -1078,7 +1095,9 @@ fn map_token(row: &PgRow) -> Result<Token> {
         parent_token_id: s_opt(row, "parent_token_id"),
         node_id: s_get(row, "node_id"),
         status: parse_token_status(&s_get(row, "status")),
-        outcome: s_opt(row, "outcome").as_deref().and_then(parse_token_outcome),
+        outcome: s_opt(row, "outcome")
+            .as_deref()
+            .and_then(parse_token_outcome),
         required: row.try_get("required").unwrap_or(true),
         is_able_to_reactivate_parent: row.try_get("is_able_to_reactivate_parent").unwrap_or(true),
         started_at: s_f64(row, "started_at"),
@@ -1098,7 +1117,9 @@ fn map_task(row: &PgRow) -> Result<Task> {
         description: s_opt(row, "description"),
         status: parse_task_status(&s_get(row, "status")),
         assignee: s_opt(row, "assignee"),
-        candidates: row.try_get::<Vec<String>, _>("candidates").unwrap_or_default(),
+        candidates: row
+            .try_get::<Vec<String>, _>("candidates")
+            .unwrap_or_default(),
         swimlane: s_opt(row, "swimlane"),
         priority: row.try_get("priority").unwrap_or(0),
         due_date: s_opt_f64(row, "due_date"),

@@ -135,8 +135,8 @@ impl Parser<'_> {
                     Some(b'r') => s.push('\r'),
                     Some(b't') => s.push('\t'),
                     Some(b'u') => {
-                        let hex = std::str::from_utf8(&self.b[self.i..self.i + 4])
-                            .map_err(|_| "uhex")?;
+                        let hex =
+                            std::str::from_utf8(&self.b[self.i..self.i + 4]).map_err(|_| "uhex")?;
                         self.i += 4;
                         let cp = u32::from_str_radix(hex, 16).map_err(|_| "uhex")?;
                         s.push(char::from_u32(cp).unwrap_or('\u{FFFD}'));
@@ -226,7 +226,10 @@ fn graph_to_value(graph: &ProcessGraph) -> Value {
     }
     let mut m = BTreeMap::new();
     m.insert("nodes".into(), Value::Object(nodes));
-    m.insert("startNodeId".into(), Value::from(graph.start_node_id.as_str()));
+    m.insert(
+        "startNodeId".into(),
+        Value::from(graph.start_node_id.as_str()),
+    );
     if let Some(order) = &graph.display_order {
         m.insert(
             "displayOrder".into(),
@@ -416,7 +419,10 @@ fn node_from_value(v: &Value) -> Result<NodeDefinition, String> {
                     Some(TransitionDefinition {
                         name: to.get("name")?.as_str()?.to_string(),
                         to: to.get("to")?.as_str()?.to_string(),
-                        condition: to.get("condition").and_then(|c| c.as_str()).map(|s| s.to_string()),
+                        condition: to
+                            .get("condition")
+                            .and_then(|c| c.as_str())
+                            .map(|s| s.to_string()),
                         required: to.get("required").and_then(|c| match c {
                             Value::Bool(b) => Some(*b),
                             _ => None,
@@ -450,7 +456,10 @@ fn node_from_value(v: &Value) -> Result<NodeDefinition, String> {
     }
     if let Some(Value::Object(tm)) = o.get("timer") {
         node.timer = Some(TimerSpec {
-            due_at: tm.get("dueAt").and_then(|x| x.as_str()).map(|s| s.to_string()),
+            due_at: tm
+                .get("dueAt")
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string()),
             due_at_variable: tm
                 .get("dueAtVariable")
                 .and_then(|x| x.as_str())
@@ -504,6 +513,9 @@ mod tests {
         let back = graph_from_json(&raw).unwrap();
         assert_eq!(back.start_node_id, "start");
         assert_eq!(back.nodes["start"].node_type, "start");
-        assert_eq!(back.nodes["start"].transitions.as_ref().unwrap()[0].to, "end");
+        assert_eq!(
+            back.nodes["start"].transitions.as_ref().unwrap()[0].to,
+            "end"
+        );
     }
 }

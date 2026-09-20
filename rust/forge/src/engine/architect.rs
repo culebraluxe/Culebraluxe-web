@@ -65,7 +65,10 @@ fn extract_object(text: &str) -> Option<String> {
 
 fn parse_findings_block(slice: &str) -> Option<ArchitectHandoff> {
     // Minimal: require version/baseRef/findings tokens present; extract findings via id+summary pairs.
-    if !slice.contains("\"version\"") || !slice.contains("\"baseRef\"") || !slice.contains("\"findings\"") {
+    if !slice.contains("\"version\"")
+        || !slice.contains("\"baseRef\"")
+        || !slice.contains("\"findings\"")
+    {
         return None;
     }
     let version_ok = slice.contains("\"version\":1") || slice.contains("\"version\": 1");

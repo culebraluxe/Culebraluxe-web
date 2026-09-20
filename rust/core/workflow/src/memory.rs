@@ -47,7 +47,6 @@ impl MemoryStore {
             }
         }
     }
-
 }
 
 pub struct MemoryTx<'a> {
@@ -60,7 +59,6 @@ impl MemoryTx<'_> {
         format!("{prefix}-{}", self.inner.next_seq)
     }
 }
-
 
 impl crate::store::TxStore for MemoryStore {
     fn with_tx<R, F>(&self, f: F) -> Result<R>
@@ -120,9 +118,7 @@ impl Store for MemoryTx<'_> {
     fn insert_instance(&mut self, inst: ProcessInstance) -> Result<ProcessInstance> {
         if inst.status == ProcessStatus::Active {
             if let (Some(st), Some(sid)) = (&inst.subject_type, &inst.subject_id) {
-                if let Some(existing) =
-                    self.find_active_by_subject(&inst.definition_id, st, sid)?
-                {
+                if let Some(existing) = self.find_active_by_subject(&inst.definition_id, st, sid)? {
                     return Err(WorkflowError::conflict(
                         "INSTANCE_ALREADY_ACTIVE",
                         format!(
@@ -233,12 +229,7 @@ impl Store for MemoryTx<'_> {
         Ok(true)
     }
 
-    fn complete_token(
-        &mut self,
-        id: &str,
-        outcome: TokenOutcome,
-        ended_at: i64,
-    ) -> Result<()> {
+    fn complete_token(&mut self, id: &str, outcome: TokenOutcome, ended_at: i64) -> Result<()> {
         let token = self
             .inner
             .tokens
@@ -405,7 +396,8 @@ impl Store for MemoryTx<'_> {
             .values()
             .filter(|t| {
                 t.status.is_actionable()
-                    && (t.assignee.as_deref() == Some(user_id) || t.candidates.iter().any(|c| c == user_id))
+                    && (t.assignee.as_deref() == Some(user_id)
+                        || t.candidates.iter().any(|c| c == user_id))
                     && match tenant_id {
                         Some(tid) => t.tenant_id.as_deref() == Some(tid),
                         None => true,
@@ -461,7 +453,9 @@ impl Store for MemoryTx<'_> {
             .inner
             .jobs
             .values()
-            .filter(|j| j.status == JobStatus::Pending && j.due_at <= now && j.attempts < j.max_attempts)
+            .filter(|j| {
+                j.status == JobStatus::Pending && j.due_at <= now && j.attempts < j.max_attempts
+            })
             .cloned()
             .collect();
         due.sort_by_key(|j| j.due_at);
@@ -623,7 +617,9 @@ impl Store for MemoryTx<'_> {
             .instances
             .values()
             .filter(|i| {
-                tenant_id.map(|t| i.tenant_id.as_deref() == Some(t)).unwrap_or(true)
+                tenant_id
+                    .map(|t| i.tenant_id.as_deref() == Some(t))
+                    .unwrap_or(true)
                     && status
                         .map(|ss| ss.iter().any(|s| *s == i.status))
                         .unwrap_or(true)

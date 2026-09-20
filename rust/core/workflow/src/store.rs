@@ -44,12 +44,7 @@ pub trait Store {
     fn get_token(&self, id: &str) -> Result<Token>;
     fn lock_token(&mut self, id: &str) -> Result<Token>;
     fn move_token(&mut self, id: &str, expected_version: i32, to_node: &str) -> Result<bool>;
-    fn complete_token(
-        &mut self,
-        id: &str,
-        outcome: TokenOutcome,
-        ended_at: i64,
-    ) -> Result<()>;
+    fn complete_token(&mut self, id: &str, outcome: TokenOutcome, ended_at: i64) -> Result<()>;
     fn count_active_tokens(&self, instance_id: &str) -> Result<i32>;
     fn list_active_tokens(&self, instance_id: &str) -> Result<Vec<Token>>;
     fn count_required_active_siblings(&self, parent_id: &str) -> Result<i32>;
@@ -71,8 +66,19 @@ pub trait Store {
     fn get_job(&self, id: &str) -> Result<Job>;
     fn lock_job(&mut self, id: &str) -> Result<Job>;
     fn update_job(&mut self, job: &Job) -> Result<()>;
-    fn claim_due_jobs(&mut self, worker_id: &str, now: i64, lease_until: i64, limit: usize) -> Result<Vec<Job>>;
-    fn reclaim_stale_jobs(&mut self, now: i64, batch: usize, instance_id: Option<&str>) -> Result<usize>;
+    fn claim_due_jobs(
+        &mut self,
+        worker_id: &str,
+        now: i64,
+        lease_until: i64,
+        limit: usize,
+    ) -> Result<Vec<Job>>;
+    fn reclaim_stale_jobs(
+        &mut self,
+        now: i64,
+        batch: usize,
+        instance_id: Option<&str>,
+    ) -> Result<usize>;
     fn open_jobs_for_instance(&self, instance_id: &str) -> Result<Vec<Job>>;
     fn open_jobs_for_token(&self, token_id: &str) -> Result<Vec<Job>>;
     fn list_overdue_jobs(&self, now: i64, limit: usize) -> Result<Vec<Job>>;

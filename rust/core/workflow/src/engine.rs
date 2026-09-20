@@ -69,9 +69,7 @@ impl<S: TxStore> WorkflowEngine<S> {
             let subject_type = params.subject.as_ref().map(|s| s.subject_type.clone());
             let subject_id = params.subject.as_ref().map(|s| s.subject_id.clone());
             if let (Some(st), Some(sid)) = (&subject_type, &subject_id) {
-                if let Some(existing) =
-                    tx.find_active_by_subject(&definition.id, st, sid)?
-                {
+                if let Some(existing) = tx.find_active_by_subject(&definition.id, st, sid)? {
                     return Err(WorkflowError::conflict(
                         "INSTANCE_ALREADY_ACTIVE",
                         format!(
@@ -466,7 +464,12 @@ impl<S: TxStore> WorkflowEngine<S> {
             let definition = tx.definition_by_id(&instance.definition_id)?;
             let graph = definition.definition;
             let mut current = instance.variables.clone();
-            if params.variables.as_object().map(|o| !o.is_empty()).unwrap_or(false) {
+            if params
+                .variables
+                .as_object()
+                .map(|o| !o.is_empty())
+                .unwrap_or(false)
+            {
                 merge_json(&mut current, &params.variables);
                 tx.update_instance_variables(&instance.id, current.clone())?;
                 instance.variables = current.clone();
@@ -508,7 +511,10 @@ impl<S: TxStore> WorkflowEngine<S> {
             if job.status != JobStatus::Locked {
                 return Err(WorkflowError::conflict(
                     "TIMER_NOT_LOCKED",
-                    format!("Timer job {} is not locked (status={:?})", params.job_id, job.status),
+                    format!(
+                        "Timer job {} is not locked (status={:?})",
+                        params.job_id, job.status
+                    ),
                 ));
             }
             if job.locked_by.as_deref() != Some(&params.worker_id) {
@@ -547,7 +553,12 @@ impl<S: TxStore> WorkflowEngine<S> {
                                 .cloned()
                                 .ok_or_else(|| WorkflowError::generic("timer node missing"))?;
                             let mut current = inst.variables.clone();
-                            if params.variables.as_object().map(|o| !o.is_empty()).unwrap_or(false) {
+                            if params
+                                .variables
+                                .as_object()
+                                .map(|o| !o.is_empty())
+                                .unwrap_or(false)
+                            {
                                 merge_json(&mut current, &params.variables);
                                 tx.update_instance_variables(&inst.id, current.clone())?;
                                 inst.variables = current.clone();
@@ -576,7 +587,13 @@ impl<S: TxStore> WorkflowEngine<S> {
                                         token.node_id
                                     ))
                                 })?;
-                            self.move_token(tx, &token, &transition.to, &transition.name, &params.worker_id)?;
+                            self.move_token(
+                                tx,
+                                &token,
+                                &transition.to,
+                                &transition.name,
+                                &params.worker_id,
+                            )?;
                             let fresh = tx.get_token(&token.id)?;
                             self.arrive_at_node(
                                 tx,
@@ -612,7 +629,9 @@ impl<S: TxStore> WorkflowEngine<S> {
     }
 
     pub fn run_due_jobs(&self, worker_id: &str, batch: usize) -> Result<DueJobReport> {
-        let reclaimed = self.store.with_tx(|tx| tx.reclaim_stale_jobs(self.now(), batch, None))?;
+        let reclaimed = self
+            .store
+            .with_tx(|tx| tx.reclaim_stale_jobs(self.now(), batch, None))?;
         let jobs = self.claim_jobs(worker_id, batch)?;
         let mut report = DueJobReport {
             reclaimed,
@@ -630,14 +649,25 @@ impl<S: TxStore> WorkflowEngine<S> {
                     Err(_) => report.failed += 1,
                 }
             } else {
-                let _ = self.fail_job(&job.id, worker_id, &format!("no executor registered for job type '{}'", job.job_type), false);
+                let _ = self.fail_job(
+                    &job.id,
+                    worker_id,
+                    &format!("no executor registered for job type '{}'", job.job_type),
+                    false,
+                );
                 report.failed += 1;
             }
         }
         Ok(report)
     }
 
-    pub fn fail_job(&self, job_id: &str, worker_id: &str, error: &str, permanent: bool) -> Result<()> {
+    pub fn fail_job(
+        &self,
+        job_id: &str,
+        worker_id: &str,
+        error: &str,
+        permanent: bool,
+    ) -> Result<()> {
         self.store.with_tx(|tx| {
             let job = tx.lock_job(job_id)?;
             if job.locked_by.as_deref() != Some(worker_id) {
@@ -727,7 +757,10 @@ impl<S: TxStore> WorkflowEngine<S> {
             if job.status.is_settled() {
                 return Err(WorkflowError::conflict(
                     "JOB_SETTLED",
-                    format!("Job {job_id} cannot be rescheduled in status {:?}", job.status),
+                    format!(
+                        "Job {job_id} cannot be rescheduled in status {:?}",
+                        job.status
+                    ),
                 ));
             }
             job.status = JobStatus::Pending;
@@ -788,7 +821,14 @@ impl<S: TxStore> WorkflowEngine<S> {
         offset: usize,
     ) -> Result<Vec<ProcessInstance>> {
         self.store.with_tx(|tx| {
-            tx.find_instances(tenant_id, status, definition_key, business_key, limit, offset)
+            tx.find_instances(
+                tenant_id,
+                status,
+                definition_key,
+                business_key,
+                limit,
+                offset,
+            )
         })
     }
 
@@ -837,7 +877,11 @@ impl<S: TxStore> WorkflowEngine<S> {
             .get(&token.node_id)
             .ok_or_else(|| WorkflowError::generic(format!("Node {} not found", token.node_id)))?;
 
-        let no_transitions = node.transitions.as_ref().map(|t| t.is_empty()).unwrap_or(true);
+        let no_transitions = node
+            .transitions
+            .as_ref()
+            .map(|t| t.is_empty())
+            .unwrap_or(true);
         if node.node_type == "end"
             || (no_transitions
                 && node.node_type != "timer"
@@ -1291,7 +1335,12 @@ impl<S: TxStore> WorkflowEngine<S> {
                 break;
             }
             self.arrive_at_node(tx, child, instance, graph, actor, None, variables)?;
-            if graph.nodes.get(&branch_target).map(|n| n.node_type.as_str()) == Some("task") {
+            if graph
+                .nodes
+                .get(&branch_target)
+                .map(|n| n.node_type.as_str())
+                == Some("task")
+            {
                 let plan = node
                     .plan_variable
                     .as_ref()
@@ -1340,7 +1389,8 @@ impl<S: TxStore> WorkflowEngine<S> {
                     version: 1,
                 };
                 let new_token = tx.insert_token(new_token)?;
-                return self.arrive_at_node(tx, &new_token, instance, graph, actor, None, variables);
+                return self
+                    .arrive_at_node(tx, &new_token, instance, graph, actor, None, variables);
             }
             return Ok(());
         };
@@ -1401,7 +1451,11 @@ impl<S: TxStore> WorkflowEngine<S> {
             }
         }
 
-        let branch_ids: Vec<_> = tx.list_children(&parent_id)?.into_iter().map(|t| t.id).collect();
+        let branch_ids: Vec<_> = tx
+            .list_children(&parent_id)?
+            .into_iter()
+            .map(|t| t.id)
+            .collect();
         let Some(transition) = node.transitions.as_ref().and_then(|ts| ts.first()).cloned() else {
             return self.check_process_completion(tx, &instance.id, actor);
         };
@@ -1575,10 +1629,11 @@ impl<S: TxStore> WorkflowEngine<S> {
             } else {
                 variables.clone()
             };
-            let transition_name = node
-                .transition
-                .clone()
-                .or_else(|| node.transitions.as_ref().and_then(|ts| ts.first().map(|t| t.name.clone())));
+            let transition_name = node.transition.clone().or_else(|| {
+                node.transitions
+                    .as_ref()
+                    .and_then(|ts| ts.first().map(|t| t.name.clone()))
+            });
             let transition = node
                 .transitions
                 .as_ref()
@@ -1618,13 +1673,7 @@ impl<S: TxStore> WorkflowEngine<S> {
         } else {
             ProcessOutcome::Failed
         };
-        self.terminate_process(
-            tx,
-            &instance.id,
-            actor,
-            outcome,
-            result.message.as_deref(),
-        )
+        self.terminate_process(tx, &instance.id, actor, outcome, result.message.as_deref())
     }
 
     fn refresh_facts(
@@ -1680,7 +1729,9 @@ struct EventInput {
 }
 
 pub fn command_id(process_instance_id: &str, node_id: &str, visit_sequence: i32) -> String {
-    crate::sha256::sha256_hex(format!("{process_instance_id}:{node_id}:{visit_sequence}").as_bytes())
+    crate::sha256::sha256_hex(
+        format!("{process_instance_id}:{node_id}:{visit_sequence}").as_bytes(),
+    )
 }
 
 /// Resolve command `inputMappings`.
@@ -1715,4 +1766,3 @@ fn token_outcome_for_end(end: ProcessOutcome) -> TokenOutcome {
         ProcessOutcome::Failed | ProcessOutcome::Conflict => TokenOutcome::Failed,
     }
 }
-

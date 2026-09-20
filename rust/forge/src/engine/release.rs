@@ -18,26 +18,42 @@ pub struct ForgeOperationResult {
 }
 
 pub trait ForgeReleaseOperations: Send + Sync {
-    fn apply_migrations(&self, target: &str, files: &[String], command_id: &str) -> ForgeOperationResult;
+    fn apply_migrations(
+        &self,
+        target: &str,
+        files: &[String],
+        command_id: &str,
+    ) -> ForgeOperationResult;
     fn verify_migrations(&self, target: &str, files: &[String]) -> ForgeOperationResult;
     fn refresh_derived(&self, models: &[String], command_id: &str) -> ForgeOperationResult;
     fn verify_derived(&self, models: &[String], attempt_command_id: &str) -> ForgeOperationResult;
-    fn publish(
-        &self,
-        candidate_sha: Option<&str>,
-        frozen_proofs: &[String],
-    ) -> PublishOutcome;
+    fn publish(&self, candidate_sha: Option<&str>, frozen_proofs: &[String]) -> PublishOutcome;
 }
 
 #[derive(Debug, Clone)]
 pub enum PublishOutcome {
-    Published { published_main_hash: String },
-    IntegratedAndPublished { published_main_hash: String },
-    NoCandidate { reason: String },
-    IntegrationUnverified { integrated_commit: String, reason: String },
-    IntegrationConflict { reason: String },
-    CandidateSecret { reason: String },
-    PublishConflict { reason: String },
+    Published {
+        published_main_hash: String,
+    },
+    IntegratedAndPublished {
+        published_main_hash: String,
+    },
+    NoCandidate {
+        reason: String,
+    },
+    IntegrationUnverified {
+        integrated_commit: String,
+        reason: String,
+    },
+    IntegrationConflict {
+        reason: String,
+    },
+    CandidateSecret {
+        reason: String,
+    },
+    PublishConflict {
+        reason: String,
+    },
 }
 
 pub trait EvidenceStore: Send + Sync {
@@ -94,9 +110,14 @@ impl<O: ForgeReleaseOperations, E: EvidenceStore> DbForgeReleaseExecutor<O, E> {
         let result = if verify {
             self.operations.verify_migrations(target, &files)
         } else {
-            self.operations.apply_migrations(target, &files, &env.command_id)
+            self.operations
+                .apply_migrations(target, &files, &env.command_id)
         };
-        let stage = if target == "dev" { "DEV_MIGRATION" } else { "PROD_MIGRATION" };
+        let stage = if target == "dev" {
+            "DEV_MIGRATION"
+        } else {
+            "PROD_MIGRATION"
+        };
         let mut patch = ForgeGateEvidence::default();
         match (target, verify) {
             ("dev", true) => patch.dev_migration_verified = Some(result.success),
@@ -108,7 +129,8 @@ impl<O: ForgeReleaseOperations, E: EvidenceStore> DbForgeReleaseExecutor<O, E> {
             patch.failure_class = Some("MIGRATION".into());
             patch.failed_release_stage = Some(stage.into());
         }
-        self.evidence.merge(&env.process_instance_id, &env.story_id, patch);
+        self.evidence
+            .merge(&env.process_instance_id, &env.story_id, patch);
         ApplicationCommandResult {
             command_id: env.command_id.clone(),
             outcome: ApplicationCommandOutcome::Success,
@@ -142,7 +164,8 @@ impl<O: ForgeReleaseOperations, E: EvidenceStore> DbForgeReleaseExecutor<O, E> {
             patch.failure_class = Some("ENVIRONMENT".into());
             patch.failed_release_stage = Some("DERIVED_REFRESH".into());
         }
-        self.evidence.merge(&env.process_instance_id, &env.story_id, patch);
+        self.evidence
+            .merge(&env.process_instance_id, &env.story_id, patch);
         ApplicationCommandResult {
             command_id: env.command_id.clone(),
             outcome: ApplicationCommandOutcome::Success,
@@ -150,7 +173,11 @@ impl<O: ForgeReleaseOperations, E: EvidenceStore> DbForgeReleaseExecutor<O, E> {
         }
     }
 
-    fn publish(&self, env: &ForgeCommandEnvelope, evidence: &ForgeGateEvidence) -> ApplicationCommandResult {
+    fn publish(
+        &self,
+        env: &ForgeCommandEnvelope,
+        evidence: &ForgeGateEvidence,
+    ) -> ApplicationCommandResult {
         if let Some(err) = forge_lineage_error(evidence, "qa") {
             let mut patch = ForgeGateEvidence::default();
             patch.publish_succeeded = Some(false);
@@ -170,8 +197,12 @@ impl<O: ForgeReleaseOperations, E: EvidenceStore> DbForgeReleaseExecutor<O, E> {
             .publish(evidence.candidate_sha.as_deref(), &proofs);
         let mut patch = ForgeGateEvidence::default();
         let message = match outcome {
-            PublishOutcome::Published { published_main_hash }
-            | PublishOutcome::IntegratedAndPublished { published_main_hash } => {
+            PublishOutcome::Published {
+                published_main_hash,
+            }
+            | PublishOutcome::IntegratedAndPublished {
+                published_main_hash,
+            } => {
                 patch.publish_succeeded = Some(true);
                 patch.published_sha = Some(published_main_hash.clone());
                 format!("published {published_main_hash}")
@@ -189,7 +220,9 @@ impl<O: ForgeReleaseOperations, E: EvidenceStore> DbForgeReleaseExecutor<O, E> {
                     PublishOutcome::IntegrationUnverified {
                         integrated_commit,
                         reason,
-                    } => format!("integration produced {integrated_commit} but it did not verify: {reason}"),
+                    } => format!(
+                        "integration produced {integrated_commit} but it did not verify: {reason}"
+                    ),
                     PublishOutcome::IntegrationConflict { reason } => reason,
                     PublishOutcome::PublishConflict { reason } => reason,
                     _ => unreachable!(),

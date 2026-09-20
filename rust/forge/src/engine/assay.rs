@@ -25,7 +25,11 @@ pub struct AssayReport {
     pub blockers: Vec<&'static str>,
 }
 
-pub fn adjudicate_assay(commands: &[String], results: &[CommandResult], acceptance_mapped: bool) -> AssayReport {
+pub fn adjudicate_assay(
+    commands: &[String],
+    results: &[CommandResult],
+    acceptance_mapped: bool,
+) -> AssayReport {
     if commands.is_empty() {
         return AssayReport {
             verdict: AssayVerdict::Fail,

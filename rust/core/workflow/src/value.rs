@@ -119,7 +119,6 @@ pub fn obj<const N: usize>(pairs: [(&str, Value); N]) -> Value {
     Value::Object(m)
 }
 
-
 impl From<Option<String>> for Value {
     fn from(v: Option<String>) -> Self {
         match v {
@@ -130,11 +129,15 @@ impl From<Option<String>> for Value {
 }
 
 impl From<&String> for Value {
-    fn from(v: &String) -> Self { Value::String(v.clone()) }
+    fn from(v: &String) -> Self {
+        Value::String(v.clone())
+    }
 }
 
 impl From<&Option<String>> for Value {
-    fn from(v: &Option<String>) -> Self { Value::from(v.clone()) }
+    fn from(v: &Option<String>) -> Self {
+        Value::from(v.clone())
+    }
 }
 
 #[macro_export]
@@ -159,5 +162,7 @@ impl From<Vec<String>> for Value {
     }
 }
 impl From<usize> for Value {
-    fn from(v: usize) -> Self { Value::Number(v as f64) }
+    fn from(v: usize) -> Self {
+        Value::Number(v as f64)
+    }
 }

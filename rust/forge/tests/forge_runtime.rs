@@ -1,9 +1,7 @@
 use std::sync::Arc;
 
 use forge::engine::*;
-use workflow::{
-    json, ApplicationCommandOutcome, ApplicationCommandRequest, ProcessStatus, Value,
-};
+use workflow::{json, ApplicationCommandOutcome, ApplicationCommandRequest, ProcessStatus, Value};
 
 fn runtime() -> (ForgeRuntime, Arc<RecordingWriter>) {
     let writer = Arc::new(RecordingWriter::default());
@@ -78,7 +76,10 @@ fn hold_command_writes() {
         input: json!({ "storyId": "s1", "reason": "blocked" }),
     });
     assert_eq!(res.outcome, ApplicationCommandOutcome::Success);
-    assert_eq!(writer.holds.lock().unwrap().as_slice(), &[("s1".into(), "blocked".into())]);
+    assert_eq!(
+        writer.holds.lock().unwrap().as_slice(),
+        &[("s1".into(), "blocked".into())]
+    );
 }
 
 #[test]
@@ -123,7 +124,12 @@ fn lead_then_smith_advances() {
     let task = &rt.list_role_tasks("story-1").unwrap()[0];
     rt.claim_role_task(&task.task_id, "lead").unwrap();
     let receipt = rt
-        .complete_role_task(&task.task_id, "lead", Some("smith"), ForgeGateEvidence::default())
+        .complete_role_task(
+            &task.task_id,
+            "lead",
+            Some("smith"),
+            ForgeGateEvidence::default(),
+        )
         .unwrap();
     assert_eq!(receipt, completion_receipt_id(&task.task_id));
     let tasks = rt.list_role_tasks("story-1").unwrap();
@@ -162,7 +168,10 @@ fn pending_evidence_wins_over_durable() {
     };
     let merged = pending.merge_over(&durable);
     let facts = merged.to_facts();
-    assert_eq!(facts.get("candidateSha").and_then(Value::as_str), Some("new"));
+    assert_eq!(
+        facts.get("candidateSha").and_then(Value::as_str),
+        Some("new")
+    );
     assert_eq!(facts.get("qaPassed"), Some(&Value::from(true)));
 }
 
@@ -225,7 +234,10 @@ fn start_marks_story_in_progress() {
         },
     )
     .unwrap();
-    assert_eq!(writer.in_progress.lock().unwrap().as_slice(), &["story-1".to_string()]);
+    assert_eq!(
+        writer.in_progress.lock().unwrap().as_slice(),
+        &["story-1".to_string()]
+    );
 }
 
 #[test]
@@ -258,7 +270,11 @@ fn completion_unit_is_exactly_once() {
     .unwrap();
     assert!(ledger.has_final(&completion_receipt_id(&task.task_id)));
     assert_eq!(
-        ledger.evidence_for("story-1").unwrap().candidate_sha.as_deref(),
+        ledger
+            .evidence_for("story-1")
+            .unwrap()
+            .candidate_sha
+            .as_deref(),
         Some("abc")
     );
     assert_eq!(rt.reconcile_completions("story-1").unwrap(), 0);
@@ -307,13 +323,23 @@ fn advance_to_qa(rt: &ForgeRuntime) {
     rt.start_story("story-1", "FEATURE", ev).unwrap();
     let t = rt.list_role_tasks("story-1").unwrap()[0].clone();
     rt.claim_role_task(&t.task_id, "lead").unwrap();
-    rt.complete_role_task(&t.task_id, "lead", Some("solo"), ForgeGateEvidence::default())
-        .unwrap();
+    rt.complete_role_task(
+        &t.task_id,
+        "lead",
+        Some("solo"),
+        ForgeGateEvidence::default(),
+    )
+    .unwrap();
     let t = rt.list_role_tasks("story-1").unwrap()[0].clone();
     assert_eq!(t.node_id.as_deref(), Some("lead_implement"));
     rt.claim_role_task(&t.task_id, "lead").unwrap();
-    rt.complete_role_task(&t.task_id, "lead", Some("complete"), ForgeGateEvidence::default())
-        .unwrap();
+    rt.complete_role_task(
+        &t.task_id,
+        "lead",
+        Some("complete"),
+        ForgeGateEvidence::default(),
+    )
+    .unwrap();
     let t = rt.list_role_tasks("story-1").unwrap()[0].clone();
     assert_eq!(t.node_id.as_deref(), Some("qa_result"));
 }

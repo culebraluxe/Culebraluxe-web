@@ -1,18 +1,15 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use workflow::{
-    ApplicationCommandOutcome, ApplicationCommandRequest, ApplicationCommandResult,
-};
+use workflow::{ApplicationCommandOutcome, ApplicationCommandRequest, ApplicationCommandResult};
 
 use crate::engine::commands;
 use crate::engine::writer::{
     cmd_result, optional_string, required_string, ForgeReleaseExecutor, ForgeStateWriter,
 };
 
-pub type Handler = Box<
-    dyn Fn(&ApplicationCommandRequest) -> ApplicationCommandResult + Send + Sync,
->;
+pub type Handler =
+    Box<dyn Fn(&ApplicationCommandRequest) -> ApplicationCommandResult + Send + Sync>;
 
 pub struct ForgeCommandRegistry {
     handlers: BTreeMap<String, Handler>,
@@ -30,13 +27,25 @@ impl ForgeCommandRegistry {
             handlers.insert(
                 commands::STORY_MARK_HOLD.into(),
                 Box::new(move |req| match required_string(&req.input, "storyId") {
-                    Err(m) => cmd_result(&req.command_id, ApplicationCommandOutcome::ValidationFailure, Some(m)),
+                    Err(m) => cmd_result(
+                        &req.command_id,
+                        ApplicationCommandOutcome::ValidationFailure,
+                        Some(m),
+                    ),
                     Ok(id) => {
                         let reason = optional_string(&req.input, "reason")
                             .unwrap_or_else(|| "Forge engine hold command".into());
                         match w.mark_story_human_hold(&id, &reason) {
-                            Ok(()) => cmd_result(&req.command_id, ApplicationCommandOutcome::Success, None),
-                            Err(m) => cmd_result(&req.command_id, ApplicationCommandOutcome::PreconditionFailure, Some(m)),
+                            Ok(()) => cmd_result(
+                                &req.command_id,
+                                ApplicationCommandOutcome::Success,
+                                None,
+                            ),
+                            Err(m) => cmd_result(
+                                &req.command_id,
+                                ApplicationCommandOutcome::PreconditionFailure,
+                                Some(m),
+                            ),
                         }
                     }
                 }),
@@ -47,10 +56,20 @@ impl ForgeCommandRegistry {
             handlers.insert(
                 commands::STORY_MARK_COMPLETE.into(),
                 Box::new(move |req| match required_string(&req.input, "storyId") {
-                    Err(m) => cmd_result(&req.command_id, ApplicationCommandOutcome::ValidationFailure, Some(m)),
+                    Err(m) => cmd_result(
+                        &req.command_id,
+                        ApplicationCommandOutcome::ValidationFailure,
+                        Some(m),
+                    ),
                     Ok(id) => match w.mark_story_complete(&id) {
-                        Ok(()) => cmd_result(&req.command_id, ApplicationCommandOutcome::Success, None),
-                        Err(m) => cmd_result(&req.command_id, ApplicationCommandOutcome::PreconditionFailure, Some(m)),
+                        Ok(()) => {
+                            cmd_result(&req.command_id, ApplicationCommandOutcome::Success, None)
+                        }
+                        Err(m) => cmd_result(
+                            &req.command_id,
+                            ApplicationCommandOutcome::PreconditionFailure,
+                            Some(m),
+                        ),
                     },
                 }),
             );
@@ -60,10 +79,20 @@ impl ForgeCommandRegistry {
             handlers.insert(
                 commands::STORY_MARK_IN_PROGRESS.into(),
                 Box::new(move |req| match required_string(&req.input, "storyId") {
-                    Err(m) => cmd_result(&req.command_id, ApplicationCommandOutcome::ValidationFailure, Some(m)),
+                    Err(m) => cmd_result(
+                        &req.command_id,
+                        ApplicationCommandOutcome::ValidationFailure,
+                        Some(m),
+                    ),
                     Ok(id) => match w.mark_story_in_progress(&id) {
-                        Ok(()) => cmd_result(&req.command_id, ApplicationCommandOutcome::Success, None),
-                        Err(m) => cmd_result(&req.command_id, ApplicationCommandOutcome::PreconditionFailure, Some(m)),
+                        Ok(()) => {
+                            cmd_result(&req.command_id, ApplicationCommandOutcome::Success, None)
+                        }
+                        Err(m) => cmd_result(
+                            &req.command_id,
+                            ApplicationCommandOutcome::PreconditionFailure,
+                            Some(m),
+                        ),
                     },
                 }),
             );
@@ -77,12 +106,22 @@ impl ForgeCommandRegistry {
                     let detail = required_string(&req.input, "detail");
                     match (run_id, detail) {
                         (Ok(r), Ok(d)) => match w.append_run_detail(&r, &d) {
-                            Ok(()) => cmd_result(&req.command_id, ApplicationCommandOutcome::Success, None),
-                            Err(m) => cmd_result(&req.command_id, ApplicationCommandOutcome::PreconditionFailure, Some(m)),
+                            Ok(()) => cmd_result(
+                                &req.command_id,
+                                ApplicationCommandOutcome::Success,
+                                None,
+                            ),
+                            Err(m) => cmd_result(
+                                &req.command_id,
+                                ApplicationCommandOutcome::PreconditionFailure,
+                                Some(m),
+                            ),
                         },
-                        (Err(m), _) | (_, Err(m)) => {
-                            cmd_result(&req.command_id, ApplicationCommandOutcome::ValidationFailure, Some(m))
-                        }
+                        (Err(m), _) | (_, Err(m)) => cmd_result(
+                            &req.command_id,
+                            ApplicationCommandOutcome::ValidationFailure,
+                            Some(m),
+                        ),
                     }
                 }),
             );
@@ -102,7 +141,9 @@ impl ForgeCommandRegistry {
                         None => cmd_result(
                             &req.command_id,
                             ApplicationCommandOutcome::PreconditionFailure,
-                            Some(format!("{name} requires a configured real Forge release executor")),
+                            Some(format!(
+                                "{name} requires a configured real Forge release executor"
+                            )),
                         ),
                     }),
                 );

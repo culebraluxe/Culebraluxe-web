@@ -64,7 +64,10 @@ pub fn topology_from_graph(key: &str, version: i32, graph: &ProcessGraph) -> For
 pub fn structural_problems(t: &ForgeSdlcTopology) -> Vec<String> {
     let mut problems = Vec::new();
     if t.key != FORGE_SDLC_KEY {
-        problems.push(format!("FORGE_SDLC key is '{}', expected '{FORGE_SDLC_KEY}'", t.key));
+        problems.push(format!(
+            "FORGE_SDLC key is '{}', expected '{FORGE_SDLC_KEY}'",
+            t.key
+        ));
     }
     if t.version != FORGE_SDLC_VERSION {
         problems.push(format!(
@@ -72,7 +75,13 @@ pub fn structural_problems(t: &ForgeSdlcTopology) -> Vec<String> {
             t.version
         ));
     }
-    for id in ["start", "classify_work", "execution_shape", "qa_result", "hold"] {
+    for id in [
+        "start",
+        "classify_work",
+        "execution_shape",
+        "qa_result",
+        "hold",
+    ] {
         if !t.node_ids.contains(id) {
             problems.push(format!("required superset node '{id}' missing"));
         }
@@ -84,9 +93,13 @@ pub fn structural_problems(t: &ForgeSdlcTopology) -> Vec<String> {
     }
     match &t.dynamic_fork_id {
         Some(id) if t.tasks.contains_key(id) => {
-            problems.push(format!("dynamic-fork '{id}' must not be a task/command node"));
+            problems.push(format!(
+                "dynamic-fork '{id}' must not be a task/command node"
+            ));
         }
-        None => problems.push("FORGE_SDLC must declare a dynamic SPLIT fork (split_dispatch)".into()),
+        None => {
+            problems.push("FORGE_SDLC must declare a dynamic SPLIT fork (split_dispatch)".into())
+        }
         _ => {}
     }
     for task in t.tasks.values() {

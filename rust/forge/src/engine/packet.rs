@@ -64,11 +64,20 @@ pub struct ExecutionWorkspace {
     pub base_commit: String,
 }
 
-pub fn build_task_text(node_id: &str, task_id: &str, packet: &StoryPacket, workspace: Option<&ExecutionWorkspace>) -> String {
+pub fn build_task_text(
+    node_id: &str,
+    task_id: &str,
+    packet: &StoryPacket,
+    workspace: Option<&ExecutionWorkspace>,
+) -> String {
     let mut parts = Vec::new();
     parts.push(format!(
         "Execute SDLC story {}: {}.",
-        if packet.id.is_empty() { task_id } else { &packet.id },
+        if packet.id.is_empty() {
+            task_id
+        } else {
+            &packet.id
+        },
         if packet.title.is_empty() {
             node_id
         } else {

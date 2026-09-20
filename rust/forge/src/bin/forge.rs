@@ -1,6 +1,7 @@
 //! Cutover host. Engine + Forge + OpenCode.
 //! NeonStore when APP_ENV / VERCEL_ENV is set. MemoryStore only for local dry-run.
 
+use forge::engine::db_writer::DbForgeStateWriter;
 use forge::engine::definition::forge_sdlc_definition;
 use forge::engine::executor::{drive_forge_story, DriveForgeStoryOptions};
 use forge::engine::facts::ForgeGateEvidence;
@@ -10,7 +11,6 @@ use forge::engine::packet::StoryPacket;
 use forge::engine::runner::ProductionRoleRunner;
 use forge::engine::runtime::ForgeRuntime;
 use forge::engine::vendor_session::database_url;
-use forge::engine::db_writer::DbForgeStateWriter;
 use forge::engine::writer::{ForgeReleaseExecutor, ForgeStateWriter, NullWriter};
 use std::env;
 use std::sync::Arc;
@@ -75,7 +75,14 @@ fn main() {
         }
     } else {
         eprintln!("workflow store=memory (APP_ENV unset)");
-        drive(MemoryStore::new(), release, writer.clone(), &harness, &story, &work_type)
+        drive(
+            MemoryStore::new(),
+            release,
+            writer.clone(),
+            &harness,
+            &story,
+            &work_type,
+        )
     };
     std::process::exit(code);
 }

@@ -11,13 +11,12 @@ pub fn evaluate_condition(expression: &str, variables: &Value) -> Result<bool> {
     let (name, op, rhs) = parse(expression.trim()).ok_or_else(|| {
         WorkflowError::Expression(format!("Unsupported workflow expression: {:?}", expression))
     })?;
-    let present = variables.as_object().map(|m| m.contains_key(name)).unwrap_or(false);
+    let present = variables
+        .as_object()
+        .map(|m| m.contains_key(name))
+        .unwrap_or(false);
     let lhs = variables.get(name).cloned().unwrap_or(Value::Null);
-    let equal = if !present {
-        false
-    } else {
-        json_eq(&lhs, &rhs)
-    };
+    let equal = if !present { false } else { json_eq(&lhs, &rhs) };
     match op {
         "==" => Ok(equal),
         "!=" => Ok(!equal),

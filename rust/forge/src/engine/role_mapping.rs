@@ -103,12 +103,7 @@ fn allowed_enum(key: &str, value: &str) -> bool {
         ),
         "failedReleaseStage" => matches!(
             value,
-            "PUBLISH"
-                | "DEV_MIGRATION"
-                | "PROD_MIGRATION"
-                | "DERIVED_REFRESH"
-                | "DEPLOY"
-                | "SMOKE"
+            "PUBLISH" | "DEV_MIGRATION" | "PROD_MIGRATION" | "DERIVED_REFRESH" | "DEPLOY" | "SMOKE"
         ),
         "resumeTarget" => matches!(
             value,
@@ -134,10 +129,7 @@ pub fn parse_forge_evidence_marker(text: &str) -> ForgeGateEvidence {
     let Some(line) = line else {
         return ForgeGateEvidence::default();
     };
-    let raw = line
-        .trim()
-        .trim_start_matches(PREFIX)
-        .trim();
+    let raw = line.trim().trim_start_matches(PREFIX).trim();
     parse_marker_object(raw)
 }
 
@@ -152,9 +144,17 @@ fn parse_marker_object(raw: &str) -> ForgeGateEvidence {
             continue;
         }
         match key {
-            "scoutRequired" | "rootCauseKnown" | "diagnosisBlocked" | "architectureSuspect"
-            | "architectureReviewRequired" | "qaReviewRequired" | "qaReviewPassed" | "qaPassed"
-            | "migrationRequired" | "derivedRefreshRequired" | "deploymentRequired" => {
+            "scoutRequired"
+            | "rootCauseKnown"
+            | "diagnosisBlocked"
+            | "architectureSuspect"
+            | "architectureReviewRequired"
+            | "qaReviewRequired"
+            | "qaReviewPassed"
+            | "qaPassed"
+            | "migrationRequired"
+            | "derivedRefreshRequired"
+            | "deploymentRequired" => {
                 let b = val == "true";
                 match key {
                     "scoutRequired" => ev.scout_required = Some(b),
@@ -178,8 +178,12 @@ fn parse_marker_object(raw: &str) -> ForgeGateEvidence {
                     }
                 }
             }
-            "researchDisposition" | "leadDecision" | "disposition" | "failureClass"
-            | "failedReleaseStage" | "resumeTarget" => {
+            "researchDisposition"
+            | "leadDecision"
+            | "disposition"
+            | "failureClass"
+            | "failedReleaseStage"
+            | "resumeTarget" => {
                 let s = val.trim_matches('"');
                 if allowed_enum(key, s) {
                     match key {

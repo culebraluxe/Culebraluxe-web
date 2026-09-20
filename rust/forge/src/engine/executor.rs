@@ -77,10 +77,15 @@ pub fn resolve_forge_stop_target(stop: Option<&ForgeStopTarget>) -> Option<BTree
         None => None,
         Some(ForgeStopTarget::Node(n)) => Some(BTreeSet::from([n.clone()])),
         Some(ForgeStopTarget::Role("scout")) => Some(
-            ["feature_scout", "research_scout", "diagnose_scout", "repair_scout"]
-                .into_iter()
-                .map(String::from)
-                .collect(),
+            [
+                "feature_scout",
+                "research_scout",
+                "diagnose_scout",
+                "repair_scout",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
         ),
         Some(ForgeStopTarget::Role("architect")) => Some(
             ["architect", "research_architect", "repair_architect"]
@@ -157,14 +162,20 @@ pub struct WavePlan<T> {
 }
 
 fn has_surface<T>(lane: &WaveLane<T>) -> bool {
-    lane.surface.as_ref().map(|s| !s.is_empty()).unwrap_or(false)
+    lane.surface
+        .as_ref()
+        .map(|s| !s.is_empty())
+        .unwrap_or(false)
 }
 
 pub fn plan_wave<T: Clone>(lanes: &[WaveLane<T>], cap: usize) -> WavePlan<T> {
     let limit = cap.max(1);
     let mut refusals = Vec::new();
     if limit > 1 {
-        let known: Vec<&WaveLane<T>> = lanes.iter().filter(|l| !l.fanout && has_surface(l)).collect();
+        let known: Vec<&WaveLane<T>> = lanes
+            .iter()
+            .filter(|l| !l.fanout && has_surface(l))
+            .collect();
         for i in 0..known.len() {
             for j in i + 1..known.len() {
                 if let (Some(a), Some(b)) = (&known[i].surface, &known[j].surface) {
@@ -287,10 +298,9 @@ pub fn drive_forge_story<S: TxStore>(
                 .map(|n| FORGE_HUMAN_GATE_NODES.contains(&n))
                 .unwrap_or(false)
         }) {
-            let _ = rt.writer().mark_story_human_hold(
-                story_id,
-                "Forge engine entered a human decision gate.",
-            );
+            let _ = rt
+                .writer()
+                .mark_story_human_hold(story_id, "Forge engine entered a human decision gate.");
             let _ = human;
             return Ok(DriveForgeStoryResult {
                 instance_id: instance_id.clone(),
@@ -305,13 +315,7 @@ pub fn drive_forge_story<S: TxStore>(
         if !tasks.iter().any(|t| t.status == TaskStatus::Ready) {
             let blocked = tasks
                 .iter()
-                .map(|t| {
-                    format!(
-                        "{}={:?}",
-                        t.node_id.as_deref().unwrap_or("?"),
-                        t.status
-                    )
-                })
+                .map(|t| format!("{}={:?}", t.node_id.as_deref().unwrap_or("?"), t.status))
                 .collect::<Vec<_>>()
                 .join(", ");
             return Ok(DriveForgeStoryResult {

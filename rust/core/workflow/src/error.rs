@@ -12,16 +12,25 @@ pub enum WorkflowError {
 
 impl WorkflowError {
     pub fn generic(msg: impl Into<String>) -> Self {
-        Self::Generic { message: msg.into() }
+        Self::Generic {
+            message: msg.into(),
+        }
     }
     pub fn conflict(code: &'static str, msg: impl Into<String>) -> Self {
-        Self::Conflict { code, message: msg.into() }
+        Self::Conflict {
+            code,
+            message: msg.into(),
+        }
     }
     pub fn stale_token(msg: impl Into<String>) -> Self {
-        Self::StaleToken { message: msg.into() }
+        Self::StaleToken {
+            message: msg.into(),
+        }
     }
     pub fn missing_port(msg: impl Into<String>) -> Self {
-        Self::MissingApplicationPort { message: msg.into() }
+        Self::MissingApplicationPort {
+            message: msg.into(),
+        }
     }
     pub fn code(&self) -> &'static str {
         match self {
