@@ -82,7 +82,10 @@ pub use calendar::{
     CalendarCommandReceipt, CalendarEvent, CalendarEventKind, CreateAppleCalendarEventRequest,
 };
 
-pub use media::MediaAsset;
+pub use media::{
+    sanitize_media_filename, MediaAsset, UploadPropertyMediaRequest, UploadPropertyMediaResult,
+    MAX_MEDIA_UPLOAD_BYTES,
+};
 
 pub use signature::{
     normalize_signature_email, validate_signature_recipients, ApplySignatureStatusRequest,
