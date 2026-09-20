@@ -65,8 +65,8 @@ pub use forms::{
 };
 
 pub use vault::{
-    ContractIssuedLineage, CreateTransactionDocumentRequest, IssuedDocumentEvidence,
-    IssuedDocumentForFormInstance, IssuedDocumentListItem, IssueDocumentRequest,
+    ContractIssuedLineage, CreateTransactionDocumentRequest, IssueDocumentRequest,
+    IssuedDocumentEvidence, IssuedDocumentForFormInstance, IssuedDocumentListItem,
     NextIssuedVersionRequest, SignedArtifactRef, TransactionDocument, TransactionDocumentSource,
     TransactionDocumentState, TransactionDocumentType, TransitionTransactionDocumentRequest,
     VaultActorScope, VaultArtifactFailure, VaultCommandOutcome, VaultCommandResult,

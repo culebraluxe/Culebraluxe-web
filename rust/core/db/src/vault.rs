@@ -2,8 +2,8 @@ use crate::{Database, DbFailure, DbResult, DbTransaction};
 use chrono::{DateTime, Utc};
 use domain::{
     ContractIssuedLineage, CreateTransactionDocumentRequest, FormSignerPerson,
-    IssuedDocumentEvidence, IssuedDocumentForFormInstance, IssuedDocumentListItem,
-    IssueDocumentRequest, NextIssuedVersionRequest, SignedArtifactRef, TransactionDocument,
+    IssueDocumentRequest, IssuedDocumentEvidence, IssuedDocumentForFormInstance,
+    IssuedDocumentListItem, NextIssuedVersionRequest, SignedArtifactRef, TransactionDocument,
     TransactionDocumentSource, TransactionDocumentState, TransactionDocumentType,
     TransitionTransactionDocumentRequest, VaultActorScope, VaultArtifactFailure,
     VaultCommandOutcome, VaultCommandResult, VaultMediaBytes, VaultRenderRequest,
@@ -164,7 +164,10 @@ fn map_document(row: DocumentRow) -> DbResult<TransactionDocument> {
         Some(checksum_sha256) => Some(IssuedDocumentEvidence {
             checksum_sha256,
             template_id: row.template_id.ok_or_else(|| {
-                DbFailure::schema_mismatch("vault.map_document", "issued document missing template_id")
+                DbFailure::schema_mismatch(
+                    "vault.map_document",
+                    "issued document missing template_id",
+                )
             })?,
             template_version: row.template_version.ok_or_else(|| {
                 DbFailure::schema_mismatch(
@@ -216,9 +219,7 @@ fn map_document(row: DocumentRow) -> DbResult<TransactionDocument> {
 }
 
 fn role_for_form(template_id: &str, role: &str) -> String {
-    if template_id == LISTING_TEMPLATE_ID
-        && matches!(role, "owner" | "seller" | "SELLER_BROKER")
-    {
+    if template_id == LISTING_TEMPLATE_ID && matches!(role, "owner" | "seller" | "SELLER_BROKER") {
         return "SELLER".into();
     }
     match role {
@@ -667,7 +668,10 @@ impl VaultDao {
         &self,
         request: &CreateTransactionDocumentRequest,
     ) -> DbResult<TransactionDocument> {
-        let signed_media_id = request.signed_artifact.as_ref().map(|signed| signed.media_id.as_str());
+        let signed_media_id = request
+            .signed_artifact
+            .as_ref()
+            .map(|signed| signed.media_id.as_str());
         let signed_at = request
             .signed_artifact
             .as_ref()
@@ -797,9 +801,10 @@ impl VaultDao {
                     Some("Transaction document not found.".to_owned()),
                 ),
                 Some(current) => {
-                    let from = TransactionDocumentState::try_from(current.as_str()).map_err(
-                        |error| DbFailure::schema_mismatch("vault.transition_state", error),
-                    )?;
+                    let from =
+                        TransactionDocumentState::try_from(current.as_str()).map_err(|error| {
+                            DbFailure::schema_mismatch("vault.transition_state", error)
+                        })?;
                     if !from.can_transition_to(request.to) {
                         (
                             VaultCommandOutcome::ValidationFailure,
@@ -937,10 +942,7 @@ impl VaultDao {
         }))
     }
 
-    pub async fn next_issued_version(
-        &self,
-        request: &NextIssuedVersionRequest,
-    ) -> DbResult<i32> {
+    pub async fn next_issued_version(&self, request: &NextIssuedVersionRequest) -> DbResult<i32> {
         let current = if let Some(contract_id) = request.contract_id.as_deref() {
             sqlx::query_scalar::<_, i32>(
                 r#"

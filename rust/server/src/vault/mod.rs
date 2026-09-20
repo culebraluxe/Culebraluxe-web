@@ -2,8 +2,8 @@ use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
 use db::{DbResult, VaultDao};
 use domain::{
-    CreateTransactionDocumentRequest, IssuedDocumentForFormInstance, IssuedDocumentListItem,
-    IssueDocumentRequest, NextIssuedVersionRequest, TransactionDocument,
+    CreateTransactionDocumentRequest, IssueDocumentRequest, IssuedDocumentForFormInstance,
+    IssuedDocumentListItem, NextIssuedVersionRequest, TransactionDocument,
     TransitionTransactionDocumentRequest, VaultActorScope, VaultArtifactFailure,
     VaultCommandOutcome, VaultCommandResult, VaultMediaBytes, VaultRenderRequest,
     VaultRenderedArtifact,
@@ -209,7 +209,11 @@ impl<R: VaultRepository> VaultService<R> {
             context,
         )
         .await?;
-        let result = self.repository.list_by_deal(deal_id).await.map_err(Into::into);
+        let result = self
+            .repository
+            .list_by_deal(deal_id)
+            .await
+            .map_err(Into::into);
         audit_result(&self.runtime, "vault", OP, context, decision, &result).await?;
         result
     }
@@ -350,7 +354,11 @@ impl<R: VaultRepository> VaultService<R> {
             context,
         )
         .await?;
-        let result = self.repository.media_bytes(media_id).await.map_err(Into::into);
+        let result = self
+            .repository
+            .media_bytes(media_id)
+            .await
+            .map_err(Into::into);
         audit_result(&self.runtime, "vault", OP, context, decision, &result).await?;
         result
     }
@@ -451,8 +459,14 @@ impl<R: VaultRepository> VaultService<R> {
                         command.aggregate_id.clone(),
                         BTreeMap::from([
                             ("commandId".into(), json!(command.command_id.clone())),
-                            ("formInstanceId".into(), json!(request.form_instance_id.clone())),
-                            ("result".into(), command.value.clone().unwrap_or(json!(null))),
+                            (
+                                "formInstanceId".into(),
+                                json!(request.form_instance_id.clone()),
+                            ),
+                            (
+                                "result".into(),
+                                command.value.clone().unwrap_or(json!(null)),
+                            ),
                         ]),
                         context,
                     )

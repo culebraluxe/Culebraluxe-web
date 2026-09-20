@@ -86,10 +86,7 @@ impl CoreServices {
         )
     }
 
-    pub fn vault(
-        &self,
-        artifacts: Arc<dyn VaultArtifactPort>,
-    ) -> VaultService<VaultDao> {
+    pub fn vault(&self, artifacts: Arc<dyn VaultArtifactPort>) -> VaultService<VaultDao> {
         VaultService::new(
             VaultDao::new(self.db.clone()),
             artifacts,
