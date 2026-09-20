@@ -96,7 +96,18 @@ impl Database {
         Ok(DbTransaction::new(transaction, operation))
     }
 
-    pub(crate) fn pool(&self) -> &PgPool {
+    /// The shared pool, for crates that must run SQL this crate does not model.
+    ///
+    /// PUBLIC ON PURPOSE (2026-09-20). This was `pub(crate)`, which cannot be called from `integrations` or
+    /// `core/workflow` — separate crates — so nine call sites in the BoldSign adapter did not compile. The
+    /// alternative considered and rejected was an `UnsafeCell`-style workaround; the honest fix is to name the
+    /// accessor and document what it is for.
+    ///
+    /// `Database` still owns the only pool in the Rust workspace (`Database::connect_from_env`); handing out a
+    /// borrow does not create a second one. Callers should prefer the typed DAOs, and `run_text` below is the
+    /// precedent for this kind of sanctioned escape hatch. A `with_conn`-style borrowed API is the intended
+    /// follow-up so this accessor can eventually narrow again.
+    pub fn pool(&self) -> &PgPool {
         &self.pool
     }
 
