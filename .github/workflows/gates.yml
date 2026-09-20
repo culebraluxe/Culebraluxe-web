@@ -235,6 +235,27 @@ jobs:
         working-directory: rust
         run: cargo check --workspace --all-targets
 
+
+  rust_database:
+    name: rust DEV DB smoke
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      APP_ENV: dev
+      DATABASE_URL_DEV: ${{ secrets.DATABASE_URL_DEV }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: rust toolchain
+        run: |
+          rustc --version
+          cargo --version
+
+      - name: Rust -> SQLx -> Neon DEV -> ProjectService
+        working-directory: rust
+        run: cargo run -p cli -- db-smoke
+
   database:
     name: database-backed gates
     # Parked until dev credentials exist as secrets. A skipped gate is visibly skipped; a gate that
