@@ -145,6 +145,57 @@ fn bold_sign(state: &ApiState) -> Result<Arc<dyn SignatureProvider>, ApiError> {
     Ok(Arc::new(provider))
 }
 
+/// The provider's callback.
+///
+/// BoldSign authenticates by HMAC over the raw body, so this route deliberately does NOT require the internal API
+/// key: `resolve_request_context` demands an application principal that a webhook cannot have, and the signature
+/// check inside the service is the real gate. The context is a System actor with no principal — the same shape
+/// `context.rs` builds before it resolves an identity.
+async fn signature_webhook(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    body: String,
+) -> Result<Json<ApiSuccess<domain::SignatureCommandResult>>, ApiError> {
+    let correlation_id = headers
+        .get("x-culebra-correlation-id")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let signature = headers
+        .get("x-boldsign-signature")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            ApiError::unauthorized(
+                "SIGNATURE_WEBHOOK_UNSIGNED",
+                "Missing x-boldsign-signature header.",
+            )
+            .with_correlation(correlation_id.clone())
+        })?;
+
+    let context = service::ServiceContext {
+        actor: service::ServiceActor {
+            id: Some("boldsign-webhook".into()),
+            kind: service::ServiceActorKind::System,
+        },
+        correlation_id: correlation_id.clone(),
+        causation_id: None,
+        principal: None,
+    };
+
+    let mut service = state.services().signature(bold_sign(&state)?);
+    let value = service
+        .handle_webhook(&body, &signature, &context)
+        .await
+        .map_err(|error| ApiError::from(error).with_correlation(correlation_id.clone()))?;
+    Ok(Json(ApiSuccess {
+        ok: true,
+        value,
+        correlation_id,
+    }))
+}
+
 async fn signature_send(
     State(state): State<ApiState>,
     headers: HeaderMap,
@@ -238,6 +289,7 @@ pub fn router(state: ApiState) -> Router {
             "/v1/signature/requests/{id}/refresh",
             post(signature_refresh),
         )
+        .route("/v1/signature/webhook", post(signature_webhook))
         .with_state(state)
 }
 

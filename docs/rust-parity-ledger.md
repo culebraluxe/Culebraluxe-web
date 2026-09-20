@@ -20,7 +20,7 @@ questions on purpose: a port can be complete and still cut over to nothing.
 | `vault` | built | typescript | 2 | — |
 | `projects` | built | typescript | 2 | — |
 | `firms` | built | typescript | 0 | `db/firm-service-repository.ts` |
-| `signature` | built | typescript | 3 | `db/bold-sign-request.ts`, `db/broker-signature.ts` |
+| `signature` | built | typescript | 4 | `db/bold-sign-request.ts`, `db/broker-signature.ts` |
 | `showings` | built | typescript | 0 | — |
 | `wbs` | built | typescript | 0 | — |
 | `whatsapp-intake` | partial | typescript | 0 | — |
@@ -29,12 +29,12 @@ questions on purpose: a port can be complete and still cut over to nothing.
 **0 of 14 capabilities** have Rust as the production path.
 
 - **firms** — Built in Rust with no route attached, so nothing can call it yet.
-- **signature** — Routes are attached to Axum now (send, get, refresh) — this was the 'built, 0 routes' capability. The BoldSign provider is constructed per request from the environment, which required adding `integrations` to the server crate; without that dependency the adapter could not be reached from the composition root at all. Still TypeScript in production, so productionPath stays 'typescript' until a receipt shows the Rust path serving real traffic. /v1/signature/webhook is NOT attached yet: it needs a system ServiceContext because the provider authenticates by HMAC rather than by the internal API key. rust/server/tests/signature_routes.rs fails if the router and this map disagree.
+- **signature** — All four endpoints are attached to Axum now: send, get, refresh, and the provider webhook. The webhook is deliberately unauthenticated by the internal API key — BoldSign signs the raw body and that HMAC is verified inside the service against a System actor with no principal, because a webhook cannot present an application identity. Constructing the BoldSign provider required adding `integrations` to the server crate; without that dependency the adapter could not be reached from the composition root at all. productionPath stays 'typescript' until a receipt shows the Rust path serving real traffic: attaching routes is not the same as cutting over. rust/server/tests/signature_routes.rs fails if the router and this map disagree.
 - **whatsapp-intake** — Rust verifies and normalises Meta payloads; durable inbox/ODS persistence and production webhook processing still belong to TypeScript.
 
 ## The live Rust surface
 
-27 routes mounted (read from the router, not from this file):
+28 routes mounted (read from the router, not from this file):
 
 - `/healthz` _(infrastructure)_
 - `/readyz` _(infrastructure)_
@@ -63,6 +63,7 @@ questions on purpose: a port can be complete and still cut over to nothing.
 - `/v1/signature/requests`
 - `/v1/signature/requests/{id}`
 - `/v1/signature/requests/{id}/refresh`
+- `/v1/signature/webhook`
 
 ## TypeScript modules under the subjects
 
