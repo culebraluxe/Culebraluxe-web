@@ -14,7 +14,8 @@ impl DbTransaction {
         }
     }
 
-    pub(crate) fn connection(&mut self) -> &mut PgConnection {
+    /// Workflow kernel (and other core crates) run SQL on the shared transaction.
+    pub fn connection(&mut self) -> &mut PgConnection {
         self.inner
             .as_mut()
             .expect("database transaction already finalized")

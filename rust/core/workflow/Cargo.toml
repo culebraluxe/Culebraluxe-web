@@ -6,3 +6,6 @@ publish.workspace = true
 
 [dependencies]
 domain = { path = "../domain" }
+db = { path = "../db" }
+sqlx.workspace = true
+tokio.workspace = true
