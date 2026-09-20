@@ -34,7 +34,7 @@ fn topology_of_compact_graph_is_valid() {
 
 #[test]
 fn re_command_is_not_found() {
-    let (rt, _) = runtime();
+    let (mut rt, _) = runtime();
     let res = rt.port().dispatch(&ApplicationCommandRequest {
         command_id: "c1".into(),
         command_type: "deal.update".into(),
@@ -49,7 +49,7 @@ fn re_command_is_not_found() {
 
 #[test]
 fn role_command_fails_closed() {
-    let (rt, _) = runtime();
+    let (mut rt, _) = runtime();
     let res = rt.port().dispatch(&ApplicationCommandRequest {
         command_id: "c1".into(),
         command_type: commands::RUN_SMITH.into(),
@@ -65,7 +65,7 @@ fn role_command_fails_closed() {
 
 #[test]
 fn hold_command_writes() {
-    let (rt, writer) = runtime();
+    let (mut rt, writer) = runtime();
     let res = rt.port().dispatch(&ApplicationCommandRequest {
         command_id: "c1".into(),
         command_type: commands::STORY_MARK_HOLD.into(),
@@ -84,7 +84,7 @@ fn hold_command_writes() {
 
 #[test]
 fn start_feature_parks_at_architect() {
-    let (rt, _) = runtime();
+    let (mut rt, _) = runtime();
     let started = rt.start_story("story-1", "FEATURE", feature_ev()).unwrap();
     let inst = rt
         .engine()
@@ -99,7 +99,7 @@ fn start_feature_parks_at_architect() {
 
 #[test]
 fn second_start_same_story_conflicts() {
-    let (rt, _) = runtime();
+    let (mut rt, _) = runtime();
     let ev = ForgeGateEvidence {
         work_type: Some("FEATURE".into()),
         ..Default::default()
@@ -111,7 +111,7 @@ fn second_start_same_story_conflicts() {
 
 #[test]
 fn lead_then_smith_advances() {
-    let (rt, _) = runtime_compact();
+    let (mut rt, _) = runtime_compact();
     rt.start_story(
         "story-1",
         "FEATURE",
@@ -138,7 +138,7 @@ fn lead_then_smith_advances() {
 
 #[test]
 fn research_parks_at_research_scout() {
-    let (rt, _) = runtime();
+    let (mut rt, _) = runtime();
     rt.start_story(
         "story-r",
         "RESEARCH",
@@ -210,7 +210,7 @@ fn smith_layers_and_fake_edges() {
 
 #[test]
 fn resume_refuses_unclaimed_fork_sibling() {
-    let (rt, _) = runtime();
+    let (mut rt, _) = runtime();
     let open = OpenForgeTask {
         task_id: "t1".into(),
         node_id: Some("smith".into()),
@@ -224,7 +224,7 @@ fn resume_refuses_unclaimed_fork_sibling() {
 
 #[test]
 fn start_marks_story_in_progress() {
-    let (rt, writer) = runtime();
+    let (mut rt, writer) = runtime();
     rt.start_story(
         "story-1",
         "FEATURE",
@@ -315,7 +315,7 @@ fn compact() -> ForgeRuntime {
     runtime_compact().0
 }
 
-fn advance_to_qa(rt: &ForgeRuntime) {
+fn advance_to_qa(rt: &mut ForgeRuntime) {
     let ev = ForgeGateEvidence {
         work_type: Some("FEATURE".into()),
         ..Default::default()
@@ -346,7 +346,7 @@ fn advance_to_qa(rt: &ForgeRuntime) {
 
 #[test]
 fn publish_without_release_executor_fails_closed() {
-    let (rt, _) = runtime_compact();
+    let (mut rt, _) = runtime_compact();
     advance_to_qa(&mut rt);
     let t = rt.list_role_tasks("story-1").unwrap()[0].clone();
     rt.claim_role_task(&t.task_id, "qa").unwrap();
@@ -377,7 +377,7 @@ fn publish_with_release_executor_completes() {
 
 #[test]
 fn wake_is_idempotent() {
-    let (rt, _) = runtime();
+    let (mut rt, _) = runtime();
     let ev = feature_ev();
     let first = rt.wake_story("story-1", "FEATURE", ev.clone()).unwrap();
     assert!(first.started);
@@ -392,7 +392,7 @@ fn wake_is_idempotent() {
 
 #[test]
 fn resume_claims_without_completing() {
-    let (rt, _) = runtime();
+    let (mut rt, _) = runtime();
     rt.wake_story("story-1", "FEATURE", feature_ev()).unwrap();
     let open = rt.resume_open("story-1", "architect").unwrap();
     assert!(open.claimed);
@@ -403,7 +403,7 @@ fn resume_claims_without_completing() {
 
 #[test]
 fn production_drive_refuses_synthetic_runner() {
-    let (rt, _) = runtime();
+    let (mut rt, _) = runtime();
     let err = executor::drive_forge_story(
         &mut rt,
         "story-1",
@@ -424,7 +424,7 @@ fn production_drive_refuses_synthetic_runner() {
 
 #[test]
 fn drive_stops_after_architect() {
-    let (rt, _) = runtime();
+    let (mut rt, _) = runtime();
     let out = executor::drive_forge_story(
         &mut rt,
         "story-1",
@@ -497,6 +497,11 @@ struct ScriptedHarness {
 }
 
 impl runner::RoleHarness for ScriptedHarness {
+    /// Where this harness would run commands from. A scripted harness does not shell out, so the test's own working
+    /// directory is the honest answer — and it has to be declared because `assay_cwd` is part of the trait.
+    fn assay_cwd(&self) -> &std::path::Path {
+        std::path::Path::new(".")
+    }
     fn run_role(
         &self,
         _n: &str,
