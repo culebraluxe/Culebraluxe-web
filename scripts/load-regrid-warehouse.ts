@@ -80,6 +80,27 @@ function sourceColumns(row: Row): Record<string, string | boolean | null> {
     regrid_owner_name: compact(row.owner),
     regrid_owner_mailing: compact(row.mailadd),
     regrid_qoz: /^(yes|y|true|t|1)$/i.test(compact(row.qoz) ?? '') ? true : null,
+    // Promoted by migration 202 from the fields that carry data. `estate` is NOT here on purpose: sampling showed
+    // its values are record references ('1522', '763', 'N/A'), not a yes/no, so it stays in the receipt table.
+    regrid_gis_acreage: num(row.gisacre),
+    regrid_gis_square_feet: num(row.ll_gissqft),
+    regrid_census_tract: compact(row.census_tract),
+    regrid_land_type: compact(row.tipo),
+    regrid_address_source: compact(row.address_source),
+    regrid_num_catastro: compact(row.num_catastro),
+    regrid_machinery: num(row.machinery),
+    regrid_exemption: num(row.exemp),
+    regrid_exoneration: num(row.exon),
+    regrid_municipio: compact(row.municipio),
+    regrid_old_parcel_id: compact(row.oldpid),
+    regrid_stable_id: compact(row.ll_stable_id),
+    regrid_original_address: compact(row.original_address),
+    regrid_deed_number: compact(row.deednum),
+    regrid_buyer_name: compact(row.buyername),
+    regrid_previous_owner: compact(row.previous_owner),
+    regrid_registry_book: compact(row.book),
+    regrid_registry_page: compact(row.page),
+    regrid_urbanization: compact(row.urbanization),
     regrid_source_url: compact(row.url) ?? compact(row.sourceurl),
     regrid_lookup_query: `table:${TABLE}`,
     regrid_data: JSON.stringify(row),
@@ -184,6 +205,7 @@ function propertyInsertValues(
 }
 
 type Counters = {
+  feedRows: number
   propertiesCreated: number
   propertiesEnriched: number
   ownersLinked: number
@@ -191,10 +213,12 @@ type Counters = {
   ownersAdopted: number
   ownersAmbiguous: number
   relations: number
+  legalAddresses: number
 }
 
 function emptyCounters(): Counters {
   return {
+    feedRows: 0,
     propertiesCreated: 0,
     propertiesEnriched: 0,
     ownersLinked: 0,
@@ -202,10 +226,21 @@ function emptyCounters(): Counters {
     ownersAdopted: 0,
     ownersAmbiguous: 0,
     relations: 0,
+    legalAddresses: 0,
   }
 }
 
-type Owner = { name: string; location: string | null; keys: Set<string> }
+/** One person-role on one parcel: the owner, or the previous owner, or the buyer named in the record. */
+type Fact = { key: string; name: string; propertyId: string; relationType: string; legalAddress: LegalAddress | null }
+
+type LegalAddress = {
+  line1: string | null
+  line2: string | null
+  city: string | null
+  state: string | null
+  postalCode: string | null
+  country: string | null
+}
 
 function chunk<T>(items: readonly T[]): T[][] {
   const out: T[][] = []
@@ -222,6 +257,7 @@ function insertStatement(table: string, columns: readonly string[], rows: number
   return `insert into ${table} (${columns.map((column) => `"${column}"`).join(', ')}) values ${tuples.join(', ')}`
 }
 
+import { createHash } from 'node:crypto'
 import { withForgeTransaction, type ForgeDbTarget, type ForgeDbTx } from '../db/forge-db'
 
 const args = process.argv.slice(2)
@@ -333,6 +369,65 @@ async function prefetch(tx: ForgeDbTx): Promise<{
   return { byUuid, byCatastro, linkedPersons, personsByName }
 }
 
+/**
+ * THE RECEIPT: one row per parcel in `regrid_culebra_parcel`, the 1:1 mirror of the landing table.
+ *
+ * `property` holds what something reads; this holds EVERYTHING WE BOUGHT, in the source's own values, so a field
+ * nobody promoted yet is still queryable as a typed column and `raw_payload` keeps the literal record. The column
+ * list is read FROM THE TABLE rather than written twice, so a field added to the feed table is picked up the next
+ * time this runs instead of quietly not being written — the same by-construction rule the property insert uses.
+ * Upserted on `ll_uuid`, which is its primary key, so a second run rewrites rather than duplicates.
+ */
+async function mirrorFeed(tx: ForgeDbTx, rows: Row[], nowIso: string): Promise<number> {
+  const catalogue = (
+    await tx.query(
+      `select column_name from information_schema.columns where table_name = 'regrid_culebra_parcel' order by ordinal_position`,
+    )
+  ).rows as Array<{ column_name: string }>
+  const tableColumns = catalogue.map((entry) => String(entry.column_name))
+  const special = new Set([
+    'raw_payload',
+    'loaded_at',
+    'source_row_sha256',
+    'source_row_number',
+    'source_file_sha256',
+  ])
+  const fields = new Set(Object.keys(rows[0] ?? {}))
+
+  const columns = [
+    'll_uuid',
+    ...tableColumns.filter((column) => column !== 'll_uuid' && (special.has(column) || fields.has(column))),
+  ]
+  // A TABLE FEED HAS NO FILE TO HASH, so `source_file_sha256` carries the content digest of the batch instead: the
+  // hash of every row hash in order. That is the receipt's fingerprint — it answers "did this purchase change
+  // anything" without comparing 2138 rows by eye, and it is what the column was created for.
+  const rowHashes = rows.map((row) => createHash('sha256').update(JSON.stringify(row)).digest('hex'))
+  const feedDigest = createHash('sha256').update(rowHashes.join('')).digest('hex')
+
+  const valueFor = (row: Row, column: string, rowNumber: number): string | number | null => {
+    if (column === 'raw_payload') return JSON.stringify(row)
+    if (column === 'loaded_at') return nowIso
+    if (column === 'source_row_number') return rowNumber
+    if (column === 'source_row_sha256') return rowHashes[rowNumber] ?? null
+    if (column === 'source_file_sha256') return feedDigest
+    const value = row[column]
+    if (value === null || value === undefined) return null
+    if (value instanceof Date) return value.toISOString()
+    return typeof value === 'number' ? value : String(value)
+  }
+
+  for (let start = 0; start < rows.length; start += CHUNK) {
+    const part = rows.slice(start, start + CHUNK)
+    const params = part.flatMap((row, at) => columns.map((column) => valueFor(row, column, start + at)))
+    const updates = columns.filter((column) => column !== 'll_uuid').map((column) => `"${column}" = excluded."${column}"`)
+    await tx.query(
+      `${insertStatement('regrid_culebra_parcel', columns, part.length)}
+         on conflict (ll_uuid) do update set ${updates.join(', ')}`,
+      params,
+    )
+  }
+  return rows.length
+}
 async function load(
   tx: ForgeDbTx,
   counters: Counters,
@@ -346,6 +441,11 @@ async function load(
 
   const index = await prefetch(tx)
   const nowIso = new Date().toISOString()
+
+  // THE RECEIPT FIRST: the whole purchase lands in the 1:1 feed table before anything is promoted from it, so the
+  // end points can be rebuilt from the receipt alone without another purchase.
+  counters.feedRows = await mirrorFeed(tx, rows, nowIso)
+  out(`feed table: ${counters.feedRows} parcels mirrored 1:1 into regrid_culebra_parcel`)
 
   // ---- PROPERTIES: decide in memory, then write in chunks.
   const toInsert: Row[] = []
@@ -421,10 +521,57 @@ function match(row: Row, index: Awaited<ReturnType<typeof prefetch>>): Existing 
 }
 
 /**
- * OWNER PERSONS: one entry per owner key, holding every parcel that key owns. A source key already linked is
- * reused; exactly one namesake is adopted and enriched; two or more are reported instead of guessed; none means a
- * new person. Everything is decided in memory here and written in chunks below.
+ * OWNER PERSONS. Three roles come out of the record and each is a person, not a column: the current `owner`, the
+ * `previous_owner` (1122 parcels) and the `buyername` (1171). A source key already linked is reused; exactly one
+ * namesake is adopted and enriched; two or more are reported instead of guessed; none means a new person.
+ *
+ * THE OWNER'S ADDRESS OF RECORD — what the operator calls the legal address, frequently a PO Box — is written to
+ * the PERSON, never to the parcel, and the tie is recorded as `legal_address` because that is the word this
+ * warehouse already uses (`person_property_relation_type_check`). The parcel keeps its own address separately.
  */
+function legalAddressOf(row: Row): LegalAddress | null {
+  const line1 =
+    compact(row.original_mailing_address) ?? compact(row.mailadd) ?? compact(row.direccion_postal) ?? null
+  const address: LegalAddress = {
+    line1,
+    line2: compact(row.mail_address2),
+    city: compact(row.mail_city),
+    state: compact(row.mail_state2),
+    postalCode: compact(row.mail_zip),
+    country: compact(row.mail_country),
+  }
+  const any = Object.values(address).some((value) => value !== null)
+  return any ? address : null
+}
+
+function factsFor(row: Row, propertyId: string): Fact[] {
+  const facts: Fact[] = []
+  const owner = compact(row.owner)
+  const ownerKeyValue = owner === null ? null : ownerKey(owner, row.mail_zip)
+  if (owner !== null && ownerKeyValue !== null) {
+    facts.push({
+      key: ownerKeyValue,
+      name: owner,
+      propertyId,
+      relationType: 'physical_property',
+      legalAddress: legalAddressOf(row),
+    })
+  }
+  // A prior owner or a buyer has no address in the record that belongs to them, so their key is the name alone —
+  // which is exactly why the namesake rule exists rather than a fuzzy match.
+  for (const [field, relationType] of [
+    ['previous_owner', 'previous_owner'],
+    ['buyername', 'buyer'],
+  ] as const) {
+    const name = compact(row[field])
+    if (name === null) continue
+    const key = ownerKey(name, '')
+    if (key === null) continue
+    facts.push({ key, name, propertyId, relationType, legalAddress: null })
+  }
+  return facts
+}
+
 async function afterProperties(
   tx: ForgeDbTx,
   rows: Row[],
@@ -433,31 +580,38 @@ async function afterProperties(
   counters: Counters,
   personReport: string[],
 ): Promise<number> {
-  const owners = new Map<string, Owner>()
+  const facts: Fact[] = []
   for (const row of rows) {
-    const key = ownerKey(row.owner, row.mail_zip)
     const propertyId = propertyIdByRow.get(row)
-    if (!key || !propertyId) continue
-    const name = compact(row.owner) as string
-    const location = [compact(row.mail_city), compact(row.mail_state2)].filter(Boolean).join(', ') || null
-    const entry = owners.get(key) ?? { name, location, keys: new Set<string>() }
-    entry.keys.add(propertyId)
-    owners.set(key, entry)
+    if (!propertyId) continue
+    facts.push(...factsFor(row, propertyId))
+  }
+
+  const identities = new Map<string, { name: string; location: string | null; legalAddress: LegalAddress | null }>()
+  for (const fact of facts) {
+    const entry = identities.get(fact.key) ?? { name: fact.name, location: null, legalAddress: null }
+    if (entry.legalAddress === null && fact.legalAddress !== null) entry.legalAddress = fact.legalAddress
+    entry.location =
+      entry.location ??
+      (fact.legalAddress === null
+        ? null
+        : [fact.legalAddress.city, fact.legalAddress.state].filter(Boolean).join(', ') || null)
+    identities.set(fact.key, entry)
   }
 
   const resolved = new Map<string, string>()
-  const toCreate: Array<{ key: string; owner: Owner }> = []
-  for (const [key, owner] of owners) {
+  const toCreate: Array<{ key: string; person: { name: string; location: string | null; legalAddress: LegalAddress | null } }> = []
+  for (const [key, person] of identities) {
     const linked = index.linkedPersons.get(key)
     if (linked) {
       resolved.set(key, linked)
       continue
     }
-    const namesakes = index.personsByName.get(owner.name.toLowerCase()) ?? []
+    const namesakes = index.personsByName.get(person.name.toLowerCase()) ?? []
     if (namesakes.length > 1) {
       counters.ownersAmbiguous += 1
       if (personReport.length < 12) {
-        personReport.push(`owner ${JSON.stringify(owner.name)} has ${namesakes.length} namesakes — left alone`)
+        personReport.push(`${JSON.stringify(person.name)} has ${namesakes.length} namesakes — left alone`)
       }
       continue
     }
@@ -466,23 +620,44 @@ async function afterProperties(
       counters.ownersAdopted += 1
       continue
     }
-    toCreate.push({ key, owner })
+    toCreate.push({ key, person })
   }
 
   const createdIds: string[] = []
   for (const part of chunk(toCreate)) {
-    const params = part.flatMap(({ owner }) => [
-      owner.name,
+    const params = part.flatMap(({ person }) => [
+      person.name,
       SOURCE,
       'new',
       'unclassified',
-      looksLikeEntity(owner.name) ? owner.name : null,
-      owner.location,
+      looksLikeEntity(person.name) ? person.name : null,
+      person.location,
+      person.legalAddress?.line1 ?? null,
+      person.legalAddress?.line2 ?? null,
+      person.legalAddress?.city ?? null,
+      person.legalAddress?.state ?? null,
+      person.legalAddress?.postalCode ?? null,
+      person.legalAddress?.country ?? null,
+      person.legalAddress === null ? null : SOURCE,
     ])
     const written = await tx.query(
       `${insertStatement(
         'person',
-        ['display_name', 'display_name_source', 'status', 'role', 'company', 'location'],
+        [
+          'display_name',
+          'display_name_source',
+          'status',
+          'role',
+          'company',
+          'location',
+          'legal_address_line1',
+          'legal_address_line2',
+          'legal_address_city',
+          'legal_address_state',
+          'legal_address_postal_code',
+          'legal_address_country',
+          'legal_address_source',
+        ],
         part.length,
       )} returning id`,
       params,
@@ -494,6 +669,42 @@ async function afterProperties(
   counters.ownersCreated = createdIds.length
   counters.ownersLinked = resolved.size
 
+  // FILL-ONLY, like every other parent column: an existing person keeps whatever anyone already knew. The legal
+  // address fills the same way — an address somebody already recorded is not replaced by one a vendor supplied.
+  for (const [key, personId] of resolved) {
+    const person = identities.get(key)
+    if (person?.legalAddress) counters.legalAddresses += 1
+    await tx.query(
+      `update person
+          set company = coalesce(company, $2),
+              location = coalesce(location, $3),
+              legal_address_line1 = coalesce(legal_address_line1, $4),
+              legal_address_line2 = coalesce(legal_address_line2, $5),
+              legal_address_city = coalesce(legal_address_city, $6),
+              legal_address_state = coalesce(legal_address_state, $7),
+              legal_address_postal_code = coalesce(legal_address_postal_code, $8),
+              legal_address_country = coalesce(legal_address_country, $9),
+              legal_address_source = case
+                when legal_address_source is null and $4 is not null then $10
+                else legal_address_source
+              end,
+              updated_at = now()
+        where id = $1`,
+      [
+        personId,
+        person !== undefined && looksLikeEntity(person.name) ? person.name : null,
+        person?.location ?? null,
+        person?.legalAddress?.line1 ?? null,
+        person?.legalAddress?.line2 ?? null,
+        person?.legalAddress?.city ?? null,
+        person?.legalAddress?.state ?? null,
+        person?.legalAddress?.postalCode ?? null,
+        person?.legalAddress?.country ?? null,
+        SOURCE,
+      ],
+    )
+  }
+
   // LINKS: the prefetch read every existing 'regrid' link, so a key that was not in it is certainly absent.
   const linkRows: string[][] = []
   for (const [key, personId] of resolved) {
@@ -504,7 +715,7 @@ async function afterProperties(
       key,
       personId,
       createdKeys.has(key) ? 'new_identity' : 'exact_identity',
-      `Regrid parcel owner (${TABLE})`,
+      `Regrid parcel person (${TABLE})`,
     ])
   }
   for (const part of chunk(linkRows)) {
@@ -518,22 +729,33 @@ async function afterProperties(
     )
   }
 
-  // OWNER TIES: existing ties are read once so a second run adds nothing twice. The tie uses the warehouse's OWN
-  // vocabulary — person_property_relation_type_check allows exactly address | legal_address | physical_property |
-  // interest — and the owner of a parcel is physical_property.
+  // TIES: every role in the record becomes a tie, and the existing ties are read WITH their relation_type so a
+  // second run adds nothing twice. The vocabulary is the warehouse's own, widened by migration 203 for
+  // `previous_owner` and `buyer` rather than bending those people into `interest`, which would be a lie.
   const existingTies = (
-    await tx.query('select person_id, property_id from person_property where source_type = $1', [SOURCE])
-  ).rows as Array<{ person_id: string; property_id: string }>
-  const tieSeen = new Set(existingTies.map((tie) => `${tie.person_id}|${tie.property_id}`))
+    await tx.query('select person_id, property_id, relation_type from person_property where source_type = $1', [SOURCE])
+  ).rows as Array<{ person_id: string; property_id: string; relation_type: string }>
+  const tieSeen = new Set(existingTies.map((tie) => `${tie.person_id}|${tie.property_id}|${tie.relation_type}`))
   const tieRows: string[][] = []
-  for (const [key, personId] of resolved) {
-    for (const propertyId of owners.get(key)?.keys ?? []) {
-      const tie = `${personId}|${propertyId}`
-      if (tieSeen.has(tie)) continue
-      tieSeen.add(tie)
-      tieRows.push([personId, propertyId, 'physical_property', 'current', SOURCE, key])
+  for (const fact of facts) {
+    const personId = resolved.get(fact.key)
+    if (!personId) continue
+    const tie = `${personId}|${fact.propertyId}|${fact.relationType}`
+    if (tieSeen.has(tie)) continue
+    tieSeen.add(tie)
+    tieRows.push([personId, fact.propertyId, fact.relationType, 'current', SOURCE, fact.key])
+    // The owner's ADDRESS OF RECORD is a relation of its own in this warehouse's vocabulary (`legal_address`), so
+    // the legal address is reachable from the person AND from the parcel without mistaking it for the parcel's own
+    // address. Only the owner row carries an address in this record; a prior owner or a buyer does not.
+    if (fact.legalAddress !== null) {
+      const legalTie = `${personId}|${fact.propertyId}|legal_address`
+      if (!tieSeen.has(legalTie)) {
+        tieSeen.add(legalTie)
+        tieRows.push([personId, fact.propertyId, 'legal_address', 'current', SOURCE, fact.key])
+      }
     }
   }
+  counters.relations = tieRows.length
   for (const part of chunk(tieRows)) {
     await tx.query(
       insertStatement(
@@ -566,13 +788,15 @@ async function main(): Promise<void> {
 
   const summary = (): void => {
     out('')
+    out(`feed table rows (1:1 receipt): ${counters.feedRows}`)
     out(`properties created: ${counters.propertiesCreated}`)
     out(`properties enriched (existing rows, fill-only): ${counters.propertiesEnriched}`)
     out(
-      `owner persons — created: ${counters.ownersCreated}  adopted by exact name: ${counters.ownersAdopted}  ` +
-        `ambiguous, left alone: ${counters.ownersAmbiguous}  distinct owner identities: ${counters.ownersLinked}`,
+      `persons — created: ${counters.ownersCreated}  adopted by exact name: ${counters.ownersAdopted}  ` +
+        `ambiguous, left alone: ${counters.ownersAmbiguous}  distinct identities: ${counters.ownersLinked}`,
     )
-    out(`owner ties written: ${counters.relations}`)
+    out(`ties written (owner / previous owner / buyer / legal address): ${counters.relations}`)
+    out(`persons carrying an address of record from this feed: ${counters.legalAddresses}`)
     if (conflictsReport.length > 0) {
       out('')
       out(`conflicts — the warehouse value was KEPT (${conflictsReport.length} shown):`)
