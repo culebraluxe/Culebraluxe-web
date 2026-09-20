@@ -167,3 +167,16 @@ Contract writes remain atomic through the shared Rust transaction boundary.
 The original dynamic mapping-delete loop was replaced with literal static SQL
 accepted by SQLx 0.9, and SQLx JSON support is enabled for canonical JSONB
 facts and role attributes.
+
+
+## Slice 4A: Comms
+
+Comms is the first full-runtime optional service moved to Rust after the
+required business core. It is read-only and preserves the CRM Client-pane
+contract: aggregate relationship counts, one canonical source row per
+communication source, and paginated canonical interaction moments.
+
+The Rust port keeps Phone and FaceTime as distinct source rows, recovers
+FaceTime moments from the intake delineation when interaction.channel is
+`call`, excludes bulk/service evidence from meaningful-contact freshness,
+reads warehouse/read-model relations only, and never reads an ODS `l_` table.
