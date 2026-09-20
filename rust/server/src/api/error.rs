@@ -150,10 +150,9 @@ impl From<ProjectServiceError> for ApiError {
             ProjectServiceError::Validation { code, message } => {
                 Self::new(StatusCode::BAD_REQUEST, code, message, false)
             }
-            ProjectServiceError::NotFound(id) => Self::not_found(
-                "PROJECT_NOT_FOUND",
-                format!("Project not found: {id}"),
-            ),
+            ProjectServiceError::NotFound(id) => {
+                Self::not_found("PROJECT_NOT_FOUND", format!("Project not found: {id}"))
+            }
             ProjectServiceError::Database(error) => Self::from_db(error),
             ProjectServiceError::Runtime(error) => Self::from_runtime(error),
         }
