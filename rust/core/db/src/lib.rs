@@ -6,6 +6,7 @@
 //! capability from here; callers never construct raw pools or SQLx transactions.
 
 mod calendar;
+mod client;
 mod comms;
 mod contract;
 mod error;
@@ -24,6 +25,7 @@ mod vault;
 mod wbs;
 
 pub use calendar::CalendarDao;
+pub use client::ClientDao;
 pub use comms::CommsDao;
 pub use contract::ContractDao;
 pub use domain;
