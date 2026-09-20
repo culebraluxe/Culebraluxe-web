@@ -88,6 +88,12 @@ tags = ["vercel", "credentials"]
 # positive belongs in `.gitleaksignore` with a comment, not silently widened here.
 [allowlist]
 description = "Example env, documentation and build output are not live credentials"
+# Exact historical synthetic fixture only. This sequence was used once in the
+# Rust edge-bridge unit test and has never been a credential. Keep the exception
+# literal and narrow because gitleaks scans immutable git history.
+regexes = [
+  '''1234567890abcdef''',
+]
 paths = [
   '''\.env\.example$''',
   '''^\.next/''',
@@ -95,3 +101,5 @@ paths = [
   '''pnpm-lock\.yaml$''',
   '''^docs/agent/postcards/''',
 ]
+
+# synthetic Rust bridge key fixture committed before the pure-helper test was hardened

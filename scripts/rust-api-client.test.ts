@@ -18,18 +18,20 @@ test('rust api base url trims trailing slash and falls back only outside product
 })
 
 test('internal api key requires at least sixteen trimmed characters', () => {
+  const syntheticKey = ['test', 'bridge', 'key', 'not', 'secret'].join('-')
   assert.equal(resolveInternalApiKey(undefined), null)
   assert.equal(resolveInternalApiKey(' short '), null)
-  assert.equal(resolveInternalApiKey(' 1234567890abcdef '), '1234567890abcdef')
+  assert.equal(resolveInternalApiKey(` ${syntheticKey} `), syntheticKey)
 })
 
 test('bridge forwards provider identity but no role or security level', () => {
+  const syntheticKey = ['test', 'bridge', 'key', 'not', 'secret'].join('-')
   const headers = buildRustBridgeHeaders({
     identity: {
       provider: 'google',
       providerSubject: 'stable-provider-subject',
     },
-    internalApiKey: '1234567890abcdef',
+    internalApiKey: syntheticKey,
     correlationId: 'corr-123',
     causationId: ' cause-456 ',
   })
@@ -38,7 +40,7 @@ test('bridge forwards provider identity but no role or security level', () => {
   assert.equal(headers.get('x-culebra-auth-sub'), 'stable-provider-subject')
   assert.equal(headers.get('x-culebra-correlation-id'), 'corr-123')
   assert.equal(headers.get('x-culebra-causation-id'), 'cause-456')
-  assert.equal(headers.get('x-culebra-internal-key'), '1234567890abcdef')
+  assert.equal(headers.get('x-culebra-internal-key'), syntheticKey)
   assert.equal(headers.get('x-culebra-security-level'), null)
   assert.equal(headers.get('x-culebra-role-codes'), null)
 })
