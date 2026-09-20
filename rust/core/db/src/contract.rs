@@ -310,16 +310,12 @@ async fn replace_mappings(
         .bind(&request.contract_id)
         .execute(tx.connection())
         .await
-        .map_err(|error| {
-            DbFailure::from_sqlx("contract.replace_mappings.delete_person", &error)
-        })?;
+        .map_err(|error| DbFailure::from_sqlx("contract.replace_mappings.delete_person", &error))?;
     sqlx::query("delete from contract_firm where contract_id = $1::uuid")
         .bind(&request.contract_id)
         .execute(tx.connection())
         .await
-        .map_err(|error| {
-            DbFailure::from_sqlx("contract.replace_mappings.delete_firm", &error)
-        })?;
+        .map_err(|error| DbFailure::from_sqlx("contract.replace_mappings.delete_firm", &error))?;
 
     let subject_role_id = role_id(tx, "contract_property", "SUBJECT_PROPERTY").await?;
     sqlx::query(
