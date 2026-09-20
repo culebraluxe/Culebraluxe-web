@@ -10,7 +10,8 @@ use forge::engine::packet::StoryPacket;
 use forge::engine::runner::ProductionRoleRunner;
 use forge::engine::runtime::ForgeRuntime;
 use forge::engine::vendor_session::database_url;
-use forge::engine::writer::{ForgeReleaseExecutor, NullWriter};
+use forge::engine::db_writer::DbForgeStateWriter;
+use forge::engine::writer::{ForgeReleaseExecutor, ForgeStateWriter, NullWriter};
 use std::env;
 use std::sync::Arc;
 use workflow::{MemoryStore, NeonStore, TxStore};
@@ -50,12 +51,22 @@ fn main() {
         database_url().is_some()
     );
 
+    let writer: Arc<dyn ForgeStateWriter> = match DbForgeStateWriter::connect_env() {
+        Ok(w) => {
+            eprintln!("story writer=neon");
+            Arc::new(w)
+        }
+        Err(e) => {
+            eprintln!("story writer=null ({e})");
+            Arc::new(NullWriter)
+        }
+    };
     let use_neon = env::var("APP_ENV").is_ok() || env::var("VERCEL_ENV").is_ok();
     let code = if use_neon {
         match NeonStore::connect_from_env() {
             Ok(store) => {
                 eprintln!("workflow store=neon");
-                drive(store, release, &harness, &story, &work_type)
+                drive(store, release, writer.clone(), &harness, &story, &work_type)
             }
             Err(e) => {
                 eprintln!("neon store: {e}");
@@ -64,7 +75,7 @@ fn main() {
         }
     } else {
         eprintln!("workflow store=memory (APP_ENV unset)");
-        drive(MemoryStore::new(), release, &harness, &story, &work_type)
+        drive(MemoryStore::new(), release, writer.clone(), &harness, &story, &work_type)
     };
     std::process::exit(code);
 }
@@ -72,13 +83,14 @@ fn main() {
 fn drive<S: TxStore>(
     store: S,
     release: Arc<dyn ForgeReleaseExecutor>,
+    writer: Arc<dyn ForgeStateWriter>,
     harness: &OpenCodeHarness,
     story: &str,
     work_type: &str,
 ) -> i32 {
     let rt = match ForgeRuntime::from_store(
         store,
-        Arc::new(NullWriter),
+        writer.clone(),
         Some(release),
         None,
         forge_sdlc_definition(),

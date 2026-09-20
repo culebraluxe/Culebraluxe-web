@@ -1,8 +1,10 @@
 pub mod agents;
+pub mod alerts;
 pub mod architect;
 pub mod assay;
 pub mod commands;
 pub mod completion;
+pub mod db_writer;
 pub mod definition;
 pub mod dispatch;
 pub mod executor;
@@ -19,6 +21,7 @@ pub mod path;
 pub mod phase;
 pub mod port;
 pub mod process;
+pub mod qa_assert;
 pub mod qa_repair;
 pub mod receipt;
 pub mod release;
@@ -49,3 +52,4 @@ pub use writer::{
     ForgeEvidenceReader, ForgeReleaseExecutor, ForgeStateWriter, NullWriter, OkRelease,
     RecordingWriter,
 };
+pub use db_writer::DbForgeStateWriter;
