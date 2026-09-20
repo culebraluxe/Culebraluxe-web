@@ -10,11 +10,13 @@ pub mod definition;
 pub mod dispatch;
 pub mod evidence_store;
 pub mod evidence_gate;
+pub mod execution_target;
 pub mod executor;
 pub mod facts;
 pub mod failure;
 pub mod integration;
 pub mod git_publish;
+pub mod hold;
 pub mod graph;
 pub mod neon_sql;
 pub mod opencode;
@@ -32,6 +34,7 @@ pub mod release_receipt;
 pub mod release;
 pub mod role_slice;
 pub mod role_mapping;
+pub mod split_join;
 pub mod runner;
 pub mod runtime;
 pub mod topology;
@@ -62,3 +65,7 @@ pub use validate::{validate_definition_xml, validate_forge_sdlc_v6, DefinitionVa
 
 pub use role_slice::{assay_route_arrangement, derive_release_evidence, forge_lane_surface};
 pub use release_receipt::{assess_release_receipt, ReleaseEvidence};
+
+pub use execution_target::{assert_forge_lane_may_start, assert_forge_execution_target};
+pub use split_join::{reduce_split, split_join_hold_reasons};
+pub use hold::{open_forge_hold_record, OpenHold};

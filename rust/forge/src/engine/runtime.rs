@@ -25,6 +25,7 @@ pub fn completion_receipt_id(task_id: &str) -> String {
 pub struct ActiveForgeRoleTask {
     pub task_id: String,
     pub process_instance_id: String,
+    pub story_id: String,
     pub token_id: Option<String>,
     pub node_id: Option<String>,
     pub status: TaskStatus,
@@ -411,7 +412,8 @@ fn map_role_task(t: Task, tokens: &[workflow::Token]) -> ActiveForgeRoleTask {
     });
     ActiveForgeRoleTask {
         task_id: t.id,
-        process_instance_id: t.process_instance_id,
+        process_instance_id: t.process_instance_id.clone(),
+        story_id: String::new(),
         token_id: t.token_id,
         node_id,
         status: t.status,

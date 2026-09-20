@@ -9,7 +9,10 @@ use crate::engine::assay::{collect_assay_evidence, CommandResult};
 use crate::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::phase::{ForgePhaseAgent, RoleEffectPorts};
+use crate::engine::execution_target::{assert_forge_execution_target, env_pairs_from_process};
+use crate::engine::hold::{deliverable_enforcement_enabled, open_forge_hold_record, OpenHold};
 use crate::engine::runtime::ActiveForgeRoleTask;
+use crate::engine::writer::ForgeStateWriter;
 use workflow::{Result, WorkflowError};
 
 pub struct HarnessOutput {
@@ -29,16 +32,33 @@ pub trait RoleHarness: Send + Sync {
 pub struct ProductionRoleRunner<'a> {
     pub harness: &'a dyn RoleHarness,
     pub current: ForgeGateEvidence,
+    pub writer: Option<&'a dyn ForgeStateWriter>,
+    pub require_prod: bool,
 }
 
 impl<'a> ProductionRoleRunner<'a> {
     pub fn new(harness: &'a dyn RoleHarness, current: ForgeGateEvidence) -> Self {
-        Self { harness, current }
+        Self {
+            harness,
+            current,
+            writer: None,
+            require_prod: false,
+        }
     }
 }
 
 impl ForgeRoleRunner for ProductionRoleRunner<'_> {
     fn run(&self, node_id: &str, task: &ActiveForgeRoleTask) -> Result<ForgeRoleOutcome> {
+        if self.require_prod {
+            let env = env_pairs_from_process();
+            crate::engine::execution_target::assert_forge_lane_may_start(&env)
+                .map_err(|e| WorkflowError::generic(e.0))?;
+            if let Ok(declared) = std::env::var("EXECUTION_ENV") {
+                assert_forge_execution_target(Some(&declared), None)
+                    .map_err(|e| WorkflowError::generic(e.0))?;
+            }
+        }
+        let _ = deliverable_enforcement_enabled(std::env::var("FORGE_ENFORCE_DELIVERABLES").ok().as_deref());
         let out = self.harness.run_role(node_id, task)?;
         let ports = RoleEffectPorts::default();
         let mut evidence = forge_agent_collect(node_id, self.current.clone(), &out.raw, &ports)
@@ -103,6 +123,21 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
             }
         }
 
+        if let Some(reason) = evidence.deliverable_rejection.clone() {
+            if let Some(writer) = self.writer {
+                let sid = if task.story_id.is_empty() { &task.process_instance_id } else { &task.story_id };
+                let _ = writer.mark_story_human_hold(sid, &reason);
+            }
+            let _ = open_forge_hold_record(&OpenHold {
+                process_instance_id: task.process_instance_id.clone(),
+                task_id: Some(task.task_id.clone()),
+                story_id: if task.story_id.is_empty() { task.process_instance_id.clone() } else { task.story_id.clone() },
+                reason,
+                originating_node: Some(node_id.into()),
+                failure_class: Some("DELIVERABLE_REJECTED".into()),
+                resume_target: None,
+            });
+        }
         Ok(ForgeRoleOutcome {
             transition_name: Some("complete".into()),
             evidence,

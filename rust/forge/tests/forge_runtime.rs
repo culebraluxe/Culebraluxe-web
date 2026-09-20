@@ -537,6 +537,7 @@ fn production_runner_holds_architect_without_handoff() {
     let task = runtime::ActiveForgeRoleTask {
         task_id: "t".into(),
         process_instance_id: "p".into(),
+        story_id: "s".into(),
         token_id: Some("k".into()),
         node_id: Some("architect".into()),
         status: workflow::TaskStatus::Ready,
