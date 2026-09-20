@@ -1,6 +1,9 @@
 //! `forge_vendor_session` — existing Neon table. Same SQL as `db/forge-vendor-session.ts`.
+//! Queries go through `db::Database` (the one Rust pool). The `psql` CLI is gone.
 
-use std::process::Command;
+use db::Database;
+use std::sync::OnceLock;
+use tokio::runtime::Runtime;
 
 pub const READ_VENDOR_SESSION: &str = "\
 SELECT session_id FROM forge_vendor_session
@@ -19,44 +22,47 @@ VALUES ($1, $2, NULL, now())
 ON CONFLICT (story_id, worker_id)
 DO UPDATE SET session_id = NULL, updated_at = now()";
 
-/// Talk to the existing Neon URL the TS engine already uses. No new pool.
+struct SharedDb {
+    db: Database,
+    rt: Runtime,
+}
+
+static SHARED: OnceLock<Result<SharedDb, String>> = OnceLock::new();
+
+fn shared() -> Result<&'static SharedDb, String> {
+    let slot = SHARED.get_or_init(|| {
+        let rt = Runtime::new().map_err(|e| format!("tokio: {e}"))?;
+        let db = rt
+            .block_on(Database::connect_from_env())
+            .map_err(|e| e.to_string())?;
+        Ok(SharedDb { db, rt })
+    });
+    slot.as_ref().map_err(|e| e.clone())
+}
+
+/// Target URL presence for logs. Does not open a second client.
 pub fn database_url() -> Option<String> {
-    ["DATABASE_URL", "DATABASE_URL_DEV"]
+    ["DATABASE_URL_PROD", "DATABASE_URL_DEV", "DATABASE_URL"]
         .iter()
         .find_map(|k| std::env::var(k).ok().filter(|s| !s.trim().is_empty()))
 }
 
 pub fn psql_query(sql: &str) -> Result<String, String> {
-    psql(sql)
+    let s = shared()?;
+    s.rt.block_on(s.db.run_text(sql)).map_err(|e| e.to_string())
 }
 
 pub fn sql_literal(s: &str) -> String {
-    sql_str(s)
-}
-
-fn psql(sql: &str) -> Result<String, String> {
-    let url = database_url().ok_or_else(|| "DATABASE_URL is not set".to_string())?;
-    let out = Command::new("psql")
-        .args(["--dbname", &url, "-At", "-v", "ON_ERROR_STOP=1", "-c", sql])
-        .output()
-        .map_err(|e| format!("psql: {e}"))?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
-}
-
-fn sql_str(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
 
 pub fn read_vendor_session_id(story_id: &str, lane: &str) -> Result<Option<String>, String> {
     let sql = format!(
         "SELECT session_id FROM forge_vendor_session WHERE story_id = {} AND worker_id = {} LIMIT 1",
-        sql_str(story_id),
-        sql_str(lane)
+        sql_literal(story_id),
+        sql_literal(lane)
     );
-    let raw = psql(&sql)?;
+    let raw = psql_query(&sql)?;
     if raw.is_empty() || raw == "\\N" {
         Ok(None)
     } else {
@@ -70,7 +76,7 @@ pub fn write_vendor_session_id(
     session_id: Option<&str>,
 ) -> Result<(), String> {
     let sid = match session_id {
-        Some(id) => sql_str(id),
+        Some(id) => sql_literal(id),
         None => "NULL".into(),
     };
     let sql = format!(
@@ -78,9 +84,9 @@ pub fn write_vendor_session_id(
          VALUES ({}, {}, {sid}, now()) \
          ON CONFLICT (story_id, worker_id) \
          DO UPDATE SET session_id = excluded.session_id, updated_at = now()",
-        sql_str(story_id),
-        sql_str(lane)
+        sql_literal(story_id),
+        sql_literal(lane)
     );
-    let _ = psql(&sql)?;
+    let _ = psql_query(&sql)?;
     Ok(())
 }

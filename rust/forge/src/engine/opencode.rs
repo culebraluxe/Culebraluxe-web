@@ -248,11 +248,19 @@ impl RoleHarness for OpenCodeHarness {
                 .unwrap_or(false)
     }
 
+    fn assay_cwd(&self) -> &Path {
+        if let Some(ws) = &self.execution_workspace {
+            return Path::new(&ws.worktree_path);
+        }
+        self.workspace.as_path()
+    }
+
     fn run_command(&self, command: &str) -> CommandResult {
+        let cwd = self.assay_cwd();
         match Command::new("sh")
             .arg("-c")
             .arg(command)
-            .current_dir(&self.workspace)
+            .current_dir(cwd)
             .output()
         {
             Ok(out) => {

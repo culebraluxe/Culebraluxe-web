@@ -13,6 +13,7 @@ domain = { path = "../core/domain" }
 db = { path = "../core/db" }
 workflow = { path = "../core/workflow" }
 integrations = { path = "../integrations" }
+tokio.workspace = true
 
 [[bin]]
 name = "re-workflow"

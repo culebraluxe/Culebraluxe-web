@@ -2,6 +2,7 @@ use crate::error::{DbFailure, DbResult};
 use crate::transaction::DbTransaction;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::PgPool;
+use futures_util::TryStreamExt;
 use std::env;
 use std::str::FromStr;
 use std::time::Duration;
@@ -98,6 +99,44 @@ impl Database {
     pub(crate) fn pool(&self) -> &PgPool {
         &self.pool
     }
+
+    /// Ad-hoc SQL on the shared pool. Used by Forge to retire the `psql` CLI client.
+    pub async fn run_text(&self, sql: &str) -> DbResult<String> {
+        use sqlx::Either;
+        use sqlx::Row;
+        let mut out = Vec::new();
+        let mut stream = sqlx::raw_sql(sql).fetch_many(self.pool());
+        while let Some(item) = stream.try_next().await.map_err(|error| DbFailure::from_sqlx("db.run_text", &error))? {
+            let Either::Right(row) = item else { continue };
+            let mut cols = Vec::new();
+            for i in 0..row.len() {
+                cols.push(cell_as_text(&row, i));
+            }
+            out.push(cols.join("|"));
+        }
+        Ok(out.join("\n"))
+    }
+}
+
+fn cell_as_text(row: &sqlx::postgres::PgRow, i: usize) -> String {
+    use sqlx::Row;
+    if let Ok(v) = row.try_get::<Option<String>, _>(i) {
+        return v.unwrap_or_default();
+    }
+    if let Ok(v) = row.try_get::<Option<i64>, _>(i) {
+        return v.map(|n| n.to_string()).unwrap_or_default();
+    }
+    if let Ok(v) = row.try_get::<Option<i32>, _>(i) {
+        return v.map(|n| n.to_string()).unwrap_or_default();
+    }
+    if let Ok(v) = row.try_get::<Option<bool>, _>(i) {
+        return match v {
+            Some(true) => "t".into(),
+            Some(false) => "f".into(),
+            None => String::new(),
+        };
+    }
+    String::new()
 }
 
 pub fn resolve_declared_target(

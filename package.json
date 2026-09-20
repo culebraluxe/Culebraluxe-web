@@ -61,6 +61,7 @@
     "test:app:db": "APP_ENV=development node --env-file=.env.local --import tsx --test workflow_app/tests/db/*.test.ts",
     "test:forge": "tsx --test workflow_app/tests/agent-work.test.ts workflow_app/tests/agent-scheduler.test.ts",
     "test:forge:engine": "node --import tsx --test workflow_app/tests/forge-*.test.ts workflow_app/tests/dynamic-fork.test.ts testv2/engine_tests/hardening.test.ts",
+    "forge:task:build": "cargo build --manifest-path rust/Cargo.toml -p forge --bin forge-task --release",
     "forge:engine": "APP_ENV=production EXECUTION_ENV=PROD cargo run --manifest-path rust/Cargo.toml -p forge --bin forge --",
     "forge:story:reset": "APP_ENV=production EXECUTION_ENV=PROD node --import tsx --env-file=.env.local scripts/forge-story-reset.ts",
     "forge:clean": "APP_ENV=production EXECUTION_ENV=PROD node --import tsx --env-file=.env.local scripts/forge-story-reset.ts clean --force",

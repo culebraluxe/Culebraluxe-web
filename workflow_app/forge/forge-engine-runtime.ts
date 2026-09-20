@@ -2,14 +2,13 @@
 import { spawnSync } from 'node:child_process'
 
 function rustForgeTask(args: string[]): string {
-  const bin = process.env.FORGE_TASK_BIN
-  const r = bin
-    ? spawnSync(bin, args, { encoding: 'utf8', env: process.env })
-    : spawnSync(
-        'cargo',
-        ['run', '--manifest-path', 'rust/Cargo.toml', '-p', 'forge', '--bin', 'forge-task', '--quiet', '--', ...args],
-        { encoding: 'utf8', env: process.env },
-      )
+  const bin = process.env.FORGE_TASK_BIN?.trim()
+  if (!bin) {
+    throw new Error(
+      'FORGE_TASK_BIN is not set. Build rust/forge-task and export the path. cargo run per task is refused.',
+    )
+  }
+  const r = spawnSync(bin, args, { encoding: 'utf8', env: process.env })
   if (r.status !== 0) {
     throw new Error((r.stderr || r.stdout || `forge-task ${args.join(' ')} failed`).trim())
   }
