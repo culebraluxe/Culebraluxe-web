@@ -5,13 +5,13 @@ use workflow::{json, ApplicationCommandOutcome, ApplicationCommandRequest, Proce
 
 fn runtime() -> (ForgeRuntime, Arc<RecordingWriter>) {
     let writer = Arc::new(RecordingWriter::default());
-    let rt = ForgeRuntime::in_memory(writer.clone()).expect("XML + topology + seed");
+    let mut rt = ForgeRuntime::in_memory(writer.clone()).expect("XML + topology + seed");
     (rt, writer)
 }
 
 fn runtime_compact() -> (ForgeRuntime, Arc<RecordingWriter>) {
     let writer = Arc::new(RecordingWriter::default());
-    let rt = ForgeRuntime::in_memory_compact(writer.clone()).expect("compact fixture");
+    let mut rt = ForgeRuntime::in_memory_compact(writer.clone()).expect("compact fixture");
     (rt, writer)
 }
 
@@ -244,7 +244,7 @@ fn start_marks_story_in_progress() {
 fn completion_unit_is_exactly_once() {
     let ledger = Arc::new(MemoryLedger::new());
     let writer = Arc::new(RecordingWriter::default());
-    let rt = ForgeRuntime::in_memory_compact(writer)
+    let mut rt = ForgeRuntime::in_memory_compact(writer)
         .unwrap()
         .with_ledger(ledger.clone());
     rt.start_story(
@@ -284,7 +284,7 @@ fn completion_unit_is_exactly_once() {
 fn reconcile_finishes_orphaned_transition() {
     let ledger = Arc::new(MemoryLedger::new());
     let writer = Arc::new(RecordingWriter::default());
-    let rt = ForgeRuntime::in_memory_compact(writer)
+    let mut rt = ForgeRuntime::in_memory_compact(writer)
         .unwrap()
         .with_ledger(ledger.clone());
     rt.start_story(
@@ -347,7 +347,7 @@ fn advance_to_qa(rt: &ForgeRuntime) {
 #[test]
 fn publish_without_release_executor_fails_closed() {
     let (rt, _) = runtime_compact();
-    advance_to_qa(&rt);
+    advance_to_qa(&mut rt);
     let t = rt.list_role_tasks("story-1").unwrap()[0].clone();
     rt.claim_role_task(&t.task_id, "qa").unwrap();
     rt.complete_role_task(&t.task_id, "qa", Some("pass"), ForgeGateEvidence::default())
@@ -362,8 +362,8 @@ fn publish_without_release_executor_fails_closed() {
 #[test]
 fn publish_with_release_executor_completes() {
     let writer = Arc::new(RecordingWriter::default());
-    let rt = ForgeRuntime::in_memory_compact_full(writer, Some(Arc::new(OkRelease))).unwrap();
-    advance_to_qa(&rt);
+    let mut rt = ForgeRuntime::in_memory_compact_full(writer, Some(Arc::new(OkRelease))).unwrap();
+    advance_to_qa(&mut rt);
     let t = rt.list_role_tasks("story-1").unwrap()[0].clone();
     rt.claim_role_task(&t.task_id, "qa").unwrap();
     rt.complete_role_task(&t.task_id, "qa", Some("pass"), ForgeGateEvidence::default())
@@ -405,7 +405,7 @@ fn resume_claims_without_completing() {
 fn production_drive_refuses_synthetic_runner() {
     let (rt, _) = runtime();
     let err = executor::drive_forge_story(
-        &rt,
+        &mut rt,
         "story-1",
         executor::DriveForgeStoryOptions {
             work_type: "FEATURE",
@@ -426,7 +426,7 @@ fn production_drive_refuses_synthetic_runner() {
 fn drive_stops_after_architect() {
     let (rt, _) = runtime();
     let out = executor::drive_forge_story(
-        &rt,
+        &mut rt,
         "story-1",
         executor::DriveForgeStoryOptions {
             work_type: "FEATURE",

@@ -144,7 +144,7 @@ fn drive<S: TxStore>(
     story: &str,
     work_type: &str,
 ) -> i32 {
-    let rt = match ForgeRuntime::from_store(
+    let mut rt = match ForgeRuntime::from_store(
         store,
         writer.clone(),
         Some(release),
@@ -164,7 +164,7 @@ fn drive<S: TxStore>(
     };
     let runner = ProductionRoleRunner::new(harness, evidence.clone());
     match drive_forge_story(
-        &rt,
+        &mut rt,
         story,
         DriveForgeStoryOptions {
             work_type,
