@@ -295,3 +295,19 @@ whole envelope Completed.
 Signature writes are not exposed through Axum yet. Signed-artifact
 reconciliation and concrete outbound BoldSign delivery remain the next adapter
 step before transport cutover.
+
+
+## Slice 6B: Signed-artifact reconciliation
+
+SignatureProvider is now an inward-facing port owned by `core/service`.
+External adapters implement the port; the server consumes it. This preserves the
+dependency rule that provider-specific code stays at the integrations edge and
+prevents a server-to-integrations-to-server cycle.
+
+Completed neutral signature observations reconcile into Vault truth with two
+idempotency guards: a receipt keyed by the neutral completion attempt and an
+already-signed document guard. Provider artifact downloads occur before the
+database transaction. Inside one transaction Rust appends new signed/audit media,
+advances draft/ready documents through the legal pre-signed chain when required,
+records the final signed lineage, and finalizes the reconciliation receipt.
+Duplicate completion observations therefore cannot append a second signed PDF.

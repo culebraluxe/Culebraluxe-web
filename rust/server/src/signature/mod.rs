@@ -3,42 +3,18 @@ use async_trait::async_trait;
 use db::{DbResult, SignatureDao};
 use domain::{
     validate_signature_recipients, ApplySignatureStatusRequest, SendSignatureRequest,
-    SignatureCommandOutcome, SignatureCommandResult, SignatureProviderActionResult,
-    SignatureProviderSendRequest, SignatureProviderSendResult, SignatureProviderStatusResult,
-    SignatureRequest, SignatureRequestResult, SignatureRequestStatus, SignatureWebhookVerification,
+    SignatureArtifactDownload, SignatureCommandOutcome, SignatureCommandResult,
+    SignatureProviderActionResult, SignatureProviderSendRequest, SignatureProviderSendResult,
+    SignatureProviderStatusResult, SignatureRequest, SignatureRequestResult,
+    SignatureRequestStatus, SignatureStatusResult, SignatureWebhookVerification,
 };
 use serde_json::json;
-use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
+use service::{
+    OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime, SignatureProvider,
+};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use uuid::Uuid;
-
-#[async_trait]
-pub trait SignatureProvider: Send + Sync {
-    fn name(&self) -> &'static str;
-    fn map_status(&self, provider_status: &str) -> SignatureRequestStatus;
-
-    async fn send(
-        &self,
-        request: SignatureProviderSendRequest,
-    ) -> Result<SignatureProviderSendResult, String>;
-
-    async fn status(
-        &self,
-        signature_request_id: &str,
-    ) -> Result<SignatureProviderStatusResult, String>;
-
-    async fn cancel(
-        &self,
-        signature_request_id: &str,
-    ) -> Result<SignatureProviderActionResult, String>;
-
-    async fn verify_webhook(
-        &self,
-        raw_payload: &str,
-        signature: &str,
-    ) -> Result<SignatureWebhookVerification, String>;
-}
 
 #[async_trait]
 pub trait SignatureRepository: Send {
@@ -71,6 +47,19 @@ pub trait SignatureRepository: Send {
         &mut self,
         command_id: &str,
         signature_request_id: &str,
+        actor_app_user_id: Option<&str>,
+    ) -> DbResult<SignatureCommandResult>;
+    async fn reconciliation_needs_artifact(
+        &mut self,
+        event_id: &str,
+        signature_request_id: &str,
+    ) -> DbResult<bool>;
+    async fn reconcile_completed(
+        &mut self,
+        event_id: &str,
+        signature_request_id: &str,
+        signed_artifact: Option<&SignatureArtifactDownload>,
+        audit_artifact: Option<&SignatureArtifactDownload>,
         actor_app_user_id: Option<&str>,
     ) -> DbResult<SignatureCommandResult>;
 }
@@ -127,6 +116,33 @@ impl SignatureRepository for SignatureDao {
         actor_app_user_id: Option<&str>,
     ) -> DbResult<SignatureCommandResult> {
         SignatureDao::decline(self, command_id, signature_request_id, actor_app_user_id).await
+    }
+
+    async fn reconciliation_needs_artifact(
+        &mut self,
+        event_id: &str,
+        signature_request_id: &str,
+    ) -> DbResult<bool> {
+        SignatureDao::reconciliation_needs_artifact(self, event_id, signature_request_id).await
+    }
+
+    async fn reconcile_completed(
+        &mut self,
+        event_id: &str,
+        signature_request_id: &str,
+        signed_artifact: Option<&SignatureArtifactDownload>,
+        audit_artifact: Option<&SignatureArtifactDownload>,
+        actor_app_user_id: Option<&str>,
+    ) -> DbResult<SignatureCommandResult> {
+        SignatureDao::reconcile_completed(
+            self,
+            event_id,
+            signature_request_id,
+            signed_artifact,
+            audit_artifact,
+            actor_app_user_id,
+        )
+        .await
     }
 }
 
@@ -465,6 +481,79 @@ impl<R: SignatureRepository> SignatureService<R> {
         result
     }
 
+    async fn reconcile_completed_internal(
+        &mut self,
+        event_id: &str,
+        signature_request_id: &str,
+        context: &ServiceContext,
+    ) -> Result<SignatureCommandResult, CoreServiceError> {
+        let needs_artifact = self
+            .repository
+            .reconciliation_needs_artifact(event_id, signature_request_id)
+            .await?;
+
+        let signed_artifact = if needs_artifact {
+            Some(
+                self.provider
+                    .download_signed_artifact(signature_request_id)
+                    .await
+                    .map_err(|message| {
+                        CoreServiceError::business(
+                            "SIGNATURE_ARTIFACT_DOWNLOAD_FAILED",
+                            message,
+                        )
+                    })?,
+            )
+        } else {
+            None
+        };
+        let audit_artifact = if needs_artifact {
+            self.provider
+                .download_audit_trail(signature_request_id)
+                .await
+                .map_err(|message| {
+                    CoreServiceError::business("SIGNATURE_AUDIT_DOWNLOAD_FAILED", message)
+                })?
+        } else {
+            None
+        };
+
+        self.repository
+            .reconcile_completed(
+                event_id,
+                signature_request_id,
+                signed_artifact.as_ref(),
+                audit_artifact.as_ref(),
+                actor_app_user_id(context),
+            )
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn reconcile_completed(
+        &mut self,
+        event_id: &str,
+        signature_request_id: &str,
+        context: &ServiceContext,
+    ) -> Result<SignatureCommandResult, CoreServiceError> {
+        const OP: &str = "signature.reconcileCompleted";
+        let decision = authorize(
+            &self.runtime,
+            "signature",
+            "signature.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+
+        let result = self
+            .reconcile_completed_internal(event_id, signature_request_id, context)
+            .await;
+        audit_result(&self.runtime, "signature", OP, context, decision, &result).await?;
+        result
+    }
+
     pub async fn handle_webhook(
         &mut self,
         raw_payload: &str,
@@ -491,18 +580,39 @@ impl<R: SignatureRepository> SignatureService<R> {
                     CoreServiceError::business("SIGNATURE_WEBHOOK_INVALID", message)
                 })?;
             let target = verified.event.as_status();
+            let status_command_id = Uuid::new_v4().to_string();
+            let signature_request_id = verified.signature_request_id;
             let command = self
                 .repository
                 .apply_status(
                     &ApplySignatureStatusRequest {
-                        command_id: Uuid::new_v4().to_string(),
-                        signature_request_id: verified.signature_request_id,
+                        command_id: status_command_id.clone(),
+                        signature_request_id: signature_request_id.clone(),
                         target_status: Some(target),
                     },
                     actor_app_user_id(context),
                 )
                 .await?;
             emit_status_event(&self.runtime, &command, target, context).await?;
+            if target == SignatureRequestStatus::Completed
+                && command.outcome == SignatureCommandOutcome::Success
+            {
+                let reconciliation = self
+                    .reconcile_completed_internal(
+                        &status_command_id,
+                        &signature_request_id,
+                        context,
+                    )
+                    .await?;
+                if reconciliation.outcome != SignatureCommandOutcome::Success {
+                    return Err(CoreServiceError::business(
+                        "SIGNATURE_RECONCILIATION_FAILED",
+                        reconciliation.message.unwrap_or_else(|| {
+                            "Signed-artifact reconciliation failed.".into()
+                        }),
+                    ));
+                }
+            }
             Ok(command)
         }
         .await;
@@ -527,6 +637,14 @@ async fn emit_status_event(
     context: &ServiceContext,
 ) -> Result<(), CoreServiceError> {
     if command.outcome != SignatureCommandOutcome::Success || command.replayed {
+        return Ok(());
+    }
+    let transitioned = command
+        .value
+        .as_ref()
+        .and_then(|value| serde_json::from_value::<SignatureStatusResult>(value.clone()).ok())
+        .is_some_and(|result| result.transitioned);
+    if !transitioned {
         return Ok(());
     }
     let event_type = match status {

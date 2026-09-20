@@ -10,14 +10,14 @@ use crate::projects::ProjectService;
 use crate::properties::PropertyService;
 use crate::security::SecurityService;
 use crate::showings::ShowingService;
-use crate::signature::{SignatureProvider, SignatureService};
+use crate::signature::SignatureService;
 use crate::vault::{VaultArtifactPort, VaultService};
 use crate::wbs::WbsService;
 use db::{
     CalendarDao, CommsDao, ContractDao, Database, FirmDao, FormDao, MediaDao, PersonDao,
     ProjectDao, PropertyDao, SecurityDao, ShowingDao, SignatureDao, VaultDao, WbsDao,
 };
-use service::ServiceInfrastructure;
+use service::{ServiceInfrastructure, SignatureProvider};
 use std::sync::Arc;
 
 /// Rust composition root for the required CulebraLuxe business-service kernel.

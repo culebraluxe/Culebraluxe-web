@@ -2,8 +2,9 @@ use crate::{Database, DbFailure, DbResult, DbTransaction};
 use chrono::{DateTime, Utc};
 use domain::{
     normalize_signature_email, ApplySignatureStatusRequest, SendSignatureRequest,
-    SignatureCommandOutcome, SignatureCommandResult, SignatureRecipient, SignatureRequest,
-    SignatureRequestResult, SignatureRequestStatus, SignatureStatusResult,
+    SignatureArtifactDownload, SignatureCommandOutcome, SignatureCommandResult,
+    SignatureRecipient, SignatureRequest, SignatureRequestResult, SignatureRequestStatus,
+    SignatureStatusResult,
 };
 use serde_json::{json, Value};
 use sqlx::FromRow;
@@ -33,6 +34,16 @@ struct ReceiptRow {
     aggregate_id: Option<String>,
     message: Option<String>,
 }
+
+#[derive(Debug, FromRow)]
+struct ReconcileRow {
+    document_id: String,
+    state: String,
+    signed_media_id: Option<String>,
+    signed_audit_media_id: Option<String>,
+    signed_at: Option<DateTime<Utc>>,
+}
+
 
 #[derive(Debug, Clone)]
 struct IssuedSlot {
@@ -743,6 +754,302 @@ impl SignatureDao {
         .await
     }
 
+
+    pub async fn reconciliation_needs_artifact(
+        &self,
+        event_id: &str,
+        signature_request_id: &str,
+    ) -> DbResult<bool> {
+        let command_id = format!("signature.reconcile:{event_id}");
+        let receipt = sqlx::query_as::<_, ReceiptRow>(
+            r#"
+            select outcome, aggregate_id::text as aggregate_id, message
+            from workflow_command_receipt
+            where command_id = $1
+            limit 1
+            "#,
+        )
+        .bind(&command_id)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("signature.reconcile.probe_receipt", &error))?;
+
+        if receipt.as_ref().is_some_and(|row| row.outcome != "pending") {
+            return Ok(false);
+        }
+
+        let row = sqlx::query_as::<_, ReconcileRow>(
+            r#"
+            select td.id::text as document_id,
+                   td.state,
+                   td.signed_media_id::text as signed_media_id,
+                   td.signed_audit_media_id::text as signed_audit_media_id,
+                   td.signed_at
+            from signature_request sr
+            join transaction_document td on td.id = sr.transaction_document_id
+            where sr.id = $1::uuid
+            limit 1
+            "#,
+        )
+        .bind(signature_request_id)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("signature.reconcile.probe_document", &error))?;
+
+        Ok(row.is_some_and(|row| {
+            row.signed_media_id.is_none()
+                && matches!(row.state.as_str(), "draft" | "ready" | "sent")
+        }))
+    }
+
+    pub async fn reconcile_completed(
+        &self,
+        event_id: &str,
+        signature_request_id: &str,
+        signed_artifact: Option<&SignatureArtifactDownload>,
+        audit_artifact: Option<&SignatureArtifactDownload>,
+        actor_app_user_id: Option<&str>,
+    ) -> DbResult<SignatureCommandResult> {
+        let command_id = format!("signature.reconcile:{event_id}");
+        let mut tx = self.db.begin("signature.reconcile_completed").await?;
+        let result = async {
+            if !claim_receipt(&mut tx, &command_id, actor_app_user_id).await? {
+                let receipt = read_receipt(&mut tx, &command_id).await?;
+                return Ok(replay_result(&command_id, receipt));
+            }
+
+            let row = sqlx::query_as::<_, ReconcileRow>(
+                r#"
+                select td.id::text as document_id,
+                       td.state,
+                       td.signed_media_id::text as signed_media_id,
+                       td.signed_audit_media_id::text as signed_audit_media_id,
+                       td.signed_at
+                from signature_request sr
+                join transaction_document td on td.id = sr.transaction_document_id
+                where sr.id = $1::uuid
+                limit 1
+                "#,
+            )
+            .bind(signature_request_id)
+            .fetch_optional(tx.connection())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("signature.reconcile.resolve", &error))?;
+
+            let Some(row) = row else {
+                let outcome = SignatureCommandOutcome::NotFound;
+                let message = "Signature request or transaction document not found.".to_owned();
+                finalize_receipt(
+                    &mut tx,
+                    &command_id,
+                    outcome,
+                    None,
+                    Some(&message),
+                    actor_app_user_id,
+                )
+                .await?;
+                return Ok(command_result(
+                    &command_id,
+                    outcome,
+                    None,
+                    Some(message),
+                    None,
+                ));
+            };
+
+            if row.signed_media_id.is_some() {
+                let value = json!({
+                    "replayed": true,
+                    "documentId": row.document_id,
+                    "mediaId": row.signed_media_id,
+                    "auditMediaId": row.signed_audit_media_id,
+                    "signedAt": row.signed_at.map(|value| value.to_rfc3339()),
+                    "signatureRequestId": signature_request_id,
+                });
+                let outcome = SignatureCommandOutcome::Success;
+                finalize_receipt(
+                    &mut tx,
+                    &command_id,
+                    outcome,
+                    Some(&row.document_id),
+                    Some("Document already signed; completion treated as replayed."),
+                    actor_app_user_id,
+                )
+                .await?;
+                return Ok(command_result(
+                    &command_id,
+                    outcome,
+                    Some(row.document_id),
+                    Some("Document already signed; completion treated as replayed.".into()),
+                    Some(value),
+                ));
+            }
+
+            if !matches!(row.state.as_str(), "draft" | "ready" | "sent") {
+                let outcome = SignatureCommandOutcome::ValidationFailure;
+                let message = format!(
+                    "Transaction document cannot be signed from state '{}'.",
+                    row.state
+                );
+                finalize_receipt(
+                    &mut tx,
+                    &command_id,
+                    outcome,
+                    Some(&row.document_id),
+                    Some(&message),
+                    actor_app_user_id,
+                )
+                .await?;
+                return Ok(command_result(
+                    &command_id,
+                    outcome,
+                    Some(row.document_id),
+                    Some(message),
+                    None,
+                ));
+            }
+
+            let Some(signed_artifact) = signed_artifact else {
+                let outcome = SignatureCommandOutcome::Conflict;
+                let message =
+                    "Signed artifact is required for an unreconciled completed request.".to_owned();
+                finalize_receipt(
+                    &mut tx,
+                    &command_id,
+                    outcome,
+                    Some(&row.document_id),
+                    Some(&message),
+                    actor_app_user_id,
+                )
+                .await?;
+                return Ok(command_result(
+                    &command_id,
+                    outcome,
+                    Some(row.document_id),
+                    Some(message),
+                    None,
+                ));
+            };
+
+            let signed_media_id = insert_signature_media(tx.connection(), signed_artifact).await?;
+            let audit_media_id = match audit_artifact {
+                Some(artifact) => Some(insert_signature_media(tx.connection(), artifact).await?),
+                None => None,
+            };
+
+            if row.state == "draft" {
+                let changed = sqlx::query_scalar::<_, String>(
+                    r#"
+                    update transaction_document
+                    set state = 'ready', updated_at = now()
+                    where id = $1::uuid and state = 'draft'
+                    returning id::text
+                    "#,
+                )
+                .bind(&row.document_id)
+                .fetch_optional(tx.connection())
+                .await
+                .map_err(|error| {
+                    DbFailure::from_sqlx("signature.reconcile.advance_ready", &error)
+                })?;
+                if changed.is_none() {
+                    return Err(DbFailure::schema_mismatch(
+                        "signature.reconcile.advance_ready",
+                        "transaction document changed concurrently",
+                    ));
+                }
+            }
+
+            if matches!(row.state.as_str(), "draft" | "ready") {
+                let changed = sqlx::query_scalar::<_, String>(
+                    r#"
+                    update transaction_document
+                    set state = 'sent', updated_at = now()
+                    where id = $1::uuid and state = 'ready'
+                    returning id::text
+                    "#,
+                )
+                .bind(&row.document_id)
+                .fetch_optional(tx.connection())
+                .await
+                .map_err(|error| {
+                    DbFailure::from_sqlx("signature.reconcile.advance_sent", &error)
+                })?;
+                if changed.is_none() {
+                    return Err(DbFailure::schema_mismatch(
+                        "signature.reconcile.advance_sent",
+                        "transaction document changed concurrently",
+                    ));
+                }
+            }
+
+            let signed = sqlx::query_as::<_, (String, DateTime<Utc>)>(
+                r#"
+                update transaction_document
+                set state = 'signed',
+                    signed_media_id = $2::uuid,
+                    signed_audit_media_id = $3::uuid,
+                    signed_at = now(),
+                    updated_at = now()
+                where id = $1::uuid
+                  and state = 'sent'
+                  and signed_media_id is null
+                returning id::text, signed_at
+                "#,
+            )
+            .bind(&row.document_id)
+            .bind(&signed_media_id)
+            .bind(audit_media_id.as_deref())
+            .fetch_optional(tx.connection())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("signature.reconcile.sign", &error))?
+            .ok_or_else(|| {
+                DbFailure::schema_mismatch(
+                    "signature.reconcile.sign",
+                    "transaction document changed concurrently before signed transition",
+                )
+            })?;
+
+            let value = json!({
+                "replayed": false,
+                "documentId": signed.0,
+                "mediaId": signed_media_id,
+                "auditMediaId": audit_media_id,
+                "signedAt": signed.1.to_rfc3339(),
+                "signatureRequestId": signature_request_id,
+            });
+            let outcome = SignatureCommandOutcome::Success;
+            finalize_receipt(
+                &mut tx,
+                &command_id,
+                outcome,
+                Some(&signed.0),
+                None,
+                actor_app_user_id,
+            )
+            .await?;
+            Ok(command_result(
+                &command_id,
+                outcome,
+                Some(signed.0),
+                None,
+                Some(value),
+            ))
+        }
+        .await;
+
+        match result {
+            Ok(value) => {
+                tx.commit().await?;
+                Ok(value)
+            }
+            Err(error) => {
+                let _ = tx.rollback().await;
+                Err(error)
+            }
+        }
+    }
+
     async fn transition(
         &self,
         request: &ApplySignatureStatusRequest,
@@ -911,6 +1218,27 @@ impl SignatureDao {
             }
         }
     }
+}
+
+
+async fn insert_signature_media(
+    connection: &mut sqlx::PgConnection,
+    artifact: &SignatureArtifactDownload,
+) -> DbResult<String> {
+    sqlx::query_scalar::<_, String>(
+        r#"
+        insert into media (file_data, filename, mime_type, file_size, media_type)
+        values ($1,$2,$3,$4,'document')
+        returning id::text
+        "#,
+    )
+    .bind(&artifact.bytes)
+    .bind(&artifact.filename)
+    .bind(&artifact.mime_type)
+    .bind(artifact.bytes.len() as i64)
+    .fetch_one(connection)
+    .await
+    .map_err(|error| DbFailure::from_sqlx("signature.reconcile.insert_media", &error))
 }
 
 #[cfg(test)]

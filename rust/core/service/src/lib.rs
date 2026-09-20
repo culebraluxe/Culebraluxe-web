@@ -8,6 +8,7 @@ mod authorization;
 mod context;
 mod events;
 mod runtime;
+mod signature_provider;
 
 pub use audit::{AuditPort, CapturingAuditPort, ServiceAuditEvent, ServiceOutcome};
 pub use authorization::{
@@ -18,3 +19,5 @@ pub use context::{
 };
 pub use events::{CapturingDomainEventPort, DomainEventPort, ServiceDomainEvent};
 pub use runtime::{ServiceInfrastructure, ServicePortError, ServiceRuntime, ServiceRuntimeError};
+
+pub use signature_provider::SignatureProvider;
