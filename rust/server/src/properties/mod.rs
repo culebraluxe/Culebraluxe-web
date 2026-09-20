@@ -1,0 +1,1 @@
+//! Properties domain application boundary.

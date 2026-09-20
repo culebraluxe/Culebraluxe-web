@@ -1,0 +1,1 @@
+//! Mux integration adapter boundary.

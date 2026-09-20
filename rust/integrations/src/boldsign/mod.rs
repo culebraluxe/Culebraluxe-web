@@ -1,0 +1,1 @@
+//! BoldSign integration adapter boundary.

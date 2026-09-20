@@ -1,0 +1,13 @@
+[package]
+name = "cli"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+domain = { path = "../core/domain" }
+db = { path = "../core/db" }
+workflow = { path = "../core/workflow" }
+forge = { path = "../forge" }
+integrations = { path = "../integrations" }
+server = { path = "../server" }

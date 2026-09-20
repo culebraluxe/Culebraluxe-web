@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = [
+    "core/domain",
+    "core/db",
+    "core/workflow",
+    "core/auth",
+    "forge",
+    "server",
+    "integrations",
+    "cli",
+]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+publish = false

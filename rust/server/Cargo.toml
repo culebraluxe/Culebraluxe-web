@@ -1,0 +1,11 @@
+[package]
+name = "server"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+domain = { path = "../core/domain" }
+db = { path = "../core/db" }
+auth = { path = "../core/auth" }
+integrations = { path = "../integrations" }
