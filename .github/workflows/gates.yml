@@ -238,7 +238,9 @@ jobs:
 
   rust_database:
     name: rust DEV DB smoke
-    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+    # Read-only Rust -> SQLx -> Neon proof. Parked until DATABASE_URL_DEV exists
+    # as a GitHub Actions secret and RUST_DB_CI is explicitly enabled.
+    if: ${{ vars.RUST_DB_CI == 'true' && github.ref == 'refs/heads/main' && github.event_name == 'push' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
