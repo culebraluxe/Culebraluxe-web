@@ -103,10 +103,10 @@ fn the_parity_map_claims_the_signature_routes() {
 
 #[test]
 fn the_webhook_is_not_claimed_until_it_is_attached() {
-    let attached = routes_source().contains("\"/v1/signature/webhook\"");
+    let attached = routes_source().contains("\"/api/integrations/boldsign/webhook\"");
     let claimed = claimed_routes(&parity_map())
         .iter()
-        .any(|route| route == "/v1/signature/webhook");
+        .any(|route| route == "/api/integrations/boldsign/webhook");
     assert_eq!(
         attached, claimed,
         "the webhook route and the parity map disagree (attached={attached}, claimed={claimed}). The map is a claim \

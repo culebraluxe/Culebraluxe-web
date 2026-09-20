@@ -289,7 +289,10 @@ pub fn router(state: ApiState) -> Router {
             "/v1/signature/requests/{id}/refresh",
             post(signature_refresh),
         )
-        .route("/v1/signature/webhook", post(signature_webhook))
+        .route(
+            "/api/integrations/boldsign/webhook",
+            post(signature_webhook),
+        )
         .with_state(state)
 }
 
