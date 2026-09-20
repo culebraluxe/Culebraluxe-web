@@ -14,3 +14,4 @@ serde_json.workspace = true
 sha2.workspace = true
 sqlx.workspace = true
 service = { path = "../core/service" }
+subtle.workspace = true

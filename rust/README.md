@@ -311,3 +311,16 @@ database transaction. Inside one transaction Rust appends new signed/audit media
 advances draft/ready documents through the legal pre-signed chain when required,
 records the final signed lineage, and finalizes the reconciliation receipt.
 Duplicate completion observations therefore cannot append a second signed PDF.
+
+
+## Slice 6C: WhatsApp webhook trust edge
+
+The Meta WhatsApp Cloud API trust boundary is represented in Rust without
+changing production routing. The adapter verifies the GET subscription challenge
+with a constant-time token comparison and validates POST callbacks against
+Meta's exact raw-body `X-Hub-Signature-256` HMAC before payload parsing.
+
+Configuration remains external through `WHATSAPP_APP_SECRET`,
+`WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_OWNED_PHONE_E164`, and
+`WHATSAPP_VERIFY_TOKEN`. E.164 normalization is bounded and rejects malformed
+owned-line configuration rather than guessing.
