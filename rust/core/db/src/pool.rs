@@ -94,7 +94,12 @@ pub fn resolve_declared_target(
     vercel_env: Option<&str>,
     app_env: Option<&str>,
 ) -> DbResult<DbTarget> {
-    match vercel_env.unwrap_or_default().trim().to_lowercase().as_str() {
+    match vercel_env
+        .unwrap_or_default()
+        .trim()
+        .to_lowercase()
+        .as_str()
+    {
         "production" => return Ok(DbTarget::Prod),
         "preview" | "development" => return Ok(DbTarget::Dev),
         _ => {}

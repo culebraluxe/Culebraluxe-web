@@ -36,8 +36,9 @@ impl TryFrom<ProjectRow> for Project {
         let mut areas = Vec::with_capacity(row.areas.len());
         for area in row.areas {
             areas.push(
-                WbsCategory::try_from(area.as_str())
-                    .map_err(|error| DbFailure::schema_mismatch("project.map", error.to_string()))?,
+                WbsCategory::try_from(area.as_str()).map_err(|error| {
+                    DbFailure::schema_mismatch("project.map", error.to_string())
+                })?,
             );
         }
 
@@ -152,12 +153,10 @@ impl ProjectDao {
     }
 
     pub async fn update(&self, request: &UpdateProjectRequest) -> DbResult<Option<Project>> {
-        let areas: Option<Vec<String>> = request.areas.as_ref().map(|values| {
-            values
-                .iter()
-                .map(|area| area.as_str().to_owned())
-                .collect()
-        });
+        let areas: Option<Vec<String>> = request
+            .areas
+            .as_ref()
+            .map(|values| values.iter().map(|area| area.as_str().to_owned()).collect());
         let status = request.status.as_ref().map(ProjectStatus::as_str);
 
         let row = sqlx::query_as::<_, ProjectRow>(

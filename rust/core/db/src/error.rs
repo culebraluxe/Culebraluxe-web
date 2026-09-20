@@ -123,7 +123,10 @@ mod tests {
         assert_eq!(classify_sqlstate("42703"), DbFailureKind::SchemaMismatch);
         assert_eq!(classify_sqlstate("42P01"), DbFailureKind::SchemaMismatch);
         assert_eq!(classify_sqlstate("57014"), DbFailureKind::Timeout);
-        assert_eq!(classify_sqlstate("08006"), DbFailureKind::DatabaseUnavailable);
+        assert_eq!(
+            classify_sqlstate("08006"),
+            DbFailureKind::DatabaseUnavailable
+        );
         assert_eq!(classify_sqlstate("23505"), DbFailureKind::Constraint);
         assert_eq!(classify_sqlstate("XX000"), DbFailureKind::Unknown);
     }

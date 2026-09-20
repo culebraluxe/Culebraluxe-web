@@ -1,16 +1,11 @@
 use super::ProjectRepository;
 use db::DbFailure;
-use domain::{
-    CompleteProjectRequest, CreateProjectRequest, Project, UpdateProjectRequest,
-};
+use domain::{CompleteProjectRequest, CreateProjectRequest, Project, UpdateProjectRequest};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProjectServiceError {
     #[error("{code}: {message}")]
-    Validation {
-        code: &'static str,
-        message: String,
-    },
+    Validation { code: &'static str, message: String },
     #[error("project not found: {0}")]
     NotFound(String),
     #[error(transparent)]

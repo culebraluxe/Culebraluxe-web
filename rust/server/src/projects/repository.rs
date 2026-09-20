@@ -1,8 +1,6 @@
 use async_trait::async_trait;
 use db::{DbResult, ProjectDao};
-use domain::{
-    CompleteProjectRequest, CreateProjectRequest, Project, UpdateProjectRequest,
-};
+use domain::{CompleteProjectRequest, CreateProjectRequest, Project, UpdateProjectRequest};
 
 #[async_trait]
 pub trait ProjectRepository: Send + Sync {
