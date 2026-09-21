@@ -53,7 +53,7 @@ export async function runRecoveryPass(): Promise<RecoveryReport> {
     return { reclaimedStaleJobs: 0, reconcile: { startedInstances: 0, materializedTasks: 0, skippedTasks: 0 }, anomalies: [] }
   }
 
-  const { reclaimStaleJobs, reclaimStaleJobsForInstance } = await import('@/legacy/workflow_app/rust-re-host')
+  const { reclaimStaleJobs } = await import('@/legacy/workflow_app/rust-re-host')
   const { getWorkflowDiagnosticsSnapshot } = await import('@/legacy/workflow_app/diagnostics')
 
   return runRecoveryPassCore({

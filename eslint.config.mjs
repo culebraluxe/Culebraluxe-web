@@ -90,6 +90,10 @@ export default tseslint.config(
       '.forge/**',
       '.forge-context/**',
       '**/*.d.ts',
+      // Generated wasm-bindgen glue (`scripts/rust-ui-build.sh` writes it, the release wasm build owns it). It
+      // references the browser's own globals - Element, WebAssembly, window - which `no-undef` cannot see, and it is
+      // not ours to restyle. Ignored for the same reason as the vendored directories above.
+      'lib/rust-ui/ui.js',
     ],
   },
   js.configs.recommended,
@@ -106,6 +110,47 @@ export default tseslint.config(
        * learn to ignore. `tsc --noEmit` is the identifier check for these files; it already runs.
        */
       'no-undef': 'off',
+    },
+  },
+  // ---------------------------------------------------------------------------
+  // THE WEBSITE'S SCOPE BOUNDARY.
+  //
+  // `legacy/` is out of scope for the primary website. It is retired TypeScript, moved out of the
+  // main tree, and kept only because callers still route through it. The direction of travel is one
+  // way: the website reaches the domain through the Rust API (`lib/rust-api`), or a Rust route is
+  // added for what it needs - it does not reach into `legacy/`.
+  //
+  // This rule does not ask anyone to fix the files that still import it. It freezes them. There is no
+  // way to write a rule like this and have it pass on day one, so the current offenders live in
+  // `eslint-suppressions.json` as the burndown: `pnpm lint` stays green, and the list may only shrink.
+  //
+  //   npx eslint . --prune-suppressions   # after removing an import, drop its stale entry
+  //
+  // Scope is the website's own files. `legacy/` is not policed by this rule - it is out of scope.
+  // ---------------------------------------------------------------------------
+  {
+    files: [
+      'app/**/*.{ts,tsx}',
+      'components/**/*.{ts,tsx}',
+      'lib/**/*.{ts,tsx}',
+      'middleware.ts',
+      'instrumentation.ts',
+      'auth.ts',
+      'neon.ts',
+    ],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@/legacy/*', '@/legacy', '**/legacy/db/*', '**/legacy/services/*', '**/legacy/workflow_app/*'],
+              message:
+                'legacy/ is out of scope for the primary website. Call the Rust API (lib/rust-api) instead, or add the Rust route this needs. If the import is unavoidable for now, it is already in eslint-suppressions.json - that list may only shrink.',
+            },
+          ],
+        },
+      ],
     },
   },
   {

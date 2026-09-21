@@ -40,8 +40,396 @@
       "count": 1
     }
   },
+  "app/actions/catchup-lead.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/actions/website-intake.ts": {
+    "no-restricted-imports": {
+      "count": 4
+    }
+  },
+  "app/api/integrations/boldsign/webhook/route.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/api/integrations/whatsapp/webhook/route.ts": {
+    "no-restricted-imports": {
+      "count": 3
+    }
+  },
+  "app/api/media/[id]/route.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/api/media/documents/[id]/route.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/api/media/upload/route.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/api/portal/client-error/route.ts": {
+    "no-restricted-imports": {
+      "count": 2
+    }
+  },
+  "app/api/portal/clients/[personId]/property-context/route.ts": {
+    "no-restricted-imports": {
+      "count": 3
+    }
+  },
+  "app/api/portal/db-diag/route.ts": {
+    "no-restricted-imports": {
+      "count": 2
+    }
+  },
+  "app/api/portal/flight-recorder/[instanceId]/route.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/api/portal/issues/route.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/api/portal/move-trace/route.ts": {
+    "no-restricted-imports": {
+      "count": 2
+    }
+  },
+  "app/api/portal/relationship-evidence-review/actions/route.ts": {
+    "no-restricted-imports": {
+      "count": 3
+    }
+  },
+  "app/api/portal/relationship-evidence-review/route.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/api/portal/runtime-inspector/[instanceId]/route.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/api/portal/rust-ui/rows/route.ts": {
+    "no-restricted-imports": {
+      "count": 36
+    }
+  },
+  "app/api/rust-ui/public-rows/route.ts": {
+    "no-restricted-imports": {
+      "count": 3
+    }
+  },
+  "app/contact/page.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/faq/page.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/guide/page.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/login/recovery/actions.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/page.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/portal/accounting/actions.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/portal/accounting/page.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/portal/accounting/pnl/page.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/portal/accounting/receivables/page.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/portal/actions.ts": {
+    "no-restricted-imports": {
+      "count": 15
+    }
+  },
   "app/portal/clients/[personId]/page.tsx": {
+    "no-restricted-imports": {
+      "count": 2
+    },
     "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "app/portal/command-console/actions.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/portal/dashboard/page.tsx": {
+    "no-restricted-imports": {
+      "count": 4
+    }
+  },
+  "app/portal/db-test/page.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/portal/deals/[dealId]/page.tsx": {
+    "no-restricted-imports": {
+      "count": 2
+    }
+  },
+  "app/portal/deals/page.tsx": {
+    "no-restricted-imports": {
+      "count": 2
+    }
+  },
+  "app/portal/forms/[formId]/preview/route.ts": {
+    "no-restricted-imports": {
+      "count": 2
+    }
+  },
+  "app/portal/forms/actions-core.ts": {
+    "no-restricted-imports": {
+      "count": 3
+    }
+  },
+  "app/portal/issues/actions.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/portal/issues/page.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/portal/layout.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/portal/marketing/actions.ts": {
+    "no-restricted-imports": {
+      "count": 2
+    }
+  },
+  "app/portal/marketing/page.tsx": {
+    "no-restricted-imports": {
+      "count": 2
+    }
+  },
+  "app/portal/marketing/syndication/page.tsx": {
+    "no-restricted-imports": {
+      "count": 2
+    }
+  },
+  "app/portal/projects/actions.ts": {
+    "no-restricted-imports": {
+      "count": 8
+    }
+  },
+  "app/portal/projects/calendar-actions.ts": {
+    "no-restricted-imports": {
+      "count": 6
+    }
+  },
+  "app/portal/projects/page.tsx": {
+    "no-restricted-imports": {
+      "count": 12
+    }
+  },
+  "app/portal/property-admin/[propertyId]/page.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/portal/property-admin/page.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/portal/property-media/page.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/portal/reporting/page.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/portal/settings/authorities/page.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/portal/settings/page.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/portal/settings/roles/page.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/portal/settings/users/page.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/portal/showings/page.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/portal/storyboard/[id]/page.tsx": {
+    "no-restricted-imports": {
+      "count": 2
+    }
+  },
+  "app/portal/storyboard/actions.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/portal/storyboard/page.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/portal/system-health/page.tsx": {
+    "no-restricted-imports": {
+      "count": 2
+    }
+  },
+  "app/portal/tech/actions.ts": {
+    "no-restricted-imports": {
+      "count": 5
+    }
+  },
+  "app/portal/tech/app-errors/page.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/portal/tech/flight-recorder/[instanceId]/page.tsx": {
+    "no-restricted-imports": {
+      "count": 3
+    }
+  },
+  "app/portal/tech/kanban/page.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "app/portal/tech/page.tsx": {
+    "no-restricted-imports": {
+      "count": 6
+    }
+  },
+  "app/portal/wbs/actions.ts": {
+    "no-restricted-imports": {
+      "count": 7
+    }
+  },
+  "app/portal/workflow-diagnostics-actions.ts": {
+    "no-restricted-imports": {
+      "count": 2
+    }
+  },
+  "app/portal/workflows/[instanceId]/page.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/buyers-property-showroom.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/featured-properties.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/home-properties.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/portal/accounting/accounting-dashboard.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/portal/accounting/accounting-expenses.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/portal/accounting/accounting-pnl.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/portal/accounting/accounting-receivables.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/portal/accounting/accounting-shell.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/portal/activity-feed.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/portal/attention.tsx": {
+    "no-restricted-imports": {
+      "count": 3
+    }
+  },
+  "components/portal/client-manager.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/portal/clients-workspace.tsx": {
+    "no-restricted-imports": {
       "count": 1
     }
   },
@@ -55,8 +443,21 @@
       "count": 1
     }
   },
+  "components/portal/dashboard.tsx": {
+    "no-restricted-imports": {
+      "count": 2
+    }
+  },
+  "components/portal/deal-workspace.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
   "components/portal/factory-command-center.tsx": {
     "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    },
+    "no-restricted-imports": {
       "count": 1
     }
   },
@@ -70,18 +471,76 @@
       "count": 2
     }
   },
+  "components/portal/identity-quality.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/portal/issues-queue.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/portal/marketing/marketing-dashboard.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
   "components/portal/marketing/syndication-workbench.tsx": {
     "@next/next/no-img-element": {
       "count": 2
     }
   },
+  "components/portal/media-admin.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/portal/needs-review.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/portal/operating-shell.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
   "components/portal/property-admin-workspace.tsx": {
     "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    },
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/portal/property-admin.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/portal/relationship-dossier.tsx": {
+    "no-restricted-imports": {
+      "count": 2
+    }
+  },
+  "components/portal/reporting.tsx": {
+    "no-restricted-imports": {
       "count": 1
     }
   },
   "components/portal/runtime-inspector.tsx": {
     "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "components/portal/settings-auth.tsx": {
+    "no-restricted-imports": {
+      "count": 2
+    }
+  },
+  "components/portal/showings.tsx": {
+    "no-restricted-imports": {
       "count": 1
     }
   },
@@ -93,16 +552,40 @@
   "components/portal/story-execution-cockpit.tsx": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
+    },
+    "no-restricted-imports": {
+      "count": 2
     }
   },
   "components/portal/storyboard/story-detail-sections.tsx": {
     "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    },
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/portal/system-health.tsx": {
+    "no-restricted-imports": {
       "count": 1
     }
   },
   "components/portal/tech/engineering-cockpit.tsx": {
     "@typescript-eslint/no-unused-vars": {
       "count": 2
+    },
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/portal/tech/engineering-line/EngineeringQueuesPage.tsx": {
+    "no-restricted-imports": {
+      "count": 4
+    }
+  },
+  "components/portal/tech/flight-recorder-console-shell.tsx": {
+    "no-restricted-imports": {
+      "count": 1
     }
   },
   "components/portal/tech/flight-recorder-console/FlightRecorderPage.tsx": {
@@ -110,13 +593,91 @@
       "count": 3
     }
   },
+  "components/portal/tech/flight-recorder-list.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/portal/tech/forge-convergence-view.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/portal/wbs/catch-up-board.tsx": {
+    "no-restricted-imports": {
+      "count": 3
+    }
+  },
+  "components/portal/workflow-dashboard-card.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/portal/workflow-diagnostics.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
   "components/portal/workflow-instance-detail.tsx": {
     "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    },
+    "no-restricted-imports": {
+      "count": 3
+    }
+  },
+  "components/portal/workflows-list.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/portal/write/deal-create-panel.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/portal/write/needs-review-actions.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/portal/write/person-selector.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/portal/write/structural-participant-actions.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/property/compare-bar.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/property/favorites-view.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/property/featured-property-carousel.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "components/property/saved-searches-panel.tsx": {
+    "no-restricted-imports": {
       "count": 1
     }
   },
   "components/property/similar-properties.tsx": {
     "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "components/review/review-dashboard.tsx": {
+    "no-restricted-imports": {
       "count": 1
     }
   },
@@ -170,248 +731,6 @@
       "count": 1
     }
   },
-  "lib/calendar/google/webhook.ts": {
-    "no-control-regex": {
-      "count": 1
-    }
-  },
-  "lib/commands/contracts.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 4
-    }
-  },
-  "lib/commands/registry.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 6
-    }
-  },
-  "lib/commands/task/task-commands.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 3
-    }
-  },
-  "lib/crm-calendar-normalization.ts": {
-    "no-control-regex": {
-      "count": 1
-    }
-  },
-  "lib/crm-communications-normalization.ts": {
-    "no-control-regex": {
-      "count": 2
-    }
-  },
-  "lib/crm-email-normalization.ts": {
-    "no-control-regex": {
-      "count": 1
-    }
-  },
-  "lib/crm-whatsapp-normalization.ts": {
-    "no-control-regex": {
-      "count": 2
-    }
-  },
-  "lib/factory-command-center-data.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    },
-    "no-useless-assignment": {
-      "count": 1
-    }
-  },
-  "lib/flight-recorder-adapter.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "lib/forms/template-registry.ts": {
-    "preserve-caught-error": {
-      "count": 1
-    }
-  },
-  "lib/mac-observer/adapters/calendar-adapter.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 2
-    }
-  },
-  "lib/mac-observer/adapters/contacts-adapter.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "lib/mac-observer/adapters/mail-adapter.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "lib/mac-observer/adapters/messages-adapter.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "lib/mac-observer/adapters/whatsapp-adapter.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "lib/media/upload-policy.ts": {
-    "no-control-regex": {
-      "count": 1
-    }
-  },
-  "lib/neon-interactive.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 7
-    }
-  },
-  "lib/qa-golden.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 2
-    }
-  },
-  "lib/relationship-intel/gmail-census.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "lib/relationship-intel/gmail-latest-context.ts": {
-    "no-control-regex": {
-      "count": 1
-    }
-  },
-  "lib/relationship-intel/icloud-mail.ts": {
-    "no-control-regex": {
-      "count": 1
-    }
-  },
-  "lib/relationship-intel/moment-presentation.ts": {
-    "no-control-regex": {
-      "count": 1
-    }
-  },
-  "lib/seller-strategy/insights.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "scripts/agent-runtime-deepseek.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    }
-  },
-  "scripts/agent-runtime-invoke.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    }
-  },
-  "scripts/agent-scheduler.mjs": {
-    "no-useless-assignment": {
-      "count": 2
-    },
-    "no-useless-escape": {
-      "count": 4
-    }
-  },
-  "scripts/agent-work.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
-    "no-useless-escape": {
-      "count": 1
-    }
-  },
-  "scripts/apple-local-listener.mjs": {
-    "no-useless-escape": {
-      "count": 1
-    }
-  },
-  "scripts/calendar-sync-agent.mjs": {
-    "no-useless-escape": {
-      "count": 2
-    }
-  },
-  "scripts/catchup-calendar-attention-proof.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "scripts/check-svar-widgets.mts": {
-    "no-useless-assignment": {
-      "count": 1
-    }
-  },
-  "scripts/core-daily-proof-01.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "scripts/create-deep1-story.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 2
-    }
-  },
-  "scripts/forge-consistency.ts": {
-    "no-useless-assignment": {
-      "count": 2
-    }
-  },
-  "scripts/forge-packet-lint.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    },
-    "no-useless-assignment": {
-      "count": 1
-    }
-  },
-  "scripts/import-guide-images.mjs": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "scripts/import-missing-guide-images.mjs": {
-    "no-empty": {
-      "count": 1
-    }
-  },
-  "scripts/load-apple-contacts.ts": {
-    "no-useless-assignment": {
-      "count": 1
-    }
-  },
-  "scripts/oc-probe3.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "scripts/probe-batch-schedule.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "scripts/pull-prod-to-dev.mjs": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "scripts/rel-intel-load-gmail.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "scripts/seed-projects-mvi2-dev.ts": {
-    "no-useless-assignment": {
-      "count": 1
-    }
-  },
-  "scripts/update-reference-stories.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 2
-    }
-  },
-  "scripts/verify-needs-review-resolution.mjs": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 3
-    }
-  },
   "legacy/services/entitlement/db-authorization-policy-provider.ts": {
     "no-useless-assignment": {
       "count": 1
@@ -420,41 +739,6 @@
   "legacy/services/regrid/regrid-client.ts": {
     "preserve-caught-error": {
       "count": 2
-    }
-  },
-  "testv2/client-workspace-controller.test.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "testv2/engine_tests/fake-sql.ts": {
-    "@typescript-eslint/no-this-alias": {
-      "count": 3
-    }
-  },
-  "testv2/engine_tests/persistence/atomicity.test.ts": {
-    "prefer-const": {
-      "count": 1
-    }
-  },
-  "testv2/engine_tests/persistence/lease-reclaim.test.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 3
-    }
-  },
-  "testv2/engine_tests/persistence/termination-races.test.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "testv2/service-error-sink.test.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "ui/projects/service-projection.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
     }
   },
   "legacy/workflow_app/anomaly-core.ts": {
@@ -659,6 +943,628 @@
   },
   "legacy/workflow_app/xml/mini-xml.ts": {
     "no-useless-escape": {
+      "count": 1
+    }
+  },
+  "lib/agreements/completion.ts": {
+    "no-restricted-imports": {
+      "count": 3
+    }
+  },
+  "lib/agreements/re-drive.ts": {
+    "no-restricted-imports": {
+      "count": 2
+    }
+  },
+  "lib/agreements/recovery.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/auth/actor-snapshot.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/auth/authority.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/auth/break-glass-authenticate.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/auth/break-glass-readiness.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/auth/security-runtime.ts": {
+    "no-restricted-imports": {
+      "count": 12
+    }
+  },
+  "lib/auth/session-capability-snapshot.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/auth/types.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/calendar/google/webhook.ts": {
+    "no-control-regex": {
+      "count": 1
+    }
+  },
+  "lib/catchup/queue.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/command-console-data.ts": {
+    "no-restricted-imports": {
+      "count": 2
+    }
+  },
+  "lib/commands/agreement/record-manual-agreement-execution.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/commands/contracts.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 4
+    },
+    "no-restricted-imports": {
+      "count": 2
+    }
+  },
+  "lib/commands/deal/set-deal-appraisal-required.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/commands/deal/set-deal-closing-date.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/commands/deal/set-deal-financing-deadline.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/commands/deal/set-deal-financing-type.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/commands/deal/set-deal-inspection-deadline.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/commands/deal/set-deal-lender-clear-to-close.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/commands/deal/set-deal-stage-closed.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/commands/deal/set-deal-stage-under-contract.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/commands/dispatcher.ts": {
+    "no-restricted-imports": {
+      "count": 2
+    }
+  },
+  "lib/commands/document/issue-document.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/commands/index.ts": {
+    "no-restricted-imports": {
+      "count": 4
+    }
+  },
+  "lib/commands/interaction/record-interaction.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/commands/offer/accept-offer.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/commands/registry.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 6
+    }
+  },
+  "lib/commands/signature/signature-commands.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/commands/task/task-commands.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 3
+    },
+    "no-restricted-imports": {
+      "count": 2
+    }
+  },
+  "lib/contract-reads.ts": {
+    "no-restricted-imports": {
+      "count": 4
+    }
+  },
+  "lib/crm-calendar-normalization.ts": {
+    "no-control-regex": {
+      "count": 1
+    }
+  },
+  "lib/crm-communications-normalization.ts": {
+    "no-control-regex": {
+      "count": 2
+    }
+  },
+  "lib/crm-email-normalization.ts": {
+    "no-control-regex": {
+      "count": 1
+    }
+  },
+  "lib/crm-whatsapp-normalization.ts": {
+    "no-control-regex": {
+      "count": 2
+    }
+  },
+  "lib/error-capture-seam.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/factory-command-center-data.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    },
+    "no-restricted-imports": {
+      "count": 3
+    },
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "lib/factory-kpi.ts": {
+    "no-restricted-imports": {
+      "count": 2
+    }
+  },
+  "lib/flight-recorder-adapter.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    },
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/form-signing-reads.ts": {
+    "no-restricted-imports": {
+      "count": 2
+    }
+  },
+  "lib/forms/form-instance-io.ts": {
+    "no-restricted-imports": {
+      "count": 4
+    }
+  },
+  "lib/forms/form-service-binding.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/forms/form-service-hydration.ts": {
+    "no-restricted-imports": {
+      "count": 4
+    }
+  },
+  "lib/forms/listing-canonical-binding.ts": {
+    "no-restricted-imports": {
+      "count": 7
+    }
+  },
+  "lib/forms/listing-contract-bridge.ts": {
+    "no-restricted-imports": {
+      "count": 3
+    }
+  },
+  "lib/forms/offer-contract-binding.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/forms/offer-contract-mapping.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/forms/pns-canonical-binding.ts": {
+    "no-restricted-imports": {
+      "count": 16
+    }
+  },
+  "lib/forms/pns-canonical-types.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/forms/showing-report-binding.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/forms/showing-report-mapping.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/forms/template-registry.ts": {
+    "preserve-caught-error": {
+      "count": 1
+    }
+  },
+  "lib/intake/mailbox-paging.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/mac-observer/adapters/calendar-adapter.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    }
+  },
+  "lib/mac-observer/adapters/contacts-adapter.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "lib/mac-observer/adapters/mail-adapter.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "lib/mac-observer/adapters/messages-adapter.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "lib/mac-observer/adapters/whatsapp-adapter.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "lib/media/upload-policy.ts": {
+    "no-control-regex": {
+      "count": 1
+    }
+  },
+  "lib/mq/broker.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/mq/outbox-repository.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/mq/proof-consumer.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/navigation/types.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/neon-interactive.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 7
+    },
+    "no-restricted-imports": {
+      "count": 3
+    }
+  },
+  "lib/person-reads.ts": {
+    "no-restricted-imports": {
+      "count": 2
+    }
+  },
+  "lib/property-reads.ts": {
+    "no-restricted-imports": {
+      "count": 3
+    }
+  },
+  "lib/qa-golden.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    }
+  },
+  "lib/qa-reset.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/relationship-intel/gmail-census.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "lib/relationship-intel/gmail-latest-context.ts": {
+    "no-control-regex": {
+      "count": 1
+    }
+  },
+  "lib/relationship-intel/icloud-mail.ts": {
+    "no-control-regex": {
+      "count": 1
+    }
+  },
+  "lib/relationship-intel/inmemory-lookup.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/relationship-intel/moment-presentation.ts": {
+    "no-control-regex": {
+      "count": 1
+    }
+  },
+  "lib/review-dashboard-reads.ts": {
+    "no-restricted-imports": {
+      "count": 3
+    }
+  },
+  "lib/rust-api/dev-identity.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/search-contract.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/seller-strategy/insights.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "lib/server-error-capture.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/service-error-sink.ts": {
+    "no-restricted-imports": {
+      "count": 2
+    }
+  },
+  "lib/service-runtime.ts": {
+    "no-restricted-imports": {
+      "count": 14
+    }
+  },
+  "lib/signature/boldsign/adapter.ts": {
+    "no-restricted-imports": {
+      "count": 3
+    }
+  },
+  "lib/signature/reconciliation.ts": {
+    "no-restricted-imports": {
+      "count": 3
+    }
+  },
+  "lib/signature/runtime.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/storyboard-reads.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/vault-io.ts": {
+    "no-restricted-imports": {
+      "count": 3
+    }
+  },
+  "lib/whatsapp-cloud/application.ts": {
+    "no-restricted-imports": {
+      "count": 5
+    }
+  },
+  "lib/whatsapp-cloud/attribution.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "lib/whatsapp-cloud/relationship.ts": {
+    "no-restricted-imports": {
+      "count": 2
+    }
+  },
+  "lib/worker-workspace/commit.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "scripts/agent-runtime-deepseek.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "scripts/agent-runtime-invoke.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "scripts/agent-scheduler.mjs": {
+    "no-useless-assignment": {
+      "count": 2
+    },
+    "no-useless-escape": {
+      "count": 4
+    }
+  },
+  "scripts/agent-work.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    },
+    "no-useless-escape": {
+      "count": 1
+    }
+  },
+  "scripts/apple-local-listener.mjs": {
+    "no-useless-escape": {
+      "count": 1
+    }
+  },
+  "scripts/calendar-sync-agent.mjs": {
+    "no-useless-escape": {
+      "count": 2
+    }
+  },
+  "scripts/catchup-calendar-attention-proof.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "scripts/check-svar-widgets.mts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "scripts/core-daily-proof-01.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "scripts/create-deep1-story.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    }
+  },
+  "scripts/forge-consistency.ts": {
+    "no-useless-assignment": {
+      "count": 2
+    }
+  },
+  "scripts/forge-packet-lint.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    },
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "scripts/import-guide-images.mjs": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "scripts/import-missing-guide-images.mjs": {
+    "no-empty": {
+      "count": 1
+    }
+  },
+  "scripts/load-apple-contacts.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "scripts/oc-probe3.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "scripts/probe-batch-schedule.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "scripts/pull-prod-to-dev.mjs": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "scripts/rel-intel-load-gmail.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "scripts/seed-projects-mvi2-dev.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "scripts/update-reference-stories.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    }
+  },
+  "scripts/verify-needs-review-resolution.mjs": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 3
+    }
+  },
+  "testv2/client-workspace-controller.test.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "testv2/engine_tests/fake-sql.ts": {
+    "@typescript-eslint/no-this-alias": {
+      "count": 3
+    }
+  },
+  "testv2/engine_tests/persistence/atomicity.test.ts": {
+    "prefer-const": {
+      "count": 1
+    }
+  },
+  "testv2/engine_tests/persistence/lease-reclaim.test.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 3
+    }
+  },
+  "testv2/engine_tests/persistence/termination-races.test.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "testv2/service-error-sink.test.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "ui/projects/service-projection.ts": {
+    "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },

@@ -23,8 +23,17 @@ reads or writes the database — it is Rust. If it decides *how that truth is di
 TypeScript.
 
 **Never in new work:** a TypeScript module that talks to Postgres. A new `services/` class holding business rules. A new
-query in `db/`. A route re-implementing in TypeScript what `rust/server` already does. The remaining TypeScript server
-modules are **legacy in place** — retired, not extended. See `docs/agent/LEGACY-TYPESCRIPT.md`.
+query in `db/`. A route re-implementing in TypeScript what `rust/server` already does. The old TypeScript server stack
+is **retired and out of the website's scope** — it lives in `legacy/`, and see `docs/agent/LEGACY-TYPESCRIPT.md` plus
+`legacy/README.md`.
+
+**`legacy/` is out of scope for the primary website.** The website reaches the domain through the Rust API
+(`lib/rust-api`) or a Rust route is added for what it needs; it does not import `legacy/`. That is enforced, not asked
+for: `eslint.config.mjs` restricts such imports for `app/`, `components/` and `lib/`, and the 186 files that still do it
+are recorded in `eslint-suppressions.json`. **That list may only shrink** — adding an import means either adding a Rust
+route or explaining why not in the same commit. A new violation fails `pnpm lint`.
+
+Prune it after removing an import: `npx eslint . --prune-suppressions`.
 
 **Do not reintroduce these. They were bugs, and each one was measured** (all found and fixed 2026-09-21):
 

@@ -10,11 +10,23 @@ Rust serves all of this now (`rust/`), and `docs/agent/LEGACY-TYPESCRIPT.md` is 
 kept because callers still route through it — the Next application under `app/` imports it — not because it is the
 place to add anything.
 
-## It is not the gate
+## It is not the gate, and it is not in the website's scope
 
-**Do not treat this tree's test suite as the application's acceptance criterion.** It tests retired code. Running it
-and driving it to green means spending days on TypeScript that Rust replaced, and it tells you nothing about whether
-the live product works.
+**The primary website does not reach into this tree, and may not start.** The website's scope is `app/`,
+`components/` and `lib/` — it reaches the domain through the Rust API (`lib/rust-api`) or a Rust route is added for what
+it needs. That is a rule with teeth rather than a preference: `eslint.config.mjs` restricts imports of `legacy/*` from
+those three directories, and the 186 files that still do it are listed in `eslint-suppressions.json`. A new import
+fails `pnpm lint`; the list may only shrink.
+
+So the work here is one-way traffic — out, not in:
+
+```bash
+npx eslint . --prune-suppressions     # after you remove an import, drop its stale entry
+```
+
+And **do not treat this tree's test suite as the application's acceptance criterion.** It tests retired code. Running it
+and driving it to green means spending days on TypeScript that Rust replaced, and it tells you nothing about whether the
+live product works.
 
 What says the product works:
 
