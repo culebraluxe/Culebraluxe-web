@@ -10,6 +10,7 @@ path = "src/bin/forge.rs"
 
 [dependencies]
 domain = { path = "../core/domain" }
+sqlx.workspace = true
 db = { path = "../core/db" }
 workflow = { path = "../core/workflow" }
 integrations = { path = "../integrations" }

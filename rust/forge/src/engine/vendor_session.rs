@@ -40,6 +40,18 @@ fn shared() -> Result<&'static SharedDb, String> {
     slot.as_ref().map_err(|e| e.clone())
 }
 
+/// Borrow the shared database and runtime.
+///
+/// The shared `OnceLock` session exists so a Forge step does not open a pool per call. Anything that used to go
+/// through `psql_query` needs the same guarantee, and needs it WITH BINDS: the old helper took a finished SQL string,
+/// which is why every caller built one with `format!` and escaped it by hand with `sql_literal`. Passing a closure
+/// keeps the session behavior identical while letting the caller use `$1`-style binds and let the driver do the
+/// escaping.
+pub fn with_shared<R>(f: impl FnOnce(&Database, &Runtime) -> R) -> Result<R, String> {
+    let shared = shared()?;
+    Ok(f(&shared.db, &shared.rt))
+}
+
 /// Target URL presence for logs. Does not open a second client.
 pub fn database_url() -> Option<String> {
     ["DATABASE_URL_PROD", "DATABASE_URL_DEV", "DATABASE_URL"]
