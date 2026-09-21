@@ -187,7 +187,7 @@ pub const SCREENS: &[Screen] = &[
     Screen { key: "client-admin", title: "Client Administration", path: "/portal/client-admin", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "reporting", title: "Reporting", path: "/portal/reporting", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
     // Reachable from Property Admin, never a nav entry of its own.
-    Screen { key: "decision-analysis", title: "Decision Analysis", path: "/portal/decision-analysis", surface: Surface::Ops, nav: Nav::Unlisted, deferred: None, detail_of: None },
+    Screen { key: "decision-analysis", title: "Decision Analysis", path: "/portal/decision-analysis", surface: Surface::Ops, nav: Nav::Unlisted, deferred: Some("Converted into Seller Strategy; this route is what is left of it. There is nothing here to render, and the screen that replaced it is the one to look at."), detail_of: None },
 
     // ---- SUPPORT ----
     Screen { key: "system-health", title: "System Health", path: "/portal/system-health", surface: Surface::Support, nav: Nav::Listed, deferred: None, detail_of: None },
@@ -262,7 +262,11 @@ pub const SCREENS: &[Screen] = &[
     // nothing links to one. This screen is a view over the public inventory read model (getProperties/getFilteredProperties)
     // which the app exposes only through the detail route. Empty `path` means exactly that, and the header says so
     // rather than naming a route that does not exist.
-    Screen { key: "site-properties", title: "Properties", path: "", surface: Surface::Site, nav: Nav::Listed, deferred: None, detail_of: None },
+    // The public property index. It had NO LIVE ROUTE for a long time - the public read model was reachable only
+    // through `/properties/[slug]` and nothing linked to an index - and the empty `path` here is what recorded that.
+    // The route exists now, and this page is the reason the site does: every listing, rendered by Rust from the public
+    // listing read model.
+    Screen { key: "site-properties", title: "Properties", path: "/properties", surface: Surface::Site, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "site-property-detail", title: "Property", path: "/properties/[slug]", surface: Surface::Site, nav: Nav::Record, deferred: None, detail_of: Some("site-properties") },
     Screen { key: "site-about", title: "About", path: "/about", surface: Surface::Site, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "site-buyers", title: "Buyers", path: "/buyers", surface: Surface::Site, nav: Nav::Listed, deferred: None, detail_of: None },
@@ -272,9 +276,9 @@ pub const SCREENS: &[Screen] = &[
     Screen { key: "site-guide", title: "Guide", path: "/guide", surface: Surface::Site, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "site-services", title: "Services", path: "/services", surface: Surface::Site, nav: Nav::Listed, deferred: None , detail_of: None },
     Screen { key: "site-privacy", title: "Privacy", path: "/privacy", surface: Surface::Site, nav: Nav::Listed, deferred: None , detail_of: None },
-    Screen { key: "site-video", title: "Video", path: "/video", surface: Surface::Site, nav: Nav::Listed, deferred: None , detail_of: None },
+    Screen { key: "site-video", title: "Video", path: "/video", surface: Surface::Site, nav: Nav::Listed, deferred: Some("A tool-test page for video playback: one Mux player and a hardcoded playback id. The player is a third-party island and is not ported, so what is left is the note instead of the embed.") , detail_of: None },
     Screen { key: "site-whatsapp", title: "WhatsApp", path: "/whatsapp", surface: Surface::Site, nav: Nav::Listed, deferred: None , detail_of: None },
-    Screen { key: "site-favorites", title: "Favorites", path: "/favorites", surface: Surface::Site, nav: Nav::Unlisted, deferred: None , detail_of: None },
+    Screen { key: "site-favorites", title: "Favorites", path: "/favorites", surface: Surface::Site, nav: Nav::Unlisted, deferred: Some("Never finished: this screen was meant to hold saved properties and never held anything. A Rust body belongs with the feature, not ahead of it - and the feature is a real decision, not a port.") , detail_of: None },
 
     // ---- ROUTES THE TABLE WAS MISSING. It is now checked against `find app -name page.tsx` (80 routes, minus the two
     // preview hosts this port adds), rather than against a registry that says of itself "Only EXISTING routes are

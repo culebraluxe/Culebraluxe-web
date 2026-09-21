@@ -280,9 +280,13 @@ mod tests {
             .collect();
         // Not a failure — a screen over data the app exposes through no route of its own is legitimate. But it must be
         // deliberate, so it is listed here and the number is asserted rather than allowed to grow unnoticed.
+        //
+        // EMPTY, and that is the news: `site-properties` was the last one. It sat here with an empty path while the
+        // public read model was reachable only through `/properties/[slug]`, and the most important page on the site
+        // had no address. It has one now (`app/properties/page.tsx`), so nothing in the table is route-less.
         assert_eq!(
             no_route,
-            vec!["site-properties"],
+            Vec::<&str>::new(),
             "a screen with no live route must be a deliberate choice, and this is the list of them"
         );
     }
