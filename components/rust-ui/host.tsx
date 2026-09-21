@@ -95,6 +95,9 @@ export function RustUiHost({
      */
     const fetchRows = async (url: string) => {
       const response = await fetch(url)
+      // Logged because the alternative is guessing: the model sat on `loading: true` while the route answered 200, and
+      // nothing on either side said which step was lost. One line per request settles it.
+      console.info(`[rust-ui] rows ${url} -> ${response.status}`)
       return { ok: response.ok, status: response.status, text: () => response.text() }
     }
     const options = {
@@ -135,6 +138,9 @@ export function RustUiHost({
     const onEffects = (event: Event) => {
       if (!module) return
       const effects = JSON.parse((event as CustomEvent<string>).detail) as RustUiEffect[]
+      console.info(
+        `[rust-ui] effects from the page: ${effects.map((e) => `${e.effect}:${e.screen ?? '-'}`).join(', ') || '(none)'}`,
+      )
       for (const effect of effects) {
         void serveEffect(module, options, effect).catch((cause: unknown) =>
           setError(cause instanceof Error ? cause.message : String(cause)),
@@ -148,9 +154,12 @@ export function RustUiHost({
       document.addEventListener(ISLAND_EVENT, mountIslands)
       // `mount` returns the effects caused by opening the first screen, so the page arrives with data instead of a list
       // that fills in once you click something.
-      await mountScreen(module, options)
+      const effects = await mountScreen(module, options)
       mountIslands()
       setMounted(true)
+      console.info(
+        `[rust-ui] mounted "${start}" via ${rowsPath} - ${effects.length} effect(s); rows loaded: ${rowsRef.current.length}`,
+      )
     }
 
     void run().catch((cause: unknown) => {
