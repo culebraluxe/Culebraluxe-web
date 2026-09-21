@@ -213,6 +213,9 @@ pub const SCREENS: &[Screen] = &[
     Screen { key: "storyboard", title: "Story Board", path: "/portal/storyboard", surface: Surface::Tech, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "design-lab", title: "UI Lab", path: "/portal/design-lab", surface: Surface::Tech, nav: Nav::Listed, deferred: None , detail_of: None },
     Screen { key: "media-test", title: "Media Test", path: "/portal/media-test", surface: Surface::Tech, nav: Nav::Listed, deferred: None , detail_of: None },
+    // A screen the captain asked for: what Rust does with layout that the TypeScript pages do not, rendering on the same
+    // design tokens. Its route is the only one this port adds on purpose, and it serves the port itself.
+    Screen { key: "tech-lab", title: "Tech Lab", path: "/portal/tech/lab", surface: Surface::Tech, nav: Nav::Listed, deferred: None, detail_of: None },
     // RETIRED FROM THE NAV (2026-09-13, the registry's own note): "the code stays, the links go". Command Center,
     // Command Console, GROK and the Flight Recorder LIST were each an attempt at the same problem that never got
     // used, and their names were close enough to "the cockpit" that one conversation could mean five. Ported like

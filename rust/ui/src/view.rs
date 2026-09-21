@@ -107,10 +107,164 @@ fn loading_banner(model: &Model) -> String {
     }
 }
 
-/// The body: a header naming the screen and the live route it replaces, then either the placeholder or its rows.
-fn body(model: &Model) -> String {
-    // When the screen is about one record, say which — a detail screen that does not name its subject is a page you
-    // cannot tell apart from a wrong one.
+/// Screens that render markup of their own instead of a generic list of rows.
+///
+/// Everything else in this crate renders rows because that is what a read model is. A lab, a board or a widget host is
+/// not a list, and pretending it is produces a screen that looks nothing like the one being ported. So a screen may own
+/// its body; the model, the messages, the effects and the shell are unchanged, which is the point of putting this here
+/// rather than in the shell.
+fn custom_body(model: &Model) -> Option<String> {
+    match model.screen.key {
+        "tech-lab" => Some(tech_lab()),
+        _ => None,
+    }
+}
+
+/// The Tech Lab: what Rust does with layout that the TypeScript pages do not, on the same design tokens.
+///
+/// The claim worth testing here is layout honesty: every class below is one this application already defines, nothing
+/// is positioned with an inline style or a magic number, and no value is copied from a design file. If it looks
+/// sharper, it is because the markup says what it means and the stylesheet decides how that looks.
+fn tech_lab() -> String {
+    let tokens = [
+        ("Surface", "bg-card border text-card-foreground"),
+        ("Muted text", "text-muted-foreground"),
+        ("Accent", "bg-primary text-primary-foreground"),
+        ("Danger", "bg-destructive/10 border-destructive/40"),
+    ];
+    let token_rows = tokens
+        .iter()
+        .map(|(name, class)| {
+            format!(
+                "<div class=\"flex items-center gap-3 rounded-lg border p-3\">\
+                   <span class=\"w-32 text-xs text-muted-foreground\">{}</span>\
+                   <span class=\"rounded-md border px-3 py-1 text-xs {}\">{}</span>\
+                 </div>",
+                escape(name),
+                escape(class),
+                escape(class)
+            )
+        })
+        .collect::<String>();
+
+    let badges = ["new", "active", "under contract", "closed"]
+        .iter()
+        .map(|status| {
+            format!(
+                "<span class=\"rounded-full bg-muted px-2.5 py-1 text-xs\">{}</span>",
+                escape(status)
+            )
+        })
+        .collect::<String>();
+
+    let grid = (1..=6)
+        .map(|index| {
+            format!(
+                "<div class=\"rounded-lg border bg-card p-4\">\
+                   <p class=\"text-2xl font-semibold tabular-nums\">{index}</p>\
+                   <p class=\"text-xs text-muted-foreground\">Column {index}</p>\
+                 </div>"
+            )
+        })
+        .collect::<String>();
+
+    let table = [
+        ("Villa Rosada", "Under Contract", "$1,250,000", "9 days"),
+        ("Casa Verde", "Showing", "$780,000", "—"),
+        ("La Colina", "Offer", "$2,400,000", "3 days"),
+    ]
+    .iter()
+    .map(|(name, stage, value, next)| {
+        format!(
+            "<tr class=\"border-t\">\
+               <td class=\"px-3 py-2 text-sm font-medium\">{}</td>\
+               <td class=\"px-3 py-2 text-sm text-muted-foreground\">{}</td>\
+               <td class=\"px-3 py-2 text-right text-sm tabular-nums\">{}</td>\
+               <td class=\"px-3 py-2 text-right text-sm text-muted-foreground\">{}</td>\
+             </tr>",
+            escape(name),
+            escape(stage),
+            escape(value),
+            escape(next)
+        )
+    })
+    .collect::<String>();
+
+    format!(
+        "{}{}{}{}{}",
+        lab_intro(),
+        lab_tokens(&token_rows),
+        lab_badges(&badges),
+        lab_grid(&grid),
+        lab_table(&table)
+    )
+}
+
+fn lab_section(title: &str, body: &str) -> String {
+    format!(
+        "<section>\
+           <h2 class=\"mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground\">{}</h2>\
+           {}\
+         </section>",
+        escape(title),
+        body
+    )
+}
+
+fn lab_intro() -> String {
+    "<section class=\"rounded-xl border bg-card p-5\">\
+       <h2 class=\"text-sm font-medium\">Why this screen exists</h2>\
+       <p class=\"mt-2 max-w-3xl text-sm text-muted-foreground\">\
+         Every class on this page is one this application already defines. Nothing here is positioned with an inline\
+         style or a magic number, and no value was copied from a design file — the markup says what it means and the\
+         stylesheet decides how that looks. That is the whole difference: the same tokens, applied without a compromise\
+         being made on the way.\
+       </p>\
+     </section>"
+        .to_string()
+}
+
+fn lab_tokens(rows: &str) -> String {
+    lab_section("Tokens", &format!("<div class=\"space-y-2\">{rows}</div>"))
+}
+
+fn lab_badges(badges: &str) -> String {
+    lab_section(
+        "Status badges",
+        &format!("<div class=\"flex flex-wrap gap-2\">{badges}</div>"),
+    )
+}
+
+fn lab_grid(grid: &str) -> String {
+    lab_section(
+        "Grid",
+        &format!(
+            "<div class=\"grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6\">{grid}</div>"
+        ),
+    )
+}
+
+fn lab_table(table: &str) -> String {
+    let head =
+        "<thead class=\"bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground\"><tr>\
+         <th class=\"px-3 py-2 text-left font-medium\">Property</th>\
+         <th class=\"px-3 py-2 text-left font-medium\">Stage</th>\
+         <th class=\"px-3 py-2 text-right font-medium\">Value</th>\
+         <th class=\"px-3 py-2 text-right font-medium\">Next date</th>\
+       </tr></thead>";
+    lab_section(
+        "Table",
+        &format!(
+            "<div class=\"overflow-hidden rounded-lg border bg-card\">\
+               <table class=\"w-full border-collapse\">{head}<tbody>{table}</tbody></table>\
+             </div>"
+        ),
+    )
+}
+
+/// The heading every screen gets: its title, the live route it replaces, and the record when it is about one.
+fn screen_header(model: &Model) -> String {
+    // A detail screen that does not name its subject is a page you cannot tell apart from a wrong one.
     let subject = match model.scope.as_deref() {
         Some(scope) => format!(
             "<p class=\"text-sm text-muted-foreground\">Record <code>{}</code></p>",
@@ -118,7 +272,7 @@ fn body(model: &Model) -> String {
         ),
         None => String::new(),
     };
-    let header = format!(
+    format!(
         "<header class=\"mb-4\">\
            <h1 class=\"text-xl font-semibold\">{title}</h1>\
            <p class=\"text-sm text-muted-foreground\">{path}</p>\
@@ -133,7 +287,15 @@ fn body(model: &Model) -> String {
             format!("Replaces <code>{}</code>", escape(model.screen.path))
         },
         subject = subject
-    );
+    )
+}
+
+/// The body: a screen's own markup when it has any, else a header and rows.
+fn body(model: &Model) -> String {
+    if let Some(custom) = custom_body(model) {
+        return format!("{}{}", screen_header(model), custom);
+    }
+    let header = screen_header(model);
     if model.screen.is_deferred() {
         return format!("{header}{}", deferred_notice(model));
     }
@@ -322,6 +484,28 @@ mod tests {
             ..Model::default()
         });
         assert!(!feed.contains("data-open-record"));
+    }
+
+    /// A screen that owns its body renders its own markup and no row list, even if rows arrive. Otherwise the lab would
+    /// show a table of nothing underneath itself.
+    #[test]
+    fn a_screen_can_own_its_body() {
+        let lab = render(&Model {
+            screen: target("tech-lab"),
+            rows: vec![Row {
+                id: "ignored".into(),
+                cells: vec!["a".into(), "b".into()],
+                badge: None,
+            }],
+            ..Model::default()
+        });
+        assert!(lab.contains("Why this screen exists"));
+        assert!(
+            !lab.contains("data-select-row"),
+            "a screen that owns its body does not render a row list"
+        );
+        // And it still gets the standard header, so it is a screen like any other.
+        assert!(lab.contains("Replaces <code>/portal/tech/lab</code>"));
     }
 
     #[test]
