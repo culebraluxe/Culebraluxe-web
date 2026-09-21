@@ -46,7 +46,7 @@ function databaseUrl(target: ForgeReleaseTarget): string {
 }
 
 function migrationPath(repoRoot: string, file: string): string {
-  const migrationsRoot = resolve(repoRoot, 'db', 'migrations')
+  const migrationsRoot = resolve(repoRoot, 'legacy/db', 'migrations')
   const candidate = resolve(migrationsRoot, file)
   const pathFromRoot = relative(migrationsRoot, candidate)
   if (

@@ -80,15 +80,15 @@ test('changedFilesForCandidate reports the child diff from its merge base', asyn
   const dir = await mkdtemp(join(tmpdir(), 'forge-candidate-diff-'))
   const identity = ['-c', 'user.email=t@t', '-c', 'user.name=t']
   await git(dir, ['init', '-q', '-b', 'main'])
-  await mkdir(join(dir, 'workflow_app', 'forge'), { recursive: true })
-  await writeFile(join(dir, 'workflow_app', 'forge', 'base.ts'), 'export const x = 1\n')
+  await mkdir(join(dir, 'legacy/workflow_app', 'forge'), { recursive: true })
+  await writeFile(join(dir, 'legacy/workflow_app', 'forge', 'base.ts'), 'export const x = 1\n')
   await git(dir, [...identity, 'add', '-A'])
   await git(dir, [...identity, 'commit', '-q', '-m', 'base'])
   const baseSha = await git(dir, ['rev-parse', 'HEAD'])
 
   // The child works on its own branch and changes exactly one file.
   await git(dir, ['checkout', '-q', '-b', 'child'])
-  await writeFile(join(dir, 'workflow_app', 'forge', 'a.ts'), 'export const a = 1\n')
+  await writeFile(join(dir, 'legacy/workflow_app', 'forge', 'a.ts'), 'export const a = 1\n')
   await git(dir, [...identity, 'add', '-A'])
   await git(dir, [...identity, 'commit', '-q', '-m', 'child work'])
   const childSha = await git(dir, ['rev-parse', 'HEAD'])

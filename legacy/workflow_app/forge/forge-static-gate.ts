@@ -43,7 +43,7 @@ export type StaticGateResult = {
   ok: boolean
 }
 
-const DEFAULT_ROOTS = ['workflow_app', 'agent-runtime', 'db', 'services', 'app', 'components', 'ui', 'lib', 'workflow_engine']
+const DEFAULT_ROOTS = ['legacy/workflow_app', 'agent-runtime', 'legacy/db', 'legacy/services', 'app', 'components', 'ui', 'lib', 'workflow_engine']
 
 function spawn(cmd: string, args: string[], cwd: string, timeoutMs: number): { status: number | null; out: string; stdout: string; stderr: string } {
   const r = spawnSync(cmd, args, { cwd, encoding: 'utf8', timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024 })

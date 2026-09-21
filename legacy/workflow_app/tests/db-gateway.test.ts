@@ -201,7 +201,7 @@ test('Test AUTH-FAIL-CLOSED: getSecurityPrincipal returns null (denies) on DB fa
 
 test('ARCH: runtime application code must not import the Neon driver outside the gateway', async () => {
   const root = fileURLToPath(new URL('../../../', import.meta.url))
-  const dirs = ['db', 'lib', 'app']
+  const dirs = ['legacy/db', 'lib', 'app']
   const ALLOWED = new Set([
     'legacy/db/database-gateway.ts', // the one gateway
     'lib/neon-interactive.ts', // lazy interactive transaction substrate
@@ -244,7 +244,7 @@ async function walkDir(
 
 function relFrom(abs: string): string {
   const parts = abs.split('/')
-  for (const marker of ['db', 'lib', 'app']) {
+  for (const marker of ['legacy/db', 'lib', 'app']) {
     const idx = parts.lastIndexOf(marker)
     if (idx !== -1) return parts.slice(idx).join('/')
   }

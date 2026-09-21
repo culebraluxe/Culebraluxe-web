@@ -162,7 +162,7 @@ export function assessMigrationPreflight(input: {
 
 /** The repository-relative db/migrations/*.sql paths on disk, sorted. */
 export function listRepoMigrationFiles(repoRoot: string = process.cwd()): string[] {
-  const dir = join(repoRoot, 'db', 'migrations')
+  const dir = join(repoRoot, 'legacy/db', 'migrations')
   return readdirSync(dir, { withFileTypes: true })
     .filter((entry) => entry.isFile())
     .map((entry) => `legacy/db/migrations/${entry.name}`)

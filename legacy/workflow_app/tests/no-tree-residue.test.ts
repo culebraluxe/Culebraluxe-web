@@ -76,7 +76,7 @@ function worktreeCreators(repoRoot: string): string[] {
       }
     }
   }
-  for (const root of ['lib', 'agent-runtime', 'workflow_app', 'scripts']) walk(join(repoRoot, root))
+  for (const root of ['lib', 'agent-runtime', 'legacy/workflow_app', 'scripts']) walk(join(repoRoot, root))
   return found.sort()
 }
 
@@ -290,7 +290,7 @@ test('NO TREES: the dormant provisioning module cannot be re-armed quietly', () 
   // The estate was deleted twice while the capability stayed. This makes "dormant" a VERIFIED fact: if anything
   // outside the module and its own test starts importing it, the capability is reachable again and this fails.
   const importers: string[] = []
-  for (const root of ['lib', 'agent-runtime', 'workflow_app', 'scripts']) {
+  for (const root of ['lib', 'agent-runtime', 'legacy/workflow_app', 'scripts']) {
     walkSource(join(REPO_ROOT, root), (path, rel) => {
       if (rel === 'lib/worker-workspace/recovering-provisioner.ts') return
       if (/recovering-provisioner/.test(readFileSync(path, 'utf8'))) importers.push(rel)

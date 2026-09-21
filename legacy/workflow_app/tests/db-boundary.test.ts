@@ -29,10 +29,10 @@ const ROOT = process.cwd()
 const SCAN_DIRS = [
   'app',
   'lib',
-  'services',
-  'db',
+  'legacy/services',
+  'legacy/db',
   'ui',
-  'workflow_app',
+  'legacy/workflow_app',
   'workflow_engine',
   'agent-runtime',
   'scripts',

@@ -25,7 +25,7 @@ test(
   () => {
     const result = runStaticGate({
       workspace: process.cwd(),
-      roots: ['db', 'services', 'workflow_app'],
+      roots: ['legacy/db', 'legacy/services', 'legacy/workflow_app'],
       config: '.dependency-cruiser.js',
     })
     assert.equal(result.workspace, process.cwd())

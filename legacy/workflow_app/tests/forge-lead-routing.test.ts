@@ -81,8 +81,8 @@ test('same-file different-symbol writers conflict', () => {
   f.p.assignments[1].plan.chunks[0].surface = ['legacy/db/contact.ts#second']; rejects(f, /Concurrent write conflict/)
 })
 test('directory and child file writers conflict', () => {
-  const f = splitFixture(); f.context.findings[0].seams = ['db']; f.context.findings[1].seams = ['legacy/db/other.ts']
-  f.p.assignments[0].plan.chunks[0].surface = ['db']; f.p.assignments[1].plan.chunks[0].surface = ['legacy/db/other.ts']
+  const f = splitFixture(); f.context.findings[0].seams = ['legacy/db']; f.context.findings[1].seams = ['legacy/db/other.ts']
+  f.p.assignments[0].plan.chunks[0].surface = ['legacy/db']; f.p.assignments[1].plan.chunks[0].surface = ['legacy/db/other.ts']
   rejects(f, /Concurrent write conflict/)
 })
 test('all required findings must be assigned', () => {

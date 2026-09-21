@@ -20,7 +20,7 @@ const RULE = 'require-concurrent-index-creation'
 
 const gate = (over: Partial<StaticGateResult>): StaticGateResult => ({
   workspace: '/tmp/candidate',
-  roots: ['workflow_app'],
+  roots: ['legacy/workflow_app'],
   archRan: true,
   archOk: true,
   archErrors: [],

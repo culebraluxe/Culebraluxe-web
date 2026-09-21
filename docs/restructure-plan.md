@@ -30,6 +30,24 @@ docs/            unchanged
 Two signals fall out of that: Rust is a peer of the application rather than a subdirectory of it, and the retired
 TypeScript is named as retired.
 
+## Where it ended up
+
+Step 2 is done, and the retired TypeScript moved to `legacy/` rather than to a top-level `services/`: the name says what
+the tree *is* — retired — where `services/` would have read like a place to add things. The Rust workspace stays at
+`rust/` and the app stays at the root for now.
+
+```
+/                        <- package.json, next.config, app/, components/  (the Next UI)
+  rust/                  <- the domain, the API, the engine
+  legacy/db/             <- the retired TypeScript server stack (was db/)
+  legacy/services/       <- (was services/)
+  legacy/workflow_app/   <- (was workflow_app/)
+  docs/                  <- unchanged
+```
+
+What is left is step 3: moving the app itself under `apps/web/`, which changes the Next root, the `@/…` alias base and
+the Vercel service root in one commit. It is the riskier half and it is not attempted yet.
+
 ## Why it is a project and not a move
 
 Every one of these breaks something that must be fixed in the same commit:
@@ -46,9 +64,11 @@ Every one of these breaks something that must be fixed in the same commit:
 ## Order, when it happens
 
 1. Deploy Rust. Confirm a clean day in production.
-2. Move the retired TypeScript first (`services/`, `db/`, `workflow_app/`), leaving the app where it is. One directory
-   at a time, each verified with `tsc --noEmit` and the app's own tests. This is the low-risk half and it delivers most
-   of the clarity.
+2. **DONE — move the retired TypeScript** (`db/`, `services/`, `workflow_app/`) to `legacy/`, leaving the app where it
+   is. The whole group moved in one commit because the three directories import each other: moving them together leaves
+   every path inside the group untouched, so only the boundary had to be repaired. Verified with `npx tsc --noEmit`
+   (clean) and `pnpm build` (clean). The suite that lives in the moved tree was **not** used as the gate — see
+   `legacy/README.md` for why: it tests retired code, and it had failing assertions before the move as well.
 3. Then the app (`app/`, `components/`, config) in its own commit, with the Vercel/CI root updated in the same commit.
 4. Regenerate `docs/rust-parity-ledger.md` and re-run `forge:packet-lint`; the lint failing on old paths is the check
    that step 2 and 3 left nothing behind.

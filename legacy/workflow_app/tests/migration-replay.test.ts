@@ -33,7 +33,7 @@ const NON_IDEMPOTENT_DATA_FILE = '163_cleanup_applemail_integer_message_identiti
 const IDEMPOTENT_DATA_FILE = '097_source_person_link.sql'
 
 async function sha256Of(file: string): Promise<string> {
-  const sql = await readFile(resolve(repoRoot, 'db', 'migrations', file), 'utf8')
+  const sql = await readFile(resolve(repoRoot, 'legacy/db', 'migrations', file), 'utf8')
   return createHash('sha256').update(sql, 'utf8').digest('hex')
 }
 
