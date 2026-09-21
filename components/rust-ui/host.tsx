@@ -20,25 +20,20 @@ import { createRoot } from 'react-dom/client'
 // what keeps the public host from being able to ask the portal's endpoints for anything.
 // ---------------------------------------------------------------------------
 
-/** The effect names `rust/ui/src/model.rs` can ask for. Kept in sync by hand, and checked below. */
-const FETCH_ROWS = 'FetchRows'
-
-/** The DOM event `rust/ui/src/shell.rs` announces effects on (`EFFECT_EVENT`). */
-const EFFECT_EVENT = 'rust-ui:effects'
-
-/** The DOM event the shell announces islands on. Checked against Rust the same way the effect name is. */
-const ISLAND_EVENT = 'rust-ui:islands'
-
-type RustUiEffect = { effect: string; screen?: string; scope?: string | null }
-
-type RustUi = {
-  default: (init?: { module_or_path?: string }) => Promise<unknown>
-  mount: (elementId: string, start: string) => string
-  rows_loaded: (payload: string) => void
-  mount_id: () => string
-  effect_event_name: () => string
-  island_event_name: () => string
-}
+/**
+ * The protocol and the mount logic live in `lib/rust-ui/boot.ts`, deliberately: they are the part that was wrong, and
+ * this file cannot be tested without a DOM. What stays here is the React and DOM half — the wasm's container, the
+ * widgets, and reading the events Rust announces.
+ */
+import {
+  bootRustUi,
+  mountScreen,
+  serveEffect,
+  EFFECT_EVENT,
+  ISLAND_EVENT,
+  type RustUiEffect,
+  type RustUiModule,
+} from '@/lib/rust-ui/boot'
 
 /**
  * A third-party widget Rust renders a container for.
@@ -72,7 +67,6 @@ export function RustUiHost({
    */
   islands?: Record<string, RustIsland>
 }) {
-  const started = useRef(false)
   const [error, setError] = useState<string | null>(null)
   /**
    * Whether the module has mounted.
@@ -91,100 +85,71 @@ export function RustUiHost({
   islandsRef.current = islands
 
   useEffect(() => {
-    // React 19 runs effects twice in development. Without this guard the module mounts twice and two click listeners
-    // race on the same DOM subtree.
-    if (started.current) return
-    started.current = true
+    /**
+     * The module is booted once and this effect mounts it on EVERY run.
+     *
+     * THE BUG THIS REPLACES: an earlier version guarded with a ref and a `disposed` flag, so React 19's second
+     * development run returned early while the first had already been abandoned — leaving every page on an empty
+     * container forever, with no error anywhere. `lib/rust-ui/boot.ts` holds the logic now, with tests that run the
+     * mount twice, because this file cannot be tested without a DOM and that is exactly how the bug survived.
+     */
+    const fetchRows = async (url: string) => {
+      const response = await fetch(url)
+      return { ok: response.ok, status: response.status, text: () => response.text() }
+    }
+    const options = {
+      rowsPath,
+      start,
+      scope,
+      fetchRows,
+      onRows: (rows: unknown) => {
+        rowsRef.current = Array.isArray(rows) ? (rows as RustUiRow[]) : []
+      },
+    }
 
-    let disposed = false
+    let module: RustUiModule | null = null
 
-    const run = async () => {
-      const module = (await import('@/lib/rust-ui/ui.js')) as unknown as RustUi
-      if (disposed) return
-      await module.default({ module_or_path: '/rust-ui/ui_bg.wasm' })
-      if (disposed) return
-
-      // The event name is asked for rather than assumed: it is declared in Rust, and a mismatch would present as a
-      // screen that quietly never loads.
-      const eventName = module.effect_event_name()
-      if (eventName !== EFFECT_EVENT) {
-        throw new Error(`effect event mismatch: Rust says "${eventName}", host expects "${EFFECT_EVENT}"`)
+    /**
+     * Put each registered widget into the container Rust rendered for it.
+     *
+     * A container that already has a child keeps it: Rust re-paints its markup on every message, so a widget that
+     * survived a paint must not be torn down and rebuilt under the user's cursor.
+     */
+    const mountIslands = () => {
+      const registry = islandsRef.current
+      if (!registry) return
+      for (const [name, Widget] of Object.entries(registry)) {
+        const container = document.querySelector(`[data-island="${name}"]`)
+        if (!container) continue
+        if (container.childElementCount > 0) continue
+        // The container is a new node after every paint, so the previous root points at a detached one.
+        rootsRef.current.get(name)?.unmount()
+        const root = createRoot(container)
+        rootsRef.current.set(name, root)
+        root.render(<Widget rows={rowsRef.current} />)
       }
-      // Same check for the island event, but this one must not be fatal: a mismatch would present as a widget that
-      // never appears, and refusing to render the whole screen over it would be the worse failure. It is a warning and
-      // the screen carries on.
-      const islandEvent = module.island_event_name?.()
-      if (islandEvent !== ISLAND_EVENT) {
-        console.warn(
-          `Rust UI island event mismatch: Rust says "${islandEvent}", host expects "${ISLAND_EVENT}". Islands will not mount.`,
+    }
+
+    // Clicks happen inside the module's own listener, so their effects are announced on the document rather than
+    // returned to JavaScript — the value returned by `mount` was consumed long ago.
+    const onEffects = (event: Event) => {
+      if (!module) return
+      const effects = JSON.parse((event as CustomEvent<string>).detail) as RustUiEffect[]
+      for (const effect of effects) {
+        void serveEffect(module, options, effect).catch((cause: unknown) =>
+          setError(cause instanceof Error ? cause.message : String(cause)),
         )
       }
+    }
 
-      /**
-       * Put each registered widget into the container Rust rendered for it.
-       *
-       * A container that already has a child keeps it: Rust re-paints its markup on every message, and a widget that
-       * survived that paint must not be torn down and rebuilt under the user's cursor.
-       */
-      const mountIslands = () => {
-        const registry = islandsRef.current
-        if (!registry) return
-        for (const [name, Widget] of Object.entries(registry)) {
-          const container = document.querySelector(`[data-island="${name}"]`)
-          if (!container) continue
-          if (container.childElementCount > 0) continue
-          // The container is a new node after every paint, so the previous root points at a detached one.
-          rootsRef.current.get(name)?.unmount()
-          const root = createRoot(container)
-          rootsRef.current.set(name, root)
-          root.render(<Widget rows={rowsRef.current} />)
-        }
-      }
-
+    const run = async () => {
+      module = await bootRustUi(() => import('@/lib/rust-ui/ui.js') as unknown as Promise<RustUiModule>)
+      document.addEventListener(EFFECT_EVENT, onEffects)
       document.addEventListener(ISLAND_EVENT, mountIslands)
-
-      const loadRows = async (effect: RustUiEffect) => {
-        const screen = effect.screen
-        if (!screen) return
-        const query = new URLSearchParams({ screen })
-        // A detail screen is about one record; the key travels with the effect rather than being scraped back out of
-        // the DOM. On the opening screen the page's own scope stands in when the effect carries none.
-        const key = effect.scope ?? (screen === start ? scope : null)
-        if (key) query.set('scope', key)
-        const response = await fetch(`${rowsPath}?${query.toString()}`)
-        if (!response.ok) {
-          // A refused fetch must become a visible message, not a silent empty list: "nothing to show" and "we could
-          // not ask" are different states and the user deserves the difference.
-          throw new Error(`rows request failed with ${response.status}`)
-        }
-        const payload = await response.text()
-        // Kept as well as handed over: an island widget is a React component and needs the rows as values.
-        try {
-          rowsRef.current = JSON.parse(payload) as RustUiRow[]
-        } catch {
-          rowsRef.current = []
-        }
-        module.rows_loaded(payload)
-      }
-
-      const handle = (effects: RustUiEffect[]) => {
-        for (const effect of effects) {
-          if (effect.effect !== FETCH_ROWS) continue
-          void loadRows(effect).catch((cause: unknown) => {
-            setError(cause instanceof Error ? cause.message : String(cause))
-          })
-        }
-      }
-
-      // Clicks happen inside the module's own listener, so their effects are announced on the document rather than
-      // returned to JavaScript — the value returned by `mount` was consumed long ago.
-      document.addEventListener(EFFECT_EVENT, (event) => {
-        handle(JSON.parse((event as CustomEvent<string>).detail) as RustUiEffect[])
-      })
-
-      // `mount` returns the effects caused by opening the first screen, so the page arrives with data instead of a
-      // list that fills in once you click something.
-      handle(JSON.parse(module.mount(module.mount_id(), start)) as RustUiEffect[])
+      // `mount` returns the effects caused by opening the first screen, so the page arrives with data instead of a list
+      // that fills in once you click something.
+      await mountScreen(module, options)
+      mountIslands()
       setMounted(true)
     }
 
@@ -193,7 +158,10 @@ export function RustUiHost({
     })
 
     return () => {
-      disposed = true
+      // Removing this run's listeners is the whole cleanup. Note what is NOT here: no flag that makes the next run
+      // give up. Aborting the work instead of being idempotent is what broke every page in development.
+      document.removeEventListener(EFFECT_EVENT, onEffects)
+      document.removeEventListener(ISLAND_EVENT, mountIslands)
     }
   }, [rowsPath, start, scope])
 

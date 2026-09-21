@@ -10,17 +10,17 @@ questions on purpose: a port can be complete and still cut over to nothing.
 
 | capability | rust | serving production | routes | TS files still in play |
 | --- | --- | --- | --- | --- |
-| `clients` | built | typescript | 4 | `db/clients.ts`, `db/client-read-models.ts` |
-| `people` | built | typescript | 3 | `db/person-admin.ts` |
-| `properties` | built | typescript | 2 | `db/listing-property-service-repository.ts` |
-| `contracts` | built | typescript | 3 | `db/contract-service-repository.ts` |
-| `forms` | built | typescript | 2 | `db/form-service-repository.ts` |
-| `comms` | built | typescript | 2 | `db/comms-service-repository.ts` |
+| `clients` | built | typescript | 4 | `legacy/db/clients.ts`, `legacy/db/client-read-models.ts` |
+| `people` | built | typescript | 3 | `legacy/db/person-admin.ts` |
+| `properties` | built | typescript | 2 | `legacy/db/listing-property-service-repository.ts` |
+| `contracts` | built | typescript | 3 | `legacy/db/contract-service-repository.ts` |
+| `forms` | built | typescript | 2 | `legacy/db/form-service-repository.ts` |
+| `comms` | built | typescript | 2 | `legacy/db/comms-service-repository.ts` |
 | `calendar` | built | typescript | 1 | — |
 | `vault` | built | typescript | 2 | — |
 | `projects` | built | typescript | 2 | — |
-| `firms` | built | typescript | 0 | `db/firm-service-repository.ts` |
-| `signature` | built | typescript | 4 | `db/bold-sign-request.ts`, `db/broker-signature.ts` |
+| `firms` | built | typescript | 0 | `legacy/db/firm-service-repository.ts` |
+| `signature` | built | typescript | 4 | `legacy/db/bold-sign-request.ts`, `legacy/db/broker-signature.ts` |
 | `showings` | built | typescript | 0 | — |
 | `wbs` | built | typescript | 0 | — |
 | `whatsapp-intake` | partial | typescript | 0 | — |
@@ -32,87 +32,9 @@ questions on purpose: a port can be complete and still cut over to nothing.
 - **signature** — All four endpoints are attached to Axum: send, get, refresh, and the provider webhook — the webhook at the PRODUCTION path /api/integrations/boldsign/webhook, so BoldSign's configured URL does not have to change to cut over. The webhook is deliberately unauthenticated by the internal API key: BoldSign signs the raw body and that HMAC is verified inside the service against a System actor with no principal, because a webhook cannot present an application identity. Constructing the BoldSign provider required adding `integrations` to the server crate; without it the adapter was unreachable from the composition root, which is how this capability sat as 'built, 0 routes'. KNOWN GAP, deliberately not guessed: the TypeScript webhook answers 200 {acknowledged:true} for events it will not act on so BoldSign stops retrying, and answers 401 for a missing/invalid signature. The Rust service's outcome enum has no no-op variant, so the 200-for-non-actionable half of that retry contract is NOT mirrored yet — mapping it blind could mask real errors. productionPath stays 'typescript' until a receipt shows the Rust path serving real traffic. rust/server/tests/signature_routes.rs fails if the router and this map disagree.
 - **whatsapp-intake** — Rust verifies and normalises Meta payloads; durable inbox/ODS persistence and production webhook processing still belong to TypeScript.
 
-## Rust UI (the portal screen port)
-
-The portal is being ported screen by screen into `rust/ui`, on MVI: `Model` is the whole screen state, `Msg` is
-everything that can happen to it, `update` is the only thing that changes it and is pure, `view` renders the model
-without deciding anything. The pattern is not decoration — it is what makes a screen testable without a browser.
-
-**Scope is the APPLICATION.** `SCREENS` in `rust/ui/src/model.rs` is a TABLE, not an enum: one row per screen with its
-key, title, live route, operating surface, nav status and — where it has no data — the reason in its own words. At this
-size an enum needs five match arms per screen kept in sync by hand; one row is one place to look and one place to be
-wrong. `Screen::path` records the live route each row replaces, and `Screen::surface` splits the port by the registry's
-own operating surfaces (CORE, ACCOUNTING, MARKETING, OPPS, SUPPORT, TECH) plus SITE for the public front.
-
-Labels, paths and nav status come from `lib/navigation/registry.ts`, not from a transcription. That registry documents
-four routes as **RETIRED FROM THE NAV (2026-09-13, captain's call) — "the code stays, the links go"**: Command Center,
-Command Console, GROK and the Flight Recorder LIST. Those are ported like everything else and simply never listed. A
-test asserts no retired, unlisted or record screen can appear in the nav, because a port that quietly re-lists a retired
-screen undoes a decision somebody made on purpose.
-
-**A SCREEN THAT CANNOT BE WIRED SAYS WHY, IN ITS OWN WORDS.** "No read model exists", "this is a demo placeholder" and
-"this widget host is deliberately not moved yet" are three different situations. The Receipt Scanner is the second: its
-own page header calls it *"FAKE V1 ... Polished visual placeholder for the future OCR workflow"*, so the polish is the
-deliverable and there is nothing to read.
-
-**VERIFY THE WASM PATH SEPARATELY.** `cargo test` does NOT compile `#[cfg(feature = "wasm")]` code, so a green test run
-says nothing about the shell. A refactor of this size broke the shell's imports while the tests stayed green, and the
-`scripts/rust-ui-build.sh` step is what caught it. Any verification that skips the wasm build is incomplete.
-
-**Build it (required before the host page renders anything):**
-
-```
-pnpm ui:build            # debug; pnpm ui:build:release for a sized artifact
-```
-
-`wasm-pack` cannot build this crate: it forwards `--out-dir` to `cargo build`, which renamed that flag to
-`--artifact-dir`, so it fails before compiling. `scripts/rust-ui-build.sh` does what wasm-pack would have — cargo,
-then `wasm-bindgen` pinned to the crate's own `wasm-bindgen` version (a mismatch is a hard error) — and is marked for
-deletion when wasm-pack catches up. Output is generated and gitignored: `lib/rust-ui/ui.js` (imported by the host)
-and `public/rust-ui/ui_bg.wasm` (fetched by URL).
-
-**The boundary, which is the part worth keeping:**
-
-- The **host** owns the network. `app/portal/rust-preview/page.tsx` mounts the module, listens for the
-  `rust-ui:effects` DOM event the shell announces, fetches rows from an application route, and hands the JSON back
-  through `rows_loaded`. The WASM module holds no credential and performs no request.
-- **One owner of application state** — the Rust model. A widget owns its own rendering only.
-- Two host pages mount one shell: `app/portal/rust-preview/page.tsx` (rows from `/api/portal/rust-ui/rows`, behind the
-  session) and `app/rust-preview/page.tsx` (rows from `/api/rust-ui/public-rows`). Both are thin wrappers over
-  `components/rust-ui/host.tsx`, which owns the fetch and nothing else. The starting screen is passed in by the host,
-  because the URL belongs to the page.
-- **`/api/portal/rust-ui/rows` requires a session** and answers rows per screen name. Every portal menu screen has real
-  rows except `accounting-receipt-scanner`, which has no read model to call, so it says "Nothing to show yet" rather
-  than showing an invented shape. A per-screen authority check is NOT yet applied — do not add a screen with a narrower
-  audience than "any signed-in portal user" until its authority is chosen.
-- **`/api/rust-ui/public-rows` is unauthenticated, by design, and that is its whole constraint**: it may read only what
-  the site already publishes. It reaches `property-public-reads` and nothing else, and it passes `publicOnly: true`,
-  which that read model's own contract requires of public surfaces. A screen needing a non-public read model belongs in
-  the portal route, behind the session.
-- **Record screens are reached by opening a row, never from the nav**, and `Screen::ALL` deliberately excludes them:
-  "one client, but which one?" is not something a menu can offer. `Screen::detail()` maps a list screen to its record
-  screen, a row carries `data-open-record`, and the shell turns that click into `Msg::RecordOpened` — a screen with no
-  detail view treats the same click as a selection instead, so the click is never ambiguous. A test asserts that no
-  screen which declares a detail view is also a nav entry; it caught `SitePropertyDetail` being in `ALL` when it was
-  added, which had put a "Property" entry in the public nav.
-- A record screen renders named facts, and an absent fact is omitted rather than printed as a dash: five real facts
-  read better than fifteen with eleven unknowns. Verified: `Client` is NOT `ClientSummary` (the summary has
-  `primaryEmail`/`lastContactLabel` for lists; the canonical client has `email`/`phone` and a `lastContact` object),
-  and its `relationshipActivity` is optional, so its reads are guarded — an absent one means the evidence seam did not
-  run, which is not the same as "no evidence found".
-- Two record screens are deliberately absent: `trace-record` (the flight recorder lists *events*, so its rows carry
-  event ids while a trace is keyed by workflow instance — there is no coherent key to open one with, so the variant
-  does not exist rather than sitting unreachable) and `form-record` (`FormInstance`'s shape is unverified, and a record
-  page that renders wrong labels is worse than one that does not exist yet).
-- The view **escapes every interpolated value**, and the tests go through `render()` rather than through `escape()`
-  so a forgotten call site fails the build instead of shipping.
-
-- Tailwind scans `rust/ui/src/**/*.rs` (`@source` in `app/globals.css`), so the port reuses the existing tokens
-  rather than growing a second design system.
-
 ## The live Rust surface
 
-28 routes mounted (read from the router, not from this file):
+33 routes mounted (read from the router, not from this file):
 
 - `/healthz` _(infrastructure)_
 - `/readyz` _(infrastructure)_
@@ -138,6 +60,11 @@ and `public/rust-ui/ui_bg.wasm` (fetched by URL).
 - `/v1/calendar`
 - `/v1/vault/documents`
 - `/v1/vault/documents/{id}`
+- `/v1/diagnostics/db`
+- `/v1/engine/transactions`
+- `/v1/engine/timers/reconcile`
+- `/v1/engine/tasks/complete`
+- `/v1/engine/reclaim`
 - `/v1/signature/requests`
 - `/v1/signature/requests/{id}`
 - `/v1/signature/requests/{id}/refresh`
@@ -145,8 +72,8 @@ and `public/rust-ui/ui_bg.wasm` (fetched by URL).
 
 ## TypeScript modules under the subjects
 
-- `db/` and `services/`: **204** modules
-- reachable from shipped code: **204**
+- `legacy/db/` and `legacy/services/`: **0** modules
+- reachable from shipped code: **0**
 - not imported by any shipped file (REVIEW, not delete): **0**
 
 ### Review candidates
@@ -155,7 +82,11 @@ and `public/rust-ui/ui_bg.wasm` (fetched by URL).
 
 ## Consistency
 
-No drift: every mapped route and path exists, every mounted route is claimed.
+- route /v1/diagnostics/db is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/engine/transactions is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/engine/timers/reconcile is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/engine/tasks/complete is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/engine/reclaim is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
 
 ## What this cannot tell you
 

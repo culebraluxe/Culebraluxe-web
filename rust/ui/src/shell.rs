@@ -48,6 +48,13 @@ const EFFECT_EVENT: &str = "rust-ui:effects";
 
 thread_local! {
     static PROGRAM: RefCell<Option<Rc<RefCell<Program>>>> = const { RefCell::new(None) };
+    /// Whether the document listeners are already installed.
+    ///
+    /// THE HOST CALLS `mount` ON EVERY EFFECT RUN, and React runs effects twice in development. Installing the click
+    /// listener each time would mean two listeners on one container, so a single click would dispatch its intent twice —
+    /// a double navigation, or a row opened twice. The listeners read the CURRENT program out of `PROGRAM`, so
+    /// registering them once is correct however many times the host mounts.
+    static LISTENERS_INSTALLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 fn window() -> Result<Window, JsValue> {
@@ -249,6 +256,13 @@ pub fn mount(element_id: &str, start: &str) -> Result<String, JsValue> {
     let root = container(element_id)?;
     let program = Rc::new(RefCell::new(Program::new()));
     PROGRAM.with(|slot| *slot.borrow_mut() = Some(program.clone()));
+
+    let already_listening = LISTENERS_INSTALLED.with(|flag| flag.replace(true));
+    if already_listening {
+        // The listeners are on the document container and read the program from `PROGRAM`, which was just replaced
+        // above. Mounting again therefore only means repainting, which is what the host's second effect run wants.
+        return Ok(dispatch(&root, &program, Msg::ScreenOpened(start)));
+    }
 
     let listener = {
         let root = root.clone();
