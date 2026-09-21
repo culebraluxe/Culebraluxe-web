@@ -229,9 +229,11 @@ pub const SCREENS: &[Screen] = &[
     Screen { key: "property-record", title: "Property record", path: "/portal/property-admin/[propertyId]", surface: Surface::Ops, nav: Nav::Record, deferred: None, detail_of: Some("property-admin") },
     Screen { key: "story-record", title: "Story", path: "/portal/storyboard/[id]", surface: Surface::Tech, nav: Nav::Record, deferred: None, detail_of: Some("storyboard") },
     // The registry explains where this belongs: the Flight Recorder "is reached from the SELECTED STORY's own detail
-    // pane — for the instance that actually ran it — which is the only place it has data to show." So it is a record
-    // opened from a story record, and the story record emits a row whose id is that instance.
-    Screen { key: "trace-record", title: "Trace", path: "/portal/tech/flight-recorder/[instanceId]", surface: Surface::Tech, nav: Nav::Record, deferred: None, detail_of: Some("story-record") },
+    // pane — for the instance that actually ran it". That link is NOT in the data: db/storyboard.ts carries no
+    // workflow instance id, and listTraceEvents filters by instance/trace/correlation, none of which is a story run.
+    // So it stays a real screen with nothing current to open it, recorded as a finding rather than papered over with a
+    // row id that would fetch an empty trace.
+    Screen { key: "trace-record", title: "Trace", path: "/portal/tech/flight-recorder/[instanceId]", surface: Surface::Tech, nav: Nav::Unlisted, deferred: None, detail_of: None },
     // Reached from a workflow instance, not from a row of the workflows list — so it is a real screen that no click
     // currently opens. Listed here so it is not forgotten, and unlisted in the nav so it does not pretend to be.
     Screen { key: "runtime-record", title: "Runtime inspector", path: "/portal/runtime-inspector/[instanceId]", surface: Surface::Support, nav: Nav::Unlisted, deferred: None, detail_of: None },

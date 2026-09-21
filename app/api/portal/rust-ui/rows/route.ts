@@ -16,7 +16,7 @@ import { getOpsCounts } from '@/db/ops-counts'
 import { getPropertyAdmin, type PropertyAdminRow } from '@/db/property-admin'
 import { getPropertyWorkspace } from '@/db/portal-property'
 import { getShowings, type Showing } from '@/db/showings'
-import { getStoryboardStory, listStoryboardStories, type StoryboardStory } from '@/db/storyboard'
+import { getStoryboardStory, listStoryboardStories, listStoryRuns, type StoryboardStory } from '@/db/storyboard'
 import { getMarketingDashboard } from '@/db/syndication'
 import { getSystemHealth } from '@/db/system-health'
 import { listTraceEvents } from '@/db/workflow-trace'
@@ -439,6 +439,12 @@ async function propertyRecordRows(id: string): Promise<RustUiRow[]> {
 async function storyRecordRows(id: string): Promise<RustUiRow[]> {
   const story = await getStoryboardStory(id)
   if (!story) return []
+  // The registry says the Flight Recorder is reached from the SELECTED STORY's own detail pane, "for the instance that
+  // actually ran it". I looked for that link and it is NOT in this read model: `db/storyboard.ts` has no workflow
+  // instance id on StoryRun (id, storyId, startedAt, endedAt, resultStatus, runType, agentRuntime, completion, …) and
+  // `listTraceEvents` filters by workflowInstanceId, dealId, traceId or correlationId — none of which is a run.
+  // So the runs are SHOWN here and no row pretends to open a trace. Finding, not a guess.
+  const runs = await listStoryRuns(id)
   return facts([
     fact('Title', story.title),
     fact('Workstream', story.workstream),
@@ -453,6 +459,18 @@ async function storyRecordRows(id: string): Promise<RustUiRow[]> {
     fact('Preconditions', story.preconditions),
     fact('Acceptance criteria', story.acceptanceCriteria),
     fact('Notes', story.notes),
+    ...(runs ?? []).map((run) => ({
+      // A run id, not an instance id: there is no instance id in this read model, so this row selects and does not
+      // pretend to open anything.
+      id: `run-${run.id}`,
+      cells: [
+        'Run',
+        [run.runType, run.resultStatus, run.agentRuntime, run.startedAt, run.endedAt ? `→ ${run.endedAt}` : null]
+          .filter(Boolean)
+          .join(' · '),
+      ],
+      badge: run.resultStatus ?? undefined,
+    })),
   ])
 }
 
@@ -512,6 +530,16 @@ function marketingRows(blocks: Awaited<ReturnType<typeof getMarketingContent>>):
     id: block.id,
     cells: [block.title ?? '(untitled)', block.subtitle ?? block.eyebrow ?? '—', block.ctaLabel ?? '—'],
     badge: block.kind,
+  }))
+}
+
+/** The issue queue, shared by the Issue Queue screen and the retired Command Console. */
+async function issueQueueRows(): Promise<RustUiRow[]> {
+  const page = await getIssueQueue({ pageSize: 50 })
+  return page.rows.map((row) => ({
+    id: row.id,
+    cells: [row.title, row.type, row.severity, row.domainType],
+    badge: row.state,
   }))
 }
 
@@ -586,8 +614,15 @@ const SCREEN_LOADERS: Record<string, ScreenLoader> = {
   'db-test': async () => factRowsFrom(await getClients()),
   cabinet: async () => factRowsFrom(await listIssuedDocuments()),
   forms: async () => factRowsFrom(await listFormInstances()),
-  workflow: async (_actor, scope) => traceRows({ workflowInstanceId: requireScope(scope, 'workflow-record'), limit: 200 }),
+  // The screen key is `workflow-record`: an earlier draft used `workflow`, which wired the trace and left the screen
+  // unreachable. Also the Flight Recorder chain, which the registry describes — a trace is opened from the story that
+  // ran it, for the instance that actually ran it.
+  'workflow-record': async (_actor, scope) =>
+    traceRows({ workflowInstanceId: requireScope(scope, 'workflow-record'), limit: 200 }),
+  'trace-record': async (_actor, scope) =>
+    traceRows({ workflowInstanceId: requireScope(scope, 'trace-record'), limit: 200 }),
   'command-center': async () => factRowsFrom(await getFactoryCommandCenterSnapshot()),
+  issues: async () => issueQueueRows(),
   'tech-kanban': async () => factRowsFrom((await listSprintRollups()) ?? []),
   'tech-line': async () => factRowsFrom(await listAgentWorkItems()),
   'whatsapp-meta': async () => factRowsFrom(await listPendingIntegrationInbox(50, sql)),
