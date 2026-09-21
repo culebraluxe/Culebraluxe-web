@@ -194,7 +194,23 @@ fn msg_for_change(element: &Element) -> Option<Msg> {
     }
 }
 
-/// Apply one intent, paint, and hand the caller the effects it must perform.
+/// The program a message belongs to, right now.
+///
+/// THE LISTENERS MUST READ THIS RATHER THAN CAPTURE A PROGRAM. The host calls `mount` more than once (React runs effects
+/// twice in development), and every mount replaces `PROGRAM`. A listener created by an earlier mount that dispatches
+/// into the program it captured would repaint from stale state while `rows_loaded` — which reads `PROGRAM` — wrote into
+/// the current one: two programs driving one container, which presents as a screen whose clicks do nothing.
+fn current_program() -> Option<Rc<RefCell<Program>>> {
+    PROGRAM.with(|slot| slot.borrow().clone())
+}
+
+/// Apply an intent to the current program. `None` when nothing is mounted, which is not an error worth raising: a click
+/// that arrives after the host unmounted has nowhere to go.
+fn dispatch_current(root: &HtmlElement, msg: Msg) -> Option<String> {
+    let program = current_program()?;
+    Some(dispatch(root, &program, msg))
+}
+
 fn dispatch(root: &HtmlElement, program: &Rc<RefCell<Program>>, msg: Msg) -> String {
     let effects = program.borrow_mut().dispatch(msg);
     paint(root, program);
@@ -266,7 +282,6 @@ pub fn mount(element_id: &str, start: &str) -> Result<String, JsValue> {
 
     let listener = {
         let root = root.clone();
-        let program = program.clone();
         Closure::<dyn FnMut(MouseEvent)>::wrap(Box::new(move |event: MouseEvent| {
             // Walk up from the click target to the mount root, taking the first intent-bearing ancestor. A click on
             // a child of a row must select that row, and a widget's own markup must not have to know about this.
@@ -315,7 +330,7 @@ pub fn mount(element_id: &str, start: &str) -> Result<String, JsValue> {
                 node = element.parent_element();
             }
             if let Some(msg) = msg {
-                dispatch(&root, &program, msg);
+                dispatch_current(&root, msg);
             }
         }))
     };
@@ -326,7 +341,6 @@ pub fn mount(element_id: &str, start: &str) -> Result<String, JsValue> {
     // as it is typed rather than after a commit the user never asks for.
     let on_input = {
         let root = root.clone();
-        let program = program.clone();
         Closure::<dyn FnMut(Event)>::wrap(Box::new(move |event: Event| {
             let Some(element) = event
                 .target()
@@ -341,7 +355,7 @@ pub fn mount(element_id: &str, start: &str) -> Result<String, JsValue> {
                 return;
             };
             if let Some(msg) = msg_for_input(&field, input.value()) {
-                dispatch(&root, &program, msg);
+                dispatch_current(&root, msg);
             }
         }))
     };
@@ -352,7 +366,6 @@ pub fn mount(element_id: &str, start: &str) -> Result<String, JsValue> {
     // value the browser already holds rather than from a keystroke in progress.
     let on_change = {
         let root = root.clone();
-        let program = program.clone();
         Closure::<dyn FnMut(Event)>::wrap(Box::new(move |event: Event| {
             let Some(element) = event
                 .target()
@@ -361,7 +374,7 @@ pub fn mount(element_id: &str, start: &str) -> Result<String, JsValue> {
                 return;
             };
             if let Some(msg) = msg_for_change(&element) {
-                dispatch(&root, &program, msg);
+                dispatch_current(&root, msg);
             }
         }))
     };
