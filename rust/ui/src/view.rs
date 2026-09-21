@@ -386,6 +386,114 @@ fn whatsapp_view() -> String {
 /// not a list, and pretending it is produces a screen that looks nothing like the one being ported. So a screen may own
 /// its body; the model, the messages, the effects and the shell are unchanged, which is the point of putting this here
 /// rather than in the shell.
+
+/// The site-privacy page's own text, extracted from the TypeScript page it replaces.
+///
+/// NOT retyped, deliberately: this is reviewed wording (a policy Meta requires for the WhatsApp integration), and a
+/// hand-copied paragraph is a paragraph that can quietly differ. `kind` is the tag it had, so the render below can put
+/// it back in the same shape.
+const PRIVACY_VIEW_CONTENT: [(&str, &str); 29] = [
+    ("p", "CulebraLuxe LLC"),
+    ("h1", "Privacy Policy"),
+    ("p", "Last updated: September 1, 2026"),
+    ("h2", "Overview"),
+    ("p", "CulebraLuxe LLC respects your privacy. This Privacy Policy explains how we collect, use, store, and protect information when you use our website, communicate with us, or interact with services and integrations operated by CulebraLuxe, including WhatsApp and Meta services."),
+    ("h2", "Information we collect"),
+    ("p", "We may collect information you provide directly to us, such as your name, email address, phone number, property information, communication preferences, and other information you choose to provide when contacting CulebraLuxe or using our services."),
+    ("p", "When you communicate with CulebraLuxe through WhatsApp or other messaging services, we may receive information associated with those communications, including identifiers, phone numbers, timestamps, message status information, and message content when required to provide the requested communication service."),
+    ("h2", "Meta and WhatsApp integrations"),
+    ("p", "CulebraLuxe may use Meta Platforms, Inc. services, including Facebook Login for Business, the WhatsApp Business Platform, and WhatsApp Business App coexistence features. When you authorize or interact with these services, Meta may provide CulebraLuxe with information necessary to operate the integration, such as business account identifiers, WhatsApp Business Account information, phone number identifiers, access authorization information, webhook events, and messaging data associated with CulebraLuxe communications."),
+    ("p", "We use this information only to operate CulebraLuxe business communications, maintain our customer and relationship records, provide requested services, troubleshoot integrations, and comply with applicable legal or platform requirements."),
+    ("h2", "How we use information"),
+    ("p", "We may use collected information to:"),
+    ("li", "respond to inquiries and communicate with clients and prospective clients;"),
+    ("li", "provide real estate brokerage and related services;"),
+    ("li", "maintain client, property, transaction, and relationship records;"),
+    ("li", "operate and improve our website, internal systems, and messaging integrations;"),
+    ("li", "protect against fraud, misuse, security incidents, or unauthorized access; and"),
+    ("li", "comply with legal, regulatory, contractual, and platform obligations."),
+    ("h2", "Sharing of information"),
+    ("p", "We do not sell personal information. We may share information with service providers and technology platforms only as needed to operate CulebraLuxe services, including hosting, communications, document, authentication, and messaging services. We may also disclose information when required by law or when reasonably necessary to protect CulebraLuxe, our clients, or others."),
+    ("h2", "Data retention and security"),
+    ("p", "We retain information only for as long as reasonably necessary for the purposes described in this policy, for legitimate business and recordkeeping needs, and as required by law. We use reasonable administrative, technical, and organizational safeguards designed to protect information from unauthorized access, loss, misuse, or disclosure."),
+    ("h2", "Your choices and requests"),
+    ("p", "You may contact us to ask about personal information associated with you, request a correction, or request deletion where applicable. Some information may be retained when required for legal, regulatory, transaction-record, security, or legitimate business purposes."),
+    ("h2", "Third-party services"),
+    ("p", "Our services may interact with third-party platforms such as Meta and WhatsApp. Those services operate under their own privacy policies and terms. CulebraLuxe is not responsible for the privacy practices of third-party services except for our own collection and use of information received through them."),
+    ("h2", "Contact us"),
+    ("p", "Questions or privacy requests may be sent to CulebraLuxe LLC through our public contact page at https://www.culebraluxe.com/contact."),
+];
+
+/// The static page, rendered from that text. No read model and no fetch: a static page is content, and content does not
+/// belong in a database query.
+fn privacy_view() -> String {
+    let body = PRIVACY_VIEW_CONTENT
+        .iter()
+        .map(|(kind, text)| match *kind {
+            "h1" | "h2" | "h3" => format!(
+                "<h2 class=\"font-serif text-2xl font-light text-foreground\">{}</h2>",
+                escape(text)
+            ),
+            "li" => format!("<li class=\"ml-6 list-disc\">{}</li>", escape(text)),
+            _ => format!(
+                "<p class=\"mt-4 text-sm font-light leading-7 text-muted-foreground\">{}</p>",
+                escape(text)
+            ),
+        })
+        .collect::<String>();
+    format!(
+        "<article class=\"px-6 py-20 md:px-12 md:py-28\"><div class=\"mx-auto max-w-4xl space-y-6\">{body}</div></article>"
+    )
+}
+
+
+/// The site-services page's own text, extracted from the TypeScript page it replaces.
+///
+/// NOT retyped, deliberately: this is reviewed wording (a policy Meta requires for the WhatsApp integration), and a
+/// hand-copied paragraph is a paragraph that can quietly differ. `kind` is the tag it had, so the render below can put
+/// it back in the same shape.
+const SERVICES_VIEW_CONTENT: [(&str, &str); 17] = [
+    ("h2", "More than transactions. Thoughtful support at every step."),
+    ("p", "From valuations and research to coordination and marketing, our services are designed to simplify decisions, connect the right expertise, and protect your interests on Culebra."),
+    ("p", "Local knowledge · Thoughtful coordination · Exceptional discretion"),
+    ("p", "What we can help with"),
+    ("h2", "Practical expertise around island property."),
+    ("h2", "How it works"),
+    ("p", "Why CulebraLuxe"),
+    ("h2", "Why clients come to CulebraLuxe"),
+    ("p", "Research before action"),
+    ("p", "Decisions begin with understanding the property, context, documentation, and objective."),
+    ("p", "The right people"),
+    ("p", "We help connect each need with appropriate local expertise rather than treating every request the same."),
+    ("p", "Follow-through"),
+    ("p", "Thoughtful coordination and clear communication keep small details from becoming large problems."),
+    ("p", "Culebra · Puerto Rico"),
+    ("h2", "Let's begin a quiet conversation."),
+    ("p", "Tell us what you need. We'll help determine the right next step and whether CulebraLuxe can help."),
+];
+
+/// The static page, rendered from that text. No read model and no fetch: a static page is content, and content does not
+/// belong in a database query.
+fn services_view() -> String {
+    let body = SERVICES_VIEW_CONTENT
+        .iter()
+        .map(|(kind, text)| match *kind {
+            "h1" | "h2" | "h3" => format!(
+                "<h2 class=\"font-serif text-2xl font-light text-foreground\">{}</h2>",
+                escape(text)
+            ),
+            "li" => format!("<li class=\"ml-6 list-disc\">{}</li>", escape(text)),
+            _ => format!(
+                "<p class=\"mt-4 text-sm font-light leading-7 text-muted-foreground\">{}</p>",
+                escape(text)
+            ),
+        })
+        .collect::<String>();
+    format!(
+        "<article class=\"px-6 py-20 md:px-12 md:py-28\"><div class=\"mx-auto max-w-4xl space-y-6\">{body}</div></article>"
+    )
+}
+
 /// Screens that render markup of their own instead of a generic list of rows.
 ///
 /// Everything else in this crate renders rows because that is what a read model is. A lab, a board or a widget host is
@@ -396,6 +504,8 @@ fn custom_body(model: &Model) -> Option<String> {
     match model.screen.key {
         "tech-lab" => Some(tech_lab()),
         "rust-lab" => Some(rust_lab(model)),
+        "site-services" => Some(services_view()),
+        "site-privacy" => Some(privacy_view()),
         "site-whatsapp" => Some(whatsapp_view()),
         "projects" => Some(projects_view(model)),
         _ => None,
