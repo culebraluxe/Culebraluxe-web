@@ -12,6 +12,7 @@ import { listForgeBatches, type ForgeBatch } from '@/db/forge-batch'
 import { getIssueQueue } from '@/db/issues'
 import { getMarketingContent } from '@/db/marketing-content'
 import { getNeedsReviewItems, type NeedsReviewItem } from '@/db/needs-review'
+import { getOpsCounts } from '@/db/ops-counts'
 import { getPropertyAdmin, type PropertyAdminRow } from '@/db/property-admin'
 import { getPropertyWorkspace } from '@/db/portal-property'
 import { getShowings, type Showing } from '@/db/showings'
@@ -19,6 +20,22 @@ import { getStoryboardStory, listStoryboardStories, type StoryboardStory } from 
 import { getMarketingDashboard } from '@/db/syndication'
 import { getSystemHealth } from '@/db/system-health'
 import { listTraceEvents } from '@/db/workflow-trace'
+import { getSecurityStatus } from '@/db/auth-status'
+import { sql } from '@/db/client'
+import { getClientAdmin } from '@/db/client-admin'
+import { listFormInstances, getFormInstance } from '@/db/form-service-repository'
+import { getIdentityQuality } from '@/db/identity-quality'
+import { listPendingIntegrationInbox } from '@/db/integration-inbox'
+import { getMediaAdmin } from '@/db/media-admin'
+import { getPropertyMediaCoverage } from '@/db/property-media-coverage'
+import { getPnlStatement, getAccountingDashboard } from '@/db/accounting'
+import { getClients } from '@/db/clients'
+import { listSprintRollups } from '@/db/sprint'
+import { listAgentWorkItems } from '@/db/agent-work'
+import { getReportingSnapshot } from '@/db/reporting'
+import { getSettingsAuthorities, getSettingsRoles, getSettingsUsers } from '@/db/settings-auth'
+import { getFactoryCommandCenterSnapshot } from '@/lib/factory-command-center-data'
+import { listIssuedDocuments } from '@/lib/vault-io'
 import { AuthError } from '@/lib/auth/errors'
 import { getPortalActingUser } from '@/lib/auth/portal-session'
 import { withApiHandler } from '@/lib/error-capture-seam'
@@ -68,6 +85,48 @@ const fact = (label: string, value: string | number | null | undefined): RustUiR
 }
 
 const facts = (rows: (RustUiRow | null)[]): RustUiRow[] => rows.filter((row): row is RustUiRow => row !== null)
+
+/**
+ * Field names are the read model's own, so a screen can be wired before its DTO has been read line by line. Nothing
+ * here invents a column: the label IS the field name and the value IS the value, and where a screen's real columns are
+ * known it uses a mapper of its own instead.
+ */
+const label = (key: string): string =>
+  key
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]/g, ' ')
+    .replace(/^./, (character) => character.toUpperCase())
+
+function primitiveCells(item: unknown): string[] {
+  if (item === null || item === undefined) return []
+  if (typeof item !== 'object') return [String(item)]
+  return Object.values(item as Record<string, unknown>).flatMap((entry) => {
+    if (entry === null || entry === undefined) return []
+    if (typeof entry === 'object') return [Array.isArray(entry) ? `${entry.length}` : '']
+    return [String(entry)]
+  })
+}
+
+function factRowsFrom(value: unknown): RustUiRow[] {
+  if (value === null || value === undefined) return []
+  if (Array.isArray(value)) {
+    // A list read model: one row per item.
+    return value.flatMap((item, index) => {
+      const cells = primitiveCells(item)
+      return cells.length ? [{ id: `item-${index}`, cells }] : []
+    })
+  }
+  return Object.entries(value as Record<string, unknown>)
+    .filter(
+      ([, entry]) =>
+        entry === null || Array.isArray(entry) || ['string', 'number', 'boolean'].includes(typeof entry),
+    )
+    .map(([key, entry]) => ({
+      id: key,
+      cells: [label(key), Array.isArray(entry) ? `${entry.length}` : String(entry ?? '—')],
+      badge: Array.isArray(entry) ? 'count' : undefined,
+    }))
+}
 
 function activityRows(
   entries: Awaited<ReturnType<typeof getActivityFeed>>,
@@ -508,6 +567,34 @@ const SCREEN_LOADERS: Record<string, ScreenLoader> = {
   'deal-record': async (actor, scope) => dealRecordRows(requireScope(scope, 'deal-record'), actor),
   'property-record': async (_actor, scope) => propertyRecordRows(requireScope(scope, 'property-record')),
   'story-record': async (_actor, scope) => storyRecordRows(requireScope(scope, 'story-record')),
+  'form-record': async (_actor, scope) =>
+    factRowsFrom(await getFormInstance(requireScope(scope, 'form-record'))),
+
+  // ---- the rest of the surfaces. Each reads the same thing its live page reads. Where a DTO's field names are not
+  // known yet, `factRowsFrom` renders the read model's own field names rather than an invented column.
+  'portal-root': async () => factRowsFrom(await getOpsCounts()),
+  'accounting': async () => factRowsFrom(await getAccountingDashboard()),
+  // The whole history, because a P&L with an unstated range is a table nobody can interpret.
+  'accounting-pnl': async () =>
+    factRowsFrom(await getPnlStatement('2020-01-01', new Date().toISOString().slice(0, 10))),
+  'identity-quality': async () => factRowsFrom(await getIdentityQuality()),
+  reporting: async () => factRowsFrom(await getReportingSnapshot()),
+  'client-admin': async () => factRowsFrom(await getClientAdmin()),
+  'media-admin': async () => factRowsFrom(await getMediaAdmin()),
+  'property-media': async () => factRowsFrom(await getPropertyMediaCoverage()),
+  'system-health': async () => healthRows(await getSystemHealth()),
+  'db-test': async () => factRowsFrom(await getClients()),
+  cabinet: async () => factRowsFrom(await listIssuedDocuments()),
+  forms: async () => factRowsFrom(await listFormInstances()),
+  workflow: async (_actor, scope) => traceRows({ workflowInstanceId: requireScope(scope, 'workflow-record'), limit: 200 }),
+  'command-center': async () => factRowsFrom(await getFactoryCommandCenterSnapshot()),
+  'tech-kanban': async () => factRowsFrom((await listSprintRollups()) ?? []),
+  'tech-line': async () => factRowsFrom(await listAgentWorkItems()),
+  'whatsapp-meta': async () => factRowsFrom(await listPendingIntegrationInbox(50, sql)),
+  security: async () => factRowsFrom(await getSecurityStatus()),
+  'settings-users': async () => factRowsFrom(await getSettingsUsers()),
+  'settings-roles': async () => factRowsFrom(await getSettingsRoles()),
+  'settings-authorities': async () => factRowsFrom(await getSettingsAuthorities()),
 }
 
 async function GETHandler(req: NextRequest): Promise<Response> {

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+import { getGuideItems } from '@/db/guide'
+import { getMarketingContent } from '@/db/marketing-content'
 import { getProperties, getPropertyBySlug } from '@/db/property-public-reads'
+import { MARKETING_SLOTS } from '@/lib/marketing-content'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
 // ---------------------------------------------------------------------------
@@ -91,6 +94,31 @@ async function recordRows(scope: string | null): Promise<RustUiRow[]> {
   ].filter((row): row is RustUiRow => row !== null)
 }
 
+async function contentRows(slot: string | null): Promise<RustUiRow[]> {
+  const result = await getMarketingContent()
+  if (!result.ok) throw new Error(`marketing content is unavailable: ${result.error.kind}`)
+  // The block's own `id` is the slot key (`home.hero`, `home.services.buyers`, …) — that is how the live pages address
+  // their copy. ASSUMPTION, stated rather than hidden: if a block id is not the slot string, this returns nothing and
+  // the screen says there is nothing to show, instead of showing another page's words.
+  const blocks = slot ? result.data.filter((block) => block.id === slot) : result.data
+  return blocks.flatMap((block) => [
+    { id: `${block.id}:title`, cells: [block.eyebrow ?? '—', block.title ?? '(untitled)'], badge: block.kind },
+    ...(block.subtitle ? [{ id: `${block.id}:subtitle`, cells: ['Subtitle', block.subtitle] }] : []),
+    ...(block.body ? [{ id: `${block.id}:body`, cells: ['Body', block.body] }] : []),
+    ...(block.ctaLabel ? [{ id: `${block.id}:cta`, cells: ['Call to action', `${block.ctaLabel} → ${block.ctaHref ?? '—'}`] }] : []),
+  ])
+}
+
+async function guideRows(): Promise<RustUiRow[]> {
+  const items = await getGuideItems()
+  return items.map((item, index) => ({
+    id: `guide-${index}`,
+    cells: Object.values(item as Record<string, unknown>)
+      .filter((value) => value !== null && value !== undefined && typeof value !== 'object')
+      .map((value) => String(value)),
+  }))
+}
+
 async function GETHandler(req: NextRequest): Promise<Response> {
   const screen = req.nextUrl.searchParams.get('screen') ?? ''
   const scope = req.nextUrl.searchParams.get('scope')
@@ -100,9 +128,22 @@ async function GETHandler(req: NextRequest): Promise<Response> {
       return NextResponse.json(await listingRows())
     case 'site-property-detail':
       return NextResponse.json(await recordRows(scope))
+    // The editorial pages read the marketing content slots the live pages read, by slot key.
+    case 'site-home':
+      return NextResponse.json(await contentRows(MARKETING_SLOTS.hero))
+    case 'site-about':
+      return NextResponse.json(await contentRows(MARKETING_SLOTS.about))
+    case 'site-buyers':
+      return NextResponse.json(await contentRows(MARKETING_SLOTS.buyers))
+    case 'site-sellers':
+      return NextResponse.json(await contentRows(MARKETING_SLOTS.sellers))
+    case 'site-faq':
+      return NextResponse.json(await contentRows(MARKETING_SLOTS.faqList))
+    case 'site-contact':
+      return NextResponse.json(await contentRows(MARKETING_SLOTS.contact))
+    case 'site-guide':
+      return NextResponse.json(await guideRows())
     default:
-      // `site-home` is here: its content is editorial copy whose layout is not ported yet, and an empty list is an
-      // honest answer where invented rows would not be.
       return NextResponse.json([])
   }
 }
