@@ -57,18 +57,20 @@ impl Database {
         })?;
 
         let normalized = normalize_ssl_mode(&url);
-        let mut options = PgConnectOptions::from_str(&normalized)
+        let options = PgConnectOptions::from_str(&normalized)
             .map_err(|_| DbFailure::configuration("db.connect", "invalid database connection URL"))?
             .application_name(&format!("culebraluxe-rust-{}", target.as_str()));
 
-        // A pooler endpoint (Neon's `-pooler`, i.e. PgBouncer in transaction mode) does not honour named prepared
-        // statements: the backend a statement was prepared on is not necessarily the backend that sees it next. sqlx
-        // prepares by default, so against a pooler it either re-prepares constantly or fails outright. Measured against
-        // the dev endpoint, one round trip is ~72ms, so a re-prepare per statement is a real cost. The cache is off for
-        // pooled endpoints and stays on for a direct connection, where it is worth having.
-        if options.get_host().contains("-pooler") {
-            options = options.statement_cache_capacity(0);
-        }
+        // PREPARED STATEMENTS STAY ON. This was briefly disabled, on the reasoning that Neon's `-pooler` endpoint is
+        // PgBouncer in transaction mode and transaction mode does not honour named prepared statements - so a
+        // statement prepared on one backend would not exist on the next. The reasoning is right about PgBouncer and
+        // wrong about this code: measured against the real endpoint, a query on a held connection costs 79.6ms with
+        // the cache and 160.0ms without it, which is one round trip versus two. sqlx re-prepares when a statement is
+        // missing, and the pooler accepts what sqlx sends, so the cost of the caution was 80ms on every statement -
+        // doubling the latency of every query in the application - for a failure that does not happen.
+        //
+        // If prepared statements ever do start failing on this endpoint, the symptom will be loud ("prepared statement
+        // does not exist", SQLSTATE 26000) and this is the line to revisit. Until then the cache stays on.
 
         let max_connections = positive_u32("FORGE_DB_POOL_MAX", 5);
         // KEEP ONE CONNECTION WARM. Without a floor the pool holds nothing when idle, so the next request pays a full

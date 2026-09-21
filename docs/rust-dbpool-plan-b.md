@@ -90,7 +90,36 @@ of them would be a regression dressed as progress.
 7. **The counters.** `GET /v1/diagnostics/db`. Without them "the pool is cold" and "the database is slow" look identical
    from outside, which is how this took so long to find in the first place.
 
-## The decision rule
+## Measured, both stacks, same machine
+
+Rather than argue, a throwaway crate outside the repository (`/tmp/rustpool/bench`, sqlx and deadpool side by side) ran
+the same statements through both, against the same database, in the same minute. The bench reads the connection string
+from the environment and never prints it.
+
+| | sqlx `PgPool` | tokio-postgres + deadpool |
+| --- | --- | --- |
+| `select 1` on a held connection | **79.6ms** | 176.6ms |
+| `begin`/`select`/`commit` | **239ms** | 331ms |
+| `deadpool pool.get()` alone | - | **625 nanoseconds** |
+| pool size at the end | 3 | 2 |
+
+Readings, in order of how much they matter:
+
+1. **The pool is not the lever.** deadpool's checkout is 625ns, and its source confirms why: with the default
+   `RecyclingMethod::Fast`, `recycle` runs `is_closed()` and nothing else - `config.recycling_method.query()` returns
+   `None`, so no round trip. That is the same policy we now get from `test_before_acquire(false)`.
+2. **The driver difference is prepared statements.** sqlx caches them, so a query is one round trip; tokio-postgres
+   prepares on every call, so it is two. sqlx is therefore about twice as fast per statement here, and switching would
+   make every query slower, not faster, in exchange for rewriting 162 call sites.
+3. **The exercise paid for itself by finding our regression.** The benchmark measured the same statement with the
+   statement cache on and off - 79.6ms versus 160.0ms - which is what revealed that disabling the cache was doubling
+   the latency of every query in the application. That change is reverted.
+
+**Verdict: keep sqlx.** Not because the alternative is bad, but because it is slower here, costs a driver rewrite, and
+the one genuinely interesting thing in it (`RecyclingMethod::Clean`, session hygiene that preserves a statement cache)
+is redundant for us: a transaction-mode pooler already resets session state between transactions, which is
+PgBouncer's job, not ours.
+
 
 Keep sqlx unless a benchmark shows **sqlx's driver**, not the pool, is the bottleneck. Given the measurements, that is
 unlikely:

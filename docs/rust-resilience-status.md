@@ -273,6 +273,16 @@ call before it is committed.
   side; it cannot be done from this repository.
 
 
+### Prepared statements stay on (measured)
+
+The statement cache was briefly disabled for the `-pooler` endpoint, on the reasoning that a transaction-mode pooler
+cannot honour named prepared statements. That was wrong for this code: on a held connection the same statement costs
+**79.6ms with the cache and 160.0ms without it** - one round trip versus two - so the caution was doubling the latency
+of every query in the application for a failure that does not happen. Reverted.
+
+That measurement came out of building the alternative stack side by side: see
+[docs/rust-dbpool-plan-b.md](rust-dbpool-plan-b.md), which also records why the answer is to keep sqlx.
+
 ### Over a high-latency link, only round trips matter
 
 Worth stating plainly, because it changes what is worth optimising. Every request is `browser -> Next -> Rust -> Neon`, and
