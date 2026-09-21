@@ -1,10 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+import { getExpenses, getReceivables, type Expense, type Receivable } from '@/db/accounting'
 import { getActivityFeed } from '@/db/activity-feed'
+import { listRecentErrors } from '@/db/app-error'
+import { getAttentionSnapshot } from '@/db/attention'
 import { getClientsPage, type ClientSummary } from '@/db/clients'
+import { getDashboardSnapshot } from '@/db/dashboard'
+import { getDeals } from '@/db/deals'
+import { listForgeBatches, type ForgeBatch } from '@/db/forge-batch'
+import { getIssueQueue } from '@/db/issues'
+import { getMarketingContent } from '@/db/marketing-content'
+import { getNeedsReviewItems, type NeedsReviewItem } from '@/db/needs-review'
+import { getPropertyAdmin, type PropertyAdminRow } from '@/db/property-admin'
+import { getShowings, type Showing } from '@/db/showings'
+import { listStoryboardStories, type StoryboardStory } from '@/db/storyboard'
+import { getMarketingDashboard } from '@/db/syndication'
+import { getSystemHealth } from '@/db/system-health'
+import { listTraceEvents } from '@/db/workflow-trace'
 import { AuthError } from '@/lib/auth/errors'
 import { getPortalActingUser } from '@/lib/auth/portal-session'
 import { withApiHandler } from '@/lib/error-capture-seam'
+import type { Deal } from '@/lib/portal/types'
 
 // ---------------------------------------------------------------------------
 // ROWS FOR THE RUST UI.
@@ -22,7 +38,9 @@ import { withApiHandler } from '@/lib/error-capture-seam'
 // answers `[]` and the screen says "Nothing to show yet", which is honest: an invented column is a lie the next
 // reader has to disprove.
 //
-// Wired so far: `activity` (getActivityFeed) and `clients` (getClientsPage, the client directory read model).
+// Wired: every portal menu screen except `accounting-receipt-scanner` (no read model found). Each loader calls the
+// same repository or read model the live TypeScript screen calls, so the two cannot disagree about the data; the
+// mapping from DTO to row is a projection and nothing more.
 //
 // AUTHORITY: authenticated portal users only. A per-screen authority check (who may read expenses, who may read
 // flight recorder) has to be decided per screen and is NOT yet applied here — so this route stays read-only, and any
@@ -32,6 +50,10 @@ import { withApiHandler } from '@/lib/error-capture-seam'
 export const dynamic = 'force-dynamic'
 
 type RustUiRow = { id: string; cells: string[]; badge?: string | null }
+
+/** Amounts are numbers in the read models and money on the screen. */
+const money = (amount: number) =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(amount)
 
 function activityRows(
   entries: Awaited<ReturnType<typeof getActivityFeed>>,
@@ -66,9 +88,278 @@ function clientRows(client: ClientSummary): RustUiRow {
   }
 }
 
+function dealRows(deal: Deal): RustUiRow {
+  return {
+    id: deal.id,
+    cells: [
+      deal.propertyName,
+      deal.clientName,
+      deal.listPrice ? money(deal.listPrice) : '—',
+      deal.nextMilestone ?? deal.nextMilestoneAt ?? '—',
+      deal.owner,
+    ],
+    // The stage is the badge because it is the axis the live Deals board groups by.
+    badge: deal.stage,
+  }
+}
+
+function showingRows(showing: Showing): RustUiRow {
+  return {
+    id: showing.id,
+    cells: [
+      showing.personName,
+      showing.propertyName ?? showing.dealPropertyName ?? '—',
+      showing.scheduledAtLabel ?? showing.requestedAtLabel,
+      showing.feedback ?? '—',
+    ],
+    badge: showing.status,
+  }
+}
+
+function propertyRows(property: PropertyAdminRow): RustUiRow {
+  return {
+    id: property.id,
+    cells: [
+      property.name,
+      property.location ?? '—',
+      property.listPrice ? money(property.listPrice) : 'No price',
+      `${property.bedrooms ?? '—'} bd / ${property.bathrooms ?? '—'} ba`,
+      property.slug ?? 'No slug',
+      property.issueCount === 0 ? 'No issues' : `${property.issueCount} issue(s)`,
+    ],
+    badge: property.status,
+  }
+}
+
+function needsReviewRows(item: NeedsReviewItem): RustUiRow {
+  return {
+    id: item.id,
+    cells: [
+      item.displayName,
+      item.requestType,
+      item.propertyName ?? '—',
+      item.receivedAtLabel,
+      item.message?.slice(0, 120) ?? '—',
+    ],
+    badge: item.status,
+  }
+}
+
+function expenseRows(expense: Expense): RustUiRow {
+  return {
+    id: expense.id,
+    cells: [expense.vendor, expense.category, money(expense.amount), expense.expenseOn],
+    badge: expense.status,
+  }
+}
+
+function receivableRows(receivable: Receivable): RustUiRow {
+  return {
+    id: receivable.id,
+    cells: [
+      receivable.description,
+      money(receivable.amount),
+      receivable.dueOn ?? '—',
+      receivable.personName ?? receivable.dealName ?? receivable.propertyName ?? '—',
+    ],
+    badge: receivable.status,
+  }
+}
+
+function storyboardRows(story: StoryboardStory): RustUiRow {
+  return {
+    id: story.id,
+    cells: [
+      story.title,
+      story.workstream,
+      story.priority,
+      story.batch === null ? 'no batch' : `batch ${story.batch}`,
+      story.operatingSurface ?? 'unclassified',
+    ],
+    badge: story.status,
+  }
+}
+
+/** Dashboard tasks and recent interactions — the whole snapshot the live screen renders. */
+function dashboardRows(snapshot: Awaited<ReturnType<typeof getDashboardSnapshot>>): RustUiRow[] {
+  const overdue = snapshot.overdueTasks.map((task) => ({
+    id: task.id,
+    cells: [task.title, task.dueAtLabel ?? '—', task.contextName ?? '—'],
+    badge: 'overdue',
+  }))
+  const dueSoon = snapshot.tasksDueSoon.map((task) => ({
+    id: `soon-${task.id}`,
+    cells: [task.title, task.dueAtLabel ?? '—', task.contextName ?? '—'],
+    badge: 'due soon',
+  }))
+  const recent = snapshot.recentInteractions.map((interaction) => ({
+    id: `recent-${interaction.id}`,
+    cells: [
+      interaction.title ?? interaction.summary ?? '(interaction)',
+      interaction.occurredAtLabel,
+      interaction.personName,
+    ],
+    badge: interaction.channel,
+  }))
+  return [...overdue, ...dueSoon, ...recent]
+}
+
+function attentionRows(snapshot: Awaited<ReturnType<typeof getAttentionSnapshot>>): RustUiRow[] {
+  const tasks = (badge: string, items: typeof snapshot.overdueTasks) =>
+    items.map((task) => ({
+      id: `${badge.replace(' ', '-')}-${task.id}`,
+      cells: [
+        task.title,
+        task.dueAtLabel ?? '—',
+        task.personName ?? task.propertyName ?? task.dealPropertyName ?? '—',
+      ],
+      badge,
+    }))
+  // The quiet-but-important list is half of what this screen is for: a relationship with no open work and no recent
+  // contact is exactly the one that gets forgotten, so it comes from the same field the live page uses.
+  const quiet = snapshot.quietButImportant.map((person) => ({
+    id: `quiet-${person.id}`,
+    cells: [
+      person.displayName,
+      `${person.role} · ${person.activeDealCount} active deal(s)`,
+      person.lastContactLabel ?? 'never contacted',
+    ],
+    badge: 'quiet',
+  }))
+  const busy = snapshot.peopleWithOpenWork.map((person) => ({
+    id: `busy-${person.id}`,
+    cells: [
+      person.displayName,
+      `${person.role} · ${person.openTaskCount} open task(s)`,
+      person.lastContactLabel ?? '—',
+    ],
+    badge: 'open work',
+  }))
+  return [...tasks('overdue', snapshot.overdueTasks), ...tasks('due soon', snapshot.dueSoonTasks), ...quiet, ...busy]
+}
+
+async function errorRows(limit = 25): Promise<RustUiRow[]> {
+  const rows = await listRecentErrors(limit)
+  return rows.map((row) => ({
+    id: row.id,
+    // `message` and `code` are both nullable, and an error row with neither is still a real row: the kind is the
+    // minimum. Saying "(no message)" beats an empty cell.
+    cells: [row.kind, row.operation ?? row.route ?? '—', row.message ?? row.code ?? '(no message)'],
+    badge: row.level,
+  }))
+}
+
+async function traceRows(limit = 50): Promise<RustUiRow[]> {
+  const rows = await listTraceEvents({ limit })
+  return rows.map((row) => ({
+    // A trace row's id is nullable by design (the durable key is assigned by the writer), so the position in the list
+    // is the only stable handle. A synthetic id beats a row that cannot be selected.
+    id: row.id ?? `${row.eventType}-${row.occurredAt}-${row.system}`,
+    cells: [row.eventType, row.system, row.occurredAt, row.outcome ?? '—'],
+    badge: row.durationMs === null ? undefined : `${row.durationMs}ms`,
+  }))
+}
+
+function batchRows(batch: ForgeBatch): RustUiRow {
+  return {
+    id: batch.id,
+    cells: [
+      batch.label ?? `batch ${batch.id.slice(0, 8)}`,
+      `${batch.storyCount} story/stories`,
+      `${batch.queuedCount} queued · ${batch.skippedCount} skipped`,
+      String(batch.createdAt).slice(0, 10),
+    ],
+    badge: batch.status,
+  }
+}
+
+/** `activePropertyCount` -> `Active property count`, so a data-quality row can be read by a human. */
+function humanise(key: string): string {
+  const words = key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase()
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+/**
+ * The tech screen's real content is its invariants: every field of the health snapshot is a count that should be zero
+ * or a count that should be understood. Showing only the non-zero ones means the screen answers "is anything wrong"
+ * with rows instead of reassurance — and an all-clear snapshot says so in one line rather than showing thirty zeros.
+ */
+function healthRows(snapshot: Awaited<ReturnType<typeof getSystemHealth>>): RustUiRow[] {
+  const rows = (Object.entries(snapshot) as [string, unknown][])
+    .filter(([, value]) => typeof value === 'number' && value > 0)
+    .map(([key, value]) => ({
+      id: key,
+      cells: [humanise(key), String(value)],
+      badge: /without|missing|notImage|mismatch/i.test(key) ? 'attention' : 'count',
+    }))
+  return rows.length === 0
+    ? [{ id: 'all-clear', cells: ['Every health invariant reads zero', ''], badge: 'ok' }]
+    : rows
+}
+
+/** Counts are not a list, but they are the whole content of these screens: one row per number, labelled. */
+function countRows(counts: Record<string, number>, badge: string): RustUiRow[] {
+  return Object.entries(counts).map(([key, value]) => ({
+    id: key,
+    cells: [humanise(key), String(value)],
+    badge,
+  }))
+}
+
+function marketingRows(blocks: Awaited<ReturnType<typeof getMarketingContent>>): RustUiRow[] {
+  // The repository returns a Result rather than throwing, so an unavailable database is a sentence the operator can
+  // read instead of a 500 with no explanation.
+  if (!blocks.ok) {
+    throw new Error(`marketing content is unavailable: ${blocks.error.kind}`)
+  }
+  return blocks.data.map((block) => ({
+    id: block.id,
+    cells: [block.title ?? '(untitled)', block.subtitle ?? block.eyebrow ?? '—', block.ctaLabel ?? '—'],
+    badge: block.kind,
+  }))
+}
+
+type ActingActor = Awaited<ReturnType<typeof getPortalActingUser>>
+
+/**
+ * Which screens have real rows, and where those rows come from. A map rather than a switch so that "what is wired" is
+ * one glance, and so adding a screen is one line.
+ *
+ * NOT here, on purpose:
+ *   - `accounting-receipt-scanner`: no read model found for it. Answering [] is honest; inventing a shape is not.
+ *   - `projects`: the Rust side never asks for it (a deferred screen loads nothing), so a loader would be dead code.
+ */
+const SCREEN_LOADERS: Record<string, (actor: ActingActor) => Promise<RustUiRow[]>> = {
+  dashboard: async () => dashboardRows(await getDashboardSnapshot()),
+  clients: async () =>
+    (await getClientsPage({ sort: 'name', page: 1, pageSize: 50 })).rows.map(clientRows),
+  deals: async (actor) => (await getDeals(actor)).map(dealRows),
+  marketing: async () => marketingRows(await getMarketingContent()),
+  'marketing-syndication': async () => countRows(await getMarketingDashboard(), 'syndication'),
+  'property-admin': async () => (await getPropertyAdmin()).map(propertyRows),
+  showings: async () => (await getShowings()).map(showingRows),
+  storyboard: async () => ((await listStoryboardStories()) ?? []).map(storyboardRows),
+  attention: async () => attentionRows(await getAttentionSnapshot()),
+  'needs-review': async () => (await getNeedsReviewItems()).map(needsReviewRows),
+  activity: async () => activityRows(await getActivityFeed(50)),
+  'accounting-expenses': async () => (await getExpenses()).map(expenseRows),
+  'accounting-receivables': async () => (await getReceivables()).map(receivableRows),
+  'command-console': async () =>
+    (await getIssueQueue({ pageSize: 50 })).rows.map((row) => ({
+      id: row.id,
+      cells: [row.title, row.type, row.severity, row.domainType],
+      badge: row.state,
+    })),
+  tech: async () => healthRows(await getSystemHealth()),
+  'tech-app-errors': async () => errorRows(25),
+  'tech-flight-recorder': async () => traceRows(50),
+  'tech-runs': async () => (await listForgeBatches(10)).map(batchRows),
+}
+
 async function GETHandler(req: NextRequest): Promise<Response> {
+  let actor: ActingActor
   try {
-    await getPortalActingUser()
+    actor = await getPortalActingUser()
   } catch (error) {
     // Fail closed: a route that answers rows to anonymous callers is a data leak with extra steps.
     if (error instanceof AuthError) {
@@ -78,19 +369,15 @@ async function GETHandler(req: NextRequest): Promise<Response> {
   }
 
   const screen = req.nextUrl.searchParams.get('screen') ?? ''
+  const loader = SCREEN_LOADERS[screen]
 
-  switch (screen) {
-    case 'activity':
-      return NextResponse.json(activityRows(await getActivityFeed(50)))
-    case 'clients': {
-      // The first page of the same directory the live screen shows, through the same read model, so the two cannot
-      // disagree about who a client is.
-      const page = await getClientsPage({ sort: 'name', page: 1, pageSize: 50 })
-      return NextResponse.json(page.rows.map(clientRows))
-    }
-    default:
-      return NextResponse.json([])
+  // An unknown or not-yet-wired screen is not an error: the Rust side asks for every screen it navigates to, and a
+  // screen with no rows yet must render "Nothing to show yet" rather than a failure banner.
+  if (!loader) {
+    return NextResponse.json([])
   }
+
+  return NextResponse.json(await loader(actor))
 }
 
 export const GET = withApiHandler(
