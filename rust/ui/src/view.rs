@@ -734,7 +734,6 @@ fn custom_body(model: &Model) -> Option<String> {
         "rust-lab" => Some(rust_lab(model)),
         "login" => Some(login_view()),
         "login-recovery" => Some(login_recovery_view()),
-        "login" => Some(login_view()),
         "seller-strategy" => Some(seller_strategy_view()),
         "portal-auth-proof" => Some(portal_auth_proof_view()),
         "auth-error" => Some(auth_error_view()),

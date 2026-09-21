@@ -8,6 +8,12 @@
 export function effect_event_name(): string;
 
 /**
+ * The DOM event name the shell announces islands on, for the same reason: the host has to agree with it, and a
+ * mismatch would present as a widget that never appears.
+ */
+export function island_event_name(): string;
+
+/**
  * Mount the program into `element_id`, opening `start` — a screen key such as `site-home` or `dashboard` — and return
  * the effects the host must run, as a JSON array.
  *
@@ -35,11 +41,12 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly effect_event_name: () => [number, number];
+    readonly island_event_name: () => [number, number];
     readonly mount: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly mount_id: () => [number, number];
     readonly rows_loaded: (a: number, b: number) => [number, number];
-    readonly wasm_bindgen_2e2b1a5be97eea88___convert__closures_____invoke___web_sys_17113061404c37eb___features__gen_MouseEvent__MouseEvent______true_: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen_2e2b1a5be97eea88___convert__closures_____invoke___web_sys_17113061404c37eb___features__gen_MouseEvent__MouseEvent______true__5: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_2e2b1a5be97eea88___convert__closures_____invoke___web_sys_9b8444acfddb44fe___features__gen_MouseEvent__MouseEvent______true_: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_2e2b1a5be97eea88___convert__closures_____invoke___web_sys_9b8444acfddb44fe___features__gen_MouseEvent__MouseEvent______true__6: (a: number, b: number, c: any) => void;
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_exn_store: (a: number) => void;
