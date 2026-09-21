@@ -647,6 +647,81 @@ fn seller_strategy_view() -> String {
     )
 }
 
+
+
+/// The login-recovery page's own text, extracted from the TypeScript page it replaces.
+///
+/// NOT retyped, deliberately: this is reviewed wording (a policy Meta requires for the WhatsApp integration), and a
+/// hand-copied paragraph is a paragraph that can quietly differ. `kind` is the tag it had, so the render below can put
+/// it back in the same shape.
+const LOGIN_RECOVERY_VIEW_CONTENT: [(&str, &str); 2] = [
+    ("h1", "Emergency administrative access"),
+    ("p", "For CulebraLuxe administrators only. This path is independent of the normal sign-in provider and is intended solely for outage recovery."),
+];
+
+/// The static page, rendered from that text. No read model and no fetch: a static page is content, and content does not
+/// belong in a database query.
+fn login_recovery_view() -> String {
+    let body = LOGIN_RECOVERY_VIEW_CONTENT
+        .iter()
+        .map(|(kind, text)| match *kind {
+            "h1" | "h2" | "h3" => format!(
+                "<h2 class=\"font-serif text-2xl font-light text-foreground\">{}</h2>",
+                escape(text)
+            ),
+            "li" => format!("<li class=\"ml-6 list-disc\">{}</li>", escape(text)),
+            _ => format!(
+                "<p class=\"mt-4 text-sm font-light leading-7 text-muted-foreground\">{}</p>",
+                escape(text)
+            ),
+        })
+        .collect::<String>();
+    format!(
+        "<article class=\"px-6 py-20 md:px-12 md:py-28\"><div class=\"mx-auto max-w-4xl space-y-6\">{body}</div></article>"
+    )
+}
+
+/// The portal entry: sign-in, rendered by Rust.
+///
+/// WHY A BODY RATHER THAN TEXT EXTRACTION. The page this replaces used a Next *server action* to start the OAuth flow,
+/// and a server action is not markup — it is a Next mechanism that cannot survive the port. So the body is written, and
+/// it links to the endpoint Auth.js already exposes for exactly this (`/api/auth/signin/google`), which is the same
+/// flow its own default sign-in page uses. Sign-in therefore still works from Rust; what is lost is the env-guarded
+/// "Portal temporarily unavailable" branch, which needs the server's configuration and is a follow-up rather than
+/// something to fake here.
+///
+/// The copy is the copy that was on the page, taken from the extraction this replaces rather than retyped.
+fn login_view() -> String {
+    "<main class=\"flex min-h-screen items-center justify-center bg-[#f5f2ec] px-6\">\
+       <div class=\"w-full max-w-sm\">\
+         <div class=\"text-center\">\
+           <div class=\"font-serif text-2xl font-light uppercase tracking-[0.08em] text-[#030f23]\">CulebraLuxe</div>\
+           <div class=\"mt-1 text-[10px] font-light uppercase tracking-[0.32em] text-[#030f23]/50\">Private Portal</div>\
+         </div>\
+         <div class=\"mt-10 rounded-sm border border-[#030f23]/10 bg-white p-8\">\
+           <h1 class=\"font-serif text-xl font-light\">Sign in</h1>\
+           <p class=\"mt-2 text-sm font-light leading-6 text-black/50\">Access is for the CulebraLuxe team. There is no \
+             public sign-up — accounts are provisioned by an administrator.</p>\
+           <a href=\"/api/auth/signin/google?callbackUrl=%2Fportal-auth-proof\" \
+             class=\"mt-8 flex min-h-12 w-full items-center justify-center gap-3 rounded-sm border \
+             border-[#030f23]/15 px-4 text-sm font-light text-[#030f23] transition hover:border-[#030f23]\">\
+             Continue with Google</a>\
+           <p class=\"mt-4 text-xs font-light text-black/40\">Having trouble? Contact a CulebraLuxe administrator.</p>\
+         </div>\
+         <div class=\"mt-6 text-center\">\
+           <a href=\"/login/recovery\" class=\"text-xs font-light text-[#030f23]/45 underline-offset-2 hover:underline\">\
+             Emergency administrative access</a>\
+         </div>\
+       </div>\
+     </main>"
+        .to_string()
+}
+
+///
+/// Everything else in this crate renders rows because that is what a read model is. A lab, a board or a widget host is
+/// not a list, and pretending it is produces a screen that looks nothing like the one being ported. So a screen may own
+/// its body; the model, the messages, the effects and the shell are unchanged, which is the point of putting this here
+/// rather than in the shell.
 /// Screens that render markup of their own instead of a generic list of rows.
 ///
 /// Everything else in this crate renders rows because that is what a read model is. A lab, a board or a widget host is
@@ -657,6 +732,9 @@ fn custom_body(model: &Model) -> Option<String> {
     match model.screen.key {
         "tech-lab" => Some(tech_lab()),
         "rust-lab" => Some(rust_lab(model)),
+        "login" => Some(login_view()),
+        "login-recovery" => Some(login_recovery_view()),
+        "login" => Some(login_view()),
         "seller-strategy" => Some(seller_strategy_view()),
         "portal-auth-proof" => Some(portal_auth_proof_view()),
         "auth-error" => Some(auth_error_view()),
