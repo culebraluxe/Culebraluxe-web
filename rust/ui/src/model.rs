@@ -218,7 +218,7 @@ pub const SCREENS: &[Screen] = &[
     // rows endpoint to return, and the experiments are promoted into the Rust view language one at a time if the
     // captain likes them. Registered under TECH as "Framer UI Lab" with authority tech.access.
     Screen { key: "framer-ui-lab", title: "Framer UI Lab", path: "/portal/tech/framer-ui-lab", surface: Surface::Tech, nav: Nav::Listed, deferred: Some("A client-rendered experiment lab: its model and controller live in ui/framer-ui-lab and its view is a React component with its own CSS module, so there is no read model to return. Promoting an experiment into the shared Rust view language is a separate, deliberate step."), detail_of: None },
-    Screen { key: "media-test", title: "Media Test", path: "/portal/media-test", surface: Surface::Tech, nav: Nav::Listed, deferred: None , detail_of: None },
+    Screen { key: "media-test", title: "Media Test", path: "/portal/media-test", surface: Surface::Tech, nav: Nav::Listed, deferred: Some("A manual harness for the media pipeline: it uploads, transforms and inspects. There is no read model to render, and a list of rows would not be the screen that was here.") , detail_of: None },
     // A screen the captain asked for: what Rust does with layout that the TypeScript pages do not, rendering on the same
     // design tokens. Its route is the only one this port adds on purpose, and it serves the port itself.
     // The sibling of the TypeScript design lab, which stays TypeScript deliberately: that one is a catalogue of React
@@ -232,7 +232,7 @@ pub const SCREENS: &[Screen] = &[
     // everything else, and not listed — which is exactly what the registry says about them.
     Screen { key: "command-center", title: "Command Center", path: "/portal/command-center", surface: Surface::Tech, nav: Nav::Retired, deferred: None, detail_of: None },
     Screen { key: "command-console", title: "Command Console", path: "/portal/command-console", surface: Surface::Tech, nav: Nav::Retired, deferred: None, detail_of: None },
-    Screen { key: "tech-grok", title: "GROK", path: "/portal/tech/grok", surface: Surface::Tech, nav: Nav::Retired, deferred: None, detail_of: None },
+    Screen { key: "tech-grok", title: "GROK", path: "/portal/tech/grok", surface: Surface::Tech, nav: Nav::Retired, deferred: Some("A retired route, kept in the code deliberately. It has no read model and nothing links to it."), detail_of: None },
     Screen { key: "tech-flight-recorder", title: "Flight Recorder", path: "/portal/tech/flight-recorder", surface: Surface::Tech, nav: Nav::Retired, deferred: None, detail_of: None },
     Screen { key: "tech-app-errors", title: "App Errors", path: "/portal/tech/app-errors", surface: Surface::Tech, nav: Nav::Unlisted, deferred: None, detail_of: None },
     Screen { key: "tech-runs", title: "Runs", path: "/portal/tech/runs", surface: Surface::Tech, nav: Nav::Unlisted, deferred: None, detail_of: None },
@@ -287,8 +287,8 @@ pub const SCREENS: &[Screen] = &[
     Screen { key: "review", title: "Review", path: "/review/[token]/[page]", surface: Surface::Site, nav: Nav::Unlisted, deferred: None, detail_of: None },
     Screen { key: "portal-root", title: "Portal", path: "/portal", surface: Surface::Core, nav: Nav::Unlisted, deferred: None, detail_of: None },
     Screen { key: "portal-auth-proof", title: "Portal auth proof", path: "/portal-auth-proof", surface: Surface::Support, nav: Nav::Unlisted, deferred: None, detail_of: None },
-    Screen { key: "dev-apple-map-test", title: "Apple map test", path: "/dev/apple-map-test", surface: Surface::Support, nav: Nav::Unlisted, deferred: None, detail_of: None },
-    Screen { key: "dev-google-map-test", title: "Google map test", path: "/dev/google-map-test", surface: Surface::Support, nav: Nav::Unlisted, deferred: None, detail_of: None },
+    Screen { key: "dev-apple-map-test", title: "Apple map test", path: "/dev/apple-map-test", surface: Surface::Support, nav: Nav::Unlisted, deferred: Some("A manual integration harness for Apple Maps. Nothing to render from a read model; the page exists to be driven by hand."), detail_of: None },
+    Screen { key: "dev-google-map-test", title: "Google map test", path: "/dev/google-map-test", surface: Surface::Support, nav: Nav::Unlisted, deferred: Some("A manual integration harness for Google Maps. Nothing to render from a read model; the page exists to be driven by hand."), detail_of: None },
     Screen { key: "console-story", title: "Command Console story", path: "/portal/command-console/[storyId]", surface: Surface::Tech, nav: Nav::Record, deferred: None, detail_of: Some("command-console") },
 ];
 

@@ -1,50 +1,16 @@
-import type { Metadata } from 'next'
-import { notFound } from 'next/navigation'
+import { RustUiHost } from '@/components/rust-ui/host'
 
-import { GoogleMapTest } from '@/components/dev/google-map-test'
-import { SiteHeader } from '@/components/site-header'
+// ---------------------------------------------------------------------------
+// CONVERTED TO RUST (screen: dev-google-map-test) — a screen with no read model, which says so.
+//
+// The Rust table marks this screen deferred with its reason, so the screen states why it has no rows instead of
+// showing a blank list, and it asks the host for nothing. The route is the Rust host like every other converted one.
+// ---------------------------------------------------------------------------
 
-export const dynamic = 'force-dynamic'
-
-export const metadata: Metadata = {
-  title: 'Google Maps JavaScript Test — CulebraLuxe',
-  robots: {
-    index: false,
-    follow: false,
-  },
-}
-
-export default function GoogleMapTestPage() {
-  if (process.env.NODE_ENV !== 'development') {
-    notFound()
-  }
-
-  const apiKey = process.env.GOOGLE_MAPS_DEMO_KEY?.trim() || null
-
+export default function Page() {
   return (
-    <>
-      <SiteHeader />
-
-      <main className="min-h-[calc(100vh-77px)] bg-background">
-        <div className="mx-auto max-w-[1280px] px-6 py-8 md:px-12 md:py-10">
-          <div className="mb-7 max-w-3xl">
-            <p className="text-xs font-medium uppercase tracking-[0.28em] text-[#c6a15b]">
-              Development Spike
-            </p>
-
-            <h1 className="mt-3 font-serif text-3xl font-semibold text-brand-navy sm:text-4xl">
-              Google Maps JavaScript — Casa Luar
-            </h1>
-
-            <p className="mt-3 text-sm leading-relaxed text-brand-navy/75">
-              Isolated map-quality test for Culebra using Google’s development
-              Demo Key path. This route does not modify the production map.
-            </p>
-          </div>
-
-          <GoogleMapTest apiKey={apiKey} />
-        </div>
-      </main>
-    </>
+    <div className="min-h-screen bg-background">
+      <RustUiHost rowsPath="/api/rust-ui/public-rows" start="dev-google-map-test" />
+    </div>
   )
 }

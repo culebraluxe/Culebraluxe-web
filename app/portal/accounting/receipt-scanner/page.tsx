@@ -1,13 +1,16 @@
-import { AccountingReceiptScanner } from '@/components/portal/accounting/accounting-receipt-scanner'
-import { AccountingShell } from '@/components/portal/accounting/accounting-shell'
+import { RustUiHost } from '@/components/rust-ui/host'
 
-// ACCOUNTING — Receipt Scanner (FAKE V1). Polished visual placeholder for the
-// future OCR workflow. Deterministic demo extraction only — real OCR is deferred
-// to a separate story. No OCR vendor / AI / external service dependencies.
-export default function AccountingReceiptScannerPage() {
+// ---------------------------------------------------------------------------
+// CONVERTED TO RUST (screen: accounting-receipt-scanner) — a screen with no read model, which says so.
+//
+// The Rust table marks this screen deferred with its reason, so the screen states why it has no rows instead of
+// showing a blank list, and it asks the host for nothing. The route is the Rust host like every other converted one.
+// ---------------------------------------------------------------------------
+
+export default function Page() {
   return (
-    <AccountingShell eyebrow="Accounting" title="Receipt Scanner">
-      <AccountingReceiptScanner />
-    </AccountingShell>
+    <div className="min-h-screen bg-background">
+      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="accounting-receipt-scanner" />
+    </div>
   )
 }
