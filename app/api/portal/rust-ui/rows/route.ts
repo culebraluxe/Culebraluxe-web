@@ -36,6 +36,8 @@ import { getReportingSnapshot } from '@/db/reporting'
 import { getSettingsAuthorities, getSettingsRoles, getSettingsUsers } from '@/db/settings-auth'
 import { getFactoryCommandCenterSnapshot } from '@/lib/factory-command-center-data'
 import { listIssuedDocuments } from '@/lib/vault-io'
+import { engineConfigured } from '@/workflow_app/engine-client'
+import { getWorkflowSummaries } from '@/workflow_app/read-service'
 import { SqlProjectRepository } from '@/db/project-service-repository'
 import { AuthError } from '@/lib/auth/errors'
 import { getPortalActingUser } from '@/lib/auth/portal-session'
@@ -733,6 +735,9 @@ const SCREEN_LOADERS: Record<string, ScreenLoader> = {
   'whatsapp-coexistence': async () => coexistenceRows(),
   'design-lab': async () => designLabRows(),
   projects: async () => projectRows(),
+  // The live page does exactly this: ask the workflow engine read service, but only when the engine is configured —
+  // otherwise the live page renders an empty list too, so an unconfigured engine is an empty screen and not a failure.
+  workflows: async () => (engineConfigured() ? factRowsFrom(await getWorkflowSummaries()) : []),
   security: async () => factRowsFrom(await getSecurityStatus()),
   'settings-users': async () => factRowsFrom(await getSettingsUsers()),
   'settings-roles': async () => factRowsFrom(await getSettingsRoles()),
