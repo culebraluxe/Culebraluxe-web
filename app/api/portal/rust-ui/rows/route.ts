@@ -691,6 +691,10 @@ const SCREEN_LOADERS: Record<string, ScreenLoader> = {
       badge: row.state,
     })),
   tech: async () => healthRows(await getSystemHealth()),
+  // The Rust lab renders its own body from a constant (see `rust_lab` in rust/ui/src/view.rs) and asks for nothing.
+  // An empty answer is the honest one: it keeps the host's fetch a success instead of an error banner above a screen
+  // that never wanted data.
+  'rust-lab': async () => [],
   'tech-app-errors': async () => errorRows(25),
   'tech-flight-recorder': async () => traceRows({ limit: 50 }),
   'tech-runs': async () => (await listForgeBatches(10)).map(batchRows),

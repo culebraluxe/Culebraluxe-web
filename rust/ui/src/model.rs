@@ -221,6 +221,10 @@ pub const SCREENS: &[Screen] = &[
     Screen { key: "media-test", title: "Media Test", path: "/portal/media-test", surface: Surface::Tech, nav: Nav::Listed, deferred: None , detail_of: None },
     // A screen the captain asked for: what Rust does with layout that the TypeScript pages do not, rendering on the same
     // design tokens. Its route is the only one this port adds on purpose, and it serves the port itself.
+    // The sibling of the TypeScript design lab, which stays TypeScript deliberately: that one is a catalogue of React
+    // components, and nothing Rust renders would tell the same story. This one is the control vocabulary this crate
+    // owns, wired to the model, and it is meant to be OPERATED rather than read.
+    Screen { key: "rust-lab", title: "Rust Lab", path: "/portal/tech/rust-lab", surface: Surface::Tech, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "tech-lab", title: "Tech Lab", path: "/portal/tech/lab", surface: Surface::Tech, nav: Nav::Listed, deferred: None, detail_of: None },
     // RETIRED FROM THE NAV (2026-09-13, the registry's own note): "the code stays, the links go". Command Center,
     // Command Console, GROK and the Flight Recorder LIST were each an attempt at the same problem that never got
@@ -302,6 +306,35 @@ pub struct Row {
     pub badge: Option<String>,
 }
 
+/// How many rows one page holds.
+///
+/// The MODEL owns this rather than the view, because the reducer is what clamps `Controls::page` and it cannot clamp
+/// against a number it cannot see. The view reads it instead of deciding it, so a page button can never disagree with
+/// the bound the reducer enforces.
+pub const PAGE_SIZE: usize = 25;
+
+/// What the user has set on the current screen's controls.
+///
+/// One struct rather than four fields on the model, because these share a lifecycle: they are the screen's own input,
+/// and navigation clears them (`update::open`). A filter typed on Clients must not follow the user to Deals.
+///
+/// WHY THE MODEL OWNS THIS: a control that keeps its own value in the DOM is state the reducer cannot see, cannot
+/// test, and cannot restore. Holding it here means a keystroke is a named message, filtering is a pure function of the
+/// model, and the rendered value always *is* the model's value rather than whatever the DOM last held.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Controls {
+    /// Text in the screen's search field.
+    pub query: String,
+    /// The chosen dropdown option, by the option's value rather than its label.
+    pub filter: Option<String>,
+    /// The active tab, by key.
+    pub tab: Option<String>,
+    /// A switch or checkbox the user has set.
+    pub toggled: bool,
+    /// Which page of rows the user is on, 0-based. Clamped by the reducer; see `Msg::PageChanged`.
+    pub page: usize,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Model {
     pub screen: Screen,
@@ -315,6 +348,8 @@ pub struct Model {
     /// separate from `selected_row_id` because selecting a row and opening a record are different acts: one is
     /// browsing a list, the other is a different screen with its own fetch.
     pub scope: Option<String>,
+    /// What the user has typed, chosen and paged to on this screen.
+    pub controls: Controls,
 }
 
 impl Default for Model {
@@ -328,6 +363,7 @@ impl Default for Model {
             rows: Vec::new(),
             selected_row_id: None,
             scope: None,
+            controls: Controls::default(),
         }
     }
 }
@@ -353,6 +389,19 @@ pub enum Msg {
     RecordOpened(String),
     /// The host reports a failed request. The model keeps what it had; the message is the record.
     EffectFailed(String),
+
+    // ---- controls: the screen's own input, one message per act --------------------------------------------------
+    /// The user typed in the screen's search field.
+    QueryChanged(String),
+    /// The user chose a dropdown option, by value.
+    FilterChanged(String),
+    /// The user picked a tab, by key.
+    TabSelected(String),
+    /// The user set a switch or checkbox.
+    Toggled(bool),
+    /// The user asked to move by `delta` pages. A DELTA rather than a target page, so the reducer owns the bounds and
+    /// a stale button cannot land the user past the end of a list that shrank while they were reading it.
+    PageChanged(i64),
 }
 
 impl Msg {

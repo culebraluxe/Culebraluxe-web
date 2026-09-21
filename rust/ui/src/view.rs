@@ -4,7 +4,7 @@
 //! cannot point at a screen that does not exist. Every interpolated value is escaped — this crate renders data from a
 //! database and from third-party sources, and a Rust renderer that formats HTML owns that risk.
 
-use crate::model::{home, Model, Row, Surface, SCREENS};
+use crate::model::{home, Model, Row, Surface, PAGE_SIZE, SCREENS};
 
 /// Escape text for HTML text and attribute positions. Quotes matter because the same helper fills `data-` attributes,
 /// where an unescaped quote would end the attribute early.
@@ -107,6 +107,259 @@ fn loading_banner(model: &Model) -> String {
     }
 }
 
+// ---------------------------------------------------------------------------
+// THE CONTROL VOCABULARY.
+//
+// Each function below renders one control and nothing else. Three rules hold for all of them, and they are what make a
+// control Rust's rather than the DOM's:
+//
+//   1. The rendered value IS the model's value: `value="{query}"`, `checked`, `selected` all come from `Controls`. A
+//      control therefore never has to be read back out of the DOM to know what it holds.
+//   2. Each carries the one attribute the shell turns into a named message (`data-field` on input, `data-select` and
+//      `data-toggle` on change, `data-tab`, `data-page`, `data-clear` on click). No control dispatches anything itself.
+//   3. No inline styles and no magic numbers: the classes are ones this application already defines, so the stylesheet
+//      keeps deciding how it looks.
+// ---------------------------------------------------------------------------
+
+/// The screen's search field.
+fn search_field(value: &str, placeholder: &str) -> String {
+    format!(
+        "<div class=\"flex items-center gap-2\">\
+           <input type=\"search\" data-field=\"query\" value=\"{value}\" placeholder=\"{placeholder}\" \
+             class=\"w-full rounded-md border bg-background px-3 py-2 text-sm text-foreground \
+             placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring\" />\
+           <button type=\"button\" data-clear=\"query\" class=\"shrink-0 rounded-md border px-2.5 py-2 text-sm \
+             text-muted-foreground hover:bg-muted/60\">Clear</button>\
+         </div>",
+        value = escape(value),
+        placeholder = escape(placeholder)
+    )
+}
+
+/// A dropdown. Options are `(value, label)` pairs and the choice travels by VALUE, never by label, so renaming an
+/// option cannot change what a saved choice means.
+fn select_field(options: &[(&str, &str)], selected: Option<&str>) -> String {
+    let items = options
+        .iter()
+        .map(|(value, label)| {
+            let chosen = if selected == Some(*value) {
+                " selected"
+            } else {
+                ""
+            };
+            format!(
+                "<option value=\"{value}\"{chosen}>{label}</option>",
+                value = escape(value),
+                label = escape(label)
+            )
+        })
+        .collect::<String>();
+    format!(
+        "<select data-select=\"filter\" aria-label=\"Filter\" class=\"rounded-md border bg-background px-3 py-2 \
+         text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring\">{items}</select>"
+    )
+}
+
+/// A switch, rendered as a checkbox inside a label so the whole row is the hit target — which is also what gives it a
+/// keyboard path for free.
+fn switch_field(on: bool, label: &str) -> String {
+    format!(
+        "<label class=\"flex cursor-pointer items-center gap-2 text-sm text-foreground\">\
+           <input type=\"checkbox\" data-toggle=\"true\"{checked} class=\"h-4 w-4 rounded border\" />{label}\
+         </label>",
+        checked = if on { " checked" } else { "" },
+        label = escape(label)
+    )
+}
+
+/// A row of tabs. The active tab is read from the model, not from a class a click added.
+fn tab_row(tabs: &[(&str, &str)], active: Option<&str>) -> String {
+    let items = tabs
+        .iter()
+        .map(|(key, label)| {
+            let current = active == Some(*key);
+            format!(
+                "<button type=\"button\" role=\"tab\" aria-selected=\"{selected}\" data-tab=\"{key}\" \
+                 class=\"rounded-md px-3 py-1.5 text-sm {state}\">{label}</button>",
+                selected = if current { "true" } else { "false" },
+                key = escape(key),
+                state = if current {
+                    "bg-muted font-medium text-foreground"
+                } else {
+                    "text-muted-foreground hover:bg-muted/60"
+                },
+                label = escape(label)
+            )
+        })
+        .collect::<String>();
+    format!("<div role=\"tablist\" class=\"flex items-center gap-1\">{items}</div>")
+}
+
+/// Paging as two buttons that ask for a DELTA. The reducer clamps, so a button never has to know the last page; the
+/// buttons disable at the ends so the pointer says what the reducer would do anyway.
+fn page_controls(page: usize, pages: usize) -> String {
+    let button = |delta: i64, label: &str, disabled: bool| {
+        format!(
+            "<button type=\"button\" data-page=\"{delta}\"{disabled} class=\"rounded-md border px-2.5 py-1.5 \
+             text-sm {state}\">{label}</button>",
+            disabled = if disabled { " disabled" } else { "" },
+            state = if disabled {
+                "text-muted-foreground/50"
+            } else {
+                "text-foreground hover:bg-muted/60"
+            }
+        )
+    };
+    format!(
+        "<div class=\"flex items-center gap-2\">{prev}<span class=\"text-xs text-muted-foreground\">page {shown} of \
+         {pages}</span>{next}</div>",
+        prev = button(-1, "Previous", page == 0),
+        next = button(1, "Next", pages == 0 || page + 1 >= pages),
+        shown = page + 1,
+        pages = pages.max(1)
+    )
+}
+/// The lab's own data. Deliberately a constant: a lab that fetched rows would be testing the network, and the controls
+/// and the reducer are what are under examination here. `kind` is which tab a row belongs to, `status` what the
+/// dropdown filters on.
+const LAB_ROWS: [(&str, &str, &str, &str); 11] = [
+    ("ctl-search", "Search field", "controls", "ready"),
+    ("ctl-select", "Dropdown", "controls", "ready"),
+    ("ctl-switch", "Switch", "controls", "ready"),
+    ("ctl-tabs", "Tabs", "controls", "ready"),
+    ("ctl-pager", "Paging", "controls", "ready"),
+    ("st-empty", "Empty state", "states", "ready"),
+    ("st-error", "Error state", "states", "ready"),
+    ("st-loading", "Loading state", "states", "ready"),
+    ("lay-grid", "Grid card", "layout", "planned"),
+    ("lay-panel", "Side panel", "layout", "planned"),
+    ("lay-toolbar", "Toolbar", "layout", "planned"),
+];
+
+/// Statuses the dropdown offers. `""` is "no filter" rather than a status, so an unset dropdown filters nothing.
+const LAB_STATUSES: [(&str, &str); 3] = [("", "Any status"), ("ready", "Ready"), ("planned", "Planned")];
+
+/// The tabs, and what each one narrows to.
+const LAB_TABS: [(&str, &str); 4] = [
+    ("all", "All"),
+    ("controls", "Controls"),
+    ("states", "States"),
+    ("layout", "Layout"),
+];
+
+/// The Rust Design Lab — this crate's own controls, on the application's own design tokens.
+///
+/// WHY THERE IS A SECOND LAB. The TypeScript lab at `/portal/design-lab` is a catalogue of React components and stays
+/// TypeScript, deliberately: it is about those components, and nothing Rust renders would tell the same story. This
+/// one is about the CONTROLS this crate owns, and its job is to make them visible and operable — a text field, a
+/// dropdown, a switch, tabs, a pager — each wired through the model, so what is on screen is evidence that a keystroke
+/// travels to the reducer and back, rather than an illustration of what it might look like.
+///
+/// THE PANEL AT THE BOTTOM IS THE POINT. It prints the model's control state. If a control were keeping its own value
+/// in the DOM, that panel would disagree with the control above it — which is the failure the model owns this state to
+/// prevent.
+fn rust_lab(model: &Model) -> String {
+    let controls = &model.controls;
+    let query = controls.query.trim().to_lowercase();
+    let status = controls.filter.as_deref().unwrap_or("");
+    let tab = controls.tab.as_deref().unwrap_or("all");
+
+    let matched: Vec<&(&str, &str, &str, &str)> = LAB_ROWS
+        .iter()
+        .filter(|(id, label, kind, row_status)| {
+            (tab == "all" || *kind == tab)
+                && (status.is_empty() || *row_status == status)
+                && (query.is_empty() || label.to_lowercase().contains(&query) || id.contains(&query))
+                // The switch is a real filter, not a decoration: it hides what is not built yet.
+                && !(controls.toggled && *row_status == "planned")
+        })
+        .collect();
+
+    let pages = matched.len().div_ceil(PAGE_SIZE);
+    // Clamped here as well as in the reducer: the reducer knows a row count only when the host supplied rows, and this
+    // body's list is its own. The two agree because they use the same PAGE_SIZE.
+    let page = controls.page.min(pages.saturating_sub(1));
+    let slice = matched
+        .iter()
+        .skip(page * PAGE_SIZE)
+        .take(PAGE_SIZE)
+        .copied()
+        .collect::<Vec<_>>();
+
+    let table = if slice.is_empty() {
+        "<p class=\"rounded-md border bg-muted/40 px-3 py-6 text-center text-sm text-muted-foreground\">\
+         Nothing matches those controls. That is what an empty state looks like.</p>"
+            .to_string()
+    } else {
+        let rows = slice
+            .iter()
+            .map(|(id, label, kind, row_status)| {
+                format!(
+                    "<tr class=\"border-t\">\
+                       <td class=\"px-3 py-2 font-mono text-xs text-muted-foreground\">{id}</td>\
+                       <td class=\"px-3 py-2 text-sm\">{label}</td>\
+                       <td class=\"px-3 py-2 text-xs text-muted-foreground\">{kind}</td>\
+                       <td class=\"px-3 py-2\"><span class=\"rounded-full border px-2 py-0.5 text-xs {state}\">\
+                         {status}</span></td>\
+                     </tr>",
+                    id = escape(id),
+                    label = escape(label),
+                    kind = escape(kind),
+                    status = escape(row_status),
+                    state = if *row_status == "ready" {
+                        "bg-primary/10 text-primary"
+                    } else {
+                        "text-muted-foreground"
+                    }
+                )
+            })
+            .collect::<String>();
+        format!(
+            "<table class=\"w-full border-collapse text-left\">\
+               <thead><tr class=\"text-xs uppercase tracking-wide text-muted-foreground\">\
+                 <th class=\"px-3 py-2\">id</th><th class=\"px-3 py-2\">label</th>\
+                 <th class=\"px-3 py-2\">tab</th><th class=\"px-3 py-2\">status</th>\
+               </tr></thead><tbody>{rows}</tbody></table>"
+        )
+    };
+
+    let state_row = |name: &str, value: String| {
+        format!(
+            "<div class=\"flex items-baseline justify-between gap-3 border-t py-1.5\">\
+               <dt class=\"text-xs uppercase tracking-wide text-muted-foreground\">{}</dt>\
+               <dd class=\"font-mono text-xs\">{}</dd></div>",
+            escape(name),
+            value
+        )
+    };
+
+    format!(
+        "<div class=\"space-y-4\">\
+           <p class=\"max-w-3xl text-sm text-muted-foreground\">\
+             The controls this crate renders, wired to the model. Every value below comes from that state, which is why \
+             the panel at the bottom cannot disagree with what you see: a keystroke is a named message, the reducer is \
+             the only thing that changes the model, and the view is a pure function of it.\
+           </p>\
+           <div class=\"rounded-lg border bg-card p-4\">\
+             <div class=\"flex flex-wrap items-center gap-3\">{search}{select}{switch}</div>\
+             <div class=\"mt-3 flex flex-wrap items-center justify-between gap-3\">{tabs}{pager}</div>\
+           </div>\
+           <div class=\"overflow-hidden rounded-lg border bg-card\">{table}</div>\
+           <dl class=\"rounded-lg border bg-card p-4\">{q}{f}{t}{s}{p}</dl>\
+         </div>",
+        search = search_field(&controls.query, "Filter by label or id…"),
+        select = select_field(&LAB_STATUSES, controls.filter.as_deref()),
+        switch = switch_field(controls.toggled, "Hide what is not built yet"),
+        tabs = tab_row(&LAB_TABS, Some(tab)),
+        pager = page_controls(page, pages),
+        q = state_row("query", format!("\"{}\"", escape(&controls.query))),
+        f = state_row("filter", escape(controls.filter.as_deref().unwrap_or("(none)"))),
+        t = state_row("tab", escape(tab)),
+        s = state_row("toggled", controls.toggled.to_string()),
+        p = state_row("page", format!("{page} of {}", pages.saturating_sub(1).max(0))),
+    )
+}
+
 /// Screens that render markup of their own instead of a generic list of rows.
 ///
 /// Everything else in this crate renders rows because that is what a read model is. A lab, a board or a widget host is
@@ -116,6 +369,7 @@ fn loading_banner(model: &Model) -> String {
 fn custom_body(model: &Model) -> Option<String> {
     match model.screen.key {
         "tech-lab" => Some(tech_lab()),
+        "rust-lab" => Some(rust_lab(model)),
         "projects" => Some(projects_view(model)),
         _ => None,
     }
@@ -502,7 +756,7 @@ fn row_item(model: &Model, row: &Row) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Nav, Screen};
+    use crate::model::{Msg, Nav, Screen};
 
     /// Screens are addressed by KEY in these tests. The table is the source of truth, so a test that named a variant
     /// would be asserting a name that only exists in a previous version of this file.
@@ -722,5 +976,69 @@ mod tests {
         let html = render(&model);
         assert!(!html.contains("<script>"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    // ---- the Rust lab's controls --------------------------------------------------------------------------------
+
+    /// The contract with the shell. Every control the lab renders must carry the one attribute the shell reads, and a
+    /// control that loses its attribute goes deaf without failing anything else — which is exactly the kind of bug that
+    /// survives a green build and a happy click-through.
+    #[test]
+    fn every_control_the_lab_renders_carries_its_intent_attribute() {
+        let html = render(&Model {
+            screen: target("rust-lab"),
+            ..Model::default()
+        });
+        for attribute in [
+            "data-field=\"query\"",
+            "data-select=\"filter\"",
+            "data-toggle=\"true\"",
+            "data-tab=",
+            "data-page=",
+            "data-clear=\"query\"",
+        ] {
+            assert!(
+                html.contains(attribute),
+                "the lab renders no control carrying {attribute}, so that control cannot reach the reducer"
+            );
+        }
+    }
+
+    #[test]
+    fn the_lab_filters_on_what_the_model_holds() {
+        let mut model = Model {
+            screen: target("rust-lab"),
+            ..Model::default()
+        };
+        let before = render(&model);
+        assert!(before.contains("Search field") && before.contains("Side panel"));
+
+        crate::update::update(&mut model, Msg::QueryChanged("dropdown".into()));
+        let after = render(&model);
+        assert!(after.contains("Dropdown"), "the match must survive");
+        assert!(
+            !after.contains("Side panel"),
+            "a row that does not match must not be rendered"
+        );
+    }
+
+    #[test]
+    fn the_lab_prints_the_state_its_controls_act_on() {
+        let mut model = Model {
+            screen: target("rust-lab"),
+            ..Model::default()
+        };
+        crate::update::update(&mut model, Msg::Toggled(true));
+        crate::update::update(&mut model, Msg::TabSelected("layout".into()));
+        let html = render(&model);
+        // The switch is a filter, not a decoration: `layout` is all-planned, so switching it on empties the table.
+        assert!(
+            html.contains("Nothing matches those controls"),
+            "the switch must hide what is not built yet"
+        );
+        assert!(
+            html.contains(">true<"),
+            "the panel must show the state the controls are acting on, not a copy of it"
+        );
     }
 }

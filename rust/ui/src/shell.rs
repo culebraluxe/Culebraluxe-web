@@ -24,7 +24,7 @@ use std::rc::Rc;
 
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-use web_sys::{Document, HtmlElement, MouseEvent, Window};
+use web_sys::{Document, Element, Event, HtmlElement, HtmlInputElement, HtmlSelectElement, MouseEvent, Window};
 
 use crate::{home, screen, Msg, Program, Surface};
 
@@ -32,6 +32,14 @@ const ATTRIBUTE_NAV: &str = "data-nav";
 const ATTRIBUTE_SURFACE: &str = "data-surface";
 const ATTRIBUTE_SELECT_ROW: &str = "data-select-row";
 const ATTRIBUTE_OPEN_RECORD: &str = "data-open-record";
+/// The input controls. Each name is the intent the shell turns it into, and the mapping is written out rather than
+/// derived from the attribute: an unknown field is ignored instead of dispatching a message nobody meant.
+const ATTRIBUTE_FIELD: &str = "data-field";
+const ATTRIBUTE_SELECT: &str = "data-select";
+const ATTRIBUTE_TOGGLE: &str = "data-toggle";
+const ATTRIBUTE_TAB: &str = "data-tab";
+const ATTRIBUTE_PAGE: &str = "data-page";
+const ATTRIBUTE_CLEAR: &str = "data-clear";
 
 /// The DOM event the shell announces effects on, and the one name the TypeScript host has to agree with.
 const EFFECT_EVENT: &str = "rust-ui:effects";
@@ -58,9 +66,77 @@ fn container(element_id: &str) -> Result<HtmlElement, JsValue> {
         .map_err(|_| JsValue::from_str("ui: mount target is not an HTMLElement"))
 }
 
-/// Write the current model into the container. The single place the DOM is written.
+/// What the DOM is about to lose when `paint` replaces the markup.
+///
+/// WHY THIS EXISTS: focus and the caret are the browser's, not the model's — the model knows the text, not where the
+/// cursor is. `set_inner_html` builds new elements every time, so without capturing and restoring these, a keystroke
+/// would drop the caret to the end of the field or lose focus entirely, and the text field would be unusable however
+/// correct the rest of the machinery was.
+struct Focus {
+    field: String,
+    start: Option<u32>,
+    end: Option<u32>,
+}
+
+fn capture_focus() -> Option<Focus> {
+    let active = document().ok()?.active_element()?;
+    let field = active.get_attribute(ATTRIBUTE_FIELD)?;
+    let input = active.dyn_into::<HtmlInputElement>().ok()?;
+    Some(Focus {
+        field,
+        start: input.selection_start().ok().flatten(),
+        end: input.selection_end().ok().flatten(),
+    })
+}
+
+fn restore_focus(focus: &Focus) {
+    let Ok(document) = document() else { return };
+    // The field name is one this crate rendered (`query`), so it needs no escaping beyond its own alphabet.
+    let selector = format!("[{ATTRIBUTE_FIELD}=\"{}\"]", focus.field);
+    let Ok(Some(element)) = document.query_selector(&selector) else {
+        return;
+    };
+    let Ok(input) = element.dyn_into::<HtmlInputElement>() else {
+        return;
+    };
+    let _ = input.focus();
+    if let (Some(start), Some(end)) = (focus.start, focus.end) {
+        let _ = input.set_selection_range(start, end);
+    }
+}
+
+/// Write the current model into the container. The single place the DOM is written, which is also why the focus
+/// handling lives here and nowhere else.
 fn paint(root: &HtmlElement, program: &Rc<RefCell<Program>>) {
+    let focus = capture_focus();
     root.set_inner_html(&program.borrow().html());
+    if let Some(focus) = focus {
+        restore_focus(&focus);
+    }
+}
+
+/// The message a named input field means. An unknown field is ignored: a control that dispatches nothing is a bug to
+/// see, where a control that dispatches the wrong message is a bug to hunt.
+fn msg_for_input(field: &str, value: String) -> Option<Msg> {
+    match field {
+        "query" => Some(Msg::QueryChanged(value)),
+        _ => None,
+    }
+}
+
+/// The message a changed control means. `change` is what the browser fires for a dropdown or a checkbox once the user
+/// has committed, which is why the model can be written from it directly rather than polling.
+fn msg_for_change(element: &Element) -> Option<Msg> {
+    if element.get_attribute(ATTRIBUTE_TOGGLE).is_some() {
+        let input = element.clone().dyn_into::<HtmlInputElement>().ok()?;
+        return Some(Msg::Toggled(input.checked()));
+    }
+    let name = element.get_attribute(ATTRIBUTE_SELECT)?;
+    let select = element.clone().dyn_into::<HtmlSelectElement>().ok()?;
+    match name.as_str() {
+        "filter" => Some(Msg::FilterChanged(select.value())),
+        _ => None,
+    }
 }
 
 /// Apply one intent, paint, and hand the caller the effects it must perform.
@@ -150,6 +226,20 @@ pub fn mount(element_id: &str, start: &str) -> Result<String, JsValue> {
                     msg = Some(Msg::RowSelected(id));
                     break;
                 }
+                // The controls that are buttons. Each is its own attribute rather than a shared `data-action`, so a
+                // click can only ever mean the one intent its attribute names.
+                if let Some(key) = element.get_attribute(ATTRIBUTE_TAB) {
+                    msg = Some(Msg::TabSelected(key));
+                    break;
+                }
+                if let Some(delta) = element.get_attribute(ATTRIBUTE_PAGE) {
+                    msg = delta.parse::<i64>().ok().map(Msg::PageChanged);
+                    break;
+                }
+                if let Some(field) = element.get_attribute(ATTRIBUTE_CLEAR) {
+                    msg = msg_for_input(&field, String::new());
+                    break;
+                }
                 if element.is_same_node(Some(&root)) {
                     break;
                 }
@@ -162,6 +252,52 @@ pub fn mount(element_id: &str, start: &str) -> Result<String, JsValue> {
     };
     root.add_event_listener_with_callback("click", listener.as_ref().unchecked_ref())?;
     listener.forget();
+
+    // Typing. `input` fires on every character (and on paste and clear), which is what makes the list follow the field
+    // as it is typed rather than after a commit the user never asks for.
+    let on_input = {
+        let root = root.clone();
+        let program = program.clone();
+        Closure::<dyn FnMut(Event)>::wrap(Box::new(move |event: Event| {
+            let Some(element) = event
+                .target()
+                .and_then(|target| target.dyn_into::<Element>().ok())
+            else {
+                return;
+            };
+            let Some(field) = element.get_attribute(ATTRIBUTE_FIELD) else {
+                return;
+            };
+            let Ok(input) = element.dyn_into::<HtmlInputElement>() else {
+                return;
+            };
+            if let Some(msg) = msg_for_input(&field, input.value()) {
+                dispatch(&root, &program, msg);
+            }
+        }))
+    };
+    root.add_event_listener_with_callback("input", on_input.as_ref().unchecked_ref())?;
+    on_input.forget();
+
+    // Choosing. A dropdown or a switch has committed by the time `change` fires, so the model is written from the
+    // value the browser already holds rather than from a keystroke in progress.
+    let on_change = {
+        let root = root.clone();
+        let program = program.clone();
+        Closure::<dyn FnMut(Event)>::wrap(Box::new(move |event: Event| {
+            let Some(element) = event
+                .target()
+                .and_then(|target| target.dyn_into::<Element>().ok())
+            else {
+                return;
+            };
+            if let Some(msg) = msg_for_change(&element) {
+                dispatch(&root, &program, msg);
+            }
+        }))
+    };
+    root.add_event_listener_with_callback("change", on_change.as_ref().unchecked_ref())?;
+    on_change.forget();
 
     Ok(dispatch(&root, &program, Msg::ScreenOpened(start)))
 }

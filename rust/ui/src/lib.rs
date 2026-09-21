@@ -28,7 +28,8 @@ pub mod view;
 pub mod shell;
 
 pub use model::{
-    home, listed, record_for, screen, Effect, Model, Msg, Nav, Row, Screen, Surface, SCREENS,
+    home, listed, record_for, screen, Controls, Effect, Model, Msg, Nav, Row, Screen, Surface, PAGE_SIZE,
+    SCREENS,
 };
 pub use update::update;
 pub use view::render;

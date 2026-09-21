@@ -3,7 +3,7 @@
 //! Navigation is a message like everything else, which is what keeps the shell dumb: a nav click, a deep link and a
 //! restored session all arrive as `Navigate` and produce the same state.
 
-use crate::model::{record_for, Effect, Model, Msg, Screen};
+use crate::model::{record_for, Controls, Effect, Model, Msg, Screen, PAGE_SIZE};
 
 /// Move to a screen and ask for its rows. The single place a screen change happens, so navigation and record-opening
 /// cannot drift apart.
@@ -18,6 +18,9 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
     // rendering the previous screen's records.
     model.rows = Vec::new();
     model.selected_row_id = None;
+    // Controls are the screen's own input and live their own life: a filter typed on Clients must not follow the user
+    // to Deals and silently narrow a list they never filtered.
+    model.controls = Controls::default();
     if model.loading {
         vec![Effect::FetchRows {
             screen: screen.key,
@@ -72,6 +75,46 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
         Msg::EffectFailed(message) => {
             model.loading = false;
             model.error = Some(message);
+            Vec::new()
+        }
+
+        // ---- controls -------------------------------------------------------------------------------------------
+        // None of these fetch. Filtering is applied to the rows already in the model, in the view, so it cannot be
+        // mistaken for a server-side search that is not wired yet. When a filter does become a server round trip it
+        // gains an effect here, and the host learns about it from the effect rather than from the message.
+        Msg::QueryChanged(query) => {
+            model.controls.query = query;
+            // Page 4 of an unfiltered list means nothing once the list is not that list any more.
+            model.controls.page = 0;
+            Vec::new()
+        }
+        Msg::FilterChanged(filter) => {
+            model.controls.filter = Some(filter);
+            model.controls.page = 0;
+            Vec::new()
+        }
+        Msg::TabSelected(tab) => {
+            model.controls.tab = Some(tab);
+            model.controls.page = 0;
+            Vec::new()
+        }
+        Msg::Toggled(on) => {
+            model.controls.toggled = on;
+            Vec::new()
+        }
+        Msg::PageChanged(delta) => {
+            // The bounds live here rather than in the buttons, so a list that shrank while the user was reading it
+            // cannot leave them on a page that no longer exists.
+            let next = (model.controls.page as i64).saturating_add(delta).max(0);
+            let pages = model.rows.len().div_ceil(PAGE_SIZE);
+            model.controls.page = if pages == 0 {
+                // No rows in the model means the screen renders its body from somewhere the reducer cannot see (the
+                // Rust design lab builds its own list). It refuses to go below the first page and the body clamps the
+                // rest, rather than inventing a last page it has no count for.
+                next as usize
+            } else {
+                next.min(pages as i64 - 1) as usize
+            };
             Vec::new()
         }
     }
@@ -221,5 +264,70 @@ mod tests {
         update(&mut model, Msg::EffectFailed("network".into()));
         assert_eq!(model.error.as_deref(), Some("network"));
         assert_eq!(model.rows.len(), 1);
+    }
+
+    // ---- controls ----------------------------------------------------------------------------------------------
+
+    #[test]
+    fn a_narrowing_control_returns_to_the_first_page() {
+        let mut model = Model::default();
+        update(
+            &mut model,
+            Msg::RowsLoaded((0..PAGE_SIZE + 5).map(|i| row(&i.to_string())).collect()),
+        );
+        update(&mut model, Msg::PageChanged(1));
+        assert_eq!(model.controls.page, 1);
+        update(&mut model, Msg::QueryChanged("ada".into()));
+        assert_eq!(
+            model.controls.page, 0,
+            "page 2 of a list is not page 2 of the list the user is now filtering"
+        );
+    }
+
+    #[test]
+    fn paging_is_bounded_by_the_rows_the_model_holds() {
+        let mut model = Model::default();
+        update(
+            &mut model,
+            Msg::RowsLoaded((0..PAGE_SIZE + 1).map(|i| row(&i.to_string())).collect()),
+        );
+        update(&mut model, Msg::PageChanged(-1));
+        assert_eq!(model.controls.page, 0, "there is no page before the first");
+        update(&mut model, Msg::PageChanged(9));
+        assert_eq!(
+            model.controls.page, 1,
+            "PAGE_SIZE+1 rows are two pages, so the last page is 1"
+        );
+    }
+
+    #[test]
+    fn filtering_does_not_follow_the_user_to_the_next_screen() {
+        let mut model = Model::default();
+        update(&mut model, Msg::QueryChanged("ada".into()));
+        update(&mut model, Msg::TabSelected("open".into()));
+        update(&mut model, Msg::Toggled(true));
+        update(&mut model, Msg::Navigate(target("deals")));
+        assert_eq!(
+            model.controls,
+            Controls::default(),
+            "a filter typed on one screen must not narrow the next one"
+        );
+    }
+
+    #[test]
+    fn a_control_message_asks_the_host_for_nothing() {
+        let mut model = Model::default();
+        for msg in [
+            Msg::QueryChanged("x".into()),
+            Msg::FilterChanged("open".into()),
+            Msg::TabSelected("all".into()),
+            Msg::Toggled(true),
+            Msg::PageChanged(1),
+        ] {
+            assert!(
+                update(&mut model, msg).is_empty(),
+                "filtering is local until a screen's filter becomes a server round trip, and then it earns an effect"
+            );
+        }
     }
 }
