@@ -3,6 +3,7 @@ import 'server-only'
 import { randomUUID } from 'node:crypto'
 
 import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
+import { bypassBridgeIdentity } from '@/lib/rust-api/dev-identity'
 import {
   buildRustBridgeHeaders,
   resolveInternalApiKey,
@@ -92,7 +93,12 @@ export async function rustApiRead<T>(
   path: `/v1/${string}`,
   options: RustApiReadOptions = {},
 ): Promise<RustApiSuccess<T>> {
-  const identity = await createAuthJsSessionAdapter().getSession()
+  const identity =
+    (await createAuthJsSessionAdapter().getSession()) ??
+    // A bypassed dev session has no provider identity; this presents the real auth_identity for the bypass user so the
+    // Rust API resolves the same application user it would for a signed-in caller. Returns null in production, by its
+    // own guard, so this line cannot weaken anything that ships.
+    (await bypassBridgeIdentity())
   if (!identity) {
     throw new RustApiError({
       status: 401,

@@ -151,6 +151,52 @@ if (existsSync(resolve(ROOT, '.next'))) {
 }
 out('  ✓ Cleared .next')
 
+// D2. Start the Rust API, which the cut-over routes call through lib/rust-api/client.ts.
+//
+// Without this, every cut-over screen fails in dev with 503 RUST_API_UNAVAILABLE — and the live route deliberately
+// fails loudly rather than rendering an empty page that could be mistaken for "no data". The binary has existed all
+// along (`server/src/bin/http.rs`, which binds RUST_API_BIND or 127.0.0.1:8080 — the same default the client uses);
+// nothing was starting it. A Rust API already listening is left alone.
+const RUST_API_PORT = Number(process.env.RUST_API_PORT ?? 8080)
+let rustApi = null
+
+if (listenersOn(RUST_API_PORT).length > 0) {
+  out(`  ✓ Rust API already listening on ${RUST_API_PORT}`)
+} else {
+  const cargoTarget = process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'rust/target')
+  rustApi = spawn('cargo', ['run', '--quiet', '-p', 'server', '--bin', 'http'], {
+    cwd: resolve(ROOT, 'rust'),
+    env: {
+      ...process.env,
+      CARGO_TARGET_DIR: cargoTarget,
+      RUST_API_BIND: `127.0.0.1:${RUST_API_PORT}`,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  rustApi.stdout?.on('data', (chunk) => process.stdout.write(`  [rust-api] ${chunk}`))
+  rustApi.stderr?.on('data', (chunk) => process.stderr.write(`  [rust-api] ${chunk}`))
+  rustApi.on('error', (error) => err('  ✗ Failed to start the Rust API:', error.message))
+  out(`  → Starting Rust API on ${RUST_API_PORT} (cut-over routes call it; first run compiles)`)
+}
+
+function stopRustApi() {
+  if (rustApi && rustApi.exitCode === null) {
+    try {
+      rustApi.kill('SIGTERM')
+    } catch {
+      /* already gone */
+    }
+  }
+}
+process.on('SIGINT', () => {
+  stopRustApi()
+  process.exit(0)
+})
+process.on('SIGTERM', () => {
+  stopRustApi()
+  process.exit(0)
+})
+
 // E. Start exactly one Next dev server on port 3000 using Webpack.
 out(`  → Starting http://localhost:${PORT} (Webpack)`)
 const nextBin = resolve(ROOT, 'node_modules/next/dist/bin/next')
@@ -159,7 +205,10 @@ const child = spawn(process.execPath, [nextBin, 'dev', '--webpack', '-p', String
   env: process.env,
   stdio: 'inherit',
 })
-child.on('exit', (code) => process.exit(code ?? 0))
+child.on('exit', (code) => {
+  stopRustApi()
+  process.exit(code ?? 0)
+})
 child.on('error', (error) => {
   err('  ✗ Failed to start Next dev:', error.message)
   process.exit(1)
