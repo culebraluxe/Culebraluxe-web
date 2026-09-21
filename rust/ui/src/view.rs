@@ -121,11 +121,17 @@ fn body(model: &Model) -> String {
     let header = format!(
         "<header class=\"mb-4\">\
            <h1 class=\"text-xl font-semibold\">{title}</h1>\
-           <p class=\"text-sm text-muted-foreground\">Replaces <code>{path}</code></p>\
+           <p class=\"text-sm text-muted-foreground\">{path}</p>\
            {subject}\
          </header>",
         title = escape(model.screen.title),
-        path = escape(model.screen.path),
+        // A screen with no live route says that, rather than naming one that does not exist.
+        path = if model.screen.path.is_empty() {
+            "No live route yet: this screen reads data the app exposes through no route of its own."
+                .to_string()
+        } else {
+            format!("Replaces <code>{}</code>", escape(model.screen.path))
+        },
         subject = subject
     );
     if model.screen.is_deferred() {

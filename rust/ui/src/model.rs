@@ -206,8 +206,8 @@ pub const SCREENS: &[Screen] = &[
     // ---- TECH ----
     Screen { key: "tech", title: "Cockpit", path: "/portal/tech", surface: Surface::Tech, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "storyboard", title: "Story Board", path: "/portal/storyboard", surface: Surface::Tech, nav: Nav::Listed, deferred: None, detail_of: None },
-    Screen { key: "design-lab", title: "UI Lab", path: "/portal/design-lab", surface: Surface::Tech, nav: Nav::Listed, deferred: Some("A component gallery, not a data screen: its content is the design system itself, and the point of a UI lab is to look at the live components rather than a rendering of them.") , detail_of: None },
-    Screen { key: "media-test", title: "Media Test", path: "/portal/media-test", surface: Surface::Tech, nav: Nav::Listed, deferred: Some("An upload harness. Its whole behaviour is a file picker and a POST, which is a thing the host does, not a list a read model can produce.") , detail_of: None },
+    Screen { key: "design-lab", title: "UI Lab", path: "/portal/design-lab", surface: Surface::Tech, nav: Nav::Listed, deferred: None , detail_of: None },
+    Screen { key: "media-test", title: "Media Test", path: "/portal/media-test", surface: Surface::Tech, nav: Nav::Listed, deferred: None , detail_of: None },
     // RETIRED FROM THE NAV (2026-09-13, the registry's own note): "the code stays, the links go". Command Center,
     // Command Console, GROK and the Flight Recorder LIST were each an attempt at the same problem that never got
     // used, and their names were close enough to "the cockpit" that one conversation could mean five. Ported like
@@ -237,8 +237,12 @@ pub const SCREENS: &[Screen] = &[
     Screen { key: "runtime-record", title: "Runtime inspector", path: "/portal/runtime-inspector/[instanceId]", surface: Surface::Support, nav: Nav::Unlisted, deferred: None, detail_of: None },
 
     // ---- SITE: the public front. Not covered by the portal registry, so these come from the route tree. ----
-    Screen { key: "site-home", title: "Home", path: "/", surface: Surface::Site, nav: Nav::Listed, deferred: Some("The home page is editorial: its hero, section and call-to-action copy is laid out by hand around marketing content slots. The content is readable (the slots exist), the layout is not ported yet.") , detail_of: None },
-    Screen { key: "site-properties", title: "Properties", path: "/properties", surface: Surface::Site, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "site-home", title: "Home", path: "/", surface: Surface::Site, nav: Nav::Listed, deferred: None , detail_of: None },
+    // NO LIVE ROUTE: the app serves public properties only at /properties/[slug]; there is no index page, and
+    // nothing links to one. This screen is a view over the public inventory read model (getProperties/getFilteredProperties)
+    // which the app exposes only through the detail route. Empty `path` means exactly that, and the header says so
+    // rather than naming a route that does not exist.
+    Screen { key: "site-properties", title: "Properties", path: "", surface: Surface::Site, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "site-property-detail", title: "Property", path: "/properties/[slug]", surface: Surface::Site, nav: Nav::Record, deferred: None, detail_of: Some("site-properties") },
     Screen { key: "site-about", title: "About", path: "/about", surface: Surface::Site, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "site-buyers", title: "Buyers", path: "/buyers", surface: Surface::Site, nav: Nav::Listed, deferred: None, detail_of: None },
@@ -246,11 +250,26 @@ pub const SCREENS: &[Screen] = &[
     Screen { key: "site-faq", title: "FAQ", path: "/faq", surface: Surface::Site, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "site-contact", title: "Contact", path: "/contact", surface: Surface::Site, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "site-guide", title: "Guide", path: "/guide", surface: Surface::Site, nav: Nav::Listed, deferred: None, detail_of: None },
-    Screen { key: "site-services", title: "Services", path: "/services", surface: Surface::Site, nav: Nav::Listed, deferred: Some("Static page copy, with no content slot behind it: the services page is written in its own component, so there is nothing to read until that copy moves into marketing content.") , detail_of: None },
-    Screen { key: "site-privacy", title: "Privacy", path: "/privacy", surface: Surface::Site, nav: Nav::Listed, deferred: Some("Legal text held in the page itself. Porting it would copy prose into a renderer without changing how it is maintained.") , detail_of: None },
-    Screen { key: "site-video", title: "Video", path: "/video", surface: Surface::Site, nav: Nav::Listed, deferred: Some("A media page: its content is video files served by the media pipeline, which no read model in this route returns.") , detail_of: None },
-    Screen { key: "site-whatsapp", title: "WhatsApp", path: "/whatsapp", surface: Surface::Site, nav: Nav::Listed, deferred: Some("An intake landing page. Its work is the form and the POST behind it, which belongs to the host.") , detail_of: None },
-    Screen { key: "site-favorites", title: "Favorites", path: "/favorites", surface: Surface::Site, nav: Nav::Unlisted, deferred: Some("Personal to a signed-in visitor, so it needs the session rather than an unauthenticated row endpoint. The live page keeps it until a host passes the visitor's own identity to the model.") , detail_of: None },
+    Screen { key: "site-services", title: "Services", path: "/services", surface: Surface::Site, nav: Nav::Listed, deferred: None , detail_of: None },
+    Screen { key: "site-privacy", title: "Privacy", path: "/privacy", surface: Surface::Site, nav: Nav::Listed, deferred: None , detail_of: None },
+    Screen { key: "site-video", title: "Video", path: "/video", surface: Surface::Site, nav: Nav::Listed, deferred: None , detail_of: None },
+    Screen { key: "site-whatsapp", title: "WhatsApp", path: "/whatsapp", surface: Surface::Site, nav: Nav::Listed, deferred: None , detail_of: None },
+    Screen { key: "site-favorites", title: "Favorites", path: "/favorites", surface: Surface::Site, nav: Nav::Unlisted, deferred: None , detail_of: None },
+
+    // ---- ROUTES THE TABLE WAS MISSING. It is now checked against `find app -name page.tsx` (80 routes, minus the two
+    // preview hosts this port adds), rather than against a registry that says of itself "Only EXISTING routes are
+    // listed" — a statement about NAVIGATION, not about which routes exist. Titles are the route's own name, not a name
+    // I invented for it.
+    Screen { key: "login", title: "Login", path: "/login", surface: Surface::Site, nav: Nav::Unlisted, deferred: None, detail_of: None },
+    Screen { key: "login-recovery", title: "Login recovery", path: "/login/recovery", surface: Surface::Site, nav: Nav::Unlisted, deferred: None, detail_of: None },
+    Screen { key: "login-unauthorized", title: "Login unauthorized", path: "/login/unauthorized", surface: Surface::Site, nav: Nav::Unlisted, deferred: None, detail_of: None },
+    Screen { key: "auth-error", title: "Auth error", path: "/auth/error", surface: Surface::Site, nav: Nav::Unlisted, deferred: None, detail_of: None },
+    Screen { key: "review", title: "Review", path: "/review/[token]/[page]", surface: Surface::Site, nav: Nav::Unlisted, deferred: None, detail_of: None },
+    Screen { key: "portal-root", title: "Portal", path: "/portal", surface: Surface::Core, nav: Nav::Unlisted, deferred: None, detail_of: None },
+    Screen { key: "portal-auth-proof", title: "Portal auth proof", path: "/portal-auth-proof", surface: Surface::Support, nav: Nav::Unlisted, deferred: None, detail_of: None },
+    Screen { key: "dev-apple-map-test", title: "Apple map test", path: "/dev/apple-map-test", surface: Surface::Support, nav: Nav::Unlisted, deferred: None, detail_of: None },
+    Screen { key: "dev-google-map-test", title: "Google map test", path: "/dev/google-map-test", surface: Surface::Support, nav: Nav::Unlisted, deferred: None, detail_of: None },
+    Screen { key: "console-story", title: "Command Console story", path: "/portal/command-console/[storyId]", surface: Surface::Tech, nav: Nav::Record, deferred: None, detail_of: Some("command-console") },
 ];
 
 /// A row of any list screen.

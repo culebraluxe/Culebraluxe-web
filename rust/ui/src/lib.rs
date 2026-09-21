@@ -160,7 +160,13 @@ mod tests {
         );
 
         for screen in SCREENS {
-            assert!(screen.path.starts_with('/'), "{} has no route", screen.key);
+            // Empty is allowed and pinned by name in `the_table_matches_the_route_tree`; anything else must be a route.
+            assert!(
+                screen.path.is_empty() || screen.path.starts_with('/'),
+                "{} has a path that is not a route: {:?}",
+                screen.key,
+                screen.path
+            );
             assert!(!screen.title.is_empty(), "{} has no title", screen.key);
             match screen.detail_of {
                 Some(list) => {
@@ -208,6 +214,94 @@ mod tests {
                     records[0].surface, screen.surface,
                     "a record stays in its own surface"
                 );
+            }
+        }
+    }
+
+    /// THE TABLE IS CHECKED AGAINST THE ROUTE TREE, not against a registry.
+    ///
+    /// `lib/navigation/registry.ts` says of itself "Only EXISTING routes are listed" — a statement about navigation,
+    /// and I read it as a statement about scope. That mistake cost nine real pages (login, /auth/error, the dev map
+    /// tests, the token review page, the portal root, the auth proof page) which were never in the table at all.
+    /// The filesystem does not have opinions, so this walks it.
+    ///
+    /// The two exceptions are this port's own preview hosts, listed here with the reason.
+    #[test]
+    fn the_table_matches_the_route_tree() {
+        const PREVIEW_HOSTS: [&str; 2] = ["/portal/rust-preview", "/rust-preview"];
+
+        let app = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app");
+        let mut routes = Vec::new();
+        collect_routes(&app, String::new(), &mut routes);
+
+        assert!(
+            !routes.is_empty(),
+            "found no routes under {} — is the path wrong?",
+            app.display()
+        );
+
+        // Collect everything, then assert once: a check that stops at the first missing route makes fixing them a
+        // guessing game of how many runs it will take.
+        let mut missing: Vec<&String> = routes
+            .iter()
+            .filter(|route| !PREVIEW_HOSTS.contains(&route.as_str()))
+            .filter(|route| !SCREENS.iter().any(|screen| screen.path == route.as_str()))
+            .collect();
+        missing.sort();
+        assert!(
+            missing.is_empty(),
+            "{} route(s) with no screen in the table — add rows; do not narrow the scope:\n  {}",
+            missing.len(),
+            missing
+                .iter()
+                .map(|route| route.as_str())
+                .collect::<Vec<_>>()
+                .join("\n  ")
+        );
+
+        // A screen with no live route (path is empty) is skipping the route comparison, and it is REPORTED rather than
+        // quietly exempt: the point of this test is that nothing is hidden.
+        let orphans: Vec<&str> = SCREENS
+            .iter()
+            .filter(|screen| !screen.path.is_empty())
+            .map(|screen| screen.path)
+            .filter(|path| !routes.iter().any(|route| route == path))
+            .collect();
+        assert!(
+            orphans.is_empty(),
+            "screens claiming routes that do not exist: {orphans:?}"
+        );
+
+        let no_route: Vec<&str> = SCREENS
+            .iter()
+            .filter(|screen| screen.path.is_empty())
+            .map(|screen| screen.key)
+            .collect();
+        // Not a failure — a screen over data the app exposes through no route of its own is legitimate. But it must be
+        // deliberate, so it is listed here and the number is asserted rather than allowed to grow unnoticed.
+        assert_eq!(
+            no_route,
+            vec!["site-properties"],
+            "a screen with no live route must be a deliberate choice, and this is the list of them"
+        );
+    }
+
+    /// Walk `app/` for `page.tsx` files, building the route each one serves. `/` is the root page.
+    fn collect_routes(dir: &std::path::Path, prefix: String, out: &mut Vec<String>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                collect_routes(&path, format!("{prefix}/{name}"), out);
+            } else if path.file_name().is_some_and(|name| name == "page.tsx") {
+                out.push(if prefix.is_empty() {
+                    "/".to_string()
+                } else {
+                    prefix.clone()
+                });
             }
         }
     }
