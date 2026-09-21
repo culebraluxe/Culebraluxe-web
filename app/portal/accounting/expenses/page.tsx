@@ -1,16 +1,21 @@
-import { AccountingExpenses } from '@/components/portal/accounting/accounting-expenses'
-import { AccountingShell } from '@/components/portal/accounting/accounting-shell'
-import { getExpenses } from '@/db/accounting'
+import { RustUiHost } from '@/components/rust-ui/host'
 
-export const dynamic = 'force-dynamic'
+// ---------------------------------------------------------------------------
+// FLIPPED TO RUST (screen: accounting-expenses).
+//
+// The route is unchanged; the screen is not. What used to be a TypeScript page fetching its own data and handing it to
+// a TypeScript component is now the Rust host, which reads the same data through the portal rows route and paints the
+// screen from rust/ui/src/view.rs.
+//
+// This page qualified because it is a read-only list: its TypeScript body carries no state, no form, no dialog and no
+// paging control, so there is nothing the Rust screen can fail to reproduce. Screens that carry interaction stay in
+// TypeScript until the Rust body has its own controls. The list is in docs/layers/UI.md.
+// ---------------------------------------------------------------------------
 
-// ACCOUNTING — Expenses. Practical expense grid + "where is the money going?"
-// category breakdown over account_expense (controlled category list).
-export default async function AccountingExpensesPage() {
-  const rows = await getExpenses()
+export default function Page() {
   return (
-    <AccountingShell eyebrow="Accounting" title="Expenses">
-      <AccountingExpenses rows={rows} />
-    </AccountingShell>
+    <div className="min-h-screen bg-background">
+      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="accounting-expenses" />
+    </div>
   )
 }

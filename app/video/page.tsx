@@ -1,22 +1,17 @@
-"use client"
+import { RustUiHost } from '@/components/rust-ui/host'
 
-import MuxPlayer from "@mux/mux-player-react"
+// ---------------------------------------------------------------------------
+// CONVERTED TO RUST (screen: site-video).
+//
+// What this route rendered now lives in rust/ui/src/view.rs, fed by the rows route. The route itself is unchanged,
+// which is what keeps every link and bookmark working.
+// ---------------------------------------------------------------------------
 
-export default function VideoPage() {
+export default function Page() {
+
   return (
-    <main className="min-h-screen bg-black p-8">
-      <div className="mx-auto max-w-6xl">
-        <MuxPlayer
-          playbackId="PpZmyDr01700pC5WKZybM6OPrDn4JK01bvqQLKWrdhO514"
-          metadata={{
-            video_title: "Navillus_Sur2",
-          }}
-          style={{
-            width: "100%",
-            aspectRatio: "16 / 9",
-          }}
-        />
-      </div>
-    </main>
+    <div className="min-h-screen bg-background">
+      <RustUiHost rowsPath="/api/rust-ui/public-rows" start="site-video" />
+    </div>
   )
 }
