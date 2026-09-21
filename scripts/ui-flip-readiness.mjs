@@ -44,7 +44,7 @@ for (const { key, path } of screens) {
   const hasLoader = loaders.has(key)
   const page = path ? `${root}/app${path}/page.tsx` : null
   if (!page || !existsSync(page)) {
-    rows.push({ key, path: path ?? '-', rows: hasLoader, markers: hasLoader ? -1 : null })
+    rows.push({ key, path: path ?? '-', rows: hasLoader, markers: hasLoader ? -1 : null, noPage: true })
     continue
   }
   const src = readFileSync(page, 'utf8')
@@ -57,21 +57,32 @@ for (const { key, path } of screens) {
     if (!existsSync(file)) continue
     markers += Number(execSync(`grep -cE '${MARKERS}' '${file}' || true`).toString().trim() || 0)
   }
-  rows.push({ key, path: path ?? '-', rows: hasLoader, markers, flipped })
+  rows.push({ key, path: path ?? '-', rows: hasLoader, markers, flipped, noPage: false })
 }
 
 const byMarkers = (a, b) => (a.markers ?? 99) - (b.markers ?? 99) || a.key.localeCompare(b.key)
-const flipped = rows.filter((r) => r.flipped).sort(byMarkers)
-const ready = rows.filter((r) => !r.flipped && r.rows && r.markers === 0).sort(byMarkers)
-const blocked = rows.filter((r) => !r.flipped && r.rows && (r.markers ?? 0) > 0).sort(byMarkers)
-const unwired = rows.filter((r) => !r.rows).sort(byMarkers)
+const converted = rows.filter((r) => r.flipped).sort(byMarkers)
+const remaining = rows.filter((r) => !r.flipped)
+// Every remaining screen gets exactly one reason, so the counts add up to the total. An earlier version filtered
+// `!rows` without excluding the converted screens, which double-counted tech-lab and made "how many are left" wrong.
+const noPage = remaining.filter((r) => r.noPage).sort(byMarkers)
+const noFeed = remaining.filter((r) => !r.noPage && !r.rows).sort(byMarkers)
+const needsControls = remaining
+  .filter((r) => !r.noPage && r.rows && (r.markers ?? 0) > 0)
+  .sort(byMarkers)
+const canFlipNow = remaining.filter((r) => !r.noPage && r.rows && r.markers === 0).sort(byMarkers)
 
-console.log(`SCREENS: ${screens.length}   with a rows loader: ${rows.filter((r) => r.rows).length}\n`)
-console.log(`FLIPPED (the route renders the Rust screen): ${flipped.length}`)
-for (const r of flipped) console.log(`  ${r.key.padEnd(24)} ${r.path}`)
-console.log(`\nREADY (real rows, nothing interactive to lose): ${ready.length}`)
-for (const r of ready) console.log(`  ${r.key.padEnd(24)} ${r.path}`)
-console.log(`\nBLOCKED BY TYPESCRIPT INTERACTION: ${blocked.length}`)
-for (const r of blocked) console.log(`  ${r.key.padEnd(24)} ${r.path.padEnd(36)} ${r.markers} markers`)
-console.log(`\nNO ROWS LOADER (structure only): ${unwired.length}`)
-console.log('  ' + unwired.map((r) => r.key).join(', '))
+const line = (label, list) => {
+  console.log(`  ${label.padEnd(18)} ${String(list.length).padStart(3)}   ${list.map((r) => r.key).join(', ')}`)
+}
+
+console.log(`CONVERSION STATUS`)
+console.log(`  TOTAL              ${String(rows.length).padStart(3)}`)
+console.log(`  CONVERTED          ${String(converted.length).padStart(3)}`)
+console.log(`  REMAIN             ${String(remaining.length).padStart(3)}`)
+line('can flip now', canFlipNow)
+line('needs controls', needsControls)
+line('needs a feed', noFeed)
+line('no page at path', noPage)
+console.log()
+console.log(`CONVERTED (the route renders the Rust screen): ${converted.length}`)
