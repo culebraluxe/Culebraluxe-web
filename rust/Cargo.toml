@@ -12,6 +12,11 @@ members = [
     "cli",
     "ui",
 ]
+# `experiments/` is deliberately OUTSIDE the workspace. The bench crate there exists to compare stacks we have not
+# adopted - it pulls tokio-postgres and deadpool, which production must not depend on. Excluding it keeps
+# `cargo check --workspace` and the test suite measuring the shipped code and nothing else. Build it from its own
+# directory: `cd experiments/pool-bench && cargo run --release`.
+exclude = ["experiments/pool-bench"]
 
 [workspace.package]
 edition = "2021"

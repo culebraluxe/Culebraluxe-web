@@ -4,6 +4,51 @@ This file is the repo-owned handbook. Vendor filenames (`CLAUDE.md`, Warp, Curso
 
 Per-story work lives in `docs/agent/packets/<STORY-ID>.md`. Skills live in `docs/agent/skills/`. Decisions that must outlive a tool live in `docs/agent/MEMORY.md`. `docs/agent/CURRENT.md` is not the memory file.
 
+## Rust First — the domain is Rust now
+
+The port moved the domain to Rust. TypeScript remains for exactly one job, and this section is what keeps the line where
+it is.
+
+| If you are writing... | It goes in | Language |
+| --- | --- | --- |
+| UI: screens, components, styling, client state | `app/`, `components/` | TypeScript |
+| The UI's transport to the Rust API | `lib/rust-api/` | TypeScript, and only as a thin client |
+| Domain rules, validation, workflow transitions | `rust/core/domain`, `rust/core/workflow` | **Rust** |
+| Database access: SQL, DAOs, repositories | `rust/core/db` | **Rust** |
+| HTTP API: routes, shapes, identity resolution | `rust/server` | **Rust** |
+| Workflow engine commands | `rust/forge` + `rust/server/src/api/engine.rs` | **Rust** |
+
+**The mechanical rule.** If a change decides *what is true* about a client, deal, contract, property or workflow — or
+reads or writes the database — it is Rust. If it decides *how that truth is displayed or captured* in a browser, it is
+TypeScript.
+
+**Never in new work:** a TypeScript module that talks to Postgres. A new `services/` class holding business rules. A new
+query in `db/`. A route re-implementing in TypeScript what `rust/server` already does. The remaining TypeScript server
+modules are **legacy in place** — retired, not extended. See `docs/agent/LEGACY-TYPESCRIPT.md`.
+
+**Do not reintroduce these. They were bugs, and each one was measured** (all found and fixed 2026-09-21):
+
+- **A pool per call.** The engine built one per command: 2368ms per call. There is ONE pool per process — `db::shared`,
+  installed by the composition root.
+- **A health check on every pool checkout.** sqlx does this by default and it is a full round trip. We use
+  `test_before_acquire(false)` plus a probe only when a connection has been idle: 1269ms → 872ms on one page.
+- **String-built SQL with hand-escaping.** Bind parameters instead. Mind the typing: a quoted literal is untyped and
+  Postgres coerces it, a bind is `text`, so a `uuid` column needs an explicit `::uuid`.
+- **`psql_query` / `sql_literal` in new code.** Retired; binds on the workspace pool. (Some files still have them — do
+  not add more, and convert the file you are already in.)
+- **Re-resolving identity on every request.** Two queries per request, repeated per screen. `identity_cache.rs` caches
+  `Known` resolutions for `FORGE_IDENTITY_CACHE_MS` (30s).
+- **Disabling the statement cache.** Measured at **80ms per query** — one round trip versus two. It stays on.
+- **A pool that holds nothing when idle.** `FORGE_DB_POOL_MIN` keeps a warm floor; a cold connect is 498ms.
+
+Runbooks: `docs/rust-resilience-status.md` (what is wired, what is measured, what is left),
+`docs/rust-dbpool-plan-b.md` (the alternative stack, measured, and why sqlx stays), `docs/rust-parity-ledger.md`
+(generated — which capability serves production where).
+
+**Building and testing Rust:** `cargo check --workspace --all-targets`, then
+`cargo test -p db -p server -p forge -p workflow`. `rust/experiments/` is excluded from the workspace; it holds
+comparison benches, never production code.
+
 ## Always / Ask / Never
 
 Always
@@ -264,6 +309,11 @@ New server code that can fail MUST route its failures through the durable captur
 
 Canonical seams — reuse these; do not invent parallel capture:
 - **DB**: `DatabaseGateway` captures normalized DB failures automatically.
+- **Rust**: `db::capture` (`rust/core/db/src/capture.rs`) announces every `DbFailure` from its constructor, and the
+  server's sink writes the same `app_error` columns as `db/app-error.ts` (installed at boot in
+  `rust/server/src/bin/http.rs`, implemented in `rust/server/src/api/error_capture.rs`). Rule for Rust code: return a
+  `DbFailure`/`ApiError` and let it propagate — never swallow a `Result`, and never `let _ =` a failure you did not
+  deliberately decide is unreportable.
 - **Service kernel**: `BaseService` + `ServiceErrorSink` (`ServiceInfrastructure.errors`, bound via `composeCoreServices`/`appServiceErrorSink`) — captures unhandled (non-domain) exceptions with domain/operation/correlationId.
 - **Route handlers that throw**: `withApiHandler({ label, route })(handler)` (`lib/error-capture-seam.ts`) — captures and returns a 500. When a handler catches-and-returns an error body instead of throwing, call `captureServerError` in the non-auth catch (pattern: `app/api/portal/form-sidecar/*`).
 - **Server actions / async fns**: `withServerErrorCapture(label, fn)`, or `captureServerError`/`captureServerLog` in the catch. (Single call, not curried — the curried form cannot infer the handler's argument types, same fix `withApiHandler` needed in `dca591b`.)

@@ -1,0 +1,14 @@
+[package]
+name = "pool-bench"
+version = "0.1.0"
+edition = "2021"
+
+# Throwaway. Lives outside the workspace on purpose: it adds dependencies we have not
+# decided to adopt, and comparing two stacks should not touch production code.
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-native-tls", "postgres"] }
+tokio-postgres = "0.7"
+deadpool-postgres = "0.14"
+native-tls = "0.2"
+postgres-native-tls = "0.5"
