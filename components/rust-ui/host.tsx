@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { createRoot } from 'react-dom/client'
 
 // ---------------------------------------------------------------------------
 // THE RUST UI HOST.
@@ -25,6 +26,9 @@ const FETCH_ROWS = 'FetchRows'
 /** The DOM event `rust/ui/src/shell.rs` announces effects on (`EFFECT_EVENT`). */
 const EFFECT_EVENT = 'rust-ui:effects'
 
+/** The DOM event the shell announces islands on. Checked against Rust the same way the effect name is. */
+const ISLAND_EVENT = 'rust-ui:islands'
+
 type RustUiEffect = { effect: string; screen?: string; scope?: string | null }
 
 type RustUi = {
@@ -33,12 +37,25 @@ type RustUi = {
   rows_loaded: (payload: string) => void
   mount_id: () => string
   effect_event_name: () => string
+  island_event_name: () => string
 }
+
+/**
+ * A third-party widget Rust renders a container for.
+ *
+ * Rust owns the box (`<div data-island="projects-tree">`); the widget owns everything inside it. The widget is handed
+ * the rows the same fetch the screen used returned, because the host is what owns the network and the widget must not
+ * grow a second one.
+ */
+export type RustIsland = (props: { rows: RustUiRow[] }) => ReactNode
+
+export type RustUiRow = { id: string; cells: string[]; badge?: string | null }
 
 export function RustUiHost({
   rowsPath,
   start,
   scope,
+  islands,
 }: {
   rowsPath: string
   start: string
@@ -48,9 +65,21 @@ export function RustUiHost({
    * page hands the key in. Applied to the FIRST screen only - navigating on to a list must not inherit one record's key.
    */
   scope?: string
+  /**
+   * Third-party widgets Rust renders containers for, by island name (`projects-tree`). Rust paints the box; these own
+   * what is inside it. Nothing is mounted into a container that already has a child, so a widget that survived a paint
+   * is left alone rather than remounted under the user's cursor.
+   */
+  islands?: Record<string, RustIsland>
 }) {
   const started = useRef(false)
   const [error, setError] = useState<string | null>(null)
+  // Refs rather than state: the island event fires from the WASM side, outside a React render, so it must read the
+  // current rows and the current registry without being re-registered on every render.
+  const rowsRef = useRef<RustUiRow[]>([])
+  const islandsRef = useRef(islands)
+  const rootsRef = useRef(new Map<string, ReturnType<typeof createRoot>>())
+  islandsRef.current = islands
 
   useEffect(() => {
     // React 19 runs effects twice in development. Without this guard the module mounts twice and two click listeners
@@ -72,6 +101,35 @@ export function RustUiHost({
       if (eventName !== EFFECT_EVENT) {
         throw new Error(`effect event mismatch: Rust says "${eventName}", host expects "${EFFECT_EVENT}"`)
       }
+      // Same check for the island event: a mismatch here would present as a widget that never appears, which is the
+      // quietest possible failure.
+      const islandEvent = module.island_event_name()
+      if (islandEvent !== ISLAND_EVENT) {
+        throw new Error(`island event mismatch: Rust says "${islandEvent}", host expects "${ISLAND_EVENT}"`)
+      }
+
+      /**
+       * Put each registered widget into the container Rust rendered for it.
+       *
+       * A container that already has a child keeps it: Rust re-paints its markup on every message, and a widget that
+       * survived that paint must not be torn down and rebuilt under the user's cursor.
+       */
+      const mountIslands = () => {
+        const registry = islandsRef.current
+        if (!registry) return
+        for (const [name, Widget] of Object.entries(registry)) {
+          const container = document.querySelector(`[data-island="${name}"]`)
+          if (!container) continue
+          if (container.childElementCount > 0) continue
+          // The container is a new node after every paint, so the previous root points at a detached one.
+          rootsRef.current.get(name)?.unmount()
+          const root = createRoot(container)
+          rootsRef.current.set(name, root)
+          root.render(<Widget rows={rowsRef.current} />)
+        }
+      }
+
+      document.addEventListener(ISLAND_EVENT, mountIslands)
 
       const loadRows = async (effect: RustUiEffect) => {
         const screen = effect.screen
@@ -87,7 +145,14 @@ export function RustUiHost({
           // not ask" are different states and the user deserves the difference.
           throw new Error(`rows request failed with ${response.status}`)
         }
-        module.rows_loaded(await response.text())
+        const payload = await response.text()
+        // Kept as well as handed over: an island widget is a React component and needs the rows as values.
+        try {
+          rowsRef.current = JSON.parse(payload) as RustUiRow[]
+        } catch {
+          rowsRef.current = []
+        }
+        module.rows_loaded(payload)
       }
 
       const handle = (effects: RustUiEffect[]) => {

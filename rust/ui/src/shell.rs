@@ -40,6 +40,8 @@ const ATTRIBUTE_TOGGLE: &str = "data-toggle";
 const ATTRIBUTE_TAB: &str = "data-tab";
 const ATTRIBUTE_PAGE: &str = "data-page";
 const ATTRIBUTE_CLEAR: &str = "data-clear";
+/// A container the host mounts a third-party widget into. Rust renders the box; the widget owns what is inside it.
+const ATTRIBUTE_ISLAND: &str = "data-island";
 
 /// The DOM event the shell announces effects on, and the one name the TypeScript host has to agree with.
 const EFFECT_EVENT: &str = "rust-ui:effects";
@@ -113,10 +115,56 @@ fn paint(root: &HtmlElement, program: &Rc<RefCell<Program>>) {
     if let Some(focus) = focus {
         restore_focus(&focus);
     }
+    // Last, because it is about the markup that was just written: any island container in it needs its widget.
+    announce_islands(root);
 }
 
-/// The message a named input field means. An unknown field is ignored: a control that dispatches nothing is a bug to
-/// see, where a control that dispatches the wrong message is a bug to hunt.
+/// The DOM event the shell announces islands on. The host mounts a third-party widget into each container this crate
+/// renders, so Rust keeps owning the layout and the widget owns everything inside its own box.
+const ISLAND_EVENT: &str = "rust-ui:islands";
+
+/// What the host is told about each island after a paint: which widget goes in which container.
+///
+/// WHY AFTER EVERY PAINT: `set_inner_html` destroys the container a widget was mounted into, so the container is new
+/// every time and the widget has to be mounted again. The host decides whether to remount by looking at the container -
+/// a container that already has a child is one whose widget survived - so this can be announced unconditionally without
+/// remounting anything that is still alive.
+fn announce_islands(root: &HtmlElement) {
+    let Ok(document) = document() else { return };
+    let Ok(nodes) = root.query_selector_all(&format!("[{ATTRIBUTE_ISLAND}]")) else {
+        return;
+    };
+    let mut islands: Vec<String> = Vec::new();
+    for index in 0..nodes.length() {
+        let Some(node) = nodes.item(index) else { continue };
+        let Ok(element) = node.dyn_into::<Element>() else {
+            continue;
+        };
+        let Some(name) = element.get_attribute(ATTRIBUTE_ISLAND) else {
+            continue;
+        };
+        islands.push(name);
+    }
+    if islands.is_empty() {
+        return;
+    }
+    // The names are values this crate rendered, so the JSON is built here rather than reached for through `js_sys`.
+    let payload = format!(
+        "[{}]",
+        islands
+            .iter()
+            .map(|name| format!("\"{}\"", name.replace('\\', "\\\\").replace('"', "\\\"")))
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    let init = web_sys::CustomEventInit::new();
+    init.set_detail(&JsValue::from_str(&payload));
+    init.set_bubbles(true);
+    if let Ok(event) = web_sys::CustomEvent::new_with_event_init_dict(ISLAND_EVENT, &init) {
+        let _ = document.dispatch_event(&event);
+    }
+}
+
 fn msg_for_input(field: &str, value: String) -> Option<Msg> {
     match field {
         "query" => Some(Msg::QueryChanged(value)),
@@ -178,6 +226,13 @@ fn publish(effects_json: &str) {
 #[wasm_bindgen]
 pub fn effect_event_name() -> String {
     EFFECT_EVENT.to_string()
+}
+
+/// The DOM event name the shell announces islands on, for the same reason: the host has to agree with it, and a
+/// mismatch would present as a widget that never appears.
+#[wasm_bindgen]
+pub fn island_event_name() -> String {
+    ISLAND_EVENT.to_string()
 }
 
 /// Mount the program into `element_id`, opening `start` — a screen key such as `site-home` or `dashboard` — and return
