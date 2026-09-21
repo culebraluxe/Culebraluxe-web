@@ -85,6 +85,15 @@ Ask first
 Never
 
 - Commit secrets or `.env.local`. guard: workflow_app/tests/publish-scan-coverage.test.ts
+- **Deploy to production, or run anything at all against `DATABASE_URL_PROD`.** Not a migration, not a
+  script, not "just a quick query". This is the Captain's call every time, even when the change looks
+  harmless, and it has been said twice.
+  Know the mechanism, because it is automatic and silent: the Rust API picks its database from the
+  environment (`rust/core/db/src/pool.rs`, `resolve_declared_target`). `VERCEL_ENV=production`, or
+  `APP_ENV=production`/`prod`, resolves to the production database with no confirmation step. So **a
+  production deploy is a production database connection** — there is no dry run and no separate switch.
+  Anything else is dev and is free to use. Both the boot line and `GET /v1/diagnostics/db` report which
+  database the process is actually on (`target=dev` / `target=prod`): check that before assuming.
 - Create a worktree, a per-lane tree, or any file-based parallel to the database workflow.
   **NO TREES. EVER.** There is ONE workflow and it is the rows (`forge_tool_artifact`,
   `storyboard_story_run`, `forge_engine_task_execution`, `app_error`). A tree is not scratch a lane may
