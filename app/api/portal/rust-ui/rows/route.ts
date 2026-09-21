@@ -36,6 +36,7 @@ import { getReportingSnapshot } from '@/db/reporting'
 import { getSettingsAuthorities, getSettingsRoles, getSettingsUsers } from '@/db/settings-auth'
 import { getFactoryCommandCenterSnapshot } from '@/lib/factory-command-center-data'
 import { listIssuedDocuments } from '@/lib/vault-io'
+import { SqlProjectRepository } from '@/db/project-service-repository'
 import { AuthError } from '@/lib/auth/errors'
 import { getPortalActingUser } from '@/lib/auth/portal-session'
 import { withApiHandler } from '@/lib/error-capture-seam'
@@ -543,6 +544,112 @@ async function issueQueueRows(): Promise<RustUiRow[]> {
   }))
 }
 
+/**
+ * The WhatsApp diagnostic, mirroring `app/portal/admin/whatsapp-meta/page.tsx`: it asks Meta for the WABA's phone
+ * numbers and reports what comes back, including the failure verbatim. This is the screen used to prove the integration
+ * works, so a failed call must read as the error Meta returned rather than as an empty list.
+ */
+async function metaWhatsappRows(): Promise<RustUiRow[]> {
+  const wabaId = process.env.WHATSAPP_WABA_ID?.trim() || '1605543247626812'
+  const token = process.env.WHATSAPP_ACCESS_TOKEN?.trim()
+  const rows: RustUiRow[] = [
+    { id: 'waba', cells: ['WABA id', wabaId] },
+    { id: 'token', cells: ['Access token', token ? 'configured' : 'NOT configured'], badge: token ? 'ok' : 'missing' },
+    { id: 'verify', cells: ['Verify token', process.env.WHATSAPP_VERIFY_TOKEN ? 'configured' : 'NOT configured'] },
+  ]
+  if (!token) return rows
+
+  try {
+    const response = await fetch(
+      `https://graph.facebook.com/v23.0/${wabaId}/phone_numbers?access_token=${encodeURIComponent(token)}`,
+      { cache: 'no-store' },
+    )
+    const payload = (await response.json()) as {
+      data?: { id?: string; display_phone_number?: string; verified_name?: string; quality_rating?: string; code_verification_status?: string }[]
+      error?: { message?: string; type?: string; code?: number }
+    }
+    if (payload.error) {
+      return [...rows, { id: 'meta-error', cells: ['Meta error', payload.error.message ?? 'unknown'], badge: payload.error.code?.toString() }]
+    }
+    for (const phone of payload.data ?? []) {
+      rows.push({
+        id: phone.id ?? phone.display_phone_number ?? 'phone',
+        cells: [
+          phone.display_phone_number ?? '(no number)',
+          phone.verified_name ?? '—',
+          phone.code_verification_status ?? '—',
+        ],
+        badge: phone.quality_rating,
+      })
+    }
+    if ((payload.data ?? []).length === 0) {
+      rows.push({ id: 'no-phones', cells: ['No phone numbers returned for this WABA', ''], badge: 'empty' })
+    }
+    return rows
+  } catch (cause) {
+    return [...rows, { id: 'fetch-error', cells: ['Could not reach Meta', cause instanceof Error ? cause.message : String(cause)], badge: 'error' }]
+  }
+}
+
+/** The coexistence configuration the embedded signup needs, as facts — what you check before testing a signup. */
+function coexistenceRows(): RustUiRow[] {
+  return [
+    { id: 'app', cells: ['Meta app id', process.env.META_APP_ID ?? '1573618894304413'] },
+    { id: 'config', cells: ['Configuration id', process.env.META_CONFIGURATION_ID ?? '1416075310402629'] },
+    { id: 'graph', cells: ['Graph version', 'v26.0'] },
+    { id: 'app-secret', cells: ['App secret', process.env.META_APP_SECRET ? 'configured' : 'NOT configured'] },
+    { id: 'verify', cells: ['Verify token', process.env.WHATSAPP_VERIFY_TOKEN ? 'configured' : 'NOT configured'] },
+    { id: 'access', cells: ['Access token', process.env.WHATSAPP_ACCESS_TOKEN ? 'configured' : 'NOT configured'] },
+  ]
+}
+
+/**
+ * Design Lab is a live gallery of the portal's own primitives — it renders the real components, so what a rows endpoint
+ * can carry is what the lab CONTAINS, not the components themselves. The live rendering stays TypeScript until the port
+ * can render a screen of its own markup rather than rows.
+ */
+function designLabRows(): RustUiRow[] {
+  const primitives: [string, string][] = [
+    ['PageHeader', 'title, eyebrow, actions'],
+    ['Panel', 'the surface container'],
+    ['PortalCombobox', 'single select with search'],
+    ['PortalDialog / PortalDialogClose', 'modal with a close affordance'],
+    ['PortalFieldset / PortalLegend', 'grouped fields with a legend'],
+    ['PortalField / PortalFieldLabel', 'label and control pairing'],
+    ['PortalFieldDescription / PortalFieldError', 'help text and error state'],
+    ['PortalInput / PortalTextarea', 'text entry'],
+    ['PortalSelect', 'option list'],
+  ]
+  const shown: [string, string][] = [
+    ['Compact filter row', 'search + stage filter + reset'],
+    ['Compact segmented control', 'all stages / active / showing / offer / under contract / blocked'],
+    ['Field contract', 'the label + control + description + error shape'],
+    ['Surface rail (as in the shell)', 'the operating-surface rail'],
+    ['Table', 'deal rows with stage, value, next date'],
+  ]
+  return [
+    ...primitives.map(([name, what]) => ({ id: `primitive-${name}`, cells: [name, what], badge: 'primitive' })),
+    ...shown.map(([name, what]) => ({ id: `demo-${name}`, cells: [name, what], badge: 'demo' })),
+  ]
+}
+
+/**
+ * Projects, through the same repository the live screen builds. The screen's three widgets (tree, Gantt, calendar) stay
+ * in TypeScript; what the port can carry is the project list itself, which is the data those widgets are drawn over.
+ */
+async function projectRows(): Promise<RustUiRow[]> {
+  const projects = await new SqlProjectRepository(sql).list()
+  return projects.map((project) => ({
+    id: project.id,
+    cells: [
+      project.name ?? project.id,
+      project.status ?? '—',
+      project.startsAt ?? '—',
+      project.endsAt ?? '—',
+    ],
+  }))
+}
+
 type ActingActor = Awaited<ReturnType<typeof getPortalActingUser>>
 
 /**
@@ -625,7 +732,10 @@ const SCREEN_LOADERS: Record<string, ScreenLoader> = {
   issues: async () => issueQueueRows(),
   'tech-kanban': async () => factRowsFrom((await listSprintRollups()) ?? []),
   'tech-line': async () => factRowsFrom(await listAgentWorkItems()),
-  'whatsapp-meta': async () => factRowsFrom(await listPendingIntegrationInbox(50, sql)),
+  'whatsapp-meta': async () => metaWhatsappRows(),
+  'whatsapp-coexistence': async () => coexistenceRows(),
+  'design-lab': async () => designLabRows(),
+  projects: async () => projectRows(),
   security: async () => factRowsFrom(await getSecurityStatus()),
   'settings-users': async () => factRowsFrom(await getSettingsUsers()),
   'settings-roles': async () => factRowsFrom(await getSettingsRoles()),

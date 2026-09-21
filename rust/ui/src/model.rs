@@ -151,7 +151,10 @@ pub const SCREENS: &[Screen] = &[
     // ---- CORE (the registry's surface is NEXUS, labelled CORE) ----
     Screen { key: "dashboard", title: "Cockpit", path: "/portal/dashboard", surface: Surface::Core, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "clients", title: "Clients", path: "/portal/clients", surface: Surface::Core, nav: Nav::Listed, deferred: None, detail_of: None },
-    Screen { key: "projects", title: "Projects", path: "/portal/projects", surface: Surface::Core, nav: Nav::Listed, detail_of: None, deferred: Some("Project Management holds three third-party widgets in the TypeScript application — a tree, a Gantt and a calendar — and the plan for letting Rust own the container while each widget keeps its own subtree has to be decided before any of them moves.") },
+    // The captain's call: the model is proven, so Project Management starts. The list is wired; the three widgets
+    // (React Arborist tree, Gantt, FullCalendar) stay in TypeScript until the port can render a screen of its own markup
+    // and host them as islands.
+    Screen { key: "projects", title: "Projects", path: "/portal/projects", surface: Surface::Core, nav: Nav::Listed, deferred: None, detail_of: None },
     // Keys are addresses, not labels: this one stays `deals` because the rows route and the host already address it by
     // that name, while the user sees the registry's word for it.
     Screen { key: "deals", title: "Contracts", path: "/portal/deals", surface: Surface::Core, nav: Nav::Listed, deferred: None, detail_of: None },
@@ -196,7 +199,9 @@ pub const SCREENS: &[Screen] = &[
     Screen { key: "settings-authorities", title: "Authorities", path: "/portal/settings/authorities", surface: Surface::Support, nav: Nav::Unlisted, deferred: None, detail_of: None },
     Screen { key: "settings-roles", title: "Roles", path: "/portal/settings/roles", surface: Surface::Support, nav: Nav::Unlisted, deferred: None, detail_of: None },
     Screen { key: "settings-users", title: "Users", path: "/portal/settings/users", surface: Surface::Support, nav: Nav::Unlisted, deferred: None, detail_of: None },
-    Screen { key: "whatsapp-coexistence", title: "WhatsApp Coexistence", path: "/portal/admin/whatsapp-coexistence", surface: Surface::Support, nav: Nav::Unlisted, deferred: None, detail_of: None },
+    // Moved to TECH at the captain's instruction: this is the screen used to prove the WhatsApp integration works, and
+    // TECH is where the integration screens live.
+    Screen { key: "whatsapp-coexistence", title: "WhatsApp Coexistence", path: "/portal/admin/whatsapp-coexistence", surface: Surface::Tech, nav: Nav::Unlisted, deferred: None, detail_of: None },
 
     // ---- screens that exist and are reached from elsewhere (not in the registry) ----
     Screen { key: "attention", title: "Attention", path: "/portal/attention", surface: Surface::Core, nav: Nav::Unlisted, deferred: None, detail_of: None },

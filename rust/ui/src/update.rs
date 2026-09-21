@@ -123,8 +123,14 @@ mod tests {
     #[test]
     fn the_deferred_screen_navigates_without_fetching() {
         let mut model = Model::default();
-        assert!(update(&mut model, Msg::Navigate(target("projects"))).is_empty());
-        assert_eq!(model.screen, target("projects"));
+        // The receipt scanner is the screen that is a placeholder BY DESIGN (its own header calls it FAKE V1), so it is
+        // the honest example now that Projects is wired.
+        assert!(update(
+            &mut model,
+            Msg::Navigate(target("accounting-receipt-scanner"))
+        )
+        .is_empty());
+        assert_eq!(model.screen, target("accounting-receipt-scanner"));
         assert!(
             !model.loading,
             "a placeholder must not show a spinner for data it never asks for"

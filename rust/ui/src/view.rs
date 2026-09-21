@@ -355,13 +355,8 @@ mod tests {
 
     #[test]
     fn a_screen_with_no_data_says_why_in_its_own_words() {
-        let html = render(&Model {
-            screen: target("projects"),
-            ..Model::default()
-        });
-        // The reason travels with the screen rather than being one hardcoded sentence, so this asserts the screen's
-        // OWN words: a placeholder by design, an unwired screen and a deliberately-moved-later screen differ.
-        assert!(html.contains("three third-party widgets"));
+        // The reason travels with the screen rather than being one hardcoded sentence. Projects is wired now, so the
+        // example is the screen that is a placeholder by design.
         let placeholder = render(&Model {
             screen: target("accounting-receipt-scanner"),
             ..Model::default()
