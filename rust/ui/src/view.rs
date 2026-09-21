@@ -494,6 +494,159 @@ fn services_view() -> String {
     )
 }
 
+
+/// The login-unauthorized page's own text, extracted from the TypeScript page it replaces.
+///
+/// NOT retyped, deliberately: this is reviewed wording (a policy Meta requires for the WhatsApp integration), and a
+/// hand-copied paragraph is a paragraph that can quietly differ. `kind` is the tag it had, so the render below can put
+/// it back in the same shape.
+const LOGIN_UNAUTHORIZED_VIEW_CONTENT: [(&str, &str); 3] = [
+    ("h1", "Access not authorized"),
+    ("p", "This account is authenticated but is not authorized for CulebraLuxe. Accounts are provisioned by an administrator — there is no self-service sign-up or automatic access."),
+    ("p", "If you believe this is a mistake, contact a CulebraLuxe administrator and provide the identity shown by your sign-in provider. Your password, secret, and provider credentials are never shared or displayed here."),
+];
+
+/// The static page, rendered from that text. No read model and no fetch: a static page is content, and content does not
+/// belong in a database query.
+fn login_unauthorized_view() -> String {
+    let body = LOGIN_UNAUTHORIZED_VIEW_CONTENT
+        .iter()
+        .map(|(kind, text)| match *kind {
+            "h1" | "h2" | "h3" => format!(
+                "<h2 class=\"font-serif text-2xl font-light text-foreground\">{}</h2>",
+                escape(text)
+            ),
+            "li" => format!("<li class=\"ml-6 list-disc\">{}</li>", escape(text)),
+            _ => format!(
+                "<p class=\"mt-4 text-sm font-light leading-7 text-muted-foreground\">{}</p>",
+                escape(text)
+            ),
+        })
+        .collect::<String>();
+    format!(
+        "<article class=\"px-6 py-20 md:px-12 md:py-28\"><div class=\"mx-auto max-w-4xl space-y-6\">{body}</div></article>"
+    )
+}
+
+
+/// The auth-error page's own text, extracted from the TypeScript page it replaces.
+///
+/// NOT retyped, deliberately: this is reviewed wording (a policy Meta requires for the WhatsApp integration), and a
+/// hand-copied paragraph is a paragraph that can quietly differ. `kind` is the tag it had, so the render below can put
+/// it back in the same shape.
+const AUTH_ERROR_VIEW_CONTENT: [(&str, &str); 2] = [
+    ("h1", "Authentication failed"),
+    ("p", "Sign-in could not be completed. Please try again."),
+];
+
+/// The static page, rendered from that text. No read model and no fetch: a static page is content, and content does not
+/// belong in a database query.
+fn auth_error_view() -> String {
+    let body = AUTH_ERROR_VIEW_CONTENT
+        .iter()
+        .map(|(kind, text)| match *kind {
+            "h1" | "h2" | "h3" => format!(
+                "<h2 class=\"font-serif text-2xl font-light text-foreground\">{}</h2>",
+                escape(text)
+            ),
+            "li" => format!("<li class=\"ml-6 list-disc\">{}</li>", escape(text)),
+            _ => format!(
+                "<p class=\"mt-4 text-sm font-light leading-7 text-muted-foreground\">{}</p>",
+                escape(text)
+            ),
+        })
+        .collect::<String>();
+    format!(
+        "<article class=\"px-6 py-20 md:px-12 md:py-28\"><div class=\"mx-auto max-w-4xl space-y-6\">{body}</div></article>"
+    )
+}
+
+
+/// The portal-auth-proof page's own text, extracted from the TypeScript page it replaces.
+///
+/// NOT retyped, deliberately: this is reviewed wording (a policy Meta requires for the WhatsApp integration), and a
+/// hand-copied paragraph is a paragraph that can quietly differ. `kind` is the tag it had, so the render below can put
+/// it back in the same shape.
+const PORTAL_AUTH_PROOF_VIEW_CONTENT: [(&str, &str); 2] = [
+    ("h1", "Portal Auth Proof"),
+    ("p", "Safe session diagnostics only."),
+];
+
+/// The static page, rendered from that text. No read model and no fetch: a static page is content, and content does not
+/// belong in a database query.
+fn portal_auth_proof_view() -> String {
+    let body = PORTAL_AUTH_PROOF_VIEW_CONTENT
+        .iter()
+        .map(|(kind, text)| match *kind {
+            "h1" | "h2" | "h3" => format!(
+                "<h2 class=\"font-serif text-2xl font-light text-foreground\">{}</h2>",
+                escape(text)
+            ),
+            "li" => format!("<li class=\"ml-6 list-disc\">{}</li>", escape(text)),
+            _ => format!(
+                "<p class=\"mt-4 text-sm font-light leading-7 text-muted-foreground\">{}</p>",
+                escape(text)
+            ),
+        })
+        .collect::<String>();
+    format!(
+        "<article class=\"px-6 py-20 md:px-12 md:py-28\"><div class=\"mx-auto max-w-4xl space-y-6\">{body}</div></article>"
+    )
+}
+
+
+
+/// The seller-strategy page's own text, extracted from the TypeScript page it replaces.
+///
+/// NOT retyped, deliberately: this is reviewed wording (a policy Meta requires for the WhatsApp integration), and a
+/// hand-copied paragraph is a paragraph that can quietly differ. `kind` is the tag it had, so the render below can put
+/// it back in the same shape.
+const SELLER_STRATEGY_VIEW_CONTENT: [(&str, &str); 21] = [
+    ("p", "Core · Strategic disposition"),
+    ("h1", "Seller Strategy"),
+    ("p", "Strategic disposition analysis for sellers — change any assumption and the model recalculates live."),
+    ("p", "Recommended"),
+    ("p", "expected PV · months to liquidity"),
+    ("p", "Why this strategy?"),
+    ("p", "Expected PV Ranking"),
+    ("p", "Shared facts"),
+    ("h2", "Live Assumptions"),
+    ("p", "Sunk · basis"),
+    ("p", "mo · future"),
+    ("p", "ASSUMPTIONS"),
+    ("p", "expected PV · changes apply immediately"),
+    ("p", "Hero visual"),
+    ("h2", "Decision Map"),
+    ("p", "Live decision tree with probabilities, outcomes, and present values"),
+    ("p", "Read-out"),
+    ("h2", "Key Takeaways"),
+    ("p", "Evidence"),
+    ("h2", "Analysis Detail"),
+    ("p", "branches across enabled paths · winner at PV. Open Show All Branches for the full probability, price, after-tax and discounted-PV breakdown."),
+];
+
+/// The static page, rendered from that text. No read model and no fetch: a static page is content, and content does not
+/// belong in a database query.
+fn seller_strategy_view() -> String {
+    let body = SELLER_STRATEGY_VIEW_CONTENT
+        .iter()
+        .map(|(kind, text)| match *kind {
+            "h1" | "h2" | "h3" => format!(
+                "<h2 class=\"font-serif text-2xl font-light text-foreground\">{}</h2>",
+                escape(text)
+            ),
+            "li" => format!("<li class=\"ml-6 list-disc\">{}</li>", escape(text)),
+            _ => format!(
+                "<p class=\"mt-4 text-sm font-light leading-7 text-muted-foreground\">{}</p>",
+                escape(text)
+            ),
+        })
+        .collect::<String>();
+    format!(
+        "<article class=\"px-6 py-20 md:px-12 md:py-28\"><div class=\"mx-auto max-w-4xl space-y-6\">{body}</div></article>"
+    )
+}
+
 /// Screens that render markup of their own instead of a generic list of rows.
 ///
 /// Everything else in this crate renders rows because that is what a read model is. A lab, a board or a widget host is
@@ -504,6 +657,10 @@ fn custom_body(model: &Model) -> Option<String> {
     match model.screen.key {
         "tech-lab" => Some(tech_lab()),
         "rust-lab" => Some(rust_lab(model)),
+        "seller-strategy" => Some(seller_strategy_view()),
+        "portal-auth-proof" => Some(portal_auth_proof_view()),
+        "auth-error" => Some(auth_error_view()),
+        "login-unauthorized" => Some(login_unauthorized_view()),
         "site-services" => Some(services_view()),
         "site-privacy" => Some(privacy_view()),
         "site-whatsapp" => Some(whatsapp_view()),

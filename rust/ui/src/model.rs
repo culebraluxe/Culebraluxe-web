@@ -288,7 +288,7 @@ pub const SCREENS: &[Screen] = &[
     Screen { key: "login-recovery", title: "Login recovery", path: "/login/recovery", surface: Surface::Site, nav: Nav::Unlisted, deferred: None, detail_of: None },
     Screen { key: "login-unauthorized", title: "Login unauthorized", path: "/login/unauthorized", surface: Surface::Site, nav: Nav::Unlisted, deferred: None, detail_of: None },
     Screen { key: "auth-error", title: "Auth error", path: "/auth/error", surface: Surface::Site, nav: Nav::Unlisted, deferred: None, detail_of: None },
-    Screen { key: "review", title: "Review", path: "/review/[token]/[page]", surface: Surface::Site, nav: Nav::Unlisted, deferred: None, detail_of: None },
+    Screen { key: "review", title: "Review", path: "/review/[token]/[page]", surface: Surface::Site, nav: Nav::Unlisted, deferred: Some("Never got working: a multi-panel client review tool built out of five components that were never finished. The screen says so rather than pretending, and finishing the feature is a decision rather than a port."), detail_of: None },
     Screen { key: "portal-root", title: "Portal", path: "/portal", surface: Surface::Core, nav: Nav::Unlisted, deferred: None, detail_of: None },
     Screen { key: "portal-auth-proof", title: "Portal auth proof", path: "/portal-auth-proof", surface: Surface::Support, nav: Nav::Unlisted, deferred: None, detail_of: None },
     Screen { key: "dev-apple-map-test", title: "Apple map test", path: "/dev/apple-map-test", surface: Surface::Support, nav: Nav::Unlisted, deferred: Some("A manual integration harness for Apple Maps. Nothing to render from a read model; the page exists to be driven by hand."), detail_of: None },

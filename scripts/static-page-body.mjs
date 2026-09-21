@@ -7,13 +7,15 @@
 //   node /tmp/static-body.mjs <screen-key> <app-dir> <fn-name>
 import { readFileSync, writeFileSync } from 'node:fs'
 
-const [key, dir, fn] = process.argv.slice(2)
+const [key, dir, fn, sourcePath] = process.argv.slice(2)
 if (!key || !dir || !fn) {
-  console.error('usage: node scripts/static-page-body.mjs <screen-key> <app-dir> <fn-name>')
+  console.error('usage: node scripts/static-page-body.mjs <screen-key> <app-dir> <fn-name> [source-file]')
   console.error('  e.g. node scripts/static-page-body.mjs site-privacy /privacy privacy_view')
+  console.error('  source-file  extract from a different file than app<dir>/page.tsx — a screen whose text lives in the')
+  console.error('               component the page renders, like seller-strategy (components/seller-strategy/*.tsx)')
   process.exit(1)
 }
-const source = readFileSync(`app${dir}/page.tsx`, 'utf8')
+const source = readFileSync(sourcePath ?? `app${dir}/page.tsx`, 'utf8')
 
 // Constants the page interpolates, so the body carries the value rather than the expression.
 const consts = {}
