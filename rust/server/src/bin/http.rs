@@ -20,6 +20,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     );
     let app = build_router(db.clone(), infrastructure, config);
 
+    // The server is a long-lived process, so its pool is the one that stays warm. Neon suspends an idle database and a
+    // suspended database turns the next user page load into a cold connect - the exact cost the retry policy exists to
+    // limp through. A ping every few minutes means users never pay it. `FORGE_DB_KEEPALIVE_MS=0` turns it off.
+    let _keepalive = db.spawn_keepalive(&tokio::runtime::Handle::current());
+
     let bind = std::env::var("RUST_API_BIND")
         .ok()
         .map(|value| value.trim().to_owned())

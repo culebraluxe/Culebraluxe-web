@@ -1,5 +1,5 @@
 use super::context::{resolve_request_context, ResolvedRequestContext};
-use super::{ApiError, ApiState};
+use super::{engine, ApiError, ApiState};
 use crate::service_support::CoreServiceError;
 use crate::vault::VaultArtifactPort;
 use async_trait::async_trait;
@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ApiSuccess<T> {
+pub(crate) struct ApiSuccess<T> {
     ok: bool,
     value: T,
     correlation_id: String,
@@ -281,6 +281,13 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/calendar", get(calendar))
         .route("/v1/vault/documents", get(vault_documents))
         .route("/v1/vault/documents/{id}", get(vault_document))
+        // The workflow engine, served. Same verbs the re-workflow CLI accepted, now behind the internal key and the
+        // same identity resolution as every other route, so an engine command is a first-class part of this server
+        // instead of a spawned process with its own pool and no error capture.
+        .route("/v1/engine/transactions", post(engine::start_transaction))
+        .route("/v1/engine/timers/reconcile", post(engine::reconcile_timer))
+        .route("/v1/engine/tasks/complete", post(engine::complete_task))
+        .route("/v1/engine/reclaim", post(engine::reclaim))
         // Signature (BoldSign). Mirrors the production endpoints the TypeScript path already serves, so the webhook
         // and the operator actions can be pointed at Rust without changing a client contract.
         .route("/v1/signature/requests", post(signature_send))
@@ -838,7 +845,7 @@ async fn vault_document(
     Ok(success(value, &resolved))
 }
 
-fn success<T>(value: T, resolved: &ResolvedRequestContext) -> Json<ApiSuccess<T>> {
+pub(crate) fn success<T>(value: T, resolved: &ResolvedRequestContext) -> Json<ApiSuccess<T>> {
     Json(ApiSuccess {
         ok: true,
         value,

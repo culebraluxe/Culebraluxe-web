@@ -79,12 +79,39 @@ impl Database {
         self.target
     }
 
+    /// Keep the pool warm so a suspended Neon branch never has to be woken by a user request.
+    ///
+    /// Neon suspends an idle database, and a suspended database makes the NEXT connect slow - which is exactly the
+    /// cold-connect the retry policy exists to limp through. Prevention beats retrying around it: one cheap `select 1`
+    /// every few minutes means the wake cost is never paid by a page load. The failure of a keepalive ping is not
+    /// returned to anyone, but it IS announced like any other failure, so a database that has genuinely gone away
+    /// still produces an `app_error` row instead of failing silently in a background task.
+    ///
+    /// OFF by default in tests and in anything with `FORGE_DB_KEEPALIVE_MS=0`, because a pool that pings forever is
+    /// also a pool a test process cannot exit.
+    pub fn spawn_keepalive(&self, runtime: &tokio::runtime::Handle) -> Option<tokio::task::JoinHandle<()>> {
+        let interval_ms = keepalive_interval_ms();
+        if interval_ms == 0 {
+            return None;
+        }
+        let pool = self.pool.clone();
+        Some(runtime.spawn(async move {
+            let mut ticker = tokio::time::interval(Duration::from_millis(interval_ms));
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            // The first tick is immediate; skip it so a just-started pool is not pinged twice.
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                if let Err(failure) = ping_pool(&pool).await {
+                    // Announced from the DbFailure constructor, so this appears in app_error like any other failure.
+                    let _ = failure;
+                }
+            }
+        }))
+    }
+
     pub async fn ping(&self) -> DbResult<()> {
-        let _: i32 = sqlx::query_scalar("select 1::int")
-            .fetch_one(&self.pool)
-            .await
-            .map_err(|error| DbFailure::from_sqlx("db.ping", &error))?;
-        Ok(())
+        ping_pool(&self.pool).await
     }
 
     pub async fn begin(&self, operation: &'static str) -> DbResult<DbTransaction> {
@@ -189,6 +216,23 @@ fn normalize_ssl_mode(url: &str) -> String {
     url.replace("sslmode=prefer", "sslmode=verify-full")
         .replace("sslmode=require", "sslmode=verify-full")
         .replace("sslmode=verify-ca", "sslmode=verify-full")
+}
+
+/// `FORGE_DB_KEEPALIVE_MS` — how often to ping. Default 4 minutes, which is under Neon's 5-minute idle suspend, so a
+/// long-lived process stays warm without hammering the database. `0` disables it.
+fn keepalive_interval_ms() -> u64 {
+    match env::var("FORGE_DB_KEEPALIVE_MS") {
+        Ok(value) => value.trim().parse::<u64>().unwrap_or(0),
+        Err(_) => 240_000,
+    }
+}
+
+async fn ping_pool(pool: &PgPool) -> DbResult<()> {
+    let _: i32 = sqlx::query_scalar("select 1::int")
+        .fetch_one(pool)
+        .await
+        .map_err(|error| DbFailure::from_sqlx("db.ping", &error))?;
+    Ok(())
 }
 
 fn positive_u32(name: &str, fallback: u32) -> u32 {

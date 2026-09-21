@@ -15,6 +15,10 @@ domain = { path = "../core/domain" }
 # what made the BoldSign adapter attachable: without it the Signature service could not be constructed on this
 # transport, which is why the `signature` capability sat in the parity ledger as "built, 0 routes".
 integrations = { path = "../integrations" }
+# The workflow engine's operations live in the forge crate. The composition root hosts them, the same way
+# `integrations` is what made the BoldSign adapter attachable: the engine stops being a process we spawn per call
+# and becomes a route that shares this server's pool, retry policy, error capture and identity resolution.
+forge = { path = "../forge" }
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true

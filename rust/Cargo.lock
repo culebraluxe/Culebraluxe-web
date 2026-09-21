@@ -347,6 +347,7 @@ dependencies = [
  "sha2 0.10.9",
  "sqlx",
  "thiserror",
+ "tokio",
  "uuid",
 ]
 
@@ -1545,11 +1546,13 @@ dependencies = [
  "chrono",
  "db",
  "domain",
+ "forge",
  "integrations",
  "serde",
  "serde_json",
  "service",
  "sha2 0.10.9",
+ "sqlx",
  "thiserror",
  "tokio",
  "uuid",
