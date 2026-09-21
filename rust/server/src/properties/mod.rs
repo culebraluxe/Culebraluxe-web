@@ -34,20 +34,23 @@ pub trait PropertyRepository: Send {
 #[async_trait]
 impl PropertyRepository for PropertyDao {
     async fn get(&mut self, property_id: &str) -> DbResult<Option<Property>> {
-        PropertyDao::get(self, property_id).await
+        db::retrying_read!(PropertyDao::get(self, property_id))
     }
 
     async fn find_by_address(
         &mut self,
         request: &FindPropertyByAddressRequest,
     ) -> DbResult<Option<Property>> {
-        PropertyDao::find_by_address(self, request).await
+        db::retrying_read!(PropertyDao::find_by_address(self, request))
     }
 
     async fn for_person(&mut self, person_id: &str) -> DbResult<PersonPropertyContext> {
-        PropertyDao::for_person(self, person_id).await
+        db::retrying_read!(PropertyDao::for_person(self, person_id))
     }
 
+    // The three below write. They are deliberately not retried: a transient failure here can happen *after* the write
+    // landed, and repeating it would either duplicate a link or silently re-apply a status change. Reads above are
+    // repeatable; these are not.
     async fn upsert_for_person(
         &mut self,
         request: &UpsertPropertyForPersonRequest,

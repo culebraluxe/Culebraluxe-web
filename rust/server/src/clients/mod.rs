@@ -42,29 +42,31 @@ impl ClientRepository for ClientDao {
         &mut self,
         request: &ClientDirectoryPageRequest,
     ) -> DbResult<(Vec<ClientDirectoryRecord>, i64)> {
-        ClientDao::directory_page(self, request).await
+        // Every method on this impl is a read, so every one of them may be attempted again: a page load that meets a
+        // suspended Neon branch should not become a 503 when one more try would have answered it.
+        db::retrying_read!(ClientDao::directory_page(self, request))
     }
 
     async fn admin_page(
         &mut self,
         request: &ClientAdminPageRequest,
     ) -> DbResult<(Vec<ClientAdminRow>, i64)> {
-        ClientDao::admin_page(self, request).await
+        db::retrying_read!(ClientDao::admin_page(self, request))
     }
 
     async fn detail(&mut self, person_id: &str) -> DbResult<Option<ClientDetail>> {
-        ClientDao::detail(self, person_id).await
+        db::retrying_read!(ClientDao::detail(self, person_id))
     }
 
     async fn assignable_agents(&mut self) -> DbResult<Vec<AssignableAgent>> {
-        ClientDao::assignable_agents(self).await
+        db::retrying_read!(ClientDao::assignable_agents(self))
     }
 
     async fn evidence_for_people(
         &mut self,
         person_ids: &[String],
     ) -> DbResult<Vec<(String, RelationshipEvidenceRecord)>> {
-        ClientDao::evidence_for_people(self, person_ids).await
+        db::retrying_read!(ClientDao::evidence_for_people(self, person_ids))
     }
 
     async fn history_events(
@@ -73,11 +75,11 @@ impl ClientRepository for ClientDao {
         limit: i64,
         offset: i64,
     ) -> DbResult<(Vec<ClientHistoryEventRecord>, i64)> {
-        ClientDao::history_events(self, person_id, limit, offset).await
+        db::retrying_read!(ClientDao::history_events(self, person_id, limit, offset))
     }
 
     async fn covered_sources(&mut self, person_id: &str) -> DbResult<Vec<String>> {
-        ClientDao::covered_sources(self, person_id).await
+        db::retrying_read!(ClientDao::covered_sources(self, person_id))
     }
 }
 

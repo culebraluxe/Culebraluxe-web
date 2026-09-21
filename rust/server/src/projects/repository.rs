@@ -14,11 +14,13 @@ pub trait ProjectRepository: Send {
 #[async_trait]
 impl ProjectRepository for ProjectDao {
     async fn get(&mut self, id: &str) -> DbResult<Option<Project>> {
-        ProjectDao::get(self, id).await
+        // A read, so a transient cold-connect is worth another attempt. Writes below are not wrapped: `create` has no
+        // claim guarding it, and retrying an unguarded insert is how one project becomes two.
+        db::retrying_read!(ProjectDao::get(self, id))
     }
 
     async fn list(&mut self) -> DbResult<Vec<Project>> {
-        ProjectDao::list(self).await
+        db::retrying_read!(ProjectDao::list(self))
     }
 
     async fn create(&mut self, request: &CreateProjectRequest) -> DbResult<Project> {

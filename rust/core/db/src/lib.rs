@@ -18,7 +18,8 @@ mod person;
 mod pool;
 mod project;
 mod property;
-mod retry;
+// Public because the `retrying_read!` macro expands inside other crates and has to name these helpers there.
+pub mod retry;
 mod security;
 mod showing;
 mod signature;
