@@ -77,8 +77,10 @@ node scripts/rust-live-check/pool-counters.mjs 5   # pool reuse, checkouts per p
 ## Read next
 
 - [AGENTS.md](AGENTS.md) — the operating rules, where code goes, and the bugs not to reintroduce
-- [docs/ARCH-01-README-SUPPLEMENT.md](docs/ARCH-01-README-SUPPLEMENT.md) — architecture continuity
-- [docs/STARTUP-DELIVERY-OPERATING-RULES.md](docs/STARTUP-DELIVERY-OPERATING-RULES.md) — schema, release and environment rules
+- [docs/ARCH-01-README-SUPPLEMENT.md](docs/ARCH-01-README-SUPPLEMENT.md) — the architecture in one page
+- **The layers** — [UI](docs/layers/UI.md) · [SERVICES](docs/layers/SERVICES.md) · [WORKFLOW](docs/layers/WORKFLOW.md) · [DB](docs/layers/DB.md) · [FORGE](docs/layers/FORGE.md)
+- [docs/rust-contributing.md](docs/rust-contributing.md) — how to make a change
 - [docs/rust-resilience-status.md](docs/rust-resilience-status.md) — what is wired, measured, and deliberately not done
 - [docs/rust-prod-checklist.md](docs/rust-prod-checklist.md) — pre-deploy checks, knobs, what to watch
+- [docs/STARTUP-DELIVERY-OPERATING-RULES.md](docs/STARTUP-DELIVERY-OPERATING-RULES.md) — schema, release and environment rules
 - [docs/agent/LEGACY-TYPESCRIPT.md](docs/agent/LEGACY-TYPESCRIPT.md) — which TypeScript is current and which is retired
