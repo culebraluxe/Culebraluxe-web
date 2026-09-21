@@ -150,11 +150,6 @@
       "count": 1
     }
   },
-  "app/portal/deals/page.tsx": {
-    "no-restricted-imports": {
-      "count": 2
-    }
-  },
   "app/portal/forms/[formId]/preview/route.ts": {
     "no-restricted-imports": {
       "count": 2
@@ -166,11 +161,6 @@
     }
   },
   "app/portal/issues/actions.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "app/portal/issues/page.tsx": {
     "no-restricted-imports": {
       "count": 1
     }
@@ -200,44 +190,14 @@
       "count": 12
     }
   },
-  "app/portal/property-admin/[propertyId]/page.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "app/portal/property-admin/page.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "app/portal/storyboard/actions.ts": {
     "no-restricted-imports": {
       "count": 1
     }
   },
-  "app/portal/system-health/page.tsx": {
-    "no-restricted-imports": {
-      "count": 2
-    }
-  },
   "app/portal/tech/actions.ts": {
     "no-restricted-imports": {
       "count": 5
-    }
-  },
-  "app/portal/tech/flight-recorder/[instanceId]/page.tsx": {
-    "no-restricted-imports": {
-      "count": 3
-    }
-  },
-  "app/portal/tech/kanban/page.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "app/portal/tech/page.tsx": {
-    "no-restricted-imports": {
-      "count": 6
     }
   },
   "app/portal/wbs/actions.ts": {

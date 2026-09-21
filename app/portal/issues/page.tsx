@@ -1,18 +1,22 @@
-import { IssuesQueue } from "@/components/portal/issues-queue"
-import { getIssueQueue } from "@/legacy/db/issues"
+import { RustUiHost } from '@/components/rust-ui/host'
 
-export const dynamic = "force-dynamic"
+// ---------------------------------------------------------------------------
+// CONVERTED TO RUST (screen: issues, surface Ops).
+//
+// The route is unchanged; the screen is not. It rendered a TypeScript component with its own state
+// (12 interactive hooks); it now renders the Rust screen, fed by the portal rows route.
+//
+// HONEST NOTE ON PARITY: this crossed over before the Rust body had those controls, on instruction
+// that the conversion comes first and the gaps are worked afterwards. What is missing is named at
+// docs/layers/UI.md rather than implied by silence - the rows are here, the behaviour is the
+// follow-up. Scripts: scripts/ui-flip-readiness.mjs for the count.
+// ---------------------------------------------------------------------------
 
-// OPS-11A — Operational Issue Queue + Runbook dashboard (OPPS surface).
-// Server-fetches the first bounded page of OPEN operations issues; the client
-// renders the two-pane queue and pages via /api/portal/issues.
-export default async function IssuesPage() {
-  const page = await getIssueQueue({
-    scope: "OPERATIONS_EXCEPTION",
-    state: "OPEN",
-    page: 1,
-    pageSize: 50,
-  })
+export default function Page() {
 
-  return <IssuesQueue initialPage={page} />
+  return (
+    <div className="min-h-screen bg-background">
+      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="issues" />
+    </div>
+  )
 }

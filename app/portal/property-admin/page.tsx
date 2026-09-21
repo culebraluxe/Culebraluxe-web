@@ -1,16 +1,22 @@
-import { PropertyAdmin } from "@/components/portal/property-admin"
-import { PropertyCreatePanel } from "@/components/portal/write/property-create-panel"
-import { getPropertyAdmin } from "@/legacy/db/property-admin"
+import { RustUiHost } from '@/components/rust-ui/host'
 
-export const dynamic = "force-dynamic"
+// ---------------------------------------------------------------------------
+// CONVERTED TO RUST (screen: property-admin, surface Ops).
+//
+// The route is unchanged; the screen is not. It rendered a TypeScript component with its own state
+// (31 interactive hooks); it now renders the Rust screen, fed by the portal rows route.
+//
+// HONEST NOTE ON PARITY: this crossed over before the Rust body had those controls, on instruction
+// that the conversion comes first and the gaps are worked afterwards. What is missing is named at
+// docs/layers/UI.md rather than implied by silence - the rows are here, the behaviour is the
+// follow-up. Scripts: scripts/ui-flip-readiness.mjs for the count.
+// ---------------------------------------------------------------------------
 
-export default async function PropertyAdminPage() {
-  const rows = await getPropertyAdmin()
+export default function Page() {
 
   return (
-    <>
-      <PropertyCreatePanel />
-      <PropertyAdmin rows={rows} />
-    </>
+    <div className="min-h-screen bg-background">
+      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="property-admin" />
+    </div>
   )
 }
