@@ -74,6 +74,15 @@ export function RustUiHost({
 }) {
   const started = useRef(false)
   const [error, setError] = useState<string | null>(null)
+  /**
+   * Whether the module has mounted.
+   *
+   * THIS EXISTS BECAUSE A BLANK PAGE SAYS NOTHING. The container is empty until Rust paints into it, so the difference
+   * between "the wasm is loading", "the wasm failed" and "React never ran at all" was invisible — all three looked
+   * like a white page. The placeholder is a SIBLING of the mount point rather than its content, because React must not
+   * own anything inside `#rust-ui`: Rust replaces that element's children and a React child there would collide.
+   */
+  const [mounted, setMounted] = useState(false)
   // Refs rather than state: the island event fires from the WASM side, outside a React render, so it must read the
   // current rows and the current registry without being re-registered on every render.
   const rowsRef = useRef<RustUiRow[]>([])
@@ -176,6 +185,7 @@ export function RustUiHost({
       // `mount` returns the effects caused by opening the first screen, so the page arrives with data instead of a
       // list that fills in once you click something.
       handle(JSON.parse(module.mount(module.mount_id(), start)) as RustUiEffect[])
+      setMounted(true)
     }
 
     void run().catch((cause: unknown) => {
@@ -189,6 +199,11 @@ export function RustUiHost({
 
   return (
     <>
+      {!mounted && !error ? (
+        <p className="p-6 text-sm text-muted-foreground" data-rust-ui-status="loading">
+          Loading the Rust UI…
+        </p>
+      ) : null}
       <div id="rust-ui" />
       {error ? (
         <p className="border-t border-destructive/40 bg-destructive/10 p-3 text-sm" role="alert">
