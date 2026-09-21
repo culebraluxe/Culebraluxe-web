@@ -16,25 +16,39 @@ use crate::value::Value;
 
 pub struct NeonStore {
     db: Database,
-    rt: tokio::runtime::Runtime,
+    rt: &'static tokio::runtime::Runtime,
+}
+
+/// The runtime every store shares.
+///
+/// This used to be built PER STORE with `worker_threads(1)`, which is why the engine could not overlap database work:
+/// every call in the process funnelled through a single worker thread. A shared multi-threaded runtime is the smallest
+/// change that removes that funnel without touching the synchronous `Store` trait - the trait still blocks its caller,
+/// but the database work itself now spreads across workers instead of queueing behind one.
+///
+/// The larger fix is making `Store`/`TxStore` async (45 methods) so nothing blocks at all; the engine being a
+/// synchronous process per call is the second half of the same problem, and the shape for that is a long-running
+/// engine service rather than a spawned binary.
+fn shared_runtime() -> &'static tokio::runtime::Runtime {
+    static RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+    RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("workflow runtime")
+    })
 }
 
 impl NeonStore {
     pub fn from_database(db: Database) -> Result<Self> {
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(1)
-            .enable_all()
-            .build()
-            .map_err(|e| WorkflowError::generic(e.to_string()))?;
-        Ok(Self { db, rt })
+        Ok(Self {
+            db,
+            rt: shared_runtime(),
+        })
     }
 
     pub fn connect_from_env() -> Result<Self> {
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(1)
-            .enable_all()
-            .build()
-            .map_err(|e| WorkflowError::generic(e.to_string()))?;
+        let rt = shared_runtime();
         let db = rt
             .block_on(Database::connect_from_env())
             .map_err(|e| WorkflowError::generic(e.to_string()))?;
