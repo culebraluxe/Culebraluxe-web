@@ -27,7 +27,6 @@ import {
   type FramerLabCoreCardId,
   type FramerLabCoreTab,
   type FramerLabDeal,
-  type FramerLabFilterStatus,
   type FramerLabQuickAction,
   type FramerLabSortKey,
   type FramerUiLabController,
@@ -564,7 +563,7 @@ export function FramerCoreComponents({
                       "rounded-[14px] border p-4 text-left transition " +
                       (selected
                         ? "border-[#c6a15b]/35 bg-[#c6a15b]/10"
-                        : "border-white/8 bg-white/[0.03]")
+                        : "border-white/[0.08] bg-white/[0.03]")
                     }
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -853,7 +852,7 @@ export function FramerCoreComponents({
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-2">
                       <span className="text-sm font-medium text-white">{command.label}</span>
-                      <span className="rounded-full border border-white/8 px-2 py-0.5 text-[11px] text-white/32">
+                      <span className="rounded-full border border-white/[0.08] px-2 py-0.5 text-[11px] text-white/32">
                         {command.group}
                       </span>
                     </span>
