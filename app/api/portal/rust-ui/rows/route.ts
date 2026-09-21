@@ -35,6 +35,8 @@ import { getReportingSnapshot } from '@/legacy/db/reporting'
 import { getSettingsAuthorities, getSettingsRoles, getSettingsUsers } from '@/legacy/db/settings-auth'
 import { getFactoryCommandCenterSnapshot } from '@/lib/factory-command-center-data'
 import { listIssuedDocuments } from '@/lib/vault-io'
+import { getRuntimeInspection } from '@/legacy/workflow_app/runtime-inspector-read'
+import { getStoryExecutionCockpit } from '@/lib/command-console-data'
 import { engineConfigured } from '@/legacy/workflow_app/engine-client'
 import { getWorkflowSummaries } from '@/legacy/workflow_app/read-service'
 import { SqlProjectRepository } from '@/legacy/db/project-service-repository'
@@ -695,6 +697,13 @@ const SCREEN_LOADERS: Record<string, ScreenLoader> = {
   // An empty answer is the honest one: it keeps the host's fetch a success instead of an error banner above a screen
   // that never wanted data.
   'rust-lab': async () => [],
+  // The two record screens that are reached from an instance rather than from a row of their own list. Both read models
+  // exist and were already serving the TypeScript screens, which is what makes these conversions carry real data
+  // rather than a notice.
+  'runtime-record': async (_actor, scope) =>
+    factRowsFrom(await getRuntimeInspection(requireScope(scope, 'runtime-record'))),
+  'console-story': async (_actor, scope) =>
+    factRowsFrom(await getStoryExecutionCockpit(requireScope(scope, 'console-story'))),
   'tech-app-errors': async () => errorRows(25),
   'tech-flight-recorder': async () => traceRows({ limit: 50 }),
   'tech-runs': async () => (await listForgeBatches(10)).map(batchRows),

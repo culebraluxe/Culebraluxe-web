@@ -360,6 +360,32 @@ fn rust_lab(model: &Model) -> String {
     )
 }
 
+/// The WhatsApp contact page: static copy, rendered by Rust.
+///
+/// A body rather than rows because there is no read model here and never was — the page is a phone number and a link.
+/// Porting it means the route stops being TypeScript, which is the point; inventing a "contact" read model so a generic
+/// list could render one line would be the wrong shape for the same result.
+fn whatsapp_view() -> String {
+    "<div class=\"bg-[var(--brand-navy)] px-6 py-20 text-[var(--brand-ivory)] md:px-12\">\
+       <section class=\"mx-auto max-w-3xl text-center\">\
+         <p class=\"mb-4 text-sm uppercase tracking-[0.3em] text-[var(--brand-gold)]\">Official Business Contact</p>\
+         <h1 class=\"font-serif text-4xl font-medium md:text-5xl\">CulebraLuxe WhatsApp</h1>\
+         <p class=\"mx-auto mt-6 max-w-xl text-base leading-7 text-[var(--brand-ivory)]/80\">\
+           Contact CulebraLuxe through our official WhatsApp Business number.\
+         </p>\
+         <a href=\"https://wa.me/17876383333\" rel=\"noopener\" \
+           class=\"mt-10 inline-flex rounded-full border border-[var(--brand-gold)]/60 px-8 py-4 text-lg tracking-wide \
+           transition hover:border-[var(--brand-gold)] hover:text-[var(--brand-gold)]\">+1 (787) 638-3333</a>\
+       </section>\
+     </div>"
+        .to_string()
+}
+
+///
+/// Everything else in this crate renders rows because that is what a read model is. A lab, a board or a widget host is
+/// not a list, and pretending it is produces a screen that looks nothing like the one being ported. So a screen may own
+/// its body; the model, the messages, the effects and the shell are unchanged, which is the point of putting this here
+/// rather than in the shell.
 /// Screens that render markup of their own instead of a generic list of rows.
 ///
 /// Everything else in this crate renders rows because that is what a read model is. A lab, a board or a widget host is
@@ -370,6 +396,7 @@ fn custom_body(model: &Model) -> Option<String> {
     match model.screen.key {
         "tech-lab" => Some(tech_lab()),
         "rust-lab" => Some(rust_lab(model)),
+        "site-whatsapp" => Some(whatsapp_view()),
         "projects" => Some(projects_view(model)),
         _ => None,
     }
