@@ -151,18 +151,31 @@ if (existsSync(resolve(ROOT, '.next'))) {
 }
 out('  ✓ Cleared .next')
 
-// D2. Start the Rust API, which the cut-over routes call through lib/rust-api/client.ts.
-//
-// Without this, every cut-over screen fails in dev with 503 RUST_API_UNAVAILABLE — and the live route deliberately
-// fails loudly rather than rendering an empty page that could be mistaken for "no data". The binary has existed all
-// along (`server/src/bin/http.rs`, which binds RUST_API_BIND or 127.0.0.1:8080 — the same default the client uses);
-// nothing was starting it. A Rust API already listening is left alone.
+// D2. Bounce the Rust API: the cut-over routes call it through lib/rust-api/client.ts, so it must be RUNNING and
+// FRESH for every dev session. An already-listening instance is stopped and restarted rather than reused, because a
+// stale build of that binary behaves exactly like a bug in the screen that called it.
 const RUST_API_PORT = Number(process.env.RUST_API_PORT ?? 8080)
 let rustApi = null
 
+const RUST_API_RE = /culebraluxe rust api|--bin http|\/http\b|target\/[^/]+\/http\b/
+
+for (const pid of listenersOn(RUST_API_PORT)) {
+  if (RUST_API_RE.test(commandOf(pid))) {
+    out(`  ✓ Bouncing stale Rust API PID ${pid} on ${RUST_API_PORT}`)
+    killPid(pid)
+  } else {
+    err(`  ✗ Port ${RUST_API_PORT} is held by a non-Rust-API process PID ${pid} (${commandOf(pid)}).`)
+    err('    Refusing to terminate an unrelated process. Free that port, then re-run pnpm dev.')
+    process.exit(1)
+  }
+}
+
 if (listenersOn(RUST_API_PORT).length > 0) {
-  out(`  ✓ Rust API already listening on ${RUST_API_PORT}`)
-} else {
+  err(`  ✗ Port ${RUST_API_PORT} could not be reclaimed for the Rust API.`)
+  process.exit(1)
+}
+
+{
   const cargoTarget = process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'rust/target')
   rustApi = spawn('cargo', ['run', '--quiet', '-p', 'server', '--bin', 'http'], {
     cwd: resolve(ROOT, 'rust'),
@@ -176,7 +189,7 @@ if (listenersOn(RUST_API_PORT).length > 0) {
   rustApi.stdout?.on('data', (chunk) => process.stdout.write(`  [rust-api] ${chunk}`))
   rustApi.stderr?.on('data', (chunk) => process.stderr.write(`  [rust-api] ${chunk}`))
   rustApi.on('error', (error) => err('  ✗ Failed to start the Rust API:', error.message))
-  out(`  → Starting Rust API on ${RUST_API_PORT} (cut-over routes call it; first run compiles)`)
+  out(`  → Starting Rust API on ${RUST_API_PORT} (fresh; first run compiles)`)
 }
 
 function stopRustApi() {
