@@ -4,7 +4,7 @@
 //! cannot point at a screen that does not exist. Every interpolated value is escaped — this crate renders data from a
 //! database and from third-party sources, and a Rust renderer that formats HTML owns that risk.
 
-use crate::model::{home, Model, Row, Surface, PAGE_SIZE, SCREENS};
+use crate::model::{home, listed, Model, Row, Surface, PAGE_SIZE, SCREENS};
 
 /// Escape text for HTML text and attribute positions. Quotes matter because the same helper fills `data-` attributes,
 /// where an unescaped quote would end the attribute early.
@@ -23,8 +23,28 @@ pub fn escape(value: &str) -> String {
     out
 }
 
-/// Render the whole screen: nav plus the current screen's body. Pure and decision-free.
+/// Render the whole screen: the chrome its surface calls for, plus the current screen's body.
+///
+/// TWO CHROMES, ONE PER KIND OF SURFACE. The public site is a website: a header across the top, content at full width,
+/// a footer. The portal is an application: a fixed left rail of sections. Rendering the portal rail on the public site —
+/// which is what this did — makes the marketing pages look like a control panel, which is a worse failure than a plain
+/// one: the shape of the page is the first thing a visitor reads.
 pub fn render(model: &Model) -> String {
+    if model.screen.surface == Surface::Site {
+        return format!(
+            "<div class=\"flex min-h-screen flex-col bg-background text-foreground\" \
+             data-rust-screen=\"{}\">{}{}{}</div>",
+            escape(model.screen.key),
+            site_header(model),
+            format!(
+                "<main class=\"min-w-0 flex-1\">{}{}{}</main>",
+                site_error_banner(model),
+                loading_banner(model),
+                body(model)
+            ),
+            site_footer()
+        );
+    }
     format!(
         "<div class=\"flex min-h-screen text-foreground\" data-rust-screen=\"{}\">\
            <nav class=\"w-60 shrink-0 border-r bg-card p-4\" aria-label=\"Portal\">{}</nav>\
@@ -37,6 +57,59 @@ pub fn render(model: &Model) -> String {
         body(model)
     )
 }
+
+/// The public site's header: the brand, and the site's own screens as a horizontal menu.
+///
+/// The entries come from the same `SCREENS` table the portal rail does, filtered to the public surface and to screens
+/// the registry lists — so a page cannot exist without a link, and a link cannot point at a page that does not.
+fn site_header(model: &Model) -> String {
+    let mut links = String::new();
+    for screen in listed(Surface::Site) {
+        let active = screen.key == model.screen.key;
+        links.push_str(&format!(
+            "<button type=\"button\" data-nav=\"{key}\" class=\"px-3 py-2 text-xs uppercase tracking-[0.14em] \
+             transition {state}\">{label}</button>",
+            key = escape(screen.key),
+            state = if active {
+                "text-foreground"
+            } else {
+                "text-muted-foreground hover:text-foreground"
+            },
+            label = escape(screen.title)
+        ));
+    }
+    format!(
+        "<header class=\"flex flex-wrap items-center justify-between gap-4 border-b bg-card px-6 py-4\">\
+           <div class=\"flex items-baseline gap-3\">\
+             <span class=\"font-serif text-lg font-light tracking-[0.08em]\">CulebraLuxe</span>\
+             <span class=\"text-[10px] uppercase tracking-[0.28em] text-muted-foreground\">Culebra · Puerto Rico</span>\
+           </div>\
+           <nav class=\"flex flex-wrap items-center gap-1\" aria-label=\"Site\">{links}</nav>\
+         </header>"
+    )
+}
+
+/// The public site's footer. One line, and it says what the site is rather than pretending to be a portal.
+fn site_footer() -> String {
+    "<footer class=\"border-t bg-card px-6 py-6 text-xs text-muted-foreground\">\
+       CulebraLuxe LLC — Culebra, Puerto Rico. \
+       <button type=\"button\" data-nav=\"site-contact\" class=\"underline underline-offset-2\">Contact</button>\
+     </footer>"
+        .to_string()
+}
+
+/// The error banner on the public site, with the same escaping and the same wording as the portal's.
+fn site_error_banner(model: &Model) -> String {
+    match model.error.as_deref() {
+        Some(message) => format!(
+            "<div class=\"border-b border-destructive/40 bg-destructive/10 px-6 py-3 text-sm\" role=\"alert\">\
+             Could not load: {}</div>",
+            escape(message)
+        ),
+        None => String::new(),
+    }
+}
+
 
 fn nav(model: &Model) -> String {
     let surface = model.screen.surface;
@@ -360,6 +433,61 @@ fn rust_lab(model: &Model) -> String {
     )
 }
 
+/// The public homepage: the hero, built from the content rows the screen already fetches.
+///
+/// WHY A BODY AND NOT THE GENERIC LIST. The rows are `home.hero:title`, `home.hero:body` and `home.hero:cta` — the real
+/// marketing copy, read from the same content slot the TypeScript homepage read. Rendered as a list they are a heading
+/// and two lines of text, which is what made the site look broken rather than plain: the copy was all there and none of
+/// it was laid out as the page it belongs to.
+///
+/// The call to action navigates through `data-nav` like every other link, so it goes through the same reducer the menu
+/// does and there is no second way to change screens.
+fn site_home(model: &Model) -> String {
+    let cell = |id: &str, index: usize| -> Option<&str> {
+        model
+            .rows
+            .iter()
+            .find(|row| row.id == id)
+            .and_then(|row| row.cells.get(index))
+            .map(String::as_str)
+    };
+    let title = cell("home.hero:title", 1).unwrap_or("CulebraLuxe");
+    let overline = cell("home.hero:title", 0).unwrap_or("Culebra · Puerto Rico");
+    let body = cell("home.hero:body", 1).unwrap_or("");
+    // The call to action arrives as "View the Collection → #properties": the label is what is shown, the anchor is
+    // where the live page sent it. The label is used and the destination becomes the properties screen, because the
+    // Rust UI navigates by screen and not by fragment.
+    let cta = cell("home.hero:cta", 1)
+        .and_then(|value| value.split('→').next())
+        .unwrap_or("View the Collection")
+        .trim();
+
+    format!(
+        "<section class=\"border-b bg-card\">\
+           <div class=\"mx-auto flex max-w-5xl flex-col items-start gap-6 px-6 py-24\">\
+             <p class=\"text-xs uppercase tracking-[0.3em] text-muted-foreground\">{overline}</p>\
+             <h1 class=\"max-w-3xl font-serif text-4xl font-light leading-tight md:text-6xl\">{title}</h1>\
+             <p class=\"max-w-2xl text-base font-light leading-8 text-muted-foreground\">{body}</p>\
+             <button type=\"button\" data-nav=\"site-properties\" \
+               class=\"rounded-md bg-primary px-6 py-3 text-sm text-primary-foreground\">{cta}</button>\
+           </div>\
+         </section>\
+         <section class=\"mx-auto max-w-5xl px-6 py-16\">\
+           <h2 class=\"font-serif text-2xl font-light\">The collection</h2>\
+           <p class=\"mt-3 max-w-2xl text-sm font-light leading-7 text-muted-foreground\">\
+             Architectural residences and beachfront estates, presented with the discretion the island deserves.\
+           </p>\
+           <button type=\"button\" data-nav=\"site-properties\" \
+             class=\"mt-6 rounded-md border px-5 py-2.5 text-sm hover:bg-muted/60\">Browse properties</button>\
+         </section>",
+        overline = escape(overline),
+        title = escape(title),
+        body = escape(body),
+        cta = escape(cta)
+    )
+}
+
+///
 /// The WhatsApp contact page: static copy, rendered by Rust.
 ///
 /// A body rather than rows because there is no read model here and never was — the page is a phone number and a link.
@@ -741,6 +869,7 @@ fn custom_body(model: &Model) -> Option<String> {
         "site-services" => Some(services_view()),
         "site-privacy" => Some(privacy_view()),
         "site-whatsapp" => Some(whatsapp_view()),
+        "site-home" => Some(site_home(model)),
         "projects" => Some(projects_view(model)),
         _ => None,
     }
