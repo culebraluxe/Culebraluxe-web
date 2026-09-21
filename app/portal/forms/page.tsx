@@ -1,38 +1,22 @@
-import { notFound } from "next/navigation"
+import { RustUiHost } from '@/components/rust-ui/host'
 
-import { FormEditorSurface } from "@/components/portal/forms/form-editor-surface"
-import { listFormInstances } from "@/lib/forms/form-instance-io"
-import {
-  getActiveTemplate,
-  LISTING_AGREEMENT_TEMPLATE_ID,
-} from "@/lib/forms/template-registry"
+// ---------------------------------------------------------------------------
+// FLIPPED TO RUST (screen: forms, surface Core).
+//
+// The route is unchanged; the screen is not. It was a TypeScript page fetching its own data for a TypeScript
+// component. It is now the Rust host: the same read models arrive through the portal rows route and
+// rust/ui/src/view.rs paints the screen.
+//
+// It qualified because its TypeScript body has no interaction to lose - no state, form, dialog, filter or paging
+// control - so there is nothing the Rust body can fail to reproduce. Screens whose TypeScript carries behaviour stay
+// in TypeScript until the Rust body has its own controls. scripts/ui-flip-readiness.mjs prints the split at any time.
+// ---------------------------------------------------------------------------
 
-export const dynamic = "force-dynamic"
-
-// Forms — canonical landing. The mature FormEditor is the only Forms surface.
-export default async function FormsPage() {
-  const instances = await listFormInstances()
-  const template = getActiveTemplate(LISTING_AGREEMENT_TEMPLATE_ID)
-  if (!template) notFound()
-
-  const listings = instances.filter(
-    (item) => item.templateId === LISTING_AGREEMENT_TEMPLATE_ID,
-  )
-  const preferred =
-    listings.find(
-      (item) =>
-        item.templateVersion === template.version && item.status !== "issued",
-    ) ??
-    listings.find((item) => item.templateVersion === template.version) ??
-    listings[0]
-
-  if (preferred) {
-    return <FormEditorSurface formId={preferred.id} />
-  }
+export default function Page() {
 
   return (
-    <p className="font-serif text-lg font-light text-[var(--portal-navy)]">
-      No saved forms yet.
-    </p>
+    <div className="min-h-screen bg-background">
+      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="forms" />
+    </div>
   )
 }

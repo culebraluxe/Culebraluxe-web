@@ -1,53 +1,22 @@
-import { StoryBoard, StoryBoardNotReady } from "@/components/portal/story-board"
-import {
-  listStoryboardStories,
-  listStoryExecutionSummaries,
-} from "@/legacy/db/storyboard"
-import {
-  buildStoryBoardModel,
-  filterStories,
-  parseStoryBoardFilter,
-  selectNextWork,
-} from "@/lib/storyboard-data"
+import { RustUiHost } from '@/components/rust-ui/host'
 
-export const dynamic = "force-dynamic"
+// ---------------------------------------------------------------------------
+// FLIPPED TO RUST (screen: storyboard, surface Tech).
+//
+// The route is unchanged; the screen is not. It was a TypeScript page fetching its own data for a TypeScript
+// component. It is now the Rust host: the same read models arrive through the portal rows route and
+// rust/ui/src/view.rs paints the screen.
+//
+// It qualified because its TypeScript body has no interaction to lose - no state, form, dialog, filter or paging
+// control - so there is nothing the Rust body can fail to reproduce. Screens whose TypeScript carries behaviour stay
+// in TypeScript until the Rust body has its own controls. scripts/ui-flip-readiness.mjs prints the split at any time.
+// ---------------------------------------------------------------------------
 
-export default async function StoryBoardPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
-}) {
-  const params = await searchParams
-  const [stories, executions] = await Promise.all([
-    listStoryboardStories(),
-    listStoryExecutionSummaries(),
-  ])
-
-  if (!stories) {
-    return <StoryBoardNotReady />
-  }
-
-  // Attach the Forge execution projection (latest work item + latest run) so
-  // the board can show what is Running, Done, Error/Cancelled, and when the
-  // latest run happened — without conflating it with story status.
-  const execMap = new Map(executions.map((e) => [e.storyId, e]))
-  const withExecution = stories.map((s) => ({
-    ...s,
-    execution: execMap.get(s.id) ?? null,
-  }))
-
-  const model = buildStoryBoardModel(withExecution)
-  const filter = parseStoryBoardFilter(params)
-  const visibleStories = filterStories(model.stories, filter)
-  // OPS-08: bounded Next Work projection derived from the authoritative board.
-  const nextWork = selectNextWork(withExecution)
+export default function Page() {
 
   return (
-    <StoryBoard
-      model={model}
-      filter={filter}
-      visibleStories={visibleStories}
-      nextWork={nextWork}
-    />
+    <div className="min-h-screen bg-background">
+      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="storyboard" />
+    </div>
   )
 }

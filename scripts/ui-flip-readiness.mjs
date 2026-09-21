@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const model = readFileSync(`${root}/rust/ui/src/model.rs`, 'utf8')
 const route = readFileSync(`${root}/app/api/portal/rust-ui/rows/route.ts`, 'utf8')
+const publicRoute = readFileSync(`${root}/app/api/rust-ui/public-rows/route.ts`, 'utf8')
 
 // Each screen is one line: Screen { key: "...", title: "...", path: "/portal/...", surface: ..., }
 const screens = []
@@ -32,7 +33,10 @@ for (const line of model.split('\n')) {
   screens.push({ key, path: line.match(/path:\s*"([^"]+)"/)?.[1] ?? null })
 }
 
-const loaders = new Set([...route.matchAll(/^\s{2}'?([a-z][a-z0-9-]*)'?:\s*async/gm)].map((m) => m[1]))
+const loaders = new Set([
+  ...[...route.matchAll(/^\s{2}'?([a-z][a-z0-9-]*)'?:\s*async/gm)].map((m) => m[1]),
+  ...[...publicRoute.matchAll(/case '([a-z][a-z0-9-]*)':/g)].map((m) => m[1]),
+])
 const MARKERS = 'useState|useReducer|onSubmit|<form|onClick|Dialog|Modal|Drawer|onChange'
 
 const rows = []

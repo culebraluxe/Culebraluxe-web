@@ -1,61 +1,22 @@
-import type { Metadata } from 'next'
-import Link from 'next/link'
-import { SiteHeader } from '@/components/site-header'
-import { SiteFooter } from '@/components/site-footer'
-import { PageHero } from '@/components/page-hero'
-import { Reveal } from '@/components/reveal'
-import { FaqAccordion } from '@/components/faq-accordion'
-import { getMarketingContent } from '@/legacy/db/marketing-content'
-import { buildFaqPageContent } from '@/lib/marketing-content'
+import { RustUiHost } from '@/components/rust-ui/host'
 
-export const metadata: Metadata = {
-  title: 'Frequently Asked Questions — CulebraLuxe',
-  description:
-    'Common questions about buying, owning, and living on the island of Culebra, Puerto Rico.',
-}
+// ---------------------------------------------------------------------------
+// FLIPPED TO RUST (screen: site-faq, surface Site).
+//
+// The route is unchanged; the screen is not. It was a TypeScript page fetching its own data for a TypeScript
+// component. It is now the Rust host: the same read models arrive through the public rows route and
+// rust/ui/src/view.rs paints the screen.
+//
+// It qualified because its TypeScript body has no interaction to lose - no state, form, dialog, filter or paging
+// control - so there is nothing the Rust body can fail to reproduce. Screens whose TypeScript carries behaviour stay
+// in TypeScript until the Rust body has its own controls. scripts/ui-flip-readiness.mjs prints the split at any time.
+// ---------------------------------------------------------------------------
 
-export const dynamic = 'force-dynamic'
-
-export default async function FaqPage() {
-  const contentResult = await getMarketingContent()
-  const page = buildFaqPageContent(contentResult.ok ? contentResult.data : [])
+export default function Page() {
 
   return (
-    <>
-      <SiteHeader />
-      <main>
-        {page.hero ? (
-          <PageHero
-            eyebrow={page.hero.eyebrow ?? ''}
-            title={page.hero.title ?? ''}
-            intro={page.hero.body ?? undefined}
-            image={page.hero.imagePath ?? '/images/hero-villa.png'}
-            imageAlt={page.hero.imageAlt ?? 'A luxury villa overlooking the Culebra coastline'}
-          />
-        ) : null}
-
-        <section className="px-6 py-24 md:px-12 md:py-32">
-          <FaqAccordion items={page.entries} />
-
-          <div className="mx-auto mt-20 flex max-w-3xl flex-col items-start gap-6 border-t border-border pt-12">
-            <Reveal>
-              <p className="text-pretty font-serif text-2xl font-light leading-snug text-foreground">
-                {page.ctaHeading}
-              </p>
-            </Reveal>
-            <Reveal delay={100}>
-              <Link
-                href={page.ctaHref ?? '/contact'}
-                className="group inline-flex items-center gap-3 text-xs font-light uppercase tracking-[0.24em] text-foreground"
-              >
-                {page.ctaLabel}
-                <span className="inline-block h-px w-10 bg-accent transition-all duration-500 group-hover:w-16" />
-              </Link>
-            </Reveal>
-          </div>
-        </section>
-      </main>
-      <SiteFooter />
-    </>
+    <div className="min-h-screen bg-background">
+      <RustUiHost rowsPath="/api/rust-ui/public-rows" start="site-faq" />
+    </div>
   )
 }

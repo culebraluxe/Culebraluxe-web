@@ -1,16 +1,22 @@
-import { AccountingReceivables } from '@/components/portal/accounting/accounting-receivables'
-import { AccountingShell } from '@/components/portal/accounting/accounting-shell'
-import { getReceivables } from '@/legacy/db/accounting'
+import { RustUiHost } from '@/components/rust-ui/host'
 
-export const dynamic = 'force-dynamic'
+// ---------------------------------------------------------------------------
+// FLIPPED TO RUST (screen: accounting-receivables, surface Accounting).
+//
+// The route is unchanged; the screen is not. It was a TypeScript page fetching its own data for a TypeScript
+// component. It is now the Rust host: the same read models arrive through the portal rows route and
+// rust/ui/src/view.rs paints the screen.
+//
+// It qualified because its TypeScript body has no interaction to lose - no state, form, dialog, filter or paging
+// control - so there is nothing the Rust body can fail to reproduce. Screens whose TypeScript carries behaviour stay
+// in TypeScript until the Rust body has its own controls. scripts/ui-flip-readiness.mjs prints the split at any time.
+// ---------------------------------------------------------------------------
 
-// ACCOUNTING — Receivables. CRUD-lite operating screen over account_receivable.
-// Canonical Deal / Property / Person names are shown (never UUIDs).
-export default async function AccountingReceivablesPage() {
-  const rows = await getReceivables()
+export default function Page() {
+
   return (
-    <AccountingShell eyebrow="Accounting" title="Receivables">
-      <AccountingReceivables rows={rows} />
-    </AccountingShell>
+    <div className="min-h-screen bg-background">
+      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="accounting-receivables" />
+    </div>
   )
 }

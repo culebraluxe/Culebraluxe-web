@@ -1,10 +1,22 @@
-import { SettingsRoles } from "@/components/portal/settings-auth"
-import { getSettingsRoles } from "@/legacy/db/settings-auth"
+import { RustUiHost } from '@/components/rust-ui/host'
 
-export const dynamic = "force-dynamic"
+// ---------------------------------------------------------------------------
+// FLIPPED TO RUST (screen: settings-roles, surface Support).
+//
+// The route is unchanged; the screen is not. It was a TypeScript page fetching its own data for a TypeScript
+// component. It is now the Rust host: the same read models arrive through the portal rows route and
+// rust/ui/src/view.rs paints the screen.
+//
+// It qualified because its TypeScript body has no interaction to lose - no state, form, dialog, filter or paging
+// control - so there is nothing the Rust body can fail to reproduce. Screens whose TypeScript carries behaviour stay
+// in TypeScript until the Rust body has its own controls. scripts/ui-flip-readiness.mjs prints the split at any time.
+// ---------------------------------------------------------------------------
 
-export default async function SettingsRolesPage() {
-  const roles = await getSettingsRoles()
+export default function Page() {
 
-  return <SettingsRoles roles={roles} />
+  return (
+    <div className="min-h-screen bg-background">
+      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="settings-roles" />
+    </div>
+  )
 }

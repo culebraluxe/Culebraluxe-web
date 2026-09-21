@@ -1,32 +1,23 @@
-import { notFound } from "next/navigation"
-import Link from "next/link"
+import { RustUiHost } from '@/components/rust-ui/host'
 
-import { WorkflowInstanceDetail } from "@/components/portal/workflow-instance-detail"
-import { getWorkflowDetail } from "@/legacy/workflow_app/read-service"
+// ---------------------------------------------------------------------------
+// FLIPPED TO RUST (screen: workflow-record, surface Core).
+//
+// The route is unchanged; the screen is not. It was a TypeScript page fetching its own data for a TypeScript
+// component. It is now the Rust host: the same read models arrive through the portal rows route and
+// rust/ui/src/view.rs paints the screen.
+//
+// It qualified because its TypeScript body has no interaction to lose - no state, form, dialog, filter or paging
+// control - so there is nothing the Rust body can fail to reproduce. Screens whose TypeScript carries behaviour stay
+// in TypeScript until the Rust body has its own controls. scripts/ui-flip-readiness.mjs prints the split at any time.
+// ---------------------------------------------------------------------------
 
-export const dynamic = "force-dynamic"
-
-export default async function WorkflowInstancePage({
-  params,
-}: {
-  params: Promise<{ instanceId: string }>
-}) {
+export default async function Page({ params }: { params: Promise<Record<'instanceId', string>> }) {
   const { instanceId } = await params
-  const detail = await getWorkflowDetail(instanceId)
-  if (!detail) notFound()
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <span />
-        <Link
-          href={`/portal/runtime-inspector/${instanceId}`}
-          className="text-xs font-medium uppercase tracking-[0.12em] text-[var(--portal-navy)]/60 hover:text-[var(--portal-navy)]"
-        >
-          Inspect Runtime →
-        </Link>
-      </div>
-      <WorkflowInstanceDetail detail={detail} />
+    <div className="min-h-screen bg-background">
+      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="workflow-record" scope={instanceId} />
     </div>
   )
 }

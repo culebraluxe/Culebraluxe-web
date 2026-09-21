@@ -35,7 +35,20 @@ type RustUi = {
   effect_event_name: () => string
 }
 
-export function RustUiHost({ rowsPath, start }: { rowsPath: string; start: string }) {
+export function RustUiHost({
+  rowsPath,
+  start,
+  scope,
+}: {
+  rowsPath: string
+  start: string
+  /**
+   * The record key this page is about, for a detail route (`/portal/clients/[personId]`). A screen reached by clicking a
+   * row gets its key from the effect Rust emits; a screen reached by typing the URL has no row to be clicked, so the
+   * page hands the key in. Applied to the FIRST screen only - navigating on to a list must not inherit one record's key.
+   */
+  scope?: string
+}) {
   const started = useRef(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -65,8 +78,9 @@ export function RustUiHost({ rowsPath, start }: { rowsPath: string; start: strin
         if (!screen) return
         const query = new URLSearchParams({ screen })
         // A detail screen is about one record; the key travels with the effect rather than being scraped back out of
-        // the DOM.
-        if (effect.scope) query.set('scope', effect.scope)
+        // the DOM. On the opening screen the page's own scope stands in when the effect carries none.
+        const key = effect.scope ?? (screen === start ? scope : null)
+        if (key) query.set('scope', key)
         const response = await fetch(`${rowsPath}?${query.toString()}`)
         if (!response.ok) {
           // A refused fetch must become a visible message, not a silent empty list: "nothing to show" and "we could
@@ -103,7 +117,7 @@ export function RustUiHost({ rowsPath, start }: { rowsPath: string; start: strin
     return () => {
       disposed = true
     }
-  }, [rowsPath, start])
+  }, [rowsPath, start, scope])
 
   return (
     <>

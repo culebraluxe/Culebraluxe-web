@@ -130,27 +130,7 @@
       "count": 3
     }
   },
-  "app/contact/page.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "app/faq/page.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "app/guide/page.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "app/login/recovery/actions.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "app/page.tsx": {
     "no-restricted-imports": {
       "count": 1
     }
@@ -160,52 +140,14 @@
       "count": 1
     }
   },
-  "app/portal/accounting/page.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "app/portal/accounting/pnl/page.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "app/portal/accounting/receivables/page.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "app/portal/actions.ts": {
     "no-restricted-imports": {
       "count": 15
     }
   },
-  "app/portal/clients/[personId]/page.tsx": {
-    "no-restricted-imports": {
-      "count": 2
-    },
-    "no-useless-assignment": {
-      "count": 1
-    }
-  },
   "app/portal/command-console/actions.ts": {
     "no-restricted-imports": {
       "count": 1
-    }
-  },
-  "app/portal/dashboard/page.tsx": {
-    "no-restricted-imports": {
-      "count": 4
-    }
-  },
-  "app/portal/db-test/page.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "app/portal/deals/[dealId]/page.tsx": {
-    "no-restricted-imports": {
-      "count": 2
     }
   },
   "app/portal/deals/page.tsx": {
@@ -243,16 +185,6 @@
       "count": 2
     }
   },
-  "app/portal/marketing/page.tsx": {
-    "no-restricted-imports": {
-      "count": 2
-    }
-  },
-  "app/portal/marketing/syndication/page.tsx": {
-    "no-restricted-imports": {
-      "count": 2
-    }
-  },
   "app/portal/projects/actions.ts": {
     "no-restricted-imports": {
       "count": 8
@@ -278,52 +210,7 @@
       "count": 1
     }
   },
-  "app/portal/property-media/page.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "app/portal/reporting/page.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "app/portal/settings/authorities/page.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "app/portal/settings/page.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "app/portal/settings/roles/page.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "app/portal/settings/users/page.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "app/portal/showings/page.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "app/portal/storyboard/[id]/page.tsx": {
-    "no-restricted-imports": {
-      "count": 2
-    }
-  },
   "app/portal/storyboard/actions.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "app/portal/storyboard/page.tsx": {
     "no-restricted-imports": {
       "count": 1
     }
@@ -336,11 +223,6 @@
   "app/portal/tech/actions.ts": {
     "no-restricted-imports": {
       "count": 5
-    }
-  },
-  "app/portal/tech/app-errors/page.tsx": {
-    "no-restricted-imports": {
-      "count": 1
     }
   },
   "app/portal/tech/flight-recorder/[instanceId]/page.tsx": {
@@ -366,11 +248,6 @@
   "app/portal/workflow-diagnostics-actions.ts": {
     "no-restricted-imports": {
       "count": 2
-    }
-  },
-  "app/portal/workflows/[instanceId]/page.tsx": {
-    "no-restricted-imports": {
-      "count": 1
     }
   },
   "components/buyers-property-showroom.tsx": {
