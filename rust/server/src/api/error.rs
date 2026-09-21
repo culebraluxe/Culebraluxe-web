@@ -161,6 +161,28 @@ impl From<ProjectServiceError> for ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
+        // THE ONE CHOKE POINT FOR RUST API FAILURES.
+        //
+        // Every route error becomes a response here, so this is where an uncaptured 5xx can be caught. A `DbFailure`
+        // arrives with an `incident_id` because the database layer already announced it; anything else has no incident
+        // and no other way of being recorded, which is how a failing Rust route could return 500s that left no trace
+        // anywhere. 4xx is not captured on purpose: a validation failure or a missing record is audited control flow,
+        // not error noise, which is the same rule the TypeScript side follows.
+        if self.status.is_server_error() && self.incident_id.is_none() {
+            crate::api::error_capture::record(
+                "rust:api",
+                &self.code,
+                &self.message,
+                "error",
+                None,
+                serde_json::json!({
+                    "status": self.status.as_u16(),
+                    "code": self.code,
+                    "correlationId": self.correlation_id,
+                    "source": "rust",
+                }),
+            );
+        }
         let body = ApiErrorBody {
             ok: false,
             error: ApiErrorPayload {

@@ -311,7 +311,10 @@ Canonical seams — reuse these; do not invent parallel capture:
 - **DB**: `DatabaseGateway` captures normalized DB failures automatically.
 - **Rust**: `db::capture` (`rust/core/db/src/capture.rs`) announces every `DbFailure` from its constructor, and the
   server's sink writes the same `app_error` columns as `db/app-error.ts` (installed at boot in
-  `rust/server/src/bin/http.rs`, implemented in `rust/server/src/api/error_capture.rs`). Rule for Rust code: return a
+  `rust/server/src/bin/http.rs`, implemented in `rust/server/src/api/error_capture.rs`). Two further paths are captured:
+  **panics** (`rust:panic`, level `fatal`, via a process panic hook — so "impossible" leaves a row instead of a line on
+  a terminal) and **any 5xx response** (`rust:api`, captured in `ApiError::into_response` unless it already carries a
+  `DbFailure` incident id). 4xx is deliberately not captured. Rule for Rust code: return a
   `DbFailure`/`ApiError` and let it propagate — never swallow a `Result`, and never `let _ =` a failure you did not
   deliberately decide is unreportable.
 - **Service kernel**: `BaseService` + `ServiceErrorSink` (`ServiceInfrastructure.errors`, bound via `composeCoreServices`/`appServiceErrorSink`) — captures unhandled (non-domain) exceptions with domain/operation/correlationId.

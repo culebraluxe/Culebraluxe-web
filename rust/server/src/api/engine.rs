@@ -296,3 +296,56 @@ pub async fn reclaim(
     let value = serde_json::json!({ "reclaimed": reclaimed });
     Ok(success_with_correlation(value, &resolved.correlation_id))
 }
+
+/// Read an ApiError's response body as JSON - the same path a client sees, including the capture branch.
+async fn error_body(error: ApiError) -> serde_json::Value {
+    use axum::response::IntoResponse;
+    let response = error.into_response();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body");
+    serde_json::from_slice(&bytes).expect("error body is JSON")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_panicking_engine_operation_returns_an_error_and_leaves_the_pool_alive() {
+        // The "impossible" case the engine hit once and left no trace of: block_on inside a runtime. The guarantee we
+        // need is narrow and testable - a panic costs ONE command, the workers survive, and the next command still
+        // runs. `run_engine` needs no database, so this is a real test rather than a hopeful one.
+        let panicked: Result<i32, ApiError> = run_engine(
+            || -> Result<i32, String> { panic!("simulated engine panic") },
+            "test-corr".into(),
+        )
+        .await;
+        let error = panicked.expect_err("a panic must not look like success");
+        let body = error_body(error).await;
+        assert_eq!(body["error"]["code"], "ENGINE_COMMAND_FAILED");
+
+        let fine: Result<i32, ApiError> =
+            run_engine(|| -> Result<i32, String> { Ok(7) }, "test-corr".into()).await;
+        assert_eq!(fine.expect("the pool must still work after a panic"), 7);
+    }
+
+    #[tokio::test]
+    async fn a_failing_engine_operation_reports_the_engines_own_message() {
+        let failed: Result<i32, ApiError> = run_engine(
+            || -> Result<i32, String> { Err("no workflow task correlates".to_owned()) },
+            "test-corr".into(),
+        )
+        .await;
+        let error = failed.expect_err("an error must propagate");
+        let body = error_body(error).await;
+        assert_eq!(body["error"]["code"], "ENGINE_COMMAND_FAILED");
+        assert!(
+            body["error"]["message"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("no workflow task correlates"),
+            "the engine's own message must reach the caller: {body}"
+        );
+    }
+}
