@@ -6,8 +6,8 @@ import { PersonActions } from "@/components/portal/write/person-actions"
 import { CreateTaskForm, TaskActions } from "@/components/portal/write/task-actions"
 import type {
   RelationshipDossier,
-} from "@/db/dossier"
-import type { RelationshipEvidenceRow } from "@/db/relationship-evidence"
+} from "@/legacy/db/dossier"
+import type { RelationshipEvidenceRow } from "@/legacy/db/relationship-evidence"
 
 function roleLabel(role: string) {
   if (role === "both") return "Buyer & Seller"

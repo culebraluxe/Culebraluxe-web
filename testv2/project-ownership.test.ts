@@ -2,12 +2,12 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-import { ServiceRegistry } from '../services/core'
-import { ProjectService } from '../services/project'
-import { WbsService } from '../services/wbs'
-import { SqlProjectRepository } from '../db/project-service-repository'
-import { SqlWbsRepository } from '../db/wbs-service-repository'
-import type { QueryExecutor } from '../db/query-executor'
+import { ServiceRegistry } from '@/legacy/services/core'
+import { ProjectService } from '@/legacy/services/project'
+import { WbsService } from '@/legacy/services/wbs'
+import { SqlProjectRepository } from '@/legacy/db/project-service-repository'
+import { SqlWbsRepository } from '@/legacy/db/wbs-service-repository'
+import type { QueryExecutor } from '@/legacy/db/query-executor'
 import { capturingInfrastructure, context } from './test-support'
 
 test('only the canonical Project service advertises Project operations', () => {

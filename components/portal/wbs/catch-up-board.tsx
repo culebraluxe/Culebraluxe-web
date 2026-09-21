@@ -2,9 +2,9 @@
 
 import { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import type { WbsCategoryId, WbsItem } from '@/services/wbs'
-import type { Project } from '@/services/project'
-import { WBS_CATEGORIES } from '@/services/wbs'
+import type { WbsCategoryId, WbsItem } from '@/legacy/services/wbs'
+import type { Project } from '@/legacy/services/project'
+import { WBS_CATEGORIES } from '@/legacy/services/wbs'
 import { FullCalendarCandidate } from '@/components/portal/fullcalendar-candidate'
 import type { CatchUpCalendarEvent } from '@/lib/catchup/calendar-adapter'
 import {

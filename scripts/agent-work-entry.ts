@@ -1,8 +1,8 @@
 import { spawnSync } from 'node:child_process'
 import { resolve } from 'node:path'
 
-import { recoverStaleAgentWorkIndustrial } from '../db/agent-work-recovery'
-import { fireDueForgeBatches } from '../db/forge-batch'
+import { recoverStaleAgentWorkIndustrial } from '@/legacy/db/agent-work-recovery'
+import { fireDueForgeBatches } from '@/legacy/db/forge-batch'
 import { runLearnPass } from '../agent-runtime/learn-loop'
 import { captureServerLog } from '../lib/server-error-capture'
 import { interactiveSql } from '../lib/neon-interactive'
@@ -88,9 +88,9 @@ async function main(): Promise<number> {
   // `pnpm forge:engine --story …` by hand — and the lane path it fell through to cannot finish a story
   // (no deliverable capture: the architect reports Complete and leaves no brief, so the Lead handoff
   // refuses). This is the flag's consumer.
-  const { listAgentWorkItems } = await import('../db/agent-work')
-  const { planForgeNight } = await import('../workflow_app/forge/forge-night-driver')
-  const { chooseWorkerDispatch } = await import('../workflow_app/forge/worker-dispatch')
+  const { listAgentWorkItems } = await import('@/legacy/db/agent-work')
+  const { planForgeNight } = await import('@/legacy/workflow_app/forge/forge-night-driver')
+  const { chooseWorkerDispatch } = await import('@/legacy/workflow_app/forge/worker-dispatch')
   const readyItems = (await listAgentWorkItems().catch(() => null)) ?? []
   const dispatch = chooseWorkerDispatch({
     plan: planForgeNight(),

@@ -3,7 +3,7 @@
 **Status:** durable explainer. Owner: whoever holds the engine. Written 2026-09-13 from a session
 that fixed nine defects in one day; every law below was paid for.
 
-**Read this if** you are about to touch `workflow_app/`, `workflow_app/forge/`, the FORGE_SDLC XML,
+**Read this if** you are about to touch `workflow_app/`, `legacy/workflow_app/forge/`, the FORGE_SDLC XML,
 the publish path, or any screen that claims to show what the engine did.
 
 **Provenance.** Three kinds of statement appear here and they are marked:
@@ -78,9 +78,9 @@ this path boring.
 
 ### Where it lives
 
-- Definition: `workflow_app/definitions/FORGE_SDLC-v6.xml`, loaded through
-  `workflow_app/forge/forge-executor.ts`. **[built]**
-- Roles are phase agents (`workflow_app/forge/agents/role-agents.ts`) that `collect()` evidence;
+- Definition: `legacy/workflow_app/definitions/FORGE_SDLC-v6.xml`, loaded through
+  `legacy/workflow_app/forge/forge-executor.ts`. **[built]**
+- Roles are phase agents (`legacy/workflow_app/forge/agents/role-agents.ts`) that `collect()` evidence;
   the parent gate (`forge-phase-agent.ts`) stays the decider. **[built]**
 - A role runs in its own worktree under `~/Documents/Culebraluxe-worktrees/<story>-<id>-e0`
   through the OpenCode harness (`agent-runtime/opencode/`). **[built]**
@@ -89,7 +89,7 @@ this path boring.
 
 ### Work items: the unit of "who is doing what"
 
-A **work item** is a claimable row (`db/agent-work.ts`). Claiming is exclusive and
+A **work item** is a claimable row (`legacy/db/agent-work.ts`). Claiming is exclusive and
 recovery-aware: a claim older than 15 minutes can be interrupted through the engine's own recovery
 path, and `pnpm forge:clean` does exactly that so a run never reads another run's leftovers.
 **[built]** `forge-claim-blocker.ts` names *why* a claim is blocked instead of silently refusing.
@@ -97,7 +97,7 @@ path, and `pnpm forge:clean` does exactly that so a run never reads another run'
 
 ### The snapshot contract: what a role may decide from
 
-Decisions are made against a **frozen contract** (`db/forge-run.ts`): `*_snapshot` fields,
+Decisions are made against a **frozen contract** (`legacy/db/forge-run.ts`): `*_snapshot` fields,
 `run_phase`, `lead_decision`, `packet_sha`, machine counters. If the story packet changes on disk
 while a run is in flight, the snapshot says so — a stale packet is a stale packet, and the run
 must not silently continue against a different story than the one it was handed. **[built]**
@@ -128,7 +128,7 @@ is remote main an ancestor of the candidate?
 **A clean merge is not proof.** A merge can apply without conflict and still break the story, so
 the integrated commit is re-verified before it may become main. `--force` is never used, anywhere,
 by anything. **[built]** — `lib/worker-workspace/publish.ts`, wired at
-`workflow_app/forge/db-release-executor.ts`; the proofs are the story's own frozen commands parsed
+`legacy/workflow_app/forge/db-release-executor.ts`; the proofs are the story's own frozen commands parsed
 by the same parser the Lead and Assay use, never model prose.
 
 Why it mattered: the original publish was fast-forward-only *by design* ("no merge/rebase/PR
@@ -210,7 +210,7 @@ recorder header, 2026-09-13.
 There is no implicit target. `APP_ENV`/`VERCEL_ENV` must declare it or resolution **throws**;
 `ForgeDB` refuses to open a connection rather than fall back to the other environment. The old
 DEV default is precisely how a Forge script wrote DEV while the board read PROD. **[built]** —
-`lib/execution-target.ts`, `db/database-gateway.ts`, `db/forge-db.ts`.
+`lib/execution-target.ts`, `legacy/db/database-gateway.ts`, `legacy/db/forge-db.ts`.
 
 ### Law 5 — A release names one exact commit
 

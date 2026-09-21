@@ -21,7 +21,7 @@
 // PROD ONLY, and the target is not a choice: the same declaration the reset tool
 // uses decides it.
 // ---------------------------------------------------------------------------
-import { createStoryboardStory } from '../db/storyboard'
+import { createStoryboardStory } from '@/legacy/db/storyboard'
 import { describeControlPlane } from '../lib/execution-target'
 
 type LadderRung = {
@@ -56,7 +56,7 @@ const LADDER: LadderRung[] = [
     goal:
       'Make the turn cap visible before it fires: an operator reading the ENGINE QUEUE should see how much of the generation budget is spent.',
     scope:
-      'workflow_app/forge/model-turn-budget.ts (add a pure line renderer) and workflow_app/forge/agent-runtime-role-runner.ts (append that line to the run detail). No behaviour change to the cap itself.',
+      'legacy/workflow_app/forge/model-turn-budget.ts (add a pure line renderer) and workflow_app/forge/agent-runtime-role-runner.ts (append that line to the run detail). No behaviour change to the cap itself.',
     acceptance:
       'Each role run records a line naming turns used and the cap, and a generation at or over the cap records the refusal reason it already throws. The renderer is pure and unit tested, including the at-cap and over-cap cases.',
     notes:
@@ -70,7 +70,7 @@ const LADDER: LadderRung[] = [
     goal:
       'Close the labelling gap in the dispatch ledger: a unit labelled pass at the Smith exit but failed later by QA is today invisible to the calibration set.',
     scope:
-      'db/forge-dispatch-score.ts (add a reader for the latest unlabelled prediction of a story) and workflow_app/forge/agent-runtime-role-runner.ts (at the QA node, record the QA verdict onto that row). No schema change: the outcome columns already exist.',
+      'legacy/db/forge-dispatch-score.ts (add a reader for the latest unlabelled prediction of a story) and workflow_app/forge/agent-runtime-role-runner.ts (at the QA node, record the QA verdict onto that row). No schema change: the outcome columns already exist.',
     acceptance:
       'When the QA lane finishes, the unit it verified carries the QA verdict as its outcome detail, and a QA failure is recorded as fail rather than left as pass. An absent prediction row is reported, never thrown.',
     notes:

@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
 import { AGREEMENT_EXECUTION_CLAIM } from '../commands/command-types'
 import type { CommandDispatcher } from '../commands/contracts'
-import { getCompletedExecutionSlots } from '../../db/agreement-execution'
-import type { QueryExecutor } from '../../db/query-executor'
+import { getCompletedExecutionSlots } from '@/legacy/db/agreement-execution'
+import type { QueryExecutor } from '@/legacy/db/query-executor'
 import type { AgreementCompletionResult } from './completion'
 
 export type AgreementReDriveDeps = {
@@ -75,6 +75,6 @@ export async function evaluateAgreementViaCommand(
 }
 
 async function defaultExecutor(): Promise<QueryExecutor> {
-  const client = await import('../../db/client')
+  const client = await import('@/legacy/db/client')
   return client.sql as unknown as QueryExecutor
 }

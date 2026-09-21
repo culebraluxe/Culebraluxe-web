@@ -9,12 +9,12 @@ import {
   isFaceTimeCall,
   type AppleCallRecord,
 } from '../lib/relationship-intel/apple-calls'
-import { upsertRelationshipEvidence, recordReconcileDecision, getRelationshipEvidenceRows } from '../db/relationship-evidence'
+import { upsertRelationshipEvidence, recordReconcileDecision, getRelationshipEvidenceRows } from '@/legacy/db/relationship-evidence'
 import { reconcileEvidence } from '../lib/relationship-intel/reconcile'
 import { createInMemoryPersonLookup, mapLimit } from '../lib/relationship-intel/inmemory-lookup'
-import { upsertLatestInteraction } from '../db/interactions'
-import { landCall } from '../db/landing'
-import type { QueryExecutor } from '../db/query-executor'
+import { upsertLatestInteraction } from '@/legacy/db/interactions'
+import { landCall } from '@/legacy/db/landing'
+import type { QueryExecutor } from '@/legacy/db/query-executor'
 import { createPoolExecutor } from './lib/pool-executor'
 
 const DEFAULT_FILE = 'public/upload/data/apple-messages-export/calls.jsonl'

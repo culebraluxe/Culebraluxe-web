@@ -69,8 +69,8 @@ proves each decision's target exists and has the expected type/responsibility.
 - agent-runtime/forge-topology.test.ts (new)
 - agent-runtime/forge-transition.ts
 - scripts/forge-orchestrate-wake.ts
-- workflow_app/definitions/FORGE_SDLC-v1.xml
-- workflow_app/definitions/forge-sdlc.ts
+- legacy/workflow_app/definitions/FORGE_SDLC-v1.xml
+- legacy/workflow_app/definitions/forge-sdlc.ts
 - docs/agent/packets/ENG-FORGE-V7-SDLC.md
 - docs/agent/packets/ENG-FORGE-V6-ROLES.md
 
@@ -109,7 +109,7 @@ not performed here because:
   DB-affecting story is done only when the migration + DEV + PROD are applied
   and verified. That requires the Neon DEV/PROD environment.
 - It must NOT add `forge.*` to the shared RE command registry
-  (`workflow_app/command-types.ts`) — that couples domains; Forge needs its own
+  (`legacy/workflow_app/command-types.ts`) — that couples domains; Forge needs its own
   command inventory + Layer-4 provider or a Forge-scoped engine application port.
 Next release steps (each its own packet): (a) FORGE_SDLC-v2 XML + Forge-owned
 command inventory + router case + canonical handler (against injected Forge repo
@@ -127,7 +127,7 @@ SCOPED only. Full regression forbidden.
 
 ## Assay commands
 - `node_modules/.bin/tsx --test agent-runtime/forge-topology.test.ts`
-- `node_modules/.bin/tsx --test agent-runtime/forge-topology.test.ts agent-runtime/forge-transition.test.ts workflow_app/tests/forge-sdlc.test.ts`
-- `node_modules/.bin/tsx workflow_app/scripts/deploy-process-definition.ts workflow_app/definitions/FORGE_SDLC-v1.xml --dry-run`
+- `node_modules/.bin/tsx --test agent-runtime/forge-topology.test.ts agent-runtime/forge-transition.test.ts legacy/workflow_app/tests/forge-sdlc.test.ts`
+- `node_modules/.bin/tsx legacy/workflow_app/scripts/deploy-process-definition.ts legacy/workflow_app/definitions/FORGE_SDLC-v1.xml --dry-run`
 - `git diff --check`
 

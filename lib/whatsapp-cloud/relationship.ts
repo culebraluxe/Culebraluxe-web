@@ -1,8 +1,8 @@
-import { sql } from '../../db/client'
+import { sql } from '@/legacy/db/client'
 import {
   recordReconcileDecision,
   upsertRelationshipEvidence,
-} from '../../db/relationship-evidence'
+} from '@/legacy/db/relationship-evidence'
 import { fingerprint } from '../relationship-intel/normalize'
 import { REL_INTEL_RULE_VERSION } from '../relationship-intel/reconcile'
 import type { RelationshipEvidence } from '../relationship-intel/contracts'

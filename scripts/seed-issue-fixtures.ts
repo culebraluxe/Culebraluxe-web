@@ -8,8 +8,8 @@
 //
 // Run: node --env-file=.env.local --import tsx scripts/seed-issue-fixtures.ts
 
-import { sql } from '../db/client'
-import { reconcileIssues } from '../db/issues'
+import { sql } from '@/legacy/db/client'
+import { reconcileIssues } from '@/legacy/db/issues'
 
 // Fixed, deterministic fixture ids (never collide with generated uuids).
 const FIXTURE_IDS = {

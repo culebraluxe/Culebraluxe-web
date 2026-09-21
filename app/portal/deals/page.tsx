@@ -1,8 +1,8 @@
 import { DealsPortfolio } from "@/components/portal/deals-portfolio"
 import { ContractsPortfolio } from "@/components/portal/contracts-portfolio"
 import { DealCreatePanel } from "@/components/portal/write/deal-create-panel"
-import { getDeals, listDealableProperties } from "@/db/deals"
-import { getSettingsUsers } from "@/db/settings-auth"
+import { getDeals, listDealableProperties } from "@/legacy/db/deals"
+import { getSettingsUsers } from "@/legacy/db/settings-auth"
 import { listContractPortfolio } from "@/lib/contract-reads"
 
 export const dynamic = "force-dynamic"

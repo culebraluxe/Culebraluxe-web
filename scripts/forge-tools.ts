@@ -22,8 +22,8 @@ import {
   modelForbiddenTools,
   resolveForgeToolPermissions,
   type ForgeToolRole,
-} from '../workflow_app/forge/forge-tool-catalog'
-import { runStaticGate } from '../workflow_app/forge/forge-static-gate'
+} from '@/legacy/workflow_app/forge/forge-tool-catalog'
+import { runStaticGate } from '@/legacy/workflow_app/forge/forge-static-gate'
 
 const args = process.argv.slice(2)
 const roleIndex = args.indexOf('--role')

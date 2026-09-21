@@ -22,7 +22,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-import { withForgeTransaction, type ForgeDbTx } from '../db/forge-db'
+import { withForgeTransaction, type ForgeDbTx } from '@/legacy/db/forge-db'
 
 type Target = 'dev' | 'prod'
 

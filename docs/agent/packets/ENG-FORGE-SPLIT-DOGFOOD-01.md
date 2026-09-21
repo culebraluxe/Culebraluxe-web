@@ -13,13 +13,13 @@ separate proof commands**, so an honest Lead proposes SPLIT and the whole path r
 
 ## Units
 
-- **A** — `smithContractFromAssignment` (`workflow_app/forge/forge-split-handoff.ts`)
+- **A** — `smithContractFromAssignment` (`legacy/workflow_app/forge/forge-split-handoff.ts`)
   must set `prohibitedScope` to the **sibling** assignments' surfaces, so isolation is
   enforced by the machine contract, not only by rendered prose.
-  Proof: `pnpm exec tsx --test workflow_app/tests/forge-lead-routing-split.test.ts`
-- **B** — `splitJoinHoldReasons` (`workflow_app/forge/split-join.ts`) must report
+  Proof: `pnpm exec tsx --test legacy/workflow_app/tests/forge-lead-routing-split.test.ts`
+- **B** — `splitJoinHoldReasons` (`legacy/workflow_app/forge/split-join.ts`) must report
   **duplicated** terminal child outcomes as a named reason.
-  Proof: `pnpm exec tsx --test workflow_app/tests/forge-split-join.test.ts`
+  Proof: `pnpm exec tsx --test legacy/workflow_app/tests/forge-split-join.test.ts`
 
 ## Acceptance
 
@@ -35,8 +35,8 @@ SCOPED — the two assay commands above only.
 
 ## Assay commands
 
-- `pnpm exec tsx --test workflow_app/tests/forge-lead-routing-split.test.ts`
-- `pnpm exec tsx --test workflow_app/tests/forge-split-join.test.ts`
+- `pnpm exec tsx --test legacy/workflow_app/tests/forge-lead-routing-split.test.ts`
+- `pnpm exec tsx --test legacy/workflow_app/tests/forge-split-join.test.ts`
 
 ## Run
 

@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { GitBranch, AlertCircle } from "lucide-react"
 
-import type { WorkflowSummary } from "@/workflow_app/read-service"
+import type { WorkflowSummary } from "@/legacy/workflow_app/read-service"
 
 export function WorkflowDashboardCard({
   summaries,

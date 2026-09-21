@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { landingCalendarRowsToCatchUp } from '../db/catch-up-calendar'
+import { landingCalendarRowsToCatchUp } from '@/legacy/db/catch-up-calendar'
 
 test('calendar landing: projects a durable Apple event without turning it into work', () => {
   const events = landingCalendarRowsToCatchUp([

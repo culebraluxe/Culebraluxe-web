@@ -121,7 +121,7 @@ Scout is a **session boot**, not a peer in the roster.
 
 ### C. Role = prefix, not process
 
-Keep `workflow_app/forge/agents/role-agents.ts` collect/decide.
+Keep `legacy/workflow_app/forge/agents/role-agents.ts` collect/decide.
 
 Change the runner so:
 
@@ -181,7 +181,7 @@ Already specified in CONVERGENCE-01. Enforce it here on the session:
 ```
 pnpm exec tsc --noEmit
 pnpm exec tsx --test agent-runtime/invoker-workspace.test.ts
-pnpm exec tsx --test workflow_app/tests/forge-convergence.test.ts
+pnpm exec tsx --test legacy/workflow_app/tests/forge-convergence.test.ts
 # plus a new:
 pnpm exec tsx --test agent-runtime/invoker-session.test.ts
 ```

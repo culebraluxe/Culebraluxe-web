@@ -13,11 +13,11 @@ import {
   renewPlacement,
   requestPublishMany,
   withdrawPlacement,
-} from '@/db/syndication'
+} from '@/legacy/db/syndication'
 import { searchPeople } from '@/lib/person-reads'
 import type { SightingNetwork } from '@/lib/syndication/types'
 import { isPrepareChannel } from '@/lib/syndication/channels'
-import { saveStellarListing } from '@/db/stellar-listing'
+import { saveStellarListing } from '@/legacy/db/stellar-listing'
 import { STELLAR_DETAIL_FIELDS, validateStellarDetails } from '@/lib/syndication/stellar-fields'
 
 export type MarketingWriteState = {

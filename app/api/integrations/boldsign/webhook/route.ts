@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 
 import { captureServerError } from '@/lib/server-error-capture'
 import { createCommandDispatcher } from '@/lib/commands'
-import { neonTx } from '@/db/tx'
+import { neonTx } from '@/legacy/db/tx'
 import { SignatureApplication } from '@/lib/signature/application'
 import {
   BOLD_SIGN_SIGNATURE_HEADER,

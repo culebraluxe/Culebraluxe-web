@@ -26,7 +26,7 @@ import type {
   WorkspaceMedia,
   WorkspaceSeller,
   WorkspaceShowing,
-} from '@/db/portal-property'
+} from '@/legacy/db/portal-property'
 
 // Listing / Seller Operations V1 workspace. One cohesive per-property surface:
 // facts editing, visibility, media order/hero/metadata, seller context, listing

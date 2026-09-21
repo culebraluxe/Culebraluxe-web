@@ -52,7 +52,7 @@ The canonical path is:
 ## Assay (scoped)
 
 ```sh
-pnpm exec tsx --test workflow_app/tests/crm26-consumer.test.ts workflow_app/tests/agreement-execution-command.test.ts
+pnpm exec tsx --test legacy/workflow_app/tests/crm26-consumer.test.ts legacy/workflow_app/tests/agreement-execution-command.test.ts
 git diff --check
 ```
 

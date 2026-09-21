@@ -31,7 +31,7 @@ import { evaluateCondition } from './expressions';
 // RESULT. The tenant case sent the literal statement `AND tenant_id IS NULL` to
 // Postgres and died with 42601 (found by ENG-FORGE-SMOKE-01, 2026-09-12); the
 // empty case quietly executed an empty query. A fragment must be built, not run.
-import { raw } from '../../../db/sql-template';
+import { raw } from '@/legacy/db/sql-template';
 import {
   StaleTokenError,
   WorkflowConflictError,

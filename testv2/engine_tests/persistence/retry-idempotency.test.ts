@@ -7,7 +7,7 @@ import {
   finalizeReceipt,
   readFinalReceipt,
   replayOutcome,
-} from '../../../db/workflow-command-receipt'
+} from '@/legacy/db/workflow-command-receipt'
 import { assertEngineSchema, ensureCommandEffectTable, PersistenceFixture } from './harness'
 
 // start -> approve (human task) -> do (application command) -> end

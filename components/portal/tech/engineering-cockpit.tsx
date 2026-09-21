@@ -26,7 +26,7 @@ import {
   type StoryBoardCockpitData,
   type StoryRecord,
 } from "@/lib/storyboard-data"
-import type { StoryRun } from "@/db/storyboard"
+import type { StoryRun } from "@/legacy/db/storyboard"
 import { setActiveWorkAction } from "@/app/portal/tech/actions"
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 // CORE-DAILY — truthful Production Story Board update for the foundation stories.
 // Authorized control-plane update. Run:
 //   node --import tsx --env-file=.env.local --env-file=.env.local scripts/update-core-daily.mjs
-import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db.ts'
+import { forgeDb, forgeDbTargetForUrl } from './scripts/legacy/db/forge-db.ts'
 const pool = forgeDb.forTarget(forgeDbTargetForUrl(process.env.DATABASE_URL_PROD))
 
 const SHA = 'c4dffcf'

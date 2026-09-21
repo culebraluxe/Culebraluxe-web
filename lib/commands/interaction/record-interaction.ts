@@ -20,7 +20,7 @@
 // No business rules live here.
 // ---------------------------------------------------------------------------
 
-import { createInteraction } from '../../../db/interactions'
+import { createInteraction } from '@/legacy/db/interactions'
 import type { CreateInteractionInput } from '../../crm-types'
 import type {
   CommandEnvelope,

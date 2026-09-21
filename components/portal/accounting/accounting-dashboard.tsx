@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 
-import type { DashboardSummary, PnlLine } from '@/db/accounting'
+import type { DashboardSummary, PnlLine } from '@/legacy/db/accounting'
 import { formatDate, formatMoney } from '@/lib/accounting/format'
 import {
   GlassPanel,

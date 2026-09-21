@@ -13,7 +13,7 @@
 // Story Board at execution time.
 // ---------------------------------------------------------------------------
 
-import type { StoryboardStory } from '../db/storyboard'
+import type { StoryboardStory } from '@/legacy/db/storyboard'
 import type { AgentCapability } from './capabilities'
 import type { AssayEvidence } from './assay-evidence'
 import type { StoryPacketFields } from './story-session'

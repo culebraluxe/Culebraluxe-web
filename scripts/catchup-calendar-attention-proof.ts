@@ -1,8 +1,8 @@
 // CATCH-UP DEV proof (Scenario D, calendar_attention) — schedule a showing for
 // an eligible person who is NOT a brand-new lead, and confirm the derived reason
 // becomes calendar-driven.
-import { createShowing, scheduleShowing } from '../db/portal-writes'
-import { getCatchUpEligiblePage } from '../db/catch-up'
+import { createShowing, scheduleShowing } from '@/legacy/db/portal-writes'
+import { getCatchUpEligiblePage } from '@/legacy/db/catch-up'
 import { buildCatchUpQueue, toFacts } from '../lib/catchup/queue'
 import { deriveAttention } from '../lib/catchup/rules'
 

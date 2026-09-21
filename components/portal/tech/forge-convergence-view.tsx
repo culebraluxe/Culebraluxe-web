@@ -1,4 +1,4 @@
-import type { StoryForgeConvergence } from "@/db/forge-convergence"
+import type { StoryForgeConvergence } from "@/legacy/db/forge-convergence"
 
 // ---------------------------------------------------------------------------
 // Scope D — Forge execution lineage view (server-rendered).

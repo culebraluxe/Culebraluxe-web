@@ -10,7 +10,7 @@
 // happens in lib/commands/register.ts.
 // ---------------------------------------------------------------------------
 
-import { setDealLenderClearToClose } from '../../../db/deal-lender-clearance'
+import { setDealLenderClearToClose } from '@/legacy/db/deal-lender-clearance'
 import type {
   CommandEnvelope,
   CommandExecutionContext,

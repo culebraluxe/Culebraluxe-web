@@ -160,7 +160,7 @@ const SOURCE_ROOTS = [
   'workflow_app',
   'ui',
   'testv2',
-  'db/migrations',
+  'legacy/db/migrations',
 ]
 
 const basenameCache = new Map<string, Map<string, string[]>>()

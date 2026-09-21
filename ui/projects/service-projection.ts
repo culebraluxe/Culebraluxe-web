@@ -13,9 +13,9 @@
 // Projects with no person/property anchor fall back to a category-collection
 // pole so nothing is lost.
 // ---------------------------------------------------------------------------
-import type { WbsItem } from "@/services/wbs"
-import type { Project } from "@/services/project"
-import type { ActivityFeedEntry } from "@/db/activity-feed"
+import type { WbsItem } from "@/legacy/services/wbs"
+import type { Project } from "@/legacy/services/project"
+import type { ActivityFeedEntry } from "@/legacy/db/activity-feed"
 import type { ProjectWorkStatus } from "./model"
 import type { ProjectCatchUpItem } from "./catchup-projection"
 import { mapProjectCalendarItems } from "./secondary-projection"

@@ -15,9 +15,9 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/MEMORY.md` — handbook · always-read handbook · last touched 2026-09-18
 - `docs/agent/CURRENT.md` — handbook · always-read handbook · last touched 2026-09-14
 - `docs/agent/packets/ENG-FORGE-DOCTOR-01.md` — packet · the packet for ENG-FORGE-DOCTOR-01 · last touched 2026-09-15
-- `db/agent-work.ts` — cited · cited by ENG-FORGE-DOCTOR-01 · last touched 2026-09-18
-- `db/storyboard.ts` — cited · cited by ENG-FORGE-DOCTOR-01 · last touched 2026-09-18
-- `workflow_app/forge/agents/architect/assess.ts` — cited · cited by ENG-FORGE-DOCTOR-01 · last touched 2026-09-15
+- `legacy/db/agent-work.ts` — cited · cited by ENG-FORGE-DOCTOR-01 · last touched 2026-09-18
+- `legacy/db/storyboard.ts` — cited · cited by ENG-FORGE-DOCTOR-01 · last touched 2026-09-18
+- `legacy/workflow_app/forge/agents/architect/assess.ts` — cited · cited by ENG-FORGE-DOCTOR-01 · last touched 2026-09-15
 - `scripts/forge-batch-status.ts` — cited · cited by ENG-FORGE-DOCTOR-01 · last touched 2026-09-14
 - `scripts/forge-manifest.ts` — commit · touched by 1 commit(s) naming ENG-FORGE-DOCTOR-01 · last touched 2026-09-17
 - `docs/agent/RUNLOG.md` — lexical · term match: agent, log, worker, builder · last touched untracked

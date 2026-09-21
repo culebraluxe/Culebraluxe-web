@@ -1,19 +1,19 @@
-import { sql } from '../../db/client'
-import { createIntegrationInboxDurability } from '../../db/integration-inbox'
+import { sql } from '@/legacy/db/client'
+import { createIntegrationInboxDurability } from '@/legacy/db/integration-inbox'
 import {
   findDealById,
   findPropertyById,
   findPropertyBySlug,
-} from '../../db/intake-context'
+} from '@/legacy/db/intake-context'
 import {
   getInteractionBySourceIdentity,
-} from '../../db/interactions'
+} from '@/legacy/db/interactions'
 import {
   createPersonWithIdentities,
   findIdentityMatch,
   findIdentityOwnership,
   personExists,
-} from '../../db/person-identities'
+} from '@/legacy/db/person-identities'
 import { commandDispatcher } from '../commands'
 import type { SourceCapability } from '../mac-observer/contracts'
 import {

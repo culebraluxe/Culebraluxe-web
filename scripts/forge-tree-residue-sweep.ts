@@ -78,7 +78,7 @@ export function classifyLegacyResidue(
 const RESIDUE_SQL_PATTERN = 'Culebraluxe-worktrees|/worktrees/|worktreePath|worktree='
 
 async function main(): Promise<void> {
-  const { sql } = await import('../db/client')
+  const { sql } = await import('@/legacy/db/client')
   const rows: ResidueRow[] = []
 
   const artifacts = await sql`

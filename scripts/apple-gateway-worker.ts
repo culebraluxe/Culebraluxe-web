@@ -4,9 +4,9 @@ import { writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { sql } from '../db/client'
-import { APPLE_GATEWAY_ROUTES } from '../db/apple-gateway-outbox'
-import type { QueryExecutor } from '../db/query-executor'
+import { sql } from '@/legacy/db/client'
+import { APPLE_GATEWAY_ROUTES } from '@/legacy/db/apple-gateway-outbox'
+import type { QueryExecutor } from '@/legacy/db/query-executor'
 
 const REPO_ROOT = process.env.CULEBRALUXE_REPO || process.cwd()
 const WRITER = join(REPO_ROOT, 'scripts', 'macbridge', 'AppleGatewayWrite.swift')

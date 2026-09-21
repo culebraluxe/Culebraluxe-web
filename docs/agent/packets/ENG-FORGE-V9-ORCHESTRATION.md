@@ -10,9 +10,9 @@ ApplicationPort (the "B" path).
 ## Stage 1 — A/B validation fork (done)
 - Layer 4 application-contract is now domain-injected. Default = RE inventory
   (RE_supermodel behavior byte-for-byte unchanged).
-- New workflow_app/forge-command-types.ts = Forge-owned inventory (forge.* only).
+- New legacy/workflow_app/forge-command-types.ts = Forge-owned inventory (forge.* only).
 - forge-sdlc.ts validates FORGE_SDLC against the Forge inventory, never RE.
-- Tests: workflow_app/tests/forge-command-fork.test.ts.
+- Tests: legacy/workflow_app/tests/forge-command-fork.test.ts.
 
 ## Stage 2 — Forge engine path exists (done)
 - FORGE_SDLC v1 deployed to process_definitions (active) in DEV + PROD, beside
@@ -21,14 +21,14 @@ ApplicationPort (the "B" path).
 ## Stage 3 — Forge command domain + ApplicationPort (done, DB-free)
 - forge.* command set: forge.story.hold | forge.story.complete |
   forge.story.in_progress | forge.run.detail (forge-command-types.ts).
-- workflow_app/forge/forge-state-writer.ts — ForgeStateWriter seam (DI) + payload
+- legacy/workflow_app/forge/forge-state-writer.ts — ForgeStateWriter seam (DI) + payload
   helpers. DB-free.
-- workflow_app/forge/forge-command.ts — registry + thin handlers (DB-free).
-- workflow_app/forge/db-state-writer.ts — real Neon writer adapter (lazy import).
-- workflow_app/forge/application-port.ts — Forge ApplicationPort (the "B" engine
+- legacy/workflow_app/forge/forge-command.ts — registry + thin handlers (DB-free).
+- legacy/workflow_app/forge/db-state-writer.ts — real Neon writer adapter (lazy import).
+- legacy/workflow_app/forge/application-port.ts — Forge ApplicationPort (the "B" engine
   seam): executes forge.* only; RE commands => not_found. readFacts via injected
   reader.
-- Tests: workflow_app/tests/forge-command.test.ts (fake writer).
+- Tests: legacy/workflow_app/tests/forge-command.test.ts (fake writer).
 - Inventory now routes forge.* (forge.story.hold etc.), still never deal.*.
 
 ## Clean A/B boundary (invariant)
@@ -37,12 +37,12 @@ ApplicationPort (the "B" path).
   dispatches a forge.* command. Fail closed at every seam.
 
 ## Context refs
-- workflow_app/forge-command-types.ts
-- workflow_app/forge/forge-state-writer.ts, forge-command.ts,
+- legacy/workflow_app/forge-command-types.ts
+- legacy/workflow_app/forge/forge-state-writer.ts, forge-command.ts,
   db-state-writer.ts, application-port.ts
-- workflow_app/definitions/application-contract.ts, validate-definition.ts,
+- legacy/workflow_app/definitions/application-contract.ts, validate-definition.ts,
   forge-sdlc.ts
-- workflow_app/tests/forge-command.test.ts, forge-command-fork.test.ts
+- legacy/workflow_app/tests/forge-command.test.ts, forge-command-fork.test.ts
 - docs/agent/packets/ENG-FORGE-V7-SDLC.md
 
 ## Remaining (Stages 4–6 — NOT done, separately verified)
@@ -60,7 +60,7 @@ planner, workflow
 SCOPED only.
 
 ## Assay commands
-- node_modules/.bin/tsx --test workflow_app/tests/forge-command.test.ts
-- node_modules/.bin/tsx --test workflow_app/tests/forge-command-fork.test.ts workflow_app/tests/forge-sdlc.test.ts workflow_app/tests/application-contract.test.ts
-- node_modules/.bin/tsx workflow_app/scripts/deploy-process-definition.ts workflow_app/definitions/FORGE_SDLC-v1.xml --dry-run
+- node_modules/.bin/tsx --test legacy/workflow_app/tests/forge-command.test.ts
+- node_modules/.bin/tsx --test legacy/workflow_app/tests/forge-command-fork.test.ts legacy/workflow_app/tests/forge-sdlc.test.ts legacy/workflow_app/tests/application-contract.test.ts
+- node_modules/.bin/tsx legacy/workflow_app/scripts/deploy-process-definition.ts legacy/workflow_app/definitions/FORGE_SDLC-v1.xml --dry-run
 - git diff --check

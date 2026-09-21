@@ -7,10 +7,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { ContractService } from '../services/contract'
-import type { ContractDto, ContractRepository } from '../services/contract'
-import { AuthorizationService, StaticAuthorizationPolicyProvider } from '../services/entitlement'
-import type { ServiceAuditEvent, ServiceDomainEvent } from '../services/core'
+import { ContractService } from '@/legacy/services/contract'
+import type { ContractDto, ContractRepository } from '@/legacy/services/contract'
+import { AuthorizationService, StaticAuthorizationPolicyProvider } from '@/legacy/services/entitlement'
+import type { ServiceAuditEvent, ServiceDomainEvent } from '@/legacy/services/core'
 import { context, principal } from './test-support'
 
 const actor = { id: 'u-1', kind: 'user' as const }

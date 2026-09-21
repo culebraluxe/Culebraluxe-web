@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-import type { StoryRun } from '../db/storyboard'
+import type { StoryRun } from '@/legacy/db/storyboard'
 import { renderDecisionBlock, type DecisionSource } from '../lib/forge-decision'
 
 const DEFAULT_MAX_OUTPUT_CHARS = 32_000

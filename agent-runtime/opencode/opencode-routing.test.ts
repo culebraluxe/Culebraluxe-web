@@ -23,7 +23,7 @@ import type {
   AgentExecutionWorkspace,
   AgentWorkCommand,
 } from '../types'
-import type { StoryboardStory } from '../../db/storyboard'
+import type { StoryboardStory } from '@/legacy/db/storyboard'
 import type { OpenCodeHandle } from './opencode-client'
 
 const NOOP_START_RUN = (() => {

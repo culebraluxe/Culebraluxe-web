@@ -7,7 +7,7 @@
 
 import type { ActingUser, AuthorityCode } from './types'
 import { MissingAuthorityError } from './errors'
-import { resolveSecurityLevel } from '@/services/security/level'
+import { resolveSecurityLevel } from '@/legacy/services/security/level'
 
 export function hasAuthority(
   actor: ActingUser,

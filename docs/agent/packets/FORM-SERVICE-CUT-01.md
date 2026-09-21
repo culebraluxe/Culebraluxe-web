@@ -67,7 +67,7 @@ Offer economics and terms live in Contract facts. BUYER is a Contract Role mappe
 ## Assay — SCOPED
 
 ```sh
-pnpm exec tsx --test workflow_app/tests/form-service-binding.test.ts
+pnpm exec tsx --test legacy/workflow_app/tests/form-service-binding.test.ts
 ```
 
 Do not run the full suite unless explicitly authorized.

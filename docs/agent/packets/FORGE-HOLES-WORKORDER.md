@@ -11,7 +11,7 @@
 - `WorkflowEngine` + `FORGE_SDLC` own the next node. Do not add a reducer that routes.
 - OpenCode is the inner harness only. No MCP wave, no Maestro store, no Shepherd Python.
 - `hold-recommend` from `forge-alerts` is NOT a HOLD. The runner / engine throws HOLD.
-- Captain paths: do not delete or “clean” `workflow_engine/**`, `lib/mq/**`, `grok/**`, `workflow_app/scripts/**`. Report only.
+- Captain paths: do not delete or “clean” `workflow_engine/**`, `lib/mq/**`, `grok/**`, `legacy/workflow_app/scripts/**`. Report only.
 - Forge execution target is **PROD only**. DEV is not a Forge lane. Fail closed.
 - `cost_usd` is vendor-reported only. Never invent a widgets→dollars rate.
 - Do not convert knip unused-file lists into deletions on captain paths.
@@ -55,8 +55,8 @@ Total: **55**. Do 1–3 before any “new capability” story. 8–9 are feature
 **Issue:** Persistent sink and alert rules exist. The only runner hook is the **split-child** block. Scorecard split health is 0. Serial Smith / Lead / QA produce no `SCOPE_CHECK` / `GIT_COMMIT` / `HOLD` observer events. The worker-execution layer is dark on the path that actually runs.
 
 ### Scope
-- `workflow_app/forge/agent-runtime-role-runner.ts` (and any serial Smith admit / Lead complete path that already has `scopeViolations` or HOLD)
-- Reuse `workflow_app/forge/forge-observer/*` and `forge-alerts/*`
+- `legacy/workflow_app/forge/agent-runtime-role-runner.ts` (and any serial Smith admit / Lead complete path that already has `scopeViolations` or HOLD)
+- Reuse `legacy/workflow_app/forge/forge-observer/*` and `forge-alerts/*`
 - Do **not** change HOLD policy
 - Do **not** hook QA/Assay beyond recording `run.end` / existing HOLD if the call site is already there and cheap
 
@@ -84,7 +84,7 @@ Total: **55**. Do 1–3 before any “new capability” story. 8–9 are feature
 
 ### Scope
 - Start of Forge execution: role runner / invoker / engine-start wrapper — wherever a lane is launched
-- Reuse `assertForgeExecutionTarget` if it exists; if it only lives on the sync script, lift it to a shared module under `workflow_app/forge/`
+- Reuse `assertForgeExecutionTarget` if it exists; if it only lives on the sync script, lift it to a shared module under `legacy/workflow_app/forge/`
 - Not: rewriting history, not re-running DEV work
 
 ### Technical fix
@@ -132,7 +132,7 @@ Total: **55**. Do 1–3 before any “new capability” story. 8–9 are feature
 **Issue:** `list()` is the in-process memory sink. Durable write is fire-and-forget. `RETRY_UNCHANGED_INPUT` cannot see attempt N-1 after process restart.
 
 ### Scope
-- `workflow_app/forge/forge-observer/persistent-sink.ts`
+- `legacy/workflow_app/forge/forge-observer/persistent-sink.ts`
 - Optional: `listFromTrace` reader over `workflow_execution_trace_event` where `source_system='forge_observer'`
 - Alerts stay pure over `TraceEvent[]`
 
@@ -179,7 +179,7 @@ Total: **55**. Do 1–3 before any “new capability” story. 8–9 are feature
 **Issue:** `forge-release-receipt.ts` rejects placeholders. Nothing produces `releaseEvidence` from a real host signal. Deploy/production_smoke still blocks or waits. `MISSING_DEPLOY_RECEIPT` stays watch forever.
 
 ### Scope
-- `workflow_app/forge/forge-release-receipt.ts` (keep fail-closed assessor)
+- `legacy/workflow_app/forge/forge-release-receipt.ts` (keep fail-closed assessor)
 - DevOps / publish path that already talks to Vercel or the host you actually use
 - `AgentRunEvidence.releaseEvidence`
 - Not: fabricating receipts for WS-14; not marking WS-14 Complete
@@ -227,7 +227,7 @@ Total: **55**. Do 1–3 before any “new capability” story. 8–9 are feature
 Scout has Ripwire `--pack-task`. Lead/Smith get large prompts. There is no provenance-bearing packet: seams + assignment files + 1-hop deps + assay commands + AGENTS excerpt, with a manifest.
 
 ### Scope
-- New module `workflow_app/forge/forge-context-packet.ts` (pure compile + types)
+- New module `legacy/workflow_app/forge/forge-context-packet.ts` (pure compile + types)
 - Inputs: story id, node, attempt, Scout findings text, Architect seams, accepted Lead assignment paths, frozen assay commands, AGENTS excerpts already used in prompts
 - Output: manifest `{ sources: [{ path or ref, reason, bytes, hash? }], omittedCount, estimatedTokens }`
 - **Observer mode:** compile and persist on evidence / observer event. Do **not** replace the live prompt in this story.

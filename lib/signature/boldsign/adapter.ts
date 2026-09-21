@@ -13,8 +13,8 @@ import type {
   WebhookVerificationResult,
 } from '../contracts'
 import { BOLD_SIGN_PROVIDER, mapProviderStatus } from '../status-mapping'
-import type { QueryExecutor } from '../../../db/query-executor'
-import type { TxRunner } from '../../../db/tx'
+import type { QueryExecutor } from '@/legacy/db/query-executor'
+import type { TxRunner } from '@/legacy/db/tx'
 import {
   createBoldSignRequest,
   getBoldSignRequestByEnvelopeId,
@@ -22,7 +22,7 @@ import {
   insertBoldSignWebhookEvent,
   recordBoldSignRequestError,
   updateBoldSignRequestStatus,
-} from '../../../db/bold-sign-request'
+} from '@/legacy/db/bold-sign-request'
 import type { BoldSignConfig } from './config'
 import { BoldSignClient, type BoldSignDirectSigner } from './client'
 import { classifyBoldSignError } from './errors'
@@ -48,7 +48,7 @@ let lazyDefaultExecutor: QueryExecutor | null = null
 
 async function lazyExecutor(): Promise<QueryExecutor> {
   if (!lazyDefaultExecutor) {
-    const client = await import('../../../db/client')
+    const client = await import('@/legacy/db/client')
     lazyDefaultExecutor = client.sql
   }
   return lazyDefaultExecutor

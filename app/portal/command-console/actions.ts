@@ -9,7 +9,7 @@ import {
   enqueueAgentWorkCommand,
   pauseAgentWork,
   resumeAgentWork,
-} from '@/db/agent-work'
+} from '@/legacy/db/agent-work'
 
 export type ConsoleActionResult<T> =
   | { ok: true; data: T }

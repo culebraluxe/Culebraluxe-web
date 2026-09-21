@@ -1,4 +1,4 @@
-import type { MediaAdminSnapshot } from "@/db/media-admin"
+import type { MediaAdminSnapshot } from "@/legacy/db/media-admin"
 import {
   PortalTable,
   PortalTableBody,

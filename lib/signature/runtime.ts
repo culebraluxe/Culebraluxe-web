@@ -1,5 +1,5 @@
 import { commandDispatcher } from "@/lib/commands"
-import { neonTx } from "@/db/tx"
+import { neonTx } from "@/legacy/db/tx"
 import { SignatureApplication } from "@/lib/signature/application"
 import { createBoldSignProvider } from "@/lib/signature/boldsign"
 import { SignatureReconciliationHandler } from "@/lib/signature/reconciliation"

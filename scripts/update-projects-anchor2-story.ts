@@ -1,5 +1,5 @@
 // ENG-PROJECTS-ANCHOR-02 — seed the Story Board story for the LEAD-routing validation run.
-import { createStoryboardStory, updateStoryboardStory } from '../db/storyboard'
+import { createStoryboardStory, updateStoryboardStory } from '@/legacy/db/storyboard'
 
 const id = 'ENG-PROJECTS-ANCHOR-02'
 

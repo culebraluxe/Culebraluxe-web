@@ -1,5 +1,5 @@
 import type { FormInstance } from '@/lib/forms/form-instance-io'
-import type { ContractRoleDto } from '@/services/contract'
+import type { ContractRoleDto } from '@/legacy/services/contract'
 import { compactFormValue } from './service-binding-core'
 
 const OFFER_FACT_FIELDS = [

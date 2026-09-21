@@ -26,7 +26,7 @@ The cost of not having them was paid tonight: a `catch` that silently dropped ev
 | `agent-runtime/write-policy.ts` revokes non-builder commits | **TRUE** — `revokeForbiddenCommit` drops the hash and requests a rewind |
 | Packet format lists skills | **TRUE** — `docs/agent/packets/README.md` requires `## Skills`, "packs from `docs/agent/skills/`" |
 | `agent-runtime/repo-context.ts` injects `MEMORY.md` / `CURRENT.md` into a prompt | **FALSE** — that file builds a ripwire/scout query packet; it injects no memory |
-| The inject site exists elsewhere in-repo | **FALSE** — nothing in `agent-runtime/**` or `workflow_app/forge/**` reads `MEMORY.md`, `CURRENT.md` or `docs/agent/packets/*.md` into a prompt; the harness reads them (per `docs/agent/VENDOR-ADAPTERS.md`), not our code |
+| The inject site exists elsewhere in-repo | **FALSE** — nothing in `agent-runtime/**` or `legacy/workflow_app/forge/**` reads `MEMORY.md`, `CURRENT.md` or `docs/agent/packets/*.md` into a prompt; the harness reads them (per `docs/agent/VENDOR-ADAPTERS.md`), not our code |
 
 Two pre-existing inconsistencies found while checking (reported, not smuggled into scope):
 

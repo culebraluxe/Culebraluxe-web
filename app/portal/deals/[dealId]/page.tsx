@@ -1,6 +1,6 @@
 import { DealWorkspace } from "@/components/portal/deal-workspace"
-import { getDealWorkspace } from "@/db/deal-workspace"
-import { getSettingsUsers } from "@/db/settings-auth"
+import { getDealWorkspace } from "@/legacy/db/deal-workspace"
+import { getSettingsUsers } from "@/legacy/db/settings-auth"
 
 export const dynamic = "force-dynamic"
 

@@ -18,10 +18,10 @@
 // its own body still connects to whatever environment was set when the gateway was imported —
 // while dbTargetInfo() cheerfully reports the new target. That trap is DEEP1 section 6, and it
 // has already written to the wrong branch once.
-import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db'
+import { forgeDb, forgeDbTargetForUrl } from '@/legacy/db/forge-db'
 
 import { createPoolExecutor } from './lib/pool-executor'
-import { getStoryboardStory, updateStoryboardStory } from '../db/storyboard'
+import { getStoryboardStory, updateStoryboardStory } from '@/legacy/db/storyboard'
 
 const MVI_MARKER = 'THE SERVICE TIER AND THE MVI SCREEN RUNTIME'
 const SOP_MARKER = 'OPERATOR AMENDMENT 2026-09-11/12'

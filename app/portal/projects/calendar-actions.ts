@@ -2,20 +2,20 @@
 
 import { randomUUID } from "node:crypto"
 
-import { SqlCalendarRepository } from "@/db/calendar-service-repository"
+import { SqlCalendarRepository } from "@/legacy/db/calendar-service-repository"
 import { getActingUser } from "@/lib/auth/get-acting-user"
 import { getPortalSessionAdapter } from "@/lib/auth/portal-session"
 import { captureServerError } from "@/lib/server-error-capture"
 import { appServiceErrorSink } from "@/lib/service-error-sink"
 import type { CatchUpCalendarEvent } from "@/lib/catchup/calendar-adapter"
-import { CalendarService } from "@/services/calendar"
-import type { CreateAppleCalendarEventRequest } from "@/services/calendar"
-import type { ServiceContext } from "@/services/core"
+import { CalendarService } from "@/legacy/services/calendar"
+import type { CreateAppleCalendarEventRequest } from "@/legacy/services/calendar"
+import type { ServiceContext } from "@/legacy/services/core"
 import {
   AuthorizationService,
   StaticAuthorizationPolicyProvider,
-} from "@/services/entitlement"
-import { resolveSecurityLevel } from "@/services/security"
+} from "@/legacy/services/entitlement"
+import { resolveSecurityLevel } from "@/legacy/services/security"
 
 export type LoadCatchUpScheduleResult =
   | { ok: true; events: CatchUpCalendarEvent[] }

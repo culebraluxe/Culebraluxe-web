@@ -48,9 +48,9 @@ import {
   saveIntakeCheckpoint,
   type IntakeCheckpoint,
   type SaveIntakeCheckpointInput,
-} from '../db/intake-checkpoint'
-import { appleMailReplayId, landAppleMail } from '../db/landing'
-import type { QueryExecutor } from '../db/query-executor'
+} from '@/legacy/db/intake-checkpoint'
+import { appleMailReplayId, landAppleMail } from '@/legacy/db/landing'
+import type { QueryExecutor } from '@/legacy/db/query-executor'
 import {
   APPLE_MAIL_INTAKE_SOURCE,
   APPLE_PAGE_SIZE,

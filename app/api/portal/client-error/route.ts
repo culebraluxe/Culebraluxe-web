@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { sql } from '@/db/client'
-import { recordError } from '@/db/app-error'
+import { sql } from '@/legacy/db/client'
+import { recordError } from '@/legacy/db/app-error'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
 import {
@@ -94,7 +94,7 @@ async function POSTHandler(req: NextRequest): Promise<Response> {
   // The executor is passed EXPLICITLY. `app_error` keeps its writer injected to avoid an import
   // cycle, and `recordError` throws when nothing registered one — but `captureError` swallows
   // throws by design (it must never break the operation it observes), so a capture call in a
-  // bundle whose module graph lacks `db/client` records NOTHING, silently. Measured while building
+  // bundle whose module graph lacks `legacy/db/client` records NOTHING, silently. Measured while building
   // this route: the same capture wrote zero rows. Passing `sql` removes the dependency on load
   // order entirely, and the catch below keeps the best-effort contract for the reporter.
   await recordError(

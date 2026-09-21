@@ -8,7 +8,7 @@ import {
   startStoryRun,
   finishStoryRun,
   updateStoryRunProgress,
-} from '../db/storyboard'
+} from '@/legacy/db/storyboard'
 
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2)

@@ -1,6 +1,6 @@
 // Reproduce the ACTION's write sequence for one story against PROD, so a throw in the DB path shows its
 // real message instead of React's minified #441. This performs the user's intended move (bench -> open).
-import { setActiveWork, setStoryboardStatus, listActiveWork, getStoryboardStory } from '@/db/storyboard'
+import { setActiveWork, setStoryboardStatus, listActiveWork, getStoryboardStory } from '@/legacy/db/storyboard'
 
 const STORY = process.argv[2] ?? 'ENG-FORGE-V5-21'
 

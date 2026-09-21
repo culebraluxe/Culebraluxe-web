@@ -4,7 +4,7 @@ import {
   resolveForgeHold,
   validResumeTarget,
   type ForgeHoldResolution,
-} from '../workflow_app/forge/forge-hold-resolve'
+} from '@/legacy/workflow_app/forge/forge-hold-resolve'
 
 // ---------------------------------------------------------------------------
 // ENG-FORGE-RESUME-DOOR-01 — ONE OPERATOR DOOR OUT OF A HELD OR FAILED RUN.

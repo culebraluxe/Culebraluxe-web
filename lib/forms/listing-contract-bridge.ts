@@ -5,12 +5,12 @@ import { randomUUID } from 'node:crypto'
 import { coreServices } from '@/lib/service-runtime'
 import { getActingUser } from '@/lib/auth/get-acting-user'
 import { getPortalSessionAdapter } from '@/lib/auth/portal-session'
-import { resolveSecurityLevel } from '@/services/security'
+import { resolveSecurityLevel } from '@/legacy/services/security'
 import {
   CONTRACT_OPERATIONS,
   type ContractRoleDto,
-} from '@/services/contract'
-import type { FormInstance } from '@/services/forms'
+} from '@/legacy/services/contract'
+import type { FormInstance } from '@/legacy/services/forms'
 import { captureServerError } from '@/lib/server-error-capture'
 import { planContractFromForm } from './contract-from-form'
 import { getTemplate } from './template-registry'

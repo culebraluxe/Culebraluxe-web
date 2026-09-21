@@ -5,9 +5,9 @@ import {
   getRelationshipEvidenceById,
   recordReconcileDecision,
   rerunRelationshipReconciliation,
-} from "@/db/relationship-evidence"
-import { personExists } from "@/db/person-identities"
-import { recordSecurityAuditEvent } from "@/db/security-audit"
+} from "@/legacy/db/relationship-evidence"
+import { personExists } from "@/legacy/db/person-identities"
+import { recordSecurityAuditEvent } from "@/legacy/db/security-audit"
 import { REL_INTEL_RULE_VERSION } from "@/lib/relationship-intel/reconcile"
 import type { ReviewState } from "@/lib/relationship-intel/contracts"
 import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"

@@ -1,5 +1,5 @@
 import { Reporting } from "@/components/portal/reporting"
-import { getReportingSnapshot } from "@/db/reporting"
+import { getReportingSnapshot } from "@/legacy/db/reporting"
 
 export const dynamic = "force-dynamic"
 

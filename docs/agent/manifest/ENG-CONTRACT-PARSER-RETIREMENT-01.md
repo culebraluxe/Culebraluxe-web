@@ -15,10 +15,10 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/MEMORY.md` — handbook · always-read handbook · last touched 2026-09-18
 - `docs/agent/CURRENT.md` — handbook · always-read handbook · last touched 2026-09-14
 - `docs/agent/packets/ENG-CONTRACT-PARSER-RETIREMENT-01.md` — packet · the packet for ENG-CONTRACT-PARSER-RETIREMENT-01 · last touched 2026-09-15
-- `workflow_app/forge/agents/architect-handoff.ts` — cited · cited by ENG-CONTRACT-PARSER-RETIREMENT-01 · last touched 2026-09-18
+- `legacy/workflow_app/forge/agents/architect-handoff.ts` — cited · cited by ENG-CONTRACT-PARSER-RETIREMENT-01 · last touched 2026-09-18
 - `lib/field-mediator.ts` — cited · cited by ENG-CONTRACT-PARSER-RETIREMENT-01 · last touched 2026-09-15
-- `node --import tsx --test workflow_app/tests/forge-architect-role.test.ts` — cited · cited by ENG-CONTRACT-PARSER-RETIREMENT-01 · last touched untracked
-- `node --import tsx --test workflow_app/tests/forge-qa-seam.test.ts` — cited · cited by ENG-CONTRACT-PARSER-RETIREMENT-01 · last touched untracked
+- `node --import tsx --test legacy/workflow_app/tests/forge-architect-role.test.ts` — cited · cited by ENG-CONTRACT-PARSER-RETIREMENT-01 · last touched untracked
+- `node --import tsx --test legacy/workflow_app/tests/forge-qa-seam.test.ts` — cited · cited by ENG-CONTRACT-PARSER-RETIREMENT-01 · last touched untracked
 - `docs/agent/manifest/ENG-CONTRACT-PARSER-RETIREMENT-01.md` — commit · touched by 1 commit(s) naming ENG-CONTRACT-PARSER-RETIREMENT-01 · last touched 2026-09-16
 - `docs/agent/manifest/ENG-STRUCTURED-CONTRACTS-01.md` — commit · touched by 1 commit(s) naming ENG-CONTRACT-PARSER-RETIREMENT-01 · last touched 2026-09-16
 - `docs/agent/packets/ENG-STRUCTURED-CONTRACTS-01.md` — commit · touched by 1 commit(s) naming ENG-CONTRACT-PARSER-RETIREMENT-01 · last touched 2026-09-15

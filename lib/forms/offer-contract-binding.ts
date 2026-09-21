@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
 import { bindFormInstanceToContract, getFormContractId } from '@/lib/vault-io'
-import { CONTRACT_OPERATIONS } from '@/services/contract'
+import { CONTRACT_OPERATIONS } from '@/legacy/services/contract'
 import { formCoreServices } from './form-service-runtime'
 import { formServiceContext, serviceValue } from './service-binding-core'
 import { mapOfferContractDraft, type OfferContractDraft } from './offer-contract-mapping'

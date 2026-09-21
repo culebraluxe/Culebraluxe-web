@@ -27,7 +27,7 @@ import {
   promoteDecision,
   supersedeDecision,
   DecisionError,
-} from '@/db/forge-decision'
+} from '@/legacy/db/forge-decision'
 import {
   DECISION_DOMAINS,
   DECISION_SOURCES,

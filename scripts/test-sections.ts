@@ -50,7 +50,7 @@ export const SECTION_RULES: Array<{ section: string; match: RegExp }> = [
   { section: 'forge-runtime', match: /^agent-runtime\// },
   { section: 'forge-runtime', match: /^testv2\/engine_tests\/(persistence|hardening|dynamic)/ },
   { section: 'forge-engine', match: /^testv2\/engine_tests\// },
-  { section: 'forge-engine', match: /^workflow_app\/tests\/forge-/ },
+  { section: 'forge-engine', match: /^legacy\/workflow_app\/tests\/forge-/ },
   {
     section: 'forge-engine',
     match:
@@ -59,7 +59,7 @@ export const SECTION_RULES: Array<{ section: string; match: RegExp }> = [
   {
     section: 'forge-verify',
     match:
-      /^workflow_app\/tests\/(acceptance|assertion-|evidence|migration-|release-|resume-|verify-|stale-|proof-|qa-|receipt|typesafe-|failure-triage)/,
+      /^legacy\/workflow_app\/tests\/(acceptance|assertion-|evidence|migration-|release-|resume-|verify-|stale-|proof-|qa-|receipt|typesafe-|failure-triage)/,
   },
   {
     section: 'app-intake',
@@ -80,13 +80,13 @@ export const SECTION_RULES: Array<{ section: string; match: RegExp }> = [
     section: 'app-portal',
     match: /(^|\/)(portal|navigation|storyboard|board|surface|readiness|flight-recorder|observe|tech-|views)/,
   },
-  { section: 'app-core', match: /^workflow_app\/tests\// },
+  { section: 'app-core', match: /^legacy\/workflow_app\/tests\// },
 ]
 
 /** Names no rule reads correctly, each mapped where it belongs. Kept tiny on purpose. */
 export const EXPLICIT_SECTIONS: Record<string, string> = {
-  'workflow_app/tests/core-daily-02-contact.test.ts': 'app-crm',
-  'workflow_app/tests/core-daily-07-08-recommendations.test.ts': 'app-crm',
+  'legacy/workflow_app/tests/core-daily-02-contact.test.ts': 'app-crm',
+  'legacy/workflow_app/tests/core-daily-07-08-recommendations.test.ts': 'app-crm',
 }
 
 export function sectionForFile(relPath: string): string | null {
@@ -105,7 +105,7 @@ export function areaOf(sectionName: string): Area {
 
 /** Every test file the runner knows about, relative to the repo root. */
 export function listTestFiles(root: string): string[] {
-  const trees = ['workflow_app/tests', 'testv2/engine_tests', 'scripts', 'agent-runtime']
+  const trees = ['legacy/workflow_app/tests', 'testv2/engine_tests', 'scripts', 'agent-runtime']
   const found: string[] = []
   const walk = (dir: string): void => {
     for (const name of readdirSync(dir)) {
@@ -147,12 +147,12 @@ export function sectionsForPaths(root: string, paths: string[]): string[] {
     else if (/^(package\.json|tsconfig\.json|next\.config\.|eslint)/.test(path)) {
       touched.add('harness')
       touched.add('app-core')
-    } else if (path.startsWith('workflow_app/forge/')) {
+    } else if (path.startsWith('legacy/workflow_app/forge/')) {
       touched.add('forge-engine')
       touched.add('forge-verify')
     } else if (path.startsWith('agent-runtime/')) touched.add('forge-runtime')
     else if (
-      path.startsWith('db/') ||
+      path.startsWith('legacy/db/') ||
       path.startsWith('lib/') ||
       path.startsWith('app/') ||
       path.startsWith('components/')

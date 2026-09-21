@@ -3,12 +3,12 @@
 // Read-only: the contract table is empty in both environments, so this verifies
 // the service catalogue, the reads, and that the write path is guarded.
 
-import { composeCoreServices } from '../services/composition'
-import { AuthorizationService } from '../services/entitlement/authorization-service'
-import { StaticAuthorizationPolicyProvider } from '../services/entitlement/authorization-service'
-import { SqlContractRepository } from '../db/contract-service-repository'
-import { CONTRACT_OPERATIONS } from '../services/contract'
-import { sql } from '../db/client'
+import { composeCoreServices } from '@/legacy/services/composition'
+import { AuthorizationService } from '@/legacy/services/entitlement/authorization-service'
+import { StaticAuthorizationPolicyProvider } from '@/legacy/services/entitlement/authorization-service'
+import { SqlContractRepository } from '@/legacy/db/contract-service-repository'
+import { CONTRACT_OPERATIONS } from '@/legacy/services/contract'
+import { sql } from '@/legacy/db/client'
 
 const services = composeCoreServices(
   {

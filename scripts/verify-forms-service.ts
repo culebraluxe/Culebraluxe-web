@@ -4,13 +4,13 @@
 //   (c) an unauthenticated/system actor is DENIED a command (fail closed)
 // DEV only. The probe row it creates is deleted again.
 
-import { composeCoreServices } from '../services/composition'
-import { AuthorizationService } from '../services/entitlement/authorization-service'
-import { StaticAuthorizationPolicyProvider } from '../services/entitlement/authorization-service'
-import { SqlFormInstanceRepository } from '../db/form-service-repository'
-import { getFormInstance, latestFormEvidence, listFormInstances } from '../db/form-service-repository'
-import { FORM_OPERATIONS } from '../services/forms'
-import { sql } from '../db/client'
+import { composeCoreServices } from '@/legacy/services/composition'
+import { AuthorizationService } from '@/legacy/services/entitlement/authorization-service'
+import { StaticAuthorizationPolicyProvider } from '@/legacy/services/entitlement/authorization-service'
+import { SqlFormInstanceRepository } from '@/legacy/db/form-service-repository'
+import { getFormInstance, latestFormEvidence, listFormInstances } from '@/legacy/db/form-service-repository'
+import { FORM_OPERATIONS } from '@/legacy/services/forms'
+import { sql } from '@/legacy/db/client'
 
 const services = composeCoreServices(
   {

@@ -8,7 +8,7 @@ Regenerate and verify:
 
 ```sh
 node --env-file=.env.local --import tsx scripts/column-writer-audit.ts
-node --env-file=.env.local --import tsx --test workflow_app/tests/db/column-writer-audit.test.ts
+node --env-file=.env.local --import tsx --test legacy/workflow_app/tests/db/column-writer-audit.test.ts
 ```
 
 Totals: 135 columns — 132 WRITTEN, 1 DEAD-DROP, 2 DEAD-KEEP.
@@ -17,149 +17,149 @@ Totals: 135 columns — 132 WRITTEN, 1 DEAD-DROP, 2 DEAD-KEEP.
 
 | column | classification | writer / reason |
 | --- | --- | --- |
-| `acceptance_assertions` | WRITTEN | db/storyboard.ts |
-| `acceptance_criteria` | WRITTEN | db/storyboard.ts |
-| `actual_start_at` | WRITTEN | db/storyboard.ts |
-| `architect_brief` | WRITTEN | db/storyboard.ts |
-| `architect_brief_updated_at` | WRITTEN | db/storyboard.ts |
-| `assay_commands` | WRITTEN | db/storyboard.ts, scripts/forge-test-stories.ts |
-| `batch` | WRITTEN | db/storyboard.ts |
-| `batch_deploy` | DEAD-KEEP | No durable writer exists — only a throwaway /tmp script and tests have ever set it. Still READ by workflow_app/forge/forge-facts.ts and scripts/forge-batch-release.mjs as the batch-release deferral flag, so it is kept and the missing write path is the defect. |
-| `carried_over_from_sprint_id` | WRITTEN | db/sprint.ts |
-| `completed_at` | WRITTEN | db/storyboard.ts |
-| `completion` | WRITTEN | db/storyboard.ts |
-| `context_refs` | WRITTEN | db/storyboard.ts |
-| `created_at` | WRITTEN | db/storyboard.ts |
-| `dependencies` | WRITTEN | db/storyboard.ts |
-| `forge_last_failure_reason` | WRITTEN | db/forge-repair-ledger.ts |
-| `forge_last_qa_disposition` | WRITTEN | db/forge-repair-ledger.ts |
-| `forge_repair_attempts` | WRITTEN | db/forge-repair-ledger.ts |
-| `forge_replan_attempts` | WRITTEN | db/forge-repair-ledger.ts |
+| `acceptance_assertions` | WRITTEN | legacy/db/storyboard.ts |
+| `acceptance_criteria` | WRITTEN | legacy/db/storyboard.ts |
+| `actual_start_at` | WRITTEN | legacy/db/storyboard.ts |
+| `architect_brief` | WRITTEN | legacy/db/storyboard.ts |
+| `architect_brief_updated_at` | WRITTEN | legacy/db/storyboard.ts |
+| `assay_commands` | WRITTEN | legacy/db/storyboard.ts, scripts/forge-test-stories.ts |
+| `batch` | WRITTEN | legacy/db/storyboard.ts |
+| `batch_deploy` | DEAD-KEEP | No durable writer exists — only a throwaway /tmp script and tests have ever set it. Still READ by legacy/workflow_app/forge/forge-facts.ts and scripts/forge-batch-release.mjs as the batch-release deferral flag, so it is kept and the missing write path is the defect. |
+| `carried_over_from_sprint_id` | WRITTEN | legacy/db/sprint.ts |
+| `completed_at` | WRITTEN | legacy/db/storyboard.ts |
+| `completion` | WRITTEN | legacy/db/storyboard.ts |
+| `context_refs` | WRITTEN | legacy/db/storyboard.ts |
+| `created_at` | WRITTEN | legacy/db/storyboard.ts |
+| `dependencies` | WRITTEN | legacy/db/storyboard.ts |
+| `forge_last_failure_reason` | WRITTEN | legacy/db/forge-repair-ledger.ts |
+| `forge_last_qa_disposition` | WRITTEN | legacy/db/forge-repair-ledger.ts |
+| `forge_repair_attempts` | WRITTEN | legacy/db/forge-repair-ledger.ts |
+| `forge_replan_attempts` | WRITTEN | legacy/db/forge-repair-ledger.ts |
 | `forge_v1_legacy` | DEAD-KEEP | No ongoing writer: backfilled once by migration 139 as a historical discriminator, and still READ by scripts/forge-consistency.ts. Kept because the legacy partition it names is real. |
-| `goal` | WRITTEN | db/storyboard.ts |
-| `id` | WRITTEN | db/storyboard.ts |
-| `negative_control_command` | WRITTEN | db/storyboard.ts, scripts/forge-test-stories.ts |
-| `notes` | WRITTEN | db/storyboard.ts |
-| `operating_surface` | WRITTEN | db/storyboard.ts |
-| `packet_sha` | WRITTEN | db/storyboard.ts |
-| `planned_start_at` | WRITTEN | db/storyboard.ts |
-| `postconditions` | WRITTEN | db/storyboard.ts |
-| `preconditions` | WRITTEN | db/storyboard.ts |
-| `priority` | WRITTEN | db/storyboard.ts |
-| `rollup` | WRITTEN | db/storyboard.ts |
-| `scope` | WRITTEN | db/storyboard.ts |
-| `sprint_id` | WRITTEN | db/migrations/187_sprint_parent.sql, db/sprint.ts |
-| `status` | WRITTEN | db/storyboard.ts |
-| `test_mode` | WRITTEN | db/storyboard.ts |
-| `title` | WRITTEN | db/storyboard.ts |
-| `updated_at` | WRITTEN | db/storyboard.ts |
-| `workstream` | WRITTEN | db/storyboard.ts |
+| `goal` | WRITTEN | legacy/db/storyboard.ts |
+| `id` | WRITTEN | legacy/db/storyboard.ts |
+| `negative_control_command` | WRITTEN | legacy/db/storyboard.ts, scripts/forge-test-stories.ts |
+| `notes` | WRITTEN | legacy/db/storyboard.ts |
+| `operating_surface` | WRITTEN | legacy/db/storyboard.ts |
+| `packet_sha` | WRITTEN | legacy/db/storyboard.ts |
+| `planned_start_at` | WRITTEN | legacy/db/storyboard.ts |
+| `postconditions` | WRITTEN | legacy/db/storyboard.ts |
+| `preconditions` | WRITTEN | legacy/db/storyboard.ts |
+| `priority` | WRITTEN | legacy/db/storyboard.ts |
+| `rollup` | WRITTEN | legacy/db/storyboard.ts |
+| `scope` | WRITTEN | legacy/db/storyboard.ts |
+| `sprint_id` | WRITTEN | legacy/db/migrations/187_sprint_parent.sql, legacy/db/sprint.ts |
+| `status` | WRITTEN | legacy/db/storyboard.ts |
+| `test_mode` | WRITTEN | legacy/db/storyboard.ts |
+| `title` | WRITTEN | legacy/db/storyboard.ts |
+| `updated_at` | WRITTEN | legacy/db/storyboard.ts |
+| `workstream` | WRITTEN | legacy/db/storyboard.ts |
 
 ## storyboard_story_run (48)
 
 | column | classification | writer / reason |
 | --- | --- | --- |
-| `acceptance_criteria_snapshot` | WRITTEN | db/storyboard.ts, db/forge-run.ts |
-| `agent_runtime` | WRITTEN | db/forge-run.ts |
-| `architect_brief_snapshot` | WRITTEN | db/storyboard.ts, db/forge-run.ts |
-| `assay_commands_snapshot` | WRITTEN | db/storyboard.ts, db/forge-run.ts |
-| `base_commit_hash` | WRITTEN | db/forge-run.ts |
-| `commands_failed` | WRITTEN | db/forge-run.ts |
-| `commands_passed` | WRITTEN | db/forge-run.ts |
-| `commands_total` | WRITTEN | db/forge-run.ts |
-| `commit_hash` | WRITTEN | db/storyboard.ts |
-| `completion` | WRITTEN | db/storyboard.ts |
-| `context_refs_snapshot` | WRITTEN | db/storyboard.ts, db/forge-run.ts |
-| `cost_source` | WRITTEN | db/forge-run.ts, db/storyboard.ts |
-| `cost_usd` | WRITTEN | db/forge-run.ts |
-| `cost_widgets` | WRITTEN | db/storyboard.ts |
-| `created_at` | WRITTEN | db/storyboard.ts |
-| `dependencies_snapshot` | WRITTEN | db/storyboard.ts, db/forge-run.ts |
-| `ended_at` | WRITTEN | db/storyboard.ts |
-| `evidence_detail` | WRITTEN | db/forge-run.ts |
-| `execution_environment` | WRITTEN | db/storyboard.ts |
-| `failure_code` | WRITTEN | db/forge-run.ts |
-| `first_viol` | WRITTEN | db/forge-run.ts |
-| `goal_snapshot` | WRITTEN | db/storyboard.ts, db/forge-run.ts |
-| `harness_session_id` | WRITTEN | db/forge-run.ts |
-| `id` | WRITTEN | db/storyboard.ts |
-| `lead_decision` | WRITTEN | db/forge-run.ts |
+| `acceptance_criteria_snapshot` | WRITTEN | legacy/db/storyboard.ts, legacy/db/forge-run.ts |
+| `agent_runtime` | WRITTEN | legacy/db/forge-run.ts |
+| `architect_brief_snapshot` | WRITTEN | legacy/db/storyboard.ts, legacy/db/forge-run.ts |
+| `assay_commands_snapshot` | WRITTEN | legacy/db/storyboard.ts, legacy/db/forge-run.ts |
+| `base_commit_hash` | WRITTEN | legacy/db/forge-run.ts |
+| `commands_failed` | WRITTEN | legacy/db/forge-run.ts |
+| `commands_passed` | WRITTEN | legacy/db/forge-run.ts |
+| `commands_total` | WRITTEN | legacy/db/forge-run.ts |
+| `commit_hash` | WRITTEN | legacy/db/storyboard.ts |
+| `completion` | WRITTEN | legacy/db/storyboard.ts |
+| `context_refs_snapshot` | WRITTEN | legacy/db/storyboard.ts, legacy/db/forge-run.ts |
+| `cost_source` | WRITTEN | legacy/db/forge-run.ts, legacy/db/storyboard.ts |
+| `cost_usd` | WRITTEN | legacy/db/forge-run.ts |
+| `cost_widgets` | WRITTEN | legacy/db/storyboard.ts |
+| `created_at` | WRITTEN | legacy/db/storyboard.ts |
+| `dependencies_snapshot` | WRITTEN | legacy/db/storyboard.ts, legacy/db/forge-run.ts |
+| `ended_at` | WRITTEN | legacy/db/storyboard.ts |
+| `evidence_detail` | WRITTEN | legacy/db/forge-run.ts |
+| `execution_environment` | WRITTEN | legacy/db/storyboard.ts |
+| `failure_code` | WRITTEN | legacy/db/forge-run.ts |
+| `first_viol` | WRITTEN | legacy/db/forge-run.ts |
+| `goal_snapshot` | WRITTEN | legacy/db/storyboard.ts, legacy/db/forge-run.ts |
+| `harness_session_id` | WRITTEN | legacy/db/forge-run.ts |
+| `id` | WRITTEN | legacy/db/storyboard.ts |
+| `lead_decision` | WRITTEN | legacy/db/forge-run.ts |
 | `lead_split_assignments` | DEAD-DROP | Nothing writes it and nothing reads it: added out-of-band by migration 142, superseded by lead_routing and lead_split_count on forge_workflow_evidence. A column that describes a machine that does not exist. |
-| `lead_split_count` | WRITTEN | db/forge-run.ts |
-| `model_used` | WRITTEN | db/forge-run.ts |
-| `notes` | WRITTEN | db/storyboard.ts |
-| `operating_surface_snapshot` | WRITTEN | db/storyboard.ts, db/forge-run.ts |
-| `packet_sha_snapshot` | WRITTEN | db/storyboard.ts, db/forge-run.ts |
-| `policy_violation_count` | WRITTEN | db/forge-run.ts |
-| `postconditions_snapshot` | WRITTEN | db/storyboard.ts, db/forge-run.ts |
-| `preconditions_snapshot` | WRITTEN | db/storyboard.ts, db/forge-run.ts |
-| `result_status` | WRITTEN | db/storyboard.ts |
-| `run_phase` | WRITTEN | db/forge-run.ts |
-| `run_type` | WRITTEN | db/forge-run.ts |
-| `scope_snapshot` | WRITTEN | db/storyboard.ts, db/forge-run.ts |
-| `started_at` | WRITTEN | db/storyboard.ts |
-| `story_id` | WRITTEN | db/storyboard.ts |
-| `test_mode_snapshot` | WRITTEN | db/storyboard.ts, db/forge-run.ts |
-| `tests_failed` | WRITTEN | db/forge-run.ts |
-| `tests_passed` | WRITTEN | db/forge-run.ts |
-| `tests_summary` | WRITTEN | db/storyboard.ts |
-| `tests_total` | WRITTEN | db/forge-run.ts |
-| `tokens_input` | WRITTEN | db/forge-run.ts |
-| `tokens_output` | WRITTEN | db/forge-run.ts |
-| `updated_at` | WRITTEN | db/storyboard.ts, db/forge-run.ts |
+| `lead_split_count` | WRITTEN | legacy/db/forge-run.ts |
+| `model_used` | WRITTEN | legacy/db/forge-run.ts |
+| `notes` | WRITTEN | legacy/db/storyboard.ts |
+| `operating_surface_snapshot` | WRITTEN | legacy/db/storyboard.ts, legacy/db/forge-run.ts |
+| `packet_sha_snapshot` | WRITTEN | legacy/db/storyboard.ts, legacy/db/forge-run.ts |
+| `policy_violation_count` | WRITTEN | legacy/db/forge-run.ts |
+| `postconditions_snapshot` | WRITTEN | legacy/db/storyboard.ts, legacy/db/forge-run.ts |
+| `preconditions_snapshot` | WRITTEN | legacy/db/storyboard.ts, legacy/db/forge-run.ts |
+| `result_status` | WRITTEN | legacy/db/storyboard.ts |
+| `run_phase` | WRITTEN | legacy/db/forge-run.ts |
+| `run_type` | WRITTEN | legacy/db/forge-run.ts |
+| `scope_snapshot` | WRITTEN | legacy/db/storyboard.ts, legacy/db/forge-run.ts |
+| `started_at` | WRITTEN | legacy/db/storyboard.ts |
+| `story_id` | WRITTEN | legacy/db/storyboard.ts |
+| `test_mode_snapshot` | WRITTEN | legacy/db/storyboard.ts, legacy/db/forge-run.ts |
+| `tests_failed` | WRITTEN | legacy/db/forge-run.ts |
+| `tests_passed` | WRITTEN | legacy/db/forge-run.ts |
+| `tests_summary` | WRITTEN | legacy/db/storyboard.ts |
+| `tests_total` | WRITTEN | legacy/db/forge-run.ts |
+| `tokens_input` | WRITTEN | legacy/db/forge-run.ts |
+| `tokens_output` | WRITTEN | legacy/db/forge-run.ts |
+| `updated_at` | WRITTEN | legacy/db/storyboard.ts, legacy/db/forge-run.ts |
 
 ## forge_workflow_evidence (50)
 
 | column | classification | writer / reason |
 | --- | --- | --- |
-| `architecture_review_required` | WRITTEN | db/forge-workflow-evidence.ts |
-| `architecture_suspect` | WRITTEN | db/forge-workflow-evidence.ts |
-| `batch_release_receipt` | WRITTEN | db/forge-workflow-evidence.ts |
-| `batch_released_at` | WRITTEN | db/forge-workflow-evidence.ts |
-| `batch_released_sha` | WRITTEN | db/forge-workflow-evidence.ts |
-| `candidate_sha` | WRITTEN | db/forge-workflow-evidence.ts |
-| `created_at` | WRITTEN | db/forge-workflow-evidence.ts |
-| `deployed_sha` | WRITTEN | db/forge-workflow-evidence.ts |
-| `deployment_deferred_to_batch` | WRITTEN | db/forge-workflow-evidence.ts |
-| `deployment_receipt` | WRITTEN | db/forge-workflow-evidence.ts |
-| `deployment_required` | WRITTEN | db/forge-workflow-evidence.ts |
-| `deployment_succeeded` | WRITTEN | db/forge-workflow-evidence.ts |
-| `derived_models` | WRITTEN | db/forge-workflow-evidence.ts |
-| `derived_refresh_required` | WRITTEN | db/forge-workflow-evidence.ts |
-| `derived_refresh_succeeded` | WRITTEN | db/forge-workflow-evidence.ts |
-| `derived_refresh_verified` | WRITTEN | db/forge-workflow-evidence.ts |
-| `dev_migration_applied` | WRITTEN | db/forge-workflow-evidence.ts |
-| `dev_migration_verified` | WRITTEN | db/forge-workflow-evidence.ts |
-| `diagnosis_blocked` | WRITTEN | db/forge-workflow-evidence.ts |
-| `failed_release_stage` | WRITTEN | db/forge-workflow-evidence.ts |
-| `failure_class` | WRITTEN | db/forge-workflow-evidence.ts |
-| `findings` | WRITTEN | db/forge-workflow-evidence.ts |
-| `gate_checks` | WRITTEN | db/forge-workflow-evidence.ts |
-| `last_failure` | WRITTEN | db/forge-workflow-evidence.ts |
-| `lead_decision` | WRITTEN | db/forge-workflow-evidence.ts |
-| `lead_routing` | WRITTEN | db/forge-workflow-evidence.ts |
-| `migration_files` | WRITTEN | db/forge-workflow-evidence.ts |
-| `migration_required` | WRITTEN | db/forge-workflow-evidence.ts |
-| `negative_control_killing_assertion` | WRITTEN | db/forge-workflow-evidence.ts |
-| `negative_control_ran` | WRITTEN | db/forge-workflow-evidence.ts |
-| `process_instance_id` | WRITTEN | db/forge-workflow-evidence.ts |
-| `prod_migration_applied` | WRITTEN | db/forge-workflow-evidence.ts |
-| `prod_migration_verified` | WRITTEN | db/forge-workflow-evidence.ts |
-| `production_verification_receipt` | WRITTEN | db/forge-workflow-evidence.ts |
-| `production_verified` | WRITTEN | db/forge-workflow-evidence.ts |
-| `production_verified_sha` | WRITTEN | db/forge-workflow-evidence.ts |
-| `publish_succeeded` | WRITTEN | db/forge-workflow-evidence.ts |
-| `published_sha` | WRITTEN | db/forge-workflow-evidence.ts |
-| `qa_passed` | WRITTEN | db/forge-workflow-evidence.ts |
-| `qa_review_passed` | WRITTEN | db/forge-workflow-evidence.ts |
-| `qa_review_required` | WRITTEN | db/forge-workflow-evidence.ts |
-| `qa_verified_sha` | WRITTEN | db/forge-workflow-evidence.ts |
-| `research_disposition` | WRITTEN | db/forge-workflow-evidence.ts |
-| `resume_target` | WRITTEN | db/forge-workflow-evidence.ts |
-| `root_cause_known` | WRITTEN | db/forge-workflow-evidence.ts |
-| `scout_required` | WRITTEN | db/forge-workflow-evidence.ts |
-| `split_count` | WRITTEN | db/forge-workflow-evidence.ts |
-| `story_id` | WRITTEN | db/forge-workflow-evidence.ts |
-| `updated_at` | WRITTEN | db/forge-workflow-evidence.ts |
-| `work_type` | WRITTEN | db/forge-workflow-evidence.ts |
+| `architecture_review_required` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `architecture_suspect` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `batch_release_receipt` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `batch_released_at` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `batch_released_sha` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `candidate_sha` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `created_at` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `deployed_sha` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `deployment_deferred_to_batch` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `deployment_receipt` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `deployment_required` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `deployment_succeeded` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `derived_models` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `derived_refresh_required` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `derived_refresh_succeeded` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `derived_refresh_verified` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `dev_migration_applied` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `dev_migration_verified` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `diagnosis_blocked` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `failed_release_stage` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `failure_class` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `findings` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `gate_checks` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `last_failure` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `lead_decision` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `lead_routing` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `migration_files` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `migration_required` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `negative_control_killing_assertion` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `negative_control_ran` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `process_instance_id` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `prod_migration_applied` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `prod_migration_verified` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `production_verification_receipt` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `production_verified` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `production_verified_sha` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `publish_succeeded` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `published_sha` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `qa_passed` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `qa_review_passed` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `qa_review_required` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `qa_verified_sha` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `research_disposition` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `resume_target` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `root_cause_known` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `scout_required` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `split_count` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `story_id` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `updated_at` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
+| `work_type` | WRITTEN | legacy/db/forge-workflow-evidence.ts |
 

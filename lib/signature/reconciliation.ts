@@ -14,12 +14,12 @@
 // ---------------------------------------------------------------------------
 
 import type { CommandResult, DomainEvent } from '../workflow/contracts'
-import type { QueryExecutor } from '../../db/query-executor'
-import type { TxRunner } from '../../db/tx'
+import type { QueryExecutor } from '@/legacy/db/query-executor'
+import type { TxRunner } from '@/legacy/db/tx'
 import {
   reconcileCompletedSignatureRequest,
   type ReconcileCompletedSignatureRequestDeps,
-} from '../../db/signature-reconciliation'
+} from '@/legacy/db/signature-reconciliation'
 import type { SignatureProvider } from './provider'
 import type { AgreementCompletionResult } from '../agreements/completion'
 

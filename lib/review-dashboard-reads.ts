@@ -10,6 +10,6 @@
 // Server-only: the caller is a React Server Component.
 // ---------------------------------------------------------------------------
 
-export { getClients } from '@/db/clients'
-export { getDeals } from '@/db/deals'
-export { getDashboardSnapshot } from '@/db/dashboard'
+export { getClients } from '@/legacy/db/clients'
+export { getDeals } from '@/legacy/db/deals'
+export { getDashboardSnapshot } from '@/legacy/db/dashboard'

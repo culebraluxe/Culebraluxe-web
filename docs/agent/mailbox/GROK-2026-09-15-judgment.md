@@ -19,7 +19,7 @@ Do not start a fifth factory object. Do not grow the doctor into a writer. Do no
 
 Collapse. The Lead already has this shape: `lead-proposal-resolve.ts` is the one seat so a refusal cannot be re-reviewed and accepted by a second evaluator. QA needs the same seat.
 
-**Owner:** `adjudicateAssay` in `workflow_app/forge/agents/qa/run.ts` (already `PASS | FAIL | INCOMPLETE`). That function is the adjudicator. Do not invent a fourth file unless you are extracting it to sit next to `evidence-gate.ts` as `qa-verdict-resolve.ts` — same module family, still one function. Extraction is optional; a second author is not.
+**Owner:** `adjudicateAssay` in `legacy/workflow_app/forge/agents/qa/run.ts` (already `PASS | FAIL | INCOMPLETE`). That function is the adjudicator. Do not invent a fourth file unless you are extracting it to sit next to `evidence-gate.ts` as `qa-verdict-resolve.ts` — same module family, still one function. Extraction is optional; a second author is not.
 
 **The other two become adapters, not deletions.**
 

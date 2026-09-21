@@ -58,11 +58,11 @@ The lane is dark for three reasons only:
 
 ## Test mode
 
-SCOPED — `pnpm exec tsx --test workflow_app/tests/forge-lead-routing.test.ts`,
-`workflow_app/tests/forge-lead-routing-split.test.ts`, `pnpm exec tsc --noEmit`.
+SCOPED — `pnpm exec tsx --test legacy/workflow_app/tests/forge-lead-routing.test.ts`,
+`legacy/workflow_app/tests/forge-lead-routing-split.test.ts`, `pnpm exec tsc --noEmit`.
 
 ## Assay commands
 
-- `pnpm exec tsx --test workflow_app/tests/forge-lead-routing-split.test.ts`
-- `pnpm exec tsx --test workflow_app/tests/forge-lead-routing.test.ts`
+- `pnpm exec tsx --test legacy/workflow_app/tests/forge-lead-routing-split.test.ts`
+- `pnpm exec tsx --test legacy/workflow_app/tests/forge-lead-routing.test.ts`
 - `pnpm exec tsc --noEmit`

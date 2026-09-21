@@ -10,7 +10,7 @@ Repo-intelligence / ranked-symbol tool — "the ripgrep of AI context". Determin
 - Wire into an editor harness: `ripwire wrap <agent>`
 
 ## Forge wiring (partial — do not over-claim)
-`workflow_app/forge/forge-ripwire-surface.ts` turns a ripwire pack (`p=…` / `ccx=…` / `rel="caller"`) into a **surface multiplier** on the estimator's prior. If a ripwire pack is already attached to the packet, the estimator applies it — do NOT hand-re-run ripwire to "fix" an estimate.
+`legacy/workflow_app/forge/forge-ripwire-surface.ts` turns a ripwire pack (`p=…` / `ccx=…` / `rel="caller"`) into a **surface multiplier** on the estimator's prior. If a ripwire pack is already attached to the packet, the estimator applies it — do NOT hand-re-run ripwire to "fix" an estimate.
 
 ## Never
 - Treat counts as totals (they are floors).

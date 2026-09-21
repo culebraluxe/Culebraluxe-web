@@ -9,7 +9,7 @@ import {
 // The expected version comes from the loader, which is the module that reads the XML. Retyping the number
 // here is what let this assertion sit at `1` while the definition was at v6 (and the guard below throw on
 // a live path) — a test that restates a constant cannot catch the constant moving.
-import { FORGE_SDLC_VERSION } from '../workflow_app/definitions/forge-sdlc'
+import { FORGE_SDLC_VERSION } from '@/legacy/workflow_app/definitions/forge-sdlc'
 
 // ---------------------------------------------------------------------------
 // ENG-FORGE-V9 — FORGE_SDLC superset as the live topology contract.

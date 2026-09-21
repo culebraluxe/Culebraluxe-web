@@ -16,7 +16,7 @@
 // Usage: pnpm story:preflight [--batch N] [--story ID] [--all]
 //   Default: dispatchable stories only (Planned / Ready / In Progress).
 // ---------------------------------------------------------------------------
-import { sql } from '../db/client'
+import { sql } from '@/legacy/db/client'
 
 const argv = process.argv.slice(2)
 const val = (flag: string): string | null => {
@@ -76,9 +76,9 @@ function proofKey(proof: string | null): { ok: boolean; why: string } {
  *  directories is preflighted; a story that only describes behaviour cannot be routed.
  *
  *  DIRECTORIES COUNT, and that is measured rather than assumed: the Architect's own refusal on
- *  BATCH-RECEIPT-01 listed `workflow_app/tests` (a directory) among the paths it wanted declared as
+ *  BATCH-RECEIPT-01 listed `legacy/workflow_app/tests` (a directory) among the paths it wanted declared as
  *  seams. An earlier version of this check required a file extension and flagged a story whose scope
- *  named `workflow_app/forge/agents/qa/` — a false gap, which is worse than no check because it
+ *  named `legacy/workflow_app/forge/agents/qa/` — a false gap, which is worse than no check because it
  *  teaches the reader to ignore the tool. */
 function seamsKey(scope: string | null): { ok: boolean; why: string } {
   if (!scope || !scope.trim()) return { ok: false, why: 'no scope declared' }

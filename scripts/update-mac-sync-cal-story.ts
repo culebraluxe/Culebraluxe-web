@@ -1,6 +1,6 @@
 // MAC-SYNC-CAL-01 — record live EventKit proof on the Story Board.
-import { sql } from '../db/client'
-import { createStoryboardStory, updateStoryboardStory } from '../db/storyboard'
+import { sql } from '@/legacy/db/client'
+import { createStoryboardStory, updateStoryboardStory } from '@/legacy/db/storyboard'
 
 const id = 'MAC-SYNC-CAL-01'
 const notes = `Live EventKit proof (on Chris's Mac): status=granted, events=31, /tmp/culebraluxe-calendar.json. Default bounded window 7d past / 60d future (the live proof run accidentally used --future-days 600; normal operation uses 7/60 via \`pnpm calendar:sync\`). Wiring: CalendarEventKit.swift -> bounded JSON snapshot -> lib/catchup/eventkit.ts (per-occurrence stable ids, idempotent replay, unlinked personId=null) -> db/catch-up-calendar.ts (merges canonical showings + Apple events) -> CalendarEventSource -> Catch-Up Option A (ilamy). Read/render, showing+Apple merge, and replay idempotency PROVEN (33 events = 2 showings + 31 Apple, 31 distinct ids). EDIT/DELETE live proof: PENDING (requires creating/editing a real test event on the Mac). Not marked Complete/100% until edit/delete proven.`

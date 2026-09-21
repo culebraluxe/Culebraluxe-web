@@ -3,7 +3,7 @@ import {
   type CatchUpAttention,
   type CatchUpPersonFacts,
 } from './rules'
-import type { CatchUpEligibleRow } from '@/db/catch-up'
+import type { CatchUpEligibleRow } from '@/legacy/db/catch-up'
 
 // ---------------------------------------------------------------------------
 // CATCH-UP — assemble the derived queue from the eligible read-model rows.

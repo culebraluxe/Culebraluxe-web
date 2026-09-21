@@ -2,16 +2,16 @@
 
 ## Goal
 
-Make the QA verdict have exactly **one author**: `adjudicateAssay` in `workflow_app/forge/agents/qa/run.ts`, which
-already speaks `PASS | FAIL | INCOMPLETE`. `workflow_app/forge/agents/assay-collect.ts` stays the collector.
-`workflow_app/forge/forge-role-mapping.ts`
+Make the QA verdict have exactly **one author**: `adjudicateAssay` in `legacy/workflow_app/forge/agents/qa/run.ts`, which
+already speaks `PASS | FAIL | INCOMPLETE`. `legacy/workflow_app/forge/agents/assay-collect.ts` stays the collector.
+`legacy/workflow_app/forge/forge-role-mapping.ts`
 becomes a **projector only** — it stops computing a verdict and stops relabelling one.
 
 ## Why
 
 A single measurement has been passing through three places that can each decide what it means
-(`workflow_app/forge/agents/qa/run.ts`, `workflow_app/forge/agents/assay-collect.ts`,
-`workflow_app/forge/forge-role-mapping.ts`), and on 2026-09-15 that produced a real
+(`legacy/workflow_app/forge/agents/qa/run.ts`, `legacy/workflow_app/forge/agents/assay-collect.ts`,
+`legacy/workflow_app/forge/forge-role-mapping.ts`), and on 2026-09-15 that produced a real
 lie: the projection flattened "we could not measure" (INCOMPLETE) and "we measured and it broke" (FAIL) into
 `qaPassed:false` + `failureClass:'CODE_DEFECT'` and **dropped `verificationGap` entirely**, so the router — which
 HOLDs on a gap — never saw one. Repair was then dispatched at code no lane had ever checked out, reproduced the
@@ -22,13 +22,13 @@ meaning.** Meaning is decided once; every later shape is a projection of it.
 
 ## Scope
 
-- `workflow_app/forge/forge-role-mapping.ts` — projector only. No `exact`, no verdict, no `failureClass` of its
+- `legacy/workflow_app/forge/forge-role-mapping.ts` — projector only. No `exact`, no verdict, no `failureClass` of its
   own: it carries the adjudicator's `qaPassed`, `verificationGap` and `failureClass` through unchanged.
-- `workflow_app/forge/agents/qa/types.ts` — wherever a type cannot express `INCOMPLETE`, widen that type (the
+- `legacy/workflow_app/forge/agents/qa/types.ts` — wherever a type cannot express `INCOMPLETE`, widen that type (the
   verdict type is `PASS | FAIL | undefined` in the evidence shape today, which is precisely why a gap could only
   ever ride a separate flag; the type should be able to say it).
-- `workflow_app/forge/agents/qa/run.ts` — the owner. Keep `adjudicateAssay` as the only function that decides.
-- `workflow_app/tests/forge-qa-seam.test.ts` — the seam tests for the three outcomes, including that a gap
+- `legacy/workflow_app/forge/agents/qa/run.ts` — the owner. Keep `adjudicateAssay` as the only function that decides.
+- `legacy/workflow_app/tests/forge-qa-seam.test.ts` — the seam tests for the three outcomes, including that a gap
   survives every projection and never becomes a defect.
 
 ## Do not touch
@@ -36,11 +36,11 @@ meaning.** Meaning is decided once; every later shape is a projection of it.
 - The candidate **pin** in `agent-runtime-role-runner.ts` (`60edf16`, `b33e938`) — the workspace is pinned to the
   candidate before measuring, and that stays exactly as it is.
 - What `assay-collect.ts` *collects* (commands, exit codes, excerpts, the unmeasurable classification).
-- `workflow_app/forge/lead-proposal-resolve.ts` — it is the shape to copy, not a thing to change.
+- `legacy/workflow_app/forge/lead-proposal-resolve.ts` — it is the shape to copy, not a thing to change.
 
 ## Assay (SCOPED)
 
-- `node --import tsx --test workflow_app/tests/forge-qa-seam.test.ts`
+- `node --import tsx --test legacy/workflow_app/tests/forge-qa-seam.test.ts`
 
 Test mode: **SCOPED**. No FULL regression for this story.
 

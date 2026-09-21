@@ -11,21 +11,21 @@
 // ---------------------------------------------------------------------------
 import { randomUUID } from 'node:crypto'
 
-import { createProperty } from '../db/property-admin-writes'
-import { createPersonWithIdentities } from '../db/person-identities'
-import { createDeal } from '../db/deal-admin-writes'
-import { recordTraceEvent } from '../db/workflow-trace'
-import { sql } from '../db/client'
-import { neonTx } from '../db/tx'
+import { createProperty } from '@/legacy/db/property-admin-writes'
+import { createPersonWithIdentities } from '@/legacy/db/person-identities'
+import { createDeal } from '@/legacy/db/deal-admin-writes'
+import { recordTraceEvent } from '@/legacy/db/workflow-trace'
+import { sql } from '@/legacy/db/client'
+import { neonTx } from '@/legacy/db/tx'
 import { resetGoldenData } from '../lib/qa-reset'
-import { engineConfigured, engineSql } from '../workflow_app/engine-client'
-import { createApplicationPort } from '../workflow_app/application-port'
+import { engineConfigured, engineSql } from '@/legacy/workflow_app/engine-client'
+import { createApplicationPort } from '@/legacy/workflow_app/application-port'
 import { WorkflowEngine } from '../workflow_engine/lib/workflow/engine'
 import {
   RESIDENTIAL_TRANSACTION_KEY,
   RESIDENTIAL_TRANSACTION_VERSION,
-} from '../workflow_app/workflow-config'
-import { QA_GOLDEN_DEAL_MARKER as QA_MARKER } from '../workflow_app/flight-recorder-read'
+} from '@/legacy/workflow_app/workflow-config'
+import { QA_GOLDEN_DEAL_MARKER as QA_MARKER } from '@/legacy/workflow_app/flight-recorder-read'
 import {
   buildGoldenEventSpecs,
   goldenParticipantRows,

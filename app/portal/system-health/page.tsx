@@ -1,7 +1,7 @@
 import { SystemHealth } from "@/components/portal/system-health"
 import { WorkflowDiagnostics } from "@/components/portal/workflow-diagnostics"
-import { getSystemHealth } from "@/db/system-health"
-import { getWorkflowDiagnosticsSnapshot } from "@/workflow_app/diagnostics"
+import { getSystemHealth } from "@/legacy/db/system-health"
+import { getWorkflowDiagnosticsSnapshot } from "@/legacy/workflow_app/diagnostics"
 import { getEnvironmentReadiness } from "@/lib/environment-readiness"
 
 export const dynamic = "force-dynamic"

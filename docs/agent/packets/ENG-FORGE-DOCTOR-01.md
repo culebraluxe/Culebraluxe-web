@@ -31,7 +31,7 @@ is the same read, not a second tool.
 ## Scope
 
 - `scripts/forge-doctor.ts` (new): the read-only operator command; the CLI half and the reads.
-- `workflow_app/forge/forge-doctor-report.ts` (new): the pure formatter — control-plane report AND the
+- `legacy/workflow_app/forge/forge-doctor-report.ts` (new): the pure formatter — control-plane report AND the
   mailbox postcard block, both rendered from values passed in, so both are unit-testable with no database.
 - `package.json`: register the `pnpm forge:doctor` script.
 
@@ -40,20 +40,20 @@ No other existing file changes.
 ## Do not touch
 
 - Any writer path: `forge-clean`, claim/release, `storyboard_story_run` writes, task state.
-- `db/agent-work.ts` claim/insert/update functions and `db/storyboard.ts` write paths.
+- `legacy/db/agent-work.ts` claim/insert/update functions and `legacy/db/storyboard.ts` write paths.
 - The Grok↔DeepSeek mailbox protocol beyond *rendering* the postcard facts.
 
 ## Architect brief
 
 **Seam contract for this story (read before declaring scope).** `scripts/forge-doctor.ts` and
-`workflow_app/forge/forge-doctor-report.ts` **do not exist yet** — this story creates them. A declared seam
-must exist on the pinned baseRef as a blob **or a tree** (`workflow_app/forge/agents/architect/assess.ts:53-61`),
+`legacy/workflow_app/forge/forge-doctor-report.ts` **do not exist yet** — this story creates them. A declared seam
+must exist on the pinned baseRef as a blob **or a tree** (`legacy/workflow_app/forge/agents/architect/assess.ts:53-61`),
 and the Lead routes a new file by its **directory** seam. So declare the directory, not a sibling file:
 
 - for `scripts/forge-doctor.ts`, declare the seam **`scripts/`** (the tree) — **not** `scripts/forge-batch-status.ts`,
   which is a different file and does not cover the new one;
-- for `workflow_app/forge/forge-doctor-report.ts`, declare the seam **`workflow_app/forge/`**;
-- for the test, the seam **`workflow_app/tests/`**.
+- for `legacy/workflow_app/forge/forge-doctor-report.ts`, declare the seam **`legacy/workflow_app/forge/`**;
+- for the test, the seam **`legacy/workflow_app/tests/`**.
 
 A sibling file is not a seam for a new file: it names a surface the new file is not on, and the routing
 validator then refuses the whole route. Held on 2026-09-15 for exactly this — the Lead named the missing
@@ -61,7 +61,7 @@ validator then refuses the whole route. Held on 2026-09-15 for exactly this — 
 
 ## Assay (SCOPED)
 
-- `node --import tsx --test workflow_app/tests/forge-doctor-report.test.ts` (new) — the proof test this story writes
+- `node --import tsx --test legacy/workflow_app/tests/forge-doctor-report.test.ts` (new) — the proof test this story writes
 
 Test mode: **SCOPED**. No FULL regression for this story.
 

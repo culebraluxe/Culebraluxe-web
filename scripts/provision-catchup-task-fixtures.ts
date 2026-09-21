@@ -16,7 +16,7 @@
 //     scripts/provision-catchup-task-fixtures.ts --cleanup  # remove exactly these
 // ---------------------------------------------------------------------------
 
-import { sql } from '../db/client'
+import { sql } from '@/legacy/db/client'
 
 const APP_ENV = (process.env.APP_ENV ?? 'development').trim().toLowerCase()
 const IS_DEV = APP_ENV === 'development' || APP_ENV === 'dev' || APP_ENV === 'test'

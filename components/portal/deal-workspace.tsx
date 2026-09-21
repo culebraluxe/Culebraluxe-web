@@ -4,7 +4,7 @@ import { PageHeader } from "@/components/portal/page-header"
 import type {
   DealParticipant,
   DealWorkspace,
-} from "@/db/deal-workspace"
+} from "@/legacy/db/deal-workspace"
 import { CreateTaskForm, TaskActions } from "@/components/portal/write/task-actions"
 import { CreateShowingForm, ShowingActions } from "@/components/portal/write/showing-actions"
 import { OfferActions, OfferForm } from "@/components/portal/write/offer-actions"

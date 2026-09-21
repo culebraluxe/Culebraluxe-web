@@ -8,7 +8,7 @@
 // is explicitly diagnostic — it is not canonical CRM/workflow truth.
 // ---------------------------------------------------------------------------
 
-import type { QueryExecutor } from '../../db/query-executor'
+import type { QueryExecutor } from '@/legacy/db/query-executor'
 import type { MqConsumer, MqDeliveryContext, MqMessage } from './types'
 
 export class MqProofConsumer implements MqConsumer {

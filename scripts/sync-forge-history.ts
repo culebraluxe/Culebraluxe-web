@@ -10,7 +10,7 @@
 //
 // Order matters: runs first, then work items (work items reference story_run_id).
 // FK safety: a row is skipped (and reported) if a parent it needs is absent from PROD.
-import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db'
+import { forgeDb, forgeDbTargetForUrl } from '@/legacy/db/forge-db'
 
 const dev = forgeDb.forTarget(forgeDbTargetForUrl(process.env.DATABASE_URL_DEV))
 const prod = forgeDb.forTarget(forgeDbTargetForUrl(process.env.DATABASE_URL_PROD))

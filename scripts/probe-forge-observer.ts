@@ -27,23 +27,23 @@
 //   APP_ENV=production node --env-file=.env.local --import tsx scripts/probe-forge-observer.ts --apply
 // ---------------------------------------------------------------------------
 
-import { resolveDbTarget, sql } from '../db/client'
-import { recordTraceEvent } from '../db/workflow-trace'
-import { createPersistentTraceSink, type TraceWrite } from '../workflow_app/forge/forge-observer'
+import { resolveDbTarget, sql } from '@/legacy/db/client'
+import { recordTraceEvent } from '@/legacy/db/workflow-trace'
+import { createPersistentTraceSink, type TraceWrite } from '@/legacy/workflow_app/forge/forge-observer'
 import {
   drainAlerts,
   observeAttemptBegin,
   observeCandidateCommit,
   observeHold,
   observeMeasurementGap,
-} from '../workflow_app/forge/forge-observer-seam'
-import type { SmithExecutionContract } from '../workflow_app/forge/smith-contract'
+} from '@/legacy/workflow_app/forge/forge-observer-seam'
+import type { SmithExecutionContract } from '@/legacy/workflow_app/forge/smith-contract'
 
 const APPLY = process.argv.includes('--apply')
 const CLEANUP = process.argv.includes('--cleanup')
 const PROBE_STORY = 'FORGE-OBSERVER-PROBE'
 const SHA = 'f'.repeat(40)
-const ALLOWED = 'workflow_app/forge/agent-runtime-role-runner.ts'
+const ALLOWED = 'legacy/workflow_app/forge/agent-runtime-role-runner.ts'
 const OUTSIDE = 'app/portal/projects/page.tsx'
 
 const pinned: Parameters<TraceWrite>[0][] = []

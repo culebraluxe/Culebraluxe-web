@@ -1,5 +1,5 @@
 import { getProperties } from '@/lib/property-reads'
-import { getMarketingContent } from '@/db/marketing-content'
+import { getMarketingContent } from '@/legacy/db/marketing-content'
 import { buildHomeContent } from '@/lib/marketing-content'
 import { SiteHeader } from '@/components/site-header'
 import { Hero } from '@/components/hero'

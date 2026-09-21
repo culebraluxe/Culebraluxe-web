@@ -14,7 +14,7 @@
 // IDEMPOTENT: an existing story is reported, never rewritten — history is not a
 // scratchpad. PROD ONLY: the same declaration the other board writers use.
 // ---------------------------------------------------------------------------
-import { createStoryboardStory } from '../db/storyboard'
+import { createStoryboardStory } from '@/legacy/db/storyboard'
 import { describeControlPlane } from '../lib/execution-target'
 
 type TestStory = {
@@ -70,8 +70,8 @@ const STORIES: TestStory[] = [
       'A held story reports its hold reason and the node it held at, read from the durable hold record, so ' +
       'an operator never has to infer why a chain parked.',
     scope:
-      'workflow_app/forge/forge-visibility.ts (add the hold line to the snapshot), ' +
-      'workflow_app/tests/forge-hold-visibility.test.ts (new).',
+      'legacy/workflow_app/forge/forge-visibility.ts (add the hold line to the snapshot), ' +
+      'legacy/workflow_app/tests/forge-hold-visibility.test.ts (new).',
     acceptance:
       'Given an open hold record for a story, the visibility snapshot names the reason and the originating ' +
       'node. Given no hold record, it reports none. A hold record with no reason reads as unknown — never ' +
@@ -92,8 +92,8 @@ const STORIES: TestStory[] = [
       'A story reports the spend of its own runs and lanes from the durable run rows, with unknown spend ' +
       'as null, so the cost of a story is readable without a separate report.',
     scope:
-      'workflow_app/forge/forge-visibility.ts (spend block on the snapshot), ' +
-      'workflow_app/tests/forge-run-spend.test.ts (new).',
+      'legacy/workflow_app/forge/forge-visibility.ts (spend block on the snapshot), ' +
+      'legacy/workflow_app/tests/forge-run-spend.test.ts (new).',
     acceptance:
       'Per-lane spend is read from the durable run rows (tokens_input, tokens_output, cost_usd, ' +
       'cost_widgets, cost_source). A run with no recorded spend reports null and NEVER 0 — an unmeasured ' +
@@ -102,7 +102,7 @@ const STORIES: TestStory[] = [
     notes:
       'WRITTEN 2026-09-16 for the operator rule that a story should return something for the tokens it ' +
       'spends: the spend columns already exist on storyboard_story_run and are already read by ' +
-      'db/storyboard.ts, so this makes them visible per story rather than only in aggregate.',
+      'legacy/db/storyboard.ts, so this makes them visible per story rather than only in aggregate.',
     assayCommands: '- `node --import tsx --test workflow_app/tests/forge-run-spend.test.ts`',
   },
   {
@@ -115,7 +115,7 @@ const STORIES: TestStory[] = [
       'A story view reports qaPassed with each frozen command and its exit code, and reports NO verdict — ' +
       'rather than a historical one — for a run that measured nothing.',
     scope:
-      'workflow_app/forge/forge-visibility.ts (verdict block), workflow_app/forge/forge-evidence-db.ts ' +
+      'legacy/workflow_app/forge/forge-visibility.ts (verdict block), workflow_app/forge/forge-evidence-db.ts ' +
       '(read only, no behaviour change), workflow_app/tests/forge-qa-verdict-visible.test.ts (new).',
     acceptance:
       'Given a run whose QA passed, the view reports qaPassed=true with each frozen command and its exit ' +
@@ -139,8 +139,8 @@ const STORIES: TestStory[] = [
       'When a release stage succeeds after failing, the story stops reporting the old failure, so a ' +
       'router that reads the failed stage cannot send a resolved story back to the stage that succeeded.',
     scope:
-      'workflow_app/forge/db-release-executor.ts (clear the markers with the success it records), ' +
-      'workflow_app/tests/forge-release-markers.test.ts (new).',
+      'legacy/workflow_app/forge/db-release-executor.ts (clear the markers with the success it records), ' +
+      'legacy/workflow_app/tests/forge-release-markers.test.ts (new).',
     acceptance:
       'Given a release stage that failed and then succeeded, the durable evidence reports failureClass ' +
       'null and failedReleaseStage null after the success, and the success flag true. A failure NOT yet ' +
@@ -163,8 +163,8 @@ const STORIES: TestStory[] = [
       'A story view names each run by the lane that produced it — Architect, Lead, Smith, QA, DEV_OPS — ' +
       'instead of a raw run_type token.',
     scope:
-      'workflow_app/forge/forge-visibility.ts (additive label per run), ' +
-      'workflow_app/tests/forge-lane-labels.test.ts (new).',
+      'legacy/workflow_app/forge/forge-visibility.ts (additive label per run), ' +
+      'legacy/workflow_app/tests/forge-lane-labels.test.ts (new).',
     acceptance:
       'Every run_type the engine writes maps to a human label. An unknown run_type is reported verbatim ' +
       'rather than guessed, and never as an empty string.',
@@ -183,7 +183,7 @@ const STORIES: TestStory[] = [
     goal:
       'A test fails if a QA module reads git or carries a sha, so the rule that QA answers only "did the ' +
       'tests pass" cannot regress silently.',
-    scope: 'workflow_app/tests/forge-qa-no-git.test.ts (new).',
+    scope: 'legacy/workflow_app/tests/forge-qa-no-git.test.ts (new).',
     acceptance:
       'The test reads the QA modules as text and fails if any of them names a sha field, runs a git ' +
       'command, or checks lineage; it passes on the current tree, and it fails if such a reference is ' +
@@ -207,8 +207,8 @@ const STORIES: TestStory[] = [
       'A story view reports the repairs and replans it has used and how many remain, so a story about to ' +
       'exhaust its budget is visible before it holds.',
     scope:
-      'workflow_app/forge/forge-visibility.ts (additive), ' +
-      'workflow_app/tests/forge-repair-budget.test.ts (new).',
+      'legacy/workflow_app/forge/forge-visibility.ts (additive), ' +
+      'legacy/workflow_app/tests/forge-repair-budget.test.ts (new).',
     acceptance:
       'Used and remaining counts are read from the durable counters against the engine caps. An unknown ' +
       'cap reports remaining as null, NEVER as zero — "we do not know" and "none left" are different ' +
@@ -230,7 +230,7 @@ const STORIES: TestStory[] = [
       'The sprint release lists every story whose deployment is deferred to its batch, so the stories ' +
       'waiting to be released can actually be found.',
     scope:
-      'workflow_app/forge/forge-batch-slice.ts (new, pure predicate), scripts/forge-batch-release.mjs ' +
+      'legacy/workflow_app/forge/forge-batch-slice.ts (new, pure predicate), scripts/forge-batch-release.mjs ' +
       '(use it), workflow_app/tests/forge-batch-slice.test.ts (new).',
     acceptance:
       'A story whose deployment is deferred to batch N is IN the slice for batch N even when published_sha ' +
@@ -255,7 +255,7 @@ const STORIES: TestStory[] = [
       'verdict is PASS or FAIL, and no sha rides along with it.',
     scope:
       'docs/agent/WORKFLOW-ARCHITECTURE.md (the four places that still state the sha-era invariant), ' +
-      'workflow_app/tests/forge-qa-doc-rule.test.ts (new fence test).',
+      'legacy/workflow_app/tests/forge-qa-doc-rule.test.ts (new fence test).',
     acceptance:
       'The document no longer states that a QA pass freezes a candidate sha, that the candidate sha is ' +
       'carried into release, or that the candidate module QA verified is re-checked. A fence test reads the ' +
@@ -276,8 +276,8 @@ const STORIES: TestStory[] = [
       'When a release stage fails and records what failed, a later classifier may add its own label as ' +
       'metadata but may not replace the stage-accurate class.',
     scope:
-      'workflow_app/forge/forge-role-mapping.ts (the failure_classifier branch), ' +
-      'workflow_app/tests/forge-failure-label.test.ts (new).',
+      'legacy/workflow_app/forge/forge-role-mapping.ts (the failure_classifier branch), ' +
+      'legacy/workflow_app/tests/forge-failure-label.test.ts (new).',
     acceptance:
       'Given a failed release stage that recorded PUBLISH_CONFLICT with failedReleaseStage PUBLISH, the ' +
       'failure class after the classifier runs is still PUBLISH_CONFLICT, and the classifier label is ' +
@@ -299,8 +299,8 @@ const STORIES: TestStory[] = [
       'A read-only check reports when a QA run row and the durable verdict disagree, so the class of bug ' +
       'found on 2026-09-16 is caught by the doctor instead of by a person reading rows.',
     scope:
-      'workflow_app/forge/forge-qa-consistency.ts (new, pure), scripts/forge-doctor.ts (report the line), ' +
-      'workflow_app/tests/forge-qa-consistency.test.ts (new).',
+      'legacy/workflow_app/forge/forge-qa-consistency.ts (new, pure), scripts/forge-doctor.ts (report the line), ' +
+      'legacy/workflow_app/tests/forge-qa-consistency.test.ts (new).',
     acceptance:
       'Given a run status and a verdict, the check reports agree or names both values. A run with no ' +
       'verdict reports unknown — never agree. It writes nothing: it is a report, not a repair.',
@@ -322,7 +322,7 @@ const STORIES: TestStory[] = [
       'function the tests interrogate.',
     scope:
       'lib/auth/document-access.ts (new, pure decision), app/api/media/documents/[id]/route.ts (call it), ' +
-      'workflow_app/tests/document-access.test.ts (new).',
+      'legacy/workflow_app/tests/document-access.test.ts (new).',
     acceptance:
       'No session → no bytes, and the response is 401 rather than a 404 that hides the rule. An ' +
       'authenticated portal session → bytes, with the decision made by the named function. A non-document ' +
@@ -333,7 +333,7 @@ const STORIES: TestStory[] = [
       'served any row with media_type = document — no session, no authority, no publication gate — while ' +
       'its sibling under /api/media/[id] at least requires a session. What lands in that table with that ' +
       'type: db/signature-reconciliation.ts:154 (the signed artifact from BoldSign) and ' +
-      'db/issued-document.ts:158 (issued PDFs). HONEST BOUNDARY: this story adds the session gate and the ' +
+      'legacy/db/issued-document.ts:158 (issued PDFs). HONEST BOUNDARY: this story adds the session gate and the ' +
       'pure decision; binding a document to its OWNING record authority is bigger (the media row may carry ' +
       'no owner link) and belongs in its own story — say so in the notes rather than implying this story ' +
       'solved it. The sibling conflating authentication with authorization is NOT fixed here either.',
@@ -431,7 +431,7 @@ const STORIES: TestStory[] = [
       'story whose deployment is deferred completes, and one that demands a deployment is held AT THE ' +
       'DECISION with a named reason instead of walking into a lane with no producer.',
     scope:
-      'workflow_app/forge/agent-runtime-role-runner.ts (the deploy entry), workflow_app/forge/forge-facts.ts ' +
+      'legacy/workflow_app/forge/agent-runtime-role-runner.ts (the deploy entry), workflow_app/forge/forge-facts.ts ' +
       '(the decision input), workflow_app/tests/forge-deploy-entry.test.ts (new).',
     acceptance:
       'A story whose deployment is deferred to its batch completes without any deployment receipt. A story ' +
@@ -462,7 +462,7 @@ const STORIES: TestStory[] = [
       'began, so the scope gate reads a fact instead of deriving one.',
     scope:
       'the lane start path (agent-runtime adapters / repositories), db/storyboard.ts (the run writer), ' +
-      'workflow_app/tests/run-base-commit.test.ts (new).',
+      'legacy/workflow_app/tests/run-base-commit.test.ts (new).',
     acceptance:
       'Every run of a code-writing lane carries base_commit_hash — the commit HEAD stood on when that lane ' +
       'started — and the scope check prefers it over any derived base. A lane that cannot read its base ' +
@@ -487,7 +487,7 @@ const STORIES: TestStory[] = [
       'for a run whose ruling was PASS.',
     scope:
       'the artifact writers (agent-runtime base adapter, db/forge-artifact.ts), ' +
-      'workflow_app/tests/artifact-verdict.test.ts (new).',
+      'legacy/workflow_app/tests/artifact-verdict.test.ts (new).',
     acceptance:
       'For a given run, the artifact verdict and the durable ruling agree, or the artifact says it has no ' +
       'verdict. A test proves an artifact cannot be written with a verdict that contradicts its run. The ' +
@@ -511,7 +511,7 @@ const STORIES: TestStory[] = [
       'a Lead reads, so the story does not die on its first lane.',
     scope:
       'the hotfix route in the FORGE_SDLC definition and/or agent-runtime/lane-policy.ts, ' +
-      'workflow_app/tests/forge-hotfix-route.test.ts (new).',
+      'legacy/workflow_app/tests/forge-hotfix-route.test.ts (new).',
     acceptance:
       'A HOTFIX story reaches lead_pre with the contract the lane policy requires, and a test pins the ' +
       'route so the two cannot diverge again. The decision — the hotfix branch runs the Architect — is ' +
@@ -538,7 +538,7 @@ const STORIES: TestStory[] = [
       'kept-with-a-reason — so a column can no longer describe a machine that does not exist.',
     scope:
       'docs/agent/manifest/ (the audit table), scripts/column-writer-audit.ts (new generator), ' +
-      'workflow_app/tests/column-writer-audit.test.ts (new).',
+      'legacy/workflow_app/tests/column-writer-audit.test.ts (new).',
     acceptance:
       'A generated audit lists every column of storyboard_story, storyboard_story_run and ' +
       'forge_workflow_evidence with a classification: WRITTEN (naming the writer), DEAD-DROP, or ' +
@@ -592,7 +592,7 @@ const STORIES: TestStory[] = [
       'map, so a second writer is caught by a check rather than by a night of holding finished work.',
     scope:
       'scripts/fact-writer-map.ts (new, generator + check), docs/agent/manifest/FACT-WRITERS.md (generated), ' +
-      'workflow_app/tests/fact-writer-map.test.ts (new).',
+      'legacy/workflow_app/tests/fact-writer-map.test.ts (new).',
     acceptance:
       'The map names each durable fact with its writer (file + symbol) or marks it READ-ONLY with the ' +
       'writer named elsewhere. A fact with two writers FAILS unless the map records it as multi-writer ' +
@@ -639,8 +639,8 @@ const STORIES: TestStory[] = [
       'Story status and completion are written only by the run lifecycle, the board editor and the one ' +
       'sanctioned hold marker — and a fence fails when a third path starts writing them.',
     scope:
-      'db/storyboard.ts (finishStoryRun, updateStoryboardStory, setStoryboardStatus), ' +
-      'db/forge-story-state.ts, workflow_app/tests/story-status-writers.test.ts (new).',
+      'legacy/db/storyboard.ts (finishStoryRun, updateStoryboardStory, setStoryboardStatus), ' +
+      'legacy/db/forge-story-state.ts, workflow_app/tests/story-status-writers.test.ts (new).',
     acceptance:
       'Every write of storyboard_story.status or .completion names a sanctioned writer; a scan fails on a ' +
       'new one. The pair rule holds: 100 only with Complete, and a non-Complete run never writes 100. The ' +
@@ -648,7 +648,7 @@ const STORIES: TestStory[] = [
     notes:
       'An invented completion (99) and a migration-182 constraint crash both came from a writer deciding ' +
       'the pair itself on 2026-09-16. The pair rule is fixed; who may write it was never pinned, and ' +
-      'db/forge-story-state.ts marks a story HOLD straight from the runner.',
+      'legacy/db/forge-story-state.ts marks a story HOLD straight from the runner.',
     assayCommands: '- `node --import tsx --test workflow_app/tests/story-status-writers.test.ts`',
   },
   // --- WAVE 7 — ROBUSTNESS AND OPERATIONS: liveness, reaping, and a door out of a hold ------------
@@ -688,7 +688,7 @@ const STORIES: TestStory[] = [
       'a lane that is alive can never be reaped.',
     scope:
       'scripts/forge-story-reset.ts (the clean/recover paths) and whatever reports worker liveness, ' +
-      'workflow_app/tests/reap-guard.test.ts (new).',
+      'legacy/workflow_app/tests/reap-guard.test.ts (new).',
     acceptance:
       'A claim is released only when the worker that holds it is provably gone. A live worker survives any ' +
       'amount of elapsed time; a dead worker is released without waiting for a timeout. A test proves both ' +
@@ -710,7 +710,7 @@ const STORIES: TestStory[] = [
       'Any instance sitting on a hold or a failed lane can be resumed at a named node or cancelled, from ' +
       'one operator door, and the decision is recorded as the reason it moved.',
     scope:
-      'workflow_app/forge/forge-hold-resolve.ts (extend to a run with no open hold task), a script or board ' +
+      'legacy/workflow_app/forge/forge-hold-resolve.ts (extend to a run with no open hold task), a script or board ' +
       'action, workflow_app/tests/resume-door.test.ts (new).',
     acceptance:
       'Given a run stopped at a hold OR at a failed lane task, the door can resume it at a named node or ' +
@@ -737,7 +737,7 @@ const STORIES: TestStory[] = [
       'model — so a change to the middle cannot silently re-route work that already ran.',
     scope:
       'a new replay harness (workflow_app/forge/replay.ts + a runner), fixtures built from real rows, ' +
-      'workflow_app/tests/forge-replay.test.ts (new).',
+      'legacy/workflow_app/tests/forge-replay.test.ts (new).',
     acceptance:
       'Given a recorded generation (runs, evidence, engine tasks), the replay reproduces the decisions ' +
       'that were taken — pass, fail, deferred, held — and fails loudly when the code would now decide ' +
@@ -761,7 +761,7 @@ const STORIES: TestStory[] = [
       'asserts only what the records say: started, ruled, ended.',
     scope:
       'a scratch-database harness plus one story driven end to end, ' +
-      'workflow_app/tests/forge-blackbox-story.test.ts (new).',
+      'legacy/workflow_app/tests/forge-blackbox-story.test.ts (new).',
     acceptance:
       'The test drives one story from start to completion against a scratch database and asserts: one run ' +
       'per lane with a start and an end, one ruling per measuring lane, a story status that matches the ' +
@@ -785,7 +785,7 @@ const STORIES: TestStory[] = [
       'justify it in writing or delete it — the captain rule made checkable.',
     scope:
       'docs/agent/decisions/middle-steps.md (new inventory), the removals it implies, ' +
-      'workflow_app/tests/middle-step-inventory.test.ts (new).',
+      'legacy/workflow_app/tests/middle-step-inventory.test.ts (new).',
     acceptance:
       'Each middle step is listed with what it can override, what it costs when it is wrong, and a ' +
       'JUSTIFIED or DELETE verdict. Anything marked DELETE is gone in the same change. A test fails when ' +
@@ -858,7 +858,7 @@ const STORIES: TestStory[] = [
       'action in the board, not a SQL statement typed by a helper.',
     scope:
       'the board write path (db/storyboard.ts, the portal action), the batch fields (batch, batch_deploy), ' +
-      'workflow_app/tests/sprint-door.test.ts (new).',
+      'legacy/workflow_app/tests/sprint-door.test.ts (new).',
     acceptance:
       'An operator can put a story in a sprint and mark its deployment deferred, singly or as a group, and ' +
       'undo it. The door validates the sprint number, records who did it, and refuses to defer a story ' +
@@ -883,7 +883,7 @@ const STORIES: TestStory[] = [
       'disagree with it.',
     scope:
       'app/api/media/documents/[id]/route.ts and any sibling that sets Content-Length, ' +
-      'workflow_app/tests/media-content-length.test.ts (new).',
+      'legacy/workflow_app/tests/media-content-length.test.ts (new).',
     acceptance:
       'The header is derived from the bytes in the response. A row whose file_size disagrees with its ' +
       'bytes still streams completely. A test proves the mismatch case, which is the case that breaks.',
@@ -928,7 +928,7 @@ const STORIES: TestStory[] = [
       'error table.',
     scope:
       'app/api/portal/move-trace/route.ts, app/api/portal/client-error/route.ts, ' +
-      'workflow_app/tests/diagnostic-throttle.test.ts (new).',
+      'legacy/workflow_app/tests/diagnostic-throttle.test.ts (new).',
     acceptance:
       'Each endpoint bounds its writes per source per window and per body size, refuses over the bound ' +
       'with a plain response, and records the refusal as a count rather than a row per attempt. ' +
@@ -950,7 +950,7 @@ const STORIES: TestStory[] = [
       'A push runs the test tiers automatically, so "green" stops meaning "someone typed pnpm tonight".',
     scope:
       'a CI workflow (test tiers only — the release build stays local), a pre-push hook, ' +
-      'workflow_app/tests/ci-contract.test.ts (new).',
+      'legacy/workflow_app/tests/ci-contract.test.ts (new).',
     acceptance:
       'A push runs the engine, agent-runtime and harness tiers and reports pass or fail without a human. ' +
       'The release build is NOT rebuilt in CI: this repo builds locally and deploys prebuilt, and a ' +
@@ -975,7 +975,7 @@ const STORIES: TestStory[] = [
       'plus short-lived signed links, with an access record per read.',
     scope:
       'the media read/write path (app/api/media/**, db/media), a storage adapter, ' +
-      'workflow_app/tests/media-storage.test.ts (new).',
+      'legacy/workflow_app/tests/media-storage.test.ts (new).',
     acceptance:
       'Uploads and downloads go through storage; the media row keeps metadata and a storage key. Reads ' +
       'are short-lived and recorded. A migration path exists for existing rows, or the story records why ' +
@@ -1000,7 +1000,7 @@ const STORIES: TestStory[] = [
       'the docs, so no lane is told to use a backhoe that is not in the corner.',
     scope:
       'docs/agent/FORGE-WORKSHOP.md, the MCP/serena configuration, a check that each named tool resolves, ' +
-      'workflow_app/tests/workshop-tools.test.ts (new).',
+      'legacy/workflow_app/tests/workshop-tools.test.ts (new).',
     acceptance:
       'The check reads the SAME source `pnpm forge:tools` reads. A tool whose wired flag is false and ' +
       'which is still listed for positions must either become wired, or be removed from those positions ' +
@@ -1055,7 +1055,7 @@ const STORIES: TestStory[] = [
       'The wave loop runs EVERY ready task up to one declared cap instead of only smith_split_work siblings, ' +
       'and a lane commits only the surfaces it declared — so concurrency cannot sweep another writer\'s work.',
     scope:
-      'workflow_app/forge/forge-executor.ts (the wave loop and its cap), the lane commit boundary (staging and ' +
+      'legacy/workflow_app/forge/forge-executor.ts (the wave loop and its cap), the lane commit boundary (staging and ' +
       'the post-commit surface check), workflow_app/tests/forge-executor-contract.test.ts (a fence for a ' +
       'non-split fan-out AND for the surface refusal), docs/agent/WORKFLOW-ARCHITECTURE.md if it states the ' +
       'concurrency rule.',
@@ -1177,8 +1177,8 @@ const STORIES: TestStory[] = [
     scope:
       'scripts/forge-handoff.mjs (the forge_role_contract upsert: finding_ids, merge_checks and ' +
       'surface_scope), workflow_app/forge/forge-executor.ts (planWave overlap handling and its log line), ' +
-      'workflow_app/tests/forge-executor-contract.test.ts, and the removal of the source-grep assertion in ' +
-      'workflow_app/tests/handoff-assignment-write.test.ts.',
+      'legacy/workflow_app/tests/forge-executor-contract.test.ts, and the removal of the source-grep assertion in ' +
+      'legacy/workflow_app/tests/handoff-assignment-write.test.ts.',
     acceptance:
       'A write that would SHRINK finding_ids, merge_checks or surface_scope on forge_role_contract is ' +
       'refused by name with the dropped entries, exactly like the assignment row — one decision, reused, not ' +
@@ -1257,7 +1257,7 @@ const STORIES: TestStory[] = [
       'A run receipt can be joined to its artifact and its spend without reading prose: the sha is in the ' +
       'column, the cost source is a closed set, and a total spend states the coverage it was computed from.',
     scope:
-      'db/forge-run.ts and the writer that fills cost_source / commit_hash / candidate sha for a run, the ' +
+      'legacy/db/forge-run.ts and the writer that fills cost_source / commit_hash / candidate sha for a run, the ' +
       'QA-and-Assay receipt writer, workflow_app/tests/run-receipt-facts.test.ts (new).',
     acceptance:
       'Every completed run row carries the candidate sha it produced in commit_hash, so the release receipt ' +
@@ -1293,8 +1293,8 @@ const STORIES: TestStory[] = [
       'no-deployment attestation, and a story that requires one still needs a real deployment receipt — so ' +
       'no story wedges on "role did not deliver devops-receipt".',
     scope:
-      'workflow_app/forge/forge-release-receipt.ts (the producer), the dev_ops evidence wiring in ' +
-      'workflow_app/forge/agent-runtime-role-runner.ts and forge-role-mapping.ts, docs/agent/MEMORY.md:202 ' +
+      'legacy/workflow_app/forge/forge-release-receipt.ts (the producer), the dev_ops evidence wiring in ' +
+      'legacy/workflow_app/forge/agent-runtime-role-runner.ts and forge-role-mapping.ts, docs/agent/MEMORY.md:202 ' +
       '(the entry this closes), workflow_app/tests/forge-release-receipt.test.ts.',
     acceptance:
       'A story with no deployment requirement completes its release stage on an attestation built from ' +
@@ -1383,7 +1383,7 @@ const STORIES: TestStory[] = [
     scope:
       'scripts/forge-handoff.mjs (the --findings writer), db/forge-role-finding.ts (listStoryForgeFindings: ' +
       'what "the newest attempt" means and how a supersede is recorded), the routing context built in ' +
-      'workflow_app/forge/agent-runtime-role-runner.ts:519-533, workflow_app/tests/' +
+      'legacy/workflow_app/forge/agent-runtime-role-runner.ts:519-533, workflow_app/tests/' +
       'forge-role-finding-supersede.test.ts (new).',
     acceptance:
       'Writing findings for attempt N that omits a seam declared by attempt N-1 for the same node and ' +
@@ -1399,7 +1399,7 @@ const STORIES: TestStory[] = [
       'artifact did not reach the Lead. Measured in forge_role_finding: attempt 1 wrote four findings, TWO ' +
       'of which carried the seam lib/whatsapp-cloud/ (c6206dcb, e867e9f8); attempt 2 wrote SIX findings and ' +
       'NONE carried it (they name app/api/integrations/whatsapp/webhook/route.ts, db/landing.ts, ' +
-      'db/migrations/ and workflow_app/tests/). The reader takes the NEWEST attempt per node ' +
+      'legacy/db/migrations/ and workflow_app/tests/). The reader takes the NEWEST attempt per node ' +
       '(agent-runtime-role-runner.ts:519-529, deliberately, so a story-wide read does not resurrect earlier ' +
       'attempts duplicates), so the Lead routed against the worse set and HOLDed twice: first because a pure ' +
       'mapper cannot be exported from route.ts under Next route-export typing, then because "the routing ' +
@@ -1429,7 +1429,7 @@ const STORIES: TestStory[] = [
     scope:
       'the completion/release path that decides a story is done (agent-runtime-role-runner.ts deploy branch ' +
       'and the story completion seam), the migration ledger reader used by scripts/migration-status.mjs, ' +
-      'workflow_app/tests/migration-applied-guard.test.ts (new).',
+      'legacy/workflow_app/tests/migration-applied-guard.test.ts (new).',
     acceptance:
       'When a story change set adds a file under db/migrations/, completion requires the LEDGER ' +
       '(schema_migration, PROD) to carry that filename; otherwise the story is held or refused with a ' +
@@ -1464,7 +1464,7 @@ const STORIES: TestStory[] = [
       'Cross-environment schema parity is verified AFTER the PROD migration runs, so a new table or column ' +
       'does not create the very drift that prevents its own promotion.',
     scope:
-      'workflow_app/forge/release-operations.ts (the DEV_OPS verification gate and checkSchemaParity call ' +
+      'legacy/workflow_app/forge/release-operations.ts (the DEV_OPS verification gate and checkSchemaParity call ' +
       'site), workflow_app/tests/release-order.test.ts (new).',
     acceptance:
       'A story adding a table or column migrates PROD and THEN verifies parity: the parity check runs after ' +
@@ -1495,7 +1495,7 @@ const STORIES: TestStory[] = [
       'Migration execution is checksum-aware and replay-safe: an already-applied migration is SKIPPED by ' +
       'name, and a recording failure cannot cause the SQL to run twice.',
     scope:
-      'workflow_app/forge/release-operations.ts (applyMigrations), the forge_migration_execution ledger ' +
+      'legacy/workflow_app/forge/release-operations.ts (applyMigrations), the forge_migration_execution ledger ' +
       'reader, workflow_app/tests/migration-replay.test.ts (new).',
     acceptance:
       'Before executing a migration file its content checksum is compared with the ledger: a match SKIPS ' +
@@ -1529,8 +1529,8 @@ const STORIES: TestStory[] = [
       'idempotent, so a crash between them leaves a state a later run can FINISH rather than an advanced ' +
       'workflow with no result and an undercounted repair.',
     scope:
-      'workflow_app/forge/forge-engine-runtime.ts (completeForgeRoleTask and the evidence write after it), ' +
-      'workflow_app/forge/forge-executor.ts (the repair counter near :356), workflow_app/tests/' +
+      'legacy/workflow_app/forge/forge-engine-runtime.ts (completeForgeRoleTask and the evidence write after it), ' +
+      'legacy/workflow_app/forge/forge-executor.ts (the repair counter near :356), workflow_app/tests/' +
       'completion-crash-window.test.ts (new).',
     acceptance:
       'Given a crash injected after the transition and before the evidence write, a later run detects the ' +
@@ -1561,7 +1561,7 @@ const STORIES: TestStory[] = [
       'A Postgres timestamp is parsed to the instant it names, in every format the driver emits, so a claim ' +
       'touched seconds ago can never be treated as stale.',
     scope:
-      'db/forge-engine-task-execution.ts (the stale-claim read around :110), workflow_app/tests/' +
+      'legacy/db/forge-engine-task-execution.ts (the stale-claim read around :110), workflow_app/tests/' +
       'claim-clock.test.ts (new).',
     acceptance:
       'The same instant is parsed correctly from all the forms the driver emits — with a bare offset ' +
@@ -1571,12 +1571,12 @@ const STORIES: TestStory[] = [
       'instant.',
     notes:
       'FROM ASTRA CODE REVIEW 2026-09-17, bug 4 of 4 CONFIRMED IN SOURCE. Verified here: ' +
-      'db/forge-engine-task-execution.ts:110 does ' +
+      'legacy/db/forge-engine-task-execution.ts:110 does ' +
       '`Date.parse(updatedAt.replace(String " " -> "T") + "Z")`, and a timestamptz string arrives with its ' +
       'own offset (for example `2026-09-17 07:16:52.653+00`), so the built string is ' +
       '`2026-09-17T07:16:52.653+00Z` and Date.parse returns NaN — which is exactly how a fresh claim can ' +
       'read as abandoned. THE UNPARSEABLE CASE IS DELIBERATE, AND THIS STORY REVERSES IT: ' +
-      'db/forge-engine-task-execution.ts:121 reads `stale: !terminal && (!Number.isFinite(touched) || ' +
+      'legacy/db/forge-engine-task-execution.ts:121 reads `stale: !terminal && (!Number.isFinite(touched) || ' +
       'touched < staleBefore)`, so an unparseable timestamp AFFIRMATIVELY marks a non-terminal row stale — ' +
       'the Z-append is not a comparison that quietly fails, it is a green light to reap a live lane. A ' +
       'reaper must never reap what it cannot measure, so the unparseable case flips to NOT stale in this ' +
@@ -1600,8 +1600,8 @@ const STORIES: TestStory[] = [
       'Verify and close two QA adjudication risks: a worker that loses the task-completion race must not ' +
       'write a failure disposition, and a verdict must compare command IDENTITIES, not merely their count.',
     scope:
-      'workflow_app/forge/agents/qa/run.ts and the QA disposition writer in forge-executor.ts, ' +
-      'workflow_app/tests/qa-race-and-identity.test.ts (new).',
+      'legacy/workflow_app/forge/agents/qa/run.ts and the QA disposition writer in forge-executor.ts, ' +
+      'legacy/workflow_app/tests/qa-race-and-identity.test.ts (new).',
     acceptance:
       'The competing-worker case is reproduced first and the finding recorded as confirmed or refuted: if a ' +
       'loser can write its disposition before losing the race, the write is made conditional on winning (or ' +
@@ -1633,7 +1633,7 @@ const STORIES: TestStory[] = [
       'lanes keep writing, and no individual operation may close a database pool another caller is using.',
     scope:
       'the concurrent lane pump in workflow_app/forge/forge-executor.ts, the release and parity helpers in ' +
-      'workflow_app/forge/release-operations.ts, workflow_app/tests/lane-failure-and-pool.test.ts (new).',
+      'legacy/workflow_app/forge/release-operations.ts, workflow_app/tests/lane-failure-and-pool.test.ts (new).',
     acceptance:
       'The two cases are reproduced first and each recorded as confirmed or refuted. When one lane in a ' +
       'concurrent batch rejects, the failure is reported only after every sibling has settled, and the ' +
@@ -1775,7 +1775,7 @@ const STORIES: TestStory[] = [
       'than the change it judged is flagged as stale rather than reported as a verdict on that change.',
     scope:
       'the QA verdict record and the adjudicator revision stamp (workflow_app/forge/agents/qa/run.ts, ' +
-      'workflow_app/forge/agents/qa/types.ts) plus workflow_app/tests/reader-revision.test.ts (new).',
+      'legacy/workflow_app/forge/agents/qa/types.ts) plus workflow_app/tests/reader-revision.test.ts (new).',
     acceptance:
       'A QA ruling records the code revision the adjudicator ran, and a ruling made by code OLDER than the ' +
       'candidate change is flagged as stale rather than reported as a verdict on the candidate. A fresh ' +
@@ -1867,7 +1867,7 @@ const STORIES: TestStory[] = [
     scope:
       'a measurable rule applied to the forge modules (an agreed maximum lines of commentary before a ' +
       'declaration, with history allowed only under a dated heading), the files it is applied to, and ' +
-      'workflow_app/tests/comment-contract.test.ts (new).',
+      'legacy/workflow_app/tests/comment-contract.test.ts (new).',
     acceptance:
       'A rule is stated and enforced: commentary above a declaration is at most N lines and states a rule ' +
       'in force, and dated history appears only under a marker that names the date and, where one exists, ' +
@@ -1935,7 +1935,7 @@ const STORIES: TestStory[] = [
       'into a reported crash, and the wave still settles its siblings.',
     scope:
       'the release cleanup path in workflow_app/forge/forge-executor.ts (runReady) and ' +
-      'workflow_app/tests/release-after-completion.test.ts (new).',
+      'legacy/workflow_app/tests/release-after-completion.test.ts (new).',
     acceptance:
       'Releasing a task that is already completed returns without error, because completing is strictly stronger ' +
       'than releasing, and a test drives that exact case. A release that fails for any other reason still throws ' +
@@ -2002,7 +2002,7 @@ const STORIES: TestStory[] = [
     scope:
       'the architect handoff and its seam rules (workflow_app/forge/forge-shaping.ts, forge-architect-contract.ts, ' +
       'the findings writer in workflow_app/forge/agents/architect/persist.ts) and the HARD SCOPE RULE reader in ' +
-      'workflow_app/forge/agent-runtime-role-runner.ts, plus workflow_app/tests/proof-seam.test.ts (new).',
+      'legacy/workflow_app/forge/agent-runtime-role-runner.ts, plus workflow_app/tests/proof-seam.test.ts (new).',
     acceptance:
       'Given two required findings whose units are disjoint but whose new proofs land in the same tests directory, ' +
       'the split is ALLOWED and each sibling is handed its own proof path as part of its seams; a test drives that ' +
@@ -2041,8 +2041,8 @@ const STORIES: TestStory[] = [
       'records WHICH kind of spend it carried so the dollars column can never hold widgets.',
     scope:
       'Unit A (adapter scope): agent-runtime/cli-agent-adapter.ts and the commit path it calls, plus ' +
-      'workflow_app/tests/cli-adapter-scope.test.ts (new). Unit B (spend source): the run writer and reader in ' +
-      'db/forge-run.ts and db/storyboard.ts plus workflow_app/tests/run-spend-source.test.ts (new). The two units ' +
+      'legacy/workflow_app/tests/cli-adapter-scope.test.ts (new). Unit B (spend source): the run writer and reader in ' +
+      'legacy/db/forge-run.ts and db/storyboard.ts plus workflow_app/tests/run-spend-source.test.ts (new). The two units ' +
       'share no file, so they are independent by construction.',
     acceptance:
       'Unit A: the cli adapter refuses a commit whose paths fall outside the declared scope, naming the offending ' +
@@ -2113,9 +2113,9 @@ const STORIES: TestStory[] = [
       'the evidence for whether the scheduler can fan a two-unit story out.',
     scope:
       'Unit A (media length): app/api/media/documents/[id]/route.ts and any sibling that sets Content-Length, plus ' +
-      'workflow_app/tests/media-content-length.test.ts (new). Unit B (diagnostic throttle): ' +
+      'legacy/workflow_app/tests/media-content-length.test.ts (new). Unit B (diagnostic throttle): ' +
       'app/api/portal/move-trace/route.ts and app/api/portal/client-error/route.ts, plus ' +
-      'workflow_app/tests/diagnostic-throttle.test.ts (new). The two units share no file and each owns its own new ' +
+      'legacy/workflow_app/tests/diagnostic-throttle.test.ts (new). The two units share no file and each owns its own new ' +
       'proof path, which is the shape ENG-FORGE-PROOF-SEAM-01 made lawful.',
     acceptance:
       'Unit A: the Content-Length header is derived from the bytes actually sent; a row whose file_size disagrees ' +
@@ -2151,7 +2151,7 @@ const STORIES: TestStory[] = [
       'run, so a SPLIT child cannot be held for the work of another lane or the operator.',
     scope:
       'the scope check that reads the candidate diff (workflow_app/forge/story-scope-base.ts and its callers in ' +
-      'workflow_app/forge/agent-runtime-role-runner.ts), plus workflow_app/tests/scope-attribution.test.ts (new).',
+      'legacy/workflow_app/forge/agent-runtime-role-runner.ts), plus workflow_app/tests/scope-attribution.test.ts (new).',
     acceptance:
       'The changes judged against a lane assignment are the candidate own changes - its diff against its parent ' +
       'plus any commits the lane authored in the range - so a foreign commit that landed during the run is not ' +
@@ -2165,8 +2165,8 @@ const STORIES: TestStory[] = [
       '"candidate 5c373dc02 touched files outside its assignment (unit-b-diagnostic-throttle)" and the list was ' +
       'agent-runtime/repositories.ts, db/agent-work.ts, db/forge-artifact.ts, docs/agent/postcards/..., ' +
       'scripts/forge-test-stories.ts, workflow_app/forge/agent-runtime-role-runner.ts, ' +
-      'workflow_app/forge/forge-executor.ts, workflow_app/tests/artifact-verdict.test.ts and ' +
-      'workflow_app/tests/split-child-shape.test.ts - EVERY ONE OF THEM MINE, committed to main while the lane was ' +
+      'legacy/workflow_app/forge/forge-executor.ts, workflow_app/tests/artifact-verdict.test.ts and ' +
+      'legacy/workflow_app/tests/split-child-shape.test.ts - EVERY ONE OF THEM MINE, committed to main while the lane was ' +
       'held. So the refusal is correct about the range and wrong about the attribution: a lane is not responsible ' +
       'for commits that are not its own. This is the third layer of one family - START-BASE-01 recorded where a ' +
       'lane started, PROOF-SEAM-01 gave a unit its own proof, and this judges the lane own diff rather than the ' +
@@ -2493,7 +2493,7 @@ const STORIES: TestStory[] = [
     scope:
       'lib/syndication/stellar-fields.ts, lib/syndication/stellar.ts, lib/syndication/types.ts, ' +
       'lib/syndication/adapters.ts, db/stellar-listing.ts, db/syndication.ts, ' +
-      'db/migrations/194_stellar_listing_details.sql, app/portal/marketing/actions.ts, ' +
+      'legacy/db/migrations/194_stellar_listing_details.sql, app/portal/marketing/actions.ts, ' +
       'components/portal/marketing/syndication-workbench.tsx, workflow_app/tests/stellar-listing-draft.test.ts.',
     acceptance:
       '1. An empty property reports all fifteen editable Stellar fields as missing.\n' +
@@ -2654,7 +2654,7 @@ const STORIES: TestStory[] = [
       '"ran and passed", "ran and failed", "did not run" and "was skipped by its own proof".',
     scope:
       'the assertion reader (workflow_app/forge/agents/qa/run.ts) and the fence ' +
-      'workflow_app/tests/qa-assertion-identity.test.ts (extended).',
+      'legacy/workflow_app/tests/qa-assertion-identity.test.ts (extended).',
     acceptance:
       'A skipped or TODO assertion is reported as its own state, never as absent and never as passed; a ' +
       'skipped INTENDED assertion cannot be the killing assertion of a negative control; a real pass and a ' +
@@ -2683,7 +2683,7 @@ const STORIES: TestStory[] = [
       'earlier commit cannot ride along behind a clean final commit.',
     scope:
       'the publish path (lib/worker-workspace/publish.ts) and the scanner it calls, with the fence ' +
-      'workflow_app/tests/publish-scan-coverage.test.ts (new).',
+      'legacy/workflow_app/tests/publish-scan-coverage.test.ts (new).',
     acceptance:
       'A synthetic credential in the FIRST of two unpublished commits blocks publication even when the ' +
       'final commit is clean; unreadable history blocks publication; history already on the remote is ' +
@@ -2738,7 +2738,7 @@ const STORIES: TestStory[] = [
       'ASSAY is supported across the handoff and the workflow decision, and the real arrangement runs.',
     scope:
       'the routing context and decision (workflow_app/forge/lead-routing-context.ts, ' +
-      'workflow_app/forge/forge-lead-routing.ts), the arrangement runner ' +
+      'legacy/workflow_app/forge/forge-lead-routing.ts), the arrangement runner ' +
       '(workflow_app/forge/agent-runtime-role-runner.ts), the workflow branch ' +
       '(workflow_app/definitions/FORGE_SDLC-v6.xml), and the fence workflow_app/tests/verify-existing.test.ts ' +
       '(extended).',
@@ -2779,7 +2779,7 @@ const STORIES: TestStory[] = [
       'commit 5dcab119), so this story is the CONTENT for a step that already runs — 2,736 tests, 0 ' +
       'failures, about 1m52s. Astra review item 6 asks for exactly this, and his reasoning is the record of ' +
       'why it matters: green CI did not catch four High defects because it ran the scripts harness and never ' +
-      'workflow_app/tests. HONEST BOUNDARY: the fences now in CI catch DRIFT (a stale double, a stale ' +
+      'legacy/workflow_app/tests. HONEST BOUNDARY: the fences now in CI catch DRIFT (a stale double, a stale ' +
       'expectation — three such were found on the first run); they do NOT catch an unwired supplier, which ' +
       'is what this suite is for.',
     assayCommands: '- `node --import tsx --test workflow_app/tests/production-wiring.test.ts`',
@@ -2808,7 +2808,7 @@ const STORIES: TestStory[] = [
       'STATE AT FILING, measured: the fan-out is OBSERVED (two siblings, slot 1 of 2 and 2 of 2, both ' +
       'claimed and both Done, wave concurrent at cap 2) and the join REFUSED on scope creep — one lane ' +
       'touched files outside its assignment (db/forge-workflow-evidence.ts, ' +
-      'db/migrations/193_forge_negative_control.sql), which is the bound working, not a kernel fault. WHAT ' +
+      'legacy/db/migrations/193_forge_negative_control.sql), which is the bound working, not a kernel fault. WHAT ' +
       'IS NOT OWED: "replay cannot fabricate completion" is already fixed and fenced (ENG-FORGE-RESUME-DOOR, ' +
       'commit 70420b46) because forge-hold-resolve was completing an UNCLAIMED fork branch. WHAT IS OWED: ' +
       'one wave whose per-unit slice covers the files each unit actually touches, then the receipt or the ' +
@@ -2856,7 +2856,7 @@ const STORIES: TestStory[] = [
       'main cannot reach production without adding a single CI build.',
     scope:
       'the release script (scripts/release-record.sh) and the fence ' +
-      'workflow_app/tests/release-ci-check.test.ts (new).',
+      'legacy/workflow_app/tests/release-ci-check.test.ts (new).',
     acceptance:
       'A failed, pending, missing or unreadable result for the release SHA produces a clear refusal naming ' +
       'what was found; the check observes the SHA it actually builds and detects HEAD changing after the ' +
@@ -2888,7 +2888,7 @@ const STORIES: TestStory[] = [
     scope:
       'the Lead routing decision in workflow_app/forge/forge-lead-routing.ts, the arrangement the ' +
       'runner can dispatch (workflow_app/forge/agent-runtime-role-runner.ts), and the fence ' +
-      'workflow_app/tests/verify-existing.test.ts (new).',
+      'legacy/workflow_app/tests/verify-existing.test.ts (new).',
     acceptance:
       'A story whose required findings already exist on the base can be routed to Assay verification ' +
       'of the existing candidate; the route names the candidate sha it verifies; a story with nothing ' +
@@ -2925,7 +2925,7 @@ const STORIES: TestStory[] = [
       'the commit seam that publishes a candidate declared surface ' +
       '(lib/worker-workspace/commit.ts, the one path both agent-runtime/factory.ts and ' +
       'agent-runtime/gateway/cli-agent-adapter.ts call) and its fence ' +
-      'workflow_app/tests/lockfile-coupling.test.ts (new). SCOPE CORRECTED ON IMPLEMENTATION: it was ' +
+      'legacy/workflow_app/tests/lockfile-coupling.test.ts (new). SCOPE CORRECTED ON IMPLEMENTATION: it was ' +
       'filed against workflow_app/forge/agent-runtime-role-runner.ts, which does not commit anything — ' +
       'that file RESOLVES the declared surface and stamps it on the task form, and the seam that acts ' +
       'on it is one level below. A scope naming the wrong file is how a guard gets built in the wrong ' +
@@ -2966,7 +2966,7 @@ const STORIES: TestStory[] = [
       'ruled clean while the repository lint is red.',
     scope:
       'the QA/architecture static gate (workflow_app/forge/forge-static-gate.ts and its callers) plus ' +
-      'workflow_app/tests/lint-gate.test.ts (new).',
+      'legacy/workflow_app/tests/lint-gate.test.ts (new).',
     acceptance:
       'A change carrying a lint ERROR fails the static gate and names the file, line and rule; a change carrying ' +
       'only lint WARNINGS passes; the gate covers the files the story changed rather than the whole repository, so ' +
@@ -3064,7 +3064,7 @@ const STORIES: TestStory[] = [
     scope:
       'a labelling helper or documented procedure that ties a confirmed class to the fixing commit ' +
       '(scripts/forge-triage.ts review path or a small companion script) and the resulting sample, plus ' +
-      'workflow_app/tests/atlas-label-evidence.test.ts (new).',
+      'legacy/workflow_app/tests/atlas-label-evidence.test.ts (new).',
     acceptance:
       'A review records the evidence for its confirmed class with the commit or file that proves it, and the ' +
       'review is refused when that evidence is missing or empty; the report distinguishes evidenced labels from ' +
@@ -3205,7 +3205,7 @@ const STORIES: TestStory[] = [
       '(a lane, an operator, an external system), and the smallest action that clears it.',
     scope:
       'a read-only explanation over the durable records (hold record, engine task, run receipts, ledger), ' +
-      'workflow_app/tests/stuck-story-explanation.test.ts (new).',
+      'legacy/workflow_app/tests/stuck-story-explanation.test.ts (new).',
     acceptance:
       'For each blocking cause the explanation names the condition, the owner and one smallest action, from ' +
       'durable records only: an unresolved hold names the originating node and the resume target that would ' +
@@ -3386,7 +3386,7 @@ const STORIES: TestStory[] = [
     scope:
       'the engine start path (scripts/forge-engine-worker.ts before the first wave, reusing ' +
       'migration-applied-guard), the ledger reader already used by the completion guard, ' +
-      'workflow_app/tests/migration-preflight.test.ts (new).',
+      'legacy/workflow_app/tests/migration-preflight.test.ts (new).',
     acceptance:
       'Given one or more db/migrations/*.sql files present in the repo and absent from the PROD ' +
       'schema_migration ledger, the run refuses to start, names EVERY unapplied file, and dispatches no ' +

@@ -2,7 +2,7 @@ import { notFound } from "next/navigation"
 import Link from "next/link"
 
 import { WorkflowInstanceDetail } from "@/components/portal/workflow-instance-detail"
-import { getWorkflowDetail } from "@/workflow_app/read-service"
+import { getWorkflowDetail } from "@/legacy/workflow_app/read-service"
 
 export const dynamic = "force-dynamic"
 

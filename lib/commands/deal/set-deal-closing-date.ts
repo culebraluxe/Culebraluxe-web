@@ -9,7 +9,7 @@
 // happens in lib/commands/register.ts.
 // ---------------------------------------------------------------------------
 
-import { setDealClosingDate } from '../../../db/deal-closing-date'
+import { setDealClosingDate } from '@/legacy/db/deal-closing-date'
 import type {
   CommandEnvelope,
   CommandExecutionContext,

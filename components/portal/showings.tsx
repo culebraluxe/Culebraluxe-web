@@ -6,7 +6,7 @@ import {
   ShowingActions,
 } from "@/components/portal/write/showing-actions"
 import type { ShowingPropertyOption } from "@/components/portal/write/showing-actions"
-import type { Showing, ShowingStatus } from "@/db/showings"
+import type { Showing, ShowingStatus } from "@/legacy/db/showings"
 
 function statusLabel(status: ShowingStatus) {
   switch (status) {

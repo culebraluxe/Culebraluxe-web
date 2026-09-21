@@ -23,7 +23,7 @@
 // The rebuild is atomic in a single DB transaction so a failed projection cannot
 // leave a half-current population.
 // ---------------------------------------------------------------------------
-import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db'
+import { forgeDb, forgeDbTargetForUrl } from '@/legacy/db/forge-db'
 import { fileURLToPath } from 'node:url'
 import { resolve as resolvePath } from 'node:path'
 

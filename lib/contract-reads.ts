@@ -5,10 +5,10 @@ import { randomUUID } from 'node:crypto'
 import { coreServices } from '@/lib/service-runtime'
 import { getActingUser } from '@/lib/auth/get-acting-user'
 import { getPortalSessionAdapter } from '@/lib/auth/portal-session'
-import { resolveSecurityLevel } from '@/services/security'
-import { CONTRACT_OPERATIONS, type ContractSummaryDto } from '@/services/contract'
-import { PROPERTY_OPERATIONS, type PropertyIntro } from '@/services/property'
-import type { Result } from '@/db/client'
+import { resolveSecurityLevel } from '@/legacy/services/security'
+import { CONTRACT_OPERATIONS, type ContractSummaryDto } from '@/legacy/services/contract'
+import { PROPERTY_OPERATIONS, type PropertyIntro } from '@/legacy/services/property'
+import type { Result } from '@/legacy/db/client'
 
 /**
  * The Contracts portfolio's reads — through the CONTRACT SERVICE, never the

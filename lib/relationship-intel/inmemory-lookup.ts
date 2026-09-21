@@ -6,7 +6,7 @@
 // present. Before that migration is applied, the read path falls back to legacy
 // evidence links so deployment ordering cannot break reconciliation reads.
 // ---------------------------------------------------------------------------
-import type { QueryExecutor } from '../../db/query-executor'
+import type { QueryExecutor } from '@/legacy/db/query-executor'
 import type { PersonLookup } from './reconcile'
 
 export async function mapLimit<T, R>(

@@ -5,7 +5,7 @@
 // it in place if it already exists.
 //
 //   node --env-file=.env.local --import tsx scripts/update-projects-anchor-story.ts
-import { createStoryboardStory, updateStoryboardStory } from '../db/storyboard'
+import { createStoryboardStory, updateStoryboardStory } from '@/legacy/db/storyboard'
 
 const id = 'ENG-PROJECTS-ANCHOR-01'
 

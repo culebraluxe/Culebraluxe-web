@@ -39,10 +39,10 @@ it looped, and nothing said "this is too long" until a human happened to read it
 
 ## Evidence (2026-09-13)
 
-- `db/forge-engine-task-execution.ts` (the ledger count) ·
-  `workflow_app/forge/model-turn-budget.ts` (pure rule) ·
-  `workflow_app/forge/agent-runtime-role-runner.ts` (DOOR ZERO) ·
-  `workflow_app/tests/forge-model-turn-budget.test.ts` (9 cases, incl. the two wiring fences).
+- `legacy/db/forge-engine-task-execution.ts` (the ledger count) ·
+  `legacy/workflow_app/forge/model-turn-budget.ts` (pure rule) ·
+  `legacy/workflow_app/forge/agent-runtime-role-runner.ts` (DOOR ZERO) ·
+  `legacy/workflow_app/tests/forge-model-turn-budget.test.ts` (9 cases, incl. the two wiring fences).
 - Live: with the cap set to 1 the second turn was refused and the run stopped —
   `MODEL TURN CAP: this generation has already dispatched 1 turns (cap 1) … Stop here and
   read the ENGINE QUEUE: the failing door is earlier than this one.`

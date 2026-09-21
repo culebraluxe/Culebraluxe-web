@@ -19,7 +19,7 @@ import {
   getIssuedDocumentForFormInstance,
   getMediaBytes,
 } from '@/lib/vault-io'
-import { getActiveSignatureRequestForDocument } from '@/db/signature-request'
+import { getActiveSignatureRequestForDocument } from '@/legacy/db/signature-request'
 import { getTransactionDocument } from '@/lib/vault-io'
 import {
   isExecutionEligibleTemplate,
@@ -28,8 +28,8 @@ import {
 import { parseIssuedParticipants } from '@/lib/agreements/participants'
 import { parseAppliedSignatureSlotIds } from '@/lib/forms/applied-signature'
 import { resolveSignatureEnvelopeRecipients } from '@/lib/forms/signature-envelope'
-import { getAppliedBrokerCompletionEmail } from '@/db/broker-signature'
-import { getBoldSignRequestBySignatureRequestId } from '@/db/bold-sign-request'
+import { getAppliedBrokerCompletionEmail } from '@/legacy/db/broker-signature'
+import { getBoldSignRequestBySignatureRequestId } from '@/legacy/db/bold-sign-request'
 import { getTemplate, getActiveTemplate } from '@/lib/forms/template-registry'
 import { applyGrokFields, requestGrokFormFill } from '@/lib/forms/grok-fill'
 import {
@@ -136,7 +136,7 @@ export async function createFormAction(input: {
       if (!dealFacts) return fail('not-found', 'Deal not found.')
       facts = dealFacts
     } else {
-      const { sql } = await import('@/db/client')
+      const { sql } = await import('@/legacy/db/client')
       if (personId) {
         const rows = await sql`select display_name from person where id = ${personId} limit 1`
         const name = rows[0]?.display_name ? String(rows[0].display_name) : null
@@ -538,7 +538,7 @@ export async function sendFormForSignatureAction(
 }
 
 async function getMediaBytesForDocument(documentId: string) {
-  const { sql } = await import('@/db/client')
+  const { sql } = await import('@/legacy/db/client')
   const rows = await sql`
     select media_id from transaction_document where id = ${documentId} limit 1
   `

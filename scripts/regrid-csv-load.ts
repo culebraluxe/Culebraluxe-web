@@ -2,8 +2,8 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { basename } from 'node:path'
-import { upsertRegridCulebraParcels } from '../db/regrid-culebra-parcel'
-import { parseRegridCulebraCsv } from '../services/regrid/csv'
+import { upsertRegridCulebraParcels } from '@/legacy/db/regrid-culebra-parcel'
+import { parseRegridCulebraCsv } from '@/legacy/services/regrid/csv'
 import { createPoolExecutor } from './lib/pool-executor'
 
 type CliArgs = {

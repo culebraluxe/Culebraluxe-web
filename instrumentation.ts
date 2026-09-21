@@ -48,7 +48,7 @@ export async function onRequestError(
     .join(' ')
 
   const [client, seam] = await Promise.all([
-    import('@/db/client'),
+    import('@/legacy/db/client'),
     import('@/lib/server-error-capture'),
   ])
 

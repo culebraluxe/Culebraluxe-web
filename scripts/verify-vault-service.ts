@@ -3,14 +3,14 @@
 //   (b) an unauthenticated actor is DENIED a vault command (fail closed)
 // Read-only against PROD by default (APP_ENV=production), DEV otherwise.
 
-import { composeCoreServices } from '../services/composition'
-import { AuthorizationService } from '../services/entitlement/authorization-service'
-import { StaticAuthorizationPolicyProvider } from '../services/entitlement/authorization-service'
-import { SqlVaultRepository } from '../db/vault-service-repository'
-import { getTransactionDocument, listIssuedDocuments } from '../db/transaction-document'
-import { getIssuedDocumentForFormInstance } from '../db/issued-document'
-import { VAULT_OPERATIONS } from '../services/vault'
-import { sql } from '../db/client'
+import { composeCoreServices } from '@/legacy/services/composition'
+import { AuthorizationService } from '@/legacy/services/entitlement/authorization-service'
+import { StaticAuthorizationPolicyProvider } from '@/legacy/services/entitlement/authorization-service'
+import { SqlVaultRepository } from '@/legacy/db/vault-service-repository'
+import { getTransactionDocument, listIssuedDocuments } from '@/legacy/db/transaction-document'
+import { getIssuedDocumentForFormInstance } from '@/legacy/db/issued-document'
+import { VAULT_OPERATIONS } from '@/legacy/services/vault'
+import { sql } from '@/legacy/db/client'
 
 const services = composeCoreServices(
   {

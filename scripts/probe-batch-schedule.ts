@@ -1,14 +1,14 @@
 // PROOF, on PROD, that a SCHEDULED batch fires itself and that STAGING fires nothing.
 // Net zero: the probe's own batch rows are deleted and the story is restored exactly.
-import { listActiveAgentWorkForStory, withdrawQueuedAgentWork } from '@/db/agent-work'
+import { listActiveAgentWorkForStory, withdrawQueuedAgentWork } from '@/legacy/db/agent-work'
 import {
   cancelForgeBatch,
   createForgeBatch,
   fireDueForgeBatches,
   listForgeBatches,
   listForgeBatchesForStory,
-} from '@/db/forge-batch'
-import { getStoryboardStory, setStoryboardStatus } from '@/db/storyboard'
+} from '@/legacy/db/forge-batch'
+import { getStoryboardStory, setStoryboardStatus } from '@/legacy/db/storyboard'
 import { interactiveSql } from '@/lib/neon-interactive'
 
 const STORY = 'ENG-FORGE-DOCTOR-01'

@@ -1,13 +1,13 @@
-import type { QueryExecutor } from '../db/query-executor'
-import { forgeDb, forgeDbPool } from '../db/forge-db'
-import { flattenSqlTemplate, toPgQuery } from '../db/sql-template'
+import type { QueryExecutor } from '@/legacy/db/query-executor'
+import { forgeDb, forgeDbPool } from '@/legacy/db/forge-db'
+import { flattenSqlTemplate, toPgQuery } from '@/legacy/db/sql-template'
 
 // ---------------------------------------------------------------------------
 // Interactive-transaction adapter — now a THIN LAYER OVER ForgeDB.
 //
 // This module used to justify its own WebSocket pool with "the Neon HTTP driver
 // exposes a batch-only transaction()". That reason died with the driver: ForgeDB
-// (`db/forge-db.ts`) owns the application's single `pg.Pool`, and interactive
+// (`legacy/db/forge-db.ts`) owns the application's single `pg.Pool`, and interactive
 // transactions run on one pooled client with real BEGIN/COMMIT/ROLLBACK.
 //
 // It also carried a COPY of the environment-resolution rule with a "Keep in sync
@@ -16,7 +16,7 @@ import { flattenSqlTemplate, toPgQuery } from '../db/sql-template'
 // disagree; now there is one, in lib/execution-target.ts.
 //
 // The exported surface is unchanged (`interactiveSql`, `withTransaction`,
-// `flatten`, `makeQueryFn`) because callers across `db/` and `workflow_app/` use
+// `flatten`, `makeQueryFn`) because callers across `legacy/db/` and `legacy/workflow_app/` use
 // it as a tagged template.
 // ---------------------------------------------------------------------------
 

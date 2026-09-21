@@ -8,13 +8,13 @@
 // the 2026-09-10 baseline forward. Files that predate it show up there by design.
 // ---------------------------------------------------------------------------
 import { readdir } from 'node:fs/promises'
-import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db.ts'
+import { forgeDb, forgeDbTargetForUrl } from './scripts/legacy/db/forge-db.ts'
 
 const dev = forgeDb.forTarget(forgeDbTargetForUrl(process.env.DATABASE_URL_DEV))
 const prod = forgeDb.forTarget(forgeDbTargetForUrl(process.env.DATABASE_URL_PROD))
 
 try {
-  const files = (await readdir('db/migrations')).filter((f) => f.endsWith('.sql')).sort()
+  const files = (await readdir('legacy/db/migrations')).filter((f) => f.endsWith('.sql')).sort()
   const devRows = new Map(
     (await dev.query('select filename, checksum, target, applied_at, note from schema_migration')).rows
       .filter((r) => r.target === 'dev')
@@ -44,20 +44,20 @@ try {
     for (const b of baseline) console.log(`  ${String(b.applied_at).slice(0, 10)}  ${b.target.padEnd(4)}  ${b.note}`)
   }
 
-  const unrecorded = files.filter((f) => !devRows.has(`db/migrations/${f}`) && !prodRows.has(`db/migrations/${f}`))
+  const unrecorded = files.filter((f) => !devRows.has(`legacy/db/migrations/${f}`) && !prodRows.has(`legacy/db/migrations/${f}`))
   console.log(`\nunrecorded (pre-baseline or never applied here): ${unrecorded.length}`)
   for (const f of unrecorded.slice(0, 15)) console.log(`  ${f}`)
   if (unrecorded.length > 15) console.log(`  … and ${unrecorded.length - 15} more`)
 
   const oneSided = files.filter((f) => {
-    const d = devRows.has(`db/migrations/${f}`)
-    const p = prodRows.has(`db/migrations/${f}`)
+    const d = devRows.has(`legacy/db/migrations/${f}`)
+    const p = prodRows.has(`legacy/db/migrations/${f}`)
     return (d || p) && !(d && p)
   })
   if (oneSided.length) {
     console.log(`\nrecorded for ONE target only (check whether that is intended): ${oneSided.length}`)
     for (const f of oneSided) {
-      const d = devRows.has(`db/migrations/${f}`)
+      const d = devRows.has(`legacy/db/migrations/${f}`)
       console.log(`  ${f}  [${d ? 'dev' : 'prod'} only]`)
     }
   }

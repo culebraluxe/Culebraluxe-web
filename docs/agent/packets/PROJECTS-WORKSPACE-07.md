@@ -27,33 +27,33 @@ replay-safe domain completion projection.
 
 ## Verified starting evidence (grounding)
 
-- Playbook nodes: `services/project/playbooks.ts:19` — `LISTING_ONBOARDING_V1` keys
+- Playbook nodes: `legacy/services/project/playbooks.ts:19` — `LISTING_ONBOARDING_V1` keys
   `parties, property, agreement, signature(parent agreement), media, marketing, accounting`.
-- Instantiation: `services/project/project-service.ts:97` (`project.instantiate`) creates
+- Instantiation: `legacy/services/project/project-service.ts:97` (`project.instantiate`) creates
   WBS items with id `${project.id}-${node.key}` and calls `wbs.create` — **it sets no `entity` anchor** (`:138`).
-- WBS item carries `entity {type: person|property|contract|deal, id}` only (`services/wbs/types.ts:6`);
-  `wbs_item` columns are fixed in `db/migrations/124_wbs_project_item.sql`; there is **no playbook-key/work_type column**.
-- Project carries `personId/propertyId/contractId/playbookId/playbookVersion` (`db/migrations/141_project_playbook_identity.sql`).
+- WBS item carries `entity {type: person|property|contract|deal, id}` only (`legacy/services/wbs/types.ts:6`);
+  `wbs_item` columns are fixed in `legacy/db/migrations/124_wbs_project_item.sql`; there is **no playbook-key/work_type column**.
+- Project carries `personId/propertyId/contractId/playbookId/playbookVersion` (`legacy/db/migrations/141_project_playbook_identity.sql`).
 - Current actions are generic strings, not typed/records: `nodeActions` in
   `ui/projects/service-projection.ts:141` maps entity type → `"Open client|property|contract|deal"` only;
   rendered at `components/portal/projects-workspace.tsx:796`.
 - Listing form evidence seam: `lib/forms/listing-canonical-binding.ts:75` (`latestListingEvidence`,
   `template_id = 'LISTING-01'`, matches person via `person_id` or deal participant).
 - Form instances: `lib/forms/form-instance-io.ts:121` (`listFormInstances`), `:102` (`getFormInstance`) — the
-  routes import this module; the SQL underneath is `db/form-service-repository.ts:269` / `:131`.
+  routes import this module; the SQL underneath is `legacy/db/form-service-repository.ts:269` / `:131`.
   Route: `app/portal/forms/[formId]/page.tsx`; the FormEditorSurface already surfaces the signature
   request (`components/portal/forms/form-editor-surface.tsx:142`). Signature start = `sendFormForSignatureAction`
   (`app/portal/forms/actions.ts`, `actions-core.ts:306`).
-- Active signature request read: `db/signature-request.ts:568` (`getActiveSignatureRequestForDocument`),
+- Active signature request read: `legacy/db/signature-request.ts:568` (`getActiveSignatureRequestForDocument`),
   `:586` (`listSignatureRequestsByDocument`).
-- Cabinet: `db/transaction-document.ts:533` (`listIssuedDocuments`), `db/media-admin.ts:42` (`getMediaAdmin`).
+- Cabinet: `legacy/db/transaction-document.ts:533` (`listIssuedDocuments`), `legacy/db/media-admin.ts:42` (`getMediaAdmin`).
   Routes: `app/portal/documents`, `app/portal/property-media`, `app/portal/media-admin`.
-- Marketing/syndication is property-scoped: `db/syndication.ts` `listPlacements` `:176`,
+- Marketing/syndication is property-scoped: `legacy/db/syndication.ts` `listPlacements` `:176`,
   `listSightings(propertyId?)` `:422`, `getMarketingDashboard` `:202`. Route `app/portal/marketing`.
-- Accounting: `db/accounting.ts` `getReceivables` `:123`, `getExpenses` `:145`, `getAccountingDashboard` `:166`.
+- Accounting: `legacy/db/accounting.ts` `getReceivables` `:123`, `getExpenses` `:145`, `getAccountingDashboard` `:166`.
   Route `app/portal/accounting`.
 - Authorization: `AuthorizationService` + `StaticAuthorizationPolicyProvider`
-  (`services/entitlement/authorization-service.ts:49,134`); route guards use action codes such as
+  (`legacy/services/entitlement/authorization-service.ts:49,134`); route guards use action codes such as
   `deal.read` / `project.read` / `portal.read` (grep of `app/portal/**` `resolvePortalAccess`).
 - Error capture: `captureServerError` / `withServerErrorCapture` (`lib/server-error-capture.ts`,
   `lib/error-capture-seam.ts`); expected denials/not-found are audited control flow, never error rows (AGENTS).

@@ -25,8 +25,8 @@ complicated, it doesn't know how it works, it's the wrong tool for this"* and
 | `grok/**` | The captain's; vendored flight-recorder source. |
 | `lib/workflow/**` | Platform contracts, wired when the engine needs them. |
 | `lib/mq/**` | Message queue. **Explicitly important.** |
-| `workflow_app/scripts/**` | Operator scripts, run by hand. |
-| `workflow_app/idempotency.ts` | Platform capability. |
+| `legacy/workflow_app/scripts/**` | Operator scripts, run by hand. |
+| `legacy/workflow_app/idempotency.ts` | Platform capability. |
 | `components/portal/workflow-dashboard-card.tsx` | Wet cement for the workflow surface. |
 
 ## B. Reached without an import — real code knip cannot see
@@ -36,8 +36,8 @@ Verified individually; do **not** delete any of these.
 | Path | Why knip cannot see it |
 | --- | --- |
 | `neon.ts` | Imported by `agent-runtime/capabilities.ts` and others (5 importers) — reachable only from library modules that are themselves reached from scripts/tests. |
-| `app/actions/catchup-lead.ts` | A server action invoked by `scripts/catchup-dev-proof.ts` and asserted by `workflow_app/tests/catch-up.test.ts`. |
-| `lib/intake/index.ts` | `workflow_app/tests/intake-contract.test.ts` reads it **by path** (`readFileSync`). No import graph can reveal this. This one already broke a test once. |
+| `app/actions/catchup-lead.ts` | A server action invoked by `scripts/catchup-dev-proof.ts` and asserted by `legacy/workflow_app/tests/catch-up.test.ts`. |
+| `lib/intake/index.ts` | `legacy/workflow_app/tests/intake-contract.test.ts` reads it **by path** (`readFileSync`). No import graph can reveal this. This one already broke a test once. |
 
 ## C. Dependency findings that are wrong
 

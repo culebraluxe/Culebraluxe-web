@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 
 const { createInteraction, getInteractionById } = await import(
-  '../db/interactions.ts'
+  './scripts/legacy/db/interactions.ts'
 )
-const { createTask, getTaskById } = await import('../db/tasks.ts')
+const { createTask, getTaskById } = await import('./scripts/legacy/db/tasks.ts')
 
 function queuedExecutor(responses) {
   const calls = []

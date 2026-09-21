@@ -2,7 +2,7 @@
 
 ## Why
 
-`workflow_app/forge/forge-difficulty-scorer.ts` predicts p_success = σ(bias + w·x) over eight
+`legacy/workflow_app/forge/forge-difficulty-scorer.ts` predicts p_success = σ(bias + w·x) over eight
 features, with weights it calls "provisional calibration food, not claims", and its header
 says a fit learned from run history should replace them. It could never be fitted, because
 nothing recorded what the model predicted:
@@ -46,10 +46,10 @@ A formula cannot be fitted against numbers nobody wrote down. This story starts 
 
 ## Evidence (2026-09-13)
 
-- `db/migrations/175_forge_dispatch_score.sql` (applied and verified DEV + PROD) ·
-  `db/forge-dispatch-score.ts` · `workflow_app/forge/forge-difficulty-scorer.ts` (logit in
+- `legacy/db/migrations/175_forge_dispatch_score.sql` (applied and verified DEV + PROD) ·
+  `legacy/db/forge-dispatch-score.ts` · `legacy/workflow_app/forge/forge-difficulty-scorer.ts` (logit in
   the protocol) · `forge-plan-difficulty.ts` (scorePlanDetailed + measured provenance) ·
-  `agent-runtime-role-runner.ts` (both writes) · `workflow_app/tests/forge-dispatch-ledger.test.ts`
+  `agent-runtime-role-runner.ts` (both writes) · `legacy/workflow_app/tests/forge-dispatch-ledger.test.ts`
   (8 cases, incl. the drift test that caught the logit/scorer mismatch).
 - Proven against the real table inside a rolled-back transaction: prediction written, label
   attached, round-trip read `gate=dispatch p=0.9002 logit=2.2 turns=5

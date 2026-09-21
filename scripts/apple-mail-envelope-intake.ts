@@ -32,7 +32,7 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { createPoolExecutor } from './lib/pool-executor'
-import { appleMailReplayId, landAppleMail } from '../db/landing'
+import { appleMailReplayId, landAppleMail } from '@/legacy/db/landing'
 
 type EnvTarget = 'dev' | 'prod'
 type Band = '0-1' | '1-3' | '3-6' | '6-12'

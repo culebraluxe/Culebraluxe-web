@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
 import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 
-import { getIssueQueue } from "@/db/issues"
+import { getIssueQueue } from "@/legacy/db/issues"
 import type {
   IssueResponsibility,
   IssueState,

@@ -7,7 +7,7 @@
 // ---------------------------------------------------------------------------
 
 import type { AuthorityCode } from '../auth/types'
-import type { SecurityLevel } from '@/services/security/level'
+import type { SecurityLevel } from '@/legacy/services/security/level'
 
 /** The stable operating surfaces. */
 export type OperatingSurface =

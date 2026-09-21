@@ -8,8 +8,8 @@ import type {
   DealStage,
   InteractionChannel,
 } from "@/lib/portal/types"
-import type { DashboardSnapshot } from "@/db/dashboard"
-import type { WorkflowSummary } from "@/workflow_app/read-service"
+import type { DashboardSnapshot } from "@/legacy/db/dashboard"
+import type { WorkflowSummary } from "@/legacy/workflow_app/read-service"
 
 const stageOrder: DealStage[] = [
   "new_lead",

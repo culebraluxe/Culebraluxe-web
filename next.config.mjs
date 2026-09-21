@@ -67,7 +67,7 @@ const nextConfig = {
   // `instrumentation.ts` is compiled for BOTH runtimes. Its database write is already guarded at
   // runtime (`if (process.env.NEXT_RUNTIME !== 'nodejs') return`), but the guard does not stop
   // WEBPACK: the edge compilation still walks the dynamically imported graph, reaches
-  // `db/client.ts` → `pg` → `require('fs')` / `require('path')` / `require('stream')`, and the build
+  // `legacy/db/client.ts` → `pg` → `require('fs')` / `require('path')` / `require('stream')`, and the build
   // fails with "Module not found: Can't resolve 'fs'" plus an import trace ending at
   // `./instrumentation.ts`. Vercel rejected the same module graph at deploy time as
   // "The Edge Function 'middleware' is referencing unsupported modules" — so this is a release

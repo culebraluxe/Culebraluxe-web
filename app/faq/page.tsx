@@ -5,7 +5,7 @@ import { SiteFooter } from '@/components/site-footer'
 import { PageHero } from '@/components/page-hero'
 import { Reveal } from '@/components/reveal'
 import { FaqAccordion } from '@/components/faq-accordion'
-import { getMarketingContent } from '@/db/marketing-content'
+import { getMarketingContent } from '@/legacy/db/marketing-content'
 import { buildFaqPageContent } from '@/lib/marketing-content'
 
 export const metadata: Metadata = {

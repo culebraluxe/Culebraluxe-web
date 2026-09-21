@@ -1,8 +1,8 @@
 'use server'
 import { withServerErrorCapture } from '@/lib/error-capture-seam'
 
-import { inspectInstance } from '@/workflow_app/diagnostics'
-import type { InstanceDetail } from '@/workflow_app/diagnostics'
+import { inspectInstance } from '@/legacy/workflow_app/diagnostics'
+import type { InstanceDetail } from '@/legacy/workflow_app/diagnostics'
 
 // Read-only workflow diagnostics detail loader for the IT support page
 // (CRM-14N). The snapshot is rendered server-side; individual instance

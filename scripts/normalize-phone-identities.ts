@@ -1,4 +1,4 @@
-import type { QueryExecutor } from '../db/query-executor'
+import type { QueryExecutor } from '@/legacy/db/query-executor'
 
 type Owner = {
   identityId: string
@@ -142,8 +142,8 @@ async function main() {
   process.env.APP_ENV = 'production'
 
   const [{ db, sql, dbTargetInfo }, { refreshClientReadModels }] = await Promise.all([
-    import('../db/client'),
-    import('../db/client-read-models'),
+    import('@/legacy/db/client'),
+    import('@/legacy/db/client-read-models'),
   ])
   const databaseTarget = dbTargetInfo()
   if (databaseTarget.target !== 'prod') {

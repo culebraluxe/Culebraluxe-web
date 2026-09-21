@@ -24,7 +24,7 @@
 //   node --import tsx --env-file=.env.local --env-file=.env.local scripts/forge-holes-board.mjs --apply    # write
 // ---------------------------------------------------------------------------
 
-import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db.ts'
+import { forgeDb, forgeDbTargetForUrl } from './scripts/legacy/db/forge-db.ts'
 
 const APPLY = process.argv.includes('--apply')
 const WO = 'docs/agent/packets/FORGE-HOLES-WORKORDER.md'
@@ -63,7 +63,7 @@ const STORIES = [
     goal:
       'The serial path that actually runs records durable observer events: SCOPE_CHECK, GIT_COMMIT, HOLD and run.end land in workflow_execution_trace_event under source_system=forge_observer, so split child health is no longer the only measured execution path.',
     scope:
-      'workflow_app/forge/agent-runtime-role-runner.ts, plus any serial Smith admit / Lead complete path that already computes scopeViolations or HOLD.\n' +
+      'legacy/workflow_app/forge/agent-runtime-role-runner.ts, plus any serial Smith admit / Lead complete path that already computes scopeViolations or HOLD.\n' +
       '- Reuse workflow_app/forge/forge-observer/* and forge-alerts/*.\n' +
       '- Do NOT change HOLD policy.\n' +
       '- Do NOT hook QA/Assay beyond recording run.end / an existing HOLD when that call site is already there and cheap.',
@@ -138,7 +138,7 @@ const STORIES = [
     goal:
       'Alert rules can see the previous attempts of the same story and node after a process restart, so RETRY_UNCHANGED_INPUT is truthful instead of memory-only.',
     scope:
-      'workflow_app/forge/forge-observer/persistent-sink.ts\n' +
+      'legacy/workflow_app/forge/forge-observer/persistent-sink.ts\n' +
       '- Optional: a listFromTrace reader over workflow_execution_trace_event where source_system=forge_observer.\n' +
       '- Alerts stay pure over TraceEvent[].',
     acceptance_criteria:
@@ -191,7 +191,7 @@ const STORIES = [
       '- Not: redesigning the review UI.',
     acceptance_criteria:
       'pnpm forge:tools --run architecture gate archRan:true and zero of these 6 paths in violations.\n' +
-      "No new from 'db/ or from '../db/ imports in those files.\n" +
+      "No new from 'legacy/db/ or from '../db/ imports in those files.\n" +
       'pnpm exec tsc --noEmit clean for the touched files.\n' +
       'Review pages still typecheck; no behavior change is required beyond the import path.',
     dependencies:

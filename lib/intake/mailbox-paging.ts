@@ -23,7 +23,7 @@
 // testable end-to-end without I/O.
 // ---------------------------------------------------------------------------
 
-import type { IntakeCheckpoint, SaveIntakeCheckpointInput } from '../../db/intake-checkpoint'
+import type { IntakeCheckpoint, SaveIntakeCheckpointInput } from '@/legacy/db/intake-checkpoint'
 
 /** A page must never return unbounded history. */
 export const APPLE_PAGE_SIZE = 500

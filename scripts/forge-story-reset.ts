@@ -25,8 +25,8 @@
 // because a destructive act should be deliberate. Always run reset when you want a
 // clean re-run; use recover to continue a partial run whose worker died.
 // ---------------------------------------------------------------------------
-import { forgeDb } from '../db/forge-db'
-import { recoverStaleForgeEngineClaims } from '../db/forge-engine-recovery'
+import { forgeDb } from '@/legacy/db/forge-db'
+import { recoverStaleForgeEngineClaims } from '@/legacy/db/forge-engine-recovery'
 import { resolveStoryResetConfig } from './forge-story-reset-config'
 
 const config = resolveStoryResetConfig(process.argv, process.env)

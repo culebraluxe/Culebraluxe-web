@@ -1,7 +1,7 @@
 import Image from 'next/image'
 import Link from 'next/link'
 
-import type { PropertySummary } from '@/services/property'
+import type { PropertySummary } from '@/legacy/services/property'
 import { Reveal } from '@/components/reveal'
 import { formatPrice, propertyFacts, propertyLocation } from '@/lib/property'
 

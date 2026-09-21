@@ -30,7 +30,7 @@ import {
   sendSignatureRequest,
   type ApplySignatureRequestStatusResult,
   type SendSignatureRequestResult,
-} from '../../../db/signature-request'
+} from '@/legacy/db/signature-request'
 import type {
   CancelSignatureRequestCommandInput,
   DeclineSignatureRequestCommandInput,

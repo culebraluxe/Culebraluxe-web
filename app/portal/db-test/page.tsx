@@ -1,4 +1,4 @@
-import { getClients } from "@/db/clients"
+import { getClients } from "@/legacy/db/clients"
 
 export const dynamic = "force-dynamic"
 

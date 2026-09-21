@@ -2,8 +2,8 @@ import { NextResponse } from "next/server"
 import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
 import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 
-import { dbTargetInfo } from "@/db/database-gateway"
-import { sql } from "@/db/client"
+import { dbTargetInfo } from "@/legacy/db/database-gateway"
+import { sql } from "@/legacy/db/client"
 import { withApiHandler } from '@/lib/error-capture-seam'
 
 // Safe, credential-free DB-target diagnostic. Reports the resolved database

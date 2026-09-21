@@ -3,15 +3,15 @@ import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
 import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 import { NextRequest, NextResponse } from 'next/server'
 
-import { SqlPropertyRepository } from '@/db/property-service-repository'
+import { SqlPropertyRepository } from '@/legacy/db/property-service-repository'
 import {
   PROPERTY_OPERATIONS,
   PropertyService,
-} from '@/services/property'
+} from '@/legacy/services/property'
 import {
   AuthorizationService,
   StaticAuthorizationPolicyProvider,
-} from '@/services/entitlement'
+} from '@/legacy/services/entitlement'
 import { appServiceErrorSink } from '@/lib/service-error-sink'
 import { withApiHandler } from '@/lib/error-capture-seam'
 

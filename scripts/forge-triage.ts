@@ -1,8 +1,8 @@
-import type { QueryExecutor } from '../db/query-executor'
-import { FORGE_FAILURE_CLASSES, isForgeFailureClass } from '../workflow_app/forge/failure-classifier'
-import { analyzeFailure, requestTypeSafe, triageRequest, triageText, TriageInputError } from '../workflow_app/forge/typesafe-failure-triage'
-import { listTriageSources, readTriageSource, saveTriageObservation, reviewTriage, triageReport } from '../db/forge-typesafe-triage'
-import { recordError } from '../db/app-error'
+import type { QueryExecutor } from '@/legacy/db/query-executor'
+import { FORGE_FAILURE_CLASSES, isForgeFailureClass } from '@/legacy/workflow_app/forge/failure-classifier'
+import { analyzeFailure, requestTypeSafe, triageRequest, triageText, TriageInputError } from '@/legacy/workflow_app/forge/typesafe-failure-triage'
+import { listTriageSources, readTriageSource, saveTriageObservation, reviewTriage, triageReport } from '@/legacy/db/forge-typesafe-triage'
+import { recordError } from '@/legacy/db/app-error'
 
 const HELP = `Forge TypeSafe triage — advisory only; no engine routing or retries.
   pnpm forge:triage list [STORY-ID]
@@ -54,7 +54,7 @@ async function main() {
     if (process.env.APP_ENV !== 'production' || process.env.EXECUTION_ENV !== 'PROD') {
       throw new TriageInputError('Use pnpm forge:triage: the Forge control plane must be PROD.')
     }
-    const { sql } = await import('../db/client')
+    const { sql } = await import('@/legacy/db/client')
     q = sql
     console.log(JSON.stringify(await runTriageCommand(args, q), null, 2))
   } catch (err) {

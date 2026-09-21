@@ -17,7 +17,7 @@ import {
   surfaceForPathname,
   surfaceHome,
 } from '@/lib/navigation'
-import { hasSecurityLevel } from '@/services/security/level'
+import { hasSecurityLevel } from '@/legacy/services/security/level'
 
 // ---------------------------------------------------------------------------
 // UI-01 — Operating shell: one application, five operating worlds, ONE

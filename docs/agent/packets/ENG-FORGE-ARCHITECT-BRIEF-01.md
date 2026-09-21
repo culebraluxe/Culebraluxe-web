@@ -111,11 +111,11 @@ as strict as the Lead.
 ## Test mode
 
 SCOPED — `pnpm exec tsc --noEmit`;
-`pnpm exec tsx --test workflow_app/tests/forge-findings-parsing.test.ts`;
-`pnpm exec tsx --test workflow_app/tests/forge-lead-routing.test.ts`;
-`pnpm exec tsx --test workflow_app/tests/forge-split-scope.test.ts`;
-`pnpm exec tsx --test workflow_app/tests/forge-dispatchability.test.ts`;
-`pnpm exec tsx --test workflow_app/tests/forge-lessons.test.ts`.
+`pnpm exec tsx --test legacy/workflow_app/tests/forge-findings-parsing.test.ts`;
+`pnpm exec tsx --test legacy/workflow_app/tests/forge-lead-routing.test.ts`;
+`pnpm exec tsx --test legacy/workflow_app/tests/forge-split-scope.test.ts`;
+`pnpm exec tsx --test legacy/workflow_app/tests/forge-dispatchability.test.ts`;
+`pnpm exec tsx --test legacy/workflow_app/tests/forge-lessons.test.ts`.
 
 ## Notes
 

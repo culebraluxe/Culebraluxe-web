@@ -1,0 +1,156 @@
+/**
+ * ADD. Deterministic Assay. Uses the adjudicator in ./qa/run (PASS / FAIL /
+ * UNPROVEN — a verdict about the STORY's tests, never a condition on a SHA)
+ * and reports what it measured. No model verdict, ever.
+ */
+import type { ForgeGateEvidence } from '@/legacy/workflow_app/forge/forge-facts'
+import type { RoleEffectPorts } from '@/legacy/workflow_app/forge/agents/ports'
+import type { AcceptanceCondition, NegativeControlOutcome } from '@/legacy/workflow_app/forge/agents/qa/types'
+import { adjudicateAssay, runAssayCommands } from '@/legacy/workflow_app/forge/agents/qa/run'
+import { gateChecksFor } from '@/legacy/workflow_app/forge/agents/gate-checks'
+
+/**
+ * THE QA VERDICT: DID THE TESTS PASS THE STORY'S OWN ACCEPTANCE.
+ *
+ * QA has no relationship to git and no role in committing, promoting or advising on a release. It runs the
+ * story's frozen proofs in the directory it was given, checks that every acceptance condition has an
+ * assertion behind it, and writes down what they did. Everything that used to sit beside that — a candidate
+ * SHA, a promotion check, a lineage conjunct — is gone, because every one of them could turn a green test
+ * run into a HOLD.
+ *
+ * The evidence is the row (see the run/evidence writers): the verdict, each command, its exit code, and
+ * whether it could run at all.
+ */
+export function collectAssayEvidence(
+  evidence: ForgeGateEvidence,
+  ports: RoleEffectPorts,
+): ForgeGateEvidence & { negativeControl?: NegativeControlOutcome } {
+  const commands = ports.assayCommands ?? []
+
+  // NO RUNNER IS A FAILURE, not a pass. The lane was handed a plan it cannot execute.
+  if (typeof ports.runCommand !== 'function') {
+    return {
+      ...evidence,
+      qaPassed: false,
+      deliverableRejection: 'QA FAIL: the lane was handed assay commands but no way to run them.',
+      // THE EARLY REFUSAL CARRIES ITS RECEIPT TOO (work package E, item 5). This path used to return a refusal
+      // with no receipt at all, so the one row a reader most needs to explain — "QA failed and here is what
+      // every check did" — was the one row that said nothing. Every proof is UNAVAILABLE for the same reason,
+      // because none of them could be executed.
+      gateChecks: gateChecksFor({
+        commands,
+        results: [],
+        staticGate: null,
+        acceptanceMapped: Boolean(ports.acceptanceMap),
+        negativeControl: null,
+      }),
+    }
+  }
+
+  // AN EMPTY PLAN IS A FAILURE
+  // In a working system QA cannot be reached without a Smith having produced work and without the story
+  // carrying its frozen proofs, so no commands means something upstream is broken. The adjudicator reports
+  // it as a FAIL with `NO_ASSAY_COMMANDS` and the branch below records that reason on the row.
+  //
+  // AN ABSENT MAPPING IS NOT A PASS. If the story's acceptance was never mapped to the frozen proof there
+  // is no assertion behind any clause, so the verdict is UNPROVEN with the missing mapping NAMED. The
+  // collector never synthesises a mapping: the lane that did the work does not get to choose what is tested.
+  const conditions: AcceptanceCondition[] = ports.acceptanceMap
+    ? ports.acceptanceMap.conditions
+    : commands.length > 0
+      ? [
+          {
+            id: 'acceptance-map-missing',
+            text: 'the acceptance-to-assertion mapping was not supplied',
+            assertions: [],
+          },
+        ]
+      : []
+
+  const plan = {
+    commands,
+    conditions,
+    ...(ports.negativeControl ? { negativeControl: ports.negativeControl } : {}),
+  }
+  const results = runAssayCommands(plan, ports.runCommand)
+  // THE CONTROL RUNS SEPARATELY. Its non-zero exit is the required outcome, so it is not a frozen
+  // command and is never recorded as CMD_FAIL; the adjudicator reads it on its own terms.
+  const negativeControlResult = plan.negativeControl
+    ? ports.runCommand(plan.negativeControl.command)
+    : undefined
+  const staticGate = ports.runStatic?.() ?? null
+  const report = adjudicateAssay({
+    plan,
+    commands: results,
+    staticGate,
+    frozenMap: ports.acceptanceMap ?? null,
+    ...(negativeControlResult !== undefined ? { negativeControlResult } : {}),
+  })
+  // WHAT EACH CHECK DID (FORGE-GATE-RECEIPT-01, work package E): a projection of checks that already happened,
+  // never a second verdict. The statuses are the ADJUDICATOR'S OWN outcomes rather than a re-derivation: a
+  // control that ran and killed nothing is not `passed` (it is a surviving control, which is exactly why the
+  // verdict is UNPROVEN), and a proof that could not be EXECUTED is `unavailable`, not an ordinary failure.
+  const gateChecks = gateChecksFor({
+    commands,
+    results,
+    staticGate,
+    acceptanceMapped: Boolean(ports.acceptanceMap),
+    negativeControl: report.negativeControl ?? null,
+    controlSurvived: report.negativeControl ? report.negativeControl.killingAssertions.length === 0 : false,
+  })
+
+  if (report.verdict !== 'PASS') {
+    // Only commands that RAN and failed are "failed commands"; a command that could not run is named
+    // separately so the record never implies the tests ran when they did not.
+    const failed = results.filter((r) => !r.passed && !r.unmeasurable).map((r) => r.command)
+    const failedDetail = results
+      .filter((r) => !r.passed && !r.unmeasurable)
+      .map((r) => `${r.command} -> exit ${r.exitCode}: ${r.excerpt}`)
+      .join(' | ')
+    const couldNotRun = results
+      .filter((r) => r.unmeasurable)
+      .map((r) => `${r.command} -> could not run: ${r.excerpt}`)
+      .join(' | ')
+    const unproven = report.unproven ?? []
+    const failedConditions = report.failedConditions ?? []
+    const missingAssertions = report.missingAssertions ?? []
+    return {
+      ...evidence,
+      qaPassed: false,
+      ...(report.negativeControl ? { negativeControl: report.negativeControl } : {}),
+      gateChecks,
+      ...(failed.length ? { failedCommands: failed } : {}),
+      // WHAT IT SAID, NOT JUST THAT IT FAILED — a refusal that does not quote the failing command's own
+      // output cannot be diagnosed from the log, only re-derived by hand. An UNPROVEN verdict names the
+      // acceptance condition that had no assertion behind it AND the mapped assertion the proof never ran,
+      // so the untested clause and its missing assertion are both on the row.
+      deliverableRejection:
+        `QA ${report.verdict}: blockers=[${report.blockers.join(', ') || 'none'}] ` +
+        `failed=[${failed.join(' | ') || 'none'}]` +
+        (failedDetail ? ` || output=[${failedDetail}]` : '') +
+        (couldNotRun ? ` || couldNotRun=[${couldNotRun}]` : '') +
+        (unproven.length ? ` || unproven=[${unproven.join(' | ')}]` : '') +
+        (failedConditions.length
+          ? ` || failedConditions=[${failedConditions.join(' | ')}]`
+          : '') +
+        (missingAssertions.length
+          ? ` || missingAssertions=[${missingAssertions
+              .map((entry) => `${entry.conditionId}:${entry.assertion}`)
+              .join(' | ')}]`
+          : '') +
+        (report.negativeControl
+          ? ` || negativeControl=[ran=${report.negativeControl.ran}` +
+            ` unmeasurable=${report.negativeControl.unmeasurable}` +
+            ` killing=[${report.negativeControl.killingAssertions.join(' | ') || 'none'}]]`
+          : ''),
+    }
+  }
+
+  return {
+    ...evidence,
+    qaPassed: true,
+    gateChecks,
+    ...(report.negativeControl ? { negativeControl: report.negativeControl } : {}),
+  }
+}
+

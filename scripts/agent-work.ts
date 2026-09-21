@@ -115,7 +115,7 @@ async function slackContractFacts(storyId: string): Promise<
   Pick<ForgeSlackContext, 'packetShaStale'>
 > {
   try {
-    const { getStoryboardStory } = await import('../db/storyboard')
+    const { getStoryboardStory } = await import('@/legacy/db/storyboard')
     const { readFileSync } = await import('node:fs')
     const { join } = await import('node:path')
     const { createHash } = await import('node:crypto')
@@ -215,8 +215,8 @@ async function applyAssayRepairState(input: {
   const normalized = await normalizeAssayFinish(input)
   if (!normalized.failed) return normalized.testsSummary
 
-  const { getAgentWorkItem } = await import('../db/agent-work')
-  const { setStoryboardStatus, updateStoryRunProgress } = await import('../db/storyboard')
+  const { getAgentWorkItem } = await import('@/legacy/db/agent-work')
+  const { setStoryboardStatus, updateStoryRunProgress } = await import('@/legacy/db/storyboard')
   const item = await getAgentWorkItem(input.workItemId)
 
   // Autonomous adapters have already persisted their terminal run by the time
@@ -240,7 +240,7 @@ async function runClaimCommand(): Promise<void> {
     validateAgentWorkLaunchConfig,
     rejectAgentWorkConfiguration,
     escalateAgentWorkFailure,
-  } = await import('../db/agent-work')
+  } = await import('@/legacy/db/agent-work')
   const { workstreamName } = await import('../lib/storyboard-data')
   const { executeClaimedAgentCommand } = await import('../agent-runtime/invoker')
   const { createAgentRuntimeRegistry } = await import('../agent-runtime/factory')
@@ -538,8 +538,8 @@ async function runPreviewPublishCommand(args: string[]): Promise<void> {
     console.error('usage: pnpm agent:work --preview-publish <storyId>')
     process.exit(2)
   }
-  const { getStoryboardStory, listStoryRuns } = await import('../db/storyboard')
-  const { getForgeRunMachineEvidence } = await import('../db/forge-run')
+  const { getStoryboardStory, listStoryRuns } = await import('@/legacy/db/storyboard')
+  const { getForgeRunMachineEvidence } = await import('@/legacy/db/forge-run')
   const { previewAcceptedCandidatePublish } = await import(
     '../agent-runtime/accepted-candidate-publish'
   )
@@ -574,7 +574,7 @@ async function runPreviewPublishCommand(args: string[]): Promise<void> {
 }
 
 async function runProgressCommand(args: string[]): Promise<void> {
-  const { updateAgentWorkProgress } = await import('../db/agent-work')
+  const { updateAgentWorkProgress } = await import('@/legacy/db/agent-work')
 
   const workItemId = args[0]
   if (!workItemId) {
@@ -611,7 +611,7 @@ async function runProgressCommand(args: string[]): Promise<void> {
 }
 
 async function runCancelCommand(args: string[]): Promise<void> {
-  const { cancelAgentWork } = await import('../db/agent-work')
+  const { cancelAgentWork } = await import('@/legacy/db/agent-work')
 
   const workItemId = args[0]
   if (!workItemId) {
@@ -639,7 +639,7 @@ async function runCancelCommand(args: string[]): Promise<void> {
 }
 
 async function runRecoverCommand(args: string[]): Promise<void> {
-  const { recoverStaleAgentWork } = await import('../db/agent-work')
+  const { recoverStaleAgentWork } = await import('@/legacy/db/agent-work')
 
   const staleAfterText = value(args, '--stale-after')
   const staleAfterMinutes = staleAfterText
@@ -671,7 +671,7 @@ async function runFinishCommand(
   command: string,
   args: string[],
 ): Promise<void> {
-  const { finishAgentWork, failAgentWork, getAgentWorkItem } = await import('../db/agent-work')
+  const { finishAgentWork, failAgentWork, getAgentWorkItem } = await import('@/legacy/db/agent-work')
 
   const workItemId = args[0]
   if (!workItemId) {
@@ -744,7 +744,7 @@ async function runFinishCommand(
   })
 
   if (normalized.failed) {
-    const { setStoryboardStatus } = await import('../db/storyboard')
+    const { setStoryboardStatus } = await import('@/legacy/db/storyboard')
     await setStoryboardStatus(finished.workItem.storyId, 'Hold')
   }
 

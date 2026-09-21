@@ -1,6 +1,6 @@
 // READ-ONLY PROBE: what is actually on the board in PROD, so a QA plan is written against real rows
 // rather than assumptions. Writes nothing.
-import { listActiveWork, listStoryboardStories } from '@/db/storyboard'
+import { listActiveWork, listStoryboardStories } from '@/legacy/db/storyboard'
 
 async function main() {
   const [bench, stories] = await Promise.all([listActiveWork(), listStoryboardStories()])

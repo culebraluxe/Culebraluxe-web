@@ -9,7 +9,7 @@
 // here. Registration happens in lib/commands/register.ts.
 // ---------------------------------------------------------------------------
 
-import { setDealMilestoneDeadline } from '../../../db/deal-deadline'
+import { setDealMilestoneDeadline } from '@/legacy/db/deal-deadline'
 import type {
   CommandEnvelope,
   CommandExecutionContext,

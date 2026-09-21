@@ -12,7 +12,7 @@ import {
   withRepoContextPacket,
   withScoutResearch,
 } from './repo-context'
-import type { StoryRun } from '../db/storyboard'
+import type { StoryRun } from '@/legacy/db/storyboard'
 
 function run(overrides: Partial<StoryRun>): StoryRun {
   return {

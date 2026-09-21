@@ -133,8 +133,8 @@ Reuse the existing Forge control plane:
 - `storyboard_story_run` — frozen run/evidence record, including exact `commit_hash`.
 - existing exact-candidate handoff (`smithCandidateSha(...)`).
 - existing deterministic QA / Assay adapter.
-- existing QA repair policy in `workflow_app/forge/qa-repair-policy.ts`.
-- existing durable repair/replan counters and dispositions in `db/forge-repair-ledger.ts`.
+- existing QA repair policy in `legacy/workflow_app/forge/qa-repair-policy.ts`.
+- existing durable repair/replan counters and dispositions in `legacy/db/forge-repair-ledger.ts`.
 - existing Forge TECH cockpit and Story Board surfaces.
 - existing worker-workspace provision/recovery safety rules.
 
@@ -188,7 +188,7 @@ Primary files:
 
 - `agent-runtime/invoker.ts`
 - `agent-runtime/invoker-workspace.test.ts`
-- `workflow_app/forge/agent-runtime-role-runner.ts`
+- `legacy/workflow_app/forge/agent-runtime-role-runner.ts`
 - focused role-runner test beside it if needed
 - worker-workspace helpers only if required to accept the new deterministic execution id
 
@@ -236,7 +236,7 @@ Do not invent fuzzy semantic similarity. Use exact SHA + existing typed/machine 
 
 Create a narrow derived read model, for example:
 
-- `db/forge-convergence.ts`
+- `legacy/db/forge-convergence.ts`
 - `db/forge-convergence.test.ts`
 
 Possible shape:
@@ -284,11 +284,11 @@ The active `FORGE_SDLC-v3.xml` FAST path still sends bounded work through Lead a
 
 Create:
 
-- `workflow_app/definitions/FORGE_SDLC-v4.xml`
+- `legacy/workflow_app/definitions/FORGE_SDLC-v4.xml`
 
 Then update:
 
-- `workflow_app/definitions/forge-sdlc.ts`
+- `legacy/workflow_app/definitions/forge-sdlc.ts`
 
 to make v4 the active definition after targeted tests pass. Preserve v3 unchanged.
 
@@ -433,24 +433,24 @@ Expected scope. Builder may add a small adjacent helper/test when clearly necess
 
 - `agent-runtime/invoker.ts`
 - `agent-runtime/invoker-workspace.test.ts`
-- `workflow_app/forge/agent-runtime-role-runner.ts`
+- `legacy/workflow_app/forge/agent-runtime-role-runner.ts`
 - focused role-runner test adjacent to the runner if one does not already cover this seam
 - `lib/worker-workspace/**` only if required for deterministic execution-generation reuse
 
 ### Convergence / repair
 
-- `db/forge-convergence.ts` — new preferred read model
+- `legacy/db/forge-convergence.ts` — new preferred read model
 - `db/forge-convergence.test.ts` — new
-- `workflow_app/forge/qa-repair-policy.ts`
-- `workflow_app/forge/qa-repair-policy.test.ts`
-- `db/forge-repair-ledger.ts` only for minimal reuse/query support; no schema expansion by default
-- `db/forge-engine-task-execution.ts` only for minimal read/query support
+- `legacy/workflow_app/forge/qa-repair-policy.ts`
+- `legacy/workflow_app/forge/qa-repair-policy.test.ts`
+- `legacy/db/forge-repair-ledger.ts` only for minimal reuse/query support; no schema expansion by default
+- `legacy/db/forge-engine-task-execution.ts` only for minimal read/query support
 
 ### Workflow / FAST
 
-- `workflow_app/definitions/FORGE_SDLC-v4.xml` — new
-- `workflow_app/definitions/forge-sdlc.ts`
-- focused Forge workflow tests, preferably a new `workflow_app/tests/forge-convergence.test.ts` if that keeps scope clearer
+- `legacy/workflow_app/definitions/FORGE_SDLC-v4.xml` — new
+- `legacy/workflow_app/definitions/forge-sdlc.ts`
+- focused Forge workflow tests, preferably a new `legacy/workflow_app/tests/forge-convergence.test.ts` if that keeps scope clearer
 
 ### TECH UI
 
@@ -515,10 +515,10 @@ Minimum expected commands after implementation:
 
 ```bash
 pnpm exec tsx --test agent-runtime/invoker-workspace.test.ts
-pnpm exec tsx --test workflow_app/forge/agent-runtime-role-runner.test.ts
+pnpm exec tsx --test legacy/workflow_app/forge/agent-runtime-role-runner.test.ts
 pnpm exec tsx --test db/forge-convergence.test.ts
-pnpm exec tsx --test workflow_app/forge/qa-repair-policy.test.ts
-pnpm exec tsx --test workflow_app/tests/forge-convergence.test.ts
+pnpm exec tsx --test legacy/workflow_app/forge/qa-repair-policy.test.ts
+pnpm exec tsx --test legacy/workflow_app/tests/forge-convergence.test.ts
 ```
 
 If an exact listed test file does not yet exist, create the focused test at the closest existing Forge test seam rather than running a broad suite.

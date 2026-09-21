@@ -102,13 +102,13 @@ the node side never holds source credentials.
 - `lib/mac-observer/contracts.ts`, `adapters/{contacts,calendar,mail,messages,whatsapp}-adapter.ts`, `fake-observer.ts`, `index.ts`
 - `lib/integration-inbox/contracts.ts`, `mapper.ts`, `processor.ts`, `wiring.ts`
 - `lib/commands/interaction/record-interaction.ts` (+ `command-types.ts`, `register.ts`)
-- `db/migrations/044_integration_inbox.sql`, `db/integration-inbox.ts`
-- `db/migrations/045_storyboard_crm23.sql`
-- `workflow_app/tests/mac-observer-inbox.test.ts`
+- `legacy/db/migrations/044_integration_inbox.sql`, `legacy/db/integration-inbox.ts`
+- `legacy/db/migrations/045_storyboard_crm23.sql`
+- `legacy/workflow_app/tests/mac-observer-inbox.test.ts`
 
 ## Verification
 
-`workflow_app/tests/mac-observer-inbox.test.ts` (targeted, zero Neon —
+`legacy/workflow_app/tests/mac-observer-inbox.test.ts` (targeted, zero Neon —
 in-memory FakeDb + fake observer) proves: neutral contract across all five
 sources; stable identity/occurredAt/participants/thread/provenance/correlation
 on every event; inbox dedupe + replay; acquisition-only observer; identity

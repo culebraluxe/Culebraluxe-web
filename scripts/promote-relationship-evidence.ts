@@ -15,8 +15,8 @@
 //
 //   node --env-file=.env.local --import tsx scripts/promote-relationship-evidence.ts
 // ---------------------------------------------------------------------------
-import { sql } from '../db/client'
-import { promoteReviewRequiredEvidence } from '../db/promote-evidence'
+import { sql } from '@/legacy/db/client'
+import { promoteReviewRequiredEvidence } from '@/legacy/db/promote-evidence'
 
 async function main() {
   const before = (await sql`select count(*)::int as n from person`) as { n: number }[]

@@ -120,52 +120,52 @@
       "count": 1
     }
   },
-  "db/catchup-lead.ts": {
+  "legacy/db/catchup-lead.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "db/database-gateway.ts": {
+  "legacy/db/database-gateway.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "db/deal-admin-writes.ts": {
+  "legacy/db/deal-admin-writes.ts": {
     "no-useless-assignment": {
       "count": 1
     }
   },
-  "db/fixture-cleanup.ts": {
+  "legacy/db/fixture-cleanup.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 2
     }
   },
-  "db/follow-up.ts": {
+  "legacy/db/follow-up.ts": {
     "prefer-const": {
       "count": 1
     }
   },
-  "db/issued-document.ts": {
+  "legacy/db/issued-document.ts": {
     "no-useless-assignment": {
       "count": 1
     }
   },
-  "db/issues.ts": {
+  "legacy/db/issues.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "db/marketing-content.ts": {
+  "legacy/db/marketing-content.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "db/signature-request.ts": {
+  "legacy/db/signature-request.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "db/wbs-service-repository.ts": {
+  "legacy/db/wbs-service-repository.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
@@ -412,12 +412,12 @@
       "count": 3
     }
   },
-  "services/entitlement/db-authorization-policy-provider.ts": {
+  "legacy/services/entitlement/db-authorization-policy-provider.ts": {
     "no-useless-assignment": {
       "count": 1
     }
   },
-  "services/regrid/regrid-client.ts": {
+  "legacy/services/regrid/regrid-client.ts": {
     "preserve-caught-error": {
       "count": 2
     }
@@ -457,207 +457,207 @@
       "count": 1
     }
   },
-  "workflow_app/anomaly-core.ts": {
+  "legacy/workflow_app/anomaly-core.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 10
     }
   },
-  "workflow_app/definitions/deploy.ts": {
+  "legacy/workflow_app/definitions/deploy.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "workflow_app/diagnostics.ts": {
+  "legacy/workflow_app/diagnostics.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 20
     }
   },
-  "workflow_app/forge/agent-runtime-role-runner.ts": {
+  "legacy/workflow_app/forge/agent-runtime-role-runner.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 6
     }
   },
-  "workflow_app/forge/evidence-gate.ts": {
+  "legacy/workflow_app/forge/evidence-gate.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "workflow_app/forge/execution-graph.ts": {
+  "legacy/workflow_app/forge/execution-graph.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "workflow_app/forge/forge-engine-runtime.ts": {
+  "legacy/workflow_app/forge/forge-engine-runtime.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 2
     }
   },
-  "workflow_app/forge/forge-executor.ts": {
+  "legacy/workflow_app/forge/forge-executor.ts": {
     "preserve-caught-error": {
       "count": 1
     }
   },
-  "workflow_app/forge/forge-integration-attestation.ts": {
+  "legacy/workflow_app/forge/forge-integration-attestation.ts": {
     "no-useless-assignment": {
       "count": 1
     }
   },
-  "workflow_app/forge/forge-plan-difficulty.ts": {
+  "legacy/workflow_app/forge/forge-plan-difficulty.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "workflow_app/runtime.ts": {
+  "legacy/workflow_app/runtime.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 2
     }
   },
-  "workflow_app/scripts/crm14o-drive.ts": {
+  "legacy/workflow_app/scripts/crm14o-drive.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "workflow_app/sme-orchestration.ts": {
+  "legacy/workflow_app/sme-orchestration.ts": {
     "no-useless-assignment": {
       "count": 1
     }
   },
-  "workflow_app/start-core.ts": {
+  "legacy/workflow_app/start-core.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 2
     }
   },
-  "workflow_app/task-completion.ts": {
+  "legacy/workflow_app/task-completion.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 1
     }
   },
-  "workflow_app/tests/agreement-execution-command.test.ts": {
+  "legacy/workflow_app/tests/agreement-execution-command.test.ts": {
     "@typescript-eslint/no-this-alias": {
       "count": 1
     }
   },
-  "workflow_app/tests/auth-08g-mapping.test.ts": {
+  "legacy/workflow_app/tests/auth-08g-mapping.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "workflow_app/tests/auth-09e-entitlement.test.ts": {
+  "legacy/workflow_app/tests/auth-09e-entitlement.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 2
     }
   },
-  "workflow_app/tests/command-layer.test.ts": {
+  "legacy/workflow_app/tests/command-layer.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "workflow_app/tests/deadline-policy.test.ts": {
+  "legacy/workflow_app/tests/deadline-policy.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "workflow_app/tests/flight-recorder-qa-reset.test.ts": {
+  "legacy/workflow_app/tests/flight-recorder-qa-reset.test.ts": {
     "no-useless-assignment": {
       "count": 1
     }
   },
-  "workflow_app/tests/flight-recorder-read.test.ts": {
+  "legacy/workflow_app/tests/flight-recorder-read.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "workflow_app/tests/forge-difficulty-scorer.test.ts": {
+  "legacy/workflow_app/tests/forge-difficulty-scorer.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "workflow_app/tests/forge-execution-target.test.ts": {
+  "legacy/workflow_app/tests/forge-execution-target.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "workflow_app/tests/forge-lead-plan.test.ts": {
+  "legacy/workflow_app/tests/forge-lead-plan.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "workflow_app/tests/forge-roi.test.ts": {
+  "legacy/workflow_app/tests/forge-roi.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "workflow_app/tests/forge-tool-seams.test.ts": {
+  "legacy/workflow_app/tests/forge-tool-seams.test.ts": {
     "@typescript-eslint/no-require-imports": {
       "count": 1
     }
   },
-  "workflow_app/tests/intake-contract.test.ts": {
+  "legacy/workflow_app/tests/intake-contract.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "workflow_app/tests/needs-review-resolution.test.ts": {
+  "legacy/workflow_app/tests/needs-review-resolution.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "workflow_app/tests/persistence/agent-runtime-deepseek.test.ts": {
+  "legacy/workflow_app/tests/persistence/agent-runtime-deepseek.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "workflow_app/tests/persistence/agent-runtime-dogfood.test.ts": {
+  "legacy/workflow_app/tests/persistence/agent-runtime-dogfood.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "workflow_app/tests/persistence/auth-03.test.ts": {
+  "legacy/workflow_app/tests/persistence/auth-03.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 3
     }
   },
-  "workflow_app/tests/persistence/command-layer.test.ts": {
+  "legacy/workflow_app/tests/persistence/command-layer.test.ts": {
     "@typescript-eslint/no-this-alias": {
       "count": 2
     }
   },
-  "workflow_app/tests/persistence/forge-repair-ledger.test.ts": {
+  "legacy/workflow_app/tests/persistence/forge-repair-ledger.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 2
     }
   },
-  "workflow_app/tests/qa-golden.test.ts": {
+  "legacy/workflow_app/tests/qa-golden.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "workflow_app/tests/re-supermodel.test.ts": {
+  "legacy/workflow_app/tests/re-supermodel.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 2
     }
   },
-  "workflow_app/tests/reconcile.test.ts": {
+  "legacy/workflow_app/tests/reconcile.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "workflow_app/tests/sme-orchestration.test.ts": {
+  "legacy/workflow_app/tests/sme-orchestration.test.ts": {
     "prefer-const": {
       "count": 1
     }
   },
-  "workflow_app/tests/storyboard-runs.test.ts": {
+  "legacy/workflow_app/tests/storyboard-runs.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "workflow_app/tests/tech-engineering-cockpit.test.ts": {
+  "legacy/workflow_app/tests/tech-engineering-cockpit.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 2
     }
   },
-  "workflow_app/xml/mini-xml.ts": {
+  "legacy/workflow_app/xml/mini-xml.ts": {
     "no-useless-escape": {
       "count": 1
     }

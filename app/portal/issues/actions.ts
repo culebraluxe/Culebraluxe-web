@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 
 import { getPortalSessionAdapter } from '@/lib/auth/portal-session'
 import { runAuthorized } from '@/lib/auth/require-authority'
-import { resolveIssue } from '@/db/issues'
+import { resolveIssue } from '@/legacy/db/issues'
 
 // OPS-11A — Mark Resolved. Minimal operator write action, gated on the
 // operational write authority (crm.write) before the business service runs.

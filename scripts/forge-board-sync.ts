@@ -16,15 +16,15 @@
 // ---------------------------------------------------------------------------
 
 import { execFileSync } from 'node:child_process'
-import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db'
+import { forgeDb, forgeDbTargetForUrl } from '@/legacy/db/forge-db'
 
-import { resolveDbTarget } from '../db/database-gateway'
-import type { QueryExecutor, QueryRow } from '../db/query-executor'
+import { resolveDbTarget } from '@/legacy/db/database-gateway'
+import type { QueryExecutor, QueryRow } from '@/legacy/db/query-executor'
 import {
   assertForgeExecutionTarget,
   classifyShipCommits,
   deriveBoardSync,
-} from '../workflow_app/forge/forge-board-sync'
+} from '@/legacy/workflow_app/forge/forge-board-sync'
 
 const args = process.argv.slice(2)
 const APPLY = args.includes('--apply')
@@ -170,7 +170,7 @@ async function main() {
     )
 
     if (APPLY) {
-      const { markForgeStoryShippedComplete } = await import('../db/forge-story-state')
+      const { markForgeStoryShippedComplete } = await import('@/legacy/db/forge-story-state')
       await markForgeStoryShippedComplete(story.id, decision.note ?? '', prodExecutor)
     }
   }

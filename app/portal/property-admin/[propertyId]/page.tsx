@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation"
 
 import { PropertyAdminWorkspace } from "@/components/portal/property-admin-workspace"
-import { getPropertyWorkspace } from "@/db/portal-property"
+import { getPropertyWorkspace } from "@/legacy/db/portal-property"
 
 export const dynamic = "force-dynamic"
 

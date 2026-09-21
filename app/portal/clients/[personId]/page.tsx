@@ -1,6 +1,6 @@
 import { RelationshipDossier } from "@/components/portal/relationship-dossier"
-import { getRelationshipDossier } from "@/db/dossier"
-import { getRelationshipEvidenceForPerson } from "@/db/relationship-evidence"
+import { getRelationshipDossier } from "@/legacy/db/dossier"
+import { getRelationshipEvidenceForPerson } from "@/legacy/db/relationship-evidence"
 
 export const dynamic = "force-dynamic"
 

@@ -4,8 +4,8 @@ import {
   listPlacements,
   listRecentSyndicationEvents,
   listSightings,
-} from '@/db/syndication'
-import { expireStalePlacements } from '@/db/syndication-expire'
+} from '@/legacy/db/syndication'
+import { expireStalePlacements } from '@/legacy/db/syndication-expire'
 import { facebookReadiness } from '@/lib/syndication/env'
 
 export const dynamic = 'force-dynamic'

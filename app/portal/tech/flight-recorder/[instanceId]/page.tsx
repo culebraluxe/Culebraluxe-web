@@ -4,9 +4,9 @@ import { redirect } from "next/navigation"
 import { FlightRecorderConsoleShell } from "@/components/portal/tech/flight-recorder-console-shell"
 import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
-import { dbTargetInfo } from "@/db/database-gateway"
-import { latestForgeInstanceForStory } from "@/db/forge-engine-task-execution"
-import { isProcessInstanceId } from "@/workflow_app/flight-recorder-read"
+import { dbTargetInfo } from "@/legacy/db/database-gateway"
+import { latestForgeInstanceForStory } from "@/legacy/db/forge-engine-task-execution"
+import { isProcessInstanceId } from "@/legacy/workflow_app/flight-recorder-read"
 
 export const dynamic = "force-dynamic"
 

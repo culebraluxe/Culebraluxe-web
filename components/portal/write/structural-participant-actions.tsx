@@ -7,7 +7,7 @@ import {
   setStructuralParticipantAction,
 } from "@/app/portal/actions"
 import { PersonSelector } from "@/components/portal/write/person-selector"
-import type { DealParticipant } from "@/db/deal-workspace"
+import type { DealParticipant } from "@/legacy/db/deal-workspace"
 
 // OPS-05 — structural participant maintenance in the Deal Workspace. The
 // canonical participant model (migration 034) allows at most ONE active

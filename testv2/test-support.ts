@@ -16,15 +16,15 @@ import type {
   ServiceDomainEvent,
   ServiceInfrastructure,
   ServicePrincipal,
-} from '../services/core'
-import { PersonService, type PersonRepository } from '../services/person'
+} from '@/legacy/services/core'
+import { PersonService, type PersonRepository } from '@/legacy/services/person'
 import type {
   AttachPersonIdentityRequest,
   FindPersonByIdentityRequest,
   PersonDto,
   PersonIdentityDto,
   SetPersonDisplayNameRequest,
-} from '../services/person'
+} from '@/legacy/services/person'
 
 export type TestActor = ServiceActor
 

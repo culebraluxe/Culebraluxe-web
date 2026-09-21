@@ -2,8 +2,8 @@ import type {
   SettingsAuthority,
   SettingsRole,
   SettingsUser,
-} from "@/db/settings-auth"
-import type { SecurityStatus } from "@/db/auth-status"
+} from "@/legacy/db/settings-auth"
+import type { SecurityStatus } from "@/legacy/db/auth-status"
 import type { BreakGlassReadiness } from "@/lib/auth/break-glass-readiness"
 import {
   PortalTable,

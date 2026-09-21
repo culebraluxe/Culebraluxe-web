@@ -13,7 +13,7 @@ being noticed weeks later.
 | migration | `NNN_snake_case_purpose.sql`, zero-padded, next free number | `188_sprint_accounting.sql` |
 | story | `AREA-LANE-TOPIC-NN` — the batch/sprint is separate | `ENG-FORGE-QA-VERDICT-VOCAB-01` |
 | sprint | `S<number>`, where `number` **is** the batch | `S98` |
-| fence (a story's proof) | `<subject>.test.ts` in `workflow_app/tests/` | `claim-clock.test.ts` |
+| fence (a story's proof) | `<subject>.test.ts` in `legacy/workflow_app/tests/` | `claim-clock.test.ts` |
 | generated manifest | `docs/agent/manifest/<SCOPE>.md` | `docs/agent/manifest/all.md` |
 | handbook / guide | `docs/agent/UPPER-CASE-TOPIC.md` | `docs/agent/TEST-BUDGET.md` |
 | operator script | `scripts/<verb-or-noun>.ts`, header comment answering one question | `scripts/sprint.ts` |

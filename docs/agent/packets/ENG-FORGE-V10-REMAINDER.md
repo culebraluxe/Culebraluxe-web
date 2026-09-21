@@ -37,11 +37,11 @@ completed stage separately.
 Apply in order to DEV:
 
 ```bash
-node --env-file=.env.local scripts/apply-migration.mjs db/migrations/108_forge_v10_command_visits.sql dev
-node --env-file=.env.local scripts/apply-migration.mjs db/migrations/109_forge_v10_workflow_evidence.sql dev
-node --env-file=.env.local scripts/apply-migration.mjs db/migrations/110_forge_v10_engine_task_execution.sql dev
-node --env-file=.env.local scripts/apply-migration.mjs db/migrations/111_forge_v10_release_execution.sql dev
-node --env-file=.env.local scripts/apply-migration.mjs db/migrations/112_forge_v10_release_receipts.sql dev
+node --env-file=.env.local scripts/apply-migration.mjs legacy/db/migrations/108_forge_v10_command_visits.sql dev
+node --env-file=.env.local scripts/apply-migration.mjs legacy/db/migrations/109_forge_v10_workflow_evidence.sql dev
+node --env-file=.env.local scripts/apply-migration.mjs legacy/db/migrations/110_forge_v10_engine_task_execution.sql dev
+node --env-file=.env.local scripts/apply-migration.mjs legacy/db/migrations/111_forge_v10_release_execution.sql dev
+node --env-file=.env.local scripts/apply-migration.mjs legacy/db/migrations/112_forge_v10_release_receipts.sql dev
 ```
 
 Verify in DEV:
@@ -79,8 +79,8 @@ Requirements:
 - Add injected-adapter tests for pass, missing receipt, failed receipt, and SHA mismatch.
 
 Likely files: `agent-runtime/types.ts`,
-`workflow_app/forge/agent-runtime-role-runner.ts`, a deployment adapter under
-`workflow_app/forge/`, and `workflow_app/tests/forge-role-mapping.test.ts`.
+`legacy/workflow_app/forge/agent-runtime-role-runner.ts`, a deployment adapter under
+`legacy/workflow_app/forge/`, and `legacy/workflow_app/tests/forge-role-mapping.test.ts`.
 Do not weaken `forgeEvidenceFromAgentResult` to make an unproven deploy pass.
 
 ## Stage 3 — Recover stale claimed engine tasks
@@ -182,18 +182,18 @@ execution or premature join.
 ## Context refs
 - `AGENTS.md`
 - `docs/agent/packets/ENG-FORGE-V10.md`
-- `workflow_app/definitions/FORGE_SDLC-v1.xml`
-- `workflow_app/forge/forge-engine-runtime.ts`
-- `workflow_app/forge/forge-executor.ts`
-- `workflow_app/forge/agent-runtime-role-runner.ts`
-- `workflow_app/forge/forge-role-mapping.ts`
-- `workflow_app/forge/db-release-executor.ts`
-- `workflow_app/forge/release-operations.ts`
+- `legacy/workflow_app/definitions/FORGE_SDLC-v1.xml`
+- `legacy/workflow_app/forge/forge-engine-runtime.ts`
+- `legacy/workflow_app/forge/forge-executor.ts`
+- `legacy/workflow_app/forge/agent-runtime-role-runner.ts`
+- `legacy/workflow_app/forge/forge-role-mapping.ts`
+- `legacy/workflow_app/forge/db-release-executor.ts`
+- `legacy/workflow_app/forge/release-operations.ts`
 - `scripts/agent-work.ts`
 - `scripts/forge-orchestrate-wake.ts`
 - `scripts/forge-engine-worker.ts`
-- `db/forge-workflow-evidence.ts`
-- `db/forge-engine-task-execution.ts`
+- `legacy/db/forge-workflow-evidence.ts`
+- `legacy/db/forge-engine-task-execution.ts`
 - `workflow_engine/lib/workflow/engine.ts`
 
 ## Preconditions
@@ -217,9 +217,9 @@ intent: grow
 SCOPED
 
 ## Assay commands
-- node --import tsx --test workflow_app/tests/forge-*.test.ts workflow_app/tests/dynamic-fork.test.ts workflow_engine/tests/hardening.test.ts
-- node --env-file=.env.local --import tsx --test-concurrency=1 --test workflow_engine/tests/persistence/dynamic-fork.test.ts workflow_app/tests/persistence/forge*.test.ts
-- node --import tsx workflow_app/scripts/deploy-process-definition.ts workflow_app/definitions/FORGE_SDLC-v1.xml --dry-run
+- node --import tsx --test legacy/workflow_app/tests/forge-*.test.ts legacy/workflow_app/tests/dynamic-fork.test.ts workflow_engine/tests/hardening.test.ts
+- node --env-file=.env.local --import tsx --test-concurrency=1 --test workflow_engine/tests/persistence/dynamic-fork.test.ts legacy/workflow_app/tests/persistence/forge*.test.ts
+- node --import tsx legacy/workflow_app/scripts/deploy-process-definition.ts legacy/workflow_app/definitions/FORGE_SDLC-v1.xml --dry-run
 - node_modules/.bin/tsc --noEmit
 - git diff --check
 

@@ -54,7 +54,7 @@ work up in advance and fire it later, which is the point of batching.
 ## THE INVARIANTS THIS DEPENDS ON (measured, not assumed)
 
 - **ONE STORY AT A TIME.** The system-wide single-active lock is real
-  (`db/agent-work.ts`, migration 025/028): the engine holds exactly one active work item.
+  (`legacy/db/agent-work.ts`, migration 025/028): the engine holds exactly one active work item.
   A batch of five is a queue of five one-at-a-time runs, not five parallel runs. Relaxing
   this is an ask-first change (see AGENTS.md).
 - **BATCH FIRES NOTHING, BUT IT IS A REAL THING.** Staging writes `Batched` (dispatch-nothing status),
@@ -97,7 +97,7 @@ work up in advance and fire it later, which is the point of batching.
   "easy enough to identify" — requirements, scope, classes, architect brief. Today the
   board will happily let you hand over a story that cannot survive the engine's own
   architect assessment; you find out by watching a run fail or HOLD. The engine already
-  has the assessment (`workflow_app/forge/agents/architect/assess.ts`); the board does not
+  has the assessment (`legacy/workflow_app/forge/agents/architect/assess.ts`); the board does not
   show it before you press the button.
 - **NO WAY TO SEE A BATCH WILL SUCCEED** before sending: no dry run, no estimate, no
   "these 3 of 5 passed readiness" pre-flight.

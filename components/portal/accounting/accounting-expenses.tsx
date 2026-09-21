@@ -2,7 +2,7 @@
 
 import { useActionState, useMemo, useState } from 'react'
 
-import type { Expense } from '@/db/accounting'
+import type { Expense } from '@/legacy/db/accounting'
 import { EXPENSE_CATEGORIES } from '@/lib/accounting/categories'
 import { formatDate, formatMoney, todayISO } from '@/lib/accounting/format'
 import { createExpenseAction, type AccountingWriteState } from '@/app/portal/accounting/actions'

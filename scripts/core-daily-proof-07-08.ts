@@ -3,8 +3,8 @@
 // explanation, dismisses it, verifies it stays suppressed, then cleans up.
 //   node --env-file=.env.local --import tsx scripts/core-daily-proof-07-08.ts
 import { randomUUID } from 'node:crypto'
-import { applyFollowUpCommand } from '../db/follow-up'
-import { getRecommendations, dismissRecommendation } from '../db/recommendations'
+import { applyFollowUpCommand } from '@/legacy/db/follow-up'
+import { getRecommendations, dismissRecommendation } from '@/legacy/db/recommendations'
 import { createPoolExecutor } from './lib/pool-executor'
 
 const url = (process.env.DATABASE_URL_DEV ?? process.env.DATABASE_URL) ?? ''

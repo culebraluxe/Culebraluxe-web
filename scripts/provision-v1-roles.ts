@@ -2,7 +2,7 @@
 // Run: node --env-file=.env.local --import tsx scripts/provision-v1-roles.ts
 // Root app_user -> root role; Lisa app_user -> business_power role.
 // Idempotent + transactional; removes the redundant legacy `owner` assignment.
-import { db } from '../db/client'
+import { db } from '@/legacy/db/client'
 
 const ROOT_USER_ID = '1fc6dc61-d842-4d29-a20b-93c79e07c718'
 const LISA_USER_ID = 'aa06d089-162c-4bef-84ec-a76ee38cc8ad'

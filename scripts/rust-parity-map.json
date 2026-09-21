@@ -20,7 +20,7 @@
         "rust/core/db/src/client.rs",
         "rust/core/domain/src/client.rs"
       ],
-      "tsFiles": ["db/clients.ts", "db/client-read-models.ts"]
+      "tsFiles": ["legacy/db/clients.ts", "legacy/db/client-read-models.ts"]
     },
     {
       "id": "people",
@@ -32,7 +32,7 @@
         "rust/core/db/src/person.rs",
         "rust/core/domain/src/person.rs"
       ],
-      "tsFiles": ["db/person-admin.ts"]
+      "tsFiles": ["legacy/db/person-admin.ts"]
     },
     {
       "id": "properties",
@@ -45,7 +45,7 @@
         "rust/core/db/src/property.rs",
         "rust/core/domain/src/property.rs"
       ],
-      "tsFiles": ["db/listing-property-service-repository.ts"]
+      "tsFiles": ["legacy/db/listing-property-service-repository.ts"]
     },
     {
       "id": "contracts",
@@ -57,7 +57,7 @@
         "rust/core/db/src/contract.rs",
         "rust/core/domain/src/contract.rs"
       ],
-      "tsFiles": ["db/contract-service-repository.ts"]
+      "tsFiles": ["legacy/db/contract-service-repository.ts"]
     },
     {
       "id": "forms",
@@ -65,7 +65,7 @@
       "productionPath": "typescript",
       "routes": ["/v1/forms", "/v1/forms/{id}"],
       "rustModules": ["rust/server/src/forms", "rust/core/db/src/forms.rs", "rust/core/domain/src/forms.rs"],
-      "tsFiles": ["db/form-service-repository.ts"]
+      "tsFiles": ["legacy/db/form-service-repository.ts"]
     },
     {
       "id": "comms",
@@ -77,7 +77,7 @@
         "rust/core/db/src/comms.rs",
         "rust/core/domain/src/comms.rs"
       ],
-      "tsFiles": ["db/comms-service-repository.ts"]
+      "tsFiles": ["legacy/db/comms-service-repository.ts"]
     },
     {
       "id": "calendar",
@@ -117,7 +117,7 @@
       "productionPath": "typescript",
       "routes": [],
       "rustModules": ["rust/server/src/firms", "rust/core/db/src/firm.rs", "rust/core/domain/src/firm.rs"],
-      "tsFiles": ["db/firm-service-repository.ts"],
+      "tsFiles": ["legacy/db/firm-service-repository.ts"],
       "note": "Built in Rust with no route attached, so nothing can call it yet."
     },
     {
@@ -135,7 +135,7 @@
         "rust/core/db/src/signature.rs",
         "rust/core/domain/src/signature.rs"
       ],
-      "tsFiles": ["db/bold-sign-request.ts", "db/broker-signature.ts"],
+      "tsFiles": ["legacy/db/bold-sign-request.ts", "legacy/db/broker-signature.ts"],
       "note": "All four endpoints are attached to Axum: send, get, refresh, and the provider webhook — the webhook at the PRODUCTION path /api/integrations/boldsign/webhook, so BoldSign's configured URL does not have to change to cut over. The webhook is deliberately unauthenticated by the internal API key: BoldSign signs the raw body and that HMAC is verified inside the service against a System actor with no principal, because a webhook cannot present an application identity. Constructing the BoldSign provider required adding `integrations` to the server crate; without it the adapter was unreachable from the composition root, which is how this capability sat as 'built, 0 routes'. KNOWN GAP, deliberately not guessed: the TypeScript webhook answers 200 {acknowledged:true} for events it will not act on so BoldSign stops retrying, and answers 401 for a missing/invalid signature. The Rust service's outcome enum has no no-op variant, so the 200-for-non-actionable half of that retry contract is NOT mirrored yet — mapping it blind could mask real errors. productionPath stays 'typescript' until a receipt shows the Rust path serving real traffic. rust/server/tests/signature_routes.rs fails if the router and this map disagree."
     },
     {

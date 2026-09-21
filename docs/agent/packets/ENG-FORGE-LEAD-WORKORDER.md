@@ -18,16 +18,16 @@ anti-amnesia in one).
 
 ### Reuse (do NOT rebuild)
 
-- `workflow_app/forge/forge-lead-plan.ts` — `LEAD_PLAN` pattern + parser ->
+- `legacy/workflow_app/forge/forge-lead-plan.ts` — `LEAD_PLAN` pattern + parser ->
   `SmithExecutionPlan` (already exists); `leadPreDispatchHoldReasons` (NO_PLAN HOLD).
-- `workflow_app/forge/forge-role-mapping.ts` — Lead directive already shows the
+- `legacy/workflow_app/forge/forge-role-mapping.ts` — Lead directive already shows the
   machine `LEAD_PLAN:` grammar (currently OPTIONAL).
-- `workflow_app/forge/forge-execution-shaping.ts` — `SmithExecutionPlan` /
+- `legacy/workflow_app/forge/forge-execution-shaping.ts` — `SmithExecutionPlan` /
   `SmithChunk` + `validateSmithExecutionPlan`.
-- `workflow_app/forge/forge-dispatch-gate.ts` — `assessSmithDispatch` (Kraken;
+- `legacy/workflow_app/forge/forge-dispatch-gate.ts` — `assessSmithDispatch` (Kraken;
   difficulty is advisory-only, never a HOLD authority).
-- `workflow_app/forge/forge-dispatch-seam.ts` — Smith anti-token-fire envelope guard.
-- `workflow_app/forge/agent-runtime-role-runner.ts` — `buildSmithWorkDecompositionDirective`
+- `legacy/workflow_app/forge/forge-dispatch-seam.ts` — Smith anti-token-fire envelope guard.
+- `legacy/workflow_app/forge/agent-runtime-role-runner.ts` — `buildSmithWorkDecompositionDirective`
   (the generic injector to replace) + bounded self-heal.
 
 ## Current defect

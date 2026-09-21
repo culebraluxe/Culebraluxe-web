@@ -10,7 +10,7 @@ const {
 } = await import('../lib/crm-intake-normalization.ts')
 const { prepareInboundEvent } = await import('../lib/crm-intake.ts')
 const { getInteractionBySourceIdentity } = await import(
-  '../db/interactions.ts'
+  './scripts/legacy/db/interactions.ts'
 )
 
 const PERSON_A = '10000000-0000-4000-8000-000000000001'

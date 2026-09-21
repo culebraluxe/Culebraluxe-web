@@ -8,9 +8,9 @@ import {
   Clock,
 } from "lucide-react"
 
-import type { WorkflowDetail } from "@/workflow_app/read-service"
-import { resolveResponsibility } from "@/workflow_app/responsibility"
-import { deadlineLabelFor } from "@/workflow_app/deadlines"
+import type { WorkflowDetail } from "@/legacy/workflow_app/read-service"
+import { resolveResponsibility } from "@/legacy/workflow_app/responsibility"
+import { deadlineLabelFor } from "@/legacy/workflow_app/deadlines"
 
 // Story 128 — this view is fully definition-driven. Node labels, descriptions,
 // responsibility hints, optionality, and timeline order all come from the

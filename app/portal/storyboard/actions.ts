@@ -21,7 +21,7 @@ import {
   type StoryboardStory,
   type StoryboardStoryInput,
   type StoryRun,
-} from '@/db/storyboard'
+} from '@/legacy/db/storyboard'
 
 // ---------------------------------------------------------------------------
 // Story Board write actions. Validation happens here (per Portal convention);

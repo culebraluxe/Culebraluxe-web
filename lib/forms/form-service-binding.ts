@@ -1,6 +1,6 @@
 import type { FormInstance } from '@/lib/forms/form-instance-io'
 import { getFormInstance } from '@/lib/forms/form-instance-io'
-import { sql } from '@/db/client'
+import { sql } from '@/legacy/db/client'
 import {
   bindFormInstanceToDirectContext,
   resolveDealLaunchContext,

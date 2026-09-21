@@ -1,0 +1,421 @@
+// ---------------------------------------------------------------------------
+// ForgeDB — the ONE database connection for the entire application.
+//
+// Captain's directive, 2026-09-12: a connection pool, and no class anywhere
+// running its own raw SQL without going through it. This module is that pool. It
+// is the ONLY module in the repository allowed to construct a pool or a raw
+// client, and `legacy/workflow_app/tests/db-boundary.test.ts` fails the build if anything
+// else tries.
+//
+// WHY IT EXISTS. Before this, ~40 files each opened their own connection and each
+// re-decided which database to talk to — `lib/neon-interactive.ts` even carried a
+// copy of the environment rule with a "keep in sync" comment, so the two copies
+// could and did diverge. That is how 306 Forge runs, their board rows and their
+// evidence ended up in the DEV database while the board lived in PROD, and why
+// "which database am I on" had no single answer.
+//
+// DESIGN RULES
+//   1. ONE pool per process, per declared target. Repeated calls return the same
+//      pool, and nothing here runs at module load, so importing this module is
+//      free and safe without a configured database.
+//   2. The target is DECLARED (lib/execution-target), never inferred; silence
+//      refuses. `forTarget()` exists for operator scripts that must name a target
+//      explicitly, and it still resolves to the same shared pool.
+//   3. Bounded by default: many short-lived instances must not open an unbounded
+//      number of connections. Limits come from env with conservative defaults.
+//   4. Failures reach the durable capture framework — including the pool's own
+//      idle-client errors, which are otherwise an invisible hole.
+// ---------------------------------------------------------------------------
+
+import { Pool, type PoolClient, type PoolConfig, type QueryResult, type QueryResultRow } from 'pg'
+
+import { captureError } from '@/legacy/db/app-error'
+import type { QueryExecutor, QueryRow } from '@/legacy/db/query-executor'
+import { declareControlPlane } from '@/lib/execution-target'
+import { flattenSqlTemplate, toPgQuery } from '@/legacy/db/sql-template'
+
+export type ForgeDbTarget = 'prod' | 'dev'
+
+export class ForgeDbConfigError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ForgeDbConfigError'
+  }
+}
+
+/**
+ * Query ceilings are set as DATABASE DEFAULTS, not here.
+ *
+ * Do not "fix" this by adding `options: '-c statement_timeout=…'` to the pool
+ * config: Neon's POOLED endpoint rejects startup parameters outright
+ * (`08P01 unsupported startup parameter in options`), which fails every
+ * connection in the pool — verified the hard way on 2026-09-13. A database-level
+ * default needs no startup parameter, so it survives pooling, and it is the
+ * Oracle-like behaviour we actually wanted: the SERVER reaps the query.
+ *
+ * See db/migrations/168_db_query_ceilings.sql:
+ *   statement_timeout                   — a query that runs too long
+ *   idle_in_transaction_session_timeout — a slot parked in an open transaction
+ */
+function poolConfig(target: ForgeDbTarget): PoolConfig {
+  const intFromEnv = (name: string, fallback: number): number => {
+    const raw = process.env[name]
+    const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+  }
+  return {
+    max: intFromEnv('FORGE_DB_POOL_MAX', 5),
+    idleTimeoutMillis: intFromEnv('FORGE_DB_POOL_IDLE_MS', 10_000),
+    connectionTimeoutMillis: intFromEnv('FORGE_DB_POOL_CONNECT_MS', 10_000),
+    application_name: `culebraluxe-forgedb-${target}`,
+  }
+}
+
+/**
+ * Pin the SSL mode explicitly.
+ *
+ * `pg` 8.23 prints a SECURITY WARNING on every connect because `sslmode=require`
+ * (and `prefer`, `verify-ca`) are currently aliases of `verify-full` but are going
+ * to change meaning. Measured against the live Neon databases before changing
+ * anything: `require` and `verify-full` both connect and behave identically. So
+ * pinning `verify-full` keeps today's behaviour exactly, states the intent, and
+ * takes the warning out of the application's core connection path. Verification is
+ * unchanged, not weakened — `rejectUnauthorized` is never disabled here.
+ */
+function withExplicitSslMode(url: string): string {
+  if (!/\bsslmode=/.test(url)) return url
+  return url.replace(/(\bsslmode=)(prefer|require|verify-ca)\b/g, '$1verify-full')
+}
+
+export function forgeDbConnectionString(
+  target: ForgeDbTarget,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const url = target === 'prod' ? env.DATABASE_URL_PROD : env.DATABASE_URL_DEV
+  if (!url) {
+    throw new ForgeDbConfigError(
+      `DATABASE_URL_${target.toUpperCase()} is not configured. ForgeDB refuses to open a connection ` +
+        'rather than fall back to the other environment.',
+    )
+  }
+  return withExplicitSslMode(url)
+}
+
+/**
+ * Map one of THIS process's own connection URLs back to the target it belongs to,
+ * so a caller that already holds a URL can adopt the shared pool without
+ * re-deciding anything.
+ *
+ * Throws for a URL we do not own. That is deliberate: the point of ForgeDB is that
+ * nobody opens a connection of its own, and silently accepting an arbitrary URL
+ * would make the caller's string a second source of truth about which database is
+ * being written. Callers with a URL we do not recognise should pass an explicit
+ * target through `forgeDb.forTarget()`.
+ */
+export function forgeDbTargetForUrl(
+  url: string | null | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): ForgeDbTarget {
+  const trimmed = (url ?? '').trim()
+  if (!trimmed) {
+    throw new ForgeDbConfigError(
+      'forgeDbTargetForUrl: no url was given. A connection target must be declared, never empty.',
+    )
+  }
+  if (env.DATABASE_URL_PROD && env.DATABASE_URL_PROD.trim() === trimmed) return 'prod'
+  if (env.DATABASE_URL_DEV && env.DATABASE_URL_DEV.trim() === trimmed) return 'dev'
+  throw new ForgeDbConfigError(
+    'forgeDbTargetForUrl: this url is not DATABASE_URL_PROD or DATABASE_URL_DEV for this process, ' +
+      'so ForgeDB will not adopt it. Pass an explicit target to forgeDb.forTarget(target) instead — ' +
+      'a connection must never be opened from an arbitrary url.',
+  )
+}
+
+const pools = new Map<ForgeDbTarget, Pool>()
+
+/**
+ * Process-local, dependency-free telemetry: enough to answer "is the pool
+ * saturated / are queries slow / is anything failing" without pulling in a metrics
+ * library. Counters are process-wide (the pool registry is), and every one is a
+ * plain increment on the query path, so the cost of being observable is a
+ * performance.now() pair.
+ */
+type ForgeDbMetrics = {
+  queries: number
+  queryErrors: number
+  queryTotalMs: number
+  queryMaxMs: number
+  /** Pool acquisitions (transactions take a client; single queries do not). */
+  acquisitions: number
+  acquireTotalMs: number
+  acquireMaxMs: number
+}
+
+const metrics: ForgeDbMetrics = {
+  queries: 0,
+  queryErrors: 0,
+  queryTotalMs: 0,
+  queryMaxMs: 0,
+  acquisitions: 0,
+  acquireTotalMs: 0,
+  acquireMaxMs: 0,
+}
+
+function recordQuery(durationMs: number, failed: boolean): void {
+  metrics.queries += 1
+  if (failed) metrics.queryErrors += 1
+  metrics.queryTotalMs += durationMs
+  if (durationMs > metrics.queryMaxMs) metrics.queryMaxMs = durationMs
+}
+
+function recordAcquisition(durationMs: number): void {
+  metrics.acquisitions += 1
+  metrics.acquireTotalMs += durationMs
+  if (durationMs > metrics.acquireMaxMs) metrics.acquireMaxMs = durationMs
+}
+
+/** Time one database round trip, recording failure as well as success. */
+async function timed<T>(run: () => Promise<T>): Promise<T> {
+  const started = performance.now()
+  try {
+    const result = await run()
+    recordQuery(performance.now() - started, false)
+    return result
+  } catch (error) {
+    recordQuery(performance.now() - started, true)
+    throw error
+  }
+}
+
+const round = (value: number): number => Math.round(value * 100) / 100
+const average = (total: number, count: number): number =>
+  count === 0 ? 0 : round(total / count)
+
+/** A snapshot for an operator: pool saturation, throughput and latency. */
+export function forgeDbMetrics(): {
+  queries: number
+  queryErrors: number
+  queryAvgMs: number
+  queryMaxMs: number
+  acquisitions: number
+  acquireAvgMs: number
+  acquireMaxMs: number
+} {
+  return {
+    queries: metrics.queries,
+    queryErrors: metrics.queryErrors,
+    queryAvgMs: average(metrics.queryTotalMs, metrics.queries),
+    queryMaxMs: round(metrics.queryMaxMs),
+    acquisitions: metrics.acquisitions,
+    acquireAvgMs: average(metrics.acquireTotalMs, metrics.acquisitions),
+    acquireMaxMs: round(metrics.acquireMaxMs),
+  }
+}
+
+/**
+ * The shared pool for a target. Lazy: the first call creates it and later calls
+ * return the SAME pool, so the process holds one pool per target.
+ */
+export function forgeDbPool(
+  target?: ForgeDbTarget,
+  env: NodeJS.ProcessEnv = process.env,
+): Pool {
+  const resolved = target ?? declareControlPlane(env).target
+  const existing = pools.get(resolved)
+  if (existing) return existing
+
+  const pool = new Pool({
+    connectionString: forgeDbConnectionString(resolved, env),
+    ...poolConfig(resolved),
+  })
+
+  // An idle client that dies (network, Neon restart, idle timeout) emits here.
+  // With no listener this becomes an unhandled 'error' event that can take the
+  // process down; with a listener but no capture it is invisible. Capture it.
+  pool.on('error', (error: Error) => {
+    captureError({
+      kind: 'DB_POOL_CLIENT_ERROR',
+      operation: 'forge-db.pool',
+      message: `idle pool client error (${resolved}): ${error.message}`,
+      code: (error as { code?: string }).code ?? null,
+      level: 'error',
+      meta: { target: resolved },
+    })
+  })
+
+  pools.set(resolved, pool)
+  return pool
+}
+
+async function runAgainst(
+  pool: Pool,
+  strings: readonly string[],
+  values: readonly unknown[],
+): Promise<QueryRow[]> {
+  const flattened = flattenSqlTemplate(strings, values)
+  const query = toPgQuery(flattened.strings, flattened.values)
+  const result = await timed(() => pool.query(query.text, query.values))
+  return result.rows as QueryRow[]
+}
+
+/**
+ * The transaction body's executor: the tagged template PLUS the raw text+params
+ * form. The extra form exists so a call site that already has
+ * `client.query(text, params)` inside a hand-rolled BEGIN/COMMIT can move onto a
+ * ForgeDB transaction without being rewritten — the transaction itself is
+ * ForgeDB's, on one pooled client, with the rollback handled for it.
+ */
+export type ForgeDbTx = QueryExecutor & {
+  query: <T extends QueryResultRow = QueryResultRow>(
+    text: string,
+    params?: unknown[],
+  ) => Promise<QueryResult<T>>
+}
+
+/**
+ * Run `cb` inside an interactive transaction on ONE pooled client: a real
+ * BEGIN/COMMIT/ROLLBACK on a single connection. A throw anywhere in `cb` rolls
+ * back, and a rollback failure is captured rather than replacing the cause.
+ */
+export async function withForgeTransaction<T>(
+  cb: (tx: ForgeDbTx) => Promise<T>,
+  target?: ForgeDbTarget,
+): Promise<T> {
+  const pool = forgeDbPool(target)
+  const acquireStarted = performance.now()
+  const client: PoolClient = await pool.connect()
+  recordAcquisition(performance.now() - acquireStarted)
+  try {
+    await client.query('BEGIN')
+    const tx = ((strings: TemplateStringsArray, ...values: unknown[]) =>
+      runAgainstClient(client, strings, values)) as ForgeDbTx
+    tx.query = (text, params = []) => client.query(text, params)
+    const result = await cb(tx)
+    await client.query('COMMIT')
+    return result
+  } catch (error) {
+    try {
+      await client.query('ROLLBACK')
+    } catch (rollbackError) {
+      captureError({
+        kind: 'DB_ROLLBACK_FAILED',
+        operation: 'forge-db.transaction',
+        message: `rollback failed: ${(rollbackError as Error)?.message ?? String(rollbackError)}`,
+        level: 'error',
+      })
+    }
+    throw error
+  } finally {
+    client.release()
+  }
+}
+
+async function runAgainstClient(
+  client: PoolClient,
+  strings: readonly string[],
+  values: readonly unknown[],
+): Promise<QueryRow[]> {
+  const flattened = flattenSqlTemplate(strings, values)
+  const query = toPgQuery(flattened.strings, flattened.values)
+  try {
+    const result = await timed(() => client.query(query.text, query.values))
+    return result.rows as QueryRow[]
+  } catch (error) {
+    // A pg error carries NO query text, so a one-line SQL defect becomes a
+    // stack-trace hunt — the ENG-FORGE-SMOKE-01 42601 ("syntax error at or near
+    // AND") cost exactly that. Name the statement, bounded: TEXT ONLY (our own
+    // SQL) and never parameter VALUES, which can be business data.
+    const code = String((error as { code?: string }).code ?? 'unknown')
+    const text = query.text.replace(/\s+/g, ' ').trim()
+    // eslint-disable-next-line no-console
+    console.error(
+      `[forge-db] query failed (${code}) params=${query.values.length} :: ${text.slice(0, 400)}`,
+    )
+    throw error
+  }
+}
+
+/**
+ * A handle bound to an EXPLICIT target, for operator scripts that must state where
+ * they run. It shares the same pool registry, so an explicit `prod` handle and the
+ * declared `prod` target are the same pool — "explicit" must not mean "second
+ * connection".
+ */
+export function forgeDbForTarget(target: ForgeDbTarget) {
+  const pool = () => forgeDbPool(target)
+  return {
+    target,
+    pool,
+    sql: (strings: TemplateStringsArray, ...values: unknown[]) =>
+      runAgainst(pool(), strings, values),
+    /**
+     * The FULL pg result (rows + rowCount), generic over the row type so call sites
+     * that already write `pool.query<{ id: string }>(...)` keep compiling. Exists so
+     * adopting the shared pool means changing how the handle is obtained, not
+     * rewriting every result handling. New code should prefer `sql` (tagged).
+     */
+    query: <T extends QueryResultRow = QueryResultRow>(
+      text: string,
+      params: unknown[] = [],
+    ): Promise<QueryResult<T>> => timed(() => pool().query<T>(text, params)),
+    /** Raw text + params → rows only. */
+    runText: (text: string, params: unknown[] = []) =>
+      timed(() => pool().query(text, params)).then((r) => r.rows as QueryRow[]),
+    transaction: <T>(cb: (tx: ForgeDbTx) => Promise<T>) => withForgeTransaction(cb, target),
+    stats: () => poolStats(target),
+    end: () => endForgeDb(target),
+  }
+}
+
+/** The object `forgeDb.forTarget()` returns — the shared-pool handle. */
+export type ForgeDbHandle = ReturnType<typeof forgeDbForTarget>
+
+function poolStats(target?: ForgeDbTarget) {
+  const resolved = target ?? declareControlPlane().target
+  const pool = pools.get(resolved)
+  return {
+    target: resolved,
+    created: Boolean(pool),
+    totalCount: pool?.totalCount ?? 0,
+    idleCount: pool?.idleCount ?? 0,
+    waitingCount: pool?.waitingCount ?? 0,
+    ...forgeDbMetrics(),
+  }
+}
+
+async function endForgeDb(target?: ForgeDbTarget): Promise<void> {
+  const resolved = target ?? declareControlPlane().target
+  const pool = pools.get(resolved)
+  if (!pool) return
+  pools.delete(resolved)
+  await pool.end()
+}
+
+/**
+ * ForgeDB — the application's single entry point for database work.
+ *
+ * `forgeDb.sql` is the tagged executor every caller should use; `pool()` is for
+ * the rare code that needs a client (and must release it); `stats()` and `end()`
+ * exist so tests and shutdown have an honest handle on the pool.
+ */
+export const forgeDb = {
+  get target(): ForgeDbTarget {
+    return declareControlPlane().target
+  },
+  pool: (target?: ForgeDbTarget) => forgeDbPool(target),
+  /**
+   * The tagged executor. Resolved PER CALL, never at module load: binding a pool
+   * here would make importing this module require a declared environment and a
+   * configured URL, which the rest of the codebase relies on not being true.
+   */
+  sql: ((strings: TemplateStringsArray, ...values: unknown[]) =>
+    runAgainst(forgeDbPool(), strings, values)) as QueryExecutor,
+  runText: (text: string, params: unknown[] = []) =>
+    timed(() => forgeDbPool().query(text, params)).then((r) => r.rows as QueryRow[]),
+  transaction: withForgeTransaction,
+  forTarget: forgeDbForTarget,
+  stats: () => poolStats(),
+  metrics: forgeDbMetrics,
+  end: () => endForgeDb(),
+}
+

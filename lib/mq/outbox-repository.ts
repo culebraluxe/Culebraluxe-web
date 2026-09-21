@@ -11,7 +11,7 @@
 // ---------------------------------------------------------------------------
 
 import type { DomainEvent } from '../commands/contracts'
-import type { QueryExecutor } from '../../db/query-executor'
+import type { QueryExecutor } from '@/legacy/db/query-executor'
 import type {
   OutboxEventRepository,
   OutboxRecord,
@@ -173,7 +173,7 @@ export class PostgresOutboxEventRepository implements OutboxEventRepository {
 
 /** Default executor: the shared application DB handle. */
 async function defaultExecutor(): Promise<QueryExecutor> {
-  const client = await import('../../db/client')
+  const client = await import('@/legacy/db/client')
   return client.sql as unknown as QueryExecutor
 }
 

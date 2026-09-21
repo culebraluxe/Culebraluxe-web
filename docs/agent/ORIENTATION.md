@@ -28,13 +28,13 @@ produce code, and whose state is itself in Neon (work items, tasks, runs, eviden
 | Routes | `app/` | App Router screens; the portal is `app/portal/*` (~40 screens); APIs are `app/api/*` |
 | UI | `components/` | React components; portal UI under `components/portal/` |
 | Domain logic | `services/<domain>/` | Business rules per domain — `<domain>-service.ts`, `repository.ts`, `index.ts`. See `MAP-services.md` |
-| Data access | `db/` | Repositories, `db/database-gateway.ts`, error capture (`db/app-error.ts`) |
+| Data access | `db/` | Repositories, `legacy/db/database-gateway.ts`, error capture (`legacy/db/app-error.ts`) |
 | Cross-cutting | `lib/` | Auth (`lib/auth/`), error-capture seams, storyboard projections (`lib/storyboard-data.ts`), move rules (`lib/story-moves.ts`), sorter cards (`lib/sorter-board.ts`) |
 | The engine | `workflow_app/` | Forge: phase agents, gates, executors, the topology XML. See `MAP-engine.md` |
 | The harness | `agent-runtime/` | How one role runs: skills, lane prompts, write policy, assay planning, candidate publish |
 | Operations | `scripts/` | Worker entry, migrations, probes, lint, the local build/deploy scripts |
 | This map | `docs/agent/` | `ORIENTATION.md` (this), `MEMORY.md` (durable decisions), `docs/agent/packets/` (per-story), `docs/agent/skills/` (packs) |
-| Tests | `workflow_app/tests/`, `testv2/`, `agent-runtime/*.test.ts` | Engine + app suites |
+| Tests | `legacy/workflow_app/tests/`, `testv2/`, `agent-runtime/*.test.ts` | Engine + app suites |
 
 ## The three stores — and who is authoritative for what
 
@@ -61,7 +61,7 @@ pnpm forge:batch:status      # read-only truth: batch table, engine queue, bench
 pnpm forge:packet-lint       # harness gate: packets, skills, MEMORY, maps, manifests, vendor blocks
 pnpm forge:clean             # clear stale engine claims BEFORE any engine run or test
 pnpm smoke:prod              # ask production whether it works (pages + build stamp), not just whether it deployed
-node --import tsx --test workflow_app/tests/*.test.ts    # app/engine suite
+node --import tsx --test legacy/workflow_app/tests/*.test.ts    # app/engine suite
 pnpm test:agent-runtime      # harness suite (30 files)
 pnpm test:harness            # script-level gate tests (packet lint, manifest, vendor blocks)
 pnpm db:parity               # DEV vs PROD schema drift (a release gate)

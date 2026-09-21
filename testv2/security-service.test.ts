@@ -5,8 +5,8 @@ import {
   SecurityService,
   type SecurityRepository,
   type SecurityRepositoryIdentityResolution,
-} from '../services/security'
-import { resolveSecurityLevel, hasSecurityLevel, type SecurityLevel } from '../services/security'
+} from '@/legacy/services/security'
+import { resolveSecurityLevel, hasSecurityLevel, type SecurityLevel } from '@/legacy/services/security'
 import { capturingInfrastructure, context } from './test-support'
 
 // ---------------------------------------------------------------------------

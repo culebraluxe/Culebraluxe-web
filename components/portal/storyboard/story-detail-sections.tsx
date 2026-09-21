@@ -1,6 +1,6 @@
 import { type ReactNode } from "react"
 
-import type { StoryRun, StoryboardStory } from "@/db/storyboard"
+import type { StoryRun, StoryboardStory } from "@/legacy/db/storyboard"
 import {
   statusBucket,
   workstreamName,

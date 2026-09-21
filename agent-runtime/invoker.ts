@@ -7,7 +7,7 @@ import {
   rejectAgentWorkConfiguration,
   validateAgentWorkLaunchConfig,
   type AgentWorkClaim,
-} from '../db/agent-work'
+} from '@/legacy/db/agent-work'
 import type {
   AgentExecutionContext,
   AgentExecutionWorkspace,

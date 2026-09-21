@@ -1,8 +1,8 @@
-# LEARN-SWALLOWED-CATCH-WORKFLOW-APP-FORGE-AGENT-RUNTIME-ROLE-RUNNER-20260916 — learn: swallowed-catch:workflow_app/forge/agent-runtime-role-runner.ts
+# LEARN-SWALLOWED-CATCH-WORKFLOW-APP-FORGE-AGENT-RUNTIME-ROLE-RUNNER-20260916 — learn: swallowed-catch:legacy/workflow_app/forge/agent-runtime-role-runner.ts
 
 ## Goal
 
-Decide what "swallowed-catch:workflow_app/forge/agent-runtime-role-runner.ts" means for this repository, then either fix it or record why it stands.
+Decide what "swallowed-catch:legacy/workflow_app/forge/agent-runtime-role-runner.ts" means for this repository, then either fix it or record why it stands.
 
 ## Why
 
@@ -17,7 +17,7 @@ not a statement that it is still true: verify before fixing, and say so if it is
 
 ## Evidence (from the trace, not authority)
 
-- `workflow_app/forge/agent-runtime-role-runner.ts:656`
+- `legacy/workflow_app/forge/agent-runtime-role-runner.ts:656`
 - `swallowed-catch at line 794`
 - `swallowed-catch at line 800`
 - `swallowed-catch at line 903`

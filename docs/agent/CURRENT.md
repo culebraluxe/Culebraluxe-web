@@ -18,9 +18,9 @@ list of what is not built yet. Read it before changing the board or the engine l
 
 ## What runs
 
-1. Engine: `workflow_app/definitions/FORGE_SDLC-v6.xml`, driven by
-   `workflow_app/forge/forge-executor.ts`.
-2. Roles are phase agents in `workflow_app/forge/agents/role-agents.ts`. They `collect()`
+1. Engine: `legacy/workflow_app/definitions/FORGE_SDLC-v6.xml`, driven by
+   `legacy/workflow_app/forge/forge-executor.ts`.
+2. Roles are phase agents in `legacy/workflow_app/forge/agents/role-agents.ts`. They `collect()`
    evidence; the parent gate (`forge-phase-agent.ts`) stays the decider.
 3. A role runs in its own worktree under `~/Documents/Culebraluxe-worktrees/<story>-<id>-e0`
    via the OpenCode harness (`agent-runtime/opencode/`).
@@ -34,7 +34,7 @@ model's chat reply.
    `forge_role_plan_chunk` / `forge_role_assignment` (171) for the plan.
 2. Reply markers (`LEAD_ROUTING:`, `FORGE_ARCHITECT_HANDOFF:`) remain as the FALLBACK for
    rows that were never written. Fields win; text is the fallback.
-3. `workflow_app/forge/lead-proposal-resolve.ts` is the ONE seat for the Lead decision:
+3. `legacy/workflow_app/forge/lead-proposal-resolve.ts` is the ONE seat for the Lead decision:
    collect and the runner both resolve through it, so a refusal can never be re-reviewed
    and accepted by a second evaluator.
 

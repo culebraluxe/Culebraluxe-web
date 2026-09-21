@@ -1,4 +1,4 @@
-import type { QueryExecutor } from '../db/query-executor'
+import type { QueryExecutor } from '@/legacy/db/query-executor'
 import { QA_SOURCE_SYSTEM } from './qa-golden'
 
 // ---------------------------------------------------------------------------

@@ -5,7 +5,7 @@ import Link from "next/link"
 import { PageHeader } from "@/components/portal/page-header"
 import { Panel } from "@/components/portal/panel"
 import { SEVERITY_STYLE } from "@/lib/issue-types"
-import type { IssuesPageResult, IssueQueueRow } from "@/db/issues"
+import type { IssuesPageResult, IssueQueueRow } from "@/legacy/db/issues"
 import { resolveIssueAction } from "@/app/portal/issues/actions"
 
 const PAGE_SIZE = 50

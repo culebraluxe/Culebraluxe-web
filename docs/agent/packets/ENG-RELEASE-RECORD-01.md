@@ -21,7 +21,7 @@ introduced — the master process stays the only way a release happens.
 
 ## Scope
 
-- `db/migrations/<next>_release_record.sql` (new): the `release_record` table — sha, branch, tree_state,
+- `legacy/db/migrations/<next>_release_record.sql` (new): the `release_record` table — sha, branch, tree_state,
   build_result, deploy_result, outcome, started_at, ended_at, recorded_by. No defaults that invent facts.
 - `db/release-record.ts` (new): the writer/reader boundary, normalizing driver values before they leave it
   (timestamps to ISO strings, counts to JS numbers) per the repository-boundary rule in `AGENTS.md`.
@@ -37,7 +37,7 @@ introduced — the master process stays the only way a release happens.
 
 ## Assay (SCOPED)
 
-- `node --import tsx --test workflow_app/tests/release-record.test.ts` (new) — the writer's normalization and
+- `node --import tsx --test legacy/workflow_app/tests/release-record.test.ts` (new) — the writer's normalization and
   the reader's ordering, including a failed release recorded and never dropped.
 
 Test mode: **SCOPED**. No FULL regression for this story.

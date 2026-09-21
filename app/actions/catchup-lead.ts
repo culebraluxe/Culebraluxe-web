@@ -1,7 +1,7 @@
 'use server'
 
 import { normalizeLeadInput } from '@/lib/catchup/lead-intake'
-import { createWebsiteLead } from '@/db/catchup-lead'
+import { createWebsiteLead } from '@/legacy/db/catchup-lead'
 
 // CATCH-UP — website lead intake server action. Accepts Name + (Email OR Phone)
 // and returns the canonical write result. Long questionnaires are never

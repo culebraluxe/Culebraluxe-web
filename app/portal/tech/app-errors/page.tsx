@@ -7,7 +7,7 @@ import {
   listRecentErrors,
   type AppErrorRow,
   type ErrorLevel,
-} from "@/db/app-error"
+} from "@/legacy/db/app-error"
 
 export const dynamic = "force-dynamic"
 

@@ -1,6 +1,6 @@
 // Canonical buyers search contract (PX-23 + PX-24). The search surface is the
 // `/buyers` inventory page; its controls are category, free-text q, maxPrice,
-// beds, view, and sort. The server (`db/properties.ts` `getFilteredProperties`)
+// beds, view, and sort. The server (`legacy/db/properties.ts` `getFilteredProperties`)
 // is the AUTHORITATIVE filter for what renders: structured filters are applied
 // in SQL over canonical property fields (PX-24B), and the showroom treats the
 // URL as the source of truth for its controls (PX-24C). This module is the
@@ -23,7 +23,7 @@
 // properties match) and keeps the same field set the server filters on:
 // category, price, beds, view, free-text.
 
-import type { PropertySummary } from '@/services/property'
+import type { PropertySummary } from '@/legacy/services/property'
 import { isLand } from '@/lib/property'
 
 export type SearchCategory = 'all' | 'homes' | 'land'

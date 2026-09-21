@@ -19,7 +19,7 @@ import {
   DEFAULT_POLL_BATCH,
   type WorkflowCliDeps,
 } from './workflow-cli'
-import type { WorkflowDiagnosticsSnapshot } from '../workflow_app/diagnostics'
+import type { WorkflowDiagnosticsSnapshot } from '@/legacy/workflow_app/diagnostics'
 
 const SNAPSHOT: WorkflowDiagnosticsSnapshot = {
   configured: true,

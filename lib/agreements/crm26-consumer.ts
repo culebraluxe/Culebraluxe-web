@@ -146,11 +146,11 @@ export async function createCrm26Consumer(
   overrides: Partial<Crm26ConsumerDeps> = {},
 ): Promise<Crm26AgreementExecutionConsumer> {
   const { interactiveSql } = await import('../../lib/neon-interactive')
-  const { engineConfigured, engineSql } = await import('../../workflow_app/engine-client')
-  const { RESIDENTIAL_TRANSACTION_KEY } = await import('../../workflow_app/workflow-config')
-  const { startResidentialContractWorkflow } = await import('../../workflow_app/runtime')
-  const { ContractService, CONTRACT_OPERATIONS } = await import('../../services/contract')
-  const { SqlContractRepository } = await import('../../db/contract-service-repository')
+  const { engineConfigured, engineSql } = await import('@/legacy/workflow_app/engine-client')
+  const { RESIDENTIAL_TRANSACTION_KEY } = await import('@/legacy/workflow_app/workflow-config')
+  const { startResidentialContractWorkflow } = await import('@/legacy/workflow_app/runtime')
+  const { ContractService, CONTRACT_OPERATIONS } = await import('@/legacy/services/contract')
+  const { SqlContractRepository } = await import('@/legacy/db/contract-service-repository')
 
   const contractService = new ContractService(new SqlContractRepository())
 
@@ -226,7 +226,7 @@ export async function createCrm26Consumer(
           return (rows[0]?.id as string | undefined) ?? null
         },
         completeEngineTask: async (taskId, userId, transitionName) => {
-          const { completeEngineTask } = await import('../../workflow_app/rust-re-host')
+          const { completeEngineTask } = await import('@/legacy/workflow_app/rust-re-host')
           await completeEngineTask(taskId, userId, transitionName ?? undefined)
         },
       }),

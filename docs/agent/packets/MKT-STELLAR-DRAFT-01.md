@@ -28,7 +28,7 @@ Two migrations, both APPLIED to DEV and PROD and verified (table, 4 CHECK constr
 
 ## Assay
 
-- `node --import tsx --test workflow_app/tests/stellar-listing-draft.test.ts` — the fence: the mapping counts are DERIVED and true, an empty property reports all fifteen editable fields as missing, a populated one shrinks that list and marks the review items, every refusal rule rejects, the RESO pack carries the listing values, the adapter stays manual, and interior footage is asserted to be the heated area.
+- `node --import tsx --test legacy/workflow_app/tests/stellar-listing-draft.test.ts` — the fence: the mapping counts are DERIVED and true, an empty property reports all fifteen editable fields as missing, a populated one shrinks that list and marks the review items, every refusal rule rejects, the RESO pack carries the listing values, the adapter stays manual, and interior footage is asserted to be the heated area.
 - `pnpm typecheck`
 
 **No Forge clean is required to run this, and it must never be part of an assay.** `pnpm forge:clean` is control-plane WIDE — it cancels stale work items, aborts stale instances and obsoletes open tasks across the whole board, and it demands `--force` on PROD — so an automated approval gate is right to refuse it. If a story's own run is stuck, the story-scoped equivalent is `pnpm forge:story:reset <story-id> reset --force`, which touches only that story's rows. A brand-new packet needs neither: nothing has run yet.

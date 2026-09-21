@@ -1,4 +1,4 @@
-import type { ContractRoleDto } from '@/services/contract'
+import type { ContractRoleDto } from '@/legacy/services/contract'
 
 /**
  * Working P&S sentinel for facts that are not known yet.

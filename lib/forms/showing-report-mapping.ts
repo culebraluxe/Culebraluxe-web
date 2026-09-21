@@ -1,5 +1,5 @@
 import type { FormInstance } from '@/lib/forms/form-instance-io'
-import type { SaveShowingReportRequest, ShowingReportOutcome } from '@/services/showing'
+import type { SaveShowingReportRequest, ShowingReportOutcome } from '@/legacy/services/showing'
 import { compactFormValue, nullableFormValue } from './service-binding-core'
 
 const OUTCOMES = new Set<ShowingReportOutcome>([

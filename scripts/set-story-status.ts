@@ -19,7 +19,7 @@
 //     the durable capture seam as a tooling error rather than vanishing.
 // ---------------------------------------------------------------------------
 
-import { setStoryboardStatus, listStoryboardStories } from '@/db/storyboard'
+import { setStoryboardStatus, listStoryboardStories } from '@/legacy/db/storyboard'
 import { STORY_STATUSES } from '@/lib/storyboard-data'
 
 type Options = {

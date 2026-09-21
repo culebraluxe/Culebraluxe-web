@@ -6,7 +6,7 @@
 import {
   getRelationshipEvidenceForPerson,
   recordReconcileDecision,
-} from '../db/relationship-evidence'
+} from '@/legacy/db/relationship-evidence'
 import { summarizeRelationshipEvidence } from '../lib/relationship-intel/relationship-context'
 import { REL_INTEL_RULE_VERSION } from '../lib/relationship-intel/reconcile'
 import { createPoolExecutor } from './lib/pool-executor'

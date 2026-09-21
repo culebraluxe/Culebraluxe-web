@@ -24,12 +24,12 @@ Make Pane 3 a reliable editor for a selected work item's status, due date, assig
 ## Verified starting evidence (grounding)
 
 - Pane 3 lives in `components/portal/projects-workspace.tsx:692` (`PaneThree`). Status/due/assignee/notes are local `useState`, reset only by `useEffect([node])` (`:699`).
-- Assignee is a free-text `<input>` (`:750`). Owner is a `text` column on `wbs_item` (`db/migrations/124_wbs_project_item.sql:22`); legacy values are names/handles (`db/seeds/dev-projects-workspace.sql`), and `service-projection.ts:155` emits `owner` as the display string.
-- Save calls `updateWbsItemAction` (`app/portal/wbs/actions.ts:84`) which does an unguarded read-modify-write (`wbs.get` then `wbs.save`) and passes EVERY field; `SqlWbsRepository.save` (`db/wbs-service-repository.ts:131`) sets every column unconditionally → last-write-wins clobber.
-- Complete/Dismiss also route through the full save (`projects-workspace.tsx:761-762`) instead of the idempotent `complete`/`dismiss` repository ops (`db/wbs-service-repository.ts:152,164`).
-- `WbsService.assertValid` (`services/wbs/wbs-service.ts:126`) validates only title/category.
-- Canonical active-app-user read already exists: `listAssignableAgents()` (`db/person-admin.ts:151`) returns `{id, displayName}[]` for `app_user where active = true`.
-- Repository normalizes timestamps to **millisecond ISO** (`db/wbs-service-repository.ts:36-40`); Postgres `updated_at` is microsecond. This is load-bearing for the precondition.
+- Assignee is a free-text `<input>` (`:750`). Owner is a `text` column on `wbs_item` (`legacy/db/migrations/124_wbs_project_item.sql:22`); legacy values are names/handles (`legacy/db/seeds/dev-projects-workspace.sql`), and `service-projection.ts:155` emits `owner` as the display string.
+- Save calls `updateWbsItemAction` (`app/portal/wbs/actions.ts:84`) which does an unguarded read-modify-write (`wbs.get` then `wbs.save`) and passes EVERY field; `SqlWbsRepository.save` (`legacy/db/wbs-service-repository.ts:131`) sets every column unconditionally → last-write-wins clobber.
+- Complete/Dismiss also route through the full save (`projects-workspace.tsx:761-762`) instead of the idempotent `complete`/`dismiss` repository ops (`legacy/db/wbs-service-repository.ts:152,164`).
+- `WbsService.assertValid` (`legacy/services/wbs/wbs-service.ts:126`) validates only title/category.
+- Canonical active-app-user read already exists: `listAssignableAgents()` (`legacy/db/person-admin.ts:151`) returns `{id, displayName}[]` for `app_user where active = true`.
+- Repository normalizes timestamps to **millisecond ISO** (`legacy/db/wbs-service-repository.ts:36-40`); Postgres `updated_at` is microsecond. This is load-bearing for the precondition.
 - `ProjectsWorkspaceData`/`ProjectWorkNode` carry no `updatedAt` and no assignee options today (`ui/projects/model.ts:29,117`).
 
 ## Touched surfaces
@@ -38,16 +38,16 @@ Files
 - `components/portal/projects-workspace.tsx` — Pane 3 only (form controls, pending guard, feedback, unsaved-changes policy, dedicated complete/dismiss actions, submit `expectedUpdatedAt` + `ownerAppUserId`).
 - `app/portal/projects/page.tsx` — load active app users; attach `assignees` to the mapped data.
 - `app/portal/wbs/actions.ts` — `updateWbsItemAction`: add `expectedUpdatedAt` + `ownerAppUserId`, validate, resolve assignee, map `WBS_STALE_EDIT` / `WBS_INVALID_*`, capture failures via `captureServerError`.
-- `services/wbs/types.ts` — extend `SaveWbsItemRequest` with `expectedUpdatedAt?: string | null`; add stale-edit domain error code.
-- `services/wbs/wbs-service.ts` — save-shape validation; translate repository stale/not-found to domain errors.
-- `services/wbs/repository.ts` — `save` contract (precondition + typed conflict/not-found).
-- `db/wbs-service-repository.ts` — precondition in `save` WHERE; typed errors; no DDL.
+- `legacy/services/wbs/types.ts` — extend `SaveWbsItemRequest` with `expectedUpdatedAt?: string | null`; add stale-edit domain error code.
+- `legacy/services/wbs/wbs-service.ts` — save-shape validation; translate repository stale/not-found to domain errors.
+- `legacy/services/wbs/repository.ts` — `save` contract (precondition + typed conflict/not-found).
+- `legacy/db/wbs-service-repository.ts` — precondition in `save` WHERE; typed errors; no DDL.
 - `ui/projects/model.ts` — add `ProjectWorkNode.updatedAt?: string`, `InspectorAssignee`, `ProjectsWorkspaceData.assignees?: InspectorAssignee[]`.
 - `ui/projects/service-projection.ts` — map `updatedAt`; thread `assignees` through `mapRealProjectsToWorkspace`.
 - `ui/projects/inspector-form.ts` (NEW, React-free) — pure validation/reconcile/selection-policy helpers.
 - `ui/projects/index.ts` — export the new module.
-- `db/auth-user.ts` — add `listActiveAppUsers()` (canonical app-user read).
-- `db/person-admin.ts` — `listAssignableAgents` delegates to `listActiveAppUsers` (one source of truth).
+- `legacy/db/auth-user.ts` — add `listActiveAppUsers()` (canonical app-user read).
+- `legacy/db/person-admin.ts` — `listAssignableAgents` delegates to `listActiveAppUsers` (one source of truth).
 
 Tables
 - `wbs_item` — existing columns only (`status`, `due_at`, `owner`, `notes`, `updated_at`). No DDL.
@@ -62,7 +62,7 @@ Tests
 
 ### C1 — Canonical app-user assignee
 
-- New `listActiveAppUsers(): Promise<{id, displayName}[]>` in `db/auth-user.ts` (`app_user where active = true order by display_name asc`). `listAssignableAgents` delegates to it.
+- New `listActiveAppUsers(): Promise<{id, displayName}[]>` in `legacy/db/auth-user.ts` (`app_user where active = true order by display_name asc`). `listAssignableAgents` delegates to it.
 - `page.tsx` calls `listActiveAppUsers()` and attaches the result as `ProjectsWorkspaceData.assignees`; a read failure degrades to `[]` and is captured (`captureServerError`), never takes down the page.
 - Pane 3 assignee control is a native `<select>`:
   - value = app_user **id**, plus a sentinel `""` = Unassigned.
@@ -107,7 +107,7 @@ Tests
 
 ### C4 — Complete / Dismiss idempotent
 
-- Pane 3 calls `completeWbsItemAction(node.id)` / `dismissWbsItemAction(node.id)` (existing dedicated ops, `db/wbs-service-repository.ts:152,164`), NOT the full save.
+- Pane 3 calls `completeWbsItemAction(node.id)` / `dismissWbsItemAction(node.id)` (existing dedicated ops, `legacy/db/wbs-service-repository.ts:152,164`), NOT the full save.
 - Invariant: repeating complete/dismiss yields the same persisted status; the subsequent `router.refresh()` recomputes project progress and the next-action/action list from persisted state.
 
 ### C5 — Duplicate-submit protection

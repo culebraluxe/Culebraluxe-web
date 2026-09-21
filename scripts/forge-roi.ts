@@ -12,7 +12,7 @@
 // terminal would be worse than inventing one on screen: a number in a log gets quoted later.
 // ---------------------------------------------------------------------------
 
-import { ROI_DEFAULT_WINDOW_DAYS, listRoiAttempts } from '@/db/forge-roi'
+import { ROI_DEFAULT_WINDOW_DAYS, listRoiAttempts } from '@/legacy/db/forge-roi'
 import { describeRoiRow, summarizeRoi } from '@/lib/forge-roi'
 import { describeControlPlane } from '@/lib/execution-target'
 

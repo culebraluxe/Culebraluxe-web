@@ -33,17 +33,17 @@ import {
   listAgentWorkItems,
   type AgentWorkItem,
   type AgentWorkState,
-} from '../db/agent-work'
+} from '@/legacy/db/agent-work'
 import {
   listStoryboardStories,
   listStoryboardRuns,
   type StoryboardStory,
   type StoryRun,
-} from '../db/storyboard'
+} from '@/legacy/db/storyboard'
 import {
   getWorkflowSummaries,
   type WorkflowSummary,
-} from '../workflow_app/read-service'
+} from '@/legacy/workflow_app/read-service'
 import { buildFactoryKpis } from './factory-kpi'
 
 // ---------------------------------------------------------------------------

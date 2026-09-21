@@ -16,14 +16,14 @@ XML definition + TypeScript loader + validator tests + this packet. No engine ch
 7. v1 is task + decision + state only. Any future `forge.*` command-node must gain a router case plus a canonical handler first, or Layer 4 fails the deploy exactly as for RE_supermodel.
 
 ## Context refs
-- workflow_app/definitions/FORGE_SDLC-v1.xml
-- workflow_app/definitions/forge-sdlc.ts
-- workflow_app/tests/forge-sdlc.test.ts
-- workflow_app/definitions/re-supermodel.ts
-- workflow_app/definitions/validate-definition.ts
-- workflow_app/xml/xml-parser.ts
-- workflow_app/xml/graph-validator.ts
-- workflow_app/scripts/deploy-process-definition.ts
+- legacy/workflow_app/definitions/FORGE_SDLC-v1.xml
+- legacy/workflow_app/definitions/forge-sdlc.ts
+- legacy/workflow_app/tests/forge-sdlc.test.ts
+- legacy/workflow_app/definitions/re-supermodel.ts
+- legacy/workflow_app/definitions/validate-definition.ts
+- legacy/workflow_app/xml/xml-parser.ts
+- legacy/workflow_app/xml/graph-validator.ts
+- legacy/workflow_app/scripts/deploy-process-definition.ts
 - docs/agent/packets/ENG-FORGE-V6-ROLES.md
 
 ## Acceptance criteria
@@ -53,6 +53,6 @@ Empty on first pass.
 SCOPED only. Full regression forbidden.
 
 ## Assay commands
-- `node_modules/.bin/tsx --test workflow_app/tests/forge-sdlc.test.ts`
-- `node_modules/.bin/tsx workflow_app/scripts/deploy-process-definition.ts workflow_app/definitions/FORGE_SDLC-v1.xml --dry-run`
-- `node_modules/.bin/tsx --test workflow_app/tests/command-inventory.test.ts workflow_app/tests/validate-definition.test.ts workflow_app/tests/application-contract.test.ts workflow_app/tests/xml-parser.test.ts workflow_app/tests/graph-validator.test.ts workflow_app/tests/trailing-whitespace-invariant.test.ts`
+- `node_modules/.bin/tsx --test legacy/workflow_app/tests/forge-sdlc.test.ts`
+- `node_modules/.bin/tsx legacy/workflow_app/scripts/deploy-process-definition.ts legacy/workflow_app/definitions/FORGE_SDLC-v1.xml --dry-run`
+- `node_modules/.bin/tsx --test legacy/workflow_app/tests/command-inventory.test.ts legacy/workflow_app/tests/validate-definition.test.ts legacy/workflow_app/tests/application-contract.test.ts legacy/workflow_app/tests/xml-parser.test.ts legacy/workflow_app/tests/graph-validator.test.ts legacy/workflow_app/tests/trailing-whitespace-invariant.test.ts`

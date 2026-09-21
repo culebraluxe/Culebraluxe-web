@@ -1,4 +1,4 @@
-import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db'
+import { forgeDb, forgeDbTargetForUrl } from '@/legacy/db/forge-db'
 
 async function main() {
 const envArgIndex = process.argv.indexOf('--env')

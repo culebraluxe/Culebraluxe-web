@@ -12,13 +12,13 @@
 //   --path /us/pr/<county-slug>
 // or REGRID_PATH=...
 
-import '../db/client'
-import { recordError } from '../db/app-error'
-import { SqlRegridPropertyEnrichmentRepository } from '../db/regrid-property-enrichment'
+import '@/legacy/db/client'
+import { recordError } from '@/legacy/db/app-error'
+import { SqlRegridPropertyEnrichmentRepository } from '@/legacy/db/regrid-property-enrichment'
 import {
   enrichPropertyFromRegrid,
   regridClientFromEnv,
-} from '../services/regrid'
+} from '@/legacy/services/regrid'
 
 function parseArgs(argv: string[]) {
   let propertyId: string | null = null

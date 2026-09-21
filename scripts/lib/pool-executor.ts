@@ -5,8 +5,8 @@
 // adopts the application's single pool: the caller's url is mapped to the target
 // ForgeDB already owns, and a url we do not own REFUSES rather than opening a
 // private connection.
-import { forgeDb, forgeDbTargetForUrl, type ForgeDbTarget } from '../../db/forge-db'
-import type { QueryExecutor } from '../../db/query-executor'
+import { forgeDb, forgeDbTargetForUrl, type ForgeDbTarget } from '@/legacy/db/forge-db'
+import type { QueryExecutor } from '@/legacy/db/query-executor'
 
 export type PoolExecutor = {
   execute: QueryExecutor

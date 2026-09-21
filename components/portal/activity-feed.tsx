@@ -1,7 +1,7 @@
 import Link from "next/link"
 
 import { PageHeader } from "@/components/portal/page-header"
-import type { ActivityFeedEntry } from "@/db/activity-feed"
+import type { ActivityFeedEntry } from "@/legacy/db/activity-feed"
 
 function channelLabel(channel: string) {
   switch (channel) {

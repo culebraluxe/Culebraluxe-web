@@ -1,9 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { FirmService } from '../services/firm'
-import type { FirmDto, FirmRepository } from '../services/firm'
+import { FirmService } from '@/legacy/services/firm'
+import type { FirmDto, FirmRepository } from '@/legacy/services/firm'
 import { capturingInfrastructure, context } from './test-support'
-import { EntitlementService } from '../services/entitlement'
+import { EntitlementService } from '@/legacy/services/entitlement'
 
 // ---------------------------------------------------------------------------
 // TESTV2 — Firm service envelope tests.

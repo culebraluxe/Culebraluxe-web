@@ -122,7 +122,7 @@ Exits non-zero on drift. Treat it as a release gate for any schema story.
 2. **Identify the owning migration files** for each DEV-only object — promote the
    *canonical migration files*, never hand-written DDL:
    ```sh
-   node --env-file=.env.local scripts/apply-migration.mjs db/migrations/<file>.sql prod
+   node --env-file=.env.local scripts/apply-migration.mjs legacy/db/migrations/<file>.sql prod
    ```
    Apply in **numeric order**; dependencies are real (e.g. `117` creates
    `relation_role` → `118` renames it → `119` creates `contract` → `120` seeds
@@ -176,7 +176,7 @@ what was *run*. Both are release gates.
   (`forge_engine_task_execution`, `forge_workflow_evidence`, `forge_hold_record`,
   `forge_tool_artifact`, `work_estimate`).
 - **Export DEV-only work to a committed seed before any wide data change.**
-  The Projects workspace lives in `db/seeds/dev-projects-workspace.sql`
+  The Projects workspace lives in `legacy/db/seeds/dev-projects-workspace.sql`
   (`pnpm db:export:projects` to regenerate, `pnpm db:seed:projects` to reload).
 - **Never** reset PROD, copy DEV over PROD, or truncate canonical history.
   DEV data may be rebuilt freely; PROD data may not.
@@ -185,14 +185,14 @@ what was *run*. Both are release gates.
 
 The discipline is now enforced mechanically, not by memory:
 
-- `workflow_app/forge/release-operations.ts` → `applyMigrations` records every
+- `legacy/workflow_app/forge/release-operations.ts` → `applyMigrations` records every
   applied migration in the durable `schema_migration` ledger (story-scoped rows in
   `forge_migration_execution` were never enough — that is exactly how drift hid).
 - `verifyMigrations` fails closed unless (a) each migration has a checksum-matched
   execution, (b) it is present in the `schema_migration` ledger, and (c) **DEV and
   PROD have zero parity drift** across tables, columns, indexes and FKs.
 - The comparison is one shared implementation: pure logic in `lib/schema-parity.ts`,
-  DB reader in `workflow_app/forge/schema-parity.ts` (the Forge workspace is outside
+  DB reader in `legacy/workflow_app/forge/schema-parity.ts` (the Forge workspace is outside
   the ARCH scan that forbids the Neon driver in `db|lib|app`).
 
 So a schema-touching story cannot reach `complete` while the environments differ.

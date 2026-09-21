@@ -18,13 +18,13 @@
 //   node --env-file=.env.local --import tsx scripts/promote-applemail.ts prod --days 30 --verify
 // ---------------------------------------------------------------------------
 import { createPoolExecutor } from './lib/pool-executor'
-import type { QueryExecutor } from '../db/query-executor'
+import type { QueryExecutor } from '@/legacy/db/query-executor'
 import {
   getRelationshipEvidenceRows,
   recordReconcileDecision,
   upsertRelationshipEvidence,
-} from '../db/relationship-evidence'
-import { createInteraction } from '../db/interactions'
+} from '@/legacy/db/relationship-evidence'
+import { createInteraction } from '@/legacy/db/interactions'
 import { createInMemoryPersonLookup } from '../lib/relationship-intel/inmemory-lookup'
 import { reconcileEvidence } from '../lib/relationship-intel/reconcile'
 import {

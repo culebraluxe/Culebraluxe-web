@@ -13,7 +13,7 @@ import {
   getDeals,
   getDashboardSnapshot,
 } from "@/lib/review-dashboard-reads"
-import { getWorkflowSummaries } from "@/workflow_app/read-service"
+import { getWorkflowSummaries } from "@/legacy/workflow_app/read-service"
 
 export async function ReviewDashboard() {
   const [clients, deals, snapshot, workflowSummaries] = await Promise.all([

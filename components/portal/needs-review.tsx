@@ -1,7 +1,7 @@
 import { PageHeader } from "@/components/portal/page-header"
 import { Panel } from "@/components/portal/panel"
 import { NeedsReviewActions } from "@/components/portal/write/needs-review-actions"
-import type { NeedsReviewItem } from "@/db/needs-review"
+import type { NeedsReviewItem } from "@/legacy/db/needs-review"
 
 function requestTypeLabel(
   requestType: NeedsReviewItem["requestType"]

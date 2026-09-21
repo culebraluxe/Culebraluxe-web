@@ -15,9 +15,9 @@
 // ---------------------------------------------------------------------------
 import { pathToFileURL } from 'node:url'
 
-import { sql } from '../db/client'
-import { isoOrNull, mapForgeBatch, type ForgeBatch } from '../db/forge-batch'
-import type { QueryExecutor, QueryRow } from '../db/query-executor'
+import { sql } from '@/legacy/db/client'
+import { isoOrNull, mapForgeBatch, type ForgeBatch } from '@/legacy/db/forge-batch'
+import type { QueryExecutor, QueryRow } from '@/legacy/db/query-executor'
 
 const str = (value: unknown): string | null => (value == null ? null : String(value))
 const bool = (value: unknown): boolean | null => (value == null ? null : value === true)

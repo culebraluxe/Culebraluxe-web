@@ -3,10 +3,10 @@
 // For every exact-linked Gmail relationship identity, fetch a bounded window
 // of newest Gmail metadata and materialize the newest unambiguous direct email
 // carrying a subject. No body, snippet, attachment, or raw MIME is requested.
-import { getRelationshipEvidenceRows } from '../db/relationship-evidence'
-import { createInteraction } from '../db/interactions'
-import { landEmail } from '../db/landing'
-import type { QueryExecutor } from '../db/query-executor'
+import { getRelationshipEvidenceRows } from '@/legacy/db/relationship-evidence'
+import { createInteraction } from '@/legacy/db/interactions'
+import { landEmail } from '@/legacy/db/landing'
+import type { QueryExecutor } from '@/legacy/db/query-executor'
 import {
   gmailMetadataToContext,
   type GmailMetadataMessage,

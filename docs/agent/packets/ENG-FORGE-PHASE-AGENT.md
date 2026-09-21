@@ -17,14 +17,14 @@ every role inherits** instead of a remembered conditional.
 
 ## Files (current truth)
 
-- `workflow_app/forge/agents/forge-phase-agent.ts` — abstract parent +
+- `legacy/workflow_app/forge/agents/forge-phase-agent.ts` — abstract parent +
   pure policy/directive helpers.
-- `workflow_app/forge/agents/role-agents.ts` — concrete subclasses
+- `legacy/workflow_app/forge/agents/role-agents.ts` — concrete subclasses
   (Scout/Architect/Lead/Smith/QA/DevOps) + `forgeAgentFor(nodeId)` factory.
-- `workflow_app/forge/agent-runtime-role-runner.ts` — the real runner routes the
+- `legacy/workflow_app/forge/agent-runtime-role-runner.ts` — the real runner routes the
   marshal/deliverable/self-heal tail through the agent.
-- Tests: `workflow_app/tests/forge-phase-agent.test.ts`,
-  `workflow_app/tests/forge-evidence-roundtrip.test.ts` (DB-backed).
+- Tests: `legacy/workflow_app/tests/forge-phase-agent.test.ts`,
+  `legacy/workflow_app/tests/forge-evidence-roundtrip.test.ts` (DB-backed).
 
 ## The contract the parent owns
 

@@ -3,7 +3,7 @@ import { AGREEMENT_EXECUTION_MANUAL } from '../command-types'
 import { commandReceiptStatus } from '../contracts'
 import { createDomainEventFromCommand } from '../domain-events'
 import { resolveAgreementDocument } from '../../agreements/completion'
-import { recordManualAgreementExecution } from '../../../db/agreement-execution'
+import { recordManualAgreementExecution } from '@/legacy/db/agreement-execution'
 import { AGREEMENT_FULLY_EXECUTED } from '../../agreements/execution'
 import type {
   CommandEnvelope,

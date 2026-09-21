@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { captureServerError } from '@/lib/server-error-capture'
 import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
 import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
-import { getFlightRecorderTransaction, isProcessInstanceId } from "@/workflow_app/flight-recorder-read"
+import { getFlightRecorderTransaction, isProcessInstanceId } from "@/legacy/workflow_app/flight-recorder-read"
 import { withApiHandler } from '@/lib/error-capture-seam'
 
 // FLIGHT RECORDER — the canonical transaction read model backing the Grok view.

@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from 'react'
 
-import type { Receivable } from '@/db/accounting'
+import type { Receivable } from '@/legacy/db/accounting'
 import { RECEIVABLE_CATEGORIES } from '@/lib/accounting/categories'
 import { formatDate, formatMoney, todayISO } from '@/lib/accounting/format'
 import {

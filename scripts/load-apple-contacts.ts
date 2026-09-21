@@ -24,7 +24,7 @@
 // ---------------------------------------------------------------------------
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
-import { forgeDb, forgeDbTargetForUrl, type ForgeDbHandle } from '../db/forge-db'
+import { forgeDb, forgeDbTargetForUrl, type ForgeDbHandle } from '@/legacy/db/forge-db'
 import {
   APPLE_CONTACTS_ADAPTER,
   APPLE_CONTACTS_ADAPTER_VERSION,
@@ -35,8 +35,8 @@ import {
   type AppleContactExportBatch,
 } from '../lib/intake/apple-contacts'
 import { lowerBatchItemToIntakeMessage } from '../lib/intake/batch'
-import { insertOrReadIntegrationInbox } from '../db/integration-inbox'
-import type { QueryExecutor } from '../db/query-executor'
+import { insertOrReadIntegrationInbox } from '@/legacy/db/integration-inbox'
+import type { QueryExecutor } from '@/legacy/db/query-executor'
 import { fileURLToPath } from 'node:url'
 import { resolve as resolvePath } from 'node:path'
 

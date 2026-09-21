@@ -2,19 +2,19 @@
 
 import { randomUUID } from "node:crypto"
 
-import { enqueueAppleReminderUpsert } from "@/db/apple-gateway-outbox"
+import { enqueueAppleReminderUpsert } from "@/legacy/db/apple-gateway-outbox"
 import { getActingUser } from "@/lib/auth/get-acting-user"
 import { getPortalSessionAdapter } from "@/lib/auth/portal-session"
-import { SqlWbsRepository } from "@/db/wbs-service-repository"
-import { resolveSecurityLevel } from "@/services/security"
-import { WbsService } from "@/services/wbs"
-import type { WbsCategoryId } from "@/services/wbs"
+import { SqlWbsRepository } from "@/legacy/db/wbs-service-repository"
+import { resolveSecurityLevel } from "@/legacy/services/security"
+import { WbsService } from "@/legacy/services/wbs"
+import type { WbsCategoryId } from "@/legacy/services/wbs"
 import { appServiceErrorSink } from "@/lib/service-error-sink"
 import {
   AuthorizationService,
   StaticAuthorizationPolicyProvider,
-} from "@/services/entitlement"
-import type { ServiceContext } from "@/services/core"
+} from "@/legacy/services/entitlement"
+import type { ServiceContext } from "@/legacy/services/core"
 
 export type WbsActionResult =
   | { ok: true; id: string }

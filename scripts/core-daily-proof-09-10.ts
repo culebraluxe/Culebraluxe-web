@@ -4,9 +4,9 @@
 //   10: Contract operating summary from authoritative Deal facts + next action.
 //   node --env-file=.env.local --import tsx scripts/core-daily-proof-09-10.ts
 import { randomUUID } from 'node:crypto'
-import { recordContactOutcome, applyFollowUpCommand } from '../db/follow-up'
-import { getDealWorkspace } from '../db/deal-workspace'
-import { getContactEvidence } from '../db/attention'
+import { recordContactOutcome, applyFollowUpCommand } from '@/legacy/db/follow-up'
+import { getDealWorkspace } from '@/legacy/db/deal-workspace'
+import { getContactEvidence } from '@/legacy/db/attention'
 import { createPoolExecutor } from './lib/pool-executor'
 
 const url = (process.env.DATABASE_URL_DEV ?? process.env.DATABASE_URL) ?? ''

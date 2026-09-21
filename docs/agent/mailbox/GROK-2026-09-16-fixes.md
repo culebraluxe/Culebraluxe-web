@@ -8,7 +8,7 @@ Captain: pick this up. Do the four remaining hunks on the live box. Do not open 
 
 ## On `main` now
 
-- `workflow_app/forge/assay-workspace.ts` + `workflow_app/tests/assay-workspace.test.ts` — QA in operator cwd is a gap.
+- `legacy/workflow_app/forge/assay-workspace.ts` + `legacy/workflow_app/tests/assay-workspace.test.ts` — QA in operator cwd is a gap.
 - Architect preamble: new file → parent directory / `seamForNewFile`, not HOLD.
 - `describeRouting` prints `cheap|dear`.
 - This letter.
@@ -19,7 +19,7 @@ The helper is **dead code until you wire it**. That is the first hunk below.
 
 ### 1. Role-runner (the actual hole)
 
-`workflow_app/forge/agent-runtime-role-runner.ts`
+`legacy/workflow_app/forge/agent-runtime-role-runner.ts`
 
 Import next to `assessBaselineAcceptance`:
 
@@ -68,7 +68,7 @@ In `agent-runtime/learn-loop.ts`, replace the `docs/agent/packets` write + `git 
 
 ```
 pnpm forge:doctor
-node --import tsx --test workflow_app/tests/assay-workspace.test.ts workflow_app/tests/forge-kind-routing.test.ts
+node --import tsx --test legacy/workflow_app/tests/assay-workspace.test.ts legacy/workflow_app/tests/forge-kind-routing.test.ts
 pnpm release --verify 0
 ```
 

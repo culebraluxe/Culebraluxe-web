@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { GitBranch, Clock, Activity, ChevronRight, Layers } from "lucide-react"
 
-import type { WorkflowSummary } from "@/workflow_app/read-service"
+import type { WorkflowSummary } from "@/legacy/workflow_app/read-service"
 
 // FLIGHT-RECORDER — the engineering entry point to the Workflow Runtime
 // Inspector. Lists workflow executions; each card opens the Inspector, which

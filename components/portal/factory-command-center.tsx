@@ -25,7 +25,7 @@ import {
 } from "lucide-react"
 
 import type { FactorySnapshot } from "@/lib/factory-command-center-data"
-import type { WorkflowSummary } from "@/workflow_app/read-service"
+import type { WorkflowSummary } from "@/legacy/workflow_app/read-service"
 import { formatTime, runResultPill, shortId, statePill } from "@/lib/command-console-ui"
 
 // ---------------------------------------------------------------------------

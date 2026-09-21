@@ -1,11 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import type { Project } from '../services/project'
-import type { WbsItem } from '../services/wbs'
-import type { ActivityFeedEntry } from '../db/activity-feed'
+import type { Project } from '@/legacy/services/project'
+import type { WbsItem } from '@/legacy/services/wbs'
+import type { ActivityFeedEntry } from '@/legacy/db/activity-feed'
 import { mapRealProjectsToWorkspace } from '../ui/projects/service-projection'
-import { toActivityFeedEntry } from '../db/activity-feed'
+import { toActivityFeedEntry } from '@/legacy/db/activity-feed'
 
 // PROJECTS-WORKSPACE-01 — the truthful workspace read model.
 // Locks the frozen invariants: sort_order authority, completed-parent retention,

@@ -15,7 +15,7 @@
 // Dry-run by default; pass --apply to write.
 // ---------------------------------------------------------------------------
 
-import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db.ts'
+import { forgeDb, forgeDbTargetForUrl } from './scripts/legacy/db/forge-db.ts'
 
 const MARK = 'AMENDED 2026-09-10'
 const APPLY = process.argv.includes('--apply')

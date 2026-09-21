@@ -9,7 +9,7 @@
 // lib/commands/register.ts.
 // ---------------------------------------------------------------------------
 
-import { setDealFinancingType } from '../../../db/deal-financing'
+import { setDealFinancingType } from '@/legacy/db/deal-financing'
 import type {
   CommandEnvelope,
   CommandExecutionContext,

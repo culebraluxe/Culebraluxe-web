@@ -14,14 +14,14 @@ import {
   listAgentWorkForStory,
   listAgentWorkItems,
   type AgentWorkItem,
-} from '../db/agent-work'
+} from '@/legacy/db/agent-work'
 import {
   getStoryboardStory,
   listStoryboardStories,
   listStoryRuns,
   type StoryboardStory,
   type StoryRun,
-} from '../db/storyboard'
+} from '@/legacy/db/storyboard'
 
 export type ConsoleStory = StoryboardStory & {
   latestRun: StoryRun | null

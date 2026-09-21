@@ -15,7 +15,7 @@
 // says so out loud, because "restored" is a claim that should be checkable.
 // ---------------------------------------------------------------------------
 
-import { withdrawQueuedAgentWork, listActiveAgentWorkForStory } from '@/db/agent-work'
+import { withdrawQueuedAgentWork, listActiveAgentWorkForStory } from '@/legacy/db/agent-work'
 import {
   fireStagingBatch,
   getStagingBatch,
@@ -24,8 +24,8 @@ import {
   setStagingBatchPolicy,
   stageStoryForBatch,
   unstageStoryForBatch,
-} from '@/db/forge-batch'
-import { listStoryboardStories, getStoryboardStory, setStoryboardStatus } from '@/db/storyboard'
+} from '@/legacy/db/forge-batch'
+import { listStoryboardStories, getStoryboardStory, setStoryboardStatus } from '@/legacy/db/storyboard'
 import { interactiveSql } from '@/lib/neon-interactive'
 import { describeControlPlane } from '@/lib/execution-target'
 

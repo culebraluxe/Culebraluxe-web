@@ -1,6 +1,6 @@
 // READ-ONLY PROBE: what the engine has waiting / running RIGHT NOW, so a smoke test's expected
 // before-and-after is known before anyone clicks. Writes nothing.
-import { listActiveAgentWorkItems, listStaleAgentWork } from '@/db/agent-work'
+import { listActiveAgentWorkItems, listStaleAgentWork } from '@/legacy/db/agent-work'
 
 async function main() {
   const open = await listActiveAgentWorkItems()

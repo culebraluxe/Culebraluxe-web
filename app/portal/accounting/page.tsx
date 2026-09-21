@@ -1,6 +1,6 @@
 import { AccountingDashboard } from '@/components/portal/accounting/accounting-dashboard'
 import { AccountingShell } from '@/components/portal/accounting/accounting-shell'
-import { getAccountingDashboard, getPnlStatement } from '@/db/accounting'
+import { getAccountingDashboard, getPnlStatement } from '@/legacy/db/accounting'
 
 export const dynamic = 'force-dynamic'
 

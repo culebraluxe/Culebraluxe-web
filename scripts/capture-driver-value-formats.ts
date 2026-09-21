@@ -16,7 +16,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
-import { sql } from '../db/client'
+import { sql } from '@/legacy/db/client'
 
 async function main(): Promise<void> {
   const rows = await sql`
@@ -40,7 +40,7 @@ async function main(): Promise<void> {
       dateText: String(row.date_text),
     },
   }
-  const out = join(process.cwd(), 'workflow_app/tests/fixtures/driver-value-formats.json')
+  const out = join(process.cwd(), 'legacy/workflow_app/tests/fixtures/driver-value-formats.json')
   mkdirSync(dirname(out), { recursive: true })
   writeFileSync(out, `${JSON.stringify(capture, null, 2)}\n`)
   console.log('captured driver value formats:', JSON.stringify(capture.values))

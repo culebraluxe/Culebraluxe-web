@@ -1,10 +1,10 @@
 import { getTemplate } from '../forms/template-registry'
-import type { QueryExecutor } from '../../db/query-executor'
-import type { TxRunner } from '../../db/tx'
+import type { QueryExecutor } from '@/legacy/db/query-executor'
+import type { TxRunner } from '@/legacy/db/tx'
 import {
   claimAgreementExecution,
   getCompletedExecutionSlots,
-} from '../../db/agreement-execution'
+} from '@/legacy/db/agreement-execution'
 import {
   evaluateAgreementExecution,
   isExecutionEligibleTemplate,

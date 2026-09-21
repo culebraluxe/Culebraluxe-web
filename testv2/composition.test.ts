@@ -1,18 +1,18 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { composeCoreServices, type CoreServiceRepositories } from '../services/composition'
-import type { FirmDto, FirmRepository } from '../services/firm'
+import { composeCoreServices, type CoreServiceRepositories } from '@/legacy/services/composition'
+import type { FirmDto, FirmRepository } from '@/legacy/services/firm'
 import type {
   PropertyDto,
   PropertyForPersonDto,
   PropertyRepository,
   UpsertPropertyForPersonRequest,
-} from '../services/property'
-import type { ContractDto, ContractRepository } from '../services/contract'
-import type { SecurityRepository } from '../services/security'
-import type { ShowingDto, ShowingRepository } from '../services/showing'
-import type { WbsRepository } from '../services/wbs'
-import type { ProjectRepository } from '../services/project'
+} from '@/legacy/services/property'
+import type { ContractDto, ContractRepository } from '@/legacy/services/contract'
+import type { SecurityRepository } from '@/legacy/services/security'
+import type { ShowingDto, ShowingRepository } from '@/legacy/services/showing'
+import type { WbsRepository } from '@/legacy/services/wbs'
+import type { ProjectRepository } from '@/legacy/services/project'
 import { context, MemoryPersonRepository, principal } from './test-support'
 
 // ---------------------------------------------------------------------------

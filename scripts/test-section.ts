@@ -9,8 +9,8 @@
 //
 // "Changed" is deliberately AREA-level in V1: a path maps to sections by where it lives, not by an
 // import graph, because a graph is the inventory job and guessing it would be worse than saying what
-// this does. `workflow_app/forge/**` and `agent-runtime/**` are FORGE; `app/`, `components/`, `lib/`,
-// `db/` are APP; the harness owns `scripts/`. Tests changed always run their own section.
+// this does. `legacy/workflow_app/forge/**` and `agent-runtime/**` are FORGE; `app/`, `components/`, `lib/`,
+// `legacy/db/` are APP; the harness owns `scripts/`. Tests changed always run their own section.
 // ---------------------------------------------------------------------------
 import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'

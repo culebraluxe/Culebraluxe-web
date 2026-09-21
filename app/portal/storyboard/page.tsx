@@ -2,7 +2,7 @@ import { StoryBoard, StoryBoardNotReady } from "@/components/portal/story-board"
 import {
   listStoryboardStories,
   listStoryExecutionSummaries,
-} from "@/db/storyboard"
+} from "@/legacy/db/storyboard"
 import {
   buildStoryBoardModel,
   filterStories,

@@ -75,7 +75,7 @@ import {
   verifyWorkspaceEnvFile,
 } from '../../lib/execution-target'
 import { readWorkerCommitHash } from '../../lib/worker-workspace'
-import { applyRtkToEnv, forgeToolRoleForAgentRole } from '../../workflow_app/forge/forge-tool-seams'
+import { applyRtkToEnv, forgeToolRoleForAgentRole } from '@/legacy/workflow_app/forge/forge-tool-seams'
 import { captureServerLog } from '../../lib/server-error-capture'
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -280,7 +280,7 @@ async function readRecordedSessionId(
   context: AgentExecutionContext,
 ): Promise<string | null> {
   try {
-    const { readVendorSessionId } = await import('../../db/forge-vendor-session')
+    const { readVendorSessionId } = await import('@/legacy/db/forge-vendor-session')
     return await readVendorSessionId(context.command.storyId, 'opencode')
   } catch (err) {
     captureServerLog(
@@ -519,7 +519,7 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
       // role rather than every role after it. Leaving the marker in place would reuse the
       // corpse; never clearing on success would leave no id to reuse at all.
       if (this.pinnedSessionId) {
-        void import('../../db/forge-vendor-session')
+        void import('@/legacy/db/forge-vendor-session')
           .then((m) => m.writeVendorSessionId(context.command.storyId, 'opencode', null))
           .catch((err) => console.warn(`vendor-session clear skipped: ${String(err)}`))
       }
@@ -552,7 +552,7 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
         ? readSessionUsage({ sessionId: this.pinnedSessionId })
         : readHarnessUsage({ harnessStartedAtMs: this.startedAtMs ?? Date.now() })
       if (measured?.sessionId) {
-        void import('../../db/forge-vendor-session')
+        void import('@/legacy/db/forge-vendor-session')
           .then((m) => m.writeVendorSessionId(context.command.storyId, 'opencode', measured.sessionId))
           .catch((err) => console.warn(`vendor-session write skipped: ${String(err)}`))
       }

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { captureServerError } from '@/lib/server-error-capture'
 import { guardPortalUpload } from "@/lib/auth/portal-session"
-import { sql } from "@/db/client"
+import { sql } from "@/legacy/db/client"
 import {
   sanitizeUploadFilename,
   validateMediaUpload,

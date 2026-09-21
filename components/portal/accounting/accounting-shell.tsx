@@ -1,4 +1,4 @@
-import type { PnlTrendPoint } from '@/db/accounting'
+import type { PnlTrendPoint } from '@/legacy/db/accounting'
 import { formatMoney } from '@/lib/accounting/format'
 
 // ---------------------------------------------------------------------------

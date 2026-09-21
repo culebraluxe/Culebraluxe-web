@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { makePersonHarness, newContext } from './test-support'
-import type { PersonDto } from '../services/person/types'
+import type { PersonDto } from '@/legacy/services/person/types'
 
 // ---------------------------------------------------------------------------
 // TESTV2 — CORE service envelope tests (Person domain). Proves the typed

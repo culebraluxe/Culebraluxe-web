@@ -6,7 +6,7 @@ import type {
   ClientRelationshipChannel,
   RelationshipActivity,
 } from '@/lib/portal/types'
-import type { PersonPropertyContextDto } from '@/services/property/types'
+import type { PersonPropertyContextDto } from '@/legacy/services/property/types'
 import type {
   ClientWorkspaceListItem,
   ClientWorkspaceListPage,

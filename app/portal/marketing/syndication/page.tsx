@@ -1,6 +1,6 @@
 import { SyndicationWorkbench } from '@/components/portal/marketing/syndication-workbench'
-import { listListingSources, listPlacements, listRecentSyndicationEvents, listSightings } from '@/db/syndication'
-import { expireStalePlacements } from '@/db/syndication-expire'
+import { listListingSources, listPlacements, listRecentSyndicationEvents, listSightings } from '@/legacy/db/syndication'
+import { expireStalePlacements } from '@/legacy/db/syndication-expire'
 import { facebookReadiness } from '@/lib/syndication/env'
 
 export const dynamic = 'force-dynamic'

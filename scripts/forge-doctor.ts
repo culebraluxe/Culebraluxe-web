@@ -24,13 +24,13 @@ import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-import { listActiveAgentWorkItems } from '@/db/agent-work'
-import { getStagingBatch } from '@/db/forge-batch'
-import { listActiveDecisions } from '@/db/forge-decision'
-import { listEngineQueuedCards, listEngineRunCards } from '@/db/forge-engine-task-execution'
-import { listRoiAttempts, ROI_DEFAULT_WINDOW_DAYS } from '@/db/forge-roi'
-import { readForgeWorkflowEvidence } from '@/db/forge-workflow-evidence'
-import { listStoryboardRuns, listStoryboardStories, type StoryRun } from '@/db/storyboard'
+import { listActiveAgentWorkItems } from '@/legacy/db/agent-work'
+import { getStagingBatch } from '@/legacy/db/forge-batch'
+import { listActiveDecisions } from '@/legacy/db/forge-decision'
+import { listEngineQueuedCards, listEngineRunCards } from '@/legacy/db/forge-engine-task-execution'
+import { listRoiAttempts, ROI_DEFAULT_WINDOW_DAYS } from '@/legacy/db/forge-roi'
+import { readForgeWorkflowEvidence } from '@/legacy/db/forge-workflow-evidence'
+import { listStoryboardRuns, listStoryboardStories, type StoryRun } from '@/legacy/db/storyboard'
 import { describeRoiRow, summarizeRoi } from '@/lib/forge-roi'
 import { readLearnAnchor } from '@/agent-runtime/learn-loop'
 import {
@@ -38,14 +38,14 @@ import {
   isQaRunType,
   renderQaConsistencyLine,
   type QaConsistencyResult,
-} from '@/workflow_app/forge/forge-qa-consistency'
+} from '@/legacy/workflow_app/forge/forge-qa-consistency'
 import {
   renderForgeDoctorReport,
   type DoctorControlPlane,
   type DoctorOldestClaim,
   type DoctorPostcard,
   type DoctorWorkerLiveness,
-} from '@/workflow_app/forge/forge-doctor-report'
+} from '@/legacy/workflow_app/forge/forge-doctor-report'
 
 /** The engine ledger's own terminal vocabulary. Anything else is still open. */
 const TERMINAL_ENGINE_STATUSES = new Set(['completed', 'failed', 'interrupted'])

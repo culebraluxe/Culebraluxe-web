@@ -9,8 +9,8 @@
 // Usage:
 //   node --env-file=.env.local scripts/backfill-cost-widgets.ts [dev|prod]
 // -----------------------------------------------------------------------------
-import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db'
-import { modelWidgetWeight } from '../workflow_app/forge/forge-estimator'
+import { forgeDb, forgeDbTargetForUrl } from '@/legacy/db/forge-db'
+import { modelWidgetWeight } from '@/legacy/workflow_app/forge/forge-estimator'
 
 async function main() {
   const which = (process.argv[2] ?? 'dev').toLowerCase()

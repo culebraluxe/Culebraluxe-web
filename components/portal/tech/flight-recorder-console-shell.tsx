@@ -6,7 +6,7 @@ import {
   adaptFlightRecorderTransaction,
   type FlightRecorderTrace,
 } from "@/lib/flight-recorder-adapter"
-import type { FlightRecorderTransaction } from "@/workflow_app/flight-recorder-read"
+import type { FlightRecorderTransaction } from "@/legacy/workflow_app/flight-recorder-read"
 import { FlightRecorderPage } from "./flight-recorder-console/FlightRecorderPage"
 
 // FLIGHT-RECORDER-CONSOLE-SHELL — the bridge component for the portal route.

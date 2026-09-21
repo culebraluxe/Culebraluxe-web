@@ -10,5 +10,5 @@
 // Server-only: the caller is a React Server Component.
 // ---------------------------------------------------------------------------
 
-export { listSignatureRequestsByDocument } from '@/db/signature-request'
-export { listFormSignerPeople } from '@/db/form-signer'
+export { listSignatureRequestsByDocument } from '@/legacy/db/signature-request'
+export { listFormSignerPeople } from '@/legacy/db/form-signer'

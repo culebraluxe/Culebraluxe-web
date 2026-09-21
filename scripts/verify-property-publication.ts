@@ -17,15 +17,15 @@
 // This is a DEV script, so it runs outside Next and cannot import lib/property-reads
 // (that module carries the `server-only` guard). It exercises the SAME public-read
 // SQL the service uses; the service wiring itself is covered by tsc + the app build.
-import { sql } from '../db/client'
+import { sql } from '@/legacy/db/client'
 import {
   getFilteredProperties,
   getProperties,
   getPropertyBySlug,
   getPublicPropertySlugs,
   getPropertyIntroById,
-} from '../db/property-public-reads'
-import { setPropertyPublished } from '../db/portal-property'
+} from '@/legacy/db/property-public-reads'
+import { setPropertyPublished } from '@/legacy/db/portal-property'
 
 let failures = 0
 function check(name: string, ok: boolean, extra = '') {

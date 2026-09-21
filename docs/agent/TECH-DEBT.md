@@ -39,7 +39,7 @@ proves the learn loop's de-dupe against a real Postgres, and `pnpm forge:roi` re
   green `next build --webpack` does NOT prove the release builds — measured today, webpack was green while
   `vercel build` failed.
 - **`node:`-scheme imports are not stubbable in the edge compilation.** `lib/execution-target.ts` and
-  `db/database-gateway.ts` now import bare `fs`/`crypto` for that reason. Exit: if Next stops bundling
+  `legacy/db/database-gateway.ts` now import bare `fs`/`crypto` for that reason. Exit: if Next stops bundling
   instrumentation for Edge, revert to the `node:` form and delete this line.
 
 ## Paid on 2026-09-15 (kept so the register visibly moves)
@@ -52,7 +52,7 @@ proves the learn loop's de-dupe against a real Postgres, and `pnpm forge:roi` re
   it, artifact produced, nothing deployed).
 - **The five `ENG-FORGE-V9` topology failures were not five stale tests — one of them was a live throw.**
   `agent-runtime/forge-topology.ts` retyped the expected FORGE_SDLC version as a literal `1` while the loader
-  (`workflow_app/definitions/forge-sdlc.ts`) had long since exported `FORGE_SDLC_VERSION = 6` and read
+  (`legacy/workflow_app/definitions/forge-sdlc.ts`) had long since exported `FORGE_SDLC_VERSION = 6` and read
   `FORGE_SDLC-v6.xml`. The guard therefore failed closed on a path that `scripts/forge-orchestrate-wake.ts`
   calls (`runForgeHydrate`, `runForgeFollow`), and that script is imported by `scripts/agent-work.ts` — the
   live worker. The throw was gated behind the night plan, so it would have killed **the first unattended
@@ -76,11 +76,11 @@ proves the learn loop's de-dupe against a real Postgres, and `pnpm forge:roi` re
   listed in its Assay commands, covering the commit boundary and the rewind that makes a non-builder commit
   unreachable from the worktree.
 - **Per-card KIND chips** (`lib/sorter-board.ts`, `app/portal/tech/page.tsx`,
-  `components/portal/tech/story-kanban-board.tsx`, `workflow_app/tests/sorter-board.test.ts`): a staged card
+  `components/portal/tech/story-kanban-board.tsx`, `legacy/workflow_app/tests/sorter-board.test.ts`): a staged card
   now shows its own kind, and an unread kind renders no chip rather than a default. The page reads
   `listStagingBatchItems()` once and uses it for both the batch roster and the cards.
 - **Seven skill packs are anchored** to real paths (forms → `lib/forms/form-instance-io.ts`, neon →
-  `db/database-gateway.ts`, ui → `app/globals.css`, workflow → `workflow_app/forge/agent-runtime-role-runner.ts`,
+  `legacy/db/database-gateway.ts`, ui → `app/globals.css`, workflow → `legacy/workflow_app/forge/agent-runtime-role-runner.ts`,
   knip → `./knip.json`, cruiser → `./.dependency-cruiser.js`, semgrep → `scripts/forge-packet-lint.ts`), and
   cruiser / knip / ripwire / rtk / semgrep / serena are in `KNOWN_SKILLS`, so packets can actually load them.
 - **Stray file deleted:** `app/api/build-info/route 2.ts` (an untracked editor-save duplicate, byte-identical
@@ -142,5 +142,5 @@ proves the learn loop's de-dupe against a real Postgres, and `pnpm forge:roi` re
   story cost". Exit: a per-story view, if anyone ever asks for one — until then it is a scope choice, not a
   defect.
 - **Two modules import bare `fs`/`crypto` instead of the `node:` scheme** (`lib/execution-target.ts`,
-  `db/database-gateway.ts`). The `node:` form is not stubbable in the Edge compilation, so the bare form is
+  `legacy/db/database-gateway.ts`). The `node:` form is not stubbable in the Edge compilation, so the bare form is
   load-bearing. Exit: if Next stops bundling instrumentation for Edge, revert to `node:` and delete this.

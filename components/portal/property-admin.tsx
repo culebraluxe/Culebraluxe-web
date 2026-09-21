@@ -1,6 +1,6 @@
 import Link from "next/link"
 
-import type { PropertyAdminRow } from "@/db/property-admin"
+import type { PropertyAdminRow } from "@/legacy/db/property-admin"
 import { PropertyArchiveButton } from "@/components/portal/write/property-archive-button"
 import {
   PortalTable,

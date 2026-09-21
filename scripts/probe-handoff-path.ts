@@ -1,12 +1,12 @@
 // PROOF, on PROD, of the two handoffs the captain called "the big thing": OPEN -> ENGINE RUN Q and
 // WORK BENCE -> ENGINE RUN Q. Net zero: each handoff is withdrawn and the story restored exactly.
-import { listActiveAgentWorkForStory, withdrawQueuedAgentWork } from '@/db/agent-work'
+import { listActiveAgentWorkForStory, withdrawQueuedAgentWork } from '@/legacy/db/agent-work'
 import {
   getStoryboardStory,
   listActiveWork as bench,
   setActiveWork,
   setStoryboardStatus,
-} from '@/db/storyboard'
+} from '@/legacy/db/storyboard'
 
 const STORY = 'ENG-FORGE-DOCTOR-01'
 

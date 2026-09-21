@@ -54,21 +54,21 @@ test('every section is populated, because an empty section is a lie in the list'
 
 test('sectionForFile: a fence path keeps its section even after the story is long done', () => {
   // The reason this is a mapping and not a move: these exact paths are inside stories' frozen proofs.
-  assert.equal(sectionForFile('workflow_app/tests/claim-clock.test.ts'), 'forge-engine')
-  assert.equal(sectionForFile('workflow_app/tests/qa-disposition-vocab.test.ts'), 'forge-verify')
+  assert.equal(sectionForFile('legacy/workflow_app/tests/claim-clock.test.ts'), 'forge-engine')
+  assert.equal(sectionForFile('legacy/workflow_app/tests/qa-disposition-vocab.test.ts'), 'forge-verify')
   assert.equal(sectionForFile('agent-runtime/lead-decision.test.ts'), 'forge-runtime')
   assert.equal(sectionForFile('scripts/protected-files.test.ts'), 'harness')
-  assert.equal(sectionForFile('workflow_app/tests/clients-pagination.test.ts'), 'app-crm')
-  assert.equal(sectionForFile('workflow_app/tests/auth-boundary.test.ts'), 'app-identity')
+  assert.equal(sectionForFile('legacy/workflow_app/tests/clients-pagination.test.ts'), 'app-crm')
+  assert.equal(sectionForFile('legacy/workflow_app/tests/auth-boundary.test.ts'), 'app-identity')
 })
 
 test('sectionsForPaths: a change runs the sections it can affect, and says so by area', () => {
-  assert.deepEqual(sectionsForPaths(root, ['workflow_app/forge/forge-executor.ts']), [
+  assert.deepEqual(sectionsForPaths(root, ['legacy/workflow_app/forge/forge-executor.ts']), [
     'forge-engine',
     'forge-verify',
   ])
   assert.deepEqual(sectionsForPaths(root, ['agent-runtime/invoker.ts']), ['forge-runtime'])
   assert.deepEqual(sectionsForPaths(root, ['components/portal/x.tsx']), ['app-core'])
-  assert.deepEqual(sectionsForPaths(root, ['workflow_app/tests/claim-clock.test.ts']), ['forge-engine'])
+  assert.deepEqual(sectionsForPaths(root, ['legacy/workflow_app/tests/claim-clock.test.ts']), ['forge-engine'])
   assert.deepEqual(sectionsForPaths(root, ['docs/agent/MEMORY.md']), [], 'docs change no tests')
 })

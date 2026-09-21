@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 
 import { attachProjectAssets } from '../ui/projects/assets-projection'
 import type { ProjectsWorkspaceData } from '../ui/projects/model'
-import type { Project } from '../services/project'
-import type { WbsItem } from '../services/wbs'
+import type { Project } from '@/legacy/services/project'
+import type { WbsItem } from '@/legacy/services/wbs'
 
 const project = (overrides: Partial<Project> = {}): Project => ({
   id: 'project-1', name: 'Jessica Iverson Listing', owner: null, status: 'doing', description: '', areas: [],

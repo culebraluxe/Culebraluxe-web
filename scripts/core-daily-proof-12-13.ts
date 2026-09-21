@@ -3,9 +3,9 @@
 //   13: privacy-conscious telemetry rows, no private content.
 //   node --env-file=.env.local --import tsx scripts/core-daily-proof-12-13.ts
 import { randomUUID } from 'node:crypto'
-import { recordReconcileDecision } from '../db/relationship-evidence'
+import { recordReconcileDecision } from '@/legacy/db/relationship-evidence'
 import { REL_INTEL_RULE_VERSION } from '../lib/relationship-intel/reconcile'
-import { emitDailyLoopTelemetry } from '../db/telemetry'
+import { emitDailyLoopTelemetry } from '@/legacy/db/telemetry'
 import { createPoolExecutor } from './lib/pool-executor'
 
 const url = (process.env.DATABASE_URL_DEV ?? process.env.DATABASE_URL) ?? ''

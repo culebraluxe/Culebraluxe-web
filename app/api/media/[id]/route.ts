@@ -1,4 +1,4 @@
-import { sql } from "@/db/client"
+import { sql } from "@/legacy/db/client"
 
 import { captureServerError } from '@/lib/server-error-capture'
 import { getToken } from "next-auth/jwt"

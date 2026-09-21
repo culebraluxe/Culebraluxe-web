@@ -7,7 +7,7 @@ This is the **boot sheet for a fresh engineering session**. It is not a handoff 
 - **`DEEP1` in Neon** (title "DEEP1 — Data Pipeline Doctrine … READ SECOND") = data-pipeline authority / how data travels from intake to screen. Read it second, after ARCH-HANDOFF.
 - **This file** = what is on the bench, who may touch it, and how to choose a mode.
 - **Git + Neon live state** = what is actually true right now.
-- **Tool authority** = `workflow_app/forge/forge-tool-catalog.ts` (`resolveForgeToolPermissions`). Recomputed every lane transition. A session cannot keep a stale grant.
+- **Tool authority** = `legacy/workflow_app/forge/forge-tool-catalog.ts` (`resolveForgeToolPermissions`). Recomputed every lane transition. A session cannot keep a stale grant.
 
 > **Story ids, so nobody hunts again:** the board ids are `ARCH-HANDOFF`, `SOP1` and `DEEP1`.
 > Earlier revisions of this file called the first two "ARCH-01" and "SOP-01", which match
@@ -261,7 +261,7 @@ Use whatever the repo actually has: targeted tests, `tsc --noEmit`, `pnpm forge:
 ### Perimeter instruments (installed, not engine tools yet)
 
 Three instruments run at the repository boundary. They are **deliberately NOT in the engine tool
-catalog**: `wired` in `workflow_app/forge/forge-tool-catalog.ts` means "the engine can actually run
+catalog**: `wired` in `legacy/workflow_app/forge/forge-tool-catalog.ts` means "the engine can actually run
 it", a fence refuses to catalogue anything less (`wired` was corrected on 2026-09-11 for exactly this
 reason — cruiser and knip read as wired while the gate silently skipped), and the engine's static gate
 does not invoke these yet. Cataloguing them now would be a claim rather than a fact. Each one enters

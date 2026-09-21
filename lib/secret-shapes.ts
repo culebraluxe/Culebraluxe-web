@@ -6,7 +6,7 @@
 // sources for one fact, so the shapes live here and both readers import them.
 //
 // A match is a REFUSAL, so a false positive blocks a real publish. Keep the patterns narrow and
-// line-oriented, and prove any change with the fence (`workflow_app/tests/lane-secret-gate.test.ts`).
+// line-oriented, and prove any change with the fence (`legacy/workflow_app/tests/lane-secret-gate.test.ts`).
 // ---------------------------------------------------------------------------
 
 export type SecretShape = {

@@ -9,7 +9,7 @@
 // ---------------------------------------------------------------------------
 
 import { interactiveSql } from '../lib/neon-interactive'
-import type { QueryExecutor } from '../db/query-executor'
+import type { QueryExecutor } from '@/legacy/db/query-executor'
 import { PostgresMessageBroker } from '../lib/mq/broker'
 import { MqProofConsumer } from '../lib/mq/proof-consumer'
 import { createCrm26Consumer } from '../lib/agreements/crm26-consumer'

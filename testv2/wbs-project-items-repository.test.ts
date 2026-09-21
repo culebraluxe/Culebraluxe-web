@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { SqlWbsRepository } from '../db/wbs-service-repository'
-import type { QueryExecutor } from '../db/query-executor'
+import { SqlWbsRepository } from '@/legacy/db/wbs-service-repository'
+import type { QueryExecutor } from '@/legacy/db/query-executor'
 
 test('SQL project-items query returns terminal rows and orders by persisted sibling order', async () => {
   let statement = ''

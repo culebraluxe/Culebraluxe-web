@@ -24,9 +24,9 @@
 // Only --decision is required. Re-running with more flags fills the same row in
 // (one row per task/node/attempt; a retry writes a NEW attempt).
 // ---------------------------------------------------------------------------
-import { forgeDbPool } from '../db/forge-db.ts'
-import { decideAssignmentWrite, decideContractWrite } from '../db/forge-role-assignment-write.ts'
-import { decideFindingWrite } from '../db/forge-role-finding.ts'
+import { forgeDbPool } from './scripts/legacy/db/forge-db.ts'
+import { decideAssignmentWrite, decideContractWrite } from './scripts/legacy/db/forge-role-assignment-write.ts'
+import { decideFindingWrite } from './scripts/legacy/db/forge-role-finding.ts'
 
 const args = process.argv.slice(2)
 const arg = (name) => {
@@ -60,7 +60,7 @@ const commands = (name) => values(name).map((s) => s.trim()).filter(Boolean)
 // Postgres and surfacing as a database error that sends the reader hunting the wrong fault. Nothing is
 // inferred and nothing is defaulted: a decision with a default is a decision nobody made.
 import { ARCHITECT_HINT, ARCHITECT_REQUIRED, LEAD_DECISION, LEAD_SIZE, VERIFY_CANDIDATE, describeRefusal, mediateField } from '../lib/field-mediator'
-import { acceptanceClauses } from '../workflow_app/forge/agents/qa/types'
+import { acceptanceClauses } from './scripts/legacy/workflow_app/forge/agents/qa/types'
 import { validateLeadDecisionWrite } from '../lib/lead-decision-write'
 
 /**
@@ -252,7 +252,7 @@ if (arg('chunk')) {
 
   // THE DECISION OWNS THE WRITE (2026-09-17). The upsert below used to replace `finding_ids`
   // whenever the write declared any, so three chunk writes on one assignment kept only the last
-  // chunk's findings. The union/refuse rule lives in `db/forge-role-assignment-write.ts`; this call
+  // chunk's findings. The union/refuse rule lives in `legacy/db/forge-role-assignment-write.ts`; this call
   // is its only writer, and a refused write returns before any SQL, leaving the row untouched.
   const existingAssignment = await pool.query(
     `select finding_ids from forge_role_assignment
@@ -422,7 +422,7 @@ if (arg('finding-id')) {
   //
   // Until this guard the write upserted one row per finding and never looked at attempt N-1, and
   // the reader's newest-attempt scope then hid the loss from the Lead. The rule lives once, in
-  // `db/forge-role-finding.ts` (decideFindingWrite), so this script and its test read the same
+  // `legacy/db/forge-role-finding.ts` (decideFindingWrite), so this script and its test read the same
   // decision instead of two copies. A drop is REFUSED by name, or recorded as an explicit
   // supersede row — never a silent loss.
   const priorRow = await pool.query(

@@ -10,7 +10,7 @@
 // server-side layout/action guards (which re-resolve via getActingUser), and a
 // stale snapshot can only over-deny until the next sign-in (7-day max session).
 
-import { resolveProviderSubject } from '@/db/auth-identity'
+import { resolveProviderSubject } from '@/legacy/db/auth-identity'
 
 export async function getSessionAuthoritySnapshot(
   provider: string,

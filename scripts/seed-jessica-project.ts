@@ -8,7 +8,7 @@
 // already carries the same playbook.
 import { randomUUID } from 'node:crypto'
 
-import type { ServiceContext } from '../services/core'
+import type { ServiceContext } from '@/legacy/services/core'
 
 // The database gateway builds its Neon executor at MODULE LOAD (not lazily), so
 // APP_ENV must be set before the db modules are imported. A static import would run
@@ -27,18 +27,18 @@ const JESSICA_IVERSON = 'b741d639-3173-47bc-adff-769865c6347d'
 const PROJECT_ID = 'jessica-iverson-listing'
 
 async function main() {
-  const { ServiceRegistry, dbTargetInfo } = await import('../services/core').then(async (core) => ({
+  const { ServiceRegistry, dbTargetInfo } = await import('@/legacy/services/core').then(async (core) => ({
     ...core,
-    ...(await import('../db/client')),
-  })) as { ServiceRegistry: typeof import('../services/core').ServiceRegistry } & {
-    dbTargetInfo: typeof import('../db/client').dbTargetInfo
+    ...(await import('@/legacy/db/client')),
+  })) as { ServiceRegistry: typeof import('@/legacy/services/core').ServiceRegistry } & {
+    dbTargetInfo: typeof import('@/legacy/db/client').dbTargetInfo
   }
 
-  const { AuthorizationService, StaticAuthorizationPolicyProvider } = await import('../services/entitlement')
-  const { ProjectService } = await import('../services/project')
-  const { WbsService } = await import('../services/wbs')
-  const { SqlProjectRepository } = await import('../db/project-service-repository')
-  const { SqlWbsRepository } = await import('../db/wbs-service-repository')
+  const { AuthorizationService, StaticAuthorizationPolicyProvider } = await import('@/legacy/services/entitlement')
+  const { ProjectService } = await import('@/legacy/services/project')
+  const { WbsService } = await import('@/legacy/services/wbs')
+  const { SqlProjectRepository } = await import('@/legacy/db/project-service-repository')
+  const { SqlWbsRepository } = await import('@/legacy/db/wbs-service-repository')
 
   const resolved = dbTargetInfo()
   console.log(`resolved target: ${resolved.target} (branch ${resolved.neonBranch})`)

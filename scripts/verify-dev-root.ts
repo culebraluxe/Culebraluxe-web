@@ -1,6 +1,6 @@
 // AUTH-09C — DEV verification for the root Google subject.
 // Run: node --env-file=.env.local --import tsx scripts/verify-dev-root.ts
-import { db } from '../db/client'
+import { db } from '@/legacy/db/client'
 const SUBJECT = '104033509608344385707'
 const EMAIL = 'culebraluxe@gmail.com'
 

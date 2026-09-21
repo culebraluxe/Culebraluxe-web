@@ -31,4 +31,4 @@ was a code defect.
 - `b96caa3` (the mapping + the fence) · `1d06c31`, `e2d59fa` (the lane door and work type).
 - Live: `fast_smith → candidateSha 4418dd36… → fast_qa_verify qaPassed=true →
   fast_repair_smith → fast_qa_verify qaPassed=true`.
-- Tests: `workflow_app/tests/forge-role-mapping.test.ts` (8, incl. the six-node walk).
+- Tests: `legacy/workflow_app/tests/forge-role-mapping.test.ts` (8, incl. the six-node walk).

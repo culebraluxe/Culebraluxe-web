@@ -1,7 +1,7 @@
 // Read-only: print the Forge run-effectiveness scorecard (the first Maestro pull).
 // Usage: pnpm forge:scorecard [windowDays]
-import { computeForgeScorecard } from '../workflow_app/forge/forge-scorecard'
-import { resolveDbTarget, sql } from '../db/client'
+import { computeForgeScorecard } from '@/legacy/workflow_app/forge/forge-scorecard'
+import { resolveDbTarget, sql } from '@/legacy/db/client'
 
 const pct = (v: number | null) => (v === null ? 'n/a' : `${(v * 100).toFixed(1)}%`)
 const n = (v: number | null) => (v === null ? 'n/a' : String(v))

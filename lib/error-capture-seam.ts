@@ -11,7 +11,7 @@
 // Errors are captured with severity + context and rethrown/handled — they never
 // silently vanish, and never break the operation being recorded.
 // -----------------------------------------------------------------------------
-import { captureError, type ErrorLevel } from '../db/app-error'
+import { captureError, type ErrorLevel } from '@/legacy/db/app-error'
 
 export type CaptureOpts = {
   level?: ErrorLevel

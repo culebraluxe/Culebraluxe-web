@@ -4,7 +4,7 @@ HEAD: `fe7a89a` on `main`. Everything below is pushed, tsc-clean, lint 0 failure
 
 ## What a reviewer should open, in the order that matters
 
-1. **QA measures the candidate or not at all** — `workflow_app/forge/agent-runtime-role-runner.ts` (~1012-1036):
+1. **QA measures the candidate or not at all** — `legacy/workflow_app/forge/agent-runtime-role-runner.ts` (~1012-1036):
    the assay pins the workspace to `candidateSha` before measuring and throws
    `ASSAY_WORKSPACE_NOT_CANDIDATE` (a gap for a human) if it cannot; worktrees only, never the operator's
    primary checkout. Why: candidate `a54d8639` contained its own proof (185 lines) while the lane reported
@@ -14,9 +14,9 @@ HEAD: `fe7a89a` on `main`. Everything below is pushed, tsc-clean, lint 0 failure
    Landed tonight are the two worst behaviours: `forge-role-mapping.ts` is a projector (no verdict of its own,
    `verificationGap` survives, a gap is never `CODE_DEFECT` — `61a7b89`) and a refusal quotes the failing
    command's own output (`b320faa`). **Attack:** can a second verdict still be born anywhere?
-3. **The seam law is a function, not prose** — `seamForNewFile` in `workflow_app/forge/forge-shaping.ts`, cited
+3. **The seam law is a function, not prose** — `seamForNewFile` in `legacy/workflow_app/forge/forge-shaping.ts`, cited
    by `agents/architect/assess.ts` (its reason now names the *fix*) and by the Architect preamble
-   (`workflow_app/forge/forge-architect-directive.ts`). `8f…`/`d16e330`, `fe7a89a`. **Attack:** does the
+   (`legacy/workflow_app/forge/forge-architect-directive.ts`). `8f…`/`d16e330`, `fe7a89a`. **Attack:** does the
    preamble restate the law anywhere else that could drift?
 4. **Held is not crashed** — `forge-executor.ts` returns `blockedReason` (`no ready task; active: <node>=<status>`)
    and `scripts/forge-engine-worker.ts` prints it before exit 2. `aa8d548`. **Attack:** any other silent stop.

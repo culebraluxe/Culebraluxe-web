@@ -1,14 +1,14 @@
 // PROOF, on PROD, of the KAHN BAN -> TABLE SYNC and the Autosys rule: "if it's in the table it goes".
 // Net zero: the probe's batch rows are deleted and the story is restored exactly.
-import { listActiveAgentWorkForStory, withdrawQueuedAgentWork } from '@/db/agent-work'
+import { listActiveAgentWorkForStory, withdrawQueuedAgentWork } from '@/legacy/db/agent-work'
 import {
   fireStagingBatch,
   getStagingBatch,
   listForgeBatchesForStory,
   stageStoryForBatch,
   unstageStoryForBatch,
-} from '@/db/forge-batch'
-import { getStoryboardStory, setStoryboardStatus } from '@/db/storyboard'
+} from '@/legacy/db/forge-batch'
+import { getStoryboardStory, setStoryboardStatus } from '@/legacy/db/storyboard'
 import { interactiveSql } from '@/lib/neon-interactive'
 
 const STORY = 'ENG-FORGE-DOCTOR-01'

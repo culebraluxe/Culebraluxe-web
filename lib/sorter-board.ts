@@ -29,7 +29,7 @@
 //   6. OPEN          - everything else that is live (In Progress, Blocked, Hold, Failed)
 //
 // A pure function so the invariant is TESTABLE without a browser or a database:
-// `workflow_app/tests/sorter-board.test.ts`.
+// `legacy/workflow_app/tests/sorter-board.test.ts`.
 // ---------------------------------------------------------------------------
 
 export type SorterColumnId = 'backlog' | 'open' | 'bench' | 'batch' | 'next-version' | 'engine'

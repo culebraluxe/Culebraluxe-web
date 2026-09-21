@@ -1,9 +1,9 @@
 import { after, NextResponse, type NextRequest } from 'next/server'
 
 import { captureServerError } from '@/lib/server-error-capture'
-import { landWhatsapp } from '@/db/landing'
-import { sql } from '@/db/client'
-import { refreshClientReadModels } from '@/db/client-read-models'
+import { landWhatsapp } from '@/legacy/db/landing'
+import { sql } from '@/legacy/db/client'
+import { refreshClientReadModels } from '@/legacy/db/client-read-models'
 import { mapWhatsAppMessageToLanding } from '@/lib/whatsapp-cloud/attribution'
 import {
   loadMetaWhatsAppConfiguration,

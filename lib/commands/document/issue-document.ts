@@ -7,7 +7,7 @@
 // surfaces go through VaultService instead (lib/vault-io.ts).
 // ---------------------------------------------------------------------------
 
-import { issueFormDocument } from '../../../db/issued-document'
+import { issueFormDocument } from '@/legacy/db/issued-document'
 import type {
   CommandEnvelope,
   CommandExecutionContext,

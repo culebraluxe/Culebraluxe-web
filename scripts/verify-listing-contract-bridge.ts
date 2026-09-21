@@ -11,18 +11,18 @@
 
 import { randomUUID } from 'node:crypto'
 
-import { sql } from '../db/client'
-import { updateFormInstance } from '../db/form-service-repository'
-import { composeCoreServices } from '../services/composition'
+import { sql } from '@/legacy/db/client'
+import { updateFormInstance } from '@/legacy/db/form-service-repository'
+import { composeCoreServices } from '@/legacy/services/composition'
 import {
   AuthorizationService,
   StaticAuthorizationPolicyProvider,
-} from '../services/entitlement/authorization-service'
-import { SqlContractRepository } from '../db/contract-service-repository'
-import { SqlFirmRepository } from '../db/firm-service-repository'
-import { SqlPersonRepository } from '../db/person-service-repository'
-import { SqlPropertyRepository } from '../db/property-service-repository'
-import { CONTRACT_OPERATIONS } from '../services/contract'
+} from '@/legacy/services/entitlement/authorization-service'
+import { SqlContractRepository } from '@/legacy/db/contract-service-repository'
+import { SqlFirmRepository } from '@/legacy/db/firm-service-repository'
+import { SqlPersonRepository } from '@/legacy/db/person-service-repository'
+import { SqlPropertyRepository } from '@/legacy/db/property-service-repository'
+import { CONTRACT_OPERATIONS } from '@/legacy/services/contract'
 import { planContractFromForm } from '../lib/forms/contract-from-form'
 import { getTemplate } from '../lib/forms/template-registry'
 

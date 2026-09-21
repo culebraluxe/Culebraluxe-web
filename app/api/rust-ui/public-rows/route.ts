@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { getGuideItems } from '@/db/guide'
-import { getMarketingContent } from '@/db/marketing-content'
-import { getProperties, getPropertyBySlug } from '@/db/property-public-reads'
+import { getGuideItems } from '@/legacy/db/guide'
+import { getMarketingContent } from '@/legacy/db/marketing-content'
+import { getProperties, getPropertyBySlug } from '@/legacy/db/property-public-reads'
 import { MARKETING_SLOTS } from '@/lib/marketing-content'
 import { withApiHandler } from '@/lib/error-capture-seam'
 

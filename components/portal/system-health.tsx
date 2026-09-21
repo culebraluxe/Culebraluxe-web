@@ -1,4 +1,4 @@
-import type { SystemHealthSnapshot } from "@/db/system-health"
+import type { SystemHealthSnapshot } from "@/legacy/db/system-health"
 import type { EnvironmentReadiness } from "@/lib/environment-readiness"
 
 function MetricCard({

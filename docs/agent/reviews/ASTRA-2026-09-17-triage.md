@@ -16,7 +16,7 @@ evidence in its own notes; nothing is hidden in a private list.
 | 1 | DEV verification checks DEV/PROD parity before PROD migration, so a new table blocks its own promotion | `ENG-FORGE-RELEASE-ORDER-01` | `release-operations.ts:198` calls `checkSchemaParity(devUrl, prodUrl)`; drift list built at `:201-208` |
 | 2 | Migration SQL executes before its receipt is recorded, so a retry can repeat it | `ENG-FORGE-MIGRATION-REPLAY-01` | `release-operations.ts:92` runs `pool.query(migration.sql)` first; the `forge_migration_execution` write follows separately |
 | 3 | Engine advancement, evidence and repair counters are separate writes | `ENG-FORGE-CRASH-WINDOW-01` | `forge-engine-runtime.ts:221` advances before the evidence write; a crash can undercount repairs at `forge-executor.ts:356` |
-| 4 | `Z` appended to a timestamp that already carries an offset → NaN → a live claim reads as stale | `ENG-FORGE-CLAIM-CLOCK-01` | `db/forge-engine-task-execution.ts:110` — `Date.parse(updatedAt.replace(' ','T') + 'Z')` |
+| 4 | `Z` appended to a timestamp that already carries an offset → NaN → a live claim reads as stale | `ENG-FORGE-CLAIM-CLOCK-01` | `legacy/db/forge-engine-task-execution.ts:110` — `Date.parse(updatedAt.replace(' ','T') + 'Z')` |
 
 Two things found while verifying: bugs 3 and candidate 5 are **stated residuals in the code itself**
 (`forge-engine-runtime.ts:214-221` says a losing QA worker can still record a disposition and that closing
@@ -86,7 +86,7 @@ An external review sees a snapshot and usually only git. Three of these are plac
 one of them is a place I was wrong and Astra was right — recorded either way, because a review that is
 never argued with is not being read.
 
-**1. Bug 4 is real, and I doubted it wrongly.** `db/forge-engine-task-execution.ts:121` reads
+**1. Bug 4 is real, and I doubted it wrongly.** `legacy/db/forge-engine-task-execution.ts:121` reads
 `stale: !terminal && (!Number.isFinite(touched) || touched < staleBefore)`. The `!Number.isFinite` clause
 means an unparseable timestamp AFFIRMATIVELY marks a non-terminal row stale — so the `Z`-append is not a
 comparison that quietly fails, it is a green light to treat a live claim as reapable. Astra's wording

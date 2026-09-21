@@ -4,7 +4,7 @@ import {
   BreakGlassStatusPanel,
   SecurityStatusPanel,
 } from "@/components/portal/settings-auth"
-import { getSecurityStatus } from "@/db/auth-status"
+import { getSecurityStatus } from "@/legacy/db/auth-status"
 import { getBreakGlassReadiness } from "@/lib/auth/break-glass-readiness"
 
 const sections = [

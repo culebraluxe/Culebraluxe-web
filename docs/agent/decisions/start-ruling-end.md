@@ -57,9 +57,9 @@ one was found by *running* the machine, not by reading it.
 
 - `agent-runtime/candidate-assay-handoff.test.ts` — a clean verdict finalizes clean; an unclean verdict
   still holds and still says why.
-- `workflow_app/tests/story-scope-base.test.ts` — the scope base is the story's own, never a guess.
-- `workflow_app/tests/storyboard.test.ts` — the architect's writer stamps when the brief last changed.
-- `workflow_app/tests/forge-release-markers.test.ts` — a resolved release clears the failure it resolved.
+- `legacy/workflow_app/tests/story-scope-base.test.ts` — the scope base is the story's own, never a guess.
+- `legacy/workflow_app/tests/storyboard.test.ts` — the architect's writer stamps when the brief last changed.
+- `legacy/workflow_app/tests/forge-release-markers.test.ts` — a resolved release clears the failure it resolved.
 
 Commit trail: `703d3d63` (verdict is the ruling), `c25a9041` (story base), `d1085c63` (ancestry),
 `2936c5e8` (brief timestamp), `6cbaeb9d` (empty plan fails, no run means no verdict).

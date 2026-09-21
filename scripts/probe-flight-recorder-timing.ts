@@ -2,8 +2,8 @@
 //
 // Picks the deal with the MOST engine instances — the worst case the console can be asked for —
 // and times getFlightRecorderTransaction(instanceId) the way the cockpit route calls it.
-import { engineConfigured, engineSql } from '../workflow_app/engine-client'
-import { getFlightRecorderTransaction } from '../workflow_app/flight-recorder-read'
+import { engineConfigured, engineSql } from '@/legacy/workflow_app/engine-client'
+import { getFlightRecorderTransaction } from '@/legacy/workflow_app/flight-recorder-read'
 
 async function main(): Promise<void> {
   if (!engineConfigured()) {

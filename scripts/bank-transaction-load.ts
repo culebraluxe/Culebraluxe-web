@@ -22,7 +22,7 @@ import {
   parseBankStatement,
   sourceAccountIdentity,
 } from '../lib/bank-ofx'
-import { insertBankTransactions } from '../db/bank-transaction'
+import { insertBankTransactions } from '@/legacy/db/bank-transaction'
 import { createPoolExecutor } from './lib/pool-executor'
 
 const SOURCE_SYSTEM = 'ofx_qbo'

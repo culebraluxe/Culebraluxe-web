@@ -4,20 +4,20 @@
 //   (b) direct SQL path: db/property-public-reads.ts
 // on the DEV control plane. DEV only; no writes.
 
-import { composeCoreServices } from '../services/composition'
-import { AuthorizationService } from '../services/entitlement/authorization-service'
-import { StaticAuthorizationPolicyProvider } from '../services/entitlement/authorization-service'
-import { SqlPropertyRepository } from '../db/property-service-repository'
+import { composeCoreServices } from '@/legacy/services/composition'
+import { AuthorizationService } from '@/legacy/services/entitlement/authorization-service'
+import { StaticAuthorizationPolicyProvider } from '@/legacy/services/entitlement/authorization-service'
+import { SqlPropertyRepository } from '@/legacy/db/property-service-repository'
 import {
   getFilteredProperties,
   getProperties,
   getPropertyBySlug,
   getPropertyIntroById,
   getPublicPropertySlugs,
-} from '../db/property-public-reads'
-import { PROPERTY_OPERATIONS } from '../services/property'
-import type { PropertySummary } from '../services/property'
-import { sql } from '../db/client'
+} from '@/legacy/db/property-public-reads'
+import { PROPERTY_OPERATIONS } from '@/legacy/services/property'
+import type { PropertySummary } from '@/legacy/services/property'
+import { sql } from '@/legacy/db/client'
 
 const repos = {
   person: null as never,

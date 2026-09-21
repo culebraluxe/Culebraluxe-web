@@ -8,7 +8,7 @@
 //   catch (e) { throw captureServerError('claim:activate', e, { route: '/x' }) }
 //   // cleanup (release/rollback) belongs in finally, not here.
 // -----------------------------------------------------------------------------
-import { captureError, type ErrorLevel } from '../db/app-error'
+import { captureError, type ErrorLevel } from '@/legacy/db/app-error'
 
 export type CaptureOpts = {
   level?: ErrorLevel

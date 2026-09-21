@@ -46,9 +46,9 @@ The threshold is a constant with a name, not a magic number inline.
 
 Through the **existing** seam — no new store, no new table, no UI:
 
-- `workflow_app/forge/forge-observer/` — the append-only trace events.
-- `workflow_app/forge/forge-alerts/rules.ts` — the rule set (`info | watch | hold-recommend`).
-- `workflow_app/forge/forge-scorecard.ts` — the reporting surface (`pnpm forge:scorecard`).
+- `legacy/workflow_app/forge/forge-observer/` — the append-only trace events.
+- `legacy/workflow_app/forge/forge-alerts/rules.ts` — the rule set (`info | watch | hold-recommend`).
+- `legacy/workflow_app/forge/forge-scorecard.ts` — the reporting surface (`pnpm forge:scorecard`).
 
 **Phase 1 is log-only.** Neither signal may gate a run. A `hold-recommend` is a
 recommendation, not a HOLD — the runner still owns that decision.

@@ -7,7 +7,7 @@ import {
   listStoryIdsWithStatus,
   setActiveWork,
   setStoryboardStatus,
-} from '@/db/storyboard'
+} from '@/legacy/db/storyboard'
 
 async function main() {
   const PAIRS: Array<[StoryBucket, StoryBucket]> = [

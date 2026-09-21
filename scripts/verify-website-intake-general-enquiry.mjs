@@ -18,7 +18,7 @@ const {
   parseWebsiteIntakeFormData,
   processWebsiteIntake,
 } = await import('../lib/website-intake.ts')
-const { persistCanonicalWebsiteIntake } = await import('../db/website-intake.ts')
+const { persistCanonicalWebsiteIntake } = await import('./scripts/legacy/db/website-intake.ts')
 
 const SUBMISSION = '40000000-0000-4000-8000-000000000026'
 const PROPERTY = '40000000-0000-4000-8000-000000000001'

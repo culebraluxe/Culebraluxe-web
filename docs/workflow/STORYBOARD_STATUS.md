@@ -64,7 +64,7 @@
 
 - **Status:** `PASS`
 - **Files changed:** commit `ff6b371` ("Add CRM interaction and task
-  foundation"); `db/migrations/005_crm_interaction_task_foundation.sql` and the
+  foundation"); `legacy/db/migrations/005_crm_interaction_task_foundation.sql` and the
   interaction/task repositories.
 - **Tests/checks run:** CRM-01 fixture suite
   (`scripts/verify-crm-foundation.mjs`), zero Neon access (RUNLOG).
@@ -109,7 +109,7 @@
 - **Files changed:** commit `d5ad6fc` ("Add website CRM intake pipeline");
   `app/actions/website-intake.ts`, `app/contact/page.tsx`,
   `components/contact.tsx`, `components/property/property-actions.tsx`,
-  `db/migrations/006_website_intake_submission.sql`, `db/website-intake.ts`,
+  `legacy/db/migrations/006_website_intake_submission.sql`, `legacy/db/website-intake.ts`,
   `lib/website-intake.ts`, `lib/website-intake-types.ts`,
   `scripts/verify-website-intake.mjs`.
 - **Tests/checks run:** CRM-04 fixture suite
@@ -223,8 +223,8 @@
 ### S-010 — V1 DB Unblock M-1: WhatsApp Interaction Channel (migration 010)
 
 - **Status:** `PASS` (migration recorded and committed)
-- **Files changed:** `db/migrations/010_whatsapp_channel.sql`;
-  `db/manual/2026-08-20_v1_database_unblock.sql` (commit `61316de`,
+- **Files changed:** `legacy/db/migrations/010_whatsapp_channel.sql`;
+  `legacy/db/manual/2026-08-20_v1_database_unblock.sql` (commit `61316de`,
   "Add V1 CRM database unblock tranche").
 - **Tests/checks run:** migration review per `docs/agent/CURRENT.md` M-1 notes.
 - **Database mutations:** migration 010 recorded/committed. Neon execution is
@@ -237,7 +237,7 @@
 ### S-011 — V1 DB Unblock M-2: General Enquiry Website Intake (migration 011)
 
 - **Status:** `PASS` (migration recorded and committed)
-- **Files changed:** `db/migrations/011_website_intake_general_enquiry.sql`
+- **Files changed:** `legacy/db/migrations/011_website_intake_general_enquiry.sql`
   (commit `61316de`).
 - **Tests/checks run:** migration review per CURRENT.md M-2 notes.
 - **Database mutations:** migration 011 recorded/committed. Neon execution is
@@ -251,7 +251,7 @@
 ### S-012 — V1 DB Unblock M-3: Deal Participants (migration 012)
 
 - **Status:** `PASS` (migration recorded and committed)
-- **Files changed:** `db/migrations/012_deal_participant.sql` (commit
+- **Files changed:** `legacy/db/migrations/012_deal_participant.sql` (commit
   `61316de`).
 - **Tests/checks run:** migration review per CURRENT.md M-3 notes.
 - **Database mutations:** migration 012 recorded/committed; backfill from
@@ -266,7 +266,7 @@
 ### S-013 — V1 DB Unblock M-4: Showing Lifecycle (migration 013)
 
 - **Status:** `PASS` (migration recorded and committed; documented only)
-- **Files changed:** `db/migrations/013_showing.sql` (commit `61316de`).
+- **Files changed:** `legacy/db/migrations/013_showing.sql` (commit `61316de`).
 - **Tests/checks run:** migration review per CURRENT.md M-4 notes.
 - **Database mutations:** migration 013 recorded/committed. Neon execution is
   an operational fact not verifiable from repository docs.
@@ -280,7 +280,7 @@
 ### S-014 — V1 DB Unblock M-5: Offer Model (migration 014)
 
 - **Status:** `PASS` (migration recorded and committed)
-- **Files changed:** `db/migrations/014_offer.sql` (commit `61316de`).
+- **Files changed:** `legacy/db/migrations/014_offer.sql` (commit `61316de`).
 - **Tests/checks run:** migration review per CURRENT.md M-5 notes.
 - **Database mutations:** migration 014 recorded/committed. Neon execution is
   an operational fact not verifiable from repository docs.
@@ -294,9 +294,9 @@
 
 - **Status:** `PASS` (schema foundation + docs; **runtime enforcement not yet
   active**)
-- **Files changed:** `db/migrations/015_auth_security_model.sql`,
+- **Files changed:** `legacy/db/migrations/015_auth_security_model.sql`,
   `016_auth_identity.sql`, `017_security_audit_event.sql`; manual bootstrap SQL
-  in `db/manual/` (`v2`, `v2a`, `v3`, `v6`); `docs/auth-security-model.md`,
+  in `legacy/db/manual/` (`v2`, `v2a`, `v3`, `v6`); `docs/auth-security-model.md`,
   `auth-command-map.md`, `authjs-adapter.md`, `auth-test-matrix.md`,
   `auth-bootstrap-order.md`; `lib/auth/break-glass-secret.ts`;
   `scripts/generate-break-glass-hash.mjs`, `scripts/verify-break-glass-secret.mjs`;
@@ -381,18 +381,18 @@
 
 - **Status:** `PASS`
 - **Files changed:** commit `2b83f53` ("Build CRM-14 transaction workflow
-  foundation"); `db/workflow-command-receipt.ts`, `db/deal-stage.ts`,
-  `db/offer-acceptance.ts`, `db/deal-closing-date.ts`, `db/deal-financing.ts`,
-  `db/tx.ts`; `db/migrations/018_workflow_command_receipt.sql`,
+  foundation"); `legacy/db/workflow-command-receipt.ts`, `legacy/db/deal-stage.ts`,
+  `legacy/db/offer-acceptance.ts`, `legacy/db/deal-closing-date.ts`, `legacy/db/deal-financing.ts`,
+  `legacy/db/tx.ts`; `legacy/db/migrations/018_workflow_command_receipt.sql`,
   `019_workflow_task_correlation.sql`, `020_deal_financing_type.sql`;
-  `workflow_app/command-router.ts`, `engine-bridge.ts`, `application-port.ts`,
+  `legacy/workflow_app/command-router.ts`, `engine-bridge.ts`, `application-port.ts`,
   `facts.ts`, `responsibility.ts`, `financing.ts`, `correlation.ts`,
   `idempotency.ts`, `engine-client.ts`.
-- **Tests/checks run:** `workflow_app/tests/acceptance.test.ts`,
+- **Tests/checks run:** `legacy/workflow_app/tests/acceptance.test.ts`,
   `deal-closing-date.test.ts`, `financing.test.ts`, `uniqueness.test.ts`;
   in-memory fakes, no DB required.
 - **Database mutations:** migrations 018–020 recorded/committed; manual bundles
-  `db/manual/2026-08-20_v4_crm14_workflow_activation.sql` (activation) and
+  `legacy/db/manual/2026-08-20_v4_crm14_workflow_activation.sql` (activation) and
   `v5_crm14_verify_readonly.sql` (read-only verification) recorded. Neon
   execution is an operational fact not verifiable from repository docs.
 - **Defects found:** none recorded at foundation stage; later hardening
@@ -406,12 +406,12 @@
 
 - **Status:** `PASS`
 - **Files changed:** commit `6c8e82e` ("Add XML-driven RE workflow supermodel");
-  `workflow_app/xml/mini-xml.ts`, `xml-parser.ts`, `graph-validator.ts`;
-  `workflow_app/definitions/RE_supermodel-v1.xml`, `re-supermodel.ts`,
-  `version-policy.ts`; `workflow_app/scripts/deploy-process-definition.ts`;
-  `db/manual/2026-08-20_v4_crm14_workflow_activation.sql`,
+  `legacy/workflow_app/xml/mini-xml.ts`, `xml-parser.ts`, `graph-validator.ts`;
+  `legacy/workflow_app/definitions/RE_supermodel-v1.xml`, `re-supermodel.ts`,
+  `version-policy.ts`; `legacy/workflow_app/scripts/deploy-process-definition.ts`;
+  `legacy/db/manual/2026-08-20_v4_crm14_workflow_activation.sql`,
   `v5_crm14_verify_readonly.sql`; `docs/workflow-xml-model.md`.
-- **Tests/checks run:** `workflow_app/tests/mini-xml.test.ts` (13),
+- **Tests/checks run:** `legacy/workflow_app/tests/mini-xml.test.ts` (13),
   `xml-parser.test.ts` (15), `graph-validator.test.ts` (25),
   `re-supermodel.test.ts` (22), `version-policy.test.ts` (4),
   `uniqueness.test.ts` (3).
@@ -432,7 +432,7 @@
 
 - **Status:** `PASS`
 - **Files changed:** commit `ffac351` ("Fix Neon workflow transaction
-  adapter"); `db/tx.ts`, `workflow_app/engine-client.ts`, workflow transaction
+  adapter"); `legacy/db/tx.ts`, `legacy/workflow_app/engine-client.ts`, workflow transaction
   adapter surface.
 - **Tests/checks run:** workflow tests exercising `TxRunner`; live DEV runs.
 - **Database mutations:** none from tests (in-memory fakes); live DEV runs per
@@ -447,11 +447,11 @@
 
 - **Status:** `PASS`
 - **Files changed:** commit `df72e80` ("Add workflow task completion seam");
-  `workflow_app/task-completion.ts` (`completeWorkflowTaskCore` + deps),
+  `legacy/workflow_app/task-completion.ts` (`completeWorkflowTaskCore` + deps),
   `task-materialization.ts`, `task-reconciliation.ts`;
-  `db/migrations/019_workflow_task_correlation.sql`;
-  `workflow_app/tests/task-completion.test.ts`, `materialization.test.ts`.
-- **Tests/checks run:** `workflow_app/tests/task-completion.test.ts` (3),
+  `legacy/db/migrations/019_workflow_task_correlation.sql`;
+  `legacy/workflow_app/tests/task-completion.test.ts`, `materialization.test.ts`.
+- **Tests/checks run:** `legacy/workflow_app/tests/task-completion.test.ts` (3),
   `materialization.test.ts` (3); live checks `materializedTasks: 0` on
   re-reconcile and `duplicate_correlations: 0` (TUNIT register #7/#8).
 - **Database mutations:** none from tests (in-memory fakes); live DEV
@@ -482,11 +482,11 @@
 - **Status:** `PASS`
 - **Files changed:** commit `1661937` ("Harden workflow command replay"),
   commit `7eb8690` ("test: add assertion that pending receipt outcome is
-  conflict"); `db/workflow-command-receipt.ts` (`claimReceipt`,
+  conflict"); `legacy/db/workflow-command-receipt.ts` (`claimReceipt`,
   `finalizeReceipt`, `readFinalReceipt`, `replayOutcome`);
-  `db/migrations/018_workflow_command_receipt.sql`;
-  `workflow_app/tests/command-receipt.test.ts`.
-- **Tests/checks run:** `workflow_app/tests/command-receipt.test.ts` (6 tests);
+  `legacy/db/migrations/018_workflow_command_receipt.sql`;
+  `legacy/workflow_app/tests/command-receipt.test.ts`.
+- **Tests/checks run:** `legacy/workflow_app/tests/command-receipt.test.ts` (6 tests);
   `tsx --test` runner; `replayOutcome` unit coverage plus `setDealStage`
   integration fakes.
 - **Database mutations:** none from tests (in-memory fakes); migration 018
@@ -505,8 +505,8 @@
 
 - **Status:** `PASS`
 - **Files changed:** commit `cc4c6da` ("Add workflow reset and IT support
-  diagnostics"); `workflow_app/reset.ts`, `workflow_app/diagnostics.ts`;
-  `workflow_app/tests/reset.test.ts`, `reconcile.test.ts`.
+  diagnostics"); `legacy/workflow_app/reset.ts`, `legacy/workflow_app/diagnostics.ts`;
+  `legacy/workflow_app/tests/reset.test.ts`, `reconcile.test.ts`.
 - **Tests/checks run:** `reset.test.ts` (2), `reconcile.test.ts` (2); live
   terminal-invariant sweep (all clean) per TUNIT register #15.
 - **Database mutations:** read-only diagnostics; reset path is bounded and
@@ -523,10 +523,10 @@
 
 - **Status:** `PASS`
 - **Files changed:** commit `ec3947b` ("Complete workflow end-to-end trust
-  validation"); `workflow_app/tests/acceptance.test.ts` (8),
+  validation"); `legacy/workflow_app/tests/acceptance.test.ts` (8),
   `deal-closing-date.test.ts` (4), `closing-timer.test.ts` (7),
   `re-supermodel.test.ts` (22), `materialization.test.ts` (3),
-  `task-completion.test.ts` (3); `workflow_app/reconcile.ts`.
+  `task-completion.test.ts` (3); `legacy/workflow_app/reconcile.ts`.
 - **Tests/checks run:** full workflow_app test suite (in-memory fakes); live
   DEV verification per TUNIT register #7/#8/#12/#16.
 - **Database mutations:** none from tests; live DEV instance exercised via
@@ -545,10 +545,10 @@
 - **Files changed:** `docs/tunit-harvest-register.md` (16 mechanisms).
 - **Tests/checks run:** cross-checked against the listed artifacts
   (`workflow_engine/tests/hardening.test.ts`,
-  `workflow_app/tests/command-receipt.test.ts`, `re-supermodel.test.ts`,
+  `legacy/workflow_app/tests/command-receipt.test.ts`, `re-supermodel.test.ts`,
   `materialization.test.ts`, `task-completion.test.ts`, `closing-timer.test.ts`,
   `acceptance.test.ts`, `deal-closing-date.test.ts`, `version-policy.test.ts`,
-  `workflow_app/diagnostics.ts`).
+  `legacy/workflow_app/diagnostics.ts`).
 - **Database mutations:** none (documentation only).
 - **Defects found:** one known remaining gap recorded — transactional
   concurrency of the join release under two simultaneous branch completions
@@ -563,9 +563,9 @@
 - **Status:** `PASS`
 - **Files changed:** commit `fddcd26` ("test: add regression test for
   concurrent fork branches joining exactly once");
-  `workflow_app/tests/concurrency.test.ts` (4 tests, including join-exactly-
+  `legacy/workflow_app/tests/concurrency.test.ts` (4 tests, including join-exactly-
   once under simultaneous completions).
-- **Tests/checks run:** `workflow_app/tests/concurrency.test.ts` via `tsx
+- **Tests/checks run:** `legacy/workflow_app/tests/concurrency.test.ts` via `tsx
   --test` (in-memory model of the `UNIQUE(command_id)` claim boundary).
 - **Database mutations:** none (in-memory fake).
 - **Defects found:** the TUNIT register's known-remaining-gap (join release
@@ -608,7 +608,7 @@
   deployment; production deploy is out of scope for the default path.
 - **S-031 — Portal Workflows Experience.** PENDING. Depends on S-020/S-022/
   S-026. Held by the current "do not build the UI yet" constraint. Read-only
-  summaries already exist (`workflow_app/read-service.ts`,
+  summaries already exist (`legacy/workflow_app/read-service.ts`,
   `app/portal/workflows`).
 - **S-032 — CRM-14 Closing Orchestration.** PENDING. Depends on S-019/S-020/
   S-024/S-026. Deferred from the V1 unblock tranche (`docs/agent/CURRENT.md`).
@@ -654,8 +654,8 @@
   across the repo confirms no table/code reference exists; every claim in the
   decision record line-checked against the cited seams
   (`workflow_engine/lib/workflow/engine.ts` `_handleCommand`/`_event`,
-  `workflow_app/engine-bridge.ts`, `db/workflow-command-receipt.ts`,
-  `db/offer-acceptance.ts`, `db/deal-stage.ts`, migrations 005/013/014/017/018,
+  `legacy/workflow_app/engine-bridge.ts`, `legacy/db/workflow-command-receipt.ts`,
+  `legacy/db/offer-acceptance.ts`, `legacy/db/deal-stage.ts`, migrations 005/013/014/017/018,
   `docs/workflow-engine-archaeology.md`, `docs/workflow-integration-contract.md`).
   No tsc/build run — no code touched to warrant it.
 - **Database mutations:** none (decision is DEFER; no migration recorded).
@@ -695,16 +695,16 @@
     `lib/commands/register.ts` + `lib/commands/index.ts` (public seam +
     singleton), `lib/commands/deal/*` + `lib/commands/offer/accept-offer.ts` +
     `lib/commands/task/task-commands.ts` (thin wrappers around existing
-    canonical services), `db/command-receipt-repository.ts` (generalized
+    canonical services), `legacy/db/command-receipt-repository.ts` (generalized
     receipt repository over `workflow_command_receipt`), `lib/events/outbox-contracts.ts`
     (outbox/subscriber interfaces ONLY — no table, no loop),
-    `workflow_app/tests/command-layer.test.ts` (unit) and
-    `workflow_app/tests/persistence/command-layer.test.ts` (real Postgres).
+    `legacy/workflow_app/tests/command-layer.test.ts` (unit) and
+    `legacy/workflow_app/tests/persistence/command-layer.test.ts` (real Postgres).
   - Modified: `lib/workflow/contracts.ts` (additive `value`/`error`/`receiptId`
-    on `CommandResult`), `workflow_app/command-router.ts` (translation seam:
-    envelope -> canonical dispatcher; business rules removed), `workflow_app/command-types.ts`
-    (re-exports shared constants), `workflow_app/application-port.ts` (comment),
-    `db/deal-appraisal.ts` + `db/deal-lender-clearance.ts` (CRM-19/CRM-20
+    on `CommandResult`), `legacy/workflow_app/command-router.ts` (translation seam:
+    envelope -> canonical dispatcher; business rules removed), `legacy/workflow_app/command-types.ts`
+    (re-exports shared constants), `legacy/workflow_app/application-port.ts` (comment),
+    `legacy/db/deal-appraisal.ts` + `legacy/db/deal-lender-clearance.ts` (CRM-19/CRM-20
     implementation notes point at the canonical seam),
     `docs/workflow/MASTER_STORYBOARD.md` (S-042 entry),
     `docs/workflow/STORYBOARD_STATUS.md` (this record + change log),
@@ -715,12 +715,12 @@
   - `tsc --noEmit` — clean.
   - `pnpm exec next build --webpack` — clean.
   - `git diff --check` — clean.
-  - New unit suite `workflow_app/tests/command-layer.test.ts` (14 tests) — pass
+  - New unit suite `legacy/workflow_app/tests/command-layer.test.ts` (14 tests) — pass
     (replay, new-commandId validation, domain-validation-in-service, dispatcher
     ignorance of node/provider names, multi-caller convergence, correlation/
     causation preservation, rollback atomicity, poisoned-pending, failed-
     receipt replay, registry contract).
-  - New persistence suite `workflow_app/tests/persistence/command-layer.test.ts`
+  - New persistence suite `legacy/workflow_app/tests/persistence/command-layer.test.ts`
     (4 tests, real Postgres on the DEV branch) — pass (mutation + receipt +
     outbox rows commit atomically; rollback after mutation before commit leaves
     nothing; infra failure -> same-commandId retry re-executes exactly once;
@@ -785,7 +785,7 @@
     canonical envelope), `lib/intake/batch.ts` (batch lane adapter —
     `IntakeBatchManifest` + `lowerBatchItemToIntakeMessage`), `lib/intake/inbox.ts`
     (the ONE projection into the existing durable integration inbox),
-    `lib/intake/index.ts` (public seam), `workflow_app/tests/intake-contract.test.ts`
+    `lib/intake/index.ts` (public seam), `legacy/workflow_app/tests/intake-contract.test.ts`
     (9 targeted tests, zero Neon).
   - Modified: `lib/integration-inbox/processor.ts` (the realtime lane now
     lowers through the canonical message and projects through `toInboxInsert`),
@@ -796,7 +796,7 @@
     change log), `docs/agent/RUNLOG.md` (this run's entry).
 - **Tests/checks run:** scoped per ENG-20A runtime policy (SCOPED mode; full
   regression not authorized):
-  - New `workflow_app/tests/intake-contract.test.ts` 9/9 pass — same canonical
+  - New `legacy/workflow_app/tests/intake-contract.test.ts` 9/9 pass — same canonical
     surface from both lanes; duplicate/replay identity lane/account/batch-
     agnostic; durable-inbox key derivation; provenance/raw ownership;
     equivalent batch+realtime facts project to identical neutral inbox inserts
@@ -805,7 +805,7 @@
     32 KB bounded payload; lib/intake contains no SQL/table (no new state
     model); the realtime processor's durable insert equals the canonical
     projection (convergence at the seam).
-  - Adjacent regression: `workflow_app/tests/mac-observer-inbox.test.ts`
+  - Adjacent regression: `legacy/workflow_app/tests/mac-observer-inbox.test.ts`
     17/17 pass — the rewired realtime path through the canonical message is
     byte-faithful to CRM-23 (calendar/mail/contacts completion, dedupe,
     poison isolation, retention).
@@ -856,8 +856,8 @@
     `readWorkerCommitHash` — null when the checkout is still at the base),
     `lib/worker-workspace/index.ts` (public seam), `scripts/workspace-cli.ts`
     (`pnpm agent:workspace create|status|remove|help`, injectable dispatch
-    core), `workflow_app/tests/worker-workspace.test.ts` (8 temp-repo proofs,
-    zero Neon), `workflow_app/tests/workspace-cli.test.ts` (6 CLI/env unit
+    core), `legacy/workflow_app/tests/worker-workspace.test.ts` (8 temp-repo proofs,
+    zero Neon), `legacy/workflow_app/tests/workspace-cli.test.ts` (6 CLI/env unit
     tests, zero Neon).
   - Modified: `agent-runtime/types.ts` (`executionWorkspace` on the execution
     context — execution infrastructure only), `agent-runtime/invoker.ts`
@@ -868,8 +868,8 @@
     `scripts/agent-work.ts` (default-on isolated execution, fail-closed base
     ref), `scripts/agent-runtime-deepseek.ts` (interactive driver wired the
     same), `package.json` (`agent:workspace` script),
-    `workflow_app/tests/evidence-summary.test.ts` (2 new ENG-21 evidence
-    tests), `workflow_app/tests/persistence/agent-runtime-deepseek.test.ts`
+    `legacy/workflow_app/tests/evidence-summary.test.ts` (2 new ENG-21 evidence
+    tests), `legacy/workflow_app/tests/persistence/agent-runtime-deepseek.test.ts`
     (2 new real-Postgres adapter tests proving isolated-workspace evidence +
     honest commit), `docs/agent/WORKTREE_EXECUTION.md` (new canonical doc),
     `docs/agent/AGENT_WORKER_SCHEDULER.md`,

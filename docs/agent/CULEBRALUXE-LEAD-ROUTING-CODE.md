@@ -48,7 +48,7 @@ The reference intentionally treats different symbols in the same file as a concu
 
 2. Hydrate `RoutingContext` in trusted runtime code from the exact current story/task handoff. Supply current required findings, named references to the actual Scout/Architect material, frozen proof commands, and runtime split capability/max workers. Do not let model output set those values. If context is incomplete, obtain it before evaluating execution. New targeted tests are valid when their commands belong to the frozen acceptance plan; this does not require the test file to exist before implementation. Never obtain commands by harvesting arbitrary model prose.
 
-3. Replace the contradictory PRE routing paragraphs in `agent-runtime/lead-decision.ts` and the PRE marker instructions in `workflow_app/forge/forge-role-mapping.ts` with `buildLeadRoutingDirective(context)`. Keep phase identity, Architect authority and model-cost context. Emit one `LEAD_ROUTING` object; do not ask for three competing routing markers. Do not replace the implement or POST instructions.
+3. Replace the contradictory PRE routing paragraphs in `agent-runtime/lead-decision.ts` and the PRE marker instructions in `legacy/workflow_app/forge/forge-role-mapping.ts` with `buildLeadRoutingDirective(context)`. Keep phase identity, Architect authority and model-cost context. Emit one `LEAD_ROUTING` object; do not ask for three competing routing markers. Do not replace the implement or POST instructions.
 
 4. In `agent-runtime-role-runner.ts`, review the raw LEAD PRE output after findings are marshalled and before any engine completion. Use the call sequence below. Add errors to the existing bounded self-heal path. Perform this routing validation even when optional deliverable enforcement is disabled. It is the prerequisite for handing off execution, not an optional formatting check.
 
@@ -103,13 +103,13 @@ Tests executed with Node 24's TypeScript transform against exact copies of the f
 Repository command after integration:
 
 ```sh
-pnpm exec tsx --test workflow_app/tests/forge-lead-routing.test.ts
+pnpm exec tsx --test legacy/workflow_app/tests/forge-lead-routing.test.ts
 ```
 
 The following sections contain the complete new source files and tests.
 
 
-## workflow_app/forge/forge-lead-routing.ts
+## legacy/workflow_app/forge/forge-lead-routing.ts
 
 ```ts
 import { assessSmithDispatch } from './forge-dispatch-gate'
@@ -294,7 +294,7 @@ export function leadRoutingFacts(review: Extract<RoutingReview, { ok: true }>) {
 ```
 
 
-## workflow_app/forge/forge-lead-routing-prompt.ts
+## legacy/workflow_app/forge/forge-lead-routing-prompt.ts
 
 ```ts
 import type { RoutingContext } from './forge-lead-routing'
@@ -323,7 +323,7 @@ export function buildLeadRoutingDirective(context: RoutingContext): string {
 ```
 
 
-## workflow_app/tests/forge-lead-routing.test.ts
+## legacy/workflow_app/tests/forge-lead-routing.test.ts
 
 ```ts
 import assert from 'node:assert/strict'
@@ -332,7 +332,7 @@ import { reviewLeadProposal, parseLeadRouting, leadRoutingFacts } from '../forge
 import type { LeadProposal, RoutingContext } from '../forge/forge-lead-routing'
 import { buildLeadRoutingDirective } from '../forge/forge-lead-routing-prompt'
 
-const proof = 'pnpm exec tsx --test workflow_app/tests/example.test.ts'
+const proof = 'pnpm exec tsx --test legacy/workflow_app/tests/example.test.ts'
 function fixture(): { p: LeadProposal; context: RoutingContext } {
   return {
     context: {
@@ -427,7 +427,7 @@ test('unapproved proof commands are rejected', () => {
   const f = fixture(); f.p.assignments[0].plan.chunks[0].proof = 'pnpm test'; rejects(f, /frozen story/)
 })
 test('path traversal and unknown scope are rejected', () => {
-  for (const scope of ['../secrets', 'db/../secrets', '/tmp/out', '*', 'other.ts']) {
+  for (const scope of ['../secrets', 'legacy/db/../secrets', '/tmp/out', '*', 'other.ts']) {
     const f = fixture(); f.p.assignments[0].plan.chunks[0].surface = [scope]; rejects(f, /invalid path/)
   }
 })

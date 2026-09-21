@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ServiceRegistry } from '../services/core/service-registry'
-import type { ServiceDescriptor, ServiceEndpoint, ServiceEnvelope, ServiceResult } from '../services/core/types'
+import { ServiceRegistry } from '@/legacy/services/core/service-registry'
+import type { ServiceDescriptor, ServiceEndpoint, ServiceEnvelope, ServiceResult } from '@/legacy/services/core/types'
 
 // ---------------------------------------------------------------------------
 // TESTV2 — ServiceRegistry (the ServiceRouter): registration, discovery, and

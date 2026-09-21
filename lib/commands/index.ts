@@ -10,9 +10,9 @@
 // receipt repository are resolved lazily on first use (db/tx, db/client).
 // ---------------------------------------------------------------------------
 
-import { PostgresCommandReceiptRepository } from '../../db/command-receipt-repository'
+import { PostgresCommandReceiptRepository } from '@/legacy/db/command-receipt-repository'
 import { PostgresOutboxEventRepository } from '../mq/outbox-repository'
-import { neonTx } from '../../db/tx'
+import { neonTx } from '@/legacy/db/tx'
 import type {
   CommandDispatcher,
   CommandResult,
@@ -21,7 +21,7 @@ import type {
 import type { CommandDispatcherOptions } from './dispatcher'
 import { CommandDispatcherImpl } from './dispatcher'
 import { createCommandRegistry } from './register'
-import { flightRecorder } from '../../db/workflow-trace'
+import { flightRecorder } from '@/legacy/db/workflow-trace'
 
 export type { CommandDispatcher }
 export {
@@ -39,7 +39,7 @@ export {
   createDomainEventFromCommand,
 } from './domain-events'
 export { commandReceiptStatus } from './contracts'
-export { PostgresCommandReceiptRepository } from '../../db/command-receipt-repository'
+export { PostgresCommandReceiptRepository } from '@/legacy/db/command-receipt-repository'
 
 /**
  * Build a dispatcher bound to the Postgres V1 transport and the canonical registry.

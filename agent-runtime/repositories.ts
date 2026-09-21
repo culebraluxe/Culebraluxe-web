@@ -14,16 +14,16 @@ import {
   updateAgentWorkProgress,
   type AgentWorkClaim,
   type AgentWorkItem,
-} from '../db/agent-work'
-import { recoverAgentWorkInterruption } from '../db/agent-work-recovery'
+} from '@/legacy/db/agent-work'
+import { recoverAgentWorkInterruption } from '@/legacy/db/agent-work-recovery'
 import {
   getForgeRunExecutionStory,
   initializeForgeStoryRun,
   recordForgeLeadDecision,
   recordForgeRunMachineEvidence,
   setForgeRunRuntime,
-} from '../db/forge-run'
-import { markForgeStoryInProgress } from '../db/forge-story-state'
+} from '@/legacy/db/forge-run'
+import { markForgeStoryInProgress } from '@/legacy/db/forge-story-state'
 import { harnessStartedAtMs, readHarnessUsage } from './harness-usage'
 import type { HarnessUsage } from './harness-usage'
 import {
@@ -34,10 +34,10 @@ import {
   updateStoryRunProgress,
   type StoryboardStory,
   type StoryRun,
-} from '../db/storyboard'
+} from '@/legacy/db/storyboard'
 import { readWorkerCommitHash } from '../lib/worker-workspace'
 import { resolve } from 'node:path'
-import type { QueryExecutor } from '../db/query-executor'
+import type { QueryExecutor } from '@/legacy/db/query-executor'
 import type { AgentProgressUpdate } from './types'
 import type { AssayEvidence } from './assay-evidence'
 import {

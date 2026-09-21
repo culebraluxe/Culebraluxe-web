@@ -1,7 +1,7 @@
 // AUTH-02 non-secret break-glass root readiness. Read-only; never exposes the
 // secret, hash, OAuth secrets, or tokens.
 
-import { sql } from '@/db/client'
+import { sql } from '@/legacy/db/client'
 import { getBreakGlassConfig } from './break-glass-config'
 
 export type BreakGlassReadiness = {

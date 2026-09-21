@@ -2,11 +2,11 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 
 import { StoryDetailSections } from "@/components/portal/storyboard/story-detail-sections"
-import { listActiveAgentWorkForStory } from "@/db/agent-work"
+import { listActiveAgentWorkForStory } from "@/legacy/db/agent-work"
 import {
   getStoryboardStory,
   listStoryRuns,
-} from "@/db/storyboard"
+} from "@/legacy/db/storyboard"
 import { workstreamName } from "@/lib/storyboard-data"
 
 export const dynamic = "force-dynamic"

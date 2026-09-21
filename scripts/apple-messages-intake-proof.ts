@@ -4,7 +4,7 @@
 // proves replay does not duplicate, then cleans up.
 //   node --env-file=.env.local --import tsx scripts/apple-messages-intake-proof.ts
 import { buildMessagesRelationshipEvidence, APPLE_MESSAGES_SOURCE, type AppleMessagesExport } from '../lib/relationship-intel/apple-messages'
-import { upsertRelationshipEvidence, recordReconcileDecision } from '../db/relationship-evidence'
+import { upsertRelationshipEvidence, recordReconcileDecision } from '@/legacy/db/relationship-evidence'
 import { reconcileEvidence } from '../lib/relationship-intel/reconcile'
 import { createInMemoryPersonLookup } from '../lib/relationship-intel/inmemory-lookup'
 import { createPoolExecutor } from './lib/pool-executor'

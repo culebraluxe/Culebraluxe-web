@@ -2,18 +2,18 @@
 
 import { randomUUID } from "node:crypto"
 
-import { SqlProjectRepository } from "@/db/project-service-repository"
-import { SqlWbsRepository } from "@/db/wbs-service-repository"
+import { SqlProjectRepository } from "@/legacy/db/project-service-repository"
+import { SqlWbsRepository } from "@/legacy/db/wbs-service-repository"
 import { captureServerError } from "@/lib/server-error-capture"
 import { appServiceErrorSink } from "@/lib/service-error-sink"
 import { getActingUser } from "@/lib/auth/get-acting-user"
 import { getPortalSessionAdapter } from "@/lib/auth/portal-session"
-import { AuthorizationService, StaticAuthorizationPolicyProvider } from "@/services/entitlement"
-import { ServiceRegistry, type ServiceContext } from "@/services/core"
-import { ProjectService, type InstantiateProjectRequest } from "@/services/project"
-import type { ProjectStatus } from "@/services/project"
-import { WbsService } from "@/services/wbs"
-import { resolveSecurityLevel } from "@/services/security"
+import { AuthorizationService, StaticAuthorizationPolicyProvider } from "@/legacy/services/entitlement"
+import { ServiceRegistry, type ServiceContext } from "@/legacy/services/core"
+import { ProjectService, type InstantiateProjectRequest } from "@/legacy/services/project"
+import type { ProjectStatus } from "@/legacy/services/project"
+import { WbsService } from "@/legacy/services/wbs"
+import { resolveSecurityLevel } from "@/legacy/services/security"
 
 export type InstantiateProjectActionResult =
   | { ok: true; projectId: string; itemIds: string[] }

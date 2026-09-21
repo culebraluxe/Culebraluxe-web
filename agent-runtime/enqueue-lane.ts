@@ -6,8 +6,8 @@ import type { LaneId } from './lanes'
 import type { AgentRuntimeRegistry } from './registry'
 import type { ForgeTeam } from './team'
 import { sessionFromStory, storyPacketInstructions, type StoryPacketFields } from './story-session'
-import { buildLeadRoutingDirective } from '../workflow_app/forge/forge-lead-routing-prompt'
-import type { RoutingContext } from '../workflow_app/forge/forge-lead-routing'
+import { buildLeadRoutingDirective } from '@/legacy/workflow_app/forge/forge-lead-routing-prompt'
+import type { RoutingContext } from '@/legacy/workflow_app/forge/forge-lead-routing'
 
 export type LaneEnqueueInput = {
   lane: LaneId

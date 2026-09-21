@@ -5,9 +5,9 @@
 // Checked by the captain against the screen: the board and this output should agree, and where they do
 // not, the disagreement is the bug. Prints the batch table (the job stream), the engine's queue, and the
 // bench — the three things the Cockpit exists to make visible.
-import { listActiveAgentWorkItems } from '@/db/agent-work'
-import { getStagingBatch, listForgeBatches } from '@/db/forge-batch'
-import { listActiveWork, listStoryboardStories } from '@/db/storyboard'
+import { listActiveAgentWorkItems } from '@/legacy/db/agent-work'
+import { getStagingBatch, listForgeBatches } from '@/legacy/db/forge-batch'
+import { listActiveWork, listStoryboardStories } from '@/legacy/db/storyboard'
 
 async function main() {
   const [staging, batches, queue, bench, stories] = await Promise.all([

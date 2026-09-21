@@ -1,6 +1,6 @@
 import Link from "next/link"
 
-import type { IdentityQualitySnapshot } from "@/db/identity-quality"
+import type { IdentityQualitySnapshot } from "@/legacy/db/identity-quality"
 import {
   PortalTable,
   PortalTableBody,

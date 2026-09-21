@@ -18,7 +18,7 @@
 // ---------------------------------------------------------------------------
 
 import { describeControlPlane } from '../lib/execution-target'
-import { forgeDbConnectionString } from '../db/forge-db'
+import { forgeDbConnectionString } from '@/legacy/db/forge-db'
 
 export type ForgeStoryResetMode = 'reset' | 'recover' | 'clean'
 export type ForgeStoryResetTarget = 'prod' | 'dev'

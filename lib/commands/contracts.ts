@@ -30,8 +30,8 @@
 //     ApplicationCommandRequest and receives an outcome.
 // ---------------------------------------------------------------------------
 
-import type { QueryExecutor } from '../../db/query-executor'
-import type { TxRunner } from '../../db/tx'
+import type { QueryExecutor } from '@/legacy/db/query-executor'
+import type { TxRunner } from '@/legacy/db/tx'
 import type {
   CommandEnvelope,
   CommandResult,

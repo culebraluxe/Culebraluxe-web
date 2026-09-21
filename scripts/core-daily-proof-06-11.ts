@@ -3,7 +3,7 @@
 //   11: daily relationship actions never mutate workflow/contract/legal state.
 //   node --env-file=.env.local --import tsx scripts/core-daily-proof-06-11.ts
 import { randomUUID } from 'node:crypto'
-import { applyFollowUpCommand, listActiveFollowUpsForPerson } from '../db/follow-up'
+import { applyFollowUpCommand, listActiveFollowUpsForPerson } from '@/legacy/db/follow-up'
 import { createPoolExecutor } from './lib/pool-executor'
 
 const url = (process.env.DATABASE_URL_DEV ?? process.env.DATABASE_URL) ?? ''

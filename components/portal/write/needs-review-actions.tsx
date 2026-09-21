@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 
 import { resolveIntakeAction } from '@/app/portal/actions'
-import type { ResolveIntakeAction } from '@/db/needs-review-resolution'
+import type { ResolveIntakeAction } from '@/legacy/db/needs-review-resolution'
 import { PersonSelector } from '@/components/portal/write/person-selector'
 
 type Result = { ok: boolean; message?: string }

@@ -1,5 +1,5 @@
-import { FORGE_SDLC_VERSION, parseForgeSdlc } from '../workflow_app/definitions/forge-sdlc'
-import { forgeCommandIsRouted } from '../workflow_app/forge-command-types'
+import { FORGE_SDLC_VERSION, parseForgeSdlc } from '@/legacy/workflow_app/definitions/forge-sdlc'
+import { forgeCommandIsRouted } from '@/legacy/workflow_app/forge-command-types'
 
 // ---------------------------------------------------------------------------
 // ENG-FORGE-V9 — FORGE_SDLC superset as the live topology contract.

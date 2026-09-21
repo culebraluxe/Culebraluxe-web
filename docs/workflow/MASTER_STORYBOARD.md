@@ -12,7 +12,7 @@
 > **Note (2026-08-21):** the persistent `/portal/storyboard` is now the
 > authoritative CulebraLuxe master backlog, seeded from the human-authored
 > 8/21 master board (74 stories) via
-> `db/migrations/022_storyboard_authoritative_seed.sql`. This document and
+> `legacy/db/migrations/022_storyboard_authoritative_seed.sql`. This document and
 > `STORYBOARD_STATUS.md` are retained as history of the earlier S-* storyboard.
 >
 > **Capability (2026-08-21, migration 024):** each stored story now carries a
@@ -49,9 +49,9 @@ workflow / TUNIT work:
 - `docs/auth-bootstrap-order.md`, `docs/auth-command-map.md`,
   `docs/auth-security-model.md`, `docs/auth-test-matrix.md`, `docs/authjs-adapter.md`
 - `docs/portal-ui-contract.md`, `docs/property-ui-contract.md`
-- `workflow_engine/ARCHITECTURE_BOUNDARY.md`, `workflow_app/README.md`
+- `workflow_engine/ARCHITECTURE_BOUNDARY.md`, `legacy/workflow_app/README.md`
 - Git history on `main` through `fddcd26` (2026-08-20)
-- `db/migrations/001..020` and `db/manual/2026-08-20_*.sql`
+- `legacy/db/migrations/001..020` and `legacy/db/manual/2026-08-20_*.sql`
 
 **Story IDs:** `S-001` … `S-041`, assigned in batch order. Earlier planning
 documents used their own labels (`CRM-NN`, `M-N`, `AUTH-NN`, `WF-NN`, and
@@ -72,7 +72,7 @@ Every story, present or future, must preserve:
    import from `app/`, `components/`, `db/`, `lib/workflow/`, or `workflow_app/`
    (`workflow_engine/ARCHITECTURE_BOUNDARY.md`).
 2. **`workflow_app` is the only place CulebraLuxe domain concepts meet the
-   engine** (`workflow_app/README.md`).
+   engine** (`legacy/workflow_app/README.md`).
 3. **Portal/UI may observe and control workflows only through `workflow_app`.**
 4. **`lib/workflow` is the "Ogden" application-side contract seam** (command
    envelope/result, domain events, command inventory, adapter, fact projection,
@@ -85,7 +85,7 @@ Every story, present or future, must preserve:
 6. **Authority answers "may this actor attempt this command class?"; domain
    preconditions answer "is this transition legal in the current business
    state?".** No workflow rule may bypass either.
-7. **Schema changes only via reviewed migrations in `db/migrations`.** Any
+7. **Schema changes only via reviewed migrations in `legacy/db/migrations`.** Any
    manual live change must be recorded as an equivalent migration.
 8. **`media` is the reusable asset abstraction**; `property_media` owns
    property-specific media roles and ordering. Provider URLs are never media.
@@ -126,7 +126,7 @@ Every story, present or future, must preserve:
 
 - **Goal:** Establish the canonical, source-idempotent interaction input
   foundation shared by every intake channel.
-- **Scope:** Interaction/task foundation (`db/migrations/005`), source-idempotent
+- **Scope:** Interaction/task foundation (`legacy/db/migrations/005`), source-idempotent
   inputs keyed by `(source_system, source_external_id)`, and the database
   uniqueness backstop. No provider connectors, no UI.
 - **Acceptance criteria:**
@@ -172,7 +172,7 @@ Every story, present or future, must preserve:
 - **Goal:** Provider-neutral website intake through the canonical pipeline.
 - **Scope:** Pure website adapter, CRM-02/03 coordinator, atomic canonical
   persistence seam, property-context server action, existing contact-path
-  integration, `db/migrations/006_website_intake_submission.sql` recorded.
+  integration, `legacy/db/migrations/006_website_intake_submission.sql` recorded.
   Fixture-only verification; no Neon access during verification.
 - **Acceptance criteria:**
   - A `processing_started_at` ownership claim gates every receipt transition;
@@ -283,20 +283,20 @@ Every story, present or future, must preserve:
 ### S-010 — V1 DB Unblock M-1: WhatsApp Interaction Channel (migration 010)
 
 - **Goal:** Record the canonical `whatsapp` interaction channel in the schema.
-- **Scope:** `db/migrations/010_whatsapp_channel.sql` — `whatsapp` is a canonical
+- **Scope:** `legacy/db/migrations/010_whatsapp_channel.sql` — `whatsapp` is a canonical
   interaction channel, not a new identity type; WhatsApp actors resolve through
   `person_identity` phone (strict E.164); source idempotency reuses
   `(source_system, source_external_id)`. Provider integration deferred.
 - **Acceptance criteria:**
   - Migration 010 recorded and committed (with the manual bundle in
-    `db/manual/2026-08-20_v1_database_unblock.sql`).
+    `legacy/db/manual/2026-08-20_v1_database_unblock.sql`).
   - No application write path assumes the channel before the S-008 decision.
 - **Dependencies:** S-008 (decision) governs use; recording is independent.
 
 ### S-011 — V1 DB Unblock M-2: General Enquiry Website Intake (migration 011)
 
 - **Goal:** Allow property-less website intake requests.
-- **Scope:** `db/migrations/011_website_intake_general_enquiry.sql` —
+- **Scope:** `legacy/db/migrations/011_website_intake_general_enquiry.sql` —
   `website_intake_submission.property_id` becomes nullable with a CHECK that
   property-scoped requests require a property and `general_enquiry` forbids
   one. Generic `/contact` submits through the canonical pipeline;
@@ -311,7 +311,7 @@ Every story, present or future, must preserve:
 ### S-012 — V1 DB Unblock M-3: Deal Participants (migration 012)
 
 - **Goal:** Add additive, normalized deal participants.
-- **Scope:** `db/migrations/012_deal_participant.sql` — role is a checked
+- **Scope:** `legacy/db/migrations/012_deal_participant.sql` — role is a checked
   structural category (`client`/`owner`/`seller`/`other`) plus optional
   `role_label` for the SME long tail (application-curated, no migration per
   role). Legacy `deal.client_person_id`, `deal.owner_user_id`,
@@ -326,7 +326,7 @@ Every story, present or future, must preserve:
 ### S-013 — V1 DB Unblock M-4: Showing Lifecycle (migration 013)
 
 - **Goal:** Add the mutable showing lifecycle entity.
-- **Scope:** `db/migrations/013_showing.sql` — `showing` statuses
+- **Scope:** `legacy/db/migrations/013_showing.sql` — `showing` statuses
   `requested`/`scheduled`/`completed`/`cancelled`; `interaction` remains the
   immutable timeline. **Documented only** — the showing→interaction write
   behavior belongs to a later bounded story.
@@ -340,7 +340,7 @@ Every story, present or future, must preserve:
 ### S-014 — V1 DB Unblock M-5: Offer Model (migration 014)
 
 - **Goal:** Add the offer model with counter-offer semantics.
-- **Scope:** `db/migrations/014_offer.sql` — `offer` rows carry `amount` and
+- **Scope:** `legacy/db/migrations/014_offer.sql` — `offer` rows carry `amount` and
   `status` (`submitted`/`accepted`/`rejected`/`withdrawn`). Original offers have
   `parent_offer_id = null`; counters are new rows with `status='submitted'` and
   `parent_offer_id` pointing at the countered offer. `status='countered'` is not
@@ -430,14 +430,14 @@ Every story, present or future, must preserve:
 
 - **Goal:** Build the CRM-14 transaction workflow foundation: canonical
   application commands wired to claim-first idempotency receipts.
-- **Scope:** `db/workflow-command-receipt.ts`,
-  `db/migrations/018_workflow_command_receipt.sql`,
-  `db/migrations/019_workflow_task_correlation.sql`,
-  `db/migrations/020_deal_financing_type.sql`, `db/deal-stage.ts`,
-  `db/offer-acceptance.ts`, `db/deal-closing-date.ts`,
-  `workflow_app/command-router.ts`, `workflow_app/engine-bridge.ts`,
-  `workflow_app/application-port.ts`, `workflow_app/facts.ts`,
-  `workflow_app/responsibility.ts`, `workflow_app/financing.ts`.
+- **Scope:** `legacy/db/workflow-command-receipt.ts`,
+  `legacy/db/migrations/018_workflow_command_receipt.sql`,
+  `legacy/db/migrations/019_workflow_task_correlation.sql`,
+  `legacy/db/migrations/020_deal_financing_type.sql`, `legacy/db/deal-stage.ts`,
+  `legacy/db/offer-acceptance.ts`, `legacy/db/deal-closing-date.ts`,
+  `legacy/workflow_app/command-router.ts`, `legacy/workflow_app/engine-bridge.ts`,
+  `legacy/workflow_app/application-port.ts`, `legacy/workflow_app/facts.ts`,
+  `legacy/workflow_app/responsibility.ts`, `legacy/workflow_app/financing.ts`.
 - **Acceptance criteria:**
   - Claim-first receipt pattern: exactly one winner per `commandId`; losers
     replay the winner's committed outcome.
@@ -450,11 +450,11 @@ Every story, present or future, must preserve:
 
 - **Goal:** Make XML the authoritative source format for workflow definitions
   and define the brokerage `RE_supermodel`.
-- **Scope:** `workflow_app/xml/` (`mini-xml.ts`, `xml-parser.ts`,
-  `graph-validator.ts`), `workflow_app/definitions/` (`RE_supermodel-v1.xml`,
+- **Scope:** `legacy/workflow_app/xml/` (`mini-xml.ts`, `xml-parser.ts`,
+  `graph-validator.ts`), `legacy/workflow_app/definitions/` (`RE_supermodel-v1.xml`,
   `re-supermodel.ts`, `version-policy.ts`),
-  `workflow_app/scripts/deploy-process-definition.ts`,
-  `db/manual/2026-08-20_v4_crm14_workflow_activation.sql`,
+  `legacy/workflow_app/scripts/deploy-process-definition.ts`,
+  `legacy/db/manual/2026-08-20_v4_crm14_workflow_activation.sql`,
   `docs/workflow-xml-model.md`. Legacy story references: 116 (state identity +
   label), 117 (responsibility/SME), 119 (jurisdiction/config facts), 120 (simple
   cash path), 121 (complexity paths), 122 (P&S/closing-date), 123 (appraisal
@@ -476,7 +476,7 @@ Every story, present or future, must preserve:
 
 - **Goal:** Adapt Neon transactions to the engine's transactional runtime
   correctly.
-- **Scope:** `db/tx.ts`, `workflow_app/engine-client.ts` and the workflow
+- **Scope:** `legacy/db/tx.ts`, `legacy/workflow_app/engine-client.ts` and the workflow
   transaction adapter surface (commit `ffac351` "Fix Neon workflow transaction
   adapter").
 - **Acceptance criteria:**
@@ -489,12 +489,12 @@ Every story, present or future, must preserve:
 
 - **Goal:** Close the gap between engine task completion and the canonical
   application task.
-- **Scope:** `workflow_app/task-completion.ts` (`completeWorkflowTaskCore` +
-  injected deps), `workflow_app/task-materialization.ts`,
-  `workflow_app/task-reconciliation.ts`,
-  `db/migrations/019_workflow_task_correlation.sql`,
-  `workflow_app/tests/task-completion.test.ts`,
-  `workflow_app/tests/materialization.test.ts`.
+- **Scope:** `legacy/workflow_app/task-completion.ts` (`completeWorkflowTaskCore` +
+  injected deps), `legacy/workflow_app/task-materialization.ts`,
+  `legacy/workflow_app/task-reconciliation.ts`,
+  `legacy/db/migrations/019_workflow_task_correlation.sql`,
+  `legacy/workflow_app/tests/task-completion.test.ts`,
+  `legacy/workflow_app/tests/materialization.test.ts`.
 - **Acceptance criteria:**
   - Engine/canonical task 1:1 correlation with no duplicates
     (`duplicate_correlations: 0` live check).
@@ -517,10 +517,10 @@ Every story, present or future, must preserve:
 
 - **Goal:** Harden command receipt replay so an in-flight/poisoned receipt can
   never re-run a mutation or surface a terminal outcome.
-- **Scope:** `db/workflow-command-receipt.ts` (`claimReceipt`,
+- **Scope:** `legacy/db/workflow-command-receipt.ts` (`claimReceipt`,
   `finalizeReceipt`, `readFinalReceipt`, `replayOutcome`); hardening commit
   `1661937` ("Harden workflow command replay"); regression commit `7eb8690`
-  (pending receipt → conflict); `workflow_app/tests/command-receipt.test.ts`.
+  (pending receipt → conflict); `legacy/workflow_app/tests/command-receipt.test.ts`.
 - **Acceptance criteria:**
   - A null or `pending` receipt maps to a retryable `conflict`, never a
     terminal outcome.
@@ -533,7 +533,7 @@ Every story, present or future, must preserve:
 
 - **Goal:** Provide bounded operational reset and read-only IT support
   diagnostics for workflows.
-- **Scope:** `workflow_app/reset.ts`, `workflow_app/diagnostics.ts` (anomaly
+- **Scope:** `legacy/workflow_app/reset.ts`, `legacy/workflow_app/diagnostics.ts` (anomaly
   detectors: `failed-process`, `pending-receipt`, `ready-task-uncorrelated`,
   `correlation-dangling-app-task`, `correlation-dangling-workflow-task`,
   `open-job-on-closed-token`, `multiple-active-instances`); commit `cc4c6da`
@@ -551,10 +551,10 @@ Every story, present or future, must preserve:
 
 - **Goal:** Complete end-to-end trust validation of the workflow application
   seam.
-- **Scope:** `workflow_app/tests/acceptance.test.ts`,
+- **Scope:** `legacy/workflow_app/tests/acceptance.test.ts`,
   `deal-closing-date.test.ts`, `closing-timer.test.ts`, `re-supermodel.test.ts`
   (scenarios), `materialization.test.ts`, `task-completion.test.ts`;
-  `workflow_app/reconcile.ts`; commit `ec3947b` ("Complete workflow end-to-end
+  `legacy/workflow_app/reconcile.ts`; commit `ec3947b` ("Complete workflow end-to-end
   trust validation").
 - **Acceptance criteria:**
   - Duplicate command replay does not double-mutate (`replayed: true`, date
@@ -584,7 +584,7 @@ Every story, present or future, must preserve:
 
 - **Goal:** Prove the join releases exactly once under two simultaneous branch
   completions.
-- **Scope:** `workflow_app/tests/concurrency.test.ts` (commit `fddcd26`), which
+- **Scope:** `legacy/workflow_app/tests/concurrency.test.ts` (commit `fddcd26`), which
   models the PostgreSQL claim-first serialization boundary (`UNIQUE(command_id)`
   blocking a losing concurrent INSERT).
 - **Acceptance criteria:**
@@ -619,13 +619,13 @@ Every story, present or future, must preserve:
 ### S-030 — RE Supermodel Deployment to Neon
 
 - **Goal:** Deploy the RE_supermodel definition through the generic pipeline.
-- **Scope:** Run `workflow_app/scripts/deploy-process-definition.ts` against a
+- **Scope:** Run `legacy/workflow_app/scripts/deploy-process-definition.ts` against a
   reviewed environment (`XML → parse → validate → ProcessGraph →
   upsertProcessDefinition`). Operational + review gate.
 - **Acceptance criteria:**
   - Pipeline executes cleanly; deployed definition pinned by version and
     immutable in practice.
-  - Version policy honored (`workflow_app/definitions/version-policy.ts`).
+  - Version policy honored (`legacy/workflow_app/definitions/version-policy.ts`).
   - Production deployment requires explicit authorization and is not part of
     this story's default path.
 - **Dependencies:** S-020.
@@ -633,7 +633,7 @@ Every story, present or future, must preserve:
 ### S-031 — Portal Workflows Experience
 
 - **Goal:** Provide the Portal workflows experience on top of `workflow_app`.
-- **Scope:** Read-only summaries already exist (`workflow_app/read-service.ts`,
+- **Scope:** Read-only summaries already exist (`legacy/workflow_app/read-service.ts`,
   `app/portal/workflows`). Full experience — task work surfaces, deadlines and
   responsibility views, attention surfaces, and command actions through
   `workflow_app` only. **UI is not built yet; this is backlog only.**
@@ -733,7 +733,7 @@ Every story, present or future, must preserve:
   application-side implementations.
 - **Scope:** `lib/workflow/operational-contracts.ts` — task, timer, alert, SME,
   and audit seams; deadlines/responsibility resolve to actual participants via
-  `workflow_app/responsibility.ts`; the integration-contract non-goals
+  `legacy/workflow_app/responsibility.ts`; the integration-contract non-goals
   (no alert delivery, no SME portal) are lifted only deliberately and with
   review.
 - **Acceptance criteria:**
@@ -797,7 +797,7 @@ Every story, present or future, must preserve:
 - **Scope:** `lib/commands/` (contracts, registry, dispatcher, domain-event
   collector, thin deal/offer/task command wrappers, receipt repository
   adapter), `lib/events/outbox-contracts.ts` (interfaces only — DEFERRED
-  implementation per S-039/CRM-14I), and `workflow_app/command-router.ts`
+  implementation per S-039/CRM-14I), and `legacy/workflow_app/command-router.ts`
   (translation seam to the canonical dispatcher). Existing
   `CommandEnvelope`/`CommandResult`/`workflow_command_receipt` are reused and
   generalized, never duplicated; canonical domain services (db/*) remain the

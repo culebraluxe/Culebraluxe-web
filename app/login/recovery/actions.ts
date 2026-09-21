@@ -2,7 +2,7 @@
 
 import { signIn } from '@/auth'
 import { authenticateBreakGlass } from '@/lib/auth/break-glass-authenticate'
-import { recordSecurityAuditEvent } from '@/db/security-audit'
+import { recordSecurityAuditEvent } from '@/legacy/db/security-audit'
 
 export type BreakGlassLoginResult = { ok: boolean }
 

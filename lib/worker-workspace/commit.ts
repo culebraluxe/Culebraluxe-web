@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
-import { fileOf, within } from '../../workflow_app/forge/agents/shared/path'
+import { fileOf, within } from '@/legacy/workflow_app/forge/agents/shared/path'
 
 const execFileAsync = promisify(execFile)
 

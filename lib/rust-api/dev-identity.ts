@@ -1,7 +1,7 @@
 import 'server-only'
 
 import { isPortalAuthBypass, portalAuthBypassActor } from '@/lib/auth/dev-bypass'
-import { sql } from '@/db/client'
+import { sql } from '@/legacy/db/client'
 
 import type { RustBridgeIdentity } from './contract'
 

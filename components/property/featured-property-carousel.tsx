@@ -12,7 +12,7 @@ import {
   ArrowRight,
 } from 'lucide-react'
 
-import type { PropertySummary } from '@/services/property'
+import type { PropertySummary } from '@/legacy/services/property'
 import {
   formatPrice,
   isLand,

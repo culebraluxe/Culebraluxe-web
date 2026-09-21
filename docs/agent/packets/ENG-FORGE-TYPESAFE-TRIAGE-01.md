@@ -7,8 +7,8 @@ Build an operator-invoked CLI over existing failed Forge artifacts. Jev supplies
 the operator records the confirmed class. No engine decisions, gates, retries, scheduler,
 Scout behavior, or existing failure classes are changed. No schema changes.
 
-Existing seams: `db/forge-artifact.ts:91-117` persists typed artifacts;
-`workflow_app/forge/failure-classifier.ts:20-58` defines the reusable classification vocabulary.
+Existing seams: `legacy/db/forge-artifact.ts:91-117` persists typed artifacts;
+`legacy/workflow_app/forge/failure-classifier.ts:20-58` defines the reusable classification vocabulary.
 Use `forge_tool_artifact` for observations and reviews, never a parallel file history.
 
 ## Acceptance
@@ -25,7 +25,7 @@ Use `forge_tool_artifact` for observations and reviews, never a parallel file hi
 
 ## Assay (scoped)
 
-`node --import tsx --test workflow_app/tests/typesafe-failure-triage.test.ts`
+`node --import tsx --test legacy/workflow_app/tests/typesafe-failure-triage.test.ts`
 `git diff --check`
 
 Before connected verification, use the repository's `pnpm forge:clean` prerequisite.

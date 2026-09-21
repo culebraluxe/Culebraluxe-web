@@ -1,6 +1,6 @@
 import { AccountingReceivables } from '@/components/portal/accounting/accounting-receivables'
 import { AccountingShell } from '@/components/portal/accounting/accounting-shell'
-import { getReceivables } from '@/db/accounting'
+import { getReceivables } from '@/legacy/db/accounting'
 
 export const dynamic = 'force-dynamic'
 

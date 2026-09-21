@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 
-import { upsertAppleReminder } from '../db/reminder-landing'
+import { upsertAppleReminder } from '@/legacy/db/reminder-landing'
 
 type EventKitReminderSnapshot = {
   reminderIdentifier?: unknown

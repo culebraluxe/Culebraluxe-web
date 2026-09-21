@@ -4,7 +4,7 @@
 //
 // Run: node --env-file=.env.local --import tsx scripts/verify-issues.mjs
 
-import { reconcileIssues, getIssueQueue, resolveIssue } from '../db/issues'
+import { reconcileIssues, getIssueQueue, resolveIssue } from '@/legacy/db/issues'
 
 let failures = 0
 function check(name: string, ok: boolean, extra = '') {

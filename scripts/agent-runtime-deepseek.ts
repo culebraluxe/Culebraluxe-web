@@ -47,7 +47,7 @@ import {
   resolveExecutionTarget,
   verifyWorkspaceEnvFile,
 } from '../lib/execution-target'
-import { enqueueAgentWorkCommand, escalateAgentWorkFailure } from '../db/agent-work'
+import { enqueueAgentWorkCommand, escalateAgentWorkFailure } from '@/legacy/db/agent-work'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 

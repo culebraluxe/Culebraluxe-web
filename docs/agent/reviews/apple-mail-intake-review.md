@@ -731,7 +731,7 @@ log "PROD Apple Mail metadata sync success"
 log "sync complete"
 ```
 
-## 4/5 db/landing.ts (from appleMailReplayId to end of file)
+## 4/5 legacy/db/landing.ts (from appleMailReplayId to end of file)
 
 ```typescript
 export function appleMailReplayId(input: {

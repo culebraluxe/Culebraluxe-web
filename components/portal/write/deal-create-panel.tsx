@@ -11,7 +11,7 @@ import {
   PortalTextarea,
 } from "@/components/portal/ui/portal-field"
 import { PersonSelector } from "@/components/portal/write/person-selector"
-import type { DealableProperty } from "@/db/deals"
+import type { DealableProperty } from "@/legacy/db/deals"
 
 // OPS-05 — "New deal": create a canonical deal record from the Deals
 // Portfolio index. A deal always belongs to an existing active property and

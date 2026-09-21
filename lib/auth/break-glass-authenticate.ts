@@ -6,7 +6,7 @@
 // must hold the explicit owner role, and normal owner authorities still come
 // from the seeded role→authority mapping.
 
-import { getSecurityPrincipal } from '@/db/auth-user'
+import { getSecurityPrincipal } from '@/legacy/db/auth-user'
 import { getBreakGlassConfig } from './break-glass-config'
 import { verifyBreakGlassSecret } from './break-glass-secret'
 import type { ActingUser } from './types'

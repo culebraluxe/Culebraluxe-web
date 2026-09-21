@@ -17,11 +17,11 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/packets/ENG-STRUCTURED-CONTRACTS-01.md` — packet · the packet for ENG-STRUCTURED-CONTRACTS-01 · last touched 2026-09-15
 - `scripts/agent-worker-once.sh` — cited · cited by ENG-STRUCTURED-CONTRACTS-01 · last touched 2026-09-15
 - `scripts/forge-doctor.ts` — cited · cited by ENG-STRUCTURED-CONTRACTS-01 · last touched 2026-09-17
-- `workflow_app/forge/forge-doctor-report.ts` — cited · cited by ENG-STRUCTURED-CONTRACTS-01 · last touched 2026-09-15
-- `workflow_app/forge/agents/architect-handoff.ts` — cited · cited by ENG-STRUCTURED-CONTRACTS-01 · last touched 2026-09-18
+- `legacy/workflow_app/forge/forge-doctor-report.ts` — cited · cited by ENG-STRUCTURED-CONTRACTS-01 · last touched 2026-09-15
+- `legacy/workflow_app/forge/agents/architect-handoff.ts` — cited · cited by ENG-STRUCTURED-CONTRACTS-01 · last touched 2026-09-18
 - `lib/forge-kind.ts` — cited · cited by ENG-STRUCTURED-CONTRACTS-01 · last touched 2026-09-15
-- `node --import tsx --test workflow_app/tests/forge-doctor-report.test.ts` — cited · cited by ENG-STRUCTURED-CONTRACTS-01 · last touched untracked
-- `node --import tsx --test workflow_app/tests/forge-kind-routing.test.ts` — cited · cited by ENG-STRUCTURED-CONTRACTS-01 · last touched untracked
+- `node --import tsx --test legacy/workflow_app/tests/forge-doctor-report.test.ts` — cited · cited by ENG-STRUCTURED-CONTRACTS-01 · last touched untracked
+- `node --import tsx --test legacy/workflow_app/tests/forge-kind-routing.test.ts` — cited · cited by ENG-STRUCTURED-CONTRACTS-01 · last touched untracked
 - `lib/field-mediator.ts` — cited · cited by ENG-STRUCTURED-CONTRACTS-01 · last touched 2026-09-15
 - `docs/agent/manifest/ENG-CONTRACT-PARSER-RETIREMENT-01.md` — commit · touched by 1 commit(s) naming ENG-STRUCTURED-CONTRACTS-01 · last touched 2026-09-16
 - `docs/agent/manifest/ENG-STRUCTURED-CONTRACTS-01.md` — commit · touched by 1 commit(s) naming ENG-STRUCTURED-CONTRACTS-01 · last touched 2026-09-16

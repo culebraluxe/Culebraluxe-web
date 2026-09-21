@@ -50,7 +50,7 @@ import type {
   AgentExecutionWorkspace,
   AgentWorkCommand,
 } from '../types'
-import type { StoryboardStory } from '../../db/storyboard'
+import type { StoryboardStory } from '@/legacy/db/storyboard'
 
 // ---------------------------------------------------------------------------
 // Fixtures

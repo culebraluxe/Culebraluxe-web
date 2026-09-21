@@ -1,14 +1,14 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { PropertyService } from '../services/property'
+import { PropertyService } from '@/legacy/services/property'
 import type {
   PropertyDto,
   PropertyForPersonDto,
   PropertyRepository,
   UpsertPropertyForPersonRequest,
-} from '../services/property'
+} from '@/legacy/services/property'
 import { capturingInfrastructure, context } from './test-support'
-import { EntitlementService } from '../services/entitlement'
+import { EntitlementService } from '@/legacy/services/entitlement'
 
 // ---------------------------------------------------------------------------
 // TESTV2 — Property service envelope tests (address/place canonical DTO).

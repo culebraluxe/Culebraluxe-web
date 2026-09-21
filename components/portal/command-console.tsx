@@ -325,7 +325,7 @@ function StoryWorkspace({
   setNotice,
 }: {
   story: ConsoleStory
-  commandsForStory: Array<import("@/db/agent-work").AgentWorkItem>
+  commandsForStory: Array<import("@/legacy/db/agent-work").AgentWorkItem>
   notice: { ok: boolean; text: string } | null
   setNotice: (n: { ok: boolean; text: string } | null) => void
 }) {
@@ -587,7 +587,7 @@ function ExecutionPanel({
   notice,
   setNotice,
 }: {
-  activeCommand: import("@/db/agent-work").AgentWorkItem | null
+  activeCommand: import("@/legacy/db/agent-work").AgentWorkItem | null
   notice: { ok: boolean; text: string } | null
   setNotice: (n: { ok: boolean; text: string } | null) => void
 }) {
@@ -738,7 +738,7 @@ function ExecutionLog({
   tab: Tab
   setTab: (t: Tab) => void
   story: ConsoleStory | null
-  commandsForStory: Array<import("@/db/agent-work").AgentWorkItem>
+  commandsForStory: Array<import("@/legacy/db/agent-work").AgentWorkItem>
 }) {
   return (
     <section className="rounded-sm border border-white/10 bg-[var(--portal-navy-deep-2)]">
@@ -787,7 +787,7 @@ function ActivityLog({
   commandsForStory,
 }: {
   story: ConsoleStory
-  commandsForStory: Array<import("@/db/agent-work").AgentWorkItem>
+  commandsForStory: Array<import("@/legacy/db/agent-work").AgentWorkItem>
 }) {
   const events: Array<{ time: string; text: string; kind: string }> = []
 

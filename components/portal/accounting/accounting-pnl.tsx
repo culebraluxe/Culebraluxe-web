@@ -1,6 +1,6 @@
 'use client'
 
-import type { PnlStatement } from '@/db/accounting'
+import type { PnlStatement } from '@/legacy/db/accounting'
 import { formatMoney } from '@/lib/accounting/format'
 import { GlassPanel } from '@/components/portal/accounting/accounting-shell'
 

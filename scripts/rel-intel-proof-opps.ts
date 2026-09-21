@@ -10,7 +10,7 @@ import {
   recordReconcileDecision,
   classifyEvidenceRow,
   rerunRelationshipReconciliation,
-} from '../db/relationship-evidence'
+} from '@/legacy/db/relationship-evidence'
 import { REL_INTEL_RULE_VERSION } from '../lib/relationship-intel/reconcile'
 import { createPoolExecutor } from './lib/pool-executor'
 

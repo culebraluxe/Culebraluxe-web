@@ -35,7 +35,7 @@ import {
   recordReconcileDecision,
   getRelationshipEvidenceRows,
   getRelationshipEvidenceForPerson,
-} from '../db/relationship-evidence'
+} from '@/legacy/db/relationship-evidence'
 import { reconcileEvidence } from '../lib/relationship-intel/reconcile'
 import { createInMemoryPersonLookup, mapLimit } from '../lib/relationship-intel/inmemory-lookup'
 import { createPoolExecutor } from './lib/pool-executor'

@@ -27,8 +27,8 @@
 // FACTORY UNHEALTHY (see `health.summary` / `health.level`).
 // ---------------------------------------------------------------------------
 
-import type { AgentWorkItem } from '../db/agent-work'
-import type { StoryboardStory, StoryRun } from '../db/storyboard'
+import type { AgentWorkItem } from '@/legacy/db/agent-work'
+import type { StoryboardStory, StoryRun } from '@/legacy/db/storyboard'
 import type { StoryBoardModel } from './storyboard-data'
 import type { PipelineBlockRef } from './factory-command-center-data'
 import { priorityRankOf } from './story-priority'

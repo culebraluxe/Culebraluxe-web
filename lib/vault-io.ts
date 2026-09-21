@@ -6,8 +6,8 @@ import { captureServerError } from '@/lib/server-error-capture'
 import { coreServices } from '@/lib/service-runtime'
 import { getActingUser } from '@/lib/auth/get-acting-user'
 import { getPortalSessionAdapter } from '@/lib/auth/portal-session'
-import { resolveSecurityLevel } from '@/services/security'
-import { VAULT_OPERATIONS } from '@/services/vault'
+import { resolveSecurityLevel } from '@/legacy/services/security'
+import { VAULT_OPERATIONS } from '@/legacy/services/vault'
 import type {
   ContractIssuedLineage,
   IssuedDocumentForFormInstance,
@@ -15,7 +15,7 @@ import type {
   IssueDocumentInput,
   TransactionDocument,
   VaultMediaBytes,
-} from '@/services/vault'
+} from '@/legacy/services/vault'
 import type { ActingUser } from '@/lib/auth/types'
 import type { CommandResult } from '@/lib/commands/contracts'
 

@@ -7,7 +7,7 @@
 ## Scope
 
 - `lib/navigation/registry.ts` NEXUS items
-- `workflow_app/tests/navigation-registry.test.ts` snapshots
+- `legacy/workflow_app/tests/navigation-registry.test.ts` snapshots
 - This packet
 
 Do not rebuild showings. Do not add a new operating surface.
@@ -20,7 +20,7 @@ Inspect `app/portal/showings`. If it is a usable list, add `{ label: 'Showings',
 
 - `docs/portal-next-work-orders.md` C1
 - `lib/navigation/registry.ts`
-- `workflow_app/tests/navigation-registry.test.ts`
+- `legacy/workflow_app/tests/navigation-registry.test.ts`
 - `app/portal/showings`
 
 ## Acceptance criteria
@@ -52,5 +52,5 @@ SCOPED
 
 ## Assay commands
 
-- pnpm exec tsx --test workflow_app/tests/navigation-registry.test.ts
+- pnpm exec tsx --test legacy/workflow_app/tests/navigation-registry.test.ts
 - git diff --check

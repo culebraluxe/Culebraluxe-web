@@ -37,8 +37,8 @@
 // AFTER commit.
 // ---------------------------------------------------------------------------
 
-import type { TxRunner } from '../../db/tx'
-import { replayOutcome } from '../../db/workflow-command-receipt'
+import type { TxRunner } from '@/legacy/db/tx'
+import { replayOutcome } from '@/legacy/db/workflow-command-receipt'
 import type {
   CommandEnvelope,
   CommandDispatcher,

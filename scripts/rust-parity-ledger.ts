@@ -5,7 +5,7 @@
  *
  * WHY: "how far along is the Rust port" deserves a number that comes from the repository rather than from a
  * summary. This walks the import graph from the entry points that actually ship, then reports for every TypeScript
- * module under `db/` and `services/` whether shipped code can still reach it — printed beside the live Rust route
+ * module under `legacy/db/` and `legacy/services/` whether shipped code can still reach it — printed beside the live Rust route
  * table so the two surfaces are visible in one place.
  *
  * WHAT IT DOES NOT PROVE — read this before deleting anything:
@@ -20,7 +20,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 // Run from the repository root regardless of where the caller stands. Every path below is relative — `scripts/`,
-// `docs/`, `db/`, `rust/` — and invoking this from `rust/` used to fail with ENOENT on its own map file. Since the
+// `docs/`, `legacy/db/`, `rust/` — and invoking this from `rust/` used to fail with ENOENT on its own map file. Since the
 // parity test shells out to this script, the cwd cannot be assumed.
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 if (process.cwd() !== ROOT) process.chdir(ROOT)
@@ -211,7 +211,7 @@ const lines: string[] = [
   '',
   '## TypeScript modules under the subjects',
   '',
-  `- \`db/\` and \`services/\`: **${subjects.length}** modules`,
+  `- \`legacy/db/\` and \`legacy/services/\`: **${subjects.length}** modules`,
   `- reachable from shipped code: **${reached.length}**`,
   `- not imported by any shipped file (REVIEW, not delete): **${candidates.length}**`,
   '',

@@ -10,11 +10,11 @@
 // script that flips APP_ENV in its own body still connects to the environment that was
 // set when the gateway was imported. See DEEP1 section 6 — that trap is part of why
 // this note exists.
-import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db'
+import { forgeDb, forgeDbTargetForUrl } from '@/legacy/db/forge-db'
 
 import { createPoolExecutor } from './lib/pool-executor'
-import { createStoryboardStory, type StoryboardStoryInput } from '../db/storyboard'
-import { getStoryboardStory } from '../db/storyboard'
+import { createStoryboardStory, type StoryboardStoryInput } from '@/legacy/db/storyboard'
+import { getStoryboardStory } from '@/legacy/db/storyboard'
 
 const STORY_ID = 'DEEP1'
 

@@ -1,7 +1,7 @@
 // ONE Flight Recorder diagnostic, on the SANCTIONED database seam.
 //
 // The first version of this tool imported `pg` and parsed `.env.local` by hand, which broke the
-// repository's DB boundary invariant (`workflow_app/tests/db-boundary.test.ts`: only ForgeDB may
+// repository's DB boundary invariant (`legacy/workflow_app/tests/db-boundary.test.ts`: only ForgeDB may
 // import the driver) and defeated the fail-closed environment declaration at the same time — it
 // would happily compare databases without ever saying which one the machine believed it was in.
 // Everything here goes through `forgeDbForTarget` / `dbTargetInfo` instead.
@@ -15,9 +15,9 @@
 //   5. does a malformed id fail cleanly instead of reaching the driver
 //
 // Run:  APP_ENV=production node --env-file=.env.local --import tsx scripts/probe-flight-recorder.ts
-import { dbTargetInfo } from '../db/database-gateway'
-import { forgeDbForTarget, type ForgeDbTarget } from '../db/forge-db'
-import { getFlightRecorderTransaction } from '../workflow_app/flight-recorder-read'
+import { dbTargetInfo } from '@/legacy/db/database-gateway'
+import { forgeDbForTarget, type ForgeDbTarget } from '@/legacy/db/forge-db'
+import { getFlightRecorderTransaction } from '@/legacy/workflow_app/flight-recorder-read'
 
 async function targetCounts(target: ForgeDbTarget): Promise<void> {
   let handle: ReturnType<typeof forgeDbForTarget>

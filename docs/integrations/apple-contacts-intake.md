@@ -22,7 +22,7 @@ Apple Contacts (Swift exporter)
 ```
 
 - The **exporter** (`contact-export/`, Swift) dumps a CNContact export to JSON.
-- The **generic intake layer** (`lib/intake/*`, `db/integration-inbox.ts`) owns
+- The **generic intake layer** (`lib/intake/*`, `legacy/db/integration-inbox.ts`) owns
   source payload, batch accounting, immutable revisions, fingerprints, and replay
   history.
 - The **relational load** (`l_person*`, `scripts/project-apple-contacts.ts`) is a

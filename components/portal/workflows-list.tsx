@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { GitBranch, AlertCircle, CheckCircle2, Clock } from "lucide-react"
 
-import type { WorkflowSummary } from "@/workflow_app/read-service"
+import type { WorkflowSummary } from "@/legacy/workflow_app/read-service"
 
 function outcomePill(outcome: string | null, status: string) {
   if (outcome === "cancelled") return { label: "Cancelled", className: "bg-black/5 text-black/55" }

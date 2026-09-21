@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto'
 import {
   applyFollowUpCommand,
   getFollowUpById,
-} from '../db/follow-up'
+} from '@/legacy/db/follow-up'
 import { createPoolExecutor } from './lib/pool-executor'
 
 const url = (process.env.DATABASE_URL_DEV ?? process.env.DATABASE_URL) ?? ''

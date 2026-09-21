@@ -51,7 +51,7 @@ The prior contract's failure-isolation, selection, purity, and no-fixture invari
   with `initialView="dayGridMonth"` and toolbar `dayGridMonth,timeGridWeek,timeGridDay`
   (`components/portal/fullcalendar-candidate.tsx:51-64`) — month default, week available.
   `components/portal/catch-up-calendar.tsx` (ilamy, `initialView="month"`) is rendered ONLY
-  by the A/B evaluation harness, which `workflow_app/tests/catch-up.test.ts:254` asserts is
+  by the A/B evaluation harness, which `legacy/workflow_app/tests/catch-up.test.ts:254` asserts is
   **not rendered**. So the shipped engine = `FullCalendarCandidate`.
 - **Shared normalized boundary + mappers already exist.** `CatchUpCalendarEvent` +
   `normalizeCalendarEvent` (`lib/catchup/calendar-adapter.ts:13-71`); `toIlamyCalendarEvent`
@@ -67,18 +67,18 @@ The prior contract's failure-isolation, selection, purity, and no-fixture invari
 - **Deadline projection is pure and tested.** `mapProjectCalendarItems`
   (`ui/projects/secondary-projection.ts:13-18`) keeps valid `dueAt`, stable order;
   `testv2/projects-secondary-projection.test.ts` asserts it. Keep its shape.
-- **WBS due dates are the commitments.** `WbsItem.dueAt` (`services/wbs/types.ts:19`);
-  `wbs_item.due_at timestamptz` (`db/migrations/124_wbs_project_item.sql`).
+- **WBS due dates are the commitments.** `WbsItem.dueAt` (`legacy/services/wbs/types.ts:19`);
+  `wbs_item.due_at timestamptz` (`legacy/db/migrations/124_wbs_project_item.sql`).
 - **Project lifecycle dates exist end-to-end.** `Project.startsAt/endsAt`
-  (`services/project/types.ts:22-23`); selected by `SqlProjectRepository`
-  (`db/project-service-repository.ts:59-60,78`); `project.starts_at/ends_at timestamptz`
-  (`db/migrations/125_project.sql:11-12`).
+  (`legacy/services/project/types.ts:22-23`); selected by `SqlProjectRepository`
+  (`legacy/db/project-service-repository.ts:59-60,78`); `project.starts_at/ends_at timestamptz`
+  (`legacy/db/migrations/125_project.sql:11-12`).
 - **Appointments are canonical interactions on channel `calendar`.** `adaptCalendarEvent`
   emits `channel:'calendar'`, `eventType:'appointment'`
   (`lib/crm-calendar-normalization.ts:250-260`); `getActivityFeed` reads `interaction` and
-  preserves `channel` (`db/activity-feed.ts:70-105`). `calendar_intake_receipt.interaction_id`
-  (`db/migrations/040_calendar_intake_receipt.sql:53`) is the provenance link;
-  `google_calendar_token_store` (`db/migrations/041…`) is provider-side and is NOT read.
+  preserves `channel` (`legacy/db/activity-feed.ts:70-105`). `calendar_intake_receipt.interaction_id`
+  (`legacy/db/migrations/040_calendar_intake_receipt.sql:53`) is the provenance link;
+  `google_calendar_token_store` (`legacy/db/migrations/041…`) is provider-side and is NOT read.
 - **The anchor join already exists.** `effectivePropertyIds`/`effectivePersonIds` id
   intersection (`ui/projects/service-projection.ts:241-267`); `planActivity` is already
   project-scoped by stable id (never by display name).
@@ -326,7 +326,7 @@ pnpm exec next build --webpack
 
 Adjacent check (only if `lib/catchup/calendar-*` or `fullcalendar-candidate.tsx` were
 changed; SINGLE FILE, never a glob, and only if the runtime policy permits it):
-`pnpm exec tsx --test workflow_app/tests/catch-up.test.ts`. If that command is judged to
+`pnpm exec tsx --test legacy/workflow_app/tests/catch-up.test.ts`. If that command is judged to
 violate SCOPED policy, record it as a blocker instead — do NOT fall back to `pnpm test:app`.
 
 Forbidden: `pnpm test`, `pnpm test:persistence`, `pnpm test:engine`, `pnpm test:app`, npm/yarn

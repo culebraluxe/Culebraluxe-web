@@ -1,0 +1,141 @@
+// ---------------------------------------------------------------------------
+// HARDEN-05 — Property publication / market visibility invariant.
+//
+// PROPERTY OWNS PUBLICATION STATE; LISTING MEDIA INHERITS IT.
+//
+// Focused proofs:
+//   1. every PUBLIC property read gates on property.is_published
+//   2. no legacy status-based public predicate remains in db/properties.ts
+//   3. the publish seam is the canonical single-authority mutation + validation
+//   4. getProperties exposes the explicit publicOnly option
+//
+// The deterministic end-to-end behavior (public vs internal on the real DEV
+// control plane, direct-URL 404, media inheritance, toggle) is proven by
+// scripts/verify-property-publication.ts.
+// ---------------------------------------------------------------------------
+
+import { test, afterEach } from 'node:test'
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+
+import {
+  getFilteredProperties,
+  getPropertyBySlug,
+  getPublicPropertySlugs,
+  getSimilarProperties,
+} from '@/legacy/db/property-public-reads'
+import { setPropertyPublished } from '@/legacy/db/portal-property'
+import { setDatabaseTestExecutor } from '@/legacy/db/client'
+import { PortalWriteError } from '@/lib/portal-write-error'
+import type { QueryExecutor } from '@/legacy/db/query-executor'
+
+afterEach(() => setDatabaseTestExecutor(null))
+
+type Captured = { sql: string; params: unknown[] }
+
+/** Returns a fake executor that captures each call's text and replays a
+ *  sequence of canned row-sets (last set repeats). */
+function makeExecutor(
+  sequences: Record<string, unknown>[][],
+  captured: Captured[],
+): QueryExecutor {
+  let i = 0
+  return async (strings, ...params) => {
+    captured.push({ sql: strings.join('?'), params })
+    const set = sequences[Math.min(i, sequences.length - 1)] ?? []
+    i++
+    return set
+  }
+}
+
+test('HARDEN-05: getFilteredProperties (public buyers) gates on is_published', async () => {
+  const captured: Captured[] = []
+  setDatabaseTestExecutor(makeExecutor([[], []], captured))
+  await getFilteredProperties({ category: 'all' })
+  assert.ok(
+    captured.length >= 2,
+    'property + view queries both issued',
+  )
+  for (const c of captured) {
+    assert.ok(
+      c.sql.toLowerCase().includes('is_published = true'),
+      `public filter present: ${c.sql.slice(0, 80)}`,
+    )
+  }
+})
+
+test('HARDEN-05: getSimilarProperties (public) gates on is_published', async () => {
+  const captured: Captured[] = []
+  setDatabaseTestExecutor(makeExecutor([[]], captured))
+  await getSimilarProperties(
+    'prop-1',
+    { propertyType: null, city: null, neighborhood: null, listPrice: null },
+    3,
+  )
+  assert.ok(captured[0].sql.toLowerCase().includes('is_published = true'))
+})
+
+test('HARDEN-05: getPublicPropertySlugs gates on is_published', async () => {
+  const captured: Captured[] = []
+  setDatabaseTestExecutor(makeExecutor([[]], captured))
+  await getPublicPropertySlugs()
+  assert.ok(captured[0].sql.toLowerCase().includes('is_published = true'))
+})
+
+test('HARDEN-05: getPropertyBySlug (public detail) gates on is_published (direct URL 404 for internal)', async () => {
+  const captured: Captured[] = []
+  setDatabaseTestExecutor(makeExecutor([[]], captured))
+  const result = await getPropertyBySlug('some-slug')
+  assert.ok(result.ok, 'query ran')
+  if (result.ok) assert.equal(result.data, null, 'zero rows -> null (page calls notFound())')
+  assert.ok(captured[0].sql.toLowerCase().includes('is_published = true'))
+})
+
+test('HARDEN-05: setPropertyPublished is the canonical idempotent publication mutation', async () => {
+  // Success path writes is_published and returns id + slug.
+  const captured: Captured[] = []
+  const ok = await setPropertyPublished(
+    'p1',
+    true,
+    makeExecutor([[{ id: 'p1', slug: 'casa' }]], captured),
+  )
+  assert.deepEqual(ok, { id: 'p1', slug: 'casa' })
+  assert.ok(captured[0].sql.toLowerCase().includes('is_published'))
+
+  // Missing property -> not-found.
+  await assert.rejects(
+    () =>
+      setPropertyPublished('p1', true, makeExecutor([[]], captured)),
+    (err: unknown) =>
+      err instanceof PortalWriteError && err.code === 'not-found',
+  )
+
+  // Non-boolean is rejected.
+  await assert.rejects(
+    () =>
+      setPropertyPublished(
+        'p1',
+        'yes' as unknown as boolean,
+        makeExecutor([[{ id: 'p1', slug: 'casa' }]], captured),
+      ),
+    (err: unknown) =>
+      err instanceof PortalWriteError && err.code === 'validation',
+  )
+})
+
+test('HARDEN-05: legacy status predicate confined to the internal getProperties default; public reads use is_published', async () => {
+  // The public read path moved out of the retired db/properties.ts into
+  // db/property-public-reads.ts (the module the Property service consumes).
+  const source = await readFile(
+    new URL('../../db/property-public-reads.ts', import.meta.url),
+    'utf8',
+  )
+  const legacy = /status in \('active', 'coming_soon', 'under_contract'\)/g
+  const legacyCount = (source.match(legacy) ?? []).length
+  assert.ok(
+    legacyCount <= 1,
+    `legacy public predicate only in the internal getProperties default (found ${legacyCount})`,
+  )
+  assert.ok(source.includes('publicOnly'), 'getProperties exposes publicOnly')
+  assert.ok(source.includes('is_published = true'))
+})

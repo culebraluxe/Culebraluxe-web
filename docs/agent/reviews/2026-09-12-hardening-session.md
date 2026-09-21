@@ -25,17 +25,17 @@ Everything below is on `main`.
 1. **Environments are declared, never inferred.** One declaration
    (`lib/execution-target.ts`): `describeControlPlane()` is total (diagnostics never
    throw), `declareControlPlane()` is strict (connecting), and silence REFUSES.
-2. **One pool, one wrapper, no exceptions.** `db/forge-db.ts` is the only module
+2. **One pool, one wrapper, no exceptions.** `legacy/db/forge-db.ts` is the only module
    allowed to construct a pool or client, enforced by
-   `workflow_app/tests/db-boundary.test.ts` (ratchet now empty).
+   `legacy/workflow_app/tests/db-boundary.test.ts` (ratchet now empty).
 
 ## Where to look, by concern
 
-- **Pool / wrapper**: `db/forge-db.ts`, `db/sql-template.ts`, `db/database-gateway.ts`.
+- **Pool / wrapper**: `legacy/db/forge-db.ts`, `legacy/db/sql-template.ts`, `legacy/db/database-gateway.ts`.
   Note `serverExternalPackages: ['pg']` in `next.config.mjs` — `pg` must stay a
   runtime dependency of the server bundle.
-- **Enforcement**: `workflow_app/tests/db-boundary.test.ts` (driver boundary),
-  `workflow_app/tests/forge-execution-target.test.ts` (lane start),
+- **Enforcement**: `legacy/workflow_app/tests/db-boundary.test.ts` (driver boundary),
+  `legacy/workflow_app/tests/forge-execution-target.test.ts` (lane start),
   `lib/storyboard-data.ts` (`STORY_ID_TOKEN` + `dependencyStoryIds`).
 - **The traps found** (each one is commented at the site):
   1. A reporter calling the strict resolver MASKS the failure it is reporting
@@ -43,7 +43,7 @@ Everything below is on `main`.
   2. A guard whose argument is a strict call throws the wrong error by evaluation
      order (`assertForgeLaneMayStart({ env })` now derives both halves itself).
   3. Two fragment encodings would silently bind a fragment as a parameter
-     (`db/sql-template.ts` is the one encoding; structural fragments are opt-in).
+     (`legacy/db/sql-template.ts` is the one encoding; structural fragments are opt-in).
   4. `pg` 8.23's `sslmode=require` warning was measured against live Neon and then
      pinned to `verify-full` (verification unchanged, never weakened).
 

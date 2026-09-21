@@ -8,7 +8,7 @@
 // rules live here. Registration happens in lib/commands/register.ts.
 // ---------------------------------------------------------------------------
 
-import { setDealStage } from '../../../db/deal-stage'
+import { setDealStage } from '@/legacy/db/deal-stage'
 import type {
   CommandEnvelope,
   CommandExecutionContext,

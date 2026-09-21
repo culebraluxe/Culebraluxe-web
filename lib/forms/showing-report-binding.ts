@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
 import { bindFormInstanceToShowing, getFormShowingId } from '@/lib/forms/form-instance-io'
-import { SHOWING_OPERATIONS } from '@/services/showing'
+import { SHOWING_OPERATIONS } from '@/legacy/services/showing'
 import { formShowingService } from './form-service-runtime'
 import { formServiceContext, serviceValue } from './service-binding-core'
 import { mapShowingReportDraft, type ShowingReportDraft } from './showing-report-mapping'

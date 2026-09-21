@@ -1,6 +1,6 @@
 # Layer: DB
 
-Crate: **`rust/core/db`** + migrations in **`db/migrations`**. **Owns:** the one pool, the DAOs, retry, the failure
+Crate: **`rust/core/db`** + migrations in **`legacy/db/migrations`**. **Owns:** the one pool, the DAOs, retry, the failure
 taxonomy, and the writing of failures to `app_error`.
 
 ## One pool per process
@@ -36,7 +36,7 @@ report the target. **Check it before believing a command is on dev.**
 
 ## Migrations
 
-Numbered files in `db/migrations`, applied **explicitly per target** — never by the deploy. `pnpm db:migrations` shows
+Numbered files in `legacy/db/migrations`, applied **explicitly per target** — never by the deploy. `pnpm db:migrations` shows
 per-target state.
 
 ⚠ **Dev and prod schemas currently differ**: 34 migrations are applied to only one environment. Reconcile in DEV before a

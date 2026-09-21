@@ -4,7 +4,7 @@ import {
   createStoryboardStory,
   updateStoryboardStory,
   type StoryboardStoryInput,
-} from '../db/storyboard'
+} from '@/legacy/db/storyboard'
 
 type Core = {
   id: string

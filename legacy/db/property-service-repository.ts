@@ -1,0 +1,516 @@
+import { db, sql } from '@/legacy/db/client'
+import type { Result } from '@/legacy/db/client'
+import type { QueryExecutor } from '@/legacy/db/query-executor'
+import {
+  getFilteredProperties,
+  getProperties,
+  getPropertyBySlug,
+  getPropertyIntroById,
+  getPublicPropertySlugs,
+  getSimilarProperties,
+  type PropertyReadExecutor,
+} from '@/legacy/db/property-public-reads'
+import { formatAddressLine, oneLine } from '@/lib/address-format'
+import type { PropertyDetailResult } from '@/lib/property-types'
+import type {
+  FilterPropertiesRequest,
+  FindPropertyByAddressRequest,
+  GetPropertyBySlugRequest,
+  GetPropertyIntroRequest,
+  GetSimilarPropertiesRequest,
+  ListPropertiesRequest,
+  PersonPropertyContextDto,
+  PersonPropertyRelation,
+  PropertyAddressDto,
+  PropertyDto,
+  PropertyForPersonDto,
+  PropertyIntro,
+  PropertyInventoryPage,
+  PropertyRepository,
+  PropertySummary,
+  SetPropertyDisplayNameRequest,
+  SetPropertyStatusRequest,
+  UpsertPropertyForPersonRequest,
+} from '@/legacy/services/property'
+
+type PropertyRow = {
+  id: string
+  name: string | null
+  legal_owner_name: string | null
+  listing_identifier: string | null
+  registry_entry: string | null
+  finca_number: string | null
+  registry_section: string | null
+  status: string
+  archived_at: string | Date | null
+  address_line1: string | null
+  location: string | null
+  street_number: string | null
+  street_name: string | null
+  unit_number: string | null
+  city: string | null
+  state_or_province: string | null
+  neighborhood: string | null
+  postal_code: string | null
+  country: string | null
+  iso_country_code: string | null
+}
+
+type PropertyForPersonRow = PropertyRow & {
+  relation_type: PersonPropertyRelation
+  relation_status: string | null
+}
+
+type RelationTableRow = { table_name: string | null }
+
+function toIso(value: string | Date | null | undefined): string | null {
+  if (value == null) return null
+  const date = value instanceof Date ? value : new Date(value)
+  return Number.isNaN(date.getTime()) ? String(value) : date.toISOString()
+}
+
+function compact(value: string | null | undefined): string | null {
+  const next = value?.trim()
+  return next ? next : null
+}
+
+/**
+ * Canonical address text wins. Structured street columns enrich that text but
+ * never require Forms to parse Puerto Rico/PO-box syntax just to save business
+ * truth. `location` remains the final legacy fallback only.
+ */
+function canonicalAddressLine(row: PropertyRow): string | null {
+  // Apple Contacts stores multi-line streets ("Bo. Delicias\nVagabundo Capital
+  // LLC"). One line leaves the repository so no single-line field glues them.
+  const canonical = oneLine(row.address_line1)
+  if (canonical) return canonical
+
+  const street = [compact(row.street_number), compact(row.street_name)]
+    .filter((value): value is string => Boolean(value))
+    .join(' ')
+  const unit = compact(row.unit_number)
+  if (street) return unit ? `${street}, ${unit}` : street
+
+  return oneLine(row.location)
+}
+
+function canonicalAddress(row: PropertyRow): PropertyAddressDto {
+  return {
+    addressLine1: canonicalAddressLine(row),
+    city: row.city,
+    stateOrProvince: row.state_or_province,
+    neighborhood: row.neighborhood,
+    postalCode: row.postal_code,
+    country: row.country,
+    isoCountryCode: row.iso_country_code,
+  }
+}
+
+function addressLabel(address: PropertyAddressDto): string {
+  return formatAddressLine(address) || 'Property'
+}
+
+function toProperty(row: PropertyRow): PropertyDto {
+  const address = canonicalAddress(row)
+  const localName = compact(row.name)
+  return {
+    id: row.id,
+    displayName: localName ?? addressLabel(address),
+    localName,
+    legalOwnerName: compact(row.legal_owner_name),
+    catastroNumber: compact(row.listing_identifier),
+    registryEntry: compact(row.registry_entry),
+    fincaNumber: compact(row.finca_number),
+    registrySection: compact(row.registry_section),
+    addressLine1: address.addressLine1,
+    municipality: address.city,
+    address,
+    status: row.status,
+    archivedAt: toIso(row.archived_at),
+  }
+}
+
+function normalized(value: string | null | undefined): string {
+  return (value ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+function relationRank(relation: PersonPropertyRelation): number {
+  switch (relation) {
+    case 'legal_address': return 0
+    case 'physical_property': return 1
+    case 'address': return 2
+    case 'interest': return 3
+  }
+}
+
+function mergeAddress(
+  current: PropertyAddressDto | null,
+  patch: Partial<PropertyAddressDto> | undefined,
+): PropertyAddressDto {
+  const base: PropertyAddressDto = current ?? {
+    addressLine1: null,
+    city: null,
+    stateOrProvince: null,
+    neighborhood: null,
+    postalCode: null,
+    country: null,
+    isoCountryCode: null,
+  }
+  return {
+    addressLine1: patch?.addressLine1 === undefined ? base.addressLine1 : patch.addressLine1,
+    city: patch?.city === undefined ? base.city : patch.city,
+    stateOrProvince: patch?.stateOrProvince === undefined ? base.stateOrProvince : patch.stateOrProvince,
+    neighborhood: patch?.neighborhood === undefined ? base.neighborhood : patch.neighborhood,
+    postalCode: patch?.postalCode === undefined ? base.postalCode : patch.postalCode,
+    country: patch?.country === undefined ? base.country : patch.country,
+    isoCountryCode: patch?.isoCountryCode === undefined ? base.isoCountryCode : patch.isoCountryCode,
+  }
+}
+
+/** Production adapter behind PropertyService. */
+export class SqlPropertyRepository implements PropertyRepository {
+  constructor(
+    private readonly execute: QueryExecutor = sql,
+    /** Public inventory reads use the Result-returning gateway (never a raw throw). */
+    private readonly reads: PropertyReadExecutor = db,
+  ) {}
+
+  async get(propertyId: string): Promise<PropertyDto | null> {
+    const rows = (await this.execute`
+      select
+        p.id, p.name,
+        to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
+        p.listing_identifier,
+        to_jsonb(p)->>'registry_entry' as registry_entry,
+        to_jsonb(p)->>'finca_number' as finca_number,
+        to_jsonb(p)->>'registry_section' as registry_section,
+        p.status, p.archived_at,
+        to_jsonb(p)->>'address_line1' as address_line1,
+        p.location, p.street_number, p.street_name, p.unit_number,
+        p.city, p.state_or_province, p.neighborhood, p.postal_code,
+        to_jsonb(p)->>'country' as country,
+        to_jsonb(p)->>'iso_country_code' as iso_country_code
+      from property p
+      where p.id = ${propertyId}
+      limit 1
+    `) as PropertyRow[]
+    return rows[0] ? toProperty(rows[0]) : null
+  }
+
+  async findByAddress(request: FindPropertyByAddressRequest): Promise<PropertyDto | null> {
+    const line = request.addressLine1.trim()
+    const municipality = request.municipality?.trim() || null
+    const state = request.stateOrProvince?.trim() || null
+    const postalCode = request.postalCode?.trim() || null
+    const rows = (await this.execute`
+      select
+        p.id, p.name,
+        to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
+        p.listing_identifier,
+        to_jsonb(p)->>'registry_entry' as registry_entry,
+        to_jsonb(p)->>'finca_number' as finca_number,
+        to_jsonb(p)->>'registry_section' as registry_section,
+        p.status, p.archived_at,
+        to_jsonb(p)->>'address_line1' as address_line1,
+        p.location, p.street_number, p.street_name, p.unit_number,
+        p.city, p.state_or_province, p.neighborhood, p.postal_code,
+        to_jsonb(p)->>'country' as country,
+        to_jsonb(p)->>'iso_country_code' as iso_country_code
+      from property p
+      where p.archived_at is null
+        and (${municipality}::text is null or lower(trim(coalesce(p.city, ''))) = lower(trim(${municipality})))
+        and (${state}::text is null or lower(trim(coalesce(p.state_or_province, ''))) = lower(trim(${state})))
+        and (${postalCode}::text is null or lower(trim(coalesce(p.postal_code, ''))) = lower(trim(${postalCode})))
+      order by p.updated_at desc nulls last, p.id asc
+      limit 250
+    `) as PropertyRow[]
+    const match = rows.find((row) => normalized(canonicalAddressLine(row)) === normalized(line))
+    return match ? toProperty(match) : null
+  }
+
+  async forPerson(personId: string): Promise<PersonPropertyContextDto> {
+    const relationTable = (await this.execute`
+      select to_regclass('public.person_property')::text as table_name
+    `) as RelationTableRow[]
+    const canonicalRows: PropertyForPersonRow[] = []
+
+    if (relationTable[0]?.table_name) {
+      const rows = (await this.execute`
+        select distinct
+          p.id, p.name,
+          to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
+          p.listing_identifier,
+          to_jsonb(p)->>'registry_entry' as registry_entry,
+          to_jsonb(p)->>'finca_number' as finca_number,
+          to_jsonb(p)->>'registry_section' as registry_section,
+          p.status, p.archived_at,
+          to_jsonb(p)->>'address_line1' as address_line1,
+          p.location, p.street_number, p.street_name, p.unit_number,
+          p.city, p.state_or_province, p.neighborhood, p.postal_code,
+          to_jsonb(p)->>'country' as country,
+          to_jsonb(p)->>'iso_country_code' as iso_country_code,
+          pp.relation_type,
+          pp.relation_status
+        from person_property pp
+        join property p on p.id = pp.property_id
+        where pp.person_id = ${personId}
+          and p.archived_at is null
+      `) as PropertyForPersonRow[]
+      canonicalRows.push(...rows)
+    }
+
+    const legacyInterestRows = (await this.execute`
+      select distinct
+        p.id, p.name,
+        to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
+        p.listing_identifier,
+        to_jsonb(p)->>'registry_entry' as registry_entry,
+        to_jsonb(p)->>'finca_number' as finca_number,
+        to_jsonb(p)->>'registry_section' as registry_section,
+        p.status, p.archived_at,
+        to_jsonb(p)->>'address_line1' as address_line1,
+        p.location, p.street_number, p.street_name, p.unit_number,
+        p.city, p.state_or_province, p.neighborhood, p.postal_code,
+        to_jsonb(p)->>'country' as country,
+        to_jsonb(p)->>'iso_country_code' as iso_country_code,
+        'interest'::text as relation_type,
+        pi.status as relation_status
+      from property_interest pi
+      join property p on p.id = pi.property_id
+      where pi.person_id = ${personId}
+        and p.archived_at is null
+    `) as PropertyForPersonRow[]
+    canonicalRows.push(...legacyInterestRows)
+
+    const legacySellerRows = (await this.execute`
+      select distinct
+        p.id, p.name,
+        to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
+        p.listing_identifier,
+        to_jsonb(p)->>'registry_entry' as registry_entry,
+        to_jsonb(p)->>'finca_number' as finca_number,
+        to_jsonb(p)->>'registry_section' as registry_section,
+        p.status, p.archived_at,
+        to_jsonb(p)->>'address_line1' as address_line1,
+        p.location, p.street_number, p.street_name, p.unit_number,
+        p.city, p.state_or_province, p.neighborhood, p.postal_code,
+        to_jsonb(p)->>'country' as country,
+        to_jsonb(p)->>'iso_country_code' as iso_country_code,
+        'physical_property'::text as relation_type,
+        null::text as relation_status
+      from property p
+      where p.seller_person_id = ${personId}
+        and p.archived_at is null
+    `) as PropertyForPersonRow[]
+    canonicalRows.push(...legacySellerRows)
+
+    const properties: PropertyForPersonDto[] = []
+    const seenRelations = new Set<string>()
+    for (const row of canonicalRows) {
+      const key = `${row.id}:${row.relation_type}`
+      if (seenRelations.has(key)) continue
+      seenRelations.add(key)
+      properties.push({
+        relation: row.relation_type,
+        relationStatus: row.relation_status,
+        property: toProperty(row),
+      })
+    }
+    properties.sort((a, b) =>
+      relationRank(a.relation) - relationRank(b.relation) ||
+      a.property.displayName.localeCompare(b.property.displayName),
+    )
+
+    return { personId, properties }
+  }
+
+  async upsertForPerson(request: UpsertPropertyForPersonRequest): Promise<PropertyForPersonDto> {
+    const explicitId = compact(request.propertyId)
+    const requestedLine = compact(request.address?.addressLine1)
+    let current = explicitId ? await this.get(explicitId) : null
+
+    if (!current && !explicitId && requestedLine) {
+      current = await this.findByAddress({
+        addressLine1: requestedLine,
+        municipality: request.address?.city ?? undefined,
+        stateOrProvince: request.address?.stateOrProvince ?? undefined,
+        postalCode: request.address?.postalCode ?? undefined,
+      })
+    }
+
+    const address = mergeAddress(current?.address ?? null, request.address)
+    const localName = request.localName === undefined ? current?.localName ?? null : compact(request.localName)
+    const legalOwnerName = request.legalOwnerName === undefined
+      ? current?.legalOwnerName ?? null
+      : compact(request.legalOwnerName)
+    const catastroNumber = request.catastroNumber === undefined
+      ? current?.catastroNumber ?? null
+      : compact(request.catastroNumber)
+    const registryEntry = request.registryEntry === undefined
+      ? current?.registryEntry ?? null
+      : compact(request.registryEntry)
+    const fincaNumber = request.fincaNumber === undefined
+      ? current?.fincaNumber ?? null
+      : compact(request.fincaNumber)
+    const registrySection = request.registrySection === undefined
+      ? current?.registrySection ?? null
+      : compact(request.registrySection)
+
+    if (!current && !compact(address.addressLine1) && !localName) {
+      throw new Error('Property requires an address or local name before it can be created.')
+    }
+
+    let property: PropertyDto
+    if (current) {
+      const rows = (await this.execute`
+        update property p
+        set name = ${localName},
+            legal_owner_name = ${legalOwnerName},
+            listing_identifier = ${catastroNumber},
+            registry_entry = ${registryEntry},
+            finca_number = ${fincaNumber},
+            registry_section = ${registrySection},
+            address_line1 = ${compact(address.addressLine1)},
+            city = ${compact(address.city)},
+            state_or_province = ${compact(address.stateOrProvince)},
+            neighborhood = ${compact(address.neighborhood)},
+            postal_code = ${compact(address.postalCode)},
+            country = ${compact(address.country)},
+            iso_country_code = ${compact(address.isoCountryCode)},
+            updated_at = now()
+        where p.id = ${current.id}
+        returning
+          p.id, p.name, p.legal_owner_name, p.listing_identifier,
+          p.registry_entry, p.finca_number, p.registry_section,
+          p.status, p.archived_at, p.address_line1,
+          p.location, p.street_number, p.street_name, p.unit_number,
+          p.city, p.state_or_province, p.neighborhood, p.postal_code,
+          p.country, p.iso_country_code
+      `) as PropertyRow[]
+      if (!rows[0]) throw new Error(`Property not found: ${current.id}`)
+      property = toProperty(rows[0])
+    } else {
+      const rows = (await this.execute`
+        insert into property (
+          name, legal_owner_name, listing_identifier,
+          registry_entry, finca_number, registry_section,
+          address_line1, city, state_or_province, neighborhood, postal_code,
+          country, iso_country_code, source_type
+        ) values (
+          ${localName}, ${legalOwnerName}, ${catastroNumber},
+          ${registryEntry}, ${fincaNumber}, ${registrySection},
+          ${compact(address.addressLine1)}, ${compact(address.city)}, ${compact(address.stateOrProvince)},
+          ${compact(address.neighborhood)}, ${compact(address.postalCode)},
+          ${compact(address.country)}, ${compact(address.isoCountryCode)},
+          ${compact(request.sourceType) ?? 'manual'}
+        )
+        returning
+          id, name, legal_owner_name, listing_identifier,
+          registry_entry, finca_number, registry_section,
+          status, archived_at, address_line1,
+          location, street_number, street_name, unit_number,
+          city, state_or_province, neighborhood, postal_code,
+          country, iso_country_code
+      `) as PropertyRow[]
+      if (!rows[0]) throw new Error('Property creation returned no row.')
+      property = toProperty(rows[0])
+    }
+
+    await this.execute`
+      insert into person_property (
+        person_id, property_id, relation_type, relation_status, source_type, source_key
+      ) values (
+        ${request.personId}, ${property.id}, ${request.relation},
+        ${request.relationStatus ?? null}, ${compact(request.sourceType) ?? 'manual'},
+        ${compact(request.sourceKey)}
+      )
+      on conflict (person_id, property_id, relation_type)
+      do update set
+        relation_status = excluded.relation_status,
+        source_type = excluded.source_type,
+        source_key = excluded.source_key,
+        updated_at = now()
+    `
+
+    return { relation: request.relation, relationStatus: request.relationStatus ?? null, property }
+  }
+
+  async setDisplayName(request: SetPropertyDisplayNameRequest): Promise<PropertyDto> {
+    const rows = (await this.execute`
+      update property p
+      set name = ${request.displayName}, updated_at = now()
+      where p.id = ${request.propertyId}
+      returning
+        p.id, p.name, to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
+        p.listing_identifier,
+        to_jsonb(p)->>'registry_entry' as registry_entry,
+        to_jsonb(p)->>'finca_number' as finca_number,
+        to_jsonb(p)->>'registry_section' as registry_section,
+        p.status, p.archived_at,
+        to_jsonb(p)->>'address_line1' as address_line1,
+        p.location, p.street_number, p.street_name, p.unit_number,
+        p.city, p.state_or_province, p.neighborhood, p.postal_code,
+        to_jsonb(p)->>'country' as country,
+        to_jsonb(p)->>'iso_country_code' as iso_country_code
+    `) as PropertyRow[]
+    if (!rows[0]) throw new Error(`Property not found: ${request.propertyId}`)
+    return toProperty(rows[0])
+  }
+
+  async setStatus(request: SetPropertyStatusRequest): Promise<PropertyDto> {
+    const rows = (await this.execute`
+      update property p
+      set status = ${request.status}, updated_at = now()
+      where p.id = ${request.propertyId}
+      returning
+        p.id, p.name, to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
+        p.listing_identifier,
+        to_jsonb(p)->>'registry_entry' as registry_entry,
+        to_jsonb(p)->>'finca_number' as finca_number,
+        to_jsonb(p)->>'registry_section' as registry_section,
+        p.status, p.archived_at,
+        to_jsonb(p)->>'address_line1' as address_line1,
+        p.location, p.street_number, p.street_name, p.unit_number,
+        p.city, p.state_or_province, p.neighborhood, p.postal_code,
+        to_jsonb(p)->>'country' as country,
+        to_jsonb(p)->>'iso_country_code' as iso_country_code
+    `) as PropertyRow[]
+    if (!rows[0]) throw new Error(`Property not found: ${request.propertyId}`)
+    return toProperty(rows[0])
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Public inventory reads (ACTIVE LISTINGS).
+   *
+   * The SQL + mapping live in db/property-public-reads.ts (moved out of the
+   * retired db/properties.ts). This class is the only thing that reaches them,
+   * which is the Property invariant: persistence is reachable only through the
+   * repository boundary. They keep the gateway Result contract, so a failed
+   * read degrades a page instead of rejecting it.
+   * ------------------------------------------------------------------ */
+
+  async list(request: ListPropertiesRequest): Promise<Result<PropertySummary[]>> {
+    return getProperties({ publicOnly: request.publicOnly === true }, this.reads)
+  }
+
+  async search(request: FilterPropertiesRequest): Promise<Result<PropertyInventoryPage>> {
+    return getFilteredProperties(request.filters, this.reads)
+  }
+
+  async similar(request: GetSimilarPropertiesRequest): Promise<Result<PropertySummary[]>> {
+    return getSimilarProperties(request.propertyId, request.current, request.limit ?? 3, this.reads)
+  }
+
+  async bySlug(request: GetPropertyBySlugRequest): Promise<Result<PropertyDetailResult | null>> {
+    return getPropertyBySlug(request.slug, this.reads)
+  }
+
+  async publicSlugs(): Promise<Result<string[]>> {
+    return getPublicPropertySlugs(this.reads)
+  }
+
+  async intro(request: GetPropertyIntroRequest): Promise<Result<PropertyIntro | null>> {
+    return getPropertyIntroById(request.propertyId, this.reads)
+  }
+
+}

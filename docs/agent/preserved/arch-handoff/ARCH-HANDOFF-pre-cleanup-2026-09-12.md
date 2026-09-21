@@ -1450,7 +1450,7 @@ services/ is a typed service kernel with 14 domains: comms, contract, core, enti
 forms, person, project, property, regrid, security, showing, vault, wbs.
 
 The seam is the composition root, and it is the ONLY one:
-  services/composition.ts -> composeCoreServices(repositories, infrastructure)
+  legacy/services/composition.ts -> composeCoreServices(repositories, infrastructure)
 It builds the kernel once, registers every domain in a ServiceRegistry, injects infrastructure,
 and returns typed handles (CoreServiceComposition): registry, person, firm, property, contract,
 showing, security, wbs, project - plus comms, form and vault, which are OPTIONAL and present only
@@ -1459,11 +1459,11 @@ runtime"). Do not build a second composition root, and do not construct a servic
 domain is missing at runtime, it is missing because its repository was not passed in.
 
 services/index.ts NO LONGER EXISTS. It was removed as a dead barrel; the public seam is the
-composition root plus each domain's own index.ts. services/core/index.ts is the most depended-on
+composition root plus each domain's own index.ts. legacy/services/core/index.ts is the most depended-on
 file in the tier (30 dependents across services/ and ui/), which is what makes the kernel
 contracts stable.
 
-Kernel contracts live in services/core/:
+Kernel contracts live in legacy/services/core/:
 - envelopes and results: ServiceEnvelope, ServiceResult (ServiceSuccess | ServiceFailure),
   ServiceErrorShape, ServiceFailure.
 - operation shapes: ServiceOperationContract, ServiceOperationDefinition(s), ServiceOperationMap,
@@ -1558,7 +1558,7 @@ module, the glass-box proof stops running and the screen becomes unprovable agai
 4. BOUNDARIES THAT ARE NOW SETTLED - DO NOT REOPEN WITHOUT RUNTIME EVIDENCE
 1. Screens do not read the database. Component -> controller -> source -> service -> repository.
 2. Business truth lives in application/domain services. workflow_engine orchestrates only;
-   workflow_app maps. This is now also enforced inside services/.
+   workflow_app maps. This is now also enforced inside legacy/services/.
 3. A new domain is a package under services/<domain> with its own repository interface, service,
    types and index.ts, registered in composeCoreServices. No parallel composition roots.
 4. Mutations are commands: intent in, canonical service mutates, receipt/event proves it.

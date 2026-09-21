@@ -6,7 +6,7 @@ Syndication QR, WhatsApp/SMS blurbs, seller report, and flyer use the live publi
 
 ## Scope
 
-- `lib/syndication` public URL builders (`db/syndication.ts`, `share.ts`, QR route)
+- `lib/syndication` public URL builders (`legacy/db/syndication.ts`, `share.ts`, QR route)
 - `app/portal/marketing/qr/route.ts` allowlist
 - New `app/listings/[slug]/page.tsx` redirect to `/properties/[slug]`
 - Tests next to those files
@@ -56,5 +56,5 @@ SCOPED
 
 ## Assay commands
 
-- pnpm exec tsx --test workflow_app/tests/syndication-adapters.test.ts
+- pnpm exec tsx --test legacy/workflow_app/tests/syndication-adapters.test.ts
 - git diff --check

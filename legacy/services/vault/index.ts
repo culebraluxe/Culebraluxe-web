@@ -1,0 +1,25 @@
+export { VaultService } from '@/legacy/services/vault/vault-service'
+export type { VaultRepository } from '@/legacy/services/vault/repository'
+export {
+  VAULT_OPERATIONS,
+  type BindFormToContractRequest,
+  type ContractIssuedLineage,
+  type CreateTransactionDocumentInput,
+  type FormContractIdRequest,
+  type GetVaultDocumentRequest,
+  type IssuedDocumentForFormInstance,
+  type IssuedDocumentListItem,
+  type IssueDocumentInput,
+  type IssuedForFormInstanceRequest,
+  type ListDocumentsByDealRequest,
+  type ListIssuedDocumentsRequest,
+  type NextIssuedVersionRequest,
+  type PriorContractDocumentRequest,
+  type TransactionDocument,
+  type TransitionTransactionDocumentInput,
+  type VaultEnvelope,
+  type VaultMediaBytes,
+  type VaultMediaBytesRequest,
+  type VaultOperationMap,
+  type VaultOperationName,
+} from '@/legacy/services/vault/types'

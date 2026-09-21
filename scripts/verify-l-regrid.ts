@@ -19,7 +19,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-import { sql } from '../db/client'
+import { sql } from '@/legacy/db/client'
 
 const args = process.argv.slice(2)
 const argOf = (name: string): string | null => {

@@ -9,7 +9,7 @@ import {
   createExpense,
   createReceivable,
   markReceivablePaid,
-} from '@/db/accounting'
+} from '@/legacy/db/accounting'
 
 // ACCOUNTING V1 — server actions (UI command layer). Reuse the canonical
 // accounting write seams; the React client never touches SQL. All actions are

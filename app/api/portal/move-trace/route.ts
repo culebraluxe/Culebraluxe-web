@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { recordError } from '@/db/app-error'
-import { sql as errorSql } from '@/db/client'
+import { recordError } from '@/legacy/db/app-error'
+import { sql as errorSql } from '@/legacy/db/client'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
 import {

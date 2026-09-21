@@ -1,7 +1,7 @@
 // AUTH-08H — DEV-only verification of the Google identity provisioning.
 // Run: node --env-file=.env.local --import tsx scripts/verify-dev-google-provision.ts
 // Reads ONLY the DEV database. Confirms the step-4 required proof facts.
-import { db } from '../db/client'
+import { db } from '@/legacy/db/client'
 
 const SUBJECT = '9a5682f4-6531-4a86-9282-ad80bba996f6'
 const APP_USER_ID = 'aa06d089-162c-4bef-84ec-a76ee38cc8ad'

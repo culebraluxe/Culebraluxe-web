@@ -3,7 +3,7 @@ import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
 import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 
 import { captureServerError } from '@/lib/server-error-capture'
-import { getRuntimeInspection } from "@/workflow_app/runtime-inspector-read"
+import { getRuntimeInspection } from "@/legacy/workflow_app/runtime-inspector-read"
 import { withApiHandler } from '@/lib/error-capture-seam'
 
 // WORKFLOW RUNTIME INSPECTOR — overlay Flight Recorder trace evidence on the

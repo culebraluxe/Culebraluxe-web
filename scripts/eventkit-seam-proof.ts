@@ -4,7 +4,7 @@
 // titles/notes are never printed. Verifies distinct per-occurrence ids,
 // idempotent replay, and showing + Apple merge.
 async function main() {
-  const { getCatchUpCalendarEvents } = await import('../db/catch-up-calendar')
+  const { getCatchUpCalendarEvents } = await import('@/legacy/db/catch-up-calendar')
   const { eventKitSnapshotPath } = await import('../lib/catchup/eventkit')
 
   const events = await getCatchUpCalendarEvents()

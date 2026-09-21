@@ -40,11 +40,11 @@ import {
   upsertRelationshipEvidence,
   recordReconcileDecision,
   getRelationshipEvidenceRows,
-} from '../db/relationship-evidence'
+} from '@/legacy/db/relationship-evidence'
 import { reconcileEvidence } from '../lib/relationship-intel/reconcile'
 import { createInMemoryPersonLookup, mapLimit } from '../lib/relationship-intel/inmemory-lookup'
-import { materializeAppleMessages } from '../db/apple-message-materialization'
-import type { QueryExecutor } from '../db/query-executor'
+import { materializeAppleMessages } from '@/legacy/db/apple-message-materialization'
+import type { QueryExecutor } from '@/legacy/db/query-executor'
 import { createPoolExecutor } from './lib/pool-executor'
 
 const DEFAULT_DIR = 'public/upload/data/apple-messages-export'

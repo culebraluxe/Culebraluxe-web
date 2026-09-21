@@ -11,7 +11,7 @@
 // Real Story Board stories and real execution history are never touched.
 // ---------------------------------------------------------------------------
 
-import { cleanseDevFixtures } from '../db/fixture-cleanup'
+import { cleanseDevFixtures } from '@/legacy/db/fixture-cleanup'
 
 async function main(): Promise<void> {
   const yes = process.argv.includes('--yes')

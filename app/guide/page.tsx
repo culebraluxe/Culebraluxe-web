@@ -5,7 +5,7 @@ import { PageHero } from '@/components/page-hero'
 import { Reveal } from '@/components/reveal'
 import { SiteFooter } from '@/components/site-footer'
 import { SiteHeader } from '@/components/site-header'
-import { getGuideItems } from '@/db/guide'
+import { getGuideItems } from '@/legacy/db/guide'
 
 export const metadata: Metadata = {
   title: 'Island Guide — CulebraLuxe',

@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 
-import type { PropertySummary } from '@/services/property'
+import type { PropertySummary } from '@/legacy/services/property'
 import {
   COMPARE_CHANGED_EVENT,
   pruneCompare,

@@ -45,20 +45,20 @@ Every assay command in the work order exists as a real script:
 Every "reuse this" API in stories 1, 4 and 6 exists:
 
 - Observer: `createPersistentTraceSink`, `recordGitCommit`, `recordScopeCheck`, `recordHold`,
-  `recordAlert`, `evaluateAlerts` (`workflow_app/forge/forge-observer/*`, `forge-alerts/*`).
+  `recordAlert`, `evaluateAlerts` (`legacy/workflow_app/forge/forge-observer/*`, `forge-alerts/*`).
 - Receipt: `releaseReceiptFromDeploymentSignal`, `assessReleaseReceipt`,
-  `isRecordedDeploymentDeferral` (`workflow_app/forge/forge-release-receipt.ts`).
+  `isRecordedDeploymentDeferral` (`legacy/workflow_app/forge/forge-release-receipt.ts`).
 
 Two work-order predictions confirmed:
 
-- **Story 1's premise holds.** `workflow_app/forge/agent-runtime-role-runner.ts` creates the
+- **Story 1's premise holds.** `legacy/workflow_app/forge/agent-runtime-role-runner.ts` creates the
   persistent sink and records around the split path (`smith_split_work`); the serial path records
   nothing. The worker-execution layer really is dark where it runs.
 - **Story 2 must lift the guard.** `assertForgeExecutionTarget` is defined *only* in
-  `workflow_app/forge/forge-board-sync.ts` (line 49), not in a shared module — so the board-sync
+  `legacy/workflow_app/forge/forge-board-sync.ts` (line 49), not in a shared module — so the board-sync
   guard is not the engine-start guard. Exactly the gap the story describes.
 
-Story 8's target does **not** exist yet (`workflow_app/forge/forge-context-packet.ts`), as intended.
+Story 8's target does **not** exist yet (`legacy/workflow_app/forge/forge-context-packet.ts`), as intended.
 
 ## Blocker: `TECH-DEBT-07` is locked behind the story that needs it
 

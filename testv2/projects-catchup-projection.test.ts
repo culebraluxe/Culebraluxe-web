@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import type { Project } from '../services/project'
-import type { WbsItem } from '../services/wbs'
+import type { Project } from '@/legacy/services/project'
+import type { WbsItem } from '@/legacy/services/wbs'
 import { dueDateKey, projectCatchUp } from '../ui/projects/catchup-projection'
 import { mapCanonicalProjectWorkItems, mapRealProjectsToWorkspace } from '../ui/projects/service-projection'
 

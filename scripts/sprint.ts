@@ -16,7 +16,7 @@ import {
   snapshotSprint,
   unassignedAccounting,
   type SprintBoard,
-} from '../db/sprint'
+} from '@/legacy/db/sprint'
 import { PortalWriteError } from '../lib/portal-write-error'
 
 // ---------------------------------------------------------------------------

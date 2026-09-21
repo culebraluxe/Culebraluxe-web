@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 
-import { landCalendarEvent } from '../db/landing'
+import { landCalendarEvent } from '@/legacy/db/landing'
 import {
   eventKitToCatchUpEvent,
   type EventKitNormalizedEvent,

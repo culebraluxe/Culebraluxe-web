@@ -19,7 +19,7 @@
 // ---------------------------------------------------------------------------
 import { readFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
-import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db.ts'
+import { forgeDb, forgeDbTargetForUrl } from './scripts/legacy/db/forge-db.ts'
 
 const args = process.argv.slice(2)
 const file = args.find((a) => !a.startsWith('--') && a !== 'dev' && a !== 'prod')

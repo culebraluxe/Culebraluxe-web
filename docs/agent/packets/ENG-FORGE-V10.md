@@ -26,19 +26,19 @@ It must not be deleted or made non-authoritative blindly from a checkout with
 no database credentials.
 
 ## Context refs
-- `workflow_app/definitions/FORGE_SDLC-v1.xml`
-- `workflow_app/forge/forge-engine-runtime.ts`
-- `workflow_app/forge/forge-executor.ts`
-- `workflow_app/forge/agent-runtime-role-runner.ts`
-- `workflow_app/forge/db-release-executor.ts`
-- `workflow_app/forge/release-operations.ts`
-- `db/forge-workflow-evidence.ts`
-- `db/forge-engine-task-execution.ts`
-- `db/migrations/108_forge_v10_command_visits.sql`
-- `db/migrations/109_forge_v10_workflow_evidence.sql`
-- `db/migrations/110_forge_v10_engine_task_execution.sql`
-- `db/migrations/111_forge_v10_release_execution.sql`
-- `db/migrations/112_forge_v10_release_receipts.sql`
+- `legacy/workflow_app/definitions/FORGE_SDLC-v1.xml`
+- `legacy/workflow_app/forge/forge-engine-runtime.ts`
+- `legacy/workflow_app/forge/forge-executor.ts`
+- `legacy/workflow_app/forge/agent-runtime-role-runner.ts`
+- `legacy/workflow_app/forge/db-release-executor.ts`
+- `legacy/workflow_app/forge/release-operations.ts`
+- `legacy/db/forge-workflow-evidence.ts`
+- `legacy/db/forge-engine-task-execution.ts`
+- `legacy/db/migrations/108_forge_v10_command_visits.sql`
+- `legacy/db/migrations/109_forge_v10_workflow_evidence.sql`
+- `legacy/db/migrations/110_forge_v10_engine_task_execution.sql`
+- `legacy/db/migrations/111_forge_v10_release_execution.sql`
+- `legacy/db/migrations/112_forge_v10_release_receipts.sql`
 
 ## Acceptance criteria
 - [x] Engine role tasks claim before external execution and link to one durable work item/run.
@@ -78,8 +78,8 @@ intent: grow
 SCOPED
 
 ## Assay commands
-- node --import tsx --test workflow_app/tests/forge-*.test.ts workflow_app/tests/dynamic-fork.test.ts workflow_engine/tests/hardening.test.ts
-- node --import tsx --test workflow_app/tests/forge-smoke/*.test.ts
-- node --env-file=.env.local --import tsx --test-concurrency=1 --test workflow_engine/tests/persistence/dynamic-fork.test.ts workflow_app/tests/persistence/forge*.test.ts
+- node --import tsx --test legacy/workflow_app/tests/forge-*.test.ts legacy/workflow_app/tests/dynamic-fork.test.ts workflow_engine/tests/hardening.test.ts
+- node --import tsx --test legacy/workflow_app/tests/forge-smoke/*.test.ts
+- node --env-file=.env.local --import tsx --test-concurrency=1 --test workflow_engine/tests/persistence/dynamic-fork.test.ts legacy/workflow_app/tests/persistence/forge*.test.ts
 - node_modules/.bin/tsc --noEmit
 - git diff --check

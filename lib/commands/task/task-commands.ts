@@ -12,11 +12,11 @@
 // happens in lib/commands/register.ts.
 // ---------------------------------------------------------------------------
 
-import { createTask as createCanonicalTask } from '../../../db/tasks'
+import { createTask as createCanonicalTask } from '@/legacy/db/tasks'
 import {
   completeTask as completeCanonicalTask,
   cancelTask as cancelCanonicalTask,
-} from '../../../db/portal-writes'
+} from '@/legacy/db/portal-writes'
 import type {
   CommandEnvelope,
   CommandExecutionContext,

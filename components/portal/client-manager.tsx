@@ -5,7 +5,7 @@ import type {
   Client,
   ClientStatus,
 } from "@/lib/portal/types"
-import type { ClientSummary, ClientsPageResult } from "@/db/clients"
+import type { ClientSummary, ClientsPageResult } from "@/legacy/db/clients"
 import { Panel } from "@/components/portal/panel"
 import { ClientEditor } from "@/components/portal/client-editor"
 import type { ClientEditorAgent } from "@/components/portal/client-editor"

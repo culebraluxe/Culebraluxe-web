@@ -4,8 +4,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { ProjectService } from '../services/project'
-import type { CreateProjectRequest, Project, ProjectRepository } from '../services/project'
+import { ProjectService } from '@/legacy/services/project'
+import type { CreateProjectRequest, Project, ProjectRepository } from '@/legacy/services/project'
 import { capturingInfrastructure, context } from './test-support'
 
 const actor = { id: 'u-1', kind: 'user' as const }

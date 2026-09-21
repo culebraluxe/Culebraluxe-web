@@ -7,15 +7,15 @@ import { captureServerError } from '@/lib/server-error-capture'
 import { coreServices } from '@/lib/service-runtime'
 import { getActingUser } from '@/lib/auth/get-acting-user'
 import { getPortalSessionAdapter } from '@/lib/auth/portal-session'
-import { resolveSecurityLevel } from '@/services/security'
-import { FORM_OPERATIONS } from '@/services/forms'
+import { resolveSecurityLevel } from '@/legacy/services/security'
+import { FORM_OPERATIONS } from '@/legacy/services/forms'
 import type {
   CreateFormInstanceInput,
   DealFormFacts,
   FormInstance,
   FormInstanceListItem,
   UpdateFormInstanceInput,
-} from '@/services/forms'
+} from '@/legacy/services/forms'
 import type { FormSignerPerson } from '@/lib/forms/signer-resolution'
 
 /**
@@ -35,7 +35,7 @@ export type {
   FormInstanceListItem,
   FormInstanceStatus,
   UpdateFormInstanceInput,
-} from '@/services/forms'
+} from '@/legacy/services/forms'
 
 const service = coreServices.form
 

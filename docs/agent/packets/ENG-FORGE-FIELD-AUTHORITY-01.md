@@ -15,7 +15,7 @@ that were missing, and both were found by running the chain rather than reviewin
 ## Units
 
 - **A** — findings in rows (migration 172): `forge_role_finding`, written by
-  `scripts/forge-handoff.mjs --finding`, read by `db/forge-role-finding.ts`. Rows win, the
+  `scripts/forge-handoff.mjs --finding`, read by `legacy/db/forge-role-finding.ts`. Rows win, the
   reply parser is the fallback, `null` means "nothing was written" — never an empty plan.
 - **B** — the candidate SHA the lanes actually read: the QA lane computed the candidate and
   did not return it, so the deterministic Assay had `NO_CANDIDATE` and every story reported a

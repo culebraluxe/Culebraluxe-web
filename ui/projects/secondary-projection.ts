@@ -1,4 +1,4 @@
-import type { WbsItem } from '@/services/wbs'
+import type { WbsItem } from '@/legacy/services/wbs'
 import type { CatchUpCalendarEvent } from '@/lib/catchup/calendar-adapter'
 
 export type ProjectCalendarItem = {

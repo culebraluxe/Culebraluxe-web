@@ -5,7 +5,7 @@ import test from 'node:test'
 // exercises an enqueue must declare one. See the note in orchestrate-apply.test.ts.
 process.env.EXECUTION_ENV = 'TEST'
 
-import { assayInterruptionRequiresHuman } from '../db/agent-work-recovery'
+import { assayInterruptionRequiresHuman } from '@/legacy/db/agent-work-recovery'
 import { followFinishedLane } from './orchestrate-apply'
 
 test('Assay runtime interruption is a human gate regardless of retry budget role', () => {

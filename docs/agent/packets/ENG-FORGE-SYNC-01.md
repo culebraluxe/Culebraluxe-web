@@ -35,10 +35,10 @@ the operator that the evidence lived elsewhere.
 
 | Piece | Where |
 | --- | --- |
-| Derivation (pure, no DB/git/fs) | `workflow_app/forge/forge-board-sync.ts` |
-| Tests (17) | `workflow_app/tests/forge-board-sync.test.ts` |
+| Derivation (pure, no DB/git/fs) | `legacy/workflow_app/forge/forge-board-sync.ts` |
+| Tests (17) | `legacy/workflow_app/tests/forge-board-sync.test.ts` |
 | Adapter (git + Neon + CLI) | `scripts/forge-board-sync.ts` → `pnpm forge:board-sync` |
-| Writer seam | `db/forge-story-state.ts` → `markForgeStoryShippedComplete` |
+| Writer seam | `legacy/db/forge-story-state.ts` → `markForgeStoryShippedComplete` |
 
 `deriveBoardSync` invariants, each executable as a test:
 

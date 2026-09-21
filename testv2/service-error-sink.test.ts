@@ -6,7 +6,7 @@ import {
   type ServiceErrorRecord,
   type ServiceErrorSink,
   type ServiceInfrastructure,
-} from '../services/core'
+} from '@/legacy/services/core'
 
 // ---------------------------------------------------------------------------
 // TESTV2 — BaseService durable-error seam. Unhandled (non-ServiceError) exceptions

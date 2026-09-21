@@ -9,7 +9,7 @@
 // can gate a release. Implementation lives in lib/schema-parity.ts and is shared
 // with the Forge DEV_OPS gate (workflow_app/forge/release-operations.ts).
 // ---------------------------------------------------------------------------
-import { checkSchemaParity } from '../workflow_app/forge/schema-parity'
+import { checkSchemaParity } from '@/legacy/workflow_app/forge/schema-parity'
 
 async function main() {
   const devUrl = process.env.DATABASE_URL_DEV

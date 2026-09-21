@@ -18,7 +18,7 @@ import {
   statusLabel,
 } from "@/components/portal/client-display"
 import type { ClientRole } from "@/lib/portal/types"
-import type { PropertyAddressDto } from "@/services/property"
+import type { PropertyAddressDto } from "@/legacy/services/property"
 import {
   ClientWorkspaceController,
   HttpClientWorkspaceSource,

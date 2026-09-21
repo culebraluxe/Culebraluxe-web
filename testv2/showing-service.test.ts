@@ -6,11 +6,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { ServiceRegistry } from '../services/core'
-import { PersonService } from '../services/person'
-import { PropertyService, type PropertyRepository } from '../services/property'
-import { ShowingService, type ShowingRepository, type ShowingDto } from '../services/showing'
-import { EntitlementService } from '../services/entitlement'
+import { ServiceRegistry } from '@/legacy/services/core'
+import { PersonService } from '@/legacy/services/person'
+import { PropertyService, type PropertyRepository } from '@/legacy/services/property'
+import { ShowingService, type ShowingRepository, type ShowingDto } from '@/legacy/services/showing'
+import { EntitlementService } from '@/legacy/services/entitlement'
 import { capturingInfrastructure, MemoryPersonRepository, principal, context } from './test-support'
 
 const actor = { id: 'u-1', kind: 'user' as const }

@@ -8,7 +8,7 @@
 // business rules live here. Registration happens in lib/commands/register.ts.
 // ---------------------------------------------------------------------------
 
-import { setDealAppraisalRequired } from '../../../db/deal-appraisal'
+import { setDealAppraisalRequired } from '@/legacy/db/deal-appraisal'
 import type {
   CommandEnvelope,
   CommandExecutionContext,

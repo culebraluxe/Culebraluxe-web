@@ -23,8 +23,8 @@
 import { interactiveSql } from '../../../lib/neon-interactive';
 import { describeControlPlane } from '../../../lib/execution-target';
 import { WorkflowEngine } from './engine';
-import { recordTraceEvent } from '../../../db/workflow-trace';
-import type { RecordTraceInput } from '../../../db/workflow-trace';
+import { recordTraceEvent } from '@/legacy/db/workflow-trace';
+import type { RecordTraceInput } from '@/legacy/db/workflow-trace';
 
 const declared = describeControlPlane();
 if (!declared.target) {

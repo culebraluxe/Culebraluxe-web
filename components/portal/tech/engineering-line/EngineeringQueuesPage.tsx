@@ -30,13 +30,13 @@ import {
 import { storyLifecycleOf } from '@/lib/storyboard-data'
 import type { StoryBucket } from '@/lib/story-moves'
 import { SORTER_COLUMNS, buildSorterCards } from '@/lib/sorter-board'
-import type { ForgeBatch } from '@/db/forge-batch'
+import type { ForgeBatch } from '@/legacy/db/forge-batch'
 import { summarizeKinds } from '@/lib/forge-kind'
 import type { RoiSummary } from '@/lib/forge-roi'
 import { COCKPIT_VERSION } from '@/lib/cockpit-version'
 
 import type { StoryBoardCockpitData, StoryLifecycle, StoryRecord } from '@/lib/storyboard-data'
-import type { StoryboardStory, StoryRun } from '@/db/storyboard'
+import type { StoryboardStory, StoryRun } from '@/legacy/db/storyboard'
 import {
   ActiveQueue,
   RunHistory,
@@ -46,8 +46,8 @@ import {
 import { StoryKanbanBoard } from '@/components/portal/tech/story-kanban-board'
 
 import type { QueueCard, QueueKey, RunOutcome } from './types'
-import type { EngineRunCard, EngineLedgerStats, EngineQueuedCard } from '@/db/forge-engine-task-execution'
-import type { ForgeStoryHold } from '@/db/forge-hold'
+import type { EngineRunCard, EngineLedgerStats, EngineQueuedCard } from '@/legacy/db/forge-engine-task-execution'
+import type { ForgeStoryHold } from '@/legacy/db/forge-hold'
 
 /**
  * What the route loads for us. Tiles and the story log come from ONE structure
@@ -384,7 +384,7 @@ export function EngineeringQueuesPage({
   // (status `Ready`) also in OPEN. The captain called the second one out himself - "the big thing is
   // when a story moves from OPEN or WORKBENCH to ENGINE RUN Q" - and it was the collision still
   // possible. The assignment is now one pass with one `claimed` set, covered by
-  // `workflow_app/tests/sorter-board.test.ts`.
+  // `legacy/workflow_app/tests/sorter-board.test.ts`.
   const builtSorterCards = useMemo(
     () =>
       buildSorterCards({

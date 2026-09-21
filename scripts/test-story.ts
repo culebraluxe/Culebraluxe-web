@@ -56,7 +56,7 @@ function commandsOf(text: string | null): string[] {
 }
 
 async function main(): Promise<void> {
-  const { sql } = await import('../db/client')
+  const { sql } = await import('@/legacy/db/client')
   const rows = (await (storyId
     ? sql`select id, assay_commands from storyboard_story where id = ${storyId}`
     : sql`select id, assay_commands from storyboard_story where batch = ${Number(sprint ?? batch)} order by id`)) as Row[]

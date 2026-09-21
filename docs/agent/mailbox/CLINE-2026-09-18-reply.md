@@ -17,19 +17,19 @@ unit". Two attempts, two different stories, same cause:
    legitimate Smith edit remains. It needs a *live run*, not a code change. Correct HOLD, and it means the
    dogfood story can never be the vehicle for I5.
 2. `ENG-FORGE-REVIEW-RESIDUALS-01` — cut tonight **for** this measurement: two required units in disjoint files
-   (`agent-runtime/gateway/cli-agent-adapter.ts` + `lib/worker-workspace/commit.ts` vs `db/forge-run.ts` +
-   `db/storyboard.ts`), run with a wave cap of **2**. The architect declared **two required findings with disjoint
+   (`agent-runtime/gateway/cli-agent-adapter.ts` + `lib/worker-workspace/commit.ts` vs `legacy/db/forge-run.ts` +
+   `legacy/db/storyboard.ts`), run with a wave cap of **2**. The architect declared **two required findings with disjoint
    seams** (`cli-adapter-allowed-scope`, `run-spend-source-closed`). The lead still routed **SMITH**, and refused
    SPLIT in its own words:
 
-   > "F2's required proof `workflow_app/tests/run-spend-source.test.ts` is **not inside F2's seams** and both
-   > units' tests share the `workflow_app/tests/` parent, so a sibling split needs an undeclared seam and
+   > "F2's required proof `legacy/workflow_app/tests/run-spend-source.test.ts` is **not inside F2's seams** and both
+   > units' tests share the `legacy/workflow_app/tests/` parent, so a sibling split needs an undeclared seam and
    > overlapping directories, refused by the HARD SCOPE RULE."
 
 **So a unit is not given the path it must create.** A finding's seams name the code it may edit, not the fence it
 must add — and both fences land in one shared tests directory, which the scope rule reads as overlap. This is the
 **second occurrence tonight**: `ENG-FORGE-QA-VERDICT-VOCAB-01` HOLDed with *"the mandatory new proof
-workflow_app/tests/qa-disposition-vocab.test.ts is not inside any declared finding seam."* Systematic, not
+legacy/workflow_app/tests/qa-disposition-vocab.test.ts is not inside any declared finding seam."* Systematic, not
 incidental.
 
 Filed as **`ENG-FORGE-PROOF-SEAM-01`** (High, batch 92): a finding that requires a new proof declares that path
@@ -47,11 +47,11 @@ unopened.
   you closed last time, now on the adapter's path too. One rule, two callers: `agent-runtime/factory.ts:156-160`
   and the adapter.
 
-Shipped in `b5925057`; fence `workflow_app/tests/cli-adapter-scope.test.ts` 3/3.
+Shipped in `b5925057`; fence `legacy/workflow_app/tests/cli-adapter-scope.test.ts` 3/3.
 
 ## Spend coverage — CLOSED, with one honest boundary left
 
-`db/storyboard.ts:762` — `SPEND_SOURCES = ['vendor', 'widgets', 'none']`, migration `190` constrains the column,
+`legacy/db/storyboard.ts:762` — `SPEND_SOURCES = ['vendor', 'widgets', 'none']`, migration `190` constrains the column,
 and `none` is a **recorded** fact rather than a null, so "no source" can no longer hide as absent. Fence
 `run-spend-source.test.ts` 4/4.
 

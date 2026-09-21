@@ -1,5 +1,5 @@
 import { SettingsAuthorities } from "@/components/portal/settings-auth"
-import { getSettingsAuthorities } from "@/db/settings-auth"
+import { getSettingsAuthorities } from "@/legacy/db/settings-auth"
 
 export const dynamic = "force-dynamic"
 

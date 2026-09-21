@@ -14,4 +14,4 @@
 export {
   listStoryboardStories,
   listStoryExecutionSummaries,
-} from '@/db/storyboard'
+} from '@/legacy/db/storyboard'

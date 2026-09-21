@@ -11,7 +11,7 @@
 // THE WRITE POLICY IS THE POINT OF THE MODULE. Three of the packet's rules are about who may do
 // what, not about data: Scout inserts candidates only, Architect and the captain promote, Smith
 // may not write at all. That is a question about ROLES, so it lives in one function used by the
-// repository (`db/forge-decision.ts`) rather than being restated in every call site - and the
+// repository (`legacy/db/forge-decision.ts`) rather than being restated in every call site - and the
 // refusal carries a reason, because "denied" with no reason teaches nobody anything.
 //
 // WHAT IS NOT HERE: the table, the seeds, and the git mirror's writer. The table and seeds are

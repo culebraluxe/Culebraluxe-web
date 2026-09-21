@@ -2,7 +2,7 @@ import { redirect } from "next/navigation"
 
 import { StoryKanbanBoard } from "@/components/portal/tech/story-kanban-board"
 import { StoryBoardNotReady } from "@/components/portal/story-board"
-import { listStoryExecutionSummaries, listStoryboardStories } from "@/db/storyboard"
+import { listStoryExecutionSummaries, listStoryboardStories } from "@/legacy/db/storyboard"
 import { buildStoryBoardCockpit, buildStoryBoardModel } from "@/lib/storyboard-data"
 import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"

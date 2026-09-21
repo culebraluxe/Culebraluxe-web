@@ -7,7 +7,7 @@ const { resolveOrCreateInboundPerson } = await import(
   '../lib/crm-person-creation.ts'
 )
 const { createPersonWithIdentities } = await import(
-  '../db/person-identities.ts'
+  './scripts/legacy/db/person-identities.ts'
 )
 
 const PERSON_A = '10000000-0000-4000-8000-000000000001'

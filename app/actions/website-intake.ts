@@ -2,20 +2,20 @@
 
 import { randomUUID } from 'node:crypto'
 
-import { findDealById, findPropertyById, findPropertyBySlug } from '@/db/intake-context'
-import { getInteractionBySourceIdentity } from '@/db/interactions'
+import { findDealById, findPropertyById, findPropertyBySlug } from '@/legacy/db/intake-context'
+import { getInteractionBySourceIdentity } from '@/legacy/db/interactions'
 import {
   createPersonWithIdentities,
   findIdentityMatch,
   findIdentityOwnership,
   personExists,
-} from '@/db/person-identities'
+} from '@/legacy/db/person-identities'
 import {
   claimWebsiteIntakeReceipt,
   insertOrReadWebsiteIntakeReceipt,
   persistCanonicalWebsiteIntake,
   transitionWebsiteIntakeReceipt,
-} from '@/db/website-intake'
+} from '@/legacy/db/website-intake'
 import {
   parseWebsiteIntakeFormData,
   processWebsiteIntake,

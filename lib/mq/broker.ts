@@ -8,7 +8,7 @@
 // mq_delivery; no business table is touched here.
 // ---------------------------------------------------------------------------
 
-import type { QueryExecutor } from '../../db/query-executor'
+import type { QueryExecutor } from '@/legacy/db/query-executor'
 import type {
   MqConsumer,
   MqDeliveryContext,

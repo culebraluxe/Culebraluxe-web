@@ -1,12 +1,12 @@
 // PROOF, on PROD, that "pull the note back off ENGINE RUN Q" withdraws the queue entry it created.
 // Net zero: a work item is created, then withdrawn, and the story's status is restored exactly.
-import { withdrawQueuedAgentWork } from '@/db/agent-work'
-import { getStoryboardStory, setStoryboardStatus } from '@/db/storyboard'
+import { withdrawQueuedAgentWork } from '@/legacy/db/agent-work'
+import { getStoryboardStory, setStoryboardStatus } from '@/legacy/db/storyboard'
 
 const STORY = 'ENG-FORGE-DOCTOR-01'
 
 async function activeWorkItems(storyId: string) {
-  const { listActiveAgentWorkForStory } = await import('@/db/agent-work')
+  const { listActiveAgentWorkForStory } = await import('@/legacy/db/agent-work')
   return listActiveAgentWorkForStory(storyId)
 }
 

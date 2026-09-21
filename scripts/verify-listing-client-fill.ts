@@ -9,15 +9,15 @@
 //
 // Read-only. PROD by default (APP_ENV=production), DEV otherwise.
 
-import { composeCoreServices } from '../services/composition'
-import { AuthorizationService } from '../services/entitlement/authorization-service'
-import { StaticAuthorizationPolicyProvider } from '../services/entitlement/authorization-service'
-import { SqlListingPropertyRepository } from '../db/listing-property-service-repository'
-import { SqlPersonRepository } from '../db/person-service-repository'
-import { SqlFormInstanceRepository } from '../db/form-service-repository'
-import { PROPERTY_OPERATIONS } from '../services/property'
-import { PERSON_OPERATIONS } from '../services/person'
-import { FORM_OPERATIONS } from '../services/forms'
+import { composeCoreServices } from '@/legacy/services/composition'
+import { AuthorizationService } from '@/legacy/services/entitlement/authorization-service'
+import { StaticAuthorizationPolicyProvider } from '@/legacy/services/entitlement/authorization-service'
+import { SqlListingPropertyRepository } from '@/legacy/db/listing-property-service-repository'
+import { SqlPersonRepository } from '@/legacy/db/person-service-repository'
+import { SqlFormInstanceRepository } from '@/legacy/db/form-service-repository'
+import { PROPERTY_OPERATIONS } from '@/legacy/services/property'
+import { PERSON_OPERATIONS } from '@/legacy/services/person'
+import { FORM_OPERATIONS } from '@/legacy/services/forms'
 import {
   LISTING_AGREEMENT_TEMPLATE_ID,
   OFFER_LETTER_TEMPLATE_ID,
@@ -26,7 +26,7 @@ import {
   SHOWING_REPORT_TEMPLATE_ID,
   getLatestTemplate,
 } from '../lib/forms/template-registry'
-import { sql } from '../db/client'
+import { sql } from '@/legacy/db/client'
 
 const services = composeCoreServices(
   {

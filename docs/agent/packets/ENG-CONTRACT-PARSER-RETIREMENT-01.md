@@ -21,7 +21,7 @@ not read. Nothing has to be malformed if there is no JSON contract to malform.
 
 ## Scope
 
-- `workflow_app/forge/agents/architect-handoff.ts` — the reply parser becomes a **reader of last resort for
+- `legacy/workflow_app/forge/agents/architect-handoff.ts` — the reply parser becomes a **reader of last resort for
   diagnostics only**: it may log what a reply said, and it may not decide anything.
 - The typed-evidence reader (`FORGE_EVIDENCE_JSON`) and the findings marker (`FORGE_FINDINGS_JSON`): same shape —
   values come from the fields that were written, never from the text that was typed.
@@ -35,8 +35,8 @@ not read. Nothing has to be malformed if there is no JSON contract to malform.
 
 ## Assay (SCOPED)
 
-- `node --import tsx --test workflow_app/tests/forge-architect-role.test.ts`
-- `node --import tsx --test workflow_app/tests/forge-qa-seam.test.ts`
+- `node --import tsx --test legacy/workflow_app/tests/forge-architect-role.test.ts`
+- `node --import tsx --test legacy/workflow_app/tests/forge-qa-seam.test.ts`
 
 Test mode: **SCOPED**. No FULL regression for this story.
 

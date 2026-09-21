@@ -15,7 +15,7 @@ The architecture deserves credit: explicit role ownership, durable field contrac
 
 ### 1. P1 — valid findings cannot pass the CLI's hint write boundary
 
-Evidence: `scripts/forge-handoff.mjs:303-306`, `scripts/forge-handoff.mjs:335-349`; constraint: `db/migrations/172_forge_role_finding.sql:54-56`.
+Evidence: `scripts/forge-handoff.mjs:303-306`, `scripts/forge-handoff.mjs:335-349`; constraint: `legacy/db/migrations/172_forge_role_finding.sql:54-56`.
 
 `closedOptional` returns an object: `{ value, given }`. The finding branch validates that object correctly, then binds **the object itself** as SQL parameter 10. It must bind `hint.value`.
 
@@ -49,7 +49,7 @@ Small repair: validate the entire decision input and refuse conflicting/repeated
 
 ### 3. P1 — QA pins HEAD, but does not establish that measured files equal that commit
 
-Evidence: `workflow_app/forge/agent-runtime-role-runner.ts:1054-1066`, `workflow_app/forge/agent-runtime-role-runner.ts:1149-1158`, `workflow_app/forge/agents/qa/run.ts:70-74`.
+Evidence: `legacy/workflow_app/forge/agent-runtime-role-runner.ts:1054-1066`, `legacy/workflow_app/forge/agent-runtime-role-runner.ts:1149-1158`, `legacy/workflow_app/forge/agents/qa/run.ts:70-74`.
 
 If HEAD already equals the candidate, the pin does nothing. If checkout is needed, plain `git checkout --detach` can retain compatible local modifications. Neither branch checks the index/worktree before the frozen commands run. The adjudicator stamps the supplied candidate as verified when those commands pass.
 
@@ -71,7 +71,7 @@ Small repair: use the existing decision declaration and require an explicit acce
 
 **I agree with the policy correction.** Two policies do not require two distinct model IDs. No deduction for mapping both to Flash at the Captain's direction.
 
-One limit worth stating accurately: `workflow_app/tests/forge-kind-routing.test.ts:102-120` checks a hard-coded allowed-name list, not the actual price table or provider availability. It protects today's mapping; it does not prove a model is runnable headlessly. I have not independently verified the provider/billing assertions in the comments.
+One limit worth stating accurately: `legacy/workflow_app/tests/forge-kind-routing.test.ts:102-120` checks a hard-coded allowed-name list, not the actual price table or provider availability. It protects today's mapping; it does not prove a model is runnable headlessly. I have not independently verified the provider/billing assertions in the comments.
 
 ## Known-open work stays known-open
 

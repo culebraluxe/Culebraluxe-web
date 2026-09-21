@@ -15,14 +15,14 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/MEMORY.md` — handbook · always-read handbook · last touched 2026-09-16
 - `docs/agent/CURRENT.md` — handbook · always-read handbook · last touched 2026-09-14
 - `docs/agent/packets/ENG-QA-SINGLE-VERDICT-01.md` — packet · the packet for ENG-QA-SINGLE-VERDICT-01 · last touched 2026-09-15
-- `workflow_app/forge/agents/qa/run.ts` — cited · cited by ENG-QA-SINGLE-VERDICT-01 · last touched 2026-09-15
-- `workflow_app/forge/agents/assay-collect.ts` — cited · cited by ENG-QA-SINGLE-VERDICT-01 · last touched 2026-09-15
-- `workflow_app/forge/forge-role-mapping.ts` — cited · cited by ENG-QA-SINGLE-VERDICT-01 · last touched 2026-09-16
-- `workflow_app/forge/agents/qa/types.ts` — cited · cited by ENG-QA-SINGLE-VERDICT-01 · last touched 2026-09-15
-- `workflow_app/tests/forge-qa-seam.test.ts` — cited · cited by ENG-QA-SINGLE-VERDICT-01 · last touched 2026-09-16
-- `workflow_app/forge/lead-proposal-resolve.ts` — cited · cited by ENG-QA-SINGLE-VERDICT-01 · last touched 2026-09-13
-- `node --import tsx --test workflow_app/tests/forge-qa-seam.test.ts` — cited · cited by ENG-QA-SINGLE-VERDICT-01 · last touched untracked
-- `workflow_app/tests/forge-role-mapping.test.ts` — commit · touched by 1 commit(s) naming ENG-QA-SINGLE-VERDICT-01 · last touched 2026-09-16
+- `legacy/workflow_app/forge/agents/qa/run.ts` — cited · cited by ENG-QA-SINGLE-VERDICT-01 · last touched 2026-09-15
+- `legacy/workflow_app/forge/agents/assay-collect.ts` — cited · cited by ENG-QA-SINGLE-VERDICT-01 · last touched 2026-09-15
+- `legacy/workflow_app/forge/forge-role-mapping.ts` — cited · cited by ENG-QA-SINGLE-VERDICT-01 · last touched 2026-09-16
+- `legacy/workflow_app/forge/agents/qa/types.ts` — cited · cited by ENG-QA-SINGLE-VERDICT-01 · last touched 2026-09-15
+- `legacy/workflow_app/tests/forge-qa-seam.test.ts` — cited · cited by ENG-QA-SINGLE-VERDICT-01 · last touched 2026-09-16
+- `legacy/workflow_app/forge/lead-proposal-resolve.ts` — cited · cited by ENG-QA-SINGLE-VERDICT-01 · last touched 2026-09-13
+- `node --import tsx --test legacy/workflow_app/tests/forge-qa-seam.test.ts` — cited · cited by ENG-QA-SINGLE-VERDICT-01 · last touched untracked
+- `legacy/workflow_app/tests/forge-role-mapping.test.ts` — commit · touched by 1 commit(s) naming ENG-QA-SINGLE-VERDICT-01 · last touched 2026-09-16
 - `docs/agent/WORKFLOW-ARCHITECTURE.md` — lexical · term match: forge, owner, holds, engine · last touched 2026-09-13
 - `docs/agent/mailbox/GROK-2026-09-15-judgment.md` — lexical · term match: 2026-09-15, b33e938, say, has · last touched 2026-09-15
 - `docs/agent/mailbox/DEEPSEEK-2026-09-15.md` — lexical · term match: 2026-09-15, verdict, has, b33e938 · last touched 2026-09-15

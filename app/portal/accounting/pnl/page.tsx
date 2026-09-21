@@ -1,6 +1,6 @@
 import { AccountingPnl } from '@/components/portal/accounting/accounting-pnl'
 import { AccountingShell } from '@/components/portal/accounting/accounting-shell'
-import { getPnlStatement } from '@/db/accounting'
+import { getPnlStatement } from '@/legacy/db/accounting'
 import { endOfMonthISO, startOfMonthISO } from '@/lib/accounting/format'
 
 export const dynamic = 'force-dynamic'

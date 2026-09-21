@@ -30,24 +30,24 @@ import {
 import {
   enqueueAgentWorkCommand,
   listAgentWorkItems,
-} from '../db/agent-work'
+} from '@/legacy/db/agent-work'
 import {
   appendForgeRunDetail,
   getForgeLeadRunRecord,
   getForgeRunMachineEvidence,
-} from '../db/forge-run'
+} from '@/legacy/db/forge-run'
 import {
   markForgeStoryHumanHold,
   markForgeStoryPublishedComplete,
-} from '../db/forge-story-state'
+} from '@/legacy/db/forge-story-state'
 import {
   getStoryboardStory,
   listStoryRuns,
   updateStoryboardExecutableContract,
   updateStoryRunProgress,
   type StoryRun,
-} from '../db/storyboard'
-import { planForgeNight } from '../workflow_app/forge/forge-night-driver'
+} from '@/legacy/db/storyboard'
+import { planForgeNight } from '@/legacy/workflow_app/forge/forge-night-driver'
 
 async function appendTransitionDecision(
   run: StoryRun | null,

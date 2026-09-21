@@ -23,7 +23,7 @@
 //   node --env-file=.env.local --import tsx scripts/promote-warehouse.ts --env prod --apply
 // ---------------------------------------------------------------------------
 import { randomUUID } from 'node:crypto'
-import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db'
+import { forgeDb, forgeDbTargetForUrl } from '@/legacy/db/forge-db'
 
 const argv = process.argv.slice(2)
 const flag = (n: string) => {
@@ -244,7 +244,7 @@ async function promotePropertyFacts(personByContact: Map<string, string>, stats:
 
 async function main() {
   const { normalizePhone, normalizeEmail } = await import('../lib/relationship-intel/normalize')
-  const { createPersonWithIdentities } = await import('../db/person-identities')
+  const { createPersonWithIdentities } = await import('@/legacy/db/person-identities')
 
   console.log(`\nPROMOTE L -> WAREHOUSE (env=${ENV}, apply=${APPLY})`)
 
@@ -381,7 +381,7 @@ async function main() {
 
   console.log('  ' + JSON.stringify(stats))
   if (APPLY) {
-    const { refreshClientReadModels } = await import('../db/client-read-models')
+    const { refreshClientReadModels } = await import('@/legacy/db/client-read-models')
     await refreshClientReadModels()
     console.log('  read models refreshed')
   }

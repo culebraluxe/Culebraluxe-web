@@ -18,7 +18,7 @@ Existing production database configuration is used by the repository's normal DB
 ```sh
 # First run the required local verification; these tests never call TypeSafe or a DB.
 pnpm forge:clean
-node --import tsx --test workflow_app/tests/typesafe-failure-triage.test.ts
+node --import tsx --test legacy/workflow_app/tests/typesafe-failure-triage.test.ts
 git diff --check
 
 # List the latest 30 failed artifacts, optionally restricted to a story.
@@ -107,9 +107,9 @@ Model: `jev-1.13.0`; prompt: `forge-failure-triage-v1`. Re-evaluate when either 
 ## How this lands in Forge (Cline, 2026-09-18)
 
 Pulled in and run on this machine before committing. Placement follows the house shape: the judgment in
-`workflow_app/forge/typesafe-failure-triage.ts`, storage in `db/forge-typesafe-triage.ts` **through the
+`legacy/workflow_app/forge/typesafe-failure-triage.ts`, storage in `legacy/db/forge-typesafe-triage.ts` **through the
 existing `recordToolArtifact`** (no new table), the operator CLI in `scripts/forge-triage.ts`, the fence
-in `workflow_app/tests/typesafe-failure-triage.test.ts` (12/12, no network, no database). It reuses the
+in `legacy/workflow_app/tests/typesafe-failure-triage.test.ts` (12/12, no network, no database). It reuses the
 repository's own `FORGE_FAILURE_CLASSES`, so there is no second vocabulary to keep in step.
 
 **Measured, two live calls** (~780 input tokens, 591–740 ms, ≈$0.00003 each):

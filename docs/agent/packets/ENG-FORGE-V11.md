@@ -5,15 +5,15 @@ Close the V10 inspect findings without cutting production over until DEV proof e
 Add four bounded features, then stop.
 
 ## Landed on main
-- `workflow_app/forge/forge-judgment.ts` — park + `resolveForgeJudgment`
-- `workflow_app/forge/forge-typed-evidence.ts` — typed gate required / HOLD fallback
-- `workflow_app/forge/forge-routing-brain.ts` — `FORGE_ROUTING_BRAIN` default `reducer`
-- `workflow_app/forge/forge-executor.ts` — judgment nodes in `FORGE_HUMAN_GATE_NODES`; SPLIT default concurrency 1
-- `workflow_app/forge/agent-runtime-role-runner.ts` — refuses judgment auto-run; missing typed evidence HOLDs
-- `workflow_app/forge/forge-visibility.ts` — claim age, visits, SPLIT rows, SHA equality, failedReleaseStage
+- `legacy/workflow_app/forge/forge-judgment.ts` — park + `resolveForgeJudgment`
+- `legacy/workflow_app/forge/forge-typed-evidence.ts` — typed gate required / HOLD fallback
+- `legacy/workflow_app/forge/forge-routing-brain.ts` — `FORGE_ROUTING_BRAIN` default `reducer`
+- `legacy/workflow_app/forge/forge-executor.ts` — judgment nodes in `FORGE_HUMAN_GATE_NODES`; SPLIT default concurrency 1
+- `legacy/workflow_app/forge/agent-runtime-role-runner.ts` — refuses judgment auto-run; missing typed evidence HOLDs
+- `legacy/workflow_app/forge/forge-visibility.ts` — claim age, visits, SPLIT rows, SHA equality, failedReleaseStage
 - `agent-runtime/types.ts` — `gateEvidence`
 - `scripts/forge-engine-worker.ts` — brain + dual-write guard
-- `workflow_app/tests/forge-v11.test.ts`
+- `legacy/workflow_app/tests/forge-v11.test.ts`
 
 ## Still open
 - `scripts/agent-work.ts` still hydrates/follows/publishes on the reducer path (intentional default). Wire `forgeRoutingBrainShouldFollowReducer()` before deleting follow. Do not enable `engine` in production here.
@@ -44,6 +44,6 @@ Snapshot now includes claim age, command visits, SPLIT branch rows, failedReleas
 - [ ] `agent:work` engine mode (follow suppressed) — deferred, default reducer.
 
 ## Assay commands
-- node --import tsx --test workflow_app/tests/forge-v11.test.ts workflow_app/tests/forge-*.test.ts workflow_app/tests/dynamic-fork.test.ts
+- node --import tsx --test legacy/workflow_app/tests/forge-v11.test.ts legacy/workflow_app/tests/forge-*.test.ts legacy/workflow_app/tests/dynamic-fork.test.ts
 - node_modules/.bin/tsc --noEmit
 - git diff --check

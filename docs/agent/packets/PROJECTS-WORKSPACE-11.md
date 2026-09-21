@@ -41,13 +41,13 @@ back to global activity.
   and no command currently emits a `DomainEvent`." Therefore Activity's domain/WBS events MUST
   be *derived* from canonical facts, not read from an event log.
 - **The canonical immutable timeline is `interaction`.** `interaction.event_type` defaults to
-  `channel` (`db/migrations/005_crm_interaction_task_foundation.sql:8-37`); the checked channel
+  `channel` (`legacy/db/migrations/005_crm_interaction_task_foundation.sql:8-37`); the checked channel
   set is `website|email|call|imessage|sms|calendar|meeting|showing|document|manual|note`.
   Communications and operational/relationship events share one table, distinguished by
   `channel`.
 - **The existing read is narrow and bounded.** `getActivityFeed(limit)` inner-joins `person`,
   left-joins `property`/`deal`, orders `occurred_at desc`, and caps at `limit`
-  (`db/activity-feed.ts:70-105`). The page calls `getActivityFeed(200)`
+  (`legacy/db/activity-feed.ts:70-105`). The page calls `getActivityFeed(200)`
   (`app/portal/projects/page.tsx:120`). A property-only or personless interaction is invisible;
   older events fall outside the window. Absence is stated, never fabricated (Risk 2).
 - **The anchor join already exists and is frozen.** `mapRealProjectsToWorkspace` derives
@@ -65,15 +65,15 @@ back to global activity.
   pagination, and falls to the generic `ProjectionState` (`:505`, `:588-613`, `:596` computes
   status only for documents/activity).
 - **WBS facts carry canonical temporal fields.** `wbs_item.created_at` / `due_at` /
-  `updated_at` exist and are selected (`db/migrations/124_wbs_project_item.sql:26-27`,
-  `db/wbs-service-repository.ts:76-95`); `WbsItem.createdAt/dueAt/updatedAt` are typed
-  (`services/wbs/types.ts:19-24`). There is **no** `completed_at`.
+  `updated_at` exist and are selected (`legacy/db/migrations/124_wbs_project_item.sql:26-27`,
+  `legacy/db/wbs-service-repository.ts:76-95`); `WbsItem.createdAt/dueAt/updatedAt` are typed
+  (`legacy/services/wbs/types.ts:19-24`). There is **no** `completed_at`.
 - **Project lifecycle facts exist end-to-end.** `project.created_at/starts_at/ends_at`
-  (`db/migrations/125_project.sql`), selected by `SqlProjectRepository` and normalized to ISO
-  (`db/project-service-repository.ts:59-62,78`); `Project.createdAt/startsAt/endsAt`
-  (`services/project/types.ts:22-24`).
-- **A pagination precedent exists** (`page`/`pageSize`/`total`, clamped): `db/catch-up.ts:66-135`,
-  `db/client-admin.ts:136-226`. Activity reuses the shape, not the SQL.
+  (`legacy/db/migrations/125_project.sql`), selected by `SqlProjectRepository` and normalized to ISO
+  (`legacy/db/project-service-repository.ts:59-62,78`); `Project.createdAt/startsAt/endsAt`
+  (`legacy/services/project/types.ts:22-24`).
+- **A pagination precedent exists** (`page`/`pageSize`/`total`, clamped): `legacy/db/catch-up.ts:66-135`,
+  `legacy/db/client-admin.ts:136-226`. Activity reuses the shape, not the SQL.
 - **Portal-time contract exists.** `PORTAL_TIME_ZONE_OFFSET='-04:00'` (PR, no DST),
   `toPortalInstant` (`lib/portal-time.ts:8,33`); the file has **no** date/time-label helper yet
   and no `server-only` import.

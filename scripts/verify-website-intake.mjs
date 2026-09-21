@@ -13,7 +13,7 @@ const {
   claimWebsiteIntakeReceipt,
   persistCanonicalWebsiteIntake,
   transitionWebsiteIntakeReceipt,
-} = await import('../db/website-intake.ts')
+} = await import('./scripts/legacy/db/website-intake.ts')
 
 const SUBMISSION = '40000000-0000-4000-8000-000000000010'
 const PROPERTY = '40000000-0000-4000-8000-000000000001'

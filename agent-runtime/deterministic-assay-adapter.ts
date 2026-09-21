@@ -21,8 +21,8 @@ import {
 } from './assay-evidence'
 import { planAssay } from './assay-plan'
 import { detectFullRegressionAttempt } from './test-mode'
-import { recordStaticGateArtifact, recordAssayEvidenceArtifact } from '../db/forge-artifact'
-import { runStaticGate } from '../workflow_app/forge/forge-static-gate'
+import { recordStaticGateArtifact, recordAssayEvidenceArtifact } from '@/legacy/db/forge-artifact'
+import { runStaticGate } from '@/legacy/workflow_app/forge/forge-static-gate'
 import {
   assertExecutionTargetSafe,
   buildChildProcessEnv,

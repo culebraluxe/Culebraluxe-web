@@ -11,8 +11,8 @@
 // Usage:
 //   node --env-file=.env.local --import tsx scripts/seed-forge-sdlc.ts [dev|prod]
 // -----------------------------------------------------------------------------
-import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db'
-import { parseForgeSdlc, FORGE_SDLC_VERSION } from '../workflow_app/definitions/forge-sdlc'
+import { forgeDb, forgeDbTargetForUrl } from '@/legacy/db/forge-db'
+import { parseForgeSdlc, FORGE_SDLC_VERSION } from '@/legacy/workflow_app/definitions/forge-sdlc'
 
 const which = (process.argv[2] ?? (process.env.APP_ENV === 'production' ? 'prod' : 'dev')).toLowerCase()
 if (which !== 'prod' && which !== 'dev') {

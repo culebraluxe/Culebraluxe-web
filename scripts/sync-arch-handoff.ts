@@ -17,7 +17,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { createPoolExecutor } from './lib/pool-executor'
-import { getStoryboardStory, updateStoryboardStory } from '../db/storyboard'
+import { getStoryboardStory, updateStoryboardStory } from '@/legacy/db/storyboard'
 
 const STORY_ID = 'ARCH-HANDOFF'
 const SOURCE_FILE = join(process.cwd(), 'docs/agent/ARCH-HANDOFF.md')

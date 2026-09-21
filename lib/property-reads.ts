@@ -3,13 +3,13 @@ import 'server-only'
 import { randomUUID } from 'node:crypto'
 
 import { coreServices } from '@/lib/service-runtime'
-import { PROPERTY_OPERATIONS } from '@/services/property'
+import { PROPERTY_OPERATIONS } from '@/legacy/services/property'
 import type {
   PropertyFilterInput,
   PropertyIntro,
   PropertySummary,
-} from '@/services/property'
-import type { Result } from '@/db/client'
+} from '@/legacy/services/property'
+import type { Result } from '@/legacy/db/client'
 import type { PropertyDetailResult } from '@/lib/property-types'
 
 /**

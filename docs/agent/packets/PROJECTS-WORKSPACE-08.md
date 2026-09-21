@@ -38,8 +38,8 @@ empty/unlinked/failure states, and portal-timezone date-only semantics.
   `work-plan`/`calendar`/`documents`/`activity` only, so `timeline` falls through to
   `<ProjectionState view="timeline">` and renders "Timeline is not available in this workspace yet."
   (`components/portal/projects-workspace.tsx:658-668`, `:604`).
-- **Work items already carry real dates.** `WbsItem.dueAt` (`services/wbs/types.ts:19`);
-  `wbs_item.due_at timestamptz` (`db/migrations/124_wbs_project_item.sql`); projected to
+- **Work items already carry real dates.** `WbsItem.dueAt` (`legacy/services/wbs/types.ts:19`);
+  `wbs_item.due_at timestamptz` (`legacy/db/migrations/124_wbs_project_item.sql`); projected to
   `ProjectWorkNode.dueAt` + `dueLabel` (`ui/projects/service-projection.ts:156-157`, `:99-104`).
 - **Hierarchy is already nested.** `ProjectWorkNode.children` is built recursively in `attach`
   (`ui/projects/service-projection.ts:147-167`); top-level = items with `parentId == null` (`:233`).

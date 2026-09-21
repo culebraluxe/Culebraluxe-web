@@ -66,7 +66,7 @@ If multiple roles exist, the highest level wins. Unknown roles never elevate.
 
 ## Targeted assay
 
-`pnpm exec tsx --test workflow_app/tests/security-core-service.test.ts`
+`pnpm exec tsx --test legacy/workflow_app/tests/security-core-service.test.ts`
 
 Acceptance:
 - exact Google/provider mapping remains fail-closed;

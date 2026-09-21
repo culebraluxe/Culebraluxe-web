@@ -4,18 +4,18 @@ import { redirect } from "next/navigation"
 import { EngineeringQueuesPage } from "@/components/portal/tech/engineering-line"
 import { ForgeConvergenceView } from "@/components/portal/tech/forge-convergence-view"
 import { StoryBoardNotReady } from "@/components/portal/story-board"
-import { listForgeConvergence } from "@/db/forge-convergence"
+import { listForgeConvergence } from "@/legacy/db/forge-convergence"
 import {
   latestForgeInstanceForStory,
   listEngineRunCards,
   listEngineLedgerStats,
   listEngineQueuedCards,
-} from "@/db/forge-engine-task-execution"
+} from "@/legacy/db/forge-engine-task-execution"
 import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
 import { cockpitVersionLabel } from "@/lib/cockpit-version"
-import { getStagingBatch, listForgeBatches, listStagingBatchItems } from "@/db/forge-batch"
-import { listKindRoi } from "@/db/forge-roi"
+import { getStagingBatch, listForgeBatches, listStagingBatchItems } from "@/legacy/db/forge-batch"
+import { listKindRoi } from "@/legacy/db/forge-roi"
 import {
   buildStoryBoardCockpit,
   buildStoryBoardModel,
@@ -26,9 +26,9 @@ import {
   listStoryExecutionSummaries,
   listStoryRuns,
   listStoryboardStories,
-} from "@/db/storyboard"
+} from "@/legacy/db/storyboard"
 
-import { latestOpenForgeHold } from "@/db/forge-hold"
+import { latestOpenForgeHold } from "@/legacy/db/forge-hold"
 
 export const dynamic = "force-dynamic"
 

@@ -13,10 +13,10 @@ treated exactly like a missing plan → `ready-gate:missing-assay-plan`.
 
 ## Scope
 
-- `workflow_app/forge/forge-ready-gate.ts` — replace the trim-only `assayCommands`
+- `legacy/workflow_app/forge/forge-ready-gate.ts` — replace the trim-only `assayCommands`
   check with `parseAssayCommands(...)` (agent-runtime/assay-plan) so a zero-command
   recipe is treated as missing.
-- `workflow_app/tests/forge-ready-gate.test.ts` — add the zero-command-recipe case.
+- `legacy/workflow_app/tests/forge-ready-gate.test.ts` — add the zero-command-recipe case.
 
 Do NOT change `forge-engine-worker.ts` (call site is unchanged). Do NOT broaden
 behavior of non-QA work types.
@@ -34,5 +34,5 @@ SCOPED
 
 ## Assay commands
 
-- `pnpm exec tsx --test workflow_app/tests/forge-ready-gate.test.ts`
+- `pnpm exec tsx --test legacy/workflow_app/tests/forge-ready-gate.test.ts`
 - `pnpm exec tsc --noEmit`

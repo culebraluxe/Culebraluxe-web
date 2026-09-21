@@ -14,7 +14,7 @@
 // `context_id`, and `raw` carries the envelope facts actually read.
 // ---------------------------------------------------------------------------
 
-import type { LandedWhatsapp } from '../../db/landing'
+import type { LandedWhatsapp } from '@/legacy/db/landing'
 
 import type {
   MetaWhatsAppChangeValue,

@@ -131,7 +131,7 @@ test('a map page citing a file that does not exist fails; real paths pass', () =
     files: [
       {
         path: 'docs/agent/MAP-test.md',
-        content: 'Open `services/ghost/ghost-service.ts` first.\n',
+        content: 'Open `legacy/services/ghost/ghost-service.ts` first.\n',
       },
     ],
   })
@@ -143,7 +143,7 @@ test('a map page citing a file that does not exist fails; real paths pass', () =
     files: [
       {
         path: 'docs/agent/MAP-test.md',
-        content: 'Open `services/property/property-service.ts` or `db/storyboard.ts`.\n',
+        content: 'Open `legacy/services/property/property-service.ts` or `legacy/db/storyboard.ts`.\n',
       },
     ],
   })
@@ -183,7 +183,7 @@ test('a manifest row naming a path that is not on disk fails', () => {
       {
         path: 'docs/agent/manifest/TEST-01.md',
         content: '- `lib/scope-manifest.ts` — cited · cited by TEST-01 · last touched 2026-09-15\n' +
-          '- `services/ghost/ghost.ts` — cited · cited by TEST-01 · last touched 2026-09-15\n',
+          '- `legacy/services/ghost/ghost.ts` — cited · cited by TEST-01 · last touched 2026-09-15\n',
       },
     ],
   })

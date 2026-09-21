@@ -4,7 +4,7 @@ import {
   mapProjectCalendarItems,
   mapProjectCalendarToEvents,
 } from '../ui/projects/secondary-projection'
-import type { WbsItem } from '../services/wbs'
+import type { WbsItem } from '@/legacy/services/wbs'
 
 const item = (id: string, dueAt: string | null): WbsItem => ({
   id, title: id, notes: '', category: 'clients', status: 'open', projectId: 'p', parentId: null,

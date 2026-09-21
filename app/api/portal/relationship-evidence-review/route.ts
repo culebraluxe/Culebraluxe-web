@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
 import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
-import { getRelationshipEvidenceReview } from "@/db/relationship-evidence"
+import { getRelationshipEvidenceReview } from "@/legacy/db/relationship-evidence"
 import type { ReviewState } from "@/lib/relationship-intel/contracts"
 import { captureServerError } from '@/lib/server-error-capture'
 import { withApiHandler } from '@/lib/error-capture-seam'

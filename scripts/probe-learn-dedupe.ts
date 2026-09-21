@@ -14,9 +14,9 @@
 // The probe creates two throwaway stories, files both, and deletes everything it made.
 // ---------------------------------------------------------------------------
 
-import { withdrawQueuedAgentWork } from '@/db/agent-work'
-import { listOpenLearnPatternKeys, openReadyLearnItem } from '@/db/forge-learn'
-import { createStoryboardStory, setStoryboardStatus } from '@/db/storyboard'
+import { withdrawQueuedAgentWork } from '@/legacy/db/agent-work'
+import { listOpenLearnPatternKeys, openReadyLearnItem } from '@/legacy/db/forge-learn'
+import { createStoryboardStory, setStoryboardStatus } from '@/legacy/db/storyboard'
 import { describeControlPlane } from '@/lib/execution-target'
 import { interactiveSql } from '@/lib/neon-interactive'
 

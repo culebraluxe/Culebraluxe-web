@@ -91,7 +91,7 @@ export const FULL_REGRESSION_PATTERNS: RegExp[] = [
   /\bpnpm\s+run\s+test:app\b/,
   /tsx\s+--test\s+testv2\/engine_tests\/\*\.test\.ts/,
   /tsx\s+--test\s+testv2\/\*\.test\.ts/,
-  /tsx\s+--test\s+workflow_app\/tests\/\*\.test\.ts/,
+  /tsx\s+--test\s+legacy\/workflow_app\/tests\/\*\.test\.ts/,
   /node\s+--import\s+tsx\s+--test-concurrency=[0-9]+\s+--test\s+testv2\/engine_tests\/persistence/,
 ]
 

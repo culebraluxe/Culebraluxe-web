@@ -5,8 +5,8 @@
 // by BaseService) into a durable app_error row at 'error' severity. Best-effort:
 // captureError never throws into the caller.
 // -----------------------------------------------------------------------------
-import { captureError } from '../db/app-error'
-import type { ServiceErrorSink } from '../services/core'
+import { captureError } from '@/legacy/db/app-error'
+import type { ServiceErrorSink } from '@/legacy/services/core'
 
 /** Build a ServiceErrorSink that writes to the durable app_error table. */
 export function createNeonServiceErrorSink(): ServiceErrorSink {

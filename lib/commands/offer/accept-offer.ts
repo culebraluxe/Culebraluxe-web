@@ -10,7 +10,7 @@
 // lib/commands/register.ts.
 // ---------------------------------------------------------------------------
 
-import { acceptOffer } from '../../../db/offer-acceptance'
+import { acceptOffer } from '@/legacy/db/offer-acceptance'
 import type {
   CommandEnvelope,
   CommandExecutionContext,

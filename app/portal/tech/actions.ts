@@ -1,23 +1,23 @@
 "use server"
 import { withServerErrorCapture } from '@/lib/error-capture-seam'
-import { recordError } from '@/db/app-error'
-import { sql as errorSql } from '@/db/client'
+import { recordError } from '@/legacy/db/app-error'
+import { sql as errorSql } from '@/legacy/db/client'
 
 import { redirect } from "next/navigation"
 
 import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
-import { setActiveWork, setStoryboardStatus, listStoryIdsWithStatus, listActiveWork, clearActiveWork, getStoryboardStory } from "@/db/storyboard"
+import { setActiveWork, setStoryboardStatus, listStoryIdsWithStatus, listActiveWork, clearActiveWork, getStoryboardStory } from "@/legacy/db/storyboard"
 import type { StoryBucket } from "@/lib/story-moves"
 import { storyLifecycleOf } from "@/lib/storyboard-data"
-import { setAgentWorkDispatchOptions, withdrawQueuedAgentWork } from "@/db/agent-work"
+import { setAgentWorkDispatchOptions, withdrawQueuedAgentWork } from "@/legacy/db/agent-work"
 import {
   cancelForgeBatch,
   fireStagingBatch,
   scheduleStagingBatch,
   stageStoryForBatch,
   unstageStoryForBatch,
-} from "@/db/forge-batch"
+} from "@/legacy/db/forge-batch"
 import {
   ENGINE_DISPATCH_STATUS,
   STATUS_BY_BUCKET,

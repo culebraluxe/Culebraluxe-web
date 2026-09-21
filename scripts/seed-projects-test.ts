@@ -2,9 +2,9 @@
 // people/properties/contracts. This is "the project that wraps them together" —
 // there is no fake table; only the Project/WBS rows are test data.
 // DEV-only. Usage: APP_ENV=development node --env-file=.env.local --import tsx scripts/seed-projects-test.ts
-import { sql } from "../db/client"
-import { SqlProjectRepository } from "../db/project-service-repository"
-import { SqlWbsRepository } from "../db/wbs-service-repository"
+import { sql } from "@/legacy/db/client"
+import { SqlProjectRepository } from "@/legacy/db/project-service-repository"
+import { SqlWbsRepository } from "@/legacy/db/wbs-service-repository"
 
 const PROJECT_ID = "mock-casa-luar-listing"
 

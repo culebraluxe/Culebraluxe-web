@@ -13,7 +13,7 @@
 // The canonical app_user for the current administrator:
 const ADMIN_APP_USER_ID = 'aa06d089-162c-4bef-84ec-a76ee38cc8ad'
 
-import { db } from '../db/client'
+import { db } from '@/legacy/db/client'
 
 async function main() {
   const subject = process.argv[2]

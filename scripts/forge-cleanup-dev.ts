@@ -9,7 +9,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { resolveDbTarget } from '../db/client'
+import { resolveDbTarget } from '@/legacy/db/client'
 
 const APPLY = process.argv.includes('--apply')
 const DAYS = Number(process.env.FORGE_CLEANUP_DAYS ?? '7')
@@ -27,7 +27,7 @@ async function run() {
   }
   console.log(`target=${target} mode=${APPLY ? 'apply' : 'dry-run'} stale_worktree_days=${DAYS}`)
 
-  const { sql } = await import('../db/client')
+  const { sql } = await import('@/legacy/db/client')
 
   // 1. Orphaned engine rows (parents already gone) — the true accumulation.
   const orphanInstances = await sql`

@@ -1,8 +1,8 @@
 // CATCH-UP real DEV proof — creates website leads via the canonical intake and
 // confirms they surface in the derived Catch-Up queue. DEV only (authorized by
 // the work order's "REAL DEV PROOF — create it").
-import { createWebsiteLead } from '../db/catchup-lead'
-import { getCatchUpEligiblePage } from '../db/catch-up'
+import { createWebsiteLead } from '@/legacy/db/catchup-lead'
+import { getCatchUpEligiblePage } from '@/legacy/db/catch-up'
 import { buildCatchUpQueue } from '../lib/catchup/queue'
 
 async function main() {

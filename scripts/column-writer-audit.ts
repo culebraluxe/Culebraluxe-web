@@ -23,7 +23,7 @@
 import { existsSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { sql } from '../db/client'
+import { sql } from '@/legacy/db/client'
 
 export const AUDITED_TABLES = [
   'storyboard_story',
@@ -62,14 +62,14 @@ export type AuditResult = {
   missingWriters: Array<{ table: string; column: string; writer: string }>
 }
 
-const STORYBOARD = 'db/storyboard.ts'
+const STORYBOARD = 'legacy/db/storyboard.ts'
 const STORY_FILE = 'scripts/forge-test-stories.ts'
-const SPRINT = 'db/sprint.ts'
+const SPRINT = 'legacy/db/sprint.ts'
 /** 187: the sprint trigger derives storyboard_story.sprint_id from its batch. */
-const SPRINT_TRIGGER = 'db/migrations/187_sprint_parent.sql'
-const FORGE_RUN = 'db/forge-run.ts'
-const REPAIR_LEDGER = 'db/forge-repair-ledger.ts'
-const EVIDENCE = 'db/forge-workflow-evidence.ts'
+const SPRINT_TRIGGER = 'legacy/db/migrations/187_sprint_parent.sql'
+const FORGE_RUN = 'legacy/db/forge-run.ts'
+const REPAIR_LEDGER = 'legacy/db/forge-repair-ledger.ts'
+const EVIDENCE = 'legacy/db/forge-workflow-evidence.ts'
 
 /**
  * Every column of the three audited tables. `writers` names the module(s) that

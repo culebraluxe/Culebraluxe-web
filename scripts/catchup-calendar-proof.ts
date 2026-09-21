@@ -1,8 +1,8 @@
 // CATCH-UP real DEV proof (Scenario D) — schedule a showing for a proof lead
 // and confirm it appears in the calendar projection + drives attention.
-import { createShowing, scheduleShowing } from '../db/portal-writes'
-import { getCatchUpCalendarEvents } from '../db/catch-up-calendar'
-import { getCatchUpEligiblePage } from '../db/catch-up'
+import { createShowing, scheduleShowing } from '@/legacy/db/portal-writes'
+import { getCatchUpCalendarEvents } from '@/legacy/db/catch-up-calendar'
+import { getCatchUpEligiblePage } from '@/legacy/db/catch-up'
 import { buildCatchUpQueue } from '../lib/catchup/queue'
 
 async function main() {

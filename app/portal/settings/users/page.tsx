@@ -1,5 +1,5 @@
 import { SettingsUsers } from "@/components/portal/settings-auth"
-import { getSettingsUsers } from "@/db/settings-auth"
+import { getSettingsUsers } from "@/legacy/db/settings-auth"
 
 export const dynamic = "force-dynamic"
 

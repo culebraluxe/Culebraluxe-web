@@ -24,9 +24,9 @@
 // ---------------------------------------------------------------------------
 
 import { pathToFileURL } from 'node:url'
-import type { WorkflowDiagnosticsSnapshot } from '../workflow_app/diagnostics'
-import type { ReconcileReport } from '../workflow_app/reconcile'
-import type { ResetResult } from '../workflow_app/reset'
+import type { WorkflowDiagnosticsSnapshot } from '@/legacy/workflow_app/diagnostics'
+import type { ReconcileReport } from '@/legacy/workflow_app/reconcile'
+import type { ResetResult } from '@/legacy/workflow_app/reset'
 
 export const DEFAULT_POLL_WORKER_ID = 'workflow-cli'
 export const DEFAULT_RECLAIM_BATCH = 20
@@ -184,19 +184,19 @@ function formatReset(results: ResetResult[]): string {
 
 async function engineHandle() {
   const { WorkflowEngine } = await import('../workflow_engine/lib/workflow/engine')
-  const { createApplicationPort } = await import('../workflow_app/application-port')
-  const { engineSql } = await import('../workflow_app/engine-client')
+  const { createApplicationPort } = await import('@/legacy/workflow_app/application-port')
+  const { engineSql } = await import('@/legacy/workflow_app/engine-client')
   return new WorkflowEngine(engineSql(), { app: createApplicationPort() })
 }
 
 function createDeps(): WorkflowCliDeps {
   return {
     status: async () => {
-      const { getWorkflowDiagnosticsSnapshot } = await import('../workflow_app/diagnostics')
+      const { getWorkflowDiagnosticsSnapshot } = await import('@/legacy/workflow_app/diagnostics')
       return getWorkflowDiagnosticsSnapshot()
     },
     reconcile: async () => {
-      const { reconcileWorkflows } = await import('../workflow_app/reconcile')
+      const { reconcileWorkflows } = await import('@/legacy/workflow_app/reconcile')
       return reconcileWorkflows()
     },
     reclaimStaleJobs: async (batch) => {
@@ -226,10 +226,10 @@ function createDeps(): WorkflowCliDeps {
       })
     },
     resetDev: async () => {
-      const { assertDevResetAllowed, resetDevWorkflowsCore } = await import('../workflow_app/reset')
+      const { assertDevResetAllowed, resetDevWorkflowsCore } = await import('@/legacy/workflow_app/reset')
       assertDevResetAllowed(process.env.APP_ENV)
-      const { forgeDb, forgeDbTargetForUrl } = await import('../db/forge-db')
-      const { getDatabaseUrl } = await import('../db/client')
+      const { forgeDb, forgeDbTargetForUrl } = await import('@/legacy/db/forge-db')
+      const { getDatabaseUrl } = await import('@/legacy/db/client')
       const exec = (s: string) =>
         forgeDb.forTarget(forgeDbTargetForUrl(getDatabaseUrl())).runText(s) as unknown as Promise<
           unknown[]

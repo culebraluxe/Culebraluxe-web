@@ -35,7 +35,7 @@ pnpm test:changed                       # only what your working tree can affect
 | **HARNESS** | `harness` (6) |
 
 **This is a mapping, not a move — on purpose.** Every story's frozen fence names an exact path
-(`… --test workflow_app/tests/claim-clock.test.ts`) and the acceptance mapping binds clauses to those
+(`… --test legacy/workflow_app/tests/claim-clock.test.ts`) and the acceptance mapping binds clauses to those
 names, so physically relocating the tree would break 65 stories' proofs at once. The classification
 gives the split now, and a future physical move becomes the mechanical follow-through of this map.
 
@@ -78,7 +78,7 @@ habit this file retires.
 
 * A batch deploy: `pnpm test:deploy-gate`, once, as the gate.
 * A change to shared infrastructure: `db/`, `agent-runtime/`, `lib/` — run the suite that owns it
-  (`test:app` for `workflow_app/tests/*`, `test:agent-runtime` for `agent-runtime/*`).
+  (`test:app` for `legacy/workflow_app/tests/*`, `test:agent-runtime` for `agent-runtime/*`).
 * A change to a constraint, a trigger or a shared writer: the suite plus `pnpm db:parity`.
 * Removing or widening a rule several suites depend on.
 

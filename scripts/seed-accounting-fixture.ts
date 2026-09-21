@@ -10,12 +10,12 @@
 // Run:  APP_ENV=development node --env-file=.env.local --import tsx scripts/seed-accounting-fixture.ts
 // ---------------------------------------------------------------------------
 
-import { sql } from '../db/client'
+import { sql } from '@/legacy/db/client'
 import {
   createExpense,
   createReceivable,
   markReceivablePaid,
-} from '../db/accounting'
+} from '@/legacy/db/accounting'
 
 const env = process.env.APP_ENV ?? process.env.NODE_ENV
 if (env !== 'development') {

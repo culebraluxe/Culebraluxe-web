@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ContractService } from '../services/contract'
-import type { ContractDto, ContractRepository } from '../services/contract'
+import { ContractService } from '@/legacy/services/contract'
+import type { ContractDto, ContractRepository } from '@/legacy/services/contract'
 import { capturingInfrastructure, context } from './test-support'
 
 // ---------------------------------------------------------------------------

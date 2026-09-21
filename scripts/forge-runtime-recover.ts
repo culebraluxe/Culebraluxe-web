@@ -1,5 +1,5 @@
-import { recoverAgentWorkInterruption, recoverStaleAgentWorkIndustrial } from '../db/agent-work-recovery'
-import { getAgentWorkItem } from '../db/agent-work'
+import { recoverAgentWorkInterruption, recoverStaleAgentWorkIndustrial } from '@/legacy/db/agent-work-recovery'
+import { getAgentWorkItem } from '@/legacy/db/agent-work'
 import { interactiveSql } from '../lib/neon-interactive'
 
 function value(args: string[], flag: string): string | undefined {

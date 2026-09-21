@@ -7,7 +7,7 @@ import { runAuthorized } from '@/lib/auth/require-authority'
 import type { ActingUser, AuthorityCode } from '@/lib/auth/types'
 import { PortalWriteError } from '@/lib/portal-write-error'
 import { toPortalInstant } from '@/lib/portal-time'
-import { refreshClientReadModels } from '@/db/client-read-models'
+import { refreshClientReadModels } from '@/legacy/db/client-read-models'
 import { searchPeople } from '@/lib/person-reads'
 import type { PersonSearchResult } from '@/lib/person-reads'
 import {
@@ -15,19 +15,19 @@ import {
   createClient,
   setClientIdentity,
   updateClientProfile,
-} from '@/db/person-admin'
+} from '@/legacy/db/person-admin'
 import type {
   ClientCreateInput,
   ClientIdentityKind,
   ClientProfileFields,
 } from '@/lib/person-admin'
-import { createTask } from '@/db/tasks'
-import { applyFollowUpCommand, recordContactOutcome } from '@/db/follow-up'
-import type { FollowUpCommandType, ContactOutcomeCode } from '@/db/follow-up'
+import { createTask } from '@/legacy/db/tasks'
+import { applyFollowUpCommand, recordContactOutcome } from '@/legacy/db/follow-up'
+import type { FollowUpCommandType, ContactOutcomeCode } from '@/legacy/db/follow-up'
 import { NEXT_ACTION_PRESET_CODES, presetDefaultDue } from '@/lib/relationship-intel/next-action-presets'
-import { dismissRecommendation } from '@/db/recommendations'
+import { dismissRecommendation } from '@/legacy/db/recommendations'
 import type { RecommendationCode } from '@/lib/relationship-intel/recommendations'
-import { emitDailyLoopTelemetry } from '@/db/telemetry'
+import { emitDailyLoopTelemetry } from '@/legacy/db/telemetry'
 import {
   cancelShowing,
   cancelTask,
@@ -42,27 +42,27 @@ import {
   updatePersonStatus,
   updateTaskDue,
   withdrawOffer,
-} from '@/db/portal-writes'
+} from '@/legacy/db/portal-writes'
 import {
   addOtherParticipant,
   endParticipant,
   updateParticipantRoleLabel,
-} from '@/db/deal-participants'
+} from '@/legacy/db/deal-participants'
 import {
   createDeal,
   endStructuralParticipant,
   setStructuralParticipant,
-} from '@/db/deal-admin-writes'
+} from '@/legacy/db/deal-admin-writes'
 import type {
   DealCreateInput,
   StructuralParticipantInput,
 } from '@/lib/deal-admin'
-import { resolveIntake } from '@/db/needs-review-resolution'
+import { resolveIntake } from '@/legacy/db/needs-review-resolution'
 import type {
   ResolveIntakeAction,
   ResolveIntakeInput,
   ResolveIntakeResult,
-} from '@/db/needs-review-resolution'
+} from '@/legacy/db/needs-review-resolution'
 import {
   setPropertyHero,
   setPropertyMediaOrder,
@@ -71,13 +71,13 @@ import {
   updateMediaMetadata,
   updatePropertyFacts,
   updatePropertyVisibility,
-} from '@/db/portal-property'
-import type { PropertyFactsInput } from '@/db/portal-property'
+} from '@/legacy/db/portal-property'
+import type { PropertyFactsInput } from '@/legacy/db/portal-property'
 import {
   archiveProperty,
   createProperty,
   restoreProperty,
-} from '@/db/property-admin-writes'
+} from '@/legacy/db/property-admin-writes'
 import type { PropertyCreateInput } from '@/lib/property-admin'
 
 // Bounded Portal V1.1 write actions. Server-side validation happens here; the

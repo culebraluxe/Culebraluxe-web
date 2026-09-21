@@ -18,7 +18,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 
-import { createStoryboardStory, setStoryboardStatus } from '../db/storyboard'
+import { createStoryboardStory, setStoryboardStatus } from '@/legacy/db/storyboard'
 import { describeControlPlane } from '../lib/execution-target'
 
 type StoryRecord = {
@@ -64,7 +64,7 @@ const STORIES: StoryRecord[] = [
     goal:
       'A decision never travels only in chat, and a row that IS written is never read as an absent plan.',
     scope:
-      'db/migrations/172_forge_role_finding.sql + db/forge-role-finding.ts (findings in rows), db/forge-role-plan.ts (plan assembly), workflow_app/forge/agent-runtime-role-runner.ts (identity line, findings scope, candidate diff), workflow_app/forge/forge-role-mapping.ts (candidate SHA per lane), workflow_app/forge/forge-lead-routing.ts + forge-lead-routing-prompt.ts (one seat, named flags, scale direction), scripts/forge-handoff.mjs (boundary refusals).',
+      'legacy/db/migrations/172_forge_role_finding.sql + db/forge-role-finding.ts (findings in rows), db/forge-role-plan.ts (plan assembly), workflow_app/forge/agent-runtime-role-runner.ts (identity line, findings scope, candidate diff), workflow_app/forge/forge-role-mapping.ts (candidate SHA per lane), workflow_app/forge/forge-lead-routing.ts + forge-lead-routing-prompt.ts (one seat, named flags, scale direction), scripts/forge-handoff.mjs (boundary refusals).',
     acceptance:
       'The Architect writes findings as rows and the Lead reads them scoped to the live process instance and newest attempt per node; the Lead routes SOLO from fields alone; an attempt mismatch, empty reasoning or case-variant assignment id is refused at the boundary naming the field; the runner supplies the candidate diff so the Smith gate never refuses landed work.',
     notes:
@@ -82,7 +82,7 @@ const STORIES: StoryRecord[] = [
     goal:
       'The cheap lane finishes: a pre-shaped FAST story produces a candidate, passes its frozen proof, and repairs when QA asks.',
     scope:
-      'workflow_app/forge/forge-role-mapping.ts (fast_smith + fast_repair_smith carry the committed SHA), workflow_app/tests/forge-role-mapping.test.ts (the six-node fence).',
+      'legacy/workflow_app/forge/forge-role-mapping.ts (fast_smith + fast_repair_smith carry the committed SHA), workflow_app/tests/forge-role-mapping.test.ts (the six-node fence).',
     acceptance:
       'A FAST story runs fast_lane_entry -> fast_smith -> fast_qa_verify with a real candidate SHA on the evidence; a repair cycle runs when QA asks; and every candidate-producing node is fenced so a future lane cannot be forgotten.',
     notes:
@@ -117,7 +117,7 @@ const STORIES: StoryRecord[] = [
     goal:
       'Make MAP measurable on our own engine: one integer per generation bounds how long a run may stay interesting, and at the cap the run stops for a human instead of dispatching another turn.',
     scope:
-      'db/forge-engine-task-execution.ts (countForgeGenerationTurns), workflow_app/forge/model-turn-budget.ts (the cap rule), workflow_app/forge/agent-runtime-role-runner.ts (DOOR ZERO, above every other door), workflow_app/tests/forge-model-turn-budget.test.ts.',
+      'legacy/db/forge-engine-task-execution.ts (countForgeGenerationTurns), workflow_app/forge/model-turn-budget.ts (the cap rule), workflow_app/forge/agent-runtime-role-runner.ts (DOOR ZERO, above every other door), workflow_app/tests/forge-model-turn-budget.test.ts.',
     acceptance:
       'A generation below the cap dispatches normally and one at or above it dispatches nothing, stopping with a named GENERATION_TURN_CAP reason; the default never blocks a healthy generation; and no value of the environment variable can remove the cap.',
     notes:
@@ -135,7 +135,7 @@ const STORIES: StoryRecord[] = [
     goal:
       'Stop computing the difficulty prediction and throwing it away: record the features, the measurement provenance, the logit, the probability, the gate and the outcome for every assessed unit, so the hand-set weights can eventually be replaced by a fit.',
     scope:
-      'db/migrations/175_forge_dispatch_score.sql (the ledger), db/forge-dispatch-score.ts (record + label + calibration reader), workflow_app/forge/forge-difficulty-scorer.ts (the logit joins the scorer protocol; SCORER_ID), workflow_app/forge/forge-plan-difficulty.ts (scorePlanDetailed + which features were measured), workflow_app/forge/agent-runtime-role-runner.ts (record at lead_pre, label at the Smith exit).',
+      'legacy/db/migrations/175_forge_dispatch_score.sql (the ledger), db/forge-dispatch-score.ts (record + label + calibration reader), workflow_app/forge/forge-difficulty-scorer.ts (the logit joins the scorer protocol; SCORER_ID), workflow_app/forge/forge-plan-difficulty.ts (scorePlanDetailed + which features were measured), workflow_app/forge/agent-runtime-role-runner.ts (record at lead_pre, label at the Smith exit).',
     acceptance:
       'Every assessed unit leaves one row carrying the eight features, which of them were measured rather than defaulted, the scorer id, the logit and the p_success that produced the gate verdict; the outcome attaches to that same row and never replaces a measurement with null; and the reader can return only labelled rows as the calibration set.',
     notes:

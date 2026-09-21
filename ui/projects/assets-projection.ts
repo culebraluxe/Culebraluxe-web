@@ -1,6 +1,6 @@
-import type { MediaAssetDto } from '@/services/media'
-import type { Project } from '@/services/project'
-import type { WbsItem } from '@/services/wbs'
+import type { MediaAssetDto } from '@/legacy/services/media'
+import type { Project } from '@/legacy/services/project'
+import type { WbsItem } from '@/legacy/services/wbs'
 import type { ProjectAsset, ProjectPlan, ProjectsWorkspaceData } from './model'
 
 function projectPropertyIds(project: Project | undefined, items: readonly WbsItem[]): string[] {

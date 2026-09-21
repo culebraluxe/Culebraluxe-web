@@ -16,7 +16,7 @@
 const ROOT_EMAIL = 'culebraluxe@gmail.com'
 const ROOT_DISPLAY = 'CulebraLuxe Root'
 
-import { db } from '../db/client'
+import { db } from '@/legacy/db/client'
 
 async function main() {
   const subject = process.argv[2]

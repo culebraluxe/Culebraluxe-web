@@ -4,10 +4,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { WbsService } from '../services/wbs'
-import type { WbsRepository } from '../services/wbs'
-import { isWbsCategory, MANAGEMENT_CATEGORY_ID, WBS_CATEGORIES } from '../services/wbs'
-import type { WbsItem } from '../services/wbs'
+import { WbsService } from '@/legacy/services/wbs'
+import type { WbsRepository } from '@/legacy/services/wbs'
+import { isWbsCategory, MANAGEMENT_CATEGORY_ID, WBS_CATEGORIES } from '@/legacy/services/wbs'
+import type { WbsItem } from '@/legacy/services/wbs'
 import { capturingInfrastructure, context } from './test-support'
 
 const actor = { id: 'u-1', kind: 'user' as const }

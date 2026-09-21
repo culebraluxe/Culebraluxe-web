@@ -2,14 +2,14 @@ import 'server-only'
 
 import { randomUUID } from 'node:crypto'
 
-import { SqlListingPropertyRepository } from '@/db/listing-property-service-repository'
-import { SqlPersonRepository } from '@/db/person-service-repository'
-import { PERSON_OPERATIONS, PersonService } from '@/services/person'
+import { SqlListingPropertyRepository } from '@/legacy/db/listing-property-service-repository'
+import { SqlPersonRepository } from '@/legacy/db/person-service-repository'
+import { PERSON_OPERATIONS, PersonService } from '@/legacy/services/person'
 import {
   PROPERTY_OPERATIONS,
   PropertyService,
   type PropertyAddressDto,
-} from '@/services/property'
+} from '@/legacy/services/property'
 import type {
   ListingCanonicalFieldName,
   ListingCanonicalFields,
@@ -19,11 +19,11 @@ import type {
 import { formatAddressLine } from '@/lib/address-format'
 import { getActingUser } from '@/lib/auth/get-acting-user'
 import { getPortalSessionAdapter } from '@/lib/auth/portal-session'
-import { resolveSecurityLevel } from '@/services/security'
+import { resolveSecurityLevel } from '@/legacy/services/security'
 import { appServiceErrorSink } from '@/lib/service-error-sink'
 import { formEntitlements } from './form-service-runtime'
-import { SqlFormInstanceRepository } from '@/db/form-service-repository'
-import { FORM_OPERATIONS, FormService } from '@/services/forms'
+import { SqlFormInstanceRepository } from '@/legacy/db/form-service-repository'
+import { FORM_OPERATIONS, FormService } from '@/legacy/services/forms'
 
 const serviceInfrastructure = {
   authorization: formEntitlements,

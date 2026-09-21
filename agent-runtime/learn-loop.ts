@@ -26,10 +26,10 @@ import { join } from 'node:path'
 import { gitBinary } from '../lib/worker-workspace/provisioner'
 import { forgeGitEnv } from '../lib/worker-workspace/commit'
 
-import { listStaleAgentWork } from '../db/agent-work'
-import { getStagingBatch } from '../db/forge-batch'
-import { listOpenLearnPatternKeys, openReadyLearnItem, stageLearnStory } from '../db/forge-learn'
-import { createStoryboardStory, getStoryboardStory, setStoryboardStatus } from '../db/storyboard'
+import { listStaleAgentWork } from '@/legacy/db/agent-work'
+import { getStagingBatch } from '@/legacy/db/forge-batch'
+import { listOpenLearnPatternKeys, openReadyLearnItem, stageLearnStory } from '@/legacy/db/forge-learn'
+import { createStoryboardStory, getStoryboardStory, setStoryboardStatus } from '@/legacy/db/storyboard'
 import { writeIfChanged } from '../lib/artifact-file'
 import {
   DEFAULT_LEARN_WINDOW_HOURS,

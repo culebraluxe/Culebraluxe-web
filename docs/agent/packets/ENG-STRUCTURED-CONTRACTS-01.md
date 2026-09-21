@@ -27,15 +27,15 @@ nights.
 
 ## Scope
 
-- `db/migrations/<next>_worker_heartbeat.sql` (new): `forge_worker_heartbeat` — `agent_id`, `pass`, `story_id`,
+- `legacy/db/migrations/<next>_worker_heartbeat.sql` (new): `forge_worker_heartbeat` — `agent_id`, `pass`, `story_id`,
   `node`, `model`, `outcome`, `started_at`, `ended_at`, `detail`. Append-only; a failed pass is a row too.
 - `db/forge-heartbeat.ts` (new): writer/reader at the repository boundary, normalizing driver values (ISO
   timestamps, numbers) per `AGENTS.md`.
 - `scripts/agent-worker-once.sh`: write a heartbeat at pass start and at pass end (including `idle`, failure
   and exit code). No JSON in the worker's own path.
-- `scripts/forge-doctor.ts` + `workflow_app/forge/forge-doctor-report.ts`: worker liveness is a **query**. The
+- `scripts/forge-doctor.ts` + `legacy/workflow_app/forge/forge-doctor-report.ts`: worker liveness is a **query**. The
   log becomes history, read only when the row is absent, and the report says which source answered.
-- `workflow_app/forge/agents/architect-handoff.ts` — see `ENG-CONTRACT-PARSER-RETIREMENT-01`: the reply-parser
+- `legacy/workflow_app/forge/agents/architect-handoff.ts` — see `ENG-CONTRACT-PARSER-RETIREMENT-01`: the reply-parser
   retirement is its own story now, so this one stays additive and small. This story does not delete a parser.
 - `lib/forge-kind.ts` + the policy→model map: a policy may name only a **tokens-runnable, headless** model.
   `judgment` currently resolves toward `deepseek-pro`/`deepseek-chat`, which is interactive-only — so either
@@ -50,10 +50,10 @@ nights.
 
 ## Assay (SCOPED)
 
-- `node --import tsx --test workflow_app/tests/forge-doctor-report.test.ts`
-- `node --import tsx --test workflow_app/tests/forge-heartbeat.test.ts` (new) — the heartbeat's write/read
+- `node --import tsx --test legacy/workflow_app/tests/forge-doctor-report.test.ts`
+- `node --import tsx --test legacy/workflow_app/tests/forge-heartbeat.test.ts` (new) — the heartbeat's write/read
   shape, an idle pass, a failed pass, and that a missing row is reported as *unknown*, never as healthy.
-- `node --import tsx --test workflow_app/tests/forge-kind-routing.test.ts`
+- `node --import tsx --test legacy/workflow_app/tests/forge-kind-routing.test.ts`
 
 Test mode: **SCOPED**. No FULL regression for this story.
 

@@ -3,14 +3,14 @@
 // (docs/REAL-ESTATE-TRANSACTION-DESIGN.md sections 6.5 and 7.4).
 // Read-only: it exercises the catalogue, the reads, and that commands are guarded.
 
-import { composeCoreServices } from '../services/composition'
+import { composeCoreServices } from '@/legacy/services/composition'
 import {
   AuthorizationService,
   StaticAuthorizationPolicyProvider,
-} from '../services/entitlement/authorization-service'
-import { SqlWbsRepository } from '../db/wbs-service-repository'
-import { WBS_OPERATIONS } from '../services/wbs'
-import { sql } from '../db/client'
+} from '@/legacy/services/entitlement/authorization-service'
+import { SqlWbsRepository } from '@/legacy/db/wbs-service-repository'
+import { WBS_OPERATIONS } from '@/legacy/services/wbs'
+import { sql } from '@/legacy/db/client'
 
 const services = composeCoreServices(
   {

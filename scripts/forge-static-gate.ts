@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Deterministic static gate CLI — runs runStaticGate against the current checkout
 // and prints a normalized report with an exit code (architecture is the hard gate).
-import { runStaticGate } from '../workflow_app/forge/forge-static-gate'
+import { runStaticGate } from '@/legacy/workflow_app/forge/forge-static-gate'
 
 const roots = process.argv.slice(2)
 const result = runStaticGate({ workspace: process.cwd(), roots: roots.length ? roots : undefined })

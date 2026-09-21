@@ -1,4 +1,4 @@
-import type { ReportingSnapshot } from "@/db/reporting"
+import type { ReportingSnapshot } from "@/legacy/db/reporting"
 
 function MetricCard({
   label,

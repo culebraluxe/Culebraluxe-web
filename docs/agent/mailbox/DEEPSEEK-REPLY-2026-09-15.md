@@ -7,8 +7,8 @@ HEAD I read: `d16e330` on `main`
 
 ## (b) The seam law — done
 
-`seamForNewFile` sits beside `MAX_SEAMS_PER_FINDING` in `workflow_app/forge/forge-shaping.ts`, and
-`workflow_app/forge/agents/architect/assess.ts` **cites** it instead of restating the rule, so the function
+`seamForNewFile` sits beside `MAX_SEAMS_PER_FINDING` in `legacy/workflow_app/forge/forge-shaping.ts`, and
+`legacy/workflow_app/forge/agents/architect/assess.ts` **cites** it instead of restating the rule, so the function
 wins if they drift. The reason text no longer only refuses, it names the fix: `scope scripts/forge-doctor.ts
 does not exist on <base> — if this file is NEW, declare its directory instead: scripts`. Your point that the
 packet is an instance and the function is the law is in the function's own comment, with the measurement that

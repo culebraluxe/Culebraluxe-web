@@ -30,7 +30,7 @@ states the honest wiring status; do not claim a tool ran when it did not.
 ## Wiring status (the machine-checked source of truth)
 
 Role → tool authority is declared in
-`workflow_app/forge/forge-tool-catalog.ts` and enforced by
+`legacy/workflow_app/forge/forge-tool-catalog.ts` and enforced by
 `resolveForgeToolPermissions(position)`. It is recomputed on **every** lane
 transition and holds no session state, so a resumed session cannot carry a stale
 grant.
@@ -48,10 +48,10 @@ grant.
 Two seams are live now:
 
 - **deterministic trio** — `runStaticGate`
-  (`workflow_app/forge/forge-static-gate.ts`), run from the Assay adapter against
+  (`legacy/workflow_app/forge/forge-static-gate.ts`), run from the Assay adapter against
   the exact candidate. Architecture (`cruiser`) is the **hard gate**; `semgrep` and
   `knip` are informational and must never recall Smith.
-- **rtk (V5-24)** — `applyRtkToEnv` (`workflow_app/forge/forge-tool-seams.ts`)
+- **rtk (V5-24)** — `applyRtkToEnv` (`legacy/workflow_app/forge/forge-tool-seams.ts`)
   generates `git`/`ls`/`tree`/`gh` shims for the worktree and prepends them to the
   harness child PATH, so the model keeps typing `git status` and transparently gets
   `rtk git status`. The shim `exec`s the proxy, so exit codes are preserved exactly.
@@ -62,7 +62,7 @@ Two seams are live now:
   `--context oaicompat-agent` and `--open-web-dashboard false`; starting the server
   confirms 52 tools, the project loaded, and no browser. The per-position tool list
   comes from `serenaAllowedToolsForRole` in
-  `workflow_app/forge/forge-tool-seams.ts`; Scout, Inspector, Assay and DEV_OPS hold
+  `legacy/workflow_app/forge/forge-tool-seams.ts`; Scout, Inspector, Assay and DEV_OPS hold
   none (exclusion, not a smaller grant).
 
 Interrogate or run them yourself:

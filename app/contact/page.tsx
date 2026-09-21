@@ -4,7 +4,7 @@ import { SiteFooter } from '@/components/site-footer'
 import { PageHero } from '@/components/page-hero'
 import { Contact } from '@/components/contact'
 import { getPropertyIntroById } from '@/lib/property-reads'
-import { getMarketingContent } from '@/db/marketing-content'
+import { getMarketingContent } from '@/legacy/db/marketing-content'
 import { buildContactPageContent } from '@/lib/marketing-content'
 import { normalizeServiceKey } from '@/lib/services'
 

@@ -18,8 +18,8 @@ import {
 } from "lucide-react"
 
 import type { StoryExecutionCockpit } from "@/lib/command-console-data"
-import type { AgentWorkItem } from "@/db/agent-work"
-import type { StoryRun } from "@/db/storyboard"
+import type { AgentWorkItem } from "@/legacy/db/agent-work"
+import type { StoryRun } from "@/legacy/db/storyboard"
 import { formatTime, runResultPill, shortId, statePill } from "@/lib/command-console-ui"
 
 // ---------------------------------------------------------------------------

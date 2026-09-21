@@ -15,7 +15,7 @@
 // ---------------------------------------------------------------------------
 
 import { captureServerError, captureServerLog } from '../lib/server-error-capture'
-import { recordToolArtifact } from '../db/forge-artifact'
+import { recordToolArtifact } from '@/legacy/db/forge-artifact'
 import type {
   AgentExecutionContext,
   AgentRunEvidence,

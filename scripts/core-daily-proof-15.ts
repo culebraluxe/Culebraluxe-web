@@ -3,8 +3,8 @@
 // Done / Snooze / Done+next -> future obligation -> Client context.
 //   node --env-file=.env.local --import tsx scripts/core-daily-proof-15.ts
 import { randomUUID } from 'node:crypto'
-import { applyFollowUpCommand, recordContactOutcome, listActiveFollowUpsForPerson } from '../db/follow-up'
-import { getRecommendations } from '../db/recommendations'
+import { applyFollowUpCommand, recordContactOutcome, listActiveFollowUpsForPerson } from '@/legacy/db/follow-up'
+import { getRecommendations } from '@/legacy/db/recommendations'
 import { createPoolExecutor } from './lib/pool-executor'
 
 const url = (process.env.DATABASE_URL_DEV ?? process.env.DATABASE_URL) ?? ''

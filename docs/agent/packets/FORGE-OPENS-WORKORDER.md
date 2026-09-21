@@ -10,7 +10,7 @@
 - Serial observer seam (`forge-observer-seam.ts`) + serial scope MISS/HOLD (`b484301`)
 - Lane start PROD-only (`assertForgeLaneMayStart`)
 - Environments declared, never inferred
-- One pool (`db/forge-db.ts`), engine on shared pool, empty ratchet
+- One pool (`legacy/db/forge-db.ts`), engine on shared pool, empty ratchet
 - Smith cannot launch without an accepted Lead assignment (`57b64b7`)
 - `lead_solo_implement` stays assignment-free
 - Alerts never throw HOLD
@@ -51,7 +51,7 @@ Total if all land: **39**.
 **Issue:** `b484301` said “no assignment → nothing to enforce.” `57b64b7` said “no assignment → HOLD at launch.” If any path can still start `smith` / `repair_smith` / `fast_smith` / `fast_repair_smith` with an empty assignment **and** skip the scope lock, the lock is decorative again.
 
 ### Scope
-- `workflow_app/forge/agent-runtime-role-runner.ts` (read + test; change only if a hole exists)
+- `legacy/workflow_app/forge/agent-runtime-role-runner.ts` (read + test; change only if a hole exists)
 - Tests next to the existing serial / assignment suites
 
 ### Technical fix
@@ -73,7 +73,7 @@ Total if all land: **39**.
 **Issue:** Persistent sink writes through to `workflow_execution_trace_event` but `list()` is the in-process memory sink. `RETRY_UNCHANGED_INPUT` cannot see attempt N−1 after the worker process dies.
 
 ### Scope
-- `workflow_app/forge/forge-observer/persistent-sink.ts`
+- `legacy/workflow_app/forge/forge-observer/persistent-sink.ts`
 - New reader (same folder) mapping trace rows → `TraceEvent`
 - `forge-observer-seam.ts`: before `evaluateAlerts` on attempt ≥ 2, load prior events for that `storyId`
 - Alerts stay pure
@@ -186,7 +186,7 @@ Total if all land: **39**.
 **Feature.** Compile a provenance-bearing packet; do **not** replace the live OpenCode prompt in this story.
 
 ### Scope
-- New `workflow_app/forge/forge-context-packet.ts` (pure)
+- New `legacy/workflow_app/forge/forge-context-packet.ts` (pure)
 - Inputs: story id, node, attempt, Scout text, Architect seams, accepted assignment paths, frozen assay commands, AGENTS excerpts already in prompts
 - Output: `{ sources: [{ path, reason, bytes }], omittedCount, estimatedTokens, incomplete?: true }`
 - Record `packetHash` on `run.start` via the existing observer seam when cheap

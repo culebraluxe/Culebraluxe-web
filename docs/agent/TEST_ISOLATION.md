@@ -39,7 +39,7 @@ Run the DEV-only preflight cleanse before a fresh sequential pass:
 APP_ENV=development node node_modules/tsx/dist/cli.mjs scripts/cleanse-dev-fixtures.ts --yes
 ```
 
-What it does (db/fixture-cleanup.ts):
+What it does (legacy/db/fixture-cleanup.ts):
 
 - deletes **only** story rows whose id matches the fixture patterns above,
   plus their runs and work items in safe FK order

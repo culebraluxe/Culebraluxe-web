@@ -3,7 +3,7 @@
 // Deliberately shaped as TWO independent, separately-provable units with disjoint
 // files so a truthful Lead proposes SPLIT (and the fork/join/provenance/gate path
 // actually executes), while staying small enough to dogfood safely in DEV.
-import { createStoryboardStory, updateStoryboardStory } from '../db/storyboard'
+import { createStoryboardStory, updateStoryboardStory } from '@/legacy/db/storyboard'
 
 const id = 'ENG-FORGE-SPLIT-DOGFOOD-01'
 

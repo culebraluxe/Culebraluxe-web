@@ -1,7 +1,7 @@
 // AUTH-08G — DEV-only inspection of the identity/authorization tables.
 // Run: node --env-file=.env.local --import tsx scripts/inspect-dev-identity.ts
 // Reads ONLY the DEV database (APP_ENV=development -> DATABASE_URL_DEV).
-import { db } from '../db/client'
+import { db } from '@/legacy/db/client'
 
 async function main() {
   const users = await db.query<{

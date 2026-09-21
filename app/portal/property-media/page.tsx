@@ -1,4 +1,4 @@
-import { sql } from '@/db/client'
+import { sql } from '@/legacy/db/client'
 
 import { PropertyMediaUploader } from '@/components/portal/property-media-uploader'
 

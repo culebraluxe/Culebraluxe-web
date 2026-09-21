@@ -1,5 +1,5 @@
 import { IssuesQueue } from "@/components/portal/issues-queue"
-import { getIssueQueue } from "@/db/issues"
+import { getIssueQueue } from "@/legacy/db/issues"
 
 export const dynamic = "force-dynamic"
 

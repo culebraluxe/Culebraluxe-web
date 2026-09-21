@@ -3,8 +3,8 @@ import 'server-only'
 import { randomUUID } from 'node:crypto'
 
 import { coreServices } from '@/lib/service-runtime'
-import { PERSON_OPERATIONS } from '@/services/person'
-import type { PersonSearchResult } from '@/services/person'
+import { PERSON_OPERATIONS } from '@/legacy/services/person'
+import type { PersonSearchResult } from '@/legacy/services/person'
 
 /**
  * Person reads for server surfaces — through the Person SERVICE, never the

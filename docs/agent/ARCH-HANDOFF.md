@@ -224,7 +224,7 @@ project, property, regrid, security, showing, vault, wbs`.
 **The seam is the composition root, and it is the only one:**
 
 ```
-services/composition.ts -> composeCoreServices(repositories, infrastructure)
+legacy/services/composition.ts -> composeCoreServices(repositories, infrastructure)
 ```
 
 It builds the kernel once, registers every domain in a `ServiceRegistry`, injects the
@@ -236,11 +236,11 @@ construct a service by hand. If a domain is missing at runtime, it is missing be
 repository was not passed in.
 
 `services/index.ts` **no longer exists** — it was removed as a dead barrel. The public seam is the
-composition root plus each domain's own `index.ts`. `services/core/index.ts` is the most
+composition root plus each domain's own `index.ts`. `legacy/services/core/index.ts` is the most
 depended-on file in the tier (33 dependents repo-wide), which is what keeps the kernel contracts
 stable.
 
-**Kernel contracts** live in `services/core/`:
+**Kernel contracts** live in `legacy/services/core/`:
 
 - envelopes and results: `ServiceEnvelope`, `ServiceResult` (`ServiceSuccess | ServiceFailure`),
   `ServiceErrorShape`, `ServiceFailure`.

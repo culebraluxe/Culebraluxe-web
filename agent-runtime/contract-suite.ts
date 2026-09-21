@@ -14,7 +14,7 @@ import assert from 'node:assert/strict'
 import type { AgentRuntimeAdapter } from './agent-runtime-adapter'
 import type { AgentExecutionContext, AgentWorkCommand } from './types'
 import type { AgentWorkRepository } from './repositories'
-import type { StoryboardStory } from '../db/storyboard'
+import type { StoryboardStory } from '@/legacy/db/storyboard'
 
 export type ContractFixture = {
   story: StoryboardStory

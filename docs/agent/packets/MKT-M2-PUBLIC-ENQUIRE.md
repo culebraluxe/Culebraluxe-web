@@ -23,7 +23,7 @@ Slice E looked at the wrong path. The brochure is `/properties/{slug}`. Grep Enq
 - `docs/portal-next-work-orders.md` M2
 - `docs/syndication-slice-e-note.md`
 - `app/portal/marketing/actions.ts` `logInquiryAction`
-- `db/syndication.ts` `logListingInquiry`
+- `legacy/db/syndication.ts` `logListingInquiry`
 
 ## Acceptance criteria
 
