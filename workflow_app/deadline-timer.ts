@@ -68,14 +68,7 @@ export async function reconcileDeadlineTimer(
   const { engineConfigured } = await import('./engine-client')
   if (!engineConfigured()) return { action: 'unchanged', jobId: null }
 
-  const { rustReWorkflow } = await import('./rust-re-host')
-  rustReWorkflow([
-    'timer',
-    '--instance',
-    instanceId,
-    '--node',
-    timerNodeId,
-    ...(deadline ? ['--date', deadline] : []),
-  ])
+  const { reconcileTimerNode } = await import('./rust-re-host')
+  await reconcileTimerNode(instanceId, timerNodeId, deadline)
   return { action: deadline ? 'rescheduled' : 'unchanged', jobId: null }
 }

@@ -226,15 +226,8 @@ export async function createCrm26Consumer(
           return (rows[0]?.id as string | undefined) ?? null
         },
         completeEngineTask: async (taskId, userId, transitionName) => {
-          const { rustReWorkflow } = await import('../../workflow_app/rust-re-host')
-          rustReWorkflow([
-            'complete-engine-task',
-            '--task',
-            taskId,
-            '--user',
-            userId,
-            ...(transitionName ? ['--transition', transitionName] : []),
-          ])
+          const { completeEngineTask } = await import('../../workflow_app/rust-re-host')
+          await completeEngineTask(taskId, userId, transitionName ?? undefined)
         },
       }),
     ...overrides,

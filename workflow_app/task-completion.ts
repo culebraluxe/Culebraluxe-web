@@ -53,19 +53,12 @@ export async function completeWorkflowTask(
   input: CompleteWorkflowTaskInput,
 ): Promise<void> {
   const { findWorkflowTaskId } = await import('./correlation')
-  const { rustReWorkflow } = await import('./rust-re-host')
+  const { completeApplicationTask } = await import('./rust-re-host')
 
   await completeWorkflowTaskCore(input, {
     findWorkflowTaskId,
     completeEngineTask: async (_workflowTaskId, i) => {
-      rustReWorkflow([
-        'complete-task',
-        '--application-task',
-        i.applicationTaskId,
-        '--user',
-        i.userId,
-        ...(i.transitionName ? ['--transition', i.transitionName] : []),
-      ])
+      await completeApplicationTask(i.applicationTaskId, i.userId, i.transitionName)
     },
   })
 }

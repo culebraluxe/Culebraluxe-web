@@ -53,12 +53,11 @@ export async function runRecoveryPass(): Promise<RecoveryReport> {
     return { reclaimedStaleJobs: 0, reconcile: { startedInstances: 0, materializedTasks: 0, skippedTasks: 0 }, anomalies: [] }
   }
 
-  const { parseReclaimed, rustReWorkflow } = await import('./rust-re-host')
+  const { reclaimStaleJobs, reclaimStaleJobsForInstance } = await import('./rust-re-host')
   const { getWorkflowDiagnosticsSnapshot } = await import('./diagnostics')
 
   return runRecoveryPassCore({
-    reclaimStaleJobs: async (batch) =>
-      parseReclaimed(rustReWorkflow(['reclaim', '--batch', String(batch ?? 50)])),
+    reclaimStaleJobs: async (batch) => reclaimStaleJobs(batch ?? 50),
     reconcile: reconcileWorkflows,
     collectAnomalies: async () => {
       const snap = await getWorkflowDiagnosticsSnapshot()
@@ -89,9 +88,7 @@ export async function reconcileInstance(instanceId: string): Promise<InstanceRec
   if (!engineConfigured()) {
     return { instanceId, reclaimedStaleJobs: 0 }
   }
-  const { parseReclaimed, rustReWorkflow } = await import('./rust-re-host')
+  const { reclaimStaleJobsForInstance } = await import('./rust-re-host')
 
-  return reconcileInstanceCore(instanceId, (id) =>
-    Promise.resolve(parseReclaimed(rustReWorkflow(['reclaim-instance', '--instance', id]))),
-  )
+  return reconcileInstanceCore(instanceId, reclaimStaleJobsForInstance)
 }

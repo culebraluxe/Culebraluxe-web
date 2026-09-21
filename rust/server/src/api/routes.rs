@@ -853,6 +853,16 @@ pub(crate) fn success<T>(value: T, resolved: &ResolvedRequestContext) -> Json<Ap
     })
 }
 
+/// The same envelope for callers that have a correlation id but not a full resolved request context - an engine command
+/// from a background job has no acting user, and inventing one would be worse than admitting there is not one.
+pub(crate) fn success_with_correlation<T>(value: T, correlation_id: &str) -> Json<ApiSuccess<T>> {
+    Json(ApiSuccess {
+        ok: true,
+        value,
+        correlation_id: correlation_id.to_owned(),
+    })
+}
+
 fn correlate(error: ApiError, resolved: &ResolvedRequestContext) -> ApiError {
     error.with_correlation(resolved.service.correlation_id.clone())
 }

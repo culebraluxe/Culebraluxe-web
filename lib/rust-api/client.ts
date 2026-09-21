@@ -162,6 +162,96 @@ export async function rustApiRead<T>(
 
 
 /**
+ * JSON command bridge, restricted by its own type to the reviewed engine routes.
+ *
+ * The earlier rule here was "no generic write method", and the reason mattered: an open door to arbitrary writes would
+ * let any caller cut a route over before anyone had reviewed it. That reason is preserved rather than dropped - the
+ * path type below admits only `/v1/engine/...`, so this is not a general write door, it is the engine's door. Adding a
+ * new engine command means adding a route on the Rust side and naming it in the union here, which is a review.
+ *
+ * Identity resolves exactly as it does for reads, bypass bridge included, so a dev session still attributes the command
+ * to the real user the Rust side resolves.
+ */
+export type RustApiEnginePath =
+  | '/v1/engine/transactions'
+  | '/v1/engine/timers/reconcile'
+  | '/v1/engine/tasks/complete'
+  | '/v1/engine/reclaim'
+
+export async function rustApiEngineCommand<T>(
+  path: RustApiEnginePath,
+  body: Record<string, unknown>,
+  options: RustApiReadOptions = {},
+): Promise<RustApiSuccess<T>> {
+  const identity =
+    (await createAuthJsSessionAdapter().getSession()) ?? (await bypassBridgeIdentity())
+  if (!identity) {
+    throw new RustApiError({
+      status: 401,
+      code: 'AUTH_IDENTITY_REQUIRED',
+      message: 'An authenticated provider identity is required.',
+    })
+  }
+
+  const correlationId = options.correlationId?.trim() || randomUUID()
+  const headers = {
+    ...buildRustBridgeHeaders({
+      identity,
+      internalApiKey: internalApiKey(),
+      correlationId,
+      causationId: options.causationId,
+    }),
+    'content-type': 'application/json',
+  }
+
+  let response: Response
+  try {
+    response = await fetch(`${rustApiBaseUrl()}${path}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      cache: 'no-store',
+    })
+  } catch (cause) {
+    throw new RustApiError({
+      status: 503,
+      code: 'RUST_API_UNAVAILABLE',
+      message: cause instanceof Error ? cause.message : 'Rust API request failed.',
+      retryable: true,
+      correlationId,
+    })
+  }
+
+  let payload: RustApiSuccess<T> | RustApiFailure
+  try {
+    payload = (await response.json()) as RustApiSuccess<T> | RustApiFailure
+  } catch {
+    throw new RustApiError({
+      status: 502,
+      code: 'RUST_API_INVALID_RESPONSE',
+      message: 'Rust API returned a non-JSON response.',
+      retryable: true,
+      correlationId,
+    })
+  }
+
+  if (!response.ok || !payload.ok) {
+    const failure = payload as RustApiFailure
+    throw new RustApiError({
+      status: response.status,
+      code: failure.error?.code ?? 'RUST_API_FAILURE',
+      message: failure.error?.message ?? 'Rust API request failed.',
+      retryable: failure.error?.retryable ?? response.status >= 500,
+      correlationId: failure.correlationId ?? correlationId,
+      incidentId: failure.error?.incidentId ?? null,
+    })
+  }
+
+  return payload
+}
+
+
+/**
  * Multipart write bridge for commands that are already authenticated and
  * validated at the Next edge. Rust re-resolves the canonical user and owns the
  * business transaction.

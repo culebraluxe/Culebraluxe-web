@@ -5,7 +5,7 @@ import {
   RESIDENTIAL_TRANSACTION_KEY,
 } from './workflow-config'
 import { startWorkflowCore } from './start-core'
-import { parseStart, rustReWorkflow } from './rust-re-host'
+import { startResidentialTransaction } from './rust-re-host'
 
 // Legacy Deal starter is retained until the rest of the transaction surface is
 // strangled. New P&S execution uses the Contract starter below.
@@ -53,7 +53,7 @@ export async function startResidentialTransactionWorkflow(
       return facts ? (facts as unknown as Record<string, any>) : null
     },
     start: async (id) => {
-      return parseStart(rustReWorkflow(['start-deal', '--id', id])).instanceId
+      return (await startResidentialTransaction('deal', id)).instanceId
     },
   })
 }
@@ -72,7 +72,7 @@ export async function startResidentialContractWorkflow(
       return facts ? (facts as Record<string, any>) : null
     },
     start: async (id) => {
-      return parseStart(rustReWorkflow(['start-contract', '--id', id])).instanceId
+      return (await startResidentialTransaction('contract', id)).instanceId
     },
   })
 }

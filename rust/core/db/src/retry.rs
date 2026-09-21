@@ -226,7 +226,6 @@ mod tests {
         assert_eq!(calls, 3);
     }
 
-
     #[tokio::test]
     async fn the_macro_retries_an_operation_that_borrows_self_mutably() {
         // This mirrors the real call sites: an `impl` method retried through the macro, borrowing `&mut self`. That

@@ -1,28 +1,77 @@
-import { spawnSync } from 'node:child_process'
+/**
+ * The workflow engine host.
+ *
+ * This used to spawn a `re-workflow` binary once per operation: a process, a pool and a runtime per call, no share of
+ * the server's identity resolution or error capture, and an `RE_WORKFLOW_BIN` that had to be set correctly or nothing
+ * worked at all. The engine is now served by the Rust API itself (`server/src/api/engine.rs`), so these are ordinary
+ * calls to the server that is already running - and `RE_WORKFLOW_BIN` is gone.
+ *
+ * The functions are typed and async, rather than the old argv-in/string-out wrapper, because that synchronous signature
+ * was the reason a process was spawned in the first place: `spawnSync` was the only way to get an answer without
+ * awaiting. Callers now await, which is why they can talk to the server directly.
+ */
+import { rustApiEngineCommand } from '@/lib/rust-api/client'
 
-/** Rust RE_supermodel host. cargo-per-call is refused. */
-export function rustReWorkflow(args: string[]): string {
-  const bin = process.env.RE_WORKFLOW_BIN?.trim()
-  if (!bin) {
-    throw new Error(
-      'RE_WORKFLOW_BIN is not set. Build re-workflow and export the path. cargo run per call is refused.',
-    )
-  }
-  const r = spawnSync(bin, args, { encoding: 'utf8', env: process.env })
-  if (r.status !== 0) {
-    throw new Error((r.stderr || r.stdout || `re-workflow ${args.join(' ')} failed`).trim())
-  }
-  return (r.stdout || '').trim()
+export async function startResidentialTransaction(
+  subject: 'deal' | 'contract',
+  id: string,
+): Promise<{ instanceId: string; started: boolean }> {
+  const { value } = await rustApiEngineCommand<{ instanceId: string; started: boolean }>(
+    '/v1/engine/transactions',
+    { subject, id },
+  )
+  return { instanceId: value.instanceId, started: value.started }
 }
 
-export function parseStart(out: string): { instanceId: string; started: boolean } {
-  const instance = /instance=(\S+)/.exec(out)?.[1]
-  const started = /started=(true|false)/.exec(out)?.[1] === 'true'
-  if (!instance) throw new Error(`re-workflow start produced no instance id: ${out}`)
-  return { instanceId: instance, started }
+export async function reconcileTimerNode(
+  instance: string,
+  node: string,
+  date: string | null,
+): Promise<string> {
+  const { value } = await rustApiEngineCommand<{ node: string; applied: string }>(
+    '/v1/engine/timers/reconcile',
+    { instance, node, ...(date ? { date } : {}) },
+  )
+  return value.applied
 }
 
-export function parseReclaimed(out: string): number {
-  const n = /reclaimed=(\d+)/.exec(out)?.[1]
-  return n ? Number(n) : 0
+export async function completeApplicationTask(
+  taskId: string,
+  userId: string,
+  transitionName?: string,
+): Promise<string> {
+  const { value } = await rustApiEngineCommand<{ result: string }>('/v1/engine/tasks/complete', {
+    task: taskId,
+    user: userId,
+    ...(transitionName ? { transition: transitionName } : {}),
+  })
+  return value.result
 }
+
+export async function completeEngineTask(
+  taskId: string,
+  userId: string,
+  transitionName?: string,
+): Promise<void> {
+  await rustApiEngineCommand('/v1/engine/tasks/complete', {
+    task: taskId,
+    user: userId,
+    kind: 'engine',
+    ...(transitionName ? { transition: transitionName } : {}),
+  })
+}
+
+export async function reclaimStaleJobs(batch = 50): Promise<number> {
+  const { value } = await rustApiEngineCommand<{ reclaimed: number }>('/v1/engine/reclaim', {
+    batch,
+  })
+  return value.reclaimed
+}
+
+export async function reclaimStaleJobsForInstance(instance: string): Promise<number> {
+  const { value } = await rustApiEngineCommand<{ reclaimed: number }>('/v1/engine/reclaim', {
+    instance,
+  })
+  return value.reclaimed
+}
+
