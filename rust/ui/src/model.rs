@@ -30,6 +30,17 @@ pub enum Screen {
     /// widget keeps its own subtree is settled. This variant exists so the navigation and state boundary are real.
     Projects,
 
+    // ---- Record screens: reached by opening a row, never from the nav (they are deliberately absent from
+    // `Screen::ALL`, because a menu entry for "one client, but which one?" is not a screen a user can navigate to) ----
+    /// One client, keyed by person id.
+    ClientRecord,
+    /// One deal, keyed by deal id.
+    DealRecord,
+    /// One property, keyed by property id.
+    PropertyRecord,
+    /// One storyboard story, keyed by story id.
+    StoryRecord,
+
     // ---- The public site ("the main front"), which is a different audience and a different set of routes ----
     /// The public home page.
     SiteHome,
@@ -84,6 +95,10 @@ impl Screen {
             Self::SiteHome => "Home",
             Self::SiteProperties => "Properties",
             Self::SitePropertyDetail => "Property",
+            Self::ClientRecord => "Client",
+            Self::DealRecord => "Deal",
+            Self::PropertyRecord => "Property record",
+            Self::StoryRecord => "Story",
         }
     }
 
@@ -99,6 +114,10 @@ impl Screen {
     pub fn detail(self) -> Option<Screen> {
         match self {
             Self::SiteProperties => Some(Self::SitePropertyDetail),
+            Self::Clients => Some(Self::ClientRecord),
+            Self::Deals => Some(Self::DealRecord),
+            Self::PropertyAdmin => Some(Self::PropertyRecord),
+            Self::Storyboard => Some(Self::StoryRecord),
             _ => None,
         }
     }
@@ -131,6 +150,10 @@ impl Screen {
             // The live route interpolates the slug; the port passes it through the effect instead of baking it into
             // the path, which is why there is no `{}` here.
             Self::SitePropertyDetail => "/properties/[slug]",
+            Self::ClientRecord => "/portal/clients/[personId]",
+            Self::DealRecord => "/portal/deals/[dealId]",
+            Self::PropertyRecord => "/portal/property-admin/[propertyId]",
+            Self::StoryRecord => "/portal/storyboard/[id]",
         }
     }
 
@@ -161,6 +184,10 @@ impl Screen {
             Self::SiteHome => "site-home",
             Self::SiteProperties => "site-properties",
             Self::SitePropertyDetail => "site-property-detail",
+            Self::ClientRecord => "client-record",
+            Self::DealRecord => "deal-record",
+            Self::PropertyRecord => "property-record",
+            Self::StoryRecord => "story-record",
         }
     }
 
@@ -177,9 +204,10 @@ impl Screen {
     /// Every screen, in menu order. The nav is built from this, so a screen cannot be added without appearing.
     pub const ALL: &'static [Screen] = &[
         // The public site first: a visitor's entry point is the home page, and a host renders the area it owns.
+        // SitePropertyDetail is deliberately NOT here: it is a record screen, so it is reached by opening a listing
+        // row. A nav entry for "one property, but which one?" is not a screen a user can navigate to.
         Screen::SiteHome,
         Screen::SiteProperties,
-        Screen::SitePropertyDetail,
         Screen::Dashboard,
         Screen::Clients,
         Screen::Deals,

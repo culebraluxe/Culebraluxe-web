@@ -262,12 +262,13 @@ mod tests {
             ..Model::default()
         });
         assert!(listing.contains("data-open-record=\"villa-del-mar\""));
-        let portal = render(&Model {
-            screen: Screen::Clients,
+        // Activity has no record screen: it is a feed, and a row of it is history rather than a thing to open.
+        let feed = render(&Model {
+            screen: Screen::Activity,
             rows,
             ..Model::default()
         });
-        assert!(!portal.contains("data-open-record"));
+        assert!(!feed.contains("data-open-record"));
     }
 
     #[test]

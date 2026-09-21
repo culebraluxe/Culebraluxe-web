@@ -4,16 +4,18 @@ import { getExpenses, getReceivables, type Expense, type Receivable } from '@/db
 import { getActivityFeed } from '@/db/activity-feed'
 import { listRecentErrors } from '@/db/app-error'
 import { getAttentionSnapshot } from '@/db/attention'
-import { getClientsPage, type ClientSummary } from '@/db/clients'
+import { getClientsPage, getClientById, type ClientSummary } from '@/db/clients'
 import { getDashboardSnapshot } from '@/db/dashboard'
+import { getDealWorkspace } from '@/db/deal-workspace'
 import { getDeals } from '@/db/deals'
 import { listForgeBatches, type ForgeBatch } from '@/db/forge-batch'
 import { getIssueQueue } from '@/db/issues'
 import { getMarketingContent } from '@/db/marketing-content'
 import { getNeedsReviewItems, type NeedsReviewItem } from '@/db/needs-review'
 import { getPropertyAdmin, type PropertyAdminRow } from '@/db/property-admin'
+import { getPropertyWorkspace } from '@/db/portal-property'
 import { getShowings, type Showing } from '@/db/showings'
-import { listStoryboardStories, type StoryboardStory } from '@/db/storyboard'
+import { getStoryboardStory, listStoryboardStories, type StoryboardStory } from '@/db/storyboard'
 import { getMarketingDashboard } from '@/db/syndication'
 import { getSystemHealth } from '@/db/system-health'
 import { listTraceEvents } from '@/db/workflow-trace'
@@ -54,6 +56,18 @@ type RustUiRow = { id: string; cells: string[]; badge?: string | null }
 /** Amounts are numbers in the read models and money on the screen. */
 const money = (amount: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(amount)
+
+/**
+ * One named fact on a record screen. `null` means the fact is absent, so the caller drops it: a record page that
+ * prints eleven dashes to show five facts reads worse than one that prints five, and "unknown" and "empty" are not
+ * the same thing to a reader.
+ */
+const fact = (label: string, value: string | number | null | undefined): RustUiRow | null => {
+  if (value === null || value === undefined || value === '') return null
+  return { id: label, cells: [label, String(value)] }
+}
+
+const facts = (rows: (RustUiRow | null)[]): RustUiRow[] => rows.filter((row): row is RustUiRow => row !== null)
 
 function activityRows(
   entries: Awaited<ReturnType<typeof getActivityFeed>>,
@@ -249,8 +263,10 @@ async function errorRows(limit = 25): Promise<RustUiRow[]> {
   }))
 }
 
-async function traceRows(limit = 50): Promise<RustUiRow[]> {
-  const rows = await listTraceEvents({ limit })
+async function traceRows(
+  filter: { limit?: number; workflowInstanceId?: string } = { limit: 50 },
+): Promise<RustUiRow[]> {
+  const rows = await listTraceEvents(filter)
   return rows.map((row) => ({
     // A trace row's id is nullable by design (the durable key is assigned by the writer), so the position in the list
     // is the only stable handle. A synthetic id beats a row that cannot be selected.
@@ -258,6 +274,127 @@ async function traceRows(limit = 50): Promise<RustUiRow[]> {
     cells: [row.eventType, row.system, row.occurredAt, row.outcome ?? '—'],
     badge: row.durationMs === null ? undefined : `${row.durationMs}ms`,
   }))
+}
+
+async function clientRecordRows(id: string): Promise<RustUiRow[]> {
+  // `getClientById` is the full canonical client ("for the working-pane detail"), which is exactly what a record
+  // screen is. Its fields are NOT the directory summary's: `ClientSummary` has `primaryEmail`/`lastContactLabel`
+  // because it is built for a list, while this one has `email`/`phone` and a `lastContact` object.
+  const client = await getClientById(id)
+  // An id that does not resolve is an empty screen, not an error: the row that opened this could have been from a
+  // stale list, and "no such client" is a fact rather than a failure.
+  if (!client) return []
+  const activity = client.relationshipActivity
+  const budget =
+    client.budgetMin === null || client.budgetMin === undefined || client.budgetMax === null || client.budgetMax === undefined
+      ? null
+      : `${money(client.budgetMin)} – ${money(client.budgetMax)}`
+  return facts([
+    fact('Name', client.displayName),
+    fact('Role', client.role),
+    fact('Status', client.status),
+    fact('Location', client.location),
+    fact('Email', client.email),
+    fact('Phone', client.phone),
+    fact('Assigned agent', client.assignedAgent),
+    fact('Budget', budget),
+    fact('Preferred areas', client.preferredAreas.length ? client.preferredAreas.join(', ') : null),
+    fact('Property types', client.propertyTypes.length ? client.propertyTypes.join(', ') : null),
+    fact('Priorities', client.priorities.length ? client.priorities.join(', ') : null),
+    fact('Timeline', client.timeline),
+    fact('Interactions', client.interactions.length ? `${client.interactions.length}` : null),
+    fact('Property interests', client.propertyInterests.length ? `${client.propertyInterests.length}` : null),
+    fact(
+      'Last contact',
+      client.lastContact
+        ? `${client.lastContact.channel} on ${client.lastContact.occurredAt}${
+            client.lastContact.summary ? ` — ${client.lastContact.summary}` : ''
+          }`
+        : null,
+    ),
+    fact(
+      'Next action',
+      client.nextAction ? `${client.nextAction.title} (${client.nextAction.occurredAt})` : null,
+    ),
+    fact('Notes', client.notes),
+    // The relationship activity is optional on this type, so every read of it is guarded: an absent one means the
+    // evidence seam did not run, which is different from "no evidence found" and is not printed as if it were.
+    fact(
+      'Evidence',
+      activity
+        ? activity.hasEvidence
+          ? `${activity.observedCommunicationCount} observed communication(s) from ${activity.sources.join(', ')}`
+          : 'none'
+        : null,
+    ),
+    fact('Two-way', activity ? (activity.twoWay ? 'yes' : 'no') : null),
+    fact('Coverage limited', activity ? (activity.coverageLimited ? 'yes' : 'no') : null),
+  ])
+}
+
+async function dealRecordRows(id: string, actor: ActingActor): Promise<RustUiRow[]> {
+  const workspace = await getDealWorkspace(id, actor)
+  const { deal, property, client } = workspace
+  return facts([
+    fact('Stage', deal?.stage),
+    fact('List price', deal?.listPrice ? money(deal.listPrice) : null),
+    fact('Offer price', deal?.offerPrice ? money(deal.offerPrice) : null),
+    fact('Closing date', deal?.closingDateLabel),
+    fact('Closed', deal?.closedAtLabel),
+    fact('Created', deal?.createdAtLabel),
+    fact('Updated', deal?.updatedAtLabel),
+    fact('Notes', deal?.notes),
+    fact('Property', property?.name),
+    fact('Location', property?.location),
+    fact('Type', property?.propertyType),
+    fact('Bedrooms', property?.bedrooms),
+    fact('Bathrooms', property?.bathrooms),
+    fact('Square feet', property?.squareFeet),
+    fact('Client', client?.displayName),
+    fact('Client role', client?.role),
+    fact('Client status', client?.status),
+    fact('Client email', client?.email),
+  ])
+}
+
+/**
+ * A property record, as counts and presence rather than the fact table: `PropertyFactsView`'s field names are not
+ * something this route has verified, and a record page that renders wrong labels is worse than one that renders
+ * fewer. The related sets are the same ones the workspace read model builds for the live screen.
+ */
+async function propertyRecordRows(id: string): Promise<RustUiRow[]> {
+  const workspace = await getPropertyWorkspace(id)
+  const count = (label: string, items: unknown[]) => fact(label, items.length === 0 ? null : `${items.length}`)
+  return facts([
+    fact('Seller', workspace.seller ? 'on record' : null),
+    count('Media items', workspace.media),
+    count('Open tasks', workspace.openTasks),
+    count('Recent activity', workspace.activity),
+    count('Interested clients', workspace.interests),
+    count('Enquiries', workspace.enquiries),
+    count('Showings', workspace.showings),
+    count('Deals', workspace.deals),
+  ])
+}
+
+async function storyRecordRows(id: string): Promise<RustUiRow[]> {
+  const story = await getStoryboardStory(id)
+  if (!story) return []
+  return facts([
+    fact('Title', story.title),
+    fact('Workstream', story.workstream),
+    fact('Status', story.status),
+    fact('Priority', story.priority),
+    fact('Operating surface', story.operatingSurface ?? 'unclassified'),
+    fact('Batch', story.batch === null ? null : `batch ${story.batch}`),
+    fact('Deploy deferred', story.batchDeploy ? 'yes' : 'no'),
+    fact('Goal', story.goal),
+    fact('Scope', story.scope),
+    fact('Dependencies', story.dependencies),
+    fact('Preconditions', story.preconditions),
+    fact('Acceptance criteria', story.acceptanceCriteria),
+    fact('Notes', story.notes),
+  ])
 }
 
 function batchRows(batch: ForgeBatch): RustUiRow {
@@ -328,8 +465,19 @@ type ActingActor = Awaited<ReturnType<typeof getPortalActingUser>>
  * NOT here, on purpose:
  *   - `accounting-receipt-scanner`: no read model found for it. Answering [] is honest; inventing a shape is not.
  *   - `projects`: the Rust side never asks for it (a deferred screen loads nothing), so a loader would be dead code.
+ *   - `form-record` and the other id-keyed pages from the live tree (`workflows/[instanceId]`,
+ *     `runtime-inspector/[instanceId]`, `command-console/[storyId]`): their read models are not verified yet. The
+ *     screen variants do not exist either, so nothing asks for them.
  */
-const SCREEN_LOADERS: Record<string, (actor: ActingActor) => Promise<RustUiRow[]>> = {
+type ScreenLoader = (actor: ActingActor, scope: string | null) => Promise<RustUiRow[]>
+
+/** A record screen with no scope cannot be fetched, and saying so beats fetching the wrong thing. */
+const requireScope = (scope: string | null, screen: string): string => {
+  if (!scope) throw new Error(`${screen} needs a record key and none was given`)
+  return scope
+}
+
+const SCREEN_LOADERS: Record<string, ScreenLoader> = {
   dashboard: async () => dashboardRows(await getDashboardSnapshot()),
   clients: async () =>
     (await getClientsPage({ sort: 'name', page: 1, pageSize: 50 })).rows.map(clientRows),
@@ -352,8 +500,14 @@ const SCREEN_LOADERS: Record<string, (actor: ActingActor) => Promise<RustUiRow[]
     })),
   tech: async () => healthRows(await getSystemHealth()),
   'tech-app-errors': async () => errorRows(25),
-  'tech-flight-recorder': async () => traceRows(50),
+  'tech-flight-recorder': async () => traceRows({ limit: 50 }),
   'tech-runs': async () => (await listForgeBatches(10)).map(batchRows),
+
+  // Record screens: opened from a row, and each one is about exactly one record.
+  'client-record': async (_actor, scope) => clientRecordRows(requireScope(scope, 'client-record')),
+  'deal-record': async (actor, scope) => dealRecordRows(requireScope(scope, 'deal-record'), actor),
+  'property-record': async (_actor, scope) => propertyRecordRows(requireScope(scope, 'property-record')),
+  'story-record': async (_actor, scope) => storyRecordRows(requireScope(scope, 'story-record')),
 }
 
 async function GETHandler(req: NextRequest): Promise<Response> {
@@ -369,6 +523,9 @@ async function GETHandler(req: NextRequest): Promise<Response> {
   }
 
   const screen = req.nextUrl.searchParams.get('screen') ?? ''
+  // The record key, when the screen is about one record. The Rust side sends it with the effect rather than baking it
+  // into the screen name, so one loader serves "a client" and the row decides which.
+  const scope = req.nextUrl.searchParams.get('scope')
   const loader = SCREEN_LOADERS[screen]
 
   // An unknown or not-yet-wired screen is not an error: the Rust side asks for every screen it navigates to, and a
@@ -377,7 +534,7 @@ async function GETHandler(req: NextRequest): Promise<Response> {
     return NextResponse.json([])
   }
 
-  return NextResponse.json(await loader(actor))
+  return NextResponse.json(await loader(actor, scope))
 }
 
 export const GET = withApiHandler(

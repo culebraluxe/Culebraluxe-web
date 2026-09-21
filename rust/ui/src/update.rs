@@ -145,15 +145,16 @@ mod tests {
 
     #[test]
     fn opening_a_row_where_there_is_no_detail_view_selects_it() {
+        // Activity is a feed: a row of it is history, not a record to open.
         let mut model = Model {
-            screen: Screen::Clients,
+            screen: Screen::Activity,
             ..Model::default()
         };
         update(&mut model, Msg::RowsLoaded(vec![row("a")]));
         assert!(update(&mut model, Msg::RecordOpened("a".into())).is_empty());
         assert_eq!(
             model.screen,
-            Screen::Clients,
+            Screen::Activity,
             "there is nowhere to navigate to"
         );
         assert_eq!(model.selected_row_id.as_deref(), Some("a"));

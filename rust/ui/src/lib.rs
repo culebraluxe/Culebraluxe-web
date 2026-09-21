@@ -146,4 +146,25 @@ mod tests {
         assert!(site.iter().all(|s| !portal.contains(s)));
         assert!(site.iter().all(|s| s.live_path().starts_with('/')));
     }
+
+    /// A record screen is reached by opening a row, never from the nav: "one client, but which one?" is not something
+    /// a menu can offer. Checked for every screen that declares a detail view, so adding one to `ALL` by hand fails
+    /// here rather than shipping a nav entry that needs an argument nobody can supply.
+    #[test]
+    fn a_record_screen_is_never_in_the_nav() {
+        for screen in Screen::ALL {
+            if let Some(detail) = screen.detail() {
+                assert!(
+                    !Screen::ALL.contains(&detail),
+                    "{} is opened from a row, so it must not be a nav entry",
+                    detail.key()
+                );
+                assert_eq!(
+                    detail.area(),
+                    screen.area(),
+                    "a detail view stays in its own area"
+                );
+            }
+        }
+    }
 }

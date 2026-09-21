@@ -75,8 +75,24 @@ and `public/rust-ui/ui_bg.wasm` (fetched by URL).
   the site already publishes. It reaches `property-public-reads` and nothing else, and it passes `publicOnly: true`,
   which that read model's own contract requires of public surfaces. A screen needing a non-public read model belongs in
   the portal route, behind the session.
+- **Record screens are reached by opening a row, never from the nav**, and `Screen::ALL` deliberately excludes them:
+  "one client, but which one?" is not something a menu can offer. `Screen::detail()` maps a list screen to its record
+  screen, a row carries `data-open-record`, and the shell turns that click into `Msg::RecordOpened` — a screen with no
+  detail view treats the same click as a selection instead, so the click is never ambiguous. A test asserts that no
+  screen which declares a detail view is also a nav entry; it caught `SitePropertyDetail` being in `ALL` when it was
+  added, which had put a "Property" entry in the public nav.
+- A record screen renders named facts, and an absent fact is omitted rather than printed as a dash: five real facts
+  read better than fifteen with eleven unknowns. Verified: `Client` is NOT `ClientSummary` (the summary has
+  `primaryEmail`/`lastContactLabel` for lists; the canonical client has `email`/`phone` and a `lastContact` object),
+  and its `relationshipActivity` is optional, so its reads are guarded — an absent one means the evidence seam did not
+  run, which is not the same as "no evidence found".
+- Two record screens are deliberately absent: `trace-record` (the flight recorder lists *events*, so its rows carry
+  event ids while a trace is keyed by workflow instance — there is no coherent key to open one with, so the variant
+  does not exist rather than sitting unreachable) and `form-record` (`FormInstance`'s shape is unverified, and a record
+  page that renders wrong labels is worse than one that does not exist yet).
 - The view **escapes every interpolated value**, and the tests go through `render()` rather than through `escape()`
   so a forgotten call site fails the build instead of shipping.
+
 - Tailwind scans `rust/ui/src/**/*.rs` (`@source` in `app/globals.css`), so the port reuses the existing tokens
   rather than growing a second design system.
 
