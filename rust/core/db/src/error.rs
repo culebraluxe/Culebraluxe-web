@@ -23,6 +23,15 @@ pub struct DbFailure {
 pub type DbResult<T> = Result<T, DbFailure>;
 
 impl DbFailure {
+    /// Every failure is announced from here, in the constructors, because they are the single place a `DbFailure` can
+    /// come into existence. The alternative - notifying at each `map_err` in the pool - means the one call site
+    /// somebody forgets is the one you needed. Constructors with a side effect is the trade: the effect is best effort,
+    /// idempotent, and the only thing it can do is tell the process's sink.
+    fn announced(self) -> Self {
+        crate::capture::notify(&self);
+        self
+    }
+
     pub fn configuration(operation: &'static str, detail: impl Into<String>) -> Self {
         Self {
             kind: DbFailureKind::DatabaseUnavailable,
@@ -32,6 +41,7 @@ impl DbFailure {
             detail: Some(detail.into()),
             retryable: false,
         }
+        .announced()
     }
 
     pub fn schema_mismatch(operation: &'static str, detail: impl Into<String>) -> Self {
@@ -43,6 +53,7 @@ impl DbFailure {
             detail: Some(detail.into()),
             retryable: false,
         }
+        .announced()
     }
 
     pub fn from_sqlx(operation: &'static str, error: &sqlx::Error) -> Self {
@@ -95,6 +106,7 @@ impl DbFailure {
             code: None,
             detail: None,
         }
+        .announced()
     }
 }
 

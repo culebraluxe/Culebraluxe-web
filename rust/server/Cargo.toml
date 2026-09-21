@@ -17,6 +17,7 @@ domain = { path = "../core/domain" }
 integrations = { path = "../integrations" }
 serde.workspace = true
 serde_json.workspace = true
+sqlx.workspace = true
 sha2.workspace = true
 service = { path = "../core/service" }
 thiserror.workspace = true

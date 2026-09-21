@@ -1,5 +1,5 @@
 use db::Database;
-use server::api::{build_router, ApiConfig};
+use server::api::{build_router, error_capture, ApiConfig};
 use service::{
     CapturingAuditPort, CapturingDomainEventPort, DefaultAuthorizationPort, ServiceInfrastructure,
 };
@@ -10,6 +10,9 @@ use tokio::net::TcpListener;
 async fn main() -> Result<(), Box<dyn Error>> {
     let db = Database::connect_from_env().await?;
     let config = ApiConfig::from_env().map_err(std::io::Error::other)?;
+    // Every database failure this process produces lands in app_error, alongside the TypeScript ones. Best effort and
+    // recursion-guarded on the db side, so a dead database cannot fail this and cannot loop on itself.
+    error_capture::install(db.clone());
     let infrastructure = ServiceInfrastructure::new(
         Arc::new(DefaultAuthorizationPort),
         Arc::new(CapturingAuditPort::default()),

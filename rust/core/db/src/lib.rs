@@ -6,6 +6,7 @@
 //! capability from here; callers never construct raw pools or SQLx transactions.
 
 mod calendar;
+mod capture;
 mod client;
 mod comms;
 mod contract;
@@ -17,6 +18,7 @@ mod person;
 mod pool;
 mod project;
 mod property;
+mod retry;
 mod security;
 mod showing;
 mod signature;
@@ -25,6 +27,7 @@ mod vault;
 mod wbs;
 
 pub use calendar::CalendarDao;
+pub use capture::{has_sink, on_failure};
 pub use client::ClientDao;
 pub use comms::CommsDao;
 pub use contract::ContractDao;
@@ -37,6 +40,7 @@ pub use person::PersonDao;
 pub use pool::{resolve_declared_target, Database, DbTarget};
 pub use project::{ProjectDao, ProjectTxDao};
 pub use property::PropertyDao;
+pub use retry::{retry, RetryPolicy};
 pub use security::SecurityDao;
 pub use showing::ShowingDao;
 pub use signature::SignatureDao;

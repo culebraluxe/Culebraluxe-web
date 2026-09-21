@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 mod context;
 mod error;
+pub mod error_capture;
 mod routes;
 
 pub use error::ApiError;
