@@ -4,7 +4,7 @@
 //! cannot point at a screen that does not exist. Every interpolated value is escaped — this crate renders data from a
 //! database and from third-party sources, and a Rust renderer that formats HTML owns that risk.
 
-use crate::model::{home, listed, Model, Row, Surface, PAGE_SIZE, SCREENS};
+use crate::model::{home, screen, Model, Row, Surface, PAGE_SIZE, SCREENS};
 
 /// Escape text for HTML text and attribute positions. Quotes matter because the same helper fills `data-` attributes,
 /// where an unescaped quote would end the attribute early.
@@ -58,13 +58,27 @@ pub fn render(model: &Model) -> String {
     )
 }
 
-/// The public site's header: the brand, and the site's own screens as a horizontal menu.
+/// The public site's menu, in the order the real site uses it.
 ///
-/// The entries come from the same `SCREENS` table the portal rail does, filtered to the public surface and to screens
-/// the registry lists — so a page cannot exist without a link, and a link cannot point at a page that does not.
+/// A CURATED LIST, NOT EVERY PUBLIC SCREEN. Deriving the menu from `listed(Surface::Site)` was wrong: a menu is a
+/// decision about what a visitor should be offered, and the registry's job is to know what exists — so the header grew
+/// to twelve items the moment every page was ported, including Privacy and Video. These are the ones the site's own
+/// header offers; the rest are still reachable (footer, in-page links) and still in the table.
+const SITE_MENU: [&str; 7] = [
+    "site-home",
+    "site-properties",
+    "site-buyers",
+    "site-sellers",
+    "site-guide",
+    "site-about",
+    "site-contact",
+];
+
+/// The public site's header: the brand, and the site's own menu.
 fn site_header(model: &Model) -> String {
     let mut links = String::new();
-    for screen in listed(Surface::Site) {
+    for key in SITE_MENU {
+        let Some(screen) = screen(key) else { continue };
         let active = screen.key == model.screen.key;
         links.push_str(&format!(
             "<button type=\"button\" data-nav=\"{key}\" class=\"px-3 py-2 text-xs uppercase tracking-[0.14em] \
@@ -80,10 +94,10 @@ fn site_header(model: &Model) -> String {
     }
     format!(
         "<header class=\"flex flex-wrap items-center justify-between gap-4 border-b bg-card px-6 py-4\">\
-           <div class=\"flex items-baseline gap-3\">\
+           <button type=\"button\" data-nav=\"site-home\" class=\"flex items-baseline gap-3\">\
              <span class=\"font-serif text-lg font-light tracking-[0.08em]\">CulebraLuxe</span>\
              <span class=\"text-[10px] uppercase tracking-[0.28em] text-muted-foreground\">Culebra · Puerto Rico</span>\
-           </div>\
+           </button>\
            <nav class=\"flex flex-wrap items-center gap-1\" aria-label=\"Site\">{links}</nav>\
          </header>"
     )
