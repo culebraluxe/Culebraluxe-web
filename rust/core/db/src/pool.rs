@@ -103,9 +103,20 @@ impl Database {
             .acquire_timeout(Duration::from_millis(connect_ms))
             .test_before_acquire(false)
             .before_acquire(move |conn, meta| {
+                crate::metrics::record_checkout();
+                // `age` is the time since the connection was opened, so a connection being opened right now has an age
+                // near zero. That is the difference between a reused connection and a handshake, which is the number
+                // this workspace most needs to watch.
+                if meta.age < Duration::from_millis(250) {
+                    crate::metrics::record_connection_opened();
+                }
                 Box::pin(async move {
                     if meta.idle_for >= idle_probe {
-                        conn.ping().await?;
+                        crate::metrics::record_idle_probe();
+                        if let Err(error) = conn.ping().await {
+                            crate::metrics::record_probe_failed();
+                            return Err(error);
+                        }
                     }
                     Ok(true)
                 })
@@ -119,6 +130,20 @@ impl Database {
 
     pub const fn target(&self) -> DbTarget {
         self.target
+    }
+
+    /// What the pool has been doing. Counters are since process start plus the pool's current occupancy.
+    pub fn metrics(&self) -> crate::metrics::Snapshot {
+        use std::sync::atomic::Ordering;
+        let counters = &crate::metrics::COUNTERS;
+        crate::metrics::Snapshot {
+            checkouts: counters.checkouts.load(Ordering::Relaxed),
+            connections_opened: counters.connections_opened.load(Ordering::Relaxed),
+            idle_probes: counters.idle_probes.load(Ordering::Relaxed),
+            probes_failed: counters.probes_failed.load(Ordering::Relaxed),
+            pool_size: self.pool.size(),
+            pool_idle: self.pool.num_idle() as u32,
+        }
     }
 
     /// Keep the pool warm so a suspended Neon branch never has to be woken by a user request.

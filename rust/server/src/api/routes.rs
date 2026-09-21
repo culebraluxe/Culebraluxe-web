@@ -1,5 +1,5 @@
 use super::context::{resolve_request_context, ResolvedRequestContext};
-use super::{engine, ApiError, ApiState};
+use super::{diagnostics, engine, ApiError, ApiState};
 use crate::service_support::CoreServiceError;
 use crate::vault::VaultArtifactPort;
 use async_trait::async_trait;
@@ -284,6 +284,7 @@ pub fn router(state: ApiState) -> Router {
         // The workflow engine, served. Same verbs the re-workflow CLI accepted, now behind the internal key and the
         // same identity resolution as every other route, so an engine command is a first-class part of this server
         // instead of a spawned process with its own pool and no error capture.
+        .route("/v1/diagnostics/db", get(diagnostics::db_metrics))
         .route("/v1/engine/transactions", post(engine::start_transaction))
         .route("/v1/engine/timers/reconcile", post(engine::reconcile_timer))
         .route("/v1/engine/tasks/complete", post(engine::complete_task))

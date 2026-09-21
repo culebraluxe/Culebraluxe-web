@@ -206,7 +206,29 @@ One page load, 2.2x faster. A screen makes several such calls, so it compounds.
 shows a `pgbouncer` entry, so traffic really does go through PgBouncer in transaction mode. That is also why a Rust
 session never shows up there under its own `application_name`: the backend is attributed to the pooler.
 
-## Not yet done
+### Pool telemetry, and the bug it caught
+
+`GET /v1/diagnostics/db` (internal key, no identity) reports checkouts, connections opened, idle probes and the share of
+checkouts served by an already-open connection. That last number is the one that separates "the pool is cold" from "the
+database is slow" - from the outside those look identical, which is what made this take so long to find.
+
+It paid for itself in about a minute. Reading the counters across three identical requests showed **five checkouts each,
+repeats included**, when repeated requests should have been three. The identity cache added the commit before was not
+running: `std::env::var("FORGE_IDENTITY_CACHE_MS").ok()?` returns `None` when the variable is *unset*, and `None` meant
+"disabled" - so the documented 30-second default was actually off, and the A/B that measured a 300ms saving only
+measured it because the variable had been set explicitly for the test. Unset now means the documented default.
+
+After the fix:
+
+| request | latency | checkouts |
+| --- | --- | --- |
+| first (cold identity) | 1551ms | 4 |
+| second | 526ms | 3 |
+| third | 512ms | 3 |
+
+Three is the floor for this page: count, rows, evidence. The counters also confirm 25 checkouts against **one**
+connection opened and **zero** idle probes, so the pool reuses properly and the ping-on-every-checkout is really gone.
+
 
 ## psql_query retirement
 
@@ -250,3 +272,5 @@ call before it is committed.
 - **Neon password rotation.** `npg_GoyLHk5OE3BZ` was printed into a session transcript and needs rotating from the Neon
   side; it cannot be done from this repository.
 
+
+## Not yet done

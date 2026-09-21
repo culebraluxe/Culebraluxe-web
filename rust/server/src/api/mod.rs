@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 mod context;
 mod engine;
+mod diagnostics;
 mod error;
 pub mod error_capture;
 mod routes;
