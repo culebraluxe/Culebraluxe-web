@@ -27,7 +27,7 @@ pub mod view;
 #[cfg(feature = "wasm")]
 pub mod shell;
 
-pub use model::{Effect, Model, Msg, Row, Screen};
+pub use model::{Area, Effect, Model, Msg, Row, Screen};
 pub use update::update;
 pub use view::render;
 
@@ -42,6 +42,12 @@ impl Program {
         Self {
             model: Model::default(),
         }
+    }
+
+    /// Start on a specific screen. The host knows the URL and therefore knows what the user asked for; the model does
+    /// not guess.
+    pub fn open(&mut self, screen: Screen) -> Vec<Effect> {
+        self.dispatch(Msg::ScreenOpened(screen))
     }
 
     pub fn model(&self) -> &Model {
@@ -80,7 +86,13 @@ mod tests {
             program.model().loading,
             "the model must reflect the intent immediately"
         );
-        assert_eq!(effects, vec![Effect::FetchRows]);
+        assert_eq!(
+            effects,
+            vec![Effect::FetchRows {
+                screen: "clients",
+                scope: None
+            }]
+        );
     }
 
     #[test]
@@ -98,5 +110,40 @@ mod tests {
             "state that does not change the view is state nothing needed"
         );
         assert!(after.contains("Ada Lovelace"));
+    }
+
+    #[test]
+    fn the_host_decides_which_screen_opens() {
+        let mut program = Program::new();
+        let effects = program.open(Screen::Dashboard);
+        assert_eq!(program.model().screen, Screen::Dashboard);
+        assert_eq!(
+            effects,
+            vec![Effect::FetchRows {
+                screen: "dashboard",
+                scope: None
+            }]
+        );
+    }
+
+    #[test]
+    fn the_two_areas_do_not_overlap() {
+        let site: Vec<Screen> = Screen::ALL
+            .iter()
+            .copied()
+            .filter(|s| s.area() == Area::Site)
+            .collect();
+        let portal: Vec<Screen> = Screen::ALL
+            .iter()
+            .copied()
+            .filter(|s| s.area() == Area::Portal)
+            .collect();
+        assert_eq!(
+            site.len() + portal.len(),
+            Screen::ALL.len(),
+            "every screen belongs to an area"
+        );
+        assert!(site.iter().all(|s| !portal.contains(s)));
+        assert!(site.iter().all(|s| s.live_path().starts_with('/')));
     }
 }

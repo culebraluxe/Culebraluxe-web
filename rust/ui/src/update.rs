@@ -3,37 +3,54 @@
 //! Navigation is a message like everything else, which is what keeps the shell dumb: a nav click, a deep link and a
 //! restored session all arrive as `Navigate` and produce the same state.
 
-use crate::model::{Effect, Model, Msg};
+use crate::model::{Effect, Model, Msg, Screen};
+
+/// Move to a screen and ask for its rows. The single place a screen change happens, so navigation and record-opening
+/// cannot drift apart.
+fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect> {
+    model.screen = screen;
+    model.scope = scope;
+    // A deferred screen loads nothing: it is a placeholder, and pretending to fetch would put a spinner on a screen
+    // that has no data to show.
+    model.loading = !screen.is_deferred();
+    model.error = None;
+    // Rows belong to the screen that fetched them. Clearing on navigate is what stops a detail screen from briefly
+    // rendering the previous screen's records.
+    model.rows = Vec::new();
+    model.selected_row_id = None;
+    if model.loading {
+        vec![Effect::FetchRows {
+            screen: screen.key(),
+            scope: model.scope.clone(),
+        }]
+    } else {
+        Vec::new()
+    }
+}
 
 /// Apply one intent. Returns the effects the host must run.
 pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
     match msg {
-        Msg::ScreenOpened(screen) => {
-            model.screen = screen;
-            model.loading = true;
-            model.error = None;
-            // Rows belong to the screen that fetched them. Clearing on navigate is what stops a detail panel from
-            // briefly rendering the previous screen's records.
-            model.rows = Vec::new();
-            model.selected_row_id = None;
-            vec![Effect::FetchRows]
-        }
+        Msg::ScreenOpened(screen) => open(model, screen, None),
         Msg::Navigate(screen) => {
-            if model.screen == screen {
+            // Already there, and not deep inside a record: nothing to do. Coming *back* from a record with the same
+            // screen needs the scope cleared, which is what the second half of the condition allows.
+            if model.screen == screen && model.scope.is_none() {
                 return Vec::new();
             }
-            // A deferred screen loads nothing: it is a placeholder, and pretending to fetch would put a spinner on a
-            // screen that has no data to show.
-            if screen.is_deferred() {
-                model.screen = screen;
-                model.loading = false;
-                model.error = None;
-                model.rows = Vec::new();
-                model.selected_row_id = None;
-                return Vec::new();
-            }
-            update(model, Msg::ScreenOpened(screen))
+            open(model, screen, None)
         }
+        Msg::RecordOpened(id) => match model.screen.detail() {
+            Some(detail) => open(model, detail, Some(id)),
+            // No detail screen: the same click means "select this one". An id that is not in the list is refused
+            // rather than half-applied.
+            None => {
+                if model.rows.iter().any(|row| row.id == id) {
+                    model.selected_row_id = Some(id);
+                }
+                Vec::new()
+            }
+        },
         Msg::RowsLoaded(rows) => {
             model.loading = false;
             model.error = None;
@@ -79,7 +96,13 @@ mod tests {
         let effects = update(&mut model, Msg::Navigate(Screen::Clients));
         assert_eq!(model.screen, Screen::Clients);
         assert!(model.loading);
-        assert_eq!(effects, vec![Effect::FetchRows]);
+        assert_eq!(
+            effects,
+            vec![Effect::FetchRows {
+                screen: "clients",
+                scope: None
+            }]
+        );
     }
 
     #[test]
@@ -99,6 +122,51 @@ mod tests {
         assert!(
             !model.loading,
             "a placeholder must not show a spinner for data it never asks for"
+        );
+    }
+
+    #[test]
+    fn opening_a_listing_row_opens_that_record_and_asks_about_it() {
+        let mut model = Model {
+            screen: Screen::SiteProperties,
+            ..Model::default()
+        };
+        let effects = update(&mut model, Msg::RecordOpened("villa-del-mar".into()));
+        assert_eq!(model.screen, Screen::SitePropertyDetail);
+        assert_eq!(
+            effects,
+            vec![Effect::FetchRows {
+                screen: "site-property-detail",
+                scope: Some("villa-del-mar".into()),
+            }],
+            "the record key must reach the host, and a detail screen fetches about one record"
+        );
+    }
+
+    #[test]
+    fn opening_a_row_where_there_is_no_detail_view_selects_it() {
+        let mut model = Model {
+            screen: Screen::Clients,
+            ..Model::default()
+        };
+        update(&mut model, Msg::RowsLoaded(vec![row("a")]));
+        assert!(update(&mut model, Msg::RecordOpened("a".into())).is_empty());
+        assert_eq!(
+            model.screen,
+            Screen::Clients,
+            "there is nowhere to navigate to"
+        );
+        assert_eq!(model.selected_row_id.as_deref(), Some("a"));
+    }
+
+    #[test]
+    fn navigating_back_to_a_list_clears_the_record_it_was_about() {
+        let mut model = Model::default();
+        update(&mut model, Msg::RecordOpened("villa-del-mar".into()));
+        update(&mut model, Msg::Navigate(Screen::SiteProperties));
+        assert_eq!(
+            model.scope, None,
+            "a stale slug would make the next detail fetch about the wrong record"
         );
     }
 

@@ -30,6 +30,7 @@ use crate::{Msg, Program, Screen};
 
 const ATTRIBUTE_NAV: &str = "data-nav";
 const ATTRIBUTE_SELECT_ROW: &str = "data-select-row";
+const ATTRIBUTE_OPEN_RECORD: &str = "data-open-record";
 
 /// The DOM event the shell announces effects on, and the one name the TypeScript host has to agree with.
 const EFFECT_EVENT: &str = "rust-ui:effects";
@@ -102,10 +103,17 @@ pub fn effect_event_name() -> String {
     EFFECT_EVENT.to_string()
 }
 
-/// Mount the program into `element_id` and return the effects the host must run, as a JSON array of names.
+/// Mount the program into `element_id`, opening `start` — a screen key such as `site-home` or `dashboard` — and return
+/// the effects the host must run, as a JSON array.
+///
+/// The starting screen comes from the host because the host owns the URL. An unknown key is refused rather than
+/// quietly opening the first screen: a page that renders the wrong screen without saying so is a bug that gets
+/// debugged twice.
 #[wasm_bindgen]
-pub fn mount(element_id: &str) -> Result<String, JsValue> {
+pub fn mount(element_id: &str, start: &str) -> Result<String, JsValue> {
     console_error_panic_hook::set_once();
+    let start = Screen::from_key(start)
+        .ok_or_else(|| JsValue::from_str(&format!("ui: '{start}' is not a known screen")))?;
     let root = container(element_id)?;
     let program = Rc::new(RefCell::new(Program::new()));
     PROGRAM.with(|slot| *slot.borrow_mut() = Some(program.clone()));
@@ -125,6 +133,12 @@ pub fn mount(element_id: &str) -> Result<String, JsValue> {
                     msg = Screen::from_key(&key).map(Msg::Navigate);
                     break;
                 }
+                if let Some(id) = element.get_attribute(ATTRIBUTE_OPEN_RECORD) {
+                    // Checked before `data-select-row`, because a row that can be opened carries both attributes and
+                    // opening is the stronger intent.
+                    msg = Some(Msg::RecordOpened(id));
+                    break;
+                }
                 if let Some(id) = element.get_attribute(ATTRIBUTE_SELECT_ROW) {
                     msg = Some(Msg::RowSelected(id));
                     break;
@@ -142,7 +156,7 @@ pub fn mount(element_id: &str) -> Result<String, JsValue> {
     root.add_event_listener_with_callback("click", listener.as_ref().unchecked_ref())?;
     listener.forget();
 
-    Ok(dispatch(&root, &program, Msg::ScreenOpened(Screen::ALL[0])))
+    Ok(dispatch(&root, &program, Msg::ScreenOpened(start)))
 }
 
 /// The typed bridge: the host fetched the rows from an application route, and this is how they land.

@@ -38,10 +38,12 @@ The portal is being ported screen by screen into `rust/ui`, on MVI: `Model` is t
 everything that can happen to it, `update` is the only thing that changes it and is pure, `view` renders the model
 without deciding anything. The pattern is not decoration — it is what makes a screen testable without a browser.
 
-**Scope is the portal menu.** `Screen::ALL` in `rust/ui/src/model.rs` is the port's to-do list, and
-`Screen::portal_path()` records which live `/portal/*` route each variant replaces. Project Management is the one
-deliberate placeholder: it holds three third-party widgets (tree, Gantt, calendar) and the plan for letting Rust own
-the container while each widget keeps its own subtree comes before any of them moves.
+**Scope is the menu.** `Screen::ALL` in `rust/ui/src/model.rs` is the port's to-do list, `Screen::live_path()` records
+which live route each variant replaces, and `Screen::area()` splits the port in two: `Site` (the public main front) and
+`Portal`. A host mounts one area, and the nav is generated per area, so the public host cannot be offered the expenses
+screen and the portal host cannot be offered the listings. Project Management is the one deliberate placeholder: it
+holds three third-party widgets (tree, Gantt, calendar) and the plan for letting Rust own the container while each
+widget keeps its own subtree comes before any of them moves.
 
 **Build it (required before the host page renders anything):**
 
@@ -61,10 +63,18 @@ and `public/rust-ui/ui_bg.wasm` (fetched by URL).
   `rust-ui:effects` DOM event the shell announces, fetches rows from an application route, and hands the JSON back
   through `rows_loaded`. The WASM module holds no credential and performs no request.
 - **One owner of application state** — the Rust model. A widget owns its own rendering only.
-- **`app/api/portal/rust-ui/rows/route.ts` requires a session** and answers rows per screen name. Only `activity`
-  and `clients` have real rows so far; the rest answer `[]` and the screen says "Nothing to show yet", because an
-  invented column is a lie the next reader has to disprove. A per-screen authority check is NOT yet applied — do not
-  add a screen with a narrower audience than "any signed-in portal user" until its authority is chosen.
+- Two host pages mount one shell: `app/portal/rust-preview/page.tsx` (rows from `/api/portal/rust-ui/rows`, behind the
+  session) and `app/rust-preview/page.tsx` (rows from `/api/rust-ui/public-rows`). Both are thin wrappers over
+  `components/rust-ui/host.tsx`, which owns the fetch and nothing else. The starting screen is passed in by the host,
+  because the URL belongs to the page.
+- **`/api/portal/rust-ui/rows` requires a session** and answers rows per screen name. Every portal menu screen has real
+  rows except `accounting-receipt-scanner`, which has no read model to call, so it says "Nothing to show yet" rather
+  than showing an invented shape. A per-screen authority check is NOT yet applied — do not add a screen with a narrower
+  audience than "any signed-in portal user" until its authority is chosen.
+- **`/api/rust-ui/public-rows` is unauthenticated, by design, and that is its whole constraint**: it may read only what
+  the site already publishes. It reaches `property-public-reads` and nothing else, and it passes `publicOnly: true`,
+  which that read model's own contract requires of public surfaces. A screen needing a non-public read model belongs in
+  the portal route, behind the session.
 - The view **escapes every interpolated value**, and the tests go through `render()` rather than through `escape()`
   so a forgotten call site fails the build instead of shipping.
 - Tailwind scans `rust/ui/src/**/*.rs` (`@source` in `app/globals.css`), so the port reuses the existing tokens

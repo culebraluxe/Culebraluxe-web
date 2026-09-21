@@ -29,6 +29,33 @@ pub enum Screen {
     /// widgets (React Arborist tree, Gantt, FullCalendar) until the plan for Rust owning the container while each
     /// widget keeps its own subtree is settled. This variant exists so the navigation and state boundary are real.
     Projects,
+
+    // ---- The public site ("the main front"), which is a different audience and a different set of routes ----
+    /// The public home page.
+    SiteHome,
+    /// The public listing index.
+    SiteProperties,
+    /// One public property record, keyed by slug. The only screen that is *about* a single record rather than a list
+    /// of them, which is why it is the first screen whose rows need an argument.
+    SitePropertyDetail,
+}
+
+/// Which half of the application a screen belongs to. A host mounts ONE area: the public host shows the site nav and
+/// the portal host shows the portal nav, so neither can offer a screen from the other — and the public host cannot be
+/// handed a portal screen by accident.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Area {
+    Site,
+    Portal,
+}
+
+impl Area {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Site => "Site",
+            Self::Portal => "Portal",
+        }
+    }
 }
 
 impl Screen {
@@ -54,11 +81,30 @@ impl Screen {
             Self::TechFlightRecorder => "Flight recorder",
             Self::TechRuns => "Runs",
             Self::Projects => "Projects",
+            Self::SiteHome => "Home",
+            Self::SiteProperties => "Properties",
+            Self::SitePropertyDetail => "Property",
         }
     }
 
-    /// The live route this port replaces.
-    pub fn portal_path(self) -> &'static str {
+    pub fn area(self) -> Area {
+        match self {
+            Self::SiteHome | Self::SiteProperties | Self::SitePropertyDetail => Area::Site,
+            _ => Area::Portal,
+        }
+    }
+
+    /// The screen a row opens into, if any. This is the one piece of navigation that is not a nav entry: a listing row
+    /// opens its own record, and a screen without a detail view selects instead of navigating.
+    pub fn detail(self) -> Option<Screen> {
+        match self {
+            Self::SiteProperties => Some(Self::SitePropertyDetail),
+            _ => None,
+        }
+    }
+
+    /// The live route this port replaces, in whichever area the screen belongs to.
+    pub fn live_path(self) -> &'static str {
         match self {
             Self::Dashboard => "/portal/dashboard",
             Self::Clients => "/portal/clients",
@@ -80,6 +126,11 @@ impl Screen {
             Self::TechFlightRecorder => "/portal/tech/flight-recorder",
             Self::TechRuns => "/portal/tech/runs",
             Self::Projects => "/portal/projects",
+            Self::SiteHome => "/",
+            Self::SiteProperties => "/properties",
+            // The live route interpolates the slug; the port passes it through the effect instead of baking it into
+            // the path, which is why there is no `{}` here.
+            Self::SitePropertyDetail => "/properties/[slug]",
         }
     }
 
@@ -107,6 +158,9 @@ impl Screen {
             Self::TechFlightRecorder => "tech-flight-recorder",
             Self::TechRuns => "tech-runs",
             Self::Projects => "projects",
+            Self::SiteHome => "site-home",
+            Self::SiteProperties => "site-properties",
+            Self::SitePropertyDetail => "site-property-detail",
         }
     }
 
@@ -122,6 +176,10 @@ impl Screen {
 
     /// Every screen, in menu order. The nav is built from this, so a screen cannot be added without appearing.
     pub const ALL: &'static [Screen] = &[
+        // The public site first: a visitor's entry point is the home page, and a host renders the area it owns.
+        Screen::SiteHome,
+        Screen::SiteProperties,
+        Screen::SitePropertyDetail,
         Screen::Dashboard,
         Screen::Clients,
         Screen::Deals,
@@ -146,6 +204,7 @@ impl Screen {
 
     pub fn group(self) -> &'static str {
         match self {
+            Self::SiteHome | Self::SiteProperties | Self::SitePropertyDetail => "Site",
             Self::AccountingExpenses
             | Self::AccountingReceiptScanner
             | Self::AccountingReceivables => "Accounting",
@@ -182,16 +241,23 @@ pub struct Model {
     /// Selection is an id, never an index or a copied row: a refreshed list must not re-point the selection at a
     /// different record.
     pub selected_row_id: Option<String>,
+    /// What the current screen is *about*, when it is about a single record — the property slug on the detail screen.
+    /// Kept separate from `selected_row_id` because selecting a row and opening a record are different acts: one is
+    /// browsing a list, the other is a different screen with its own fetch.
+    pub scope: Option<String>,
 }
 
 impl Default for Model {
     fn default() -> Self {
         Self {
-            screen: Screen::Dashboard,
+            // The first screen of the first area, i.e. what a host that says nothing gets. A host that cares which
+            // screen opens says so (see `Program::open` / the shell's `mount`), because the URL is the host's business.
+            screen: Screen::ALL[0],
             loading: false,
             error: None,
             rows: Vec::new(),
             selected_row_id: None,
+            scope: None,
         }
     }
 }
@@ -212,6 +278,9 @@ pub enum Msg {
     Navigate(Screen),
     RowsLoaded(Vec<Row>),
     RowSelected(String),
+    /// A row was opened as a record rather than merely selected: on a listing, this navigates to that record's own
+    /// screen. A screen with no detail view treats it as a selection instead, so the same click is never ambiguous.
+    RecordOpened(String),
     /// The host reports a failed request. The model keeps what it had; the message is the record.
     EffectFailed(String),
 }
@@ -229,7 +298,15 @@ impl Msg {
 
 /// What the host must do next. Requests, never decisions.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase", tag = "effect")]
 pub enum Effect {
-    /// Fetch rows for this screen and hand them back through `rows_loaded`.
-    FetchRows,
+    /// Fetch rows for this screen, optionally about one record.
+    ///
+    /// The screen travels with the effect rather than being scraped back out of the DOM, and `scope` is the record key
+    /// (a property slug) when the screen is about one record. Turning that into a request — which path, which query
+    /// parameter — stays the host's business, because the host is what owns the network.
+    FetchRows {
+        screen: &'static str,
+        scope: Option<String>,
+    },
 }

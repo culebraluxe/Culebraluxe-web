@@ -41,7 +41,12 @@ pub fn render(model: &Model) -> String {
 fn nav(model: &Model) -> String {
     let mut out = String::new();
     let mut group = "";
-    for &screen in Screen::ALL {
+    // Only the area this screen belongs to. A host mounts one area, so the public host can never be offered the
+    // expenses screen and the portal host can never be offered the listings.
+    for &screen in Screen::ALL
+        .iter()
+        .filter(|screen| screen.area() == model.screen.area())
+    {
         if screen.group() != group {
             group = screen.group();
             out.push_str(&format!(
@@ -83,13 +88,24 @@ fn loading_banner(model: &Model) -> String {
 
 /// The body: a header naming the screen and the live route it replaces, then either the placeholder or its rows.
 fn body(model: &Model) -> String {
+    // When the screen is about one record, say which — a detail screen that does not name its subject is a page you
+    // cannot tell apart from a wrong one.
+    let subject = match model.scope.as_deref() {
+        Some(scope) => format!(
+            "<p class=\"text-sm text-muted-foreground\">Record <code>{}</code></p>",
+            escape(scope)
+        ),
+        None => String::new(),
+    };
     let header = format!(
         "<header class=\"mb-4\">\
            <h1 class=\"text-xl font-semibold\">{title}</h1>\
            <p class=\"text-sm text-muted-foreground\">Replaces <code>{path}</code></p>\
+           {subject}\
          </header>",
         title = escape(model.screen.title()),
-        path = escape(model.screen.portal_path())
+        path = escape(model.screen.live_path()),
+        subject = subject
     );
     if model.screen.is_deferred() {
         return format!("{header}{}", deferred_notice());
@@ -122,6 +138,13 @@ fn rows(model: &Model) -> String {
 
 fn row_item(model: &Model, row: &Row) -> String {
     let selected = model.selected_row_id.as_deref() == Some(row.id.as_str());
+    // A row on a screen with a detail view carries the intent to open that record, and the shell turns the attribute
+    // into `RecordOpened`. A row anywhere else carries only `data-select-row`.
+    let opens = if model.screen.detail().is_some() {
+        format!(" data-open-record=\"{}\"", escape(&row.id))
+    } else {
+        String::new()
+    };
     let cells = row
         .cells
         .iter()
@@ -137,10 +160,11 @@ fn row_item(model: &Model, row: &Row) -> String {
         .collect::<Vec<_>>()
         .join("");
     format!(
-        "<li><button type=\"button\" data-select-row=\"{id}\" aria-pressed=\"{pressed}\" \
+        "<li><button type=\"button\" data-select-row=\"{id}\"{opens} aria-pressed=\"{pressed}\" \
            class=\"flex w-full items-center justify-between gap-3 rounded-lg border bg-card p-3 text-left text-sm \
            {state}\">{cells}{badge}</button></li>",
         id = escape(&row.id),
+        opens = opens,
         pressed = if selected { "true" } else { "false" },
         state = if selected { "ring-1 ring-ring" } else { "hover:bg-muted/40" },
         cells = cells,
@@ -200,18 +224,68 @@ mod tests {
         assert!(html.contains("&quot;"));
     }
 
+    /// The nav is per area: a host mounts one half of the application, so the public host must not be offered the
+    /// expenses screen and the portal host must not be offered the listings. Checked from both sides, for every screen.
     #[test]
-    fn every_menu_screen_is_in_the_nav_exactly_once() {
-        let html = render(&Model::default());
+    fn the_nav_shows_exactly_the_screens_of_its_area() {
         for screen in Screen::ALL {
-            assert_eq!(
-                html.matches(&format!("data-nav=\"{}\"", screen.key()))
-                    .count(),
-                1,
-                "{} must appear in the nav exactly once",
-                screen.key()
-            );
+            let html = render(&Model {
+                screen: *screen,
+                ..Model::default()
+            });
+            for candidate in Screen::ALL {
+                let expected = usize::from(candidate.area() == screen.area());
+                assert_eq!(
+                    html.matches(&format!("data-nav=\"{}\"", candidate.key()))
+                        .count(),
+                    expected,
+                    "{} on the {} nav while showing {}",
+                    candidate.key(),
+                    screen.area().label(),
+                    screen.key()
+                );
+            }
         }
+    }
+
+    /// A listing row opens its record; a row on a screen with no detail view must not pretend it can.
+    #[test]
+    fn only_a_screen_with_a_detail_view_offers_to_open_a_row() {
+        let rows = vec![Row {
+            id: "villa-del-mar".into(),
+            cells: vec!["Villa del Mar".into()],
+            badge: None,
+        }];
+        let listing = render(&Model {
+            screen: Screen::SiteProperties,
+            rows: rows.clone(),
+            ..Model::default()
+        });
+        assert!(listing.contains("data-open-record=\"villa-del-mar\""));
+        let portal = render(&Model {
+            screen: Screen::Clients,
+            rows,
+            ..Model::default()
+        });
+        assert!(!portal.contains("data-open-record"));
+    }
+
+    #[test]
+    fn a_detail_screen_names_the_record_it_is_about() {
+        let model = Model {
+            screen: Screen::SitePropertyDetail,
+            scope: Some("villa-del-mar".into()),
+            ..Model::default()
+        };
+        assert!(render(&model).contains("Record <code>villa-del-mar</code>"));
+
+        // The slug arrives from a URL, so it is data like any other and gets escaped like any other.
+        let hostile = Model {
+            screen: Screen::SitePropertyDetail,
+            scope: Some("<b>x</b>".into()),
+            ..Model::default()
+        };
+        assert!(render(&hostile).contains("&lt;b&gt;x&lt;/b&gt;"));
     }
 
     #[test]
