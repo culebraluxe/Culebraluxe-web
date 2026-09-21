@@ -63,6 +63,27 @@ keeps that property while allowing the engine to move.
 The ping runs through the normal `DbFailure` path, so a database that has genuinely gone away still writes an
 `app_error` row rather than failing silently in a background task.
 
+## Verified live
+
+Against a freshly built server on 8080, with the real dev database:
+
+| Call | Result |
+| ---- | ------ |
+| no internal key | `401 INTERNAL_AUTH_REQUIRED` |
+| wrong internal key | `401 INTERNAL_AUTH_REQUIRED` |
+| one identity header only | `401 AUTH_IDENTITY_INCOMPLETE` |
+| background reclaim (no identity) | `200 {"ok":true,"value":{"reclaimed":0}}` |
+| interactive reclaim (provider `google`, a real mapped identity) | `200 {"ok":true,"value":{"reclaimed":0}}` |
+
+The first attempt at this **failed**, and that is why the bridge below exists: the engine's store methods call
+`block_on`, and calling `block_on` from a thread already driving a runtime panics with "Cannot start a runtime from
+within a runtime". The route killed its own request and stranded the connection. Engine operations now run on a fresh
+thread (no runtime context) awaited from the blocking pool, which is a bridge and not a destination - see
+`run_engine` in `server/src/api/engine.rs`. It collapses into a plain `.await` when the store stops blocking.
+
+Not verified live: the keepalive ping. It is silent by design and only speaks when it fails, so there is nothing to
+observe in a healthy run; the code path is compiled and exercised by `cargo check`, not by a test.
+
 ## Not yet done
 
 - **Async `Store` / `TxStore`.** The workflow engine still has synchronous store methods reached through `block_on`,
