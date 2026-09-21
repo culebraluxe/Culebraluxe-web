@@ -39,6 +39,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 .map(|port| format!("0.0.0.0:{}", port.trim()))
         })
         .unwrap_or_else(|| "127.0.0.1:8080".into());
+    // Warm the engine off the runtime.
+    //
+    // Building the engine is not per-call work any more, but the FIRST command after a process start pays for it:
+    // parse the supermodel, validate it, seed it, connect. Measured at ~1.7s, once. Paying it at boot instead means a
+    // user never pays it. It runs on a plain thread because the store's constructor blocks, and `block_on` from a
+    // runtime thread panics - the exact failure this engine hit before.
+    //
+    // Best effort by design: if the warm-up fails (database not up yet, say), nothing is cached and the first real
+    // command retries the build, which is how a failed build is supposed to behave.
+    std::thread::Builder::new()
+        .name("engine-warmup".into())
+        .spawn(|| match forge::engine::re_runtime::re_engine() {
+            Ok(_) => println!("culebraluxe rust api: engine warmed"),
+            Err(error) => println!("culebraluxe rust api: engine warm-up deferred: {error}"),
+        })
+        .ok();
+
     let listener = TcpListener::bind(&bind).await?;
 
     println!(
