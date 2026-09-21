@@ -15,7 +15,7 @@
 use std::future::Future;
 use std::time::Duration;
 
-use crate::error::{DbFailure, DbResult};
+use crate::error::DbResult;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RetryPolicy {
@@ -110,7 +110,7 @@ fn positive_u64(name: &str, fallback: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::DbFailureKind;
+    use crate::error::{DbFailure, DbFailureKind};
 
     fn failure(retryable: bool) -> DbFailure {
         DbFailure {

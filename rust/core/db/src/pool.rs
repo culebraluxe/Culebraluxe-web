@@ -89,7 +89,10 @@ impl Database {
     ///
     /// OFF by default in tests and in anything with `FORGE_DB_KEEPALIVE_MS=0`, because a pool that pings forever is
     /// also a pool a test process cannot exit.
-    pub fn spawn_keepalive(&self, runtime: &tokio::runtime::Handle) -> Option<tokio::task::JoinHandle<()>> {
+    pub fn spawn_keepalive(
+        &self,
+        runtime: &tokio::runtime::Handle,
+    ) -> Option<tokio::task::JoinHandle<()>> {
         let interval_ms = keepalive_interval_ms();
         if interval_ms == 0 {
             return None;

@@ -71,7 +71,10 @@ pub async fn reconcile_timer(
 ) -> Result<Json<ApiSuccess<serde_json::Value>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
     let correlation = resolved.service.correlation_id.clone();
-    let node = request.node.clone().unwrap_or_else(|| "closing_date_timer".into());
+    let node = request
+        .node
+        .clone()
+        .unwrap_or_else(|| "closing_date_timer".into());
 
     let applied = if node == "closing_date_timer" {
         forge::engine::re_runtime::reconcile_closing_timer(
@@ -123,12 +126,9 @@ pub async fn complete_task(
             serde_json::json!({ "completed": request.task })
         }
         _ => {
-            let outcome = forge::engine::re_runtime::complete_workflow_task(
-                &request.task,
-                &user,
-                transition,
-            )
-            .map_err(|error| engine_failure(error, correlation.clone()))?;
+            let outcome =
+                forge::engine::re_runtime::complete_workflow_task(&request.task, &user, transition)
+                    .map_err(|error| engine_failure(error, correlation.clone()))?;
             serde_json::json!({ "result": outcome.to_string() })
         }
     };
