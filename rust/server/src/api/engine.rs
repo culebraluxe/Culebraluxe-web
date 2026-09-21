@@ -29,33 +29,116 @@ fn engine_failure(message: impl std::fmt::Display, correlation: String) -> ApiEr
     .with_correlation(correlation)
 }
 
-/// Run one engine operation.
+/// The engine's worker threads.
 ///
-/// THE THREAD IS NOT DECORATION. The engine's store methods still call `block_on` on a shared runtime, and calling
-/// `block_on` from a thread that is already driving a runtime - which is exactly what a route handler is - panics with
-/// "Cannot start a runtime from within a runtime". This was not theoretical: the first live call to these routes killed
-/// the request and stranded the connection.
+/// THE THREADS ARE NOT DECORATION. The engine's store methods still call `block_on`, and calling `block_on` from a
+/// thread that is already driving a runtime - which is exactly what a route handler is - panics with "Cannot start a
+/// runtime from within a runtime". This was not theoretical: the first live call to these routes killed the request and
+/// stranded the connection. A fresh thread has no runtime context, so `block_on` is legal there.
 ///
-/// So the operation runs on a fresh thread, which has no runtime context of its own, and is awaited from a blocking
-/// pool thread so a worker is not tied up waiting. That is a bridge, not the destination. The destination is a store
-/// that does not block (`docs/rust-resilience-status.md`, "Not yet done"), and when that lands this function collapses
-/// into a plain `.await`.
+/// They are a POOL rather than a thread per command because a thread per command is unbounded: each engine command
+/// occupies a thread for the whole transaction, and under a burst that is one OS thread per in-flight request. Four
+/// reusable workers with a bounded queue is the same isolation with a ceiling, and it gives overload an answer -
+/// `ENGINE_BUSY` with `retryable: true` - instead of letting the machine decide.
+///
+/// This is a bridge, not the destination. The destination is a store that does not block
+/// (`docs/rust-resilience-status.md`, "Not yet done"); when that lands, the pool and `run_engine` collapse into a
+/// plain `.await`. It is deliberately not the async conversion done halfway, because that refactor cannot compile
+/// halfway.
+struct EnginePool {
+    jobs: std::sync::mpsc::SyncSender<Job>,
+}
+
+type Job = Box<dyn FnOnce() + Send + 'static>;
+
+/// `FORGE_ENGINE_WORKERS` - how many engine commands may run at once. Default 4, which leaves the database pool
+/// (`FORGE_DB_POOL_MAX`, default 5) a connection for ordinary reads rather than letting the engine take every one.
+fn engine_workers() -> usize {
+    std::env::var("FORGE_ENGINE_WORKERS")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(4)
+}
+
+/// Enough queue to absorb a burst without pretending the engine can do more than it can.
+const ENGINE_QUEUE: usize = 256;
+
+fn engine_pool() -> &'static EnginePool {
+    static POOL: std::sync::OnceLock<EnginePool> = std::sync::OnceLock::new();
+    POOL.get_or_init(|| {
+        let (jobs, queue) = std::sync::mpsc::sync_channel::<Job>(ENGINE_QUEUE);
+        let queue = std::sync::Arc::new(std::sync::Mutex::new(queue));
+        for index in 0..engine_workers() {
+            let queue = std::sync::Arc::clone(&queue);
+            std::thread::Builder::new()
+                .name(format!("engine-{index}"))
+                .spawn(move || loop {
+                    // The lock is held only to take the next job, never while running it.
+                    let job = {
+                        let guard = match queue.lock() {
+                            Ok(guard) => guard,
+                            Err(_) => return,
+                        };
+                        guard.recv()
+                    };
+                    match job {
+                        Ok(job) => {
+                            // A panic in the engine must cost one command, not one worker. Unwinding here would
+                            // retire the thread permanently, so after a few panics the pool would be dead and every
+                            // command would stall on a reply that never comes. The reply channel is dropped by the
+                            // panic, which is what turns it into an error for the caller.
+                            let outcome =
+                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(job));
+                            if outcome.is_err() {
+                                eprintln!("engine worker caught a panic from an engine operation");
+                            }
+                        }
+                        Err(_) => return,
+                    }
+                })
+                .expect("engine worker thread");
+        }
+        EnginePool { jobs }
+    })
+}
+
+/// Run one engine operation on an engine worker.
 async fn run_engine<T, E, F>(operation: F, correlation: String) -> Result<T, ApiError>
 where
     T: Send + 'static,
     E: std::fmt::Display + Send + 'static,
     F: FnOnce() -> Result<T, E> + Send + 'static,
 {
-    tokio::task::spawn_blocking(move || std::thread::spawn(operation).join())
-        .await
-        .map_err(|error| engine_failure(error, correlation.clone()))?
-        .map_err(|panic| {
-            engine_failure(
-                format!("engine operation panicked: {panic:?}"),
-                correlation.clone(),
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel::<Result<T, String>>();
+    let job: Job = Box::new(move || {
+        // Stringified here, on the worker, because the reply channel cannot carry an unnameable error type.
+        let _ = reply_tx.send(operation().map_err(|error| error.to_string()));
+    });
+
+    if let Err(error) = engine_pool().jobs.try_send(job) {
+        return Err(match error {
+            std::sync::mpsc::TrySendError::Full(_) => ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "ENGINE_BUSY",
+                "The workflow engine is at capacity; this command was not started.",
+                true,
             )
-        })?
-        .map_err(|error| engine_failure(error, correlation))
+            .with_correlation(correlation),
+            std::sync::mpsc::TrySendError::Disconnected(_) => {
+                engine_failure("The workflow engine workers are not running.", correlation)
+            }
+        });
+    }
+
+    match reply_rx.await {
+        Ok(Ok(value)) => Ok(value),
+        Ok(Err(message)) => Err(engine_failure(message, correlation)),
+        Err(_) => Err(engine_failure(
+            "The workflow engine dropped its reply.",
+            correlation,
+        )),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -86,10 +169,7 @@ pub async fn start_transaction(
         "instanceId": result.instance_id,
         "started": result.started,
     });
-    Ok(success_with_correlation(
-        value,
-        &resolved.correlation_id,
-    ))
+    Ok(success_with_correlation(value, &resolved.correlation_id))
 }
 
 #[derive(Debug, Deserialize)]
@@ -133,13 +213,13 @@ pub async fn reconcile_timer(
         correlation,
     )
     .await?;
-    let node = request.node.clone().unwrap_or_else(|| "closing_date_timer".into());
+    let node = request
+        .node
+        .clone()
+        .unwrap_or_else(|| "closing_date_timer".into());
 
     let value = serde_json::json!({ "node": node, "applied": applied });
-    Ok(success_with_correlation(
-        value,
-        &resolved.correlation_id,
-    ))
+    Ok(success_with_correlation(value, &resolved.correlation_id))
 }
 
 #[derive(Debug, Deserialize)]
@@ -168,14 +248,12 @@ pub async fn complete_task(
         move || {
             let transition = request.transition.as_deref();
             match request.kind.as_deref().unwrap_or("application") {
-                "engine" => {
-                    forge::engine::re_runtime::complete_engine_task(
-                        &request.task,
-                        &user,
-                        transition,
-                    )
-                    .map(|()| serde_json::json!({ "completed": request.task }))
-                }
+                "engine" => forge::engine::re_runtime::complete_engine_task(
+                    &request.task,
+                    &user,
+                    transition,
+                )
+                .map(|()| serde_json::json!({ "completed": request.task })),
                 _ => forge::engine::re_runtime::complete_workflow_task(
                     &request.task,
                     &user,
@@ -187,10 +265,7 @@ pub async fn complete_task(
         correlation,
     )
     .await?;
-    Ok(success_with_correlation(
-        value,
-        &resolved.correlation_id,
-    ))
+    Ok(success_with_correlation(value, &resolved.correlation_id))
 }
 
 #[derive(Debug, Deserialize)]
@@ -219,8 +294,5 @@ pub async fn reclaim(
     .await?;
 
     let value = serde_json::json!({ "reclaimed": reclaimed });
-    Ok(success_with_correlation(
-        value,
-        &resolved.correlation_id,
-    ))
+    Ok(success_with_correlation(value, &resolved.correlation_id))
 }

@@ -96,6 +96,27 @@ for any single engine command until the database is closer or the statement coun
 A failed build is deliberately **not** cached: the build reads and writes the database, so it can fail transiently, and
 a process that cached that would be wedged until someone restarted it. Successes are cached, failures retry next call.
 
+### Engine commands run on a bounded pool
+
+The first working version ran each command on a fresh thread, because `block_on` is only legal on a thread with no
+runtime context. That works, and it is unbounded: one OS thread per in-flight command, held for the whole transaction.
+It is now a fixed pool of `FORGE_ENGINE_WORKERS` threads (default 4, one below `FORGE_DB_POOL_MAX` so the engine cannot
+take the last connection an ordinary read needs) behind a bounded queue, with overload answered as
+`503 ENGINE_BUSY`, `retryable: true` instead of by exhausting the machine.
+
+Measured on the same dev database - a burst of 32 concurrent commands, sampling the process thread count throughout:
+
+    idle threads 26, peak threads during the burst 26, all 32 responses 200 ok
+
+Completely flat, and throughput improved rather than suffered: 32 commands in 3790ms, about 8.4 commands/second,
+against 2.8/second when they ran one at a time. The database pool is what actually limits concurrency here, which is
+the point - the engine now waits its turn at the pool like everything else instead of racing to open connections.
+
+A panic in an engine operation costs one command, not one worker: the worker catches it, and the dropped reply turns
+into an error for the caller. Without that, four panics would retire the whole pool and every later command would stall
+on a reply that never arrives.
+
+
 
 ## Verified live
 
@@ -109,11 +130,12 @@ Against a freshly built server on 8080, with the real dev database:
 | background reclaim (no identity) | `200 {"ok":true,"value":{"reclaimed":0}}` |
 | interactive reclaim (provider `google`, a real mapped identity) | `200 {"ok":true,"value":{"reclaimed":0}}` |
 
-The first attempt at this **failed**, and that is why the bridge below exists: the engine's store methods call
+The first attempt at this **failed**, and that is why the worker pool below exists: the engine's store methods call
 `block_on`, and calling `block_on` from a thread already driving a runtime panics with "Cannot start a runtime from
-within a runtime". The route killed its own request and stranded the connection. Engine operations now run on a fresh
-thread (no runtime context) awaited from the blocking pool, which is a bridge and not a destination - see
-`run_engine` in `server/src/api/engine.rs`. It collapses into a plain `.await` when the store stops blocking.
+within a runtime". The route killed its own request and stranded the connection. Engine operations now run on a small
+pool of dedicated threads that have no runtime context, which is a bridge and not a destination - see `run_engine` and
+`EnginePool` in `server/src/api/engine.rs`. It collapses into a plain `.await` when the store stops blocking.
+
 
 Not verified live: the keepalive ping. It is silent by design and only speaks when it fails, so there is nothing to
 observe in a healthy run; the code path is compiled and exercised by `cargo check`, not by a test.
@@ -139,7 +161,11 @@ observe in a healthy run; the code path is compiled and exercised by `cargo chec
 
   A cheaper alternative that captures most of the benefit at a fraction of the risk: keep the engine synchronous and
   give the bridge a small bounded worker pool (reused threads, a queue limit) instead of a fresh thread per command.
-  That is the recommendation if the goal is "stop wasting threads" rather than "no blocking anywhere".
+  **This is now done** - see "Engine commands run on a bounded pool" above - and it measured flat thread usage under a
+  32-command burst with throughput improving from 2.8 to 8.4 commands/second. So the case for the async conversion is
+  narrower than it was: what remains is the blocking calls themselves inside a host that is otherwise async, not thread
+  exhaustion and not latency.
+
 
 - **Neon password rotation.** `npg_GoyLHk5OE3BZ` was printed into a session transcript and needs rotating from the Neon
   side; it cannot be done from this repository.
