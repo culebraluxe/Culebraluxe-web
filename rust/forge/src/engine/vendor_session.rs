@@ -32,8 +32,14 @@ static SHARED: OnceLock<Result<SharedDb, String>> = OnceLock::new();
 fn shared() -> Result<&'static SharedDb, String> {
     let slot = SHARED.get_or_init(|| {
         let rt = Runtime::new().map_err(|e| format!("tokio: {e}"))?;
+        // Prefer the pool the composition root installed; this helper was one of three that used to connect its own.
         let db = rt
-            .block_on(Database::connect_from_env())
+            .block_on(async {
+                match db::shared::get() {
+                    Some(db) => Ok(db),
+                    None => db::shared::get_or_connect().await,
+                }
+            })
             .map_err(|e| e.to_string())?;
         Ok(SharedDb { db, rt })
     });

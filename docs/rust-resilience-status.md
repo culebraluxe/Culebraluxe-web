@@ -63,6 +63,40 @@ keeps that property while allowing the engine to move.
 The ping runs through the normal `DbFailure` path, so a database that has genuinely gone away still writes an
 `app_error` row rather than failing silently in a background task.
 
+### One pool per process, and the engine built once
+
+Two things were wrong with "the engine inherits the server's pool", and both were measured rather than assumed.
+
+**Three pools.** `Database` is a pool handle and cheap to clone, so a process needs one. It had three: the server's,
+Forge's own `with_shared` `OnceLock`, and - worst - a fresh one per engine call, because `re_engine()` built a
+`NeonStore`, and `NeonStore::connect_from_env()` connected. `core/db/src/shared.rs` is now the one slot, installed by
+the composition root at boot (`server/src/bin/http.rs`), and the engine's store and the Forge session helper both
+prefer it.
+
+**The engine was rebuilt per call.** `re_engine()` parsed the RE supermodel XML, validated the definition and seeded it
+into the database, every time, then threw the engine away. It holds no per-call state (its methods take `&self`), so it
+is now one instance per process. `EngineOptions::now` and `WorkflowEngine::now` gained `Send + Sync` for this, which is
+the only reason the engine was not already `Sync`.
+
+Ten sequential engine commands (`POST /v1/engine/reclaim`), same dev database, same machine:
+
+| | total | median | first | last |
+| --- | --- | --- | --- | --- |
+| before | 23699ms | 2368ms | 2227ms | 2371ms |
+| shared pool | 10025ms | 866ms | 2079ms | 647ms |
+| shared pool + cached engine | **4806ms** | **352ms** | 1698ms | 313ms |
+
+Per call: **2368ms -> 352ms**. The first call remains ~1.7s because it is the cold build (parse, validate, seed,
+connect), which is work that now happens once instead of once per call.
+
+**The floor is the network, not the code.** The dev database is a Neon pooler in `us-east-2`, and one engine step is one
+transaction: `BEGIN`, the statement, `COMMIT` - three round trips, roughly 100ms each from here. So ~300ms is the floor
+for any single engine command until the database is closer or the statement count drops.
+
+A failed build is deliberately **not** cached: the build reads and writes the database, so it can fail transiently, and
+a process that cached that would be wedged until someone restarted it. Successes are cached, failures retry next call.
+
+
 ## Verified live
 
 Against a freshly built server on 8080, with the real dev database:
@@ -86,9 +120,27 @@ observe in a healthy run; the code path is compiled and exercised by `cargo chec
 
 ## Not yet done
 
-- **Async `Store` / `TxStore`.** The workflow engine still has synchronous store methods reached through `block_on`,
-  which is what made a one-worker runtime necessary before. The process-per-call funnel is gone and the engine now runs
-  inside the server's runtime, but the engine itself is still blocking inside an async host. This is the remaining piece
-  of the non-blocking fix and it is a large one.
+- **Async `Store` / `TxStore`.** Still the largest remaining piece, and worth stating honestly what it would and would
+  not buy, because the measurements above change the answer.
+
+  What it would buy: engine commands would stop occupying a fresh OS thread plus a blocking-pool thread for ~300ms each.
+  Under concurrent load that is real waste, though the pool itself caps concurrency at `FORGE_DB_POOL_MAX` (5), so the
+  ceilings overlap more than they look.
+
+  What it would NOT buy: latency. One engine step is one transaction, and the dominant cost is three round trips to a
+  database in another region. Removing `block_on` does not remove a single round trip.
+
+  The work itself is not the 45 methods, it is `TxStore::with_tx<R, F: FnOnce(&mut dyn Store) -> Result<R>>` - a
+  synchronous closure taking a trait object. Made async it becomes a closure returning a boxed future over
+  `&mut dyn Store`, which every one of the 32 call sites in `engine.rs` has to change shape for, plus the 15 engine
+  functions that take `tx: &mut dyn Store`, plus `neon.rs` (1120 lines), `memory.rs`, and the callers in
+  `forge/src/engine/{runtime,re_runtime,forge_task}.rs` and the CLI. It is one atomic change: the tree does not compile
+  in the middle of it, which is why it has not been started in a corner of another commit.
+
+  A cheaper alternative that captures most of the benefit at a fraction of the risk: keep the engine synchronous and
+  give the bridge a small bounded worker pool (reused threads, a queue limit) instead of a fresh thread per command.
+  That is the recommendation if the goal is "stop wasting threads" rather than "no blocking anywhere".
+
 - **Neon password rotation.** `npg_GoyLHk5OE3BZ` was printed into a session transcript and needs rotating from the Neon
   side; it cannot be done from this repository.
+

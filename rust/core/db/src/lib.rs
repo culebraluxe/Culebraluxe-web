@@ -21,6 +21,9 @@ mod property;
 // Public because the `retrying_read!` macro expands inside other crates and has to name these helpers there.
 pub mod retry;
 mod security;
+// The one pool per process. Public because it is how the composition root hands its pool to components that cannot be
+// constructed with one - the workflow engine's store, the Forge session helper.
+pub mod shared;
 mod showing;
 mod signature;
 mod transaction;

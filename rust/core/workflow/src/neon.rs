@@ -49,8 +49,11 @@ impl NeonStore {
 
     pub fn connect_from_env() -> Result<Self> {
         let rt = shared_runtime();
+        // The composition root's pool when there is one, otherwise the single pool this process connects for itself.
+        // Either way this happens once: a store per engine command used to mean a POOL per engine command, which cost
+        // about 2.4 seconds a call against the dev database - all of it connecting, none of it doing work.
         let db = rt
-            .block_on(Database::connect_from_env())
+            .block_on(db::shared::get_or_connect())
             .map_err(|e| WorkflowError::generic(e.to_string()))?;
         Ok(Self { db, rt })
     }

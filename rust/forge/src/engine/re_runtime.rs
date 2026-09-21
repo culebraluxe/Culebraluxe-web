@@ -42,7 +42,28 @@ pub fn assert_re_definition_ready() -> Result<()> {
     Ok(())
 }
 
-pub fn re_engine() -> Result<WorkflowEngine<NeonStore>> {
+/// The engine, built once per process.
+///
+/// Building it is not free and it is not per-call work: it parses the RE supermodel XML, validates the definition, and
+/// seeds it into the database. Measured against the dev database, the steady-state cost of a single `reclaim` call was
+/// about 650ms - none of it the query, all of it rebuilding this. The engine holds no per-call state (its methods take
+/// `&self`), so one instance serves every command.
+///
+/// A FAILED BUILD IS NOT CACHED. The build reads and writes the database, so it can fail for transient reasons, and a
+/// process that cached that failure would be wedged until someone restarted it. Successes are cached forever; failures
+/// are retried on the next call.
+static ENGINE: std::sync::OnceLock<WorkflowEngine<NeonStore>> = std::sync::OnceLock::new();
+
+pub fn re_engine() -> Result<&'static WorkflowEngine<NeonStore>> {
+    if let Some(engine) = ENGINE.get() {
+        return Ok(engine);
+    }
+    let engine = build_re_engine()?;
+    let _ = ENGINE.set(engine);
+    Ok(ENGINE.get().expect("engine was just installed"))
+}
+
+fn build_re_engine() -> Result<WorkflowEngine<NeonStore>> {
     assert_re_definition_ready()?;
     let store = NeonStore::connect_from_env()?;
     let engine = WorkflowEngine::new(

@@ -8,7 +8,10 @@ use crate::types::*;
 
 pub struct EngineOptions {
     pub app: Option<Box<dyn ApplicationPort>>,
-    pub now: Box<dyn Fn() -> i64>,
+    /// `Send + Sync` because the engine is shared: it is built once per process and every command reuses it, rather
+    /// than each command parsing the definition and seeding it again. Without these bounds the engine is not `Sync`,
+    /// which is what would rule that out.
+    pub now: Box<dyn Fn() -> i64 + Send + Sync>,
 }
 
 impl Default for EngineOptions {
@@ -23,7 +26,9 @@ impl Default for EngineOptions {
 pub struct WorkflowEngine<S: TxStore = crate::memory::MemoryStore> {
     store: S,
     app: Option<Box<dyn ApplicationPort>>,
-    now: Box<dyn Fn() -> i64>,
+    /// Same bounds as `EngineOptions::now`, for the same reason: this field is what decides whether the engine can be
+    /// shared process-wide, where it now lives.
+    now: Box<dyn Fn() -> i64 + Send + Sync>,
 }
 
 impl<S: TxStore> WorkflowEngine<S> {
