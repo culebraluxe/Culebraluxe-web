@@ -37,7 +37,29 @@ curl -s -H "x-culebra-internal-key: $KEY" localhost:8080/v1/diagnostics/db
 | `FORGE_ENGINE_WORKERS` | 4 | Concurrent engine commands. Deliberately one below the pool default. |
 | `FORGE_IDENTITY_CACHE_MS` | 30000 | Identity cache. A role change can take up to this long to apply. 0 disables. |
 
-## What to watch after deploy
+## The deploy itself (one release = two builds + schema)
+
+A release is three things shipped together, and the third is the one that bites:
+
+1. **The Next application** — `next build`, deployed as the `frontend` service.
+2. **The Rust API** — built by `rust/Dockerfile.vercel` (`cargo build --release -p server --bin http`) and deployed as
+   the `rust_api` container service. `vercel.json` binds its URL to the frontend as `RUST_API_BASE_URL`, so the two
+   find each other without manual configuration.
+3. **The schema** — **not applied by the deploy.** There is no migration step in the build. Applying a migration is a
+   separate, explicit, human-authorised action, and it must happen in the same release window as the code that needs it.
+
+Deploys are not triggered by git: `vercel.json` sets `deploymentEnabled: false`. A deploy is a deliberate act.
+
+### Before the first production release
+
+- **Reconcile the migration drift.** 34 migrations are currently applied to only one of the two environments (16
+  prod-only, 18 dev-only), so dev and prod schemas are not the same. Resolve it in DEV first, then have PROD's
+  required set applied as one deliberate step. `pnpm db:migrations` lists the state per target.
+- **Confirm prod's environment variables** exist for the Rust service: the internal API key, and the auth secret it
+  derives from. Without them the service refuses to serve.
+- **Know the switch:** `VERCEL_ENV=production` makes the Rust API connect to the production database automatically.
+  There is no dry run. The boot line and `GET /v1/diagnostics/db` both report the target.
+
 
 1. **`app_error` with `kind like 'rust:%'`** — `rust:api` is a 5xx that no one had recorded before this week;
    `rust:panic` is a panic, and any row of that kind deserves a look the same day. Both are queryable now precisely so

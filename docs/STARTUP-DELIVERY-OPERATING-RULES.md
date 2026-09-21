@@ -44,7 +44,32 @@ Do **not** return with:
 - "apply this later";
 - a code commit that references schema not yet present in PROD.
 
-A separate approval is not required merely because the story's required schema must be promoted to PROD. The implementation authorization includes the non-destructive schema promotion needed for that story.
+A change that needs PROD schema **requires an explicit go from the CTO/Captain**, every time. The rule above is
+unchanged about *what* promotion means; what changed on 2026-09-21 is *who authorises it*. Earlier this file said the
+story's implementation authorisation implicitly covered its PROD promotion. It does not any more: production is
+frozen to agent action. Prepare, verify in DEV, and stop.
+
+### The Rust service's mechanics (added with the port)
+
+- The API is a **Vercel container service**, declared in `vercel.json` (`services.rust_api`, entrypoint
+  `rust/Dockerfile.vercel`, root `rust/`) and bound to the frontend as `RUST_API_BASE_URL`. Automatic deploys from git
+  are disabled in that file: **a deploy is a deliberate act, not a push.**
+- It chooses its database from the environment and **fails closed**: `VERCEL_ENV=production` (or
+  `APP_ENV=production`/`prod`) selects PROD, `preview`/`development` selects DEV, and anything ambiguous refuses to
+  start rather than guessing. This is the enforcement of §5 below.
+- **Migrations are not applied by the deploy.** There is no migration step in the build. `pnpm db:migrate` runs against
+  whatever target it is given, from an explicit env file. That means step 4 above is a manual, human-authorised step —
+  it does not happen because code shipped.
+- Both halves of a release must be built together: the Next application (`next build`) and the Rust binary
+  (`cargo build --release -p server --bin http`, which is what the container does). A release that ships one without
+  the other is not one release.
+
+Do **not** return with:
+
+- "migration ready for PROD";
+- "DEV verified; PROD pending";
+- "apply this later";
+- a code commit that references schema not yet present in PROD.
 
 ## 3. Production data invariants
 
@@ -90,6 +115,12 @@ Every new CulebraLuxe agent/session must read:
 2. `docs/ARCH-01-README-SUPPLEMENT.md`
 3. this file
 4. the current continuity packet / Story Board state relevant to the active work
+
+If the work touches the Rust workspace — which is the domain now — also read:
+
+5. `docs/rust-resilience-status.md` — what is wired, what is measured, what is deliberately not done
+6. `docs/rust-prod-checklist.md` — the pre-deploy checks and the deploy mechanics
+7. `docs/agent/LEGACY-TYPESCRIPT.md` — which TypeScript is current and which is retired
 
 Do not make the CTO/Product Owner re-teach this operating model after a context-window reset.
 

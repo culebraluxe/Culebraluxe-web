@@ -10,7 +10,33 @@ This supplement extends ARCH-01. It does not replace the canonical Story Board,
 `AGENTS.md`, repository code, migrations, or story-specific architecture
 documents.
 
-## 1. Continuity principle
+## Current architecture (2026-09-21) — read this first
+
+The domain was ported to Rust. The continuity packet's "seams" and "current implementation truth" sections must now be
+read with **Rust as the authority**, not TypeScript.
+
+| | before | now |
+| --- | --- | --- |
+| Domain rules, transactions, workflow | TypeScript `services/`, `workflow_app/` | **Rust** `rust/core/*`, `rust/forge` |
+| Database access | TypeScript `db/` | **Rust** `rust/core/db` |
+| HTTP API for the application | Next route handlers | **Rust** `rust/server` (Axum) |
+| Screens | Next + TypeScript | Next + TypeScript — unchanged, and correct |
+
+Consequences for anyone continuing this work:
+
+1. **`README.md` is the map**; `AGENTS.md` holds the rules, including where new code goes and the seven bugs not to
+   reintroduce. Read both before the packet.
+2. **Nothing is cut over in production yet.** `docs/rust-parity-ledger.md` (generated) is the authoritative record of
+   which capability serves production where; `productionPath` and `rustStatus` are separate answers.
+3. **The TypeScript server stack is legacy in place**, not deleted and not to be extended —
+   `docs/agent/LEGACY-TYPESCRIPT.md`. The branch `legacy/typescript-server` holds a working checkout as it was before
+   the port, for reference.
+4. **PROD is frozen to agent action.** Deployment and any production database action need an explicit go from the
+   Captain. `docs/STARTUP-DELIVERY-OPERATING-RULES.md` §2 carries the mechanics, and
+   `docs/rust-prod-checklist.md` has the pre-deploy checks.
+5. **A continuity packet written before this date describes the TypeScript seams.** Its process rules still hold; its
+   implementation claims do not, until reconciled against the Rust workspace.
+
 
 Chat context is working memory, not durable architecture.
 
