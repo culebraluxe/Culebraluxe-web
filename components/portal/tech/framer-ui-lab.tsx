@@ -22,6 +22,7 @@ import {
   FramerUiLabController,
   type FramerLabMotionProfile,
 } from "@/ui/framer-ui-lab"
+import { FramerCoreComponents } from "./framer-core-components"
 import styles from "./framer-ui-lab.module.css"
 
 const PROFILE_COPY: Record<FramerLabMotionProfile, { label: string; note: string; scale: string; distance: string }> = {
@@ -432,6 +433,8 @@ export function FramerUiLab() {
             </div>
           </div>
         </section>
+
+        <FramerCoreComponents controller={controller} model={model} />
       </div>
     </div>
   )
