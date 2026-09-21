@@ -1,17 +1,10 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import { DecisionStudio } from "@/components/decision-analysis/DecisionStudio"
 
-// ---------------------------------------------------------------------------
-// CONVERTED TO RUST (screen: decision-analysis).
-//
-// What this route rendered now lives in rust/ui/src/view.rs, fed by the rows route. The route itself is unchanged,
-// which is what keeps every link and bookmark working.
-// ---------------------------------------------------------------------------
+export const metadata = {
+  title: "Decision analysis",
+  robots: { index: false, follow: false },
+}
 
-export default function Page() {
-
-  return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="decision-analysis" />
-    </div>
-  )
+export default function DecisionAnalysisPage() {
+  return <DecisionStudio />
 }

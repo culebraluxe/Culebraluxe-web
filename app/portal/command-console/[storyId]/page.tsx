@@ -1,18 +1,28 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import { notFound } from 'next/navigation'
+
+import { StoryExecutionCockpit } from '@/components/portal/story-execution-cockpit'
+import { getStoryExecutionCockpit } from '@/lib/command-console-data'
+
+export const dynamic = 'force-dynamic'
 
 // ---------------------------------------------------------------------------
-// CONVERTED TO RUST (screen: console-story).
-//
-// What this route rendered now lives in rust/ui/src/view.rs, fed by the rows route. The route itself is unchanged,
-// which is what keeps every link and bookmark working, and the storyId in the URL reaches the screen as its scope.
+// Story Execution Cockpit (ENG-20) — child/detail screen over one story's
+// canonical control-plane data (storyboard_story + agent_work_item +
+// storyboard_story_run). Server-rendered; the client component is a read
+// projection (no new state machine).
 // ---------------------------------------------------------------------------
 
-export default async function Page({ params }: { params: Promise<Record<'storyId', string>> }) {
+export default async function StoryExecutionCockpitPage({
+  params,
+}: {
+  params: Promise<{ storyId: string }>
+}) {
   const { storyId } = await params
+  const model = await getStoryExecutionCockpit(storyId)
 
-  return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="console-story" scope={storyId} />
-    </div>
-  )
+  if (!model.ready || !model.story) {
+    notFound()
+  }
+
+  return <StoryExecutionCockpit model={model} />
 }

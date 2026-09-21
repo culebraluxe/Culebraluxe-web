@@ -1,22 +1,77 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import Link from "next/link"
 
-// ---------------------------------------------------------------------------
-// FLIPPED TO RUST (screen: security, surface Support).
-//
-// The route is unchanged; the screen is not. It was a TypeScript page fetching its own data for a TypeScript
-// component. It is now the Rust host: the same read models arrive through the portal rows route and
-// rust/ui/src/view.rs paints the screen.
-//
-// It qualified because its TypeScript body has no interaction to lose - no state, form, dialog, filter or paging
-// control - so there is nothing the Rust body can fail to reproduce. Screens whose TypeScript carries behaviour stay
-// in TypeScript until the Rust body has its own controls. scripts/ui-flip-readiness.mjs prints the split at any time.
-// ---------------------------------------------------------------------------
+import {
+  BreakGlassStatusPanel,
+  SecurityStatusPanel,
+} from "@/components/portal/settings-auth"
+import { getSecurityStatus } from "@/db/auth-status"
+import { getBreakGlassReadiness } from "@/lib/auth/break-glass-readiness"
 
-export default function Page() {
+const sections = [
+  {
+    href: "/portal/settings/users",
+    title: "Users",
+    intro:
+      "Application actors and their role assignments. CRM people are not authentication principals.",
+  },
+  {
+    href: "/portal/settings/roles",
+    title: "Roles",
+    intro:
+      "Named bundles of authorities, split between internal and external account types.",
+  },
+  {
+    href: "/portal/settings/authorities",
+    title: "Authorities",
+    intro:
+      "Coarse application capabilities that roles are built from.",
+  },
+]
+
+export const dynamic = "force-dynamic"
+
+export default async function SettingsPage() {
+  const securityStatus = await getSecurityStatus()
+  const breakGlass = await getBreakGlassReadiness()
 
   return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="security" />
+    <div>
+      <div className="mb-8">
+        <p className="text-xs font-light uppercase tracking-[0.28em] text-black/40">
+          Security
+        </p>
+
+        <h1 className="mt-3 font-serif text-4xl font-light leading-[1.1]">
+          Application Security Model
+        </h1>
+
+        <p className="mt-3 max-w-3xl text-sm font-light leading-6 text-black/50">
+          Canonical users, roles, and authorities. Read-only views for now —
+          assignment and management arrive with authentication and authorization.
+        </p>
+      </div>
+
+      <section className="grid gap-4 md:grid-cols-3">
+        {sections.map((section) => (
+          <Link
+            key={section.href}
+            href={section.href}
+            className="group portal-glass-panel portal-glass-panel-soft rounded-[var(--portal-panel-radius)] p-6 transition hover:border-[var(--portal-navy-soft)]"
+          >
+            <h2 className="font-serif text-2xl font-light">{section.title}</h2>
+            <p className="mt-2 text-sm font-light leading-6 text-black/50">
+              {section.intro}
+            </p>
+            <div className="mt-4 text-xs font-light uppercase tracking-[0.16em] text-[var(--portal-navy-soft)]">
+              Open →
+            </div>
+          </Link>
+        ))}
+      </section>
+
+      <SecurityStatusPanel status={securityStatus} />
+
+      <BreakGlassStatusPanel readiness={breakGlass} />
     </div>
   )
 }

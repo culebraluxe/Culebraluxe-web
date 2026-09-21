@@ -1,21 +1,39 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import { Attention } from "@/components/portal/attention"
+import { getAttentionSnapshot, getAttentionRelationshipContext, getContactEvidence } from "@/db/attention"
+import { getActivityFeed } from "@/db/activity-feed"
+import { getShowings } from "@/db/showings"
 
-// ---------------------------------------------------------------------------
-// FLIPPED TO RUST (screen: attention).
-//
-// The route is unchanged; the screen is not. What used to be a TypeScript page fetching its own data and handing it to
-// a TypeScript component is now the Rust host, which reads the same data through the portal rows route and paints the
-// screen from rust/ui/src/view.rs.
-//
-// This page qualified because it is a read-only list: its TypeScript body carries no state, no form, no dialog and no
-// paging control, so there is nothing the Rust screen can fail to reproduce. Screens that carry interaction stay in
-// TypeScript until the Rust body has its own controls. The list is in docs/layers/UI.md.
-// ---------------------------------------------------------------------------
+export const dynamic = "force-dynamic"
 
-export default function Page() {
+export default async function AttentionPage() {
+  const [snapshot, showings, activity] = await Promise.all([
+    getAttentionSnapshot(),
+    getShowings(),
+    getActivityFeed(50),
+  ])
+
+  // REL-INTEL — conservative relationship context for the people already in the
+  // snapshot. Bounded read; returns an empty map when no evidence is linked.
+  const relationshipContext = await getAttentionRelationshipContext(snapshot)
+
+  // CORE-DAILY-05 — native contact evidence (canonical person_identity) for the
+  // people in the follow-up queue, so each actionable item can launch contact.
+  const personIds = Array.from(
+    new Set(
+      [...snapshot.overdueTasks, ...snapshot.dueSoonTasks]
+        .map((t) => t.personId)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  )
+  const contactEvidence = await getContactEvidence(personIds)
+
   return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="attention" />
-    </div>
+    <Attention
+      snapshot={snapshot}
+      showings={showings}
+      activity={activity}
+      relationshipContext={relationshipContext}
+      contactEvidence={contactEvidence}
+    />
   )
 }

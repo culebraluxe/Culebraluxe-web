@@ -1,18 +1,29 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import Link from "next/link"
 
-// ---------------------------------------------------------------------------
-// CONVERTED TO RUST (screen: runtime-record).
-//
-// What this route rendered now lives in rust/ui/src/view.rs, fed by the rows route. The route itself is unchanged,
-// which is what keeps every link and bookmark working, and the instanceId in the URL reaches the screen as its scope.
-// ---------------------------------------------------------------------------
+import { RuntimeInspector } from "@/components/portal/runtime-inspector"
 
-export default async function Page({ params }: { params: Promise<Record<'instanceId', string>> }) {
+export const dynamic = "force-dynamic"
+
+export default async function RuntimeInspectorPage({
+  params,
+}: {
+  params: Promise<{ instanceId: string }>
+}) {
   const { instanceId } = await params
-
   return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="runtime-record" scope={instanceId} />
+    <div className="mx-auto max-w-6xl space-y-3 p-4 lg:p-6">
+      <div className="flex items-center justify-between">
+        <h1 className="font-serif text-2xl font-light text-[var(--portal-navy)]">
+          Workflow Runtime Inspector
+        </h1>
+        <Link
+          href={`/portal/workflows/${instanceId}`}
+          className="text-xs font-medium uppercase tracking-[0.12em] text-[var(--portal-navy)]/60 hover:text-[var(--portal-navy)]"
+        >
+          ← Workflow instance
+        </Link>
+      </div>
+      <RuntimeInspector instanceId={instanceId} />
     </div>
   )
 }

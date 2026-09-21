@@ -1,21 +1,38 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import { Suspense } from "react"
+import { redirect } from "next/navigation"
 
-// ---------------------------------------------------------------------------
-// FLIPPED TO RUST (screen: tech-line).
-//
-// The route is unchanged; the screen is not. What used to be a TypeScript page fetching its own data and handing it to
-// a TypeScript component is now the Rust host, which reads the same data through the portal rows route and paints the
-// screen from rust/ui/src/view.rs.
-//
-// This page qualified because it is a read-only list: its TypeScript body carries no state, no form, no dialog and no
-// paging control, so there is nothing the Rust screen can fail to reproduce. Screens that carry interaction stay in
-// TypeScript until the Rust body has its own controls. The list is in docs/layers/UI.md.
-// ---------------------------------------------------------------------------
+import { EngineeringLinePage } from "@/components/portal/tech/grok-engineering-line"
+import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
+import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
 
-export default function Page() {
+export const dynamic = "force-dynamic"
+
+// GROK REFERENCE — the Engineering Line mockup, from the fixture stubs only
+// (`components/portal/tech/grok-engineering-line/fixture.ts`). No database, no
+// engine: it exists so the Bench -> Line -> Recorder shape can be CLICKED and
+// compared against what /portal/tech renders today. Same freeze rule as the
+// Flight Recorder reference at /portal/tech/grok: this is the untouched mock, so
+// wiring the real loader means editing `loadEngineeringLine()` or building the
+// consolidated screen, not bending the reference. Requires tech.access (ROOT only).
+export default async function GrokEngineeringLineRoute() {
+  const access = await resolvePortalAccess(createAuthJsSessionAdapter(), "tech.access")
+  if (!access.ok) redirect(access.redirectTo)
+
   return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="tech-line" />
+    <div className="h-screen overflow-hidden bg-[#0b1220]">
+      {/* Same rule as the recorder reference: a frozen fixture mock must announce itself on screen. */}
+      <div className="border-b border-amber-400/40 bg-amber-400/10 px-3 py-1 text-[10px] uppercase tracking-[0.14em] text-amber-200">
+        Reference mock · fixture data, not the engine · real board at /portal/tech
+      </div>
+      <Suspense
+        fallback={
+          <div className="grid h-screen place-items-center bg-[#0b1220] text-sm text-slate-400">
+            Loading the line…
+          </div>
+        }
+      >
+        <EngineeringLinePage />
+      </Suspense>
     </div>
   )
 }

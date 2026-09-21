@@ -1,22 +1,81 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import type { Metadata } from 'next'
+import { SiteHeader } from '@/components/site-header'
+import { SiteFooter } from '@/components/site-footer'
+import { PageHero } from '@/components/page-hero'
+import { Contact } from '@/components/contact'
+import { getPropertyIntroById } from '@/lib/property-reads'
+import { getMarketingContent } from '@/db/marketing-content'
+import { buildContactPageContent } from '@/lib/marketing-content'
+import { normalizeServiceKey } from '@/lib/services'
 
-// ---------------------------------------------------------------------------
-// FLIPPED TO RUST (screen: site-contact, surface Site).
-//
-// The route is unchanged; the screen is not. It was a TypeScript page fetching its own data for a TypeScript
-// component. It is now the Rust host: the same read models arrive through the public rows route and
-// rust/ui/src/view.rs paints the screen.
-//
-// It qualified because its TypeScript body has no interaction to lose - no state, form, dialog, filter or paging
-// control - so there is nothing the Rust body can fail to reproduce. Screens whose TypeScript carries behaviour stay
-// in TypeScript until the Rust body has its own controls. scripts/ui-flip-readiness.mjs prints the split at any time.
-// ---------------------------------------------------------------------------
+export const metadata: Metadata = {
+  title: 'Contact — CulebraLuxe',
+  description:
+    'Begin a quiet conversation with CulebraLuxe about buying or selling on the island of Culebra, Puerto Rico.',
+}
 
-export default function Page() {
+export const dynamic = 'force-dynamic'
+
+type ContactPageProps = {
+  searchParams: Promise<{
+    propertyId?: string
+    requestType?: string
+    service?: string
+  }>
+}
+
+export default async function ContactPage({ searchParams }: ContactPageProps) {
+  const query = await searchParams
+  const requestType: 'private_viewing' | 'property_information' | undefined =
+    query.requestType === 'private_viewing' ||
+    query.requestType === 'property_information'
+      ? query.requestType
+      : undefined
+  // Service intent from a service-specific CTA (`/contact?service=...`). It is
+  // allow-listed against the supported services vocabulary so an arbitrary
+  // query value is dropped rather than persisted. It only applies to the
+  // property-less general enquiry path; property-scoped requests ignore it.
+  const service = normalizeServiceKey(
+    typeof query.service === 'string' ? query.service : undefined,
+  )
+  let propertyName: string | null = null
+  if (query.propertyId) {
+    const introResult = await getPropertyIntroById(query.propertyId)
+    propertyName = introResult.ok ? introResult.data?.name ?? null : null
+  }
+  const propertyContext = requestType
+    ? {
+        propertyId: query.propertyId,
+        requestType,
+        propertyName,
+      }
+    : undefined
+
+  const contentResult = await getMarketingContent()
+  const page = buildContactPageContent(contentResult.ok ? contentResult.data : [])
 
   return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/rust-ui/public-rows" start="site-contact" />
-    </div>
+    <>
+      <SiteHeader />
+      <main>
+        {page.hero ? (
+          <PageHero
+            eyebrow={page.hero.eyebrow ?? ''}
+            title={page.hero.title ?? ''}
+            intro={page.hero.body ?? undefined}
+            image={page.hero.imagePath ?? '/images/coastline.png'}
+            imageAlt={page.hero.imageAlt ?? 'The Culebra coastline at golden hour'}
+          />
+        ) : null}
+        {page.contact ? (
+          <Contact
+            content={page.contact}
+            propertyContext={propertyContext}
+            service={service}
+          />
+        ) : null}
+      </main>
+      <SiteFooter />
+    </>
   )
 }

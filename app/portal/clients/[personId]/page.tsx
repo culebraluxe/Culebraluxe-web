@@ -1,23 +1,32 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import { RelationshipDossier } from "@/components/portal/relationship-dossier"
+import { getRelationshipDossier } from "@/db/dossier"
+import { getRelationshipEvidenceForPerson } from "@/db/relationship-evidence"
 
-// ---------------------------------------------------------------------------
-// FLIPPED TO RUST (screen: client-record, surface Core).
-//
-// The route is unchanged; the screen is not. It was a TypeScript page fetching its own data for a TypeScript
-// component. It is now the Rust host: the same read models arrive through the portal rows route and
-// rust/ui/src/view.rs paints the screen.
-//
-// It qualified because its TypeScript body has no interaction to lose - no state, form, dialog, filter or paging
-// control - so there is nothing the Rust body can fail to reproduce. Screens whose TypeScript carries behaviour stay
-// in TypeScript until the Rust body has its own controls. scripts/ui-flip-readiness.mjs prints the split at any time.
-// ---------------------------------------------------------------------------
+export const dynamic = "force-dynamic"
 
-export default async function Page({ params }: { params: Promise<Record<'personId', string>> }) {
+export default async function ClientDossierPage({
+  params,
+}: {
+  params: Promise<{ personId: string }>
+}) {
   const { personId } = await params
+  const dossier = await getRelationshipDossier(personId)
+
+  // Relationship evidence is an optional enhancement: if the evidence seam is
+  // not yet populated (or unavailable), the dossier renders without it.
+  let relationshipEvidence: Awaited<
+    ReturnType<typeof getRelationshipEvidenceForPerson>
+  > = []
+  try {
+    relationshipEvidence = await getRelationshipEvidenceForPerson(personId)
+  } catch {
+    relationshipEvidence = []
+  }
 
   return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="client-record" scope={personId} />
-    </div>
+    <RelationshipDossier
+      dossier={dossier}
+      relationshipEvidence={relationshipEvidence}
+    />
   )
 }

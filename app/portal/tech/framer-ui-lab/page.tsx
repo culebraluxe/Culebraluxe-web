@@ -1,16 +1,20 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import type { Metadata } from "next"
+import { redirect } from "next/navigation"
 
-// ---------------------------------------------------------------------------
-// CONVERTED TO RUST (screen: framer-ui-lab) — a screen with no read model, which says so.
-//
-// The Rust table marks this screen deferred with its reason, so the screen states why it has no rows instead of
-// showing a blank list, and it asks the host for nothing. The route is the Rust host like every other converted one.
-// ---------------------------------------------------------------------------
+import { FramerUiLab } from "@/components/portal/tech/framer-ui-lab"
+import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
+import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
 
-export default function Page() {
-  return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="framer-ui-lab" />
-    </div>
+export const metadata: Metadata = {
+  title: "Framer UI Lab",
+}
+
+export default async function FramerUiLabPage() {
+  const access = await resolvePortalAccess(
+    createAuthJsSessionAdapter(),
+    "tech.access",
   )
+  if (!access.ok) redirect(access.redirectTo)
+
+  return <FramerUiLab />
 }

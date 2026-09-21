@@ -1,16 +1,45 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import { Suspense } from "react"
+import { redirect } from "next/navigation"
 
-// ---------------------------------------------------------------------------
-// CONVERTED TO RUST (screen: tech-grok) — a screen with no read model, which says so.
-//
-// The Rust table marks this screen deferred with its reason, so the screen states why it has no rows instead of
-// showing a blank list, and it asks the host for nothing. The route is the Rust host like every other converted one.
-// ---------------------------------------------------------------------------
+import { FlightRecorderPage } from "@/components/portal/tech/grok-flight-recorder/FlightRecorderPage"
+import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
+import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
 
-export default function Page() {
+export const dynamic = "force-dynamic"
+
+// GROK REFERENCE — the base mockup Grok designed with the FAKE fixture stubs.
+// This is the untouched frozen reference (same dark full-screen console, fake
+// deal trace from grok/flight-recorder/src/fixture.ts) so it can be compared
+// side-by-side against the real engine-backed Flight Recorder console at
+// /portal/tech/flight-recorder/[instanceId]. Requires tech.access (ROOT only).
+export default async function GrokFlightRecorderPage() {
+  const access = await resolvePortalAccess(
+    createAuthJsSessionAdapter(),
+    "tech.access",
+  )
+  if (!access.ok) redirect(access.redirectTo)
+
   return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="tech-grok" />
+    <div className="h-screen overflow-hidden bg-[#0b1220]">
+      {/*
+        A REFERENCE MOCK MUST SAY SO ON SCREEN.
+        This route is a deliberately frozen mock (fixture data, no database, no engine) kept for
+        side-by-side comparison with the real console. Its comments say that; the SCREEN did not, so a
+        human landing here by URL could read fake data as engine output - the exact confusion the mock
+        exists to help avoid. The real console is /portal/tech/flight-recorder/<instance>.
+      */}
+      <div className="border-b border-amber-400/40 bg-amber-400/10 px-3 py-1 text-[10px] uppercase tracking-[0.14em] text-amber-200">
+        Reference mock · fixture data, not the engine · real console at /portal/tech
+      </div>
+      <Suspense
+        fallback={
+          <div className="grid h-screen place-items-center bg-[#0b1220] text-sm text-slate-400">
+            Loading trace…
+          </div>
+        }
+      >
+        <FlightRecorderPage />
+      </Suspense>
     </div>
   )
 }

@@ -1,17 +1,24 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import { getProperties } from '@/lib/property-reads'
+import { SiteHeader } from '@/components/site-header'
+import { SiteFooter } from '@/components/site-footer'
+import { FavoritesView } from '@/components/property/favorites-view'
 
-// ---------------------------------------------------------------------------
-// CONVERTED TO RUST (screen: site-favorites).
-//
-// What this route rendered now lives in rust/ui/src/view.rs, fed by the rows route. The route itself is unchanged,
-// which is what keeps every link and bookmark working.
-// ---------------------------------------------------------------------------
+export const dynamic = 'force-dynamic'
 
-export default function Page() {
+export default async function FavoritesPage() {
+  // DB-HARDEN-01C — public read: degrade to empty on failure (no crash).
+  const result = await getProperties({ publicOnly: true })
+  const properties = result.ok ? result.data : []
 
   return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/rust-ui/public-rows" start="site-favorites" />
-    </div>
+    <>
+      <SiteHeader />
+
+      <main>
+        <FavoritesView properties={properties} />
+      </main>
+
+      <SiteFooter />
+    </>
   )
 }

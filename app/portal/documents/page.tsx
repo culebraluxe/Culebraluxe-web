@@ -1,22 +1,46 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import { redirect } from "next/navigation"
 
-// ---------------------------------------------------------------------------
-// CONVERTED TO RUST (screen: cabinet, surface Core).
-//
-// The route is unchanged; the screen is not. It rendered a TypeScript component with its own state
-// (3 interactive hooks); it now renders the Rust screen, fed by the portal rows route.
-//
-// HONEST NOTE ON PARITY: this crossed over before the Rust body had those controls, on instruction
-// that the conversion comes first and the gaps are worked afterwards. What is missing is named at
-// docs/layers/UI.md rather than implied by silence - the rows are here, the behaviour is the
-// follow-up. Scripts: scripts/ui-flip-readiness.mjs for the count.
-// ---------------------------------------------------------------------------
+import { listIssuedDocuments } from "@/lib/vault-io"
+import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
+import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
+import { DocumentList } from "@/components/portal/documents/document-list"
 
-export default function Page() {
+export const dynamic = "force-dynamic"
+
+// DOC-06 — NEXUS Documents: the canonical issued-document repository.
+// Retrieval is by metadata (deal, client, property, document type, version),
+// never folder-first. Only issued (generated) artifacts appear here.
+export default async function DocumentsPage() {
+  const access = await resolvePortalAccess(
+    createAuthJsSessionAdapter(),
+    "deal.read",
+  )
+  if (!access.ok) redirect(access.redirectTo)
+
+  const documents = await listIssuedDocuments(
+    access.actor
+      ? { accountType: access.actor.accountType, personId: access.actor.personId }
+      : undefined,
+  )
 
   return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="cabinet" />
-    </div>
+    <DocumentList
+      documents={documents.map((d) => ({
+        id: d.id,
+        documentTypeLabel: d.documentTypeLabel ?? "Document",
+        title: d.title,
+        state: d.state,
+        templateId: d.templateId,
+        issuedVersion: d.issuedVersion,
+        issuedChecksumSha256: d.issuedChecksumSha256,
+        issuedByDisplayName: d.issuedByDisplayName,
+        partyName: d.partyName,
+        propertyName: d.propertyName,
+        dealName: d.dealName,
+        createdAt: d.createdAt,
+        signedArtifactAvailable: d.signedArtifactAvailable,
+        signedAuditAvailable: d.signedAuditAvailable,
+      }))}
+    />
   )
 }

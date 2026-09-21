@@ -1,22 +1,25 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import { AccountingPnl } from '@/components/portal/accounting/accounting-pnl'
+import { AccountingShell } from '@/components/portal/accounting/accounting-shell'
+import { getPnlStatement } from '@/db/accounting'
+import { endOfMonthISO, startOfMonthISO } from '@/lib/accounting/format'
 
-// ---------------------------------------------------------------------------
-// FLIPPED TO RUST (screen: accounting-pnl, surface Accounting).
-//
-// The route is unchanged; the screen is not. It was a TypeScript page fetching its own data for a TypeScript
-// component. It is now the Rust host: the same read models arrive through the portal rows route and
-// rust/ui/src/view.rs paints the screen.
-//
-// It qualified because its TypeScript body has no interaction to lose - no state, form, dialog, filter or paging
-// control - so there is nothing the Rust body can fail to reproduce. Screens whose TypeScript carries behaviour stay
-// in TypeScript until the Rust body has its own controls. scripts/ui-flip-readiness.mjs prints the split at any time.
-// ---------------------------------------------------------------------------
+export const dynamic = 'force-dynamic'
 
-export default function Page() {
-
+// ACCOUNTING — P&L Statement. DERIVED from account_receivable / account_expense
+// rows for the selected range; never persisted as its own model. Realized income
+// (PAID receivables) vs posted expenses.
+export default async function AccountingPnlPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ from?: string; to?: string }>
+}) {
+  const sp = await searchParams
+  const from = sp.from ?? startOfMonthISO()
+  const to = sp.to ?? endOfMonthISO()
+  const statement = await getPnlStatement(from, to)
   return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="accounting-pnl" />
-    </div>
+    <AccountingShell eyebrow="Accounting" title="P&L Statement">
+      <AccountingPnl statement={statement} />
+    </AccountingShell>
   )
 }
