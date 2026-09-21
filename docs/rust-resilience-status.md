@@ -179,6 +179,20 @@ observe in a healthy run; the code path is compiled and exercised by `cargo chec
 
 ## Not yet done
 
+## psql_query retirement
+
+String SQL with hand-escaped values, run as text on a separate runtime. `re_runtime.rs` - the paths that start
+transactions, reconcile timers and complete tasks - is converted to binds on the workspace pool. Remaining call sites
+by file: `agent_work` 16, `deploy` 15, `db_writer` 11, `re_receipt` 11, `re_port` 10, `hold` 8, `re_facts` 7,
+`evidence_store` 5, `decisions` 3, `packet` 3, `observer` 1.
+
+The lesson from the conversion, worth knowing before the next file: a quoted literal in SQL is untyped and Postgres
+coerces it, but a bind is typed `text`, so `uuid = text` is an error. Two of the three needed an explicit `::uuid`.
+Unit tests do not catch this - only a real database does, which is why every one of these conversions needs a live
+call before it is committed.
+
+
+
 - **Async `Store` / `TxStore`.** Still the largest remaining piece, and worth stating honestly what it would and would
   not buy, because the measurements above change the answer.
 

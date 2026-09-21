@@ -8,7 +8,9 @@ use workflow::{
 use crate::engine::re_commands::{assert_command_nodes_routed, XML_COMMAND_NODE_TYPES};
 use crate::engine::re_facts::{contract_workflow_facts, deal_workflow_facts};
 use crate::engine::re_port::ReApplicationPort;
-use crate::engine::vendor_session::{psql_query, sql_literal};
+use sqlx::Row;
+
+use crate::engine::vendor_session::with_shared;
 use crate::engine::xml::{parse_re_supermodel, RE_SUPERMODEL_KEY, RE_SUPERMODEL_VERSION};
 
 pub const RESIDENTIAL_TRANSACTION_KEY: &str = RE_SUPERMODEL_KEY;
@@ -79,23 +81,28 @@ fn build_re_engine() -> Result<WorkflowEngine<NeonStore>> {
 }
 
 pub fn find_active_instance(subject_type: &str, subject_id: &str) -> Result<Option<String>> {
-    let sql = format!(
-        "SELECT pi.id::text FROM process_instances pi \
-         JOIN process_definitions pd ON pd.id = pi.definition_id \
-         WHERE pi.subject_type = {} AND pi.subject_id = {} \
-           AND pi.status = 'active' AND pd.key = {} \
-         LIMIT 1",
-        sql_literal(subject_type),
-        sql_literal(subject_id),
-        sql_literal(RESIDENTIAL_TRANSACTION_KEY)
-    );
-    let raw = psql_query(&sql).map_err(WorkflowError::generic)?;
-    let id = raw.trim();
-    Ok(if id.is_empty() {
-        None
-    } else {
-        Some(id.to_string())
+    // Binds instead of `sql_literal`, and the workspace pool instead of a text-mode psql round trip. The old form built
+    // the statement with `format!` and escaped each value by hand, which is one missed escape away from a wrong answer.
+    let id = with_shared(|db, rt| {
+        rt.block_on(async {
+            sqlx::query_scalar::<_, String>(
+                "SELECT pi.id::text FROM process_instances pi \
+                 JOIN process_definitions pd ON pd.id = pi.definition_id \
+                 WHERE pi.subject_type = $1 AND pi.subject_id = $2 \
+                   AND pi.status = 'active' AND pd.key = $3 \
+                 LIMIT 1",
+            )
+            .bind(subject_type)
+            .bind(subject_id)
+            .bind(RESIDENTIAL_TRANSACTION_KEY)
+            .fetch_optional(db.pool())
+            .await
+            .map_err(|error| error.to_string())
+        })
     })
+    .map_err(WorkflowError::generic)?
+    .map_err(WorkflowError::generic)?;
+    Ok(id)
 }
 
 pub struct StartResult {
@@ -154,26 +161,42 @@ pub fn reconcile_deadline_timer(
     let Some(deadline) = deadline.map(str::trim).filter(|s| !s.is_empty()) else {
         return Ok("unchanged");
     };
-    let sql = format!(
-        "SELECT id::text, due_at::text FROM jobs \
-         WHERE process_instance_id = {} AND status = 'pending' AND type = 'timer' \
-           AND payload->>'nodeId' = {} LIMIT 1",
-        sql_literal(instance_id),
-        sql_literal(timer_node_id)
-    );
-    let raw = psql_query(&sql).map_err(WorkflowError::generic)?;
-    if raw.trim().is_empty() {
+    let row = with_shared(|db, rt| {
+        rt.block_on(async {
+            sqlx::query(
+                "SELECT id::text AS id, due_at::text AS due_at FROM jobs \
+                 WHERE process_instance_id = $1::uuid AND status = 'pending' AND type = 'timer' \
+                   AND payload->>'nodeId' = $2 LIMIT 1",
+            )
+            .bind(instance_id)
+            .bind(timer_node_id)
+            .fetch_optional(db.pool())
+            .await
+            .map_err(|error| error.to_string())
+        })
+    })
+    .map_err(WorkflowError::generic)?
+    .map_err(WorkflowError::generic)?;
+    let Some(row) = row else {
         return Ok("unchanged");
-    }
-    let mut parts = raw.splitn(2, '|');
-    let job_id = parts.next().unwrap_or("").trim();
-    let due_at = parts.next().unwrap_or("").trim();
+    };
+    let job_id: String = row
+        .try_get("id")
+        .map_err(|error| WorkflowError::generic(error.to_string()))?;
+    let due_at: Option<String> = row
+        .try_get("due_at")
+        .map_err(|error| WorkflowError::generic(error.to_string()))?;
+    let due_at = due_at.unwrap_or_default();
+    // NOTE: `due_at` comes back in Postgres's text format (`2026-09-21 14:54:04.734+00`) and `deadline` is an ISO-8601
+    // string, so this comparison may never be true and the timer may be rescheduled on every pass. That predates this
+    // change and is preserved deliberately rather than silently altered: rescheduling to the same time is idempotent,
+    // so the cost is a wasted round trip, not a wrong deadline. Worth confirming against real data before touching it.
     if due_at == deadline || job_id.is_empty() {
         return Ok("unchanged");
     }
     let due_ms =
         parse_iso_millis(deadline).ok_or_else(|| WorkflowError::generic("invalid deadline"))?;
-    re_engine()?.reschedule_timer(job_id, due_ms, "system")?;
+    re_engine()?.reschedule_timer(&job_id, due_ms, "system")?;
     Ok("rescheduled")
 }
 
@@ -189,24 +212,31 @@ pub fn complete_workflow_task(
     user_id: &str,
     transition: Option<&str>,
 ) -> Result<String> {
-    let raw = psql_query(&format!(
-        "SELECT workflow_task_id FROM workflow_task_correlation WHERE application_task_id = {} LIMIT 1",
-        sql_literal(application_task_id)
-    ))
+    let workflow_task_id = with_shared(|db, rt| {
+        rt.block_on(async {
+            sqlx::query_scalar::<_, String>(
+                "SELECT workflow_task_id FROM workflow_task_correlation WHERE application_task_id = $1::uuid LIMIT 1",
+            )
+            .bind(application_task_id)
+            .fetch_optional(db.pool())
+            .await
+            .map_err(|error| error.to_string())
+        })
+    })
+    .map_err(WorkflowError::generic)?
     .map_err(WorkflowError::generic)?;
-    let workflow_task_id = raw.trim();
-    if workflow_task_id.is_empty() {
+    let Some(workflow_task_id) = workflow_task_id else {
         return Err(WorkflowError::generic(format!(
             "No workflow task correlates to application task {application_task_id}"
         )));
-    }
+    };
     re_engine()?.complete_task(CompleteTaskParams {
-        task_id: workflow_task_id.into(),
+        task_id: workflow_task_id.clone(),
         user_id: user_id.into(),
         form_data: Value::object(),
         transition_name: transition.map(str::to_string),
     })?;
-    Ok(workflow_task_id.to_string())
+    Ok(workflow_task_id)
 }
 
 fn parse_iso_millis(s: &str) -> Option<i64> {
