@@ -1,0 +1,227 @@
+.lab {
+  --hero-scale: 1.065;
+  --motion-distance: 18px;
+  position: relative;
+  overflow: hidden;
+  color: #f8f5ec;
+  background:
+    radial-gradient(900px 520px at 8% -8%, rgba(198, 161, 91, 0.2), transparent 62%),
+    radial-gradient(900px 620px at 105% 18%, rgba(88, 132, 168, 0.22), transparent 62%),
+    linear-gradient(180deg, #07101f 0%, #0a1526 48%, #08111f 100%);
+}
+
+.motionOff *,
+.motionOff *::before,
+.motionOff *::after {
+  animation: none !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+.hero {
+  position: relative;
+  min-height: 560px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 24px;
+  background: #030f23;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.28);
+}
+
+.heroMedia {
+  transform: scale(1.015);
+  filter: saturate(0.94) contrast(1.02);
+}
+
+.heroCinematic {
+  animation: cinematicDrift 15s cubic-bezier(0.22, 1, 0.36, 1) infinite alternate;
+}
+
+.heroCopy {
+  animation: copyRise 900ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.heroCopyDelay {
+  animation: copyRise 1100ms 120ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes cinematicDrift {
+  from { transform: scale(1.025) translate3d(-0.4%, 0.3%, 0); }
+  to { transform: scale(var(--hero-scale)) translate3d(0.8%, -0.7%, 0); }
+}
+
+@keyframes copyRise {
+  from { opacity: 0; transform: translate3d(0, var(--motion-distance), 0); filter: blur(4px); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); filter: blur(0); }
+}
+
+.scrollStage {
+  min-height: 115vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.scrollFrame {
+  position: relative;
+  width: min(82vw, 1100px);
+  height: min(70vh, 650px);
+  overflow: hidden;
+  border-radius: 30px;
+  box-shadow: 0 34px 100px rgba(0, 0, 0, 0.35);
+  transform: scale(0.965);
+}
+
+.scrollFrame::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(3, 15, 35, 0.05), rgba(3, 15, 35, 0.68));
+}
+
+.scrollCaption {
+  opacity: 0.35;
+  transform: translateY(24px);
+}
+
+@supports (animation-timeline: view()) {
+  .scrollFrame {
+    animation: frameExpand linear both;
+    animation-timeline: view();
+    animation-range: entry 12% cover 68%;
+  }
+
+  .scrollCaption {
+    animation: captionReveal linear both;
+    animation-timeline: view();
+    animation-range: entry 38% cover 74%;
+  }
+}
+
+@keyframes frameExpand {
+  from {
+    width: min(78vw, 980px);
+    border-radius: 30px;
+    transform: scale(0.955);
+  }
+  to {
+    width: 100vw;
+    border-radius: 0;
+    transform: scale(1);
+  }
+}
+
+@keyframes captionReveal {
+  from { opacity: 0.3; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.propertyCard {
+  transition:
+    transform 650ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 350ms ease,
+    background-color 350ms ease;
+}
+
+.propertyCard:hover {
+  transform: translateY(-4px);
+}
+
+.propertyCardActive {
+  transform: translateY(-6px);
+  border-color: rgba(198, 161, 91, 0.62);
+  background: rgba(198, 161, 91, 0.08);
+}
+
+.propertyFeature {
+  animation: featureIn 620ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes featureIn {
+  from { opacity: 0.35; transform: scale(0.985) translateY(12px); filter: blur(4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); filter: blur(0); }
+}
+
+.hotspot {
+  position: absolute;
+  transform: translate(-50%, -50%);
+}
+
+.hotspotDot {
+  position: relative;
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  background: rgba(3, 15, 35, 0.62);
+  color: #f8f5ec;
+  backdrop-filter: blur(12px);
+  transition: transform 300ms ease, background-color 300ms ease;
+}
+
+.hotspotDot::after {
+  content: "";
+  position: absolute;
+  inset: -7px;
+  border-radius: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  animation: hotspotPulse 2.4s ease-out infinite;
+}
+
+.hotspotActive .hotspotDot {
+  transform: scale(1.14);
+  background: rgba(198, 161, 91, 0.88);
+  color: #030f23;
+}
+
+@keyframes hotspotPulse {
+  0% { opacity: 0.8; transform: scale(0.7); }
+  70%, 100% { opacity: 0; transform: scale(1.35); }
+}
+
+.tiltCard {
+  --tilt-x: 0deg;
+  --tilt-y: 0deg;
+  transform: perspective(1100px) rotateX(var(--tilt-x)) rotateY(var(--tilt-y)) translateZ(0);
+  transform-style: preserve-3d;
+  transition: transform 180ms ease-out;
+  will-change: transform;
+}
+
+.tiltInner {
+  transform: translateZ(34px);
+}
+
+.textMask {
+  overflow: hidden;
+}
+
+.textMask > span {
+  display: inline-block;
+  animation: maskedText 820ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.textMask:nth-child(2) > span { animation-delay: 100ms; }
+.textMask:nth-child(3) > span { animation-delay: 180ms; }
+
+@keyframes maskedText {
+  from { transform: translateY(105%); opacity: 0.15; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@media (max-width: 768px) {
+  .hero { min-height: 500px; border-radius: 18px; }
+  .scrollStage { min-height: 86vh; }
+  .scrollFrame { width: calc(100vw - 24px); height: 62vh; border-radius: 20px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lab *,
+  .lab *::before,
+  .lab *::after {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
+}
