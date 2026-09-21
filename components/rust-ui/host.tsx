@@ -101,11 +101,14 @@ export function RustUiHost({
       if (eventName !== EFFECT_EVENT) {
         throw new Error(`effect event mismatch: Rust says "${eventName}", host expects "${EFFECT_EVENT}"`)
       }
-      // Same check for the island event: a mismatch here would present as a widget that never appears, which is the
-      // quietest possible failure.
-      const islandEvent = module.island_event_name()
+      // Same check for the island event, but this one must not be fatal: a mismatch would present as a widget that
+      // never appears, and refusing to render the whole screen over it would be the worse failure. It is a warning and
+      // the screen carries on.
+      const islandEvent = module.island_event_name?.()
       if (islandEvent !== ISLAND_EVENT) {
-        throw new Error(`island event mismatch: Rust says "${islandEvent}", host expects "${ISLAND_EVENT}"`)
+        console.warn(
+          `Rust UI island event mismatch: Rust says "${islandEvent}", host expects "${ISLAND_EVENT}". Islands will not mount.`,
+        )
       }
 
       /**
