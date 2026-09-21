@@ -39,6 +39,7 @@ test('UI-01: representative routes map to the correct operating surface', () => 
   // in place for widget harvest, but nothing claims them, and that is the intent.
   assert.equal(surfaceForPathname('/portal/storyboard'), 'TECH')
   assert.equal(surfaceForPathname('/portal/tech'), 'TECH')
+  assert.equal(surfaceForPathname('/portal/tech/framer-ui-lab'), 'TECH')
   // NEXUS — transaction-oriented workflow instances (the rule: workflow FOR an
   // active real-estate transaction → NEXUS).
   assert.equal(surfaceForPathname('/portal/workflows'), 'NEXUS')
@@ -73,6 +74,7 @@ test('UI-01: every known /portal route belongs to a surface', () => {
     '/portal/identity-quality',
     '/portal/media-admin',
     '/portal/media-test',
+    '/portal/tech/framer-ui-lab',
     '/portal/needs-review',
     '/portal/property-admin',
     '/portal/property-media',
@@ -129,7 +131,7 @@ test('UI-01: selecting NEXUS/OPS/TECH/SUPPORT produces correct contextual naviga
       'Dashboard',
       'Syndication',
     ],
-    TECH: ['Cockpit', 'Story Board', 'UI Lab', 'Media Test'],
+    TECH: ['Cockpit', 'Story Board', 'UI Lab', 'Framer UI Lab', 'Media Test'],
     SUPPORT: ['System Health', 'DB Test', 'WhatsApp Diagnostic', 'Security'],
   }
   assert.deepEqual(

@@ -150,6 +150,7 @@ export const OPERATING_SURFACES: Record<
       },
       { label: 'Story Board', href: '/portal/storyboard', authority: 'tech.access' },
       { label: 'UI Lab', href: '/portal/design-lab', authority: 'tech.access' },
+      { label: 'Framer UI Lab', href: '/portal/tech/framer-ui-lab', authority: 'tech.access' },
       { label: 'Media Test', href: '/portal/media-test', authority: 'tech.access' },
       // RETIRED FROM THE NAV (2026-09-13, captain's call) — the code stays, the links go.
       //
