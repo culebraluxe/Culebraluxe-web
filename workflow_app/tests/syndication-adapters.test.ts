@@ -6,6 +6,7 @@ import { CHANNEL_CATALOG, PREPARE_CHANNELS, isPrepareChannel } from '../../lib/s
 import { computeListingSourceHash, isSourceStale } from '../../lib/syndication/hash'
 import { diffSnapshot, isOffMarket, launchScore, makeSnapshot, matchesNeedsFilter, placementNeedsMe } from '../../lib/syndication/lifecycle'
 import { offMarketShareEn } from '../../lib/syndication/takedown'
+import { mediaPublicUrl, photoDownloadBase, photoUrlList } from '../../lib/syndication/media'
 import { buildPresenceReport, presenceReportText } from '../../lib/syndication/presence-report'
 import { smsBlurb, whatsappBlurb } from '../../lib/syndication/share'
 import type { ListingSource, PlacementRow, PlacementStatus, PublishMode, SightingRow, SightingNetwork, SyndicationChannel } from '../../lib/syndication/types'
@@ -456,6 +457,19 @@ describe('next5b polish (tasks 2–5)', () => {
   it('off-market share points at the inventory root when unpublished', () => {
     const text = offMarketShareEn(makeSource({ isPublished: false }))
     assert.ok(text.includes('https://culebraluxe.com'), text)
+  })
+})
+
+
+describe('media download helpers (Block A story 1)', () => {
+  it('photoDownloadBase slugifies a name/slug and photoUrlList caps at 25', () => {
+    assert.equal(photoDownloadBase(null, 'Casa Luar'), 'casa-luar-photos')
+    assert.equal(photoDownloadBase('playa-flamenco-villa', 'Anything'), 'playa-flamenco-villa-photos')
+    const rows = Array.from({ length: 30 }, (_, i) => ({ media_id: `m${i}` }))
+    const list = photoUrlList(rows)
+    assert.equal(list.length, 25)
+    assert.equal(list[0], '/api/media/m0')
+    assert.equal(mediaPublicUrl('m1'), 'https://culebraluxe.com/api/media/m1')
   })
 })
 
