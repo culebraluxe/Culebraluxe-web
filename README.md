@@ -52,6 +52,15 @@ npx tsc --noEmit
 npx tsx scripts/forge-packet-lint.ts
 ```
 
+Unit tests do not touch a real database, so a change is not verified until it has run against DEV. With the API up:
+
+```bash
+node scripts/rust-live-check/engine-routes.mjs     # the engine's auth matrix + a real call
+node scripts/rust-live-check/pool-counters.mjs 5   # pool reuse, checkouts per page, recent errors
+```
+
+**How to make a change** — the recipe, with the traps that have already cost time: [docs/rust-contributing.md](docs/rust-contributing.md).
+
 ## The production boundary
 
 - **One deploy is two builds**: the Next application and the Rust container (`rust/Dockerfile.vercel`, declared as a

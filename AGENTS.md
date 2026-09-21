@@ -45,6 +45,10 @@ Runbooks: `docs/rust-resilience-status.md` (what is wired, what is measured, wha
 `docs/rust-dbpool-plan-b.md` (the alternative stack, measured, and why sqlx stays), `docs/rust-parity-ledger.md`
 (generated — which capability serves production where).
 
+**How to actually make a change** — the recipe, with the traps that have already cost time, is
+`docs/rust-contributing.md`. Live verification against DEV is `scripts/rust-live-check/` — unit tests do not touch a real
+database, and this port has produced three bugs only a real one could catch.
+
 **Building and testing Rust:** `cargo check --workspace --all-targets`, then
 `cargo test -p db -p server -p forge -p workflow`. `rust/experiments/` is excluded from the workspace; it holds
 comparison benches, never production code.
@@ -57,6 +61,7 @@ Always
 - Treat anything crossing a process boundary — a public webhook body, a route body, a provider response — as unknown until a runtime schema validates it. A hand-written type or an `as` cast is not validation; validate before the value reaches the domain.
 - Read the story's scope manifest when one exists: `pnpm forge:manifest <STORY-ID>` writes and ranks it (`docs/agent/manifest/<STORY-ID>.md`); the rows are the files to open for that scope, structural first.
 - Clear the Forge control plane of stale engine state before ANY test or engine run: `pnpm forge:clean`. It cancels stale work items, interrupts stale engine claims (via the engine's own recovery path) and aborts stale instances, touching only claims older than 15 minutes so a live peer survives. A run read against another run's leftover claims is not evidence. Preferred order: `pnpm forge:clean` (control plane) then `pnpm forge:story:reset <story> reset --force` (the story itself, which now also closes that story's engine claims).
+  **⚠ `forge:clean` sets `APP_ENV=production` and therefore resolves to the PRODUCTION database, and it runs `--force`.** That is the Forge control plane's design, not an accident — but it means this is a production-mutating command, not local hygiene. It now requires the Captain's explicit go like any other production action, and it must never be run as a reflex. Check the target (`pnpm db:migrations` prints per-target state) before believing any command is on DEV.
 - Work in the isolated worktree when Forge provisioned one.
 - Run only the packet's Assay commands (SCOPED). Do not invent `pnpm test` as FULL.
 - Report exact files changed and the tests that ran.
