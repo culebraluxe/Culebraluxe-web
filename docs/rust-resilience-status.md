@@ -177,6 +177,35 @@ pool of dedicated threads that have no runtime context, which is a bridge and no
 Not verified live: the keepalive ping. It is silent by design and only speaks when it fails, so there is nothing to
 observe in a healthy run; the code path is compiled and exercised by `cargo check`, not by a test.
 
+### Two costs the TypeScript path never paid
+
+Found by reading sqlx's source rather than guessing, then measured through the real routes.
+
+**A ping on every checkout.** sqlx sets `test_before_acquire` by default, and it pings a connection before handing it
+out. For Postgres that ping is `write_sync` + `wait_until_ready` - not a query, but a full round trip, measured at 72ms
+to the dev database. A page load takes several checkouts, so the default quietly added hundreds of milliseconds of
+doing nothing to every request. The blanket ping is off and sqlx's own documented pattern is in its place: probe only a
+connection idle long enough for the pooler to have dropped it (`FORGE_DB_IDLE_PROBE_MS`, default 30s).
+
+**Identity resolution on every request.** Two queries - provider subject to application user, then roles and
+authorities - repeated for the same person many times per page load. `FORGE_IDENTITY_CACHE_MS` (default 30s) caches
+only `Known` resolutions: caching a "no" would lock someone out for the life of an entry. Authorization still runs
+every request, so the audit trail is unchanged.
+
+Measured on `GET /v1/clients`, median of 5, same database and machine:
+
+| configuration | median |
+| --- | --- |
+| probe every checkout, no identity cache (the previous behaviour) | 1269ms |
+| probe only when idle | 872ms |
+| + identity cache | **571ms** |
+
+One page load, 2.2x faster. A screen makes several such calls, so it compounds.
+
+**On the pooled endpoint.** Both `DATABASE_URL_DEV` and `DATABASE_URL` use the `-pooler` host, and `pg_stat_activity`
+shows a `pgbouncer` entry, so traffic really does go through PgBouncer in transaction mode. That is also why a Rust
+session never shows up there under its own `application_name`: the backend is attributed to the pooler.
+
 ## Not yet done
 
 ## psql_query retirement

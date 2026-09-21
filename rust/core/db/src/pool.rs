@@ -2,6 +2,7 @@ use crate::error::{DbFailure, DbResult};
 use crate::transaction::DbTransaction;
 use futures_util::TryStreamExt;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use sqlx::Connection;
 use sqlx::PgPool;
 use std::env;
 use std::str::FromStr;
@@ -82,11 +83,33 @@ impl Database {
         let idle_ms = positive_u64("FORGE_DB_POOL_IDLE_MS", 60_000);
         let connect_ms = positive_u64("FORGE_DB_POOL_CONNECT_MS", 10_000);
 
+        // PROBE ON IDLE, NOT ON EVERY CHECKOUT.
+        //
+        // sqlx pings a connection before handing it out whenever `test_before_acquire` is set, and it is set by
+        // default. For Postgres that ping is `write_sync` + `wait_until_ready` - not a query, but a full round trip -
+        // and a round trip to the dev database measures 72ms. A page load takes several pool checkouts, so the default
+        // silently adds a few hundred milliseconds of nothing to every request that is otherwise doing real work.
+        //
+        // The fix is sqlx's own documented pattern: turn the blanket ping off and probe only a connection that has sat
+        // idle long enough for the pooler to have dropped it. A warm connection is used immediately; a stale one is
+        // checked before it can hand a dead socket to a query. `FORGE_DB_IDLE_PROBE_MS=0` probes every time, which is
+        // the old behaviour, and is how this was measured.
+        let idle_probe = Duration::from_millis(non_negative_u64("FORGE_DB_IDLE_PROBE_MS", 30_000));
+
         let pool = PgPoolOptions::new()
             .max_connections(max_connections)
             .min_connections(min_connections)
             .idle_timeout(Some(Duration::from_millis(idle_ms)))
             .acquire_timeout(Duration::from_millis(connect_ms))
+            .test_before_acquire(false)
+            .before_acquire(move |conn, meta| {
+                Box::pin(async move {
+                    if meta.idle_for >= idle_probe {
+                        conn.ping().await?;
+                    }
+                    Ok(true)
+                })
+            })
             .connect_with(options)
             .await
             .map_err(|error| DbFailure::from_sqlx("db.connect", &error))?;
@@ -267,6 +290,13 @@ async fn ping_pool(pool: &PgPool) -> DbResult<()> {
 fn non_negative_u32(name: &str, fallback: u32) -> u32 {
     match env::var(name) {
         Ok(value) => value.trim().parse::<u32>().unwrap_or(fallback),
+        Err(_) => fallback,
+    }
+}
+
+fn non_negative_u64(name: &str, fallback: u64) -> u64 {
+    match env::var(name) {
+        Ok(value) => value.trim().parse::<u64>().unwrap_or(fallback),
         Err(_) => fallback,
     }
 }

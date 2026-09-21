@@ -1,3 +1,5 @@
+mod identity_cache;
+
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
 use db::{DbResult, SecurityDao};
@@ -59,6 +61,15 @@ impl<R: SecurityRepository> SecurityService<R> {
         )
         .await?;
 
+        // The cache sits between the authorization decision and the two lookups, so the audit trail records this
+        // operation on every request exactly as it did before; only the queries are skipped.
+        if let Some(principal) = identity_cache::get(provider, provider_subject) {
+            let result: Result<SecurityIdentityResolution, CoreServiceError> =
+                Ok(SecurityIdentityResolution::Known(principal));
+            audit_result(&self.runtime, "security", OP, context, decision, &result).await?;
+            return result;
+        }
+
         let result = match self
             .repository
             .resolve_provider_subject(provider, provider_subject)
@@ -76,6 +87,10 @@ impl<R: SecurityRepository> SecurityService<R> {
                 }
             },
         };
+
+        if let Ok(SecurityIdentityResolution::Known(principal)) = &result {
+            identity_cache::put(provider, provider_subject, principal);
+        }
 
         audit_result(&self.runtime, "security", OP, context, decision, &result).await?;
         result
