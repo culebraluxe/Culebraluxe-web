@@ -13,11 +13,38 @@ Rust" is wrong in both directions:
 | **The data feed for every portal screen** | **Wired.** `app/api/portal/rust-ui/rows/route.ts` serves the Rust model for every portal menu screen except `accounting-receipt-scanner`, from the same read models the TypeScript screens use. |
 | **The host and the build** | **Done.** `components/rust-ui/host.tsx` mounts the WASM; `pnpm build` builds it (release, 221KB) and ships it. |
 | **Screen-specific bodies** | **2 of 81.** `view.rs` dispatches a bespoke body for `tech-lab` and `projects`; everything else renders the model's *structure* — heading, navigation, rows — from generic cells. |
-| **The cutover** | **Not done.** The 82 files under `app/` still render the TypeScript components. The Rust UI is mounted on `/portal/tech/lab`, `/portal/rust-preview` and `/rust-preview`. |
+| **The cutover** | **Started: 10 of 81 screens.** `/portal/activity`, `/portal/attention`, `/portal/needs-review`, `/portal/workflows`, `/portal/identity-quality`, `/portal/media-admin`, `/portal/accounting/expenses`, `/portal/tech/flight-recorder`, `/portal/tech/runs`, `/portal/tech/line` render the Rust screen. `/portal/tech/lab`, `/portal/rust-preview` and `/rust-preview` mount the host too. The rest still render TypeScript. |
 
 So the work that was done is real and substantial — the model, the registry, the navigation, the host, the WASM build
-and the data feed all exist. **What did not happen is the flip:** no route renders the Rust screen in the live portal, so
-both UIs run side by side and the TypeScript components (144 of them) are still the live path.
+and the data feed all exist. **The flip is a per-screen job that had not started** and now has: ten read-only list
+screens cross over, chosen because there is nothing in their TypeScript bodies the Rust screen cannot reproduce. What
+remains is deciding the other screens one at a time.
+
+## Which screens can flip, and why the rest cannot yet
+
+Three conditions, and a screen needs all three. The first is a judgement; the other two are checkable:
+
+| condition | how to check | screens failing it |
+| --- | --- | --- |
+| The Rust body carries the same information as the page it replaces | read `view.rs` and compare | 79 (only `tech-lab` and `projects` have a bespoke body) |
+| The TypeScript body has no interaction to lose | count `useState`/`onSubmit`/`<form`/`onClick`/`Dialog`/`Modal` in the component the page renders | 15 of the 50 wired screens |
+| The screen needs no record key | the host takes `rowsPath` and `start` only — there is no `scope` prop yet | every `[id]` route (`client-record`, `property-record`, `story-record`, `workflow-record`, `trace-record`) |
+
+`scripts/ui-flip-readiness.mjs` computes the table from the code and prints the three groups. Current numbers:
+
+- **81 screens.** 50 have a rows loader, 31 do not (those render structure only — `accounting-receipt-scanner` has no
+  read model at all, by design).
+- **35 are ready** — real rows plus a component with nothing interactive to lose. Eleven have flipped; the remaining 24
+  are `accounting`, `accounting-pnl`, `accounting-receivables`, `db-test`, `forms`, `marketing`,
+  `marketing-syndication`, `property-media`, `reporting`, `security`, `settings-authorities`, `settings-roles`,
+  `settings-users`, `showings`, `storyboard`, `whatsapp-coexistence`, `whatsapp-meta`, `portal-root`, `dashboard`,
+  `tech-app-errors`, plus the four record screens that also need the `scope` prop.
+- **15 are blocked** by interaction their Rust body cannot reproduce — worst: `property-record` (74 markers),
+  `property-admin` (31), `command-console` (29), `design-lab` (27), `projects` (17), `deals` (17), `issues` (12).
+
+"Ready" means *nothing is lost*, not *nothing is different* — `dashboard` qualifies by the marker test but is the Cockpit
+and has a layout of its own, so it is a judgement call rather than a mechanical flip. Read the two conditions
+separately: the marker count tells you what breaks, it does not tell you what looks the same.
 
 ## Fronting a screen (the remaining mechanical step)
 
@@ -27,13 +54,14 @@ The host takes a screen key and a rows path:
 <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="dashboard" />
 ```
 
-A page becomes Rust by rendering that instead of the TypeScript component — roughly one line per page, using the `key`
-from the `SCREENS` table. It is deliberately per-screen rather than a switch, because a screen whose Rust body is still
-generic would show less than the TypeScript one it replaced, and the rows route is honest about it: a screen whose real
-columns have not been read yet shows "Nothing to show yet" rather than an invented column.
+A page becomes Rust by rendering that instead of the TypeScript component, using the `key` from the `SCREENS` table.
+The comment on the page should say which screen it is and why it qualified — a flip is a decision, and the next person
+needs to see the reasoning, not just the result.
 
-Order that works: flip a screen only when its Rust body can carry the same information as the TypeScript one. `projects`
-and `tech-lab` can. The rest need their body first.
+It is per-screen rather than a switch for the reason above: a screen whose Rust body is still generic shows less than the
+TypeScript one it replaced. The rows route is honest about that — a screen whose real columns have not been read shows
+"Nothing to show yet" rather than an invented column.
+
 
 ## The Rust UI's shape (MVI)
 
@@ -65,4 +93,7 @@ is present and keeps the committed ones when it is not.
 
 - `app/api/portal/rust-ui/rows/route.ts` is **read-only and has no per-screen authority check yet** — stated in the route
   itself. Whoever gives it a write path must add authority first.
-- 79 screens still render structurally rather than bespoke.
+- 71 screens still render structurally rather than bespoke, and 15 of those that are otherwise wired carry interaction the
+  Rust body cannot reproduce yet (the issue queue's filters and paging, the projects workspace's tree, Gantt and calendar).
+- The host has no `scope` prop, so no `[id]` record screen can flip. Adding it is small and unblocks five screens at once.
+
