@@ -1,255 +1,262 @@
-//! The Model: every screen the portal menu can reach, and the state the shell renders.
+//! The Model: every screen the application serves, and the state the shell renders.
 //!
-//! THE SCOPE IS THE MENU. Each variant here is a route that exists in `app/portal`, and `portal_path()` records which
-//! one, so the port cannot quietly grow screens nobody can navigate to or drift from the menu it replaces.
+//! THE SCOPE IS THE APPLICATION, NOT A MENU. This module used to list only the portal menu, which meant screens that
+//! exist and are reachable were "out of scope" by my judgement rather than by fact. The captain's rule now: every
+//! route that serves a page gets a screen. `SCREENS` is that list, and it is checked against the live route tree by a
+//! test so the two cannot drift.
+//!
+//! A TABLE, NOT AN ENUM. At this size an enum needs five match arms per screen (title, path, key, area, group) and
+//! stays in sync by hand. One row per screen is one place to look and one place to be wrong.
+//!
+//! `nav` records what the *registry* says about a route, not what I think of it: `lib/navigation/registry.ts` is the
+//! single source of truth for "what navigation belongs under this surface", and it documents four routes as RETIRED
+//! FROM THE NAV with the code left in place. Those are ported like everything else and simply not listed.
 
-/// One screen. Order follows the menu.
+/// Which operating surface a screen belongs to. The first six mirror `lib/navigation/registry.ts`; `Site` is the
+/// public site, which the registry does not cover because it is not part of the portal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Screen {
-    Dashboard,
-    Clients,
-    Deals,
+pub enum Surface {
+    Core,
+    Accounting,
     Marketing,
-    MarketingSyndication,
-    PropertyAdmin,
-    Showings,
-    Storyboard,
-    Attention,
-    NeedsReview,
-    Activity,
-    AccountingExpenses,
-    AccountingReceiptScanner,
-    AccountingReceivables,
-    CommandConsole,
+    Ops,
+    Support,
     Tech,
-    TechAppErrors,
-    TechFlightRecorder,
-    TechRuns,
-    /// Project Management: deliberately not ported yet. The live TypeScript screen keeps its three third-party
-    /// widgets (React Arborist tree, Gantt, FullCalendar) until the plan for Rust owning the container while each
-    /// widget keeps its own subtree is settled. This variant exists so the navigation and state boundary are real.
-    Projects,
-
-    // ---- Record screens: reached by opening a row, never from the nav (they are deliberately absent from
-    // `Screen::ALL`, because a menu entry for "one client, but which one?" is not a screen a user can navigate to) ----
-    /// One client, keyed by person id.
-    ClientRecord,
-    /// One deal, keyed by deal id.
-    DealRecord,
-    /// One property, keyed by property id.
-    PropertyRecord,
-    /// One storyboard story, keyed by story id.
-    StoryRecord,
-
-    // ---- The public site ("the main front"), which is a different audience and a different set of routes ----
-    /// The public home page.
-    SiteHome,
-    /// The public listing index.
-    SiteProperties,
-    /// One public property record, keyed by slug. The only screen that is *about* a single record rather than a list
-    /// of them, which is why it is the first screen whose rows need an argument.
-    SitePropertyDetail,
-}
-
-/// Which half of the application a screen belongs to. A host mounts ONE area: the public host shows the site nav and
-/// the portal host shows the portal nav, so neither can offer a screen from the other — and the public host cannot be
-/// handed a portal screen by accident.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Area {
     Site,
-    Portal,
 }
 
-impl Area {
+impl Surface {
+    /// The label the registry uses. `OPPS` is the registry's own spelling and is kept rather than corrected here.
     pub fn label(self) -> &'static str {
         match self {
-            Self::Site => "Site",
-            Self::Portal => "Portal",
+            Self::Core => "CORE",
+            Self::Accounting => "ACCOUNTING",
+            Self::Marketing => "MARKETING",
+            Self::Ops => "OPPS",
+            Self::Support => "SUPPORT",
+            Self::Tech => "TECH",
+            Self::Site => "SITE",
         }
     }
+
+    pub const ALL: &'static [Surface] = &[
+        Surface::Core,
+        Surface::Accounting,
+        Surface::Marketing,
+        Surface::Ops,
+        Surface::Support,
+        Surface::Tech,
+        Surface::Site,
+    ];
+
+    /// A stable key for the DOM, in the same style as `Screen::key`. The label is for reading; this is for addressing.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Core => "core",
+            Self::Accounting => "accounting",
+            Self::Marketing => "marketing",
+            Self::Ops => "ops",
+            Self::Support => "support",
+            Self::Tech => "tech",
+            Self::Site => "site",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Self> {
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|surface| surface.key() == key)
+    }
+}
+
+/// What navigation the registry gives a route.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Nav {
+    /// A normal nav entry under its surface.
+    Listed,
+    /// A route the registry RETIRED FROM THE NAV, with the code deliberately left in place. Ported, not listed.
+    Retired,
+    /// A real route the registry never listed: reachable from its parent screen, not a nav entry of its own.
+    Unlisted,
+    /// A record screen: reached by opening a row, never from the nav, because "one client, but which one?" is not
+    /// something a menu can offer.
+    Record,
+}
+
+/// One screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Screen {
+    pub key: &'static str,
+    pub title: &'static str,
+    /// The live route this port replaces. A `[bracket]` marks the part the record key supplies.
+    pub path: &'static str,
+    pub surface: Surface,
+    pub nav: Nav,
+    /// Why this screen has no rows, when it has none. A screen that cannot be wired must say so in its own words
+    /// rather than looking broken — and "no read model exists" is a different sentence from "this is a placeholder".
+    pub deferred: Option<&'static str>,
+    /// For a record screen: the key of the list screen it is opened from.
+    pub detail_of: Option<&'static str>,
 }
 
 impl Screen {
-    pub fn title(self) -> &'static str {
-        match self {
-            Self::Dashboard => "Dashboard",
-            Self::Clients => "Clients",
-            Self::Deals => "Deals",
-            Self::Marketing => "Marketing",
-            Self::MarketingSyndication => "Syndication",
-            Self::PropertyAdmin => "Property admin",
-            Self::Showings => "Showings",
-            Self::Storyboard => "Storyboard",
-            Self::Attention => "Attention",
-            Self::NeedsReview => "Needs review",
-            Self::Activity => "Activity",
-            Self::AccountingExpenses => "Expenses",
-            Self::AccountingReceiptScanner => "Receipt scanner",
-            Self::AccountingReceivables => "Receivables",
-            Self::CommandConsole => "Command console",
-            Self::Tech => "Tech",
-            Self::TechAppErrors => "App errors",
-            Self::TechFlightRecorder => "Flight recorder",
-            Self::TechRuns => "Runs",
-            Self::Projects => "Projects",
-            Self::SiteHome => "Home",
-            Self::SiteProperties => "Properties",
-            Self::SitePropertyDetail => "Property",
-            Self::ClientRecord => "Client",
-            Self::DealRecord => "Deal",
-            Self::PropertyRecord => "Property record",
-            Self::StoryRecord => "Story",
-        }
-    }
-
-    pub fn area(self) -> Area {
-        match self {
-            Self::SiteHome | Self::SiteProperties | Self::SitePropertyDetail => Area::Site,
-            _ => Area::Portal,
-        }
-    }
-
-    /// The screen a row opens into, if any. This is the one piece of navigation that is not a nav entry: a listing row
-    /// opens its own record, and a screen without a detail view selects instead of navigating.
-    pub fn detail(self) -> Option<Screen> {
-        match self {
-            Self::SiteProperties => Some(Self::SitePropertyDetail),
-            Self::Clients => Some(Self::ClientRecord),
-            Self::Deals => Some(Self::DealRecord),
-            Self::PropertyAdmin => Some(Self::PropertyRecord),
-            Self::Storyboard => Some(Self::StoryRecord),
-            _ => None,
-        }
-    }
-
-    /// The live route this port replaces, in whichever area the screen belongs to.
-    pub fn live_path(self) -> &'static str {
-        match self {
-            Self::Dashboard => "/portal/dashboard",
-            Self::Clients => "/portal/clients",
-            Self::Deals => "/portal/deals",
-            Self::Marketing => "/portal/marketing",
-            Self::MarketingSyndication => "/portal/marketing/syndication",
-            Self::PropertyAdmin => "/portal/property-admin",
-            Self::Showings => "/portal/showings",
-            Self::Storyboard => "/portal/storyboard",
-            Self::Attention => "/portal/attention",
-            Self::NeedsReview => "/portal/needs-review",
-            Self::Activity => "/portal/activity",
-            Self::AccountingExpenses => "/portal/accounting/expenses",
-            Self::AccountingReceiptScanner => "/portal/accounting/receipt-scanner",
-            Self::AccountingReceivables => "/portal/accounting/receivables",
-            Self::CommandConsole => "/portal/command-console",
-            Self::Tech => "/portal/tech",
-            Self::TechAppErrors => "/portal/tech/app-errors",
-            Self::TechFlightRecorder => "/portal/tech/flight-recorder",
-            Self::TechRuns => "/portal/tech/runs",
-            Self::Projects => "/portal/projects",
-            Self::SiteHome => "/",
-            Self::SiteProperties => "/properties",
-            // The live route interpolates the slug; the port passes it through the effect instead of baking it into
-            // the path, which is why there is no `{}` here.
-            Self::SitePropertyDetail => "/properties/[slug]",
-            Self::ClientRecord => "/portal/clients/[personId]",
-            Self::DealRecord => "/portal/deals/[dealId]",
-            Self::PropertyRecord => "/portal/property-admin/[propertyId]",
-            Self::StoryRecord => "/portal/storyboard/[id]",
-        }
-    }
-
-    /// The stable name the host fetches rows by. Addressing screens by name means a new screen is one nav entry and
-    /// no new endpoint shape.
-    pub fn key(self) -> &'static str {
-        match self {
-            Self::Dashboard => "dashboard",
-            Self::Clients => "clients",
-            Self::Deals => "deals",
-            Self::Marketing => "marketing",
-            Self::MarketingSyndication => "marketing-syndication",
-            Self::PropertyAdmin => "property-admin",
-            Self::Showings => "showings",
-            Self::Storyboard => "storyboard",
-            Self::Attention => "attention",
-            Self::NeedsReview => "needs-review",
-            Self::Activity => "activity",
-            Self::AccountingExpenses => "accounting-expenses",
-            Self::AccountingReceiptScanner => "accounting-receipt-scanner",
-            Self::AccountingReceivables => "accounting-receivables",
-            Self::CommandConsole => "command-console",
-            Self::Tech => "tech",
-            Self::TechAppErrors => "tech-app-errors",
-            Self::TechFlightRecorder => "tech-flight-recorder",
-            Self::TechRuns => "tech-runs",
-            Self::Projects => "projects",
-            Self::SiteHome => "site-home",
-            Self::SiteProperties => "site-properties",
-            Self::SitePropertyDetail => "site-property-detail",
-            Self::ClientRecord => "client-record",
-            Self::DealRecord => "deal-record",
-            Self::PropertyRecord => "property-record",
-            Self::StoryRecord => "story-record",
-        }
-    }
-
     pub fn is_deferred(self) -> bool {
-        matches!(self, Self::Projects)
+        self.deferred.is_some()
     }
 
-    /// The inverse of `key`, for the shell: a `data-nav` attribute in the DOM must become a screen again. Returning
-    /// `Option` is deliberate — an unknown key is a stale page or a typo, and neither should navigate anywhere.
-    pub fn from_key(key: &str) -> Option<Self> {
-        Self::ALL.iter().copied().find(|screen| screen.key() == key)
-    }
-
-    /// Every screen, in menu order. The nav is built from this, so a screen cannot be added without appearing.
-    pub const ALL: &'static [Screen] = &[
-        // The public site first: a visitor's entry point is the home page, and a host renders the area it owns.
-        // SitePropertyDetail is deliberately NOT here: it is a record screen, so it is reached by opening a listing
-        // row. A nav entry for "one property, but which one?" is not a screen a user can navigate to.
-        Screen::SiteHome,
-        Screen::SiteProperties,
-        Screen::Dashboard,
-        Screen::Clients,
-        Screen::Deals,
-        Screen::Marketing,
-        Screen::MarketingSyndication,
-        Screen::PropertyAdmin,
-        Screen::Showings,
-        Screen::Storyboard,
-        Screen::Attention,
-        Screen::NeedsReview,
-        Screen::Activity,
-        Screen::Projects,
-        Screen::AccountingExpenses,
-        Screen::AccountingReceiptScanner,
-        Screen::AccountingReceivables,
-        Screen::CommandConsole,
-        Screen::Tech,
-        Screen::TechAppErrors,
-        Screen::TechFlightRecorder,
-        Screen::TechRuns,
-    ];
-
-    pub fn group(self) -> &'static str {
-        match self {
-            Self::SiteHome | Self::SiteProperties | Self::SitePropertyDetail => "Site",
-            Self::AccountingExpenses
-            | Self::AccountingReceiptScanner
-            | Self::AccountingReceivables => "Accounting",
-            Self::CommandConsole
-            | Self::Tech
-            | Self::TechAppErrors
-            | Self::TechFlightRecorder
-            | Self::TechRuns => "Tech",
-            _ => "Work",
-        }
+    /// Listed in the nav, and in the surface the registry puts it in.
+    pub fn is_listed(self) -> bool {
+        self.nav == Nav::Listed
     }
 }
+
+/// Look a screen up by its key. `Option` is deliberate: an unknown key is a stale page or a typo, and neither should
+/// navigate anywhere.
+pub fn screen(key: &str) -> Option<Screen> {
+    SCREENS
+        .iter()
+        .copied()
+        .find(|candidate| candidate.key == key)
+}
+
+/// The record screen a list screen opens into, if it has one.
+pub fn record_for(list_key: &str) -> Option<Screen> {
+    SCREENS
+        .iter()
+        .copied()
+        .find(|candidate| candidate.detail_of == Some(list_key))
+}
+
+/// The screen a surface opens on: its first listed screen in table order. That is the surface's home, and the one
+/// destination the switcher can offer without guessing.
+pub fn home(surface: Surface) -> Option<Screen> {
+    SCREENS
+        .iter()
+        .copied()
+        .find(|candidate| candidate.surface == surface && candidate.is_listed())
+}
+
+/// The listed screens of one surface, in table order.
+pub fn listed(surface: Surface) -> impl Iterator<Item = Screen> {
+    SCREENS
+        .iter()
+        .copied()
+        .filter(move |candidate| candidate.surface == surface && candidate.is_listed())
+}
+
+/// Every screen the application serves. Labels, paths and nav status come from the code, not from memory:
+/// `lib/navigation/registry.ts` for the portal surfaces, and the route tree under `app/` for the rest.
+pub const SCREENS: &[Screen] = &[
+    // ---- CORE (the registry's surface is NEXUS, labelled CORE) ----
+    Screen { key: "dashboard", title: "Cockpit", path: "/portal/dashboard", surface: Surface::Core, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "clients", title: "Clients", path: "/portal/clients", surface: Surface::Core, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "projects", title: "Projects", path: "/portal/projects", surface: Surface::Core, nav: Nav::Listed, detail_of: None, deferred: Some("Project Management holds three third-party widgets in the TypeScript application — a tree, a Gantt and a calendar — and the plan for letting Rust own the container while each widget keeps its own subtree has to be decided before any of them moves.") },
+    // Keys are addresses, not labels: this one stays `deals` because the rows route and the host already address it by
+    // that name, while the user sees the registry's word for it.
+    Screen { key: "deals", title: "Contracts", path: "/portal/deals", surface: Surface::Core, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "cabinet", title: "Cabinet", path: "/portal/documents", surface: Surface::Core, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "workflows", title: "Workflows", path: "/portal/workflows", surface: Surface::Core, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "forms", title: "Forms", path: "/portal/forms", surface: Surface::Core, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "seller-strategy", title: "Seller Strategy", path: "/portal/core/seller-strategy", surface: Surface::Core, nav: Nav::Listed, deferred: None, detail_of: None },
+
+    // ---- ACCOUNTING ----
+    Screen { key: "accounting", title: "Dashboard", path: "/portal/accounting", surface: Surface::Accounting, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "accounting-receivables", title: "Receivables", path: "/portal/accounting/receivables", surface: Surface::Accounting, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "accounting-expenses", title: "Expenses", path: "/portal/accounting/expenses", surface: Surface::Accounting, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "accounting-pnl", title: "P&L Statement", path: "/portal/accounting/pnl", surface: Surface::Accounting, nav: Nav::Listed, deferred: None, detail_of: None },
+    // The page's own header says it: "Receipt Scanner (FAKE V1). Polished visual placeholder for the future OCR
+    // workflow. Deterministic demo extraction only — real OCR is deferred to a separate story." A placeholder BY
+    // DESIGN is a different thing from a screen nobody wired, and it says which one it is.
+    Screen { key: "accounting-receipt-scanner", title: "Receipt Scanner", path: "/portal/accounting/receipt-scanner", surface: Surface::Accounting, nav: Nav::Listed, detail_of: None, deferred: Some("This screen is a demo placeholder by design: its own header calls it FAKE V1, with deterministic demo extraction and no OCR vendor. Real OCR is deferred to a separate story, so there is nothing to read yet — the polish is the deliverable.") },
+
+    // ---- MARKETING ----
+    Screen { key: "marketing", title: "Dashboard", path: "/portal/marketing", surface: Surface::Marketing, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "marketing-syndication", title: "Syndication", path: "/portal/marketing/syndication", surface: Surface::Marketing, nav: Nav::Listed, deferred: None, detail_of: None },
+
+    // ---- OPPS (the registry's own spelling) ----
+    Screen { key: "issues", title: "Issue Queue", path: "/portal/issues", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "needs-review", title: "Needs Review", path: "/portal/needs-review", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "property-admin", title: "Property Admin", path: "/portal/property-admin", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "media-admin", title: "Media Audit", path: "/portal/media-admin", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "property-media", title: "Property Media", path: "/portal/property-media", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "identity-quality", title: "Identity Quality", path: "/portal/identity-quality", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "client-admin", title: "Client Administration", path: "/portal/client-admin", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "reporting", title: "Reporting", path: "/portal/reporting", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
+    // Reachable from Property Admin, never a nav entry of its own.
+    Screen { key: "decision-analysis", title: "Decision Analysis", path: "/portal/decision-analysis", surface: Surface::Ops, nav: Nav::Unlisted, deferred: None, detail_of: None },
+
+    // ---- SUPPORT ----
+    Screen { key: "system-health", title: "System Health", path: "/portal/system-health", surface: Surface::Support, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "db-test", title: "DB Test", path: "/portal/db-test", surface: Surface::Support, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "whatsapp-meta", title: "WhatsApp Diagnostic", path: "/portal/admin/whatsapp-meta", surface: Surface::Support, nav: Nav::Listed, deferred: None, detail_of: None },
+    // The registry puts Security under SUPPORT even though its route is /portal/settings. It is ONE screen: an earlier
+    // draft listed it twice, under two surfaces, for the same route.
+    Screen { key: "security", title: "Security", path: "/portal/settings", surface: Surface::Support, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "settings-authorities", title: "Authorities", path: "/portal/settings/authorities", surface: Surface::Support, nav: Nav::Unlisted, deferred: None, detail_of: None },
+    Screen { key: "settings-roles", title: "Roles", path: "/portal/settings/roles", surface: Surface::Support, nav: Nav::Unlisted, deferred: None, detail_of: None },
+    Screen { key: "settings-users", title: "Users", path: "/portal/settings/users", surface: Surface::Support, nav: Nav::Unlisted, deferred: None, detail_of: None },
+    Screen { key: "whatsapp-coexistence", title: "WhatsApp Coexistence", path: "/portal/admin/whatsapp-coexistence", surface: Surface::Support, nav: Nav::Unlisted, deferred: None, detail_of: None },
+
+    // ---- screens that exist and are reached from elsewhere (not in the registry) ----
+    Screen { key: "attention", title: "Attention", path: "/portal/attention", surface: Surface::Core, nav: Nav::Unlisted, deferred: None, detail_of: None },
+    Screen { key: "activity", title: "Activity", path: "/portal/activity", surface: Surface::Core, nav: Nav::Unlisted, deferred: None, detail_of: None },
+    Screen { key: "showings", title: "Showings", path: "/portal/showings", surface: Surface::Core, nav: Nav::Unlisted, deferred: None, detail_of: None },
+
+    // ---- TECH ----
+    Screen { key: "tech", title: "Cockpit", path: "/portal/tech", surface: Surface::Tech, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "storyboard", title: "Story Board", path: "/portal/storyboard", surface: Surface::Tech, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "design-lab", title: "UI Lab", path: "/portal/design-lab", surface: Surface::Tech, nav: Nav::Listed, deferred: Some("A component gallery, not a data screen: its content is the design system itself, and the point of a UI lab is to look at the live components rather than a rendering of them.") , detail_of: None },
+    Screen { key: "media-test", title: "Media Test", path: "/portal/media-test", surface: Surface::Tech, nav: Nav::Listed, deferred: Some("An upload harness. Its whole behaviour is a file picker and a POST, which is a thing the host does, not a list a read model can produce.") , detail_of: None },
+    // RETIRED FROM THE NAV (2026-09-13, the registry's own note): "the code stays, the links go". Command Center,
+    // Command Console, GROK and the Flight Recorder LIST were each an attempt at the same problem that never got
+    // used, and their names were close enough to "the cockpit" that one conversation could mean five. Ported like
+    // everything else, and not listed — which is exactly what the registry says about them.
+    Screen { key: "command-center", title: "Command Center", path: "/portal/command-center", surface: Surface::Tech, nav: Nav::Retired, deferred: None, detail_of: None },
+    Screen { key: "command-console", title: "Command Console", path: "/portal/command-console", surface: Surface::Tech, nav: Nav::Retired, deferred: None, detail_of: None },
+    Screen { key: "tech-grok", title: "GROK", path: "/portal/tech/grok", surface: Surface::Tech, nav: Nav::Retired, deferred: None, detail_of: None },
+    Screen { key: "tech-flight-recorder", title: "Flight Recorder", path: "/portal/tech/flight-recorder", surface: Surface::Tech, nav: Nav::Retired, deferred: None, detail_of: None },
+    Screen { key: "tech-app-errors", title: "App Errors", path: "/portal/tech/app-errors", surface: Surface::Tech, nav: Nav::Unlisted, deferred: None, detail_of: None },
+    Screen { key: "tech-runs", title: "Runs", path: "/portal/tech/runs", surface: Surface::Tech, nav: Nav::Unlisted, deferred: None, detail_of: None },
+    Screen { key: "tech-kanban", title: "Kanban", path: "/portal/tech/kanban", surface: Surface::Tech, nav: Nav::Unlisted, deferred: None, detail_of: None },
+    Screen { key: "tech-line", title: "Line", path: "/portal/tech/line", surface: Surface::Tech, nav: Nav::Unlisted, deferred: None, detail_of: None },
+
+    // ---- Record screens: opened from a row, never from the nav ----
+    Screen { key: "client-record", title: "Client", path: "/portal/clients/[personId]", surface: Surface::Core, nav: Nav::Record, deferred: None, detail_of: Some("clients") },
+    Screen { key: "deal-record", title: "Deal", path: "/portal/deals/[dealId]", surface: Surface::Core, nav: Nav::Record, deferred: None, detail_of: Some("deals") },
+    Screen { key: "form-record", title: "Form", path: "/portal/forms/[formId]", surface: Surface::Core, nav: Nav::Record, deferred: None, detail_of: Some("forms") },
+    Screen { key: "workflow-record", title: "Workflow instance", path: "/portal/workflows/[instanceId]", surface: Surface::Core, nav: Nav::Record, deferred: None, detail_of: Some("workflows") },
+    Screen { key: "property-record", title: "Property record", path: "/portal/property-admin/[propertyId]", surface: Surface::Ops, nav: Nav::Record, deferred: None, detail_of: Some("property-admin") },
+    Screen { key: "story-record", title: "Story", path: "/portal/storyboard/[id]", surface: Surface::Tech, nav: Nav::Record, deferred: None, detail_of: Some("storyboard") },
+    // The registry explains where this belongs: the Flight Recorder "is reached from the SELECTED STORY's own detail
+    // pane — for the instance that actually ran it — which is the only place it has data to show." So it is a record
+    // opened from a story record, and the story record emits a row whose id is that instance.
+    Screen { key: "trace-record", title: "Trace", path: "/portal/tech/flight-recorder/[instanceId]", surface: Surface::Tech, nav: Nav::Record, deferred: None, detail_of: Some("story-record") },
+    // Reached from a workflow instance, not from a row of the workflows list — so it is a real screen that no click
+    // currently opens. Listed here so it is not forgotten, and unlisted in the nav so it does not pretend to be.
+    Screen { key: "runtime-record", title: "Runtime inspector", path: "/portal/runtime-inspector/[instanceId]", surface: Surface::Support, nav: Nav::Unlisted, deferred: None, detail_of: None },
+
+    // ---- SITE: the public front. Not covered by the portal registry, so these come from the route tree. ----
+    Screen { key: "site-home", title: "Home", path: "/", surface: Surface::Site, nav: Nav::Listed, deferred: Some("The home page is editorial: its hero, section and call-to-action copy is laid out by hand around marketing content slots. The content is readable (the slots exist), the layout is not ported yet.") , detail_of: None },
+    Screen { key: "site-properties", title: "Properties", path: "/properties", surface: Surface::Site, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "site-property-detail", title: "Property", path: "/properties/[slug]", surface: Surface::Site, nav: Nav::Record, deferred: None, detail_of: Some("site-properties") },
+    Screen { key: "site-about", title: "About", path: "/about", surface: Surface::Site, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "site-buyers", title: "Buyers", path: "/buyers", surface: Surface::Site, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "site-sellers", title: "Sellers", path: "/sellers", surface: Surface::Site, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "site-faq", title: "FAQ", path: "/faq", surface: Surface::Site, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "site-contact", title: "Contact", path: "/contact", surface: Surface::Site, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "site-guide", title: "Guide", path: "/guide", surface: Surface::Site, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "site-services", title: "Services", path: "/services", surface: Surface::Site, nav: Nav::Listed, deferred: Some("Static page copy, with no content slot behind it: the services page is written in its own component, so there is nothing to read until that copy moves into marketing content.") , detail_of: None },
+    Screen { key: "site-privacy", title: "Privacy", path: "/privacy", surface: Surface::Site, nav: Nav::Listed, deferred: Some("Legal text held in the page itself. Porting it would copy prose into a renderer without changing how it is maintained.") , detail_of: None },
+    Screen { key: "site-video", title: "Video", path: "/video", surface: Surface::Site, nav: Nav::Listed, deferred: Some("A media page: its content is video files served by the media pipeline, which no read model in this route returns.") , detail_of: None },
+    Screen { key: "site-whatsapp", title: "WhatsApp", path: "/whatsapp", surface: Surface::Site, nav: Nav::Listed, deferred: Some("An intake landing page. Its work is the form and the POST behind it, which belongs to the host.") , detail_of: None },
+    Screen { key: "site-favorites", title: "Favorites", path: "/favorites", surface: Surface::Site, nav: Nav::Unlisted, deferred: Some("Personal to a signed-in visitor, so it needs the session rather than an unauthenticated row endpoint. The live page keeps it until a host passes the visitor's own identity to the model.") , detail_of: None },
+];
 
 /// A row of any list screen.
 ///
 /// Deliberately generic. This sweep ports screen *structure* — route, heading, nav, state boundary — and per-screen
-/// data contracts come after. A generic row means a new screen is a nav entry rather than a new module, and it keeps
+/// data contracts come after. A generic row means a new screen is a table entry rather than a new module, and it keeps
 /// the port honest: nothing here invents columns for a screen whose real columns have not been read yet.
 #[derive(Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -269,8 +276,8 @@ pub struct Model {
     /// Selection is an id, never an index or a copied row: a refreshed list must not re-point the selection at a
     /// different record.
     pub selected_row_id: Option<String>,
-    /// What the current screen is *about*, when it is about a single record — the property slug on the detail screen.
-    /// Kept separate from `selected_row_id` because selecting a row and opening a record are different acts: one is
+    /// What the current screen is *about*, when it is about a single record — the property slug or person id. Kept
+    /// separate from `selected_row_id` because selecting a row and opening a record are different acts: one is
     /// browsing a list, the other is a different screen with its own fetch.
     pub scope: Option<String>,
 }
@@ -278,9 +285,9 @@ pub struct Model {
 impl Default for Model {
     fn default() -> Self {
         Self {
-            // The first screen of the first area, i.e. what a host that says nothing gets. A host that cares which
-            // screen opens says so (see `Program::open` / the shell's `mount`), because the URL is the host's business.
-            screen: Screen::ALL[0],
+            // The first table entry, i.e. what a host that says nothing gets. A host that cares which screen opens
+            // says so (the shell's `mount` takes the key), because the URL is the host's business.
+            screen: SCREENS[0],
             loading: false,
             error: None,
             rows: Vec::new(),
@@ -307,7 +314,7 @@ pub enum Msg {
     RowsLoaded(Vec<Row>),
     RowSelected(String),
     /// A row was opened as a record rather than merely selected: on a listing, this navigates to that record's own
-    /// screen. A screen with no detail view treats it as a selection instead, so the same click is never ambiguous.
+    /// screen. A screen with no record treats it as a selection instead, so the same click is never ambiguous.
     RecordOpened(String),
     /// The host reports a failed request. The model keeps what it had; the message is the record.
     EffectFailed(String),
@@ -331,8 +338,8 @@ pub enum Effect {
     /// Fetch rows for this screen, optionally about one record.
     ///
     /// The screen travels with the effect rather than being scraped back out of the DOM, and `scope` is the record key
-    /// (a property slug) when the screen is about one record. Turning that into a request — which path, which query
-    /// parameter — stays the host's business, because the host is what owns the network.
+    /// when the screen is about one record. Turning that into a request — which path, which query parameter — stays
+    /// the host's business, because the host is what owns the network.
     FetchRows {
         screen: &'static str,
         scope: Option<String>,

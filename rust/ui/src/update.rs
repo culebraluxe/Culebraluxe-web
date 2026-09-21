@@ -3,7 +3,7 @@
 //! Navigation is a message like everything else, which is what keeps the shell dumb: a nav click, a deep link and a
 //! restored session all arrive as `Navigate` and produce the same state.
 
-use crate::model::{Effect, Model, Msg, Screen};
+use crate::model::{record_for, Effect, Model, Msg, Screen};
 
 /// Move to a screen and ask for its rows. The single place a screen change happens, so navigation and record-opening
 /// cannot drift apart.
@@ -20,7 +20,7 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
     model.selected_row_id = None;
     if model.loading {
         vec![Effect::FetchRows {
-            screen: screen.key(),
+            screen: screen.key,
             scope: model.scope.clone(),
         }]
     } else {
@@ -40,7 +40,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             }
             open(model, screen, None)
         }
-        Msg::RecordOpened(id) => match model.screen.detail() {
+        Msg::RecordOpened(id) => match record_for(model.screen.key) {
             Some(detail) => open(model, detail, Some(id)),
             // No detail screen: the same click means "select this one". An id that is not in the list is refused
             // rather than half-applied.
@@ -82,6 +82,12 @@ mod tests {
     use super::*;
     use crate::model::{Row, Screen};
 
+    /// Screens are addressed by KEY in these tests: the table is the source of truth, so a test that named a variant
+    /// would be asserting a name that only exists in a previous version of this file.
+    fn target(key: &str) -> Screen {
+        crate::model::screen(key).expect("a screen the table defines")
+    }
+
     fn row(id: &str) -> Row {
         Row {
             id: id.into(),
@@ -93,8 +99,8 @@ mod tests {
     #[test]
     fn navigating_to_a_menu_screen_fetches_its_rows() {
         let mut model = Model::default();
-        let effects = update(&mut model, Msg::Navigate(Screen::Clients));
-        assert_eq!(model.screen, Screen::Clients);
+        let effects = update(&mut model, Msg::Navigate(target("clients")));
+        assert_eq!(model.screen, target("clients"));
         assert!(model.loading);
         assert_eq!(
             effects,
@@ -108,17 +114,17 @@ mod tests {
     #[test]
     fn navigating_back_to_the_same_screen_does_nothing() {
         let mut model = Model {
-            screen: Screen::Clients,
+            screen: target("clients"),
             ..Model::default()
         };
-        assert!(update(&mut model, Msg::Navigate(Screen::Clients)).is_empty());
+        assert!(update(&mut model, Msg::Navigate(target("clients"))).is_empty());
     }
 
     #[test]
     fn the_deferred_screen_navigates_without_fetching() {
         let mut model = Model::default();
-        assert!(update(&mut model, Msg::Navigate(Screen::Projects)).is_empty());
-        assert_eq!(model.screen, Screen::Projects);
+        assert!(update(&mut model, Msg::Navigate(target("projects"))).is_empty());
+        assert_eq!(model.screen, target("projects"));
         assert!(
             !model.loading,
             "a placeholder must not show a spinner for data it never asks for"
@@ -128,11 +134,11 @@ mod tests {
     #[test]
     fn opening_a_listing_row_opens_that_record_and_asks_about_it() {
         let mut model = Model {
-            screen: Screen::SiteProperties,
+            screen: target("site-properties"),
             ..Model::default()
         };
         let effects = update(&mut model, Msg::RecordOpened("villa-del-mar".into()));
-        assert_eq!(model.screen, Screen::SitePropertyDetail);
+        assert_eq!(model.screen, target("site-property-detail"));
         assert_eq!(
             effects,
             vec![Effect::FetchRows {
@@ -147,14 +153,14 @@ mod tests {
     fn opening_a_row_where_there_is_no_detail_view_selects_it() {
         // Activity is a feed: a row of it is history, not a record to open.
         let mut model = Model {
-            screen: Screen::Activity,
+            screen: target("activity"),
             ..Model::default()
         };
         update(&mut model, Msg::RowsLoaded(vec![row("a")]));
         assert!(update(&mut model, Msg::RecordOpened("a".into())).is_empty());
         assert_eq!(
             model.screen,
-            Screen::Activity,
+            target("activity"),
             "there is nowhere to navigate to"
         );
         assert_eq!(model.selected_row_id.as_deref(), Some("a"));
@@ -164,7 +170,7 @@ mod tests {
     fn navigating_back_to_a_list_clears_the_record_it_was_about() {
         let mut model = Model::default();
         update(&mut model, Msg::RecordOpened("villa-del-mar".into()));
-        update(&mut model, Msg::Navigate(Screen::SiteProperties));
+        update(&mut model, Msg::Navigate(target("site-properties")));
         assert_eq!(
             model.scope, None,
             "a stale slug would make the next detail fetch about the wrong record"
@@ -176,7 +182,7 @@ mod tests {
         let mut model = Model::default();
         update(&mut model, Msg::RowsLoaded(vec![row("a")]));
         update(&mut model, Msg::RowSelected("a".into()));
-        update(&mut model, Msg::Navigate(Screen::Deals));
+        update(&mut model, Msg::Navigate(target("deals")));
         assert!(model.rows.is_empty());
         assert_eq!(model.selected_row_id, None);
     }

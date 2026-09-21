@@ -38,12 +38,26 @@ The portal is being ported screen by screen into `rust/ui`, on MVI: `Model` is t
 everything that can happen to it, `update` is the only thing that changes it and is pure, `view` renders the model
 without deciding anything. The pattern is not decoration — it is what makes a screen testable without a browser.
 
-**Scope is the menu.** `Screen::ALL` in `rust/ui/src/model.rs` is the port's to-do list, `Screen::live_path()` records
-which live route each variant replaces, and `Screen::area()` splits the port in two: `Site` (the public main front) and
-`Portal`. A host mounts one area, and the nav is generated per area, so the public host cannot be offered the expenses
-screen and the portal host cannot be offered the listings. Project Management is the one deliberate placeholder: it
-holds three third-party widgets (tree, Gantt, calendar) and the plan for letting Rust own the container while each
-widget keeps its own subtree comes before any of them moves.
+**Scope is the APPLICATION.** `SCREENS` in `rust/ui/src/model.rs` is a TABLE, not an enum: one row per screen with its
+key, title, live route, operating surface, nav status and — where it has no data — the reason in its own words. At this
+size an enum needs five match arms per screen kept in sync by hand; one row is one place to look and one place to be
+wrong. `Screen::path` records the live route each row replaces, and `Screen::surface` splits the port by the registry's
+own operating surfaces (CORE, ACCOUNTING, MARKETING, OPPS, SUPPORT, TECH) plus SITE for the public front.
+
+Labels, paths and nav status come from `lib/navigation/registry.ts`, not from a transcription. That registry documents
+four routes as **RETIRED FROM THE NAV (2026-09-13, captain's call) — "the code stays, the links go"**: Command Center,
+Command Console, GROK and the Flight Recorder LIST. Those are ported like everything else and simply never listed. A
+test asserts no retired, unlisted or record screen can appear in the nav, because a port that quietly re-lists a retired
+screen undoes a decision somebody made on purpose.
+
+**A SCREEN THAT CANNOT BE WIRED SAYS WHY, IN ITS OWN WORDS.** "No read model exists", "this is a demo placeholder" and
+"this widget host is deliberately not moved yet" are three different situations. The Receipt Scanner is the second: its
+own page header calls it *"FAKE V1 ... Polished visual placeholder for the future OCR workflow"*, so the polish is the
+deliverable and there is nothing to read.
+
+**VERIFY THE WASM PATH SEPARATELY.** `cargo test` does NOT compile `#[cfg(feature = "wasm")]` code, so a green test run
+says nothing about the shell. A refactor of this size broke the shell's imports while the tests stayed green, and the
+`scripts/rust-ui-build.sh` step is what caught it. Any verification that skips the wasm build is incomplete.
 
 **Build it (required before the host page renders anything):**
 

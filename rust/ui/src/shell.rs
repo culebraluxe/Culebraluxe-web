@@ -26,9 +26,10 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{Document, HtmlElement, MouseEvent, Window};
 
-use crate::{Msg, Program, Screen};
+use crate::{home, screen, Msg, Program, Surface};
 
 const ATTRIBUTE_NAV: &str = "data-nav";
+const ATTRIBUTE_SURFACE: &str = "data-surface";
 const ATTRIBUTE_SELECT_ROW: &str = "data-select-row";
 const ATTRIBUTE_OPEN_RECORD: &str = "data-open-record";
 
@@ -112,7 +113,7 @@ pub fn effect_event_name() -> String {
 #[wasm_bindgen]
 pub fn mount(element_id: &str, start: &str) -> Result<String, JsValue> {
     console_error_panic_hook::set_once();
-    let start = Screen::from_key(start)
+    let start = screen(start)
         .ok_or_else(|| JsValue::from_str(&format!("ui: '{start}' is not a known screen")))?;
     let root = container(element_id)?;
     let program = Rc::new(RefCell::new(Program::new()));
@@ -129,8 +130,14 @@ pub fn mount(element_id: &str, start: &str) -> Result<String, JsValue> {
                 .and_then(|target| target.dyn_into::<web_sys::Element>().ok());
             let mut msg = None;
             while let Some(element) = node {
+                if let Some(key) = element.get_attribute(ATTRIBUTE_SURFACE) {
+                    // A surface is a destination, not a screen: the switcher offers the surface's home, which is the
+                    // one screen it can point at without guessing.
+                    msg = Surface::from_key(&key).and_then(home).map(Msg::Navigate);
+                    break;
+                }
                 if let Some(key) = element.get_attribute(ATTRIBUTE_NAV) {
-                    msg = Screen::from_key(&key).map(Msg::Navigate);
+                    msg = screen(&key).map(Msg::Navigate);
                     break;
                 }
                 if let Some(id) = element.get_attribute(ATTRIBUTE_OPEN_RECORD) {

@@ -17,7 +17,7 @@
 //!    application's own routes, which own the session and the server-side credentials; a rejected change arrives as
 //!    `EffectFailed` and restores the model, which is how a widget snaps back.
 //!
-//! SCOPE: the portal menu. `Screen::ALL` is the port's to-do list, `Screen::portal_path()` names the live route each
+//! SCOPE: the portal menu. `SCREENS` is the port's to-do list, `Screen::path` names the live route each
 //! entry replaces, and Project Management is deliberately a placeholder.
 
 pub mod model;
@@ -27,7 +27,9 @@ pub mod view;
 #[cfg(feature = "wasm")]
 pub mod shell;
 
-pub use model::{Area, Effect, Model, Msg, Row, Screen};
+pub use model::{
+    home, listed, record_for, screen, Effect, Model, Msg, Nav, Row, Screen, Surface, SCREENS,
+};
 pub use update::update;
 pub use view::render;
 
@@ -70,10 +72,16 @@ impl Program {
 mod tests {
     use super::*;
 
+    /// Screens are addressed by KEY in these tests: the table is the source of truth, so a test that named a variant
+    /// would be asserting a name that only exists in a previous version of this file.
+    fn target(key: &str) -> Screen {
+        crate::model::screen(key).expect("a screen the table defines")
+    }
+
     #[test]
     fn a_new_program_opens_on_the_first_menu_screen_with_nothing_loaded() {
         let program = Program::new();
-        assert_eq!(program.model().screen, Screen::ALL[0]);
+        assert_eq!(program.model().screen, SCREENS[0]);
         assert!(program.model().rows.is_empty());
         assert!(!program.model().loading);
     }
@@ -81,7 +89,7 @@ mod tests {
     #[test]
     fn opening_a_screen_asks_the_host_for_its_rows() {
         let mut program = Program::new();
-        let effects = program.dispatch(Msg::ScreenOpened(Screen::Clients));
+        let effects = program.dispatch(Msg::ScreenOpened(target("clients")));
         assert!(
             program.model().loading,
             "the model must reflect the intent immediately"
@@ -115,8 +123,8 @@ mod tests {
     #[test]
     fn the_host_decides_which_screen_opens() {
         let mut program = Program::new();
-        let effects = program.open(Screen::Dashboard);
-        assert_eq!(program.model().screen, Screen::Dashboard);
+        let effects = program.open(target("dashboard"));
+        assert_eq!(program.model().screen, target("dashboard"));
         assert_eq!(
             effects,
             vec![Effect::FetchRows {
@@ -126,45 +134,97 @@ mod tests {
         );
     }
 
+    /// The table is the source of truth for the whole port, so it has to be internally consistent: unique keys, one
+    /// screen per live route, records that point at a real list screen, and a surface for everything.
     #[test]
-    fn the_two_areas_do_not_overlap() {
-        let site: Vec<Screen> = Screen::ALL
-            .iter()
-            .copied()
-            .filter(|s| s.area() == Area::Site)
-            .collect();
-        let portal: Vec<Screen> = Screen::ALL
-            .iter()
-            .copied()
-            .filter(|s| s.area() == Area::Portal)
-            .collect();
+    fn the_screen_table_is_consistent() {
+        let mut keys: Vec<&str> = SCREENS.iter().map(|s| s.key).collect();
+        keys.sort_unstable();
+        let counted = keys.len();
+        keys.dedup();
         assert_eq!(
-            site.len() + portal.len(),
-            Screen::ALL.len(),
-            "every screen belongs to an area"
+            counted,
+            keys.len(),
+            "two screens share a key, so addressing one is ambiguous"
         );
-        assert!(site.iter().all(|s| !portal.contains(s)));
-        assert!(site.iter().all(|s| s.live_path().starts_with('/')));
+
+        let mut paths: Vec<&str> = SCREENS.iter().map(|s| s.path).collect();
+        paths.sort_unstable();
+        let counted_paths = paths.len();
+        paths.dedup();
+        // This is not hypothetical: the first draft of the table listed /portal/settings twice, under two surfaces.
+        assert_eq!(
+            counted_paths,
+            paths.len(),
+            "two screens claim the same live route"
+        );
+
+        for screen in SCREENS {
+            assert!(screen.path.starts_with('/'), "{} has no route", screen.key);
+            assert!(!screen.title.is_empty(), "{} has no title", screen.key);
+            match screen.detail_of {
+                Some(list) => {
+                    assert_eq!(
+                        screen.nav,
+                        Nav::Record,
+                        "{} is opened from a row, so it is not a nav entry",
+                        screen.key
+                    );
+                    assert!(
+                        crate::model::screen(list).is_some(),
+                        "{} is opened from '{list}', which is not a screen in the table",
+                        screen.key
+                    );
+                }
+                None => assert_ne!(
+                    screen.nav,
+                    Nav::Record,
+                    "{} is a record that nothing can open",
+                    screen.key
+                ),
+            }
+        }
     }
 
     /// A record screen is reached by opening a row, never from the nav: "one client, but which one?" is not something
-    /// a menu can offer. Checked for every screen that declares a detail view, so adding one to `ALL` by hand fails
-    /// here rather than shipping a nav entry that needs an argument nobody can supply.
+    /// a menu can offer.
     #[test]
     fn a_record_screen_is_never_in_the_nav() {
-        for screen in Screen::ALL {
-            if let Some(detail) = screen.detail() {
+        for screen in SCREENS {
+            let records: Vec<Screen> = SCREENS
+                .iter()
+                .copied()
+                .filter(|candidate| candidate.detail_of == Some(screen.key))
+                .collect();
+            // One click cannot mean two things: when a list has more than one record, neither is offered by a row
+            // (`workflows` has both an instance record and a runtime inspector).
+            if records.len() == 1 {
                 assert!(
-                    !Screen::ALL.contains(&detail),
+                    !records[0].is_listed(),
                     "{} is opened from a row, so it must not be a nav entry",
-                    detail.key()
+                    records[0].key
                 );
                 assert_eq!(
-                    detail.area(),
-                    screen.area(),
-                    "a detail view stays in its own area"
+                    records[0].surface, screen.surface,
+                    "a record stays in its own surface"
                 );
             }
+        }
+    }
+
+    /// Every surface the registry defines is reachable from the switcher, and no surface is a dead end.
+    #[test]
+    fn every_surface_has_a_home() {
+        for surface in Surface::ALL.iter().copied() {
+            let home = SCREENS
+                .iter()
+                .copied()
+                .find(|candidate| candidate.surface == surface && candidate.is_listed());
+            assert!(
+                home.is_some(),
+                "{} has no listed screen to open",
+                surface.label()
+            );
         }
     }
 }

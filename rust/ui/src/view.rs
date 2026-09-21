@@ -1,10 +1,10 @@
 //! The view: a pure function of the model, rendering the class names this application already uses.
 //!
-//! The nav is generated from `Screen::ALL`, so a screen cannot exist without appearing in the menu and a menu entry
+//! The nav is generated from `SCREENS`, so a screen cannot exist without appearing in the menu and a menu entry
 //! cannot point at a screen that does not exist. Every interpolated value is escaped — this crate renders data from a
 //! database and from third-party sources, and a Rust renderer that formats HTML owns that risk.
 
-use crate::model::{Model, Row, Screen};
+use crate::model::{home, Model, Row, Surface, SCREENS};
 
 /// Escape text for HTML text and attribute positions. Quotes matter because the same helper fills `data-` attributes,
 /// where an unescaped quote would end the attribute early.
@@ -30,7 +30,7 @@ pub fn render(model: &Model) -> String {
            <nav class=\"w-60 shrink-0 border-r bg-card p-4\" aria-label=\"Portal\">{}</nav>\
            <main class=\"min-w-0 flex-1 p-6\">{}{}{}</main>\
          </div>",
-        escape(model.screen.key()),
+        escape(model.screen.key),
         nav(model),
         error_banner(model),
         loading_banner(model),
@@ -39,29 +39,50 @@ pub fn render(model: &Model) -> String {
 }
 
 fn nav(model: &Model) -> String {
-    let mut out = String::new();
-    let mut group = "";
-    // Only the area this screen belongs to. A host mounts one area, so the public host can never be offered the
-    // expenses screen and the portal host can never be offered the listings.
-    for &screen in Screen::ALL
+    let surface = model.screen.surface;
+    let mut out = format!(
+        "<p class=\"mb-2 px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground\">{}</p>",
+        escape(surface.label())
+    );
+    // The surface the current screen belongs to, which is what the live portal does: the registry is the single source
+    // of truth for what navigation belongs under a surface, and only LISTED screens appear here. Retired and unlisted
+    // routes are reached from the screens that own them.
+    for screen in SCREENS
         .iter()
-        .filter(|screen| screen.area() == model.screen.area())
+        .copied()
+        .filter(|candidate| candidate.surface == surface && candidate.is_listed())
     {
-        if screen.group() != group {
-            group = screen.group();
-            out.push_str(&format!(
-                "<p class=\"mt-4 mb-1 px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground\">{}</p>",
-                escape(group)
-            ));
-        }
         let active = screen == model.screen;
         out.push_str(&format!(
             "<button type=\"button\" data-nav=\"{key}\" class=\"block w-full rounded-md px-2 py-1.5 text-left \
              text-sm {state}\">{label}{suffix}</button>",
-            key = escape(screen.key()),
+            key = escape(screen.key),
             state = if active { "bg-muted font-medium" } else { "hover:bg-muted/60 text-muted-foreground" },
-            label = escape(screen.title()),
-            suffix = if screen.is_deferred() { " (not ported)" } else { "" }
+            label = escape(screen.title),
+            suffix = if screen.is_deferred() { " (no data yet)" } else { "" }
+        ));
+    }
+    out.push_str(&surface_switcher(model));
+    out
+}
+
+/// One nav entry per surface, so a host that mounts one surface can still reach the others. Each carries
+/// `data-surface` rather than `data-nav`: the two are different intents (go to a screen, versus go to a surface's
+/// home), and one attribute meaning two things is how a click ends up doing the wrong one.
+fn surface_switcher(model: &Model) -> String {
+    let mut out = String::from(
+        "<p class=\"mt-6 mb-2 px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground\">Surfaces</p>",
+    );
+    for surface in Surface::ALL.iter().copied() {
+        let Some(home) = home(surface) else { continue };
+        let active = surface == model.screen.surface;
+        out.push_str(&format!(
+            "<button type=\"button\" data-surface=\"{key}\" title=\"home: {home}\" class=\"block w-full rounded-md \
+             px-2 py-1 text-left text-xs {state}\">{label}</button>",
+            key = escape(surface.key()),
+            home = escape(home.key),
+            state = if active { "text-foreground font-medium" } else { "text-muted-foreground hover:bg-muted/60" },
+            label = escape(surface.label())
         ));
     }
     out
@@ -103,24 +124,28 @@ fn body(model: &Model) -> String {
            <p class=\"text-sm text-muted-foreground\">Replaces <code>{path}</code></p>\
            {subject}\
          </header>",
-        title = escape(model.screen.title()),
-        path = escape(model.screen.live_path()),
+        title = escape(model.screen.title),
+        path = escape(model.screen.path),
         subject = subject
     );
     if model.screen.is_deferred() {
-        return format!("{header}{}", deferred_notice());
+        return format!("{header}{}", deferred_notice(model));
     }
     format!("{header}{}", rows(model))
 }
 
-/// Project Management says why it is empty, on the screen, rather than looking like a broken page.
-fn deferred_notice() -> String {
-    "<div class=\"rounded-lg border bg-card p-6 text-sm text-muted-foreground\">\
-       This screen is intentionally empty. It holds three third-party widgets in the TypeScript application — a tree,\
-       a Gantt, and a calendar — and the plan for letting Rust own the container while each widget keeps its own\
-       subtree has to be decided before any of them moves. The other screens come first.\
-     </div>"
-        .to_string()
+/// A screen with no data says so in its own words. The reason travels with the screen rather than being one hardcoded
+/// sentence, because "no read model exists", "this is a demo placeholder" and "this is a widget host deliberately not
+/// moved yet" are three different situations — and a screen that cannot tell them apart teaches the reader nothing.
+fn deferred_notice(model: &Model) -> String {
+    let reason = model
+        .screen
+        .deferred
+        .unwrap_or("This screen has no data source yet.");
+    format!(
+        "<div class=\"rounded-lg border bg-card p-6 text-sm text-muted-foreground\">{}</div>",
+        escape(reason)
+    )
 }
 
 fn rows(model: &Model) -> String {
@@ -140,7 +165,13 @@ fn row_item(model: &Model, row: &Row) -> String {
     let selected = model.selected_row_id.as_deref() == Some(row.id.as_str());
     // A row on a screen with a detail view carries the intent to open that record, and the shell turns the attribute
     // into `RecordOpened`. A row anywhere else carries only `data-select-row`.
-    let opens = if model.screen.detail().is_some() {
+    // Exactly one record, or none: a row that could open two different records opens neither, because one click cannot
+    // mean two things. (`workflows` is the case: it has both an instance record and a runtime inspector.)
+    let records = SCREENS
+        .iter()
+        .filter(|candidate| candidate.detail_of == Some(model.screen.key))
+        .count();
+    let opens = if records == 1 {
         format!(" data-open-record=\"{}\"", escape(&row.id))
     } else {
         String::new()
@@ -181,7 +212,13 @@ fn row_item(model: &Model, row: &Row) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Model, Row};
+    use crate::model::{Nav, Screen};
+
+    /// Screens are addressed by KEY in these tests. The table is the source of truth, so a test that named a variant
+    /// would be asserting a name that only exists in a previous version of this file.
+    fn target(key: &str) -> Screen {
+        crate::model::screen(key).expect("a screen the table defines")
+    }
 
     /// The row that matters. Data reaches this crate from a database and from third-party feeds, and a renderer that
     /// formats HTML owns the escaping — the test goes through `render`, not through `escape`, because the bug that
@@ -224,26 +261,36 @@ mod tests {
         assert!(html.contains("&quot;"));
     }
 
-    /// The nav is per area: a host mounts one half of the application, so the public host must not be offered the
-    /// expenses screen and the portal host must not be offered the listings. Checked from both sides, for every screen.
+    /// The nav shows its own surface's listed screens, plus one switcher entry per surface — and NEVER a retired,
+    /// unlisted or record screen. That last part is the invariant worth having: "the code stays, the links go" is a
+    /// decision recorded in the registry, and a port that quietly re-lists a retired screen undoes it.
     #[test]
-    fn the_nav_shows_exactly_the_screens_of_its_area() {
-        for screen in Screen::ALL {
+    fn the_nav_shows_its_surface_and_never_a_retired_screen() {
+        for &screen in SCREENS {
             let html = render(&Model {
-                screen: *screen,
+                screen,
                 ..Model::default()
             });
-            for candidate in Screen::ALL {
-                let expected = usize::from(candidate.area() == screen.area());
-                assert_eq!(
-                    html.matches(&format!("data-nav=\"{}\"", candidate.key()))
-                        .count(),
-                    expected,
-                    "{} on the {} nav while showing {}",
-                    candidate.key(),
-                    screen.area().label(),
-                    screen.key()
-                );
+            for candidate in SCREENS {
+                let count = html
+                    .matches(&format!("data-nav=\"{}\"", candidate.key))
+                    .count();
+                match candidate.nav {
+                    Nav::Listed if candidate.surface == screen.surface => {
+                        assert_eq!(
+                            count,
+                            1,
+                            "{} missing from the {} nav",
+                            candidate.key,
+                            screen.surface.label()
+                        )
+                    }
+                    // A listed screen of another surface appears at most once, as that surface's home.
+                    Nav::Listed => assert!(count <= 1, "{} appeared twice", candidate.key),
+                    Nav::Retired | Nav::Unlisted | Nav::Record => {
+                        assert_eq!(count, 0, "{} must never be a nav entry", candidate.key)
+                    }
+                }
             }
         }
     }
@@ -257,14 +304,14 @@ mod tests {
             badge: None,
         }];
         let listing = render(&Model {
-            screen: Screen::SiteProperties,
+            screen: target("site-properties"),
             rows: rows.clone(),
             ..Model::default()
         });
         assert!(listing.contains("data-open-record=\"villa-del-mar\""));
         // Activity has no record screen: it is a feed, and a row of it is history rather than a thing to open.
         let feed = render(&Model {
-            screen: Screen::Activity,
+            screen: target("activity"),
             rows,
             ..Model::default()
         });
@@ -274,7 +321,7 @@ mod tests {
     #[test]
     fn a_detail_screen_names_the_record_it_is_about() {
         let model = Model {
-            screen: Screen::SitePropertyDetail,
+            screen: target("site-property-detail"),
             scope: Some("villa-del-mar".into()),
             ..Model::default()
         };
@@ -282,7 +329,7 @@ mod tests {
 
         // The slug arrives from a URL, so it is data like any other and gets escaped like any other.
         let hostile = Model {
-            screen: Screen::SitePropertyDetail,
+            screen: target("site-property-detail"),
             scope: Some("<b>x</b>".into()),
             ..Model::default()
         };
@@ -292,7 +339,7 @@ mod tests {
     #[test]
     fn the_active_screen_is_marked_and_the_others_are_not() {
         let model = Model {
-            screen: Screen::Deals,
+            screen: target("deals"),
             ..Model::default()
         };
         let html = render(&model);
@@ -301,14 +348,20 @@ mod tests {
     }
 
     #[test]
-    fn the_deferred_screen_says_so_instead_of_looking_broken() {
-        let model = Model {
-            screen: Screen::Projects,
+    fn a_screen_with_no_data_says_why_in_its_own_words() {
+        let html = render(&Model {
+            screen: target("projects"),
             ..Model::default()
-        };
-        let html = render(&model);
-        assert!(html.contains("intentionally empty"));
-        assert!(html.contains("Projects (not ported)"));
+        });
+        // The reason travels with the screen rather than being one hardcoded sentence, so this asserts the screen's
+        // OWN words: a placeholder by design, an unwired screen and a deliberately-moved-later screen differ.
+        assert!(html.contains("three third-party widgets"));
+        let placeholder = render(&Model {
+            screen: target("accounting-receipt-scanner"),
+            ..Model::default()
+        });
+        assert!(placeholder.contains("FAKE V1"));
+        assert!(placeholder.contains("(no data yet)"));
     }
 
     #[test]
