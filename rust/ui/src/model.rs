@@ -211,7 +211,13 @@ pub const SCREENS: &[Screen] = &[
     // ---- TECH ----
     Screen { key: "tech", title: "Cockpit", path: "/portal/tech", surface: Surface::Tech, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "storyboard", title: "Story Board", path: "/portal/storyboard", surface: Surface::Tech, nav: Nav::Listed, deferred: None, detail_of: None },
-    Screen { key: "design-lab", title: "UI Lab", path: "/portal/design-lab", surface: Surface::Tech, nav: Nav::Listed, deferred: None , detail_of: None },
+    Screen { key: "design-lab", title: "UI Lab", path: "/portal/design-lab", surface: Surface::Tech, nav: Nav::Listed, deferred: None, detail_of: None },
+    // GPT's lab, merged from origin/main. It is a TypeScript MVI lab (`ui/framer-ui-lab/model.ts` +
+    // `framer-ui-lab-controller.ts`) rendering a React view with its own CSS module
+    // (`components/portal/tech/framer-ui-lab.tsx`, 438 lines), and it has no read model — so there is nothing for a
+    // rows endpoint to return, and the experiments are promoted into the Rust view language one at a time if the
+    // captain likes them. Registered under TECH as "Framer UI Lab" with authority tech.access.
+    Screen { key: "framer-ui-lab", title: "Framer UI Lab", path: "/portal/tech/framer-ui-lab", surface: Surface::Tech, nav: Nav::Listed, deferred: Some("A client-rendered experiment lab: its model and controller live in ui/framer-ui-lab and its view is a React component with its own CSS module, so there is no read model to return. Promoting an experiment into the shared Rust view language is a separate, deliberate step."), detail_of: None },
     Screen { key: "media-test", title: "Media Test", path: "/portal/media-test", surface: Surface::Tech, nav: Nav::Listed, deferred: None , detail_of: None },
     // A screen the captain asked for: what Rust does with layout that the TypeScript pages do not, rendering on the same
     // design tokens. Its route is the only one this port adds on purpose, and it serves the port itself.
