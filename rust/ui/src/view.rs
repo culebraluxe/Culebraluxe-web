@@ -116,6 +116,7 @@ fn loading_banner(model: &Model) -> String {
 fn custom_body(model: &Model) -> Option<String> {
     match model.screen.key {
         "tech-lab" => Some(tech_lab()),
+        "projects" => Some(projects_view(model)),
         _ => None,
     }
 }
@@ -288,6 +289,127 @@ fn screen_header(model: &Model) -> String {
         },
         subject = subject
     )
+}
+
+/// Projects, mirroring `components/portal/projects-workspace.tsx` as it is today: the 86px scope rail, the glass view
+/// rail with the same six views, the status control with the same four words, the work plan table, and the catch-up
+/// panel whose source is Apple Calendar through EventKit.
+///
+/// NOT FINISHED HERE, ON PURPOSE: the Apple Calendar path is a seam. The live screen got one calendar event and one
+/// todo to happen, and finishing it is a separate piece of work — so this panel names the source and shows the seam
+/// rather than pretending to sync. The tree, the timeline and the calendar widgets stay in TypeScript until they are
+/// hosted as islands.
+fn projects_view(model: &Model) -> String {
+    let views = [
+        "Work Plan",
+        "Timeline",
+        "Calendar",
+        "Financials",
+        "Documents",
+        "Activity",
+    ];
+    let view_tabs = views
+        .iter()
+        .enumerate()
+        .map(|(index, view)| {
+            let active = index == 0;
+            format!(
+                "<button type=\"button\" class=\"portal-glass-tab{}\"{}>{}</button>",
+                if active {
+                    " bg-[var(--portal-navy)] text-white shadow-sm"
+                } else {
+                    ""
+                },
+                if active { " aria-current=\"page\"" } else { "" },
+                escape(view)
+            )
+        })
+        .collect::<String>();
+
+    let statuses = ["Open", "In progress", "Complete", "Archived"];
+    let status_options = statuses
+        .iter()
+        .map(|status| format!("<option>{}</option>", escape(status)))
+        .collect::<String>();
+
+    let scope_rail = "<div class=\"flex w-[86px] shrink-0 flex-col items-center gap-2 border-r \
+         border-[var(--portal-panel-border)] py-3\" aria-label=\"Project scope and domain\">\
+         <button type=\"button\" class=\"rounded-full bg-[var(--portal-navy)] px-2.5 py-1 text-[10px] font-medium \
+           uppercase tracking-[0.12em] text-white\">Catch-Up</button>\
+       </div>";
+
+    let rows = if model.rows.is_empty() {
+        "<tr><td colspan=\"3\" class=\"px-3 py-6 text-center text-sm text-muted-foreground\">No projects returned.</td></tr>"
+            .to_string()
+    } else {
+        model
+            .rows
+            .iter()
+            .map(|row| {
+                let cells = row
+                    .cells
+                    .iter()
+                    .enumerate()
+                    .map(|(index, cell)| {
+                        let class = if index == 0 { "font-medium text-[var(--portal-navy)]" } else { "text-[var(--portal-blue-gray)]" };
+                        format!("<td class=\"px-3 py-2 text-sm {class}\">{}</td>", escape(cell))
+                    })
+                    .collect::<String>();
+                format!("<tr class=\"border-t border-[var(--portal-panel-border)]\">{cells}{}</tr>", match row.badge.as_deref() {
+                    Some(badge) => format!(
+                        "<td class=\"px-3 py-2 text-right text-[11px] uppercase tracking-[0.12em] text-[var(--portal-blue-gray)]\">{}</td>",
+                        escape(badge)
+                    ),
+                    None => String::new(),
+                })
+            })
+            .collect::<String>()
+    };
+
+    let work_plan = format!(
+        "<section class=\"min-w-0 flex-1 overflow-hidden rounded-lg border border-[var(--portal-panel-border)] bg-white/70\">\
+           <header class=\"flex items-center gap-3 border-b border-[var(--portal-panel-border)] px-3 py-2\">\
+             <p class=\"w-[190px] shrink-0 text-left text-[14px] font-medium uppercase leading-tight tracking-[0.14em] \
+               text-[var(--portal-gold)]\">{title}</p>\
+             <nav aria-label=\"Project workspace views\" class=\"portal-glass-rail h-11 w-max\">{view_tabs}</nav>\
+             <div class=\"ml-auto flex shrink-0 items-center gap-2\">\
+               <select aria-label=\"Project status\" class=\"rounded-full bg-white/50 px-2.5 py-1 text-[9px] font-medium \
+                 uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] outline-none\">{status_options}</select>\
+               <button type=\"button\" class=\"rounded-full bg-[var(--portal-navy)] px-3.5 py-2 text-[12px] font-medium \
+                 text-white shadow-sm\">New project</button>\
+             </div>\
+           </header>\
+           <table class=\"w-full border-collapse\">\
+             <thead class=\"text-[11px] uppercase tracking-[0.12em] text-[var(--portal-blue-gray)]\"><tr>\
+               <th class=\"px-3 py-2 text-left font-medium\">Work item</th>\
+               <th class=\"px-3 py-2 text-left font-medium\">Owner</th>\
+               <th class=\"px-3 py-2 text-left font-medium\">Status</th>\
+             </tr></thead>\
+             <tbody>{rows}</tbody>\
+           </table>\
+         </section>",
+        title = escape(model.screen.title),
+        view_tabs = view_tabs,
+        status_options = status_options,
+        rows = rows
+    );
+
+    let catch_up = catch_up_panel();
+    format!("<div class=\"flex gap-3\">{scope_rail}{work_plan}{catch_up}</div>")
+}
+
+/// The catch-up panel, and the seam that is not finished: Apple Calendar, through EventKit, one event and one todo
+/// deep. It says so rather than implying a sync that is not there.
+fn catch_up_panel() -> String {
+    "<aside class=\"w-[300px] shrink-0 rounded-lg border border-[var(--portal-panel-border)] bg-white/70 p-3\">\
+       <h2 class=\"text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--portal-gold)]\">Catch-Up</h2>\
+       <p class=\"mt-2 text-[13px] leading-snug text-[var(--portal-blue-gray)]\">\
+         Scheduled from <strong>Apple Calendar</strong> through EventKit. This path is a seam, not a finished sync: the\
+         live screen produced one calendar event and one todo, and completing it is separate work.\
+       </p>\
+       <p class=\"mt-2 text-[11px] uppercase tracking-[0.12em] text-[var(--portal-blue-gray)]\">source: apple_calendar</p>\
+     </aside>"
+        .to_string()
 }
 
 /// The body: a screen's own markup when it has any, else a header and rows.
@@ -486,8 +608,50 @@ mod tests {
         assert!(!feed.contains("data-open-record"));
     }
 
-    /// A screen that owns its body renders its own markup and no row list, even if rows arrive. Otherwise the lab would
-    /// show a table of nothing underneath itself.
+    /// The Projects screen mirrors the live workspace: the same six views in the same order, the same four status
+    /// words, and the Apple Calendar seam named rather than implied.
+    #[test]
+    fn the_projects_screen_mirrors_the_live_workspace() {
+        let html = render(&Model {
+            screen: target("projects"),
+            rows: vec![Row {
+                id: "p1".into(),
+                cells: vec!["Listing onboarding".into(), "Ada".into()],
+                badge: Some("active".into()),
+            }],
+            ..Model::default()
+        });
+        for view in [
+            "Work Plan",
+            "Timeline",
+            "Calendar",
+            "Financials",
+            "Documents",
+            "Activity",
+        ] {
+            assert!(
+                html.contains(view),
+                "the {view} view is part of the live workspace"
+            );
+        }
+        for status in ["Open", "In progress", "Complete", "Archived"] {
+            assert!(
+                html.contains(status),
+                "the live status control offers {status}"
+            );
+        }
+        assert!(
+            html.contains("portal-glass-tab"),
+            "the live view rail is glass tabs"
+        );
+        assert!(
+            html.contains("Listing onboarding"),
+            "the wired rows are the work plan"
+        );
+        // The seam, stated: Apple Calendar through EventKit is not finished, and the screen says so.
+        assert!(html.contains("Apple Calendar"));
+        assert!(html.contains("one calendar event and one todo"));
+    }
     #[test]
     fn a_screen_can_own_its_body() {
         let lab = render(&Model {

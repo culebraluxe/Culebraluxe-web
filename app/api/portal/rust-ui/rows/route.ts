@@ -639,14 +639,11 @@ function designLabRows(): RustUiRow[] {
  */
 async function projectRows(): Promise<RustUiRow[]> {
   const projects = await new SqlProjectRepository(sql).list()
+  // The live work plan table's columns: Work item, Owner, Status. Mirrored rather than chosen.
   return projects.map((project) => ({
     id: project.id,
-    cells: [
-      project.name ?? project.id,
-      project.status ?? '—',
-      project.startsAt ?? '—',
-      project.endsAt ?? '—',
-    ],
+    cells: [project.name ?? project.id, project.owner ?? '—'],
+    badge: project.status,
   }))
 }
 
