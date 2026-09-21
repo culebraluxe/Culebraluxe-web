@@ -273,4 +273,25 @@ call before it is committed.
   side; it cannot be done from this repository.
 
 
+### Over a high-latency link, only round trips matter
+
+Worth stating plainly, because it changes what is worth optimising. Every request is `browser -> Next -> Rust -> Neon`, and
+each database statement is another round trip on top. Over a slow link the arithmetic is dominated by *counts*, not by
+how fast anything computes:
+
+- The clients page is now **2 database round trips** (rows with the total riding along, then evidence).
+- Repeated requests are **0 identity round trips** (cached).
+- A pool checkout never opens a connection it could reuse: **25 checkouts, 1 connection opened, 0 idle probes**.
+
+So the remaining win is fewer *requests*, not faster ones. A screen that fires five endpoints pays five sets of
+`browser -> Next -> Rust` legs; one aggregated workspace endpoint would pay one. That is the MVI-shaped change already
+suggested, and over a slow link it is worth more than everything else on this page.
+
+**On replacing sqlx.** The counters argue against it. Wrapping 25 checkouts into one connection is the pool's whole job
+and it is already doing it, with the expensive case (a handshake) happening once per process rather than once per
+request. No pool implementation can remove a round trip; that is the wire. If a page still feels slow while
+`connectionsOpened` and `checkouts` look right, the remaining time is the link or the number of requests, and neither is
+a database-pool problem.
+
+
 ## Not yet done

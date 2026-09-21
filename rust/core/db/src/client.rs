@@ -20,6 +20,8 @@ struct DirectoryRow {
     last_contact_label: Option<String>,
     sources: Vec<String>,
     name_sort_priority: i32,
+    /// count(*) over () - the filtered total, delivered with the rows so the page costs one round trip.
+    total: i64,
 }
 
 #[derive(Debug, FromRow)]
@@ -139,26 +141,13 @@ impl ClientDao {
         let page_size = request.page_size.clamp(1, 50);
         let offset = (page - 1) * page_size;
 
-        let total = sqlx::query_scalar::<_, i64>(
-            r#"
-            select count(*)::bigint
-            from mv_client_directory mv
-            where ($1::text is null or mv.search_text ilike $1)
-              and ($2::text is null or mv.status = $2)
-              and ($3::text is null or mv.role = $3)
-            "#,
-        )
-        .bind(search.as_deref())
-        .bind(status)
-        .bind(role)
-        .fetch_one(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("client.directory.count", &error))?;
-
         let sort = match request.sort.as_str() {
             "created" | "recent" => request.sort.as_str(),
             _ => "name",
         };
+        // ONE ROUND TRIP, NOT TWO. The count and the page have identical WHERE clauses, so `count(*) over ()` returns
+        // the total alongside the rows. Against a remote database a round trip measures 72ms, and this page already
+        // needed two of them for the same filtered set.
         let rows = sqlx::query_as::<_, DirectoryRow>(
             r#"
             select
@@ -172,7 +161,8 @@ impl ClientDao {
               mv.assigned_agent,
               mv.last_contact_label,
               mv.sources,
-              mv.name_sort_priority
+              mv.name_sort_priority,
+              count(*) over () as total
             from mv_client_directory mv
             where ($1::text is null or mv.search_text ilike $1)
               and ($2::text is null or mv.status = $2)
@@ -196,6 +186,16 @@ impl ClientDao {
         .await
         .map_err(|error| DbFailure::from_sqlx("client.directory", &error))?;
 
+        // A page past the end returns no rows, so the window count has nothing to ride on and the real total would be
+        // reported as zero. That is the one case worth a second query, and it is rare by construction.
+        let total = match rows.first() {
+            Some(row) => row.total,
+            None => self
+                .directory_total(&search, status, role)
+                .await
+                .map_err(|error| DbFailure::from_sqlx("client.directory.count", &error))?,
+        };
+
         Ok((
             rows.into_iter()
                 .map(|row| ClientDirectoryRecord {
@@ -214,6 +214,29 @@ impl ClientDao {
                 .collect(),
             total,
         ))
+    }
+
+    /// The filtered total on its own. Only used when a page past the end has no rows for the window count to ride on.
+    async fn directory_total(
+        &self,
+        search: &Option<String>,
+        status: Option<&str>,
+        role: Option<&str>,
+    ) -> Result<i64, sqlx::Error> {
+        sqlx::query_scalar::<_, i64>(
+            r#"
+            select count(*)::bigint
+            from mv_client_directory mv
+            where ($1::text is null or mv.search_text ilike $1)
+              and ($2::text is null or mv.status = $2)
+              and ($3::text is null or mv.role = $3)
+            "#,
+        )
+        .bind(search.as_deref())
+        .bind(status)
+        .bind(role)
+        .fetch_one(self.db.pool())
+        .await
     }
 
     pub async fn admin_page(
