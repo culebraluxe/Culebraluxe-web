@@ -56,16 +56,35 @@ impl Database {
         })?;
 
         let normalized = normalize_ssl_mode(&url);
-        let options = PgConnectOptions::from_str(&normalized)
+        let mut options = PgConnectOptions::from_str(&normalized)
             .map_err(|_| DbFailure::configuration("db.connect", "invalid database connection URL"))?
             .application_name(&format!("culebraluxe-rust-{}", target.as_str()));
 
+        // A pooler endpoint (Neon's `-pooler`, i.e. PgBouncer in transaction mode) does not honour named prepared
+        // statements: the backend a statement was prepared on is not necessarily the backend that sees it next. sqlx
+        // prepares by default, so against a pooler it either re-prepares constantly or fails outright. Measured against
+        // the dev endpoint, one round trip is ~72ms, so a re-prepare per statement is a real cost. The cache is off for
+        // pooled endpoints and stays on for a direct connection, where it is worth having.
+        if options.get_host().contains("-pooler") {
+            options = options.statement_cache_capacity(0);
+        }
+
         let max_connections = positive_u32("FORGE_DB_POOL_MAX", 5);
-        let idle_ms = positive_u64("FORGE_DB_POOL_IDLE_MS", 10_000);
+        // KEEP ONE CONNECTION WARM. Without a floor the pool holds nothing when idle, so the next request pays a full
+        // connect: measured at 498ms for the handshake plus authentication, against ~72ms for a round trip on a
+        // connection that is already open. That is the difference between a page feeling instant and feeling slow, and
+        // it hit the engine hardest because engine commands are far apart in time. `FORGE_DB_POOL_MIN=0` restores the
+        // old hold-nothing behaviour, which is what tests want.
+        let min_connections = non_negative_u32("FORGE_DB_POOL_MIN", 1);
+        // `idle_timeout` only reclaims connections ABOVE the floor. 10s was aggressive enough that a burst of activity
+        // followed by a pause re-established everything; 60s keeps a working set without holding connections forever.
+        // The floor is what guarantees warmth, this is only about not churning the rest.
+        let idle_ms = positive_u64("FORGE_DB_POOL_IDLE_MS", 60_000);
         let connect_ms = positive_u64("FORGE_DB_POOL_CONNECT_MS", 10_000);
 
         let pool = PgPoolOptions::new()
             .max_connections(max_connections)
+            .min_connections(min_connections)
             .idle_timeout(Some(Duration::from_millis(idle_ms)))
             .acquire_timeout(Duration::from_millis(connect_ms))
             .connect_with(options)
@@ -221,12 +240,17 @@ fn normalize_ssl_mode(url: &str) -> String {
         .replace("sslmode=verify-ca", "sslmode=verify-full")
 }
 
-/// `FORGE_DB_KEEPALIVE_MS` — how often to ping. Default 4 minutes, which is under Neon's 5-minute idle suspend, so a
-/// long-lived process stays warm without hammering the database. `0` disables it.
+/// `FORGE_DB_KEEPALIVE_MS` — how often to ping.
+///
+/// 60 seconds by default. Neon suspends an idle branch, and waking one costs about two seconds, paid by whoever happens
+/// to make the next request - which in development is the person looking at the screen wondering why the first click
+/// after a pause is slow. A `select 1` a minute keeps the branch awake. It is a real query against a real database, so
+/// it does keep Neon compute warm: `FORGE_DB_KEEPALIVE_MS=0` turns it off, which is reasonable in production where the
+/// application's own traffic keeps the branch awake anyway.
 fn keepalive_interval_ms() -> u64 {
     match env::var("FORGE_DB_KEEPALIVE_MS") {
         Ok(value) => value.trim().parse::<u64>().unwrap_or(0),
-        Err(_) => 240_000,
+        Err(_) => 60_000,
     }
 }
 
@@ -236,6 +260,15 @@ async fn ping_pool(pool: &PgPool) -> DbResult<()> {
         .await
         .map_err(|error| DbFailure::from_sqlx("db.ping", &error))?;
     Ok(())
+}
+
+/// Like `positive_u32`, but 0 is a meaningful value: for `FORGE_DB_POOL_MIN` it means "hold no connection open", which
+/// is what a test process or a one-shot CLI wants.
+fn non_negative_u32(name: &str, fallback: u32) -> u32 {
+    match env::var(name) {
+        Ok(value) => value.trim().parse::<u32>().unwrap_or(fallback),
+        Err(_) => fallback,
+    }
 }
 
 fn positive_u32(name: &str, fallback: u32) -> u32 {

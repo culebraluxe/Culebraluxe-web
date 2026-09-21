@@ -59,11 +59,48 @@ keeps that property while allowing the engine to move.
 ### The pool stays warm
 
 `Database::spawn_keepalive`, started by `server/src/bin/http.rs`. One `select 1` every `FORGE_DB_KEEPALIVE_MS` (default
-4 minutes, under Neon's 5-minute idle suspend; `0` disables) so a suspended branch is never woken by a user's page load.
-The ping runs through the normal `DbFailure` path, so a database that has genuinely gone away still writes an
-`app_error` row rather than failing silently in a background task.
+60 seconds; `0` disables) so a suspended branch is never woken by a user's page load - waking one costs about two
+seconds. The ping runs through the normal `DbFailure` path, so a database that has genuinely gone away still writes an
+`app_error` row rather than failing silently in a background task. It is a real query, so it does keep Neon compute
+warm; production can turn it off, where the application's own traffic does the same job.
 
-### One pool per process, and the engine built once
+### Why it feels slower than the TypeScript path did
+
+It is not a Rust-versus-TypeScript difference in configuration: both used the same endpoint (a Neon `-pooler`) and the
+same pool settings (max 5, idle 10s, connect 10s, same env var names). Measured against the dev database:
+
+| operation | median |
+| --- | --- |
+| cold connect + authenticate | 498ms |
+| warm `select 1` (one round trip) | 72ms |
+| `begin` + statement + `commit` (one engine step) | 223ms |
+| new connection + one query | 688ms |
+
+And the reclaim statement itself costs **0.058ms** server-side. The database is not doing the work; the round trips are.
+
+Three separate causes of the slowness, all now measured:
+
+1. **A pool per engine call** - 2368ms per command. Fixed by the shared pool and the cached engine.
+2. **A reaped pool connection** - after the pool idle-reaps, the next command paid ~650ms extra. Measured directly:
+   with `FORGE_DB_POOL_MIN=0` the warm follow-up call took 1073ms, with the floor at 1 it took 397ms.
+3. **The first command after a process start** - still ~1.7s, because that is the cold engine build (parse the
+   supermodel, validate, seed). It is once per process now instead of once per call.
+
+**Why TypeScript felt warm.** Its engine door went through `@neondatabase/serverless` (`lib/neon-interactive.ts`), a
+WebSocket driver that keeps a persistent connection and pays no Postgres handshake per query - and its pool lived in the
+long-running Next process, which touches the database constantly. The Rust API was idle between engine commands, so it
+had nothing warm to reuse.
+
+**What this means for production, which is the question that matters.** The 72ms round trip is this laptop talking to
+`us-east-2`. A server deployed in the same region pays single-digit milliseconds, so one engine step becomes roughly
+10-30ms there. The engine is not going to be slower in production than the TypeScript path was; it should be faster,
+because it now shares the server's pool instead of building one.
+
+**Knobs, if engine traffic grows in production.** The engine shares the server's pool (`FORGE_DB_POOL_MAX`, default 5)
+and runs `FORGE_ENGINE_WORKERS` commands at once (default 4). Four workers plus ordinary reads against five connections
+is a deliberate fit, not a coincidence, but if engine volume rises the pool is the thing to raise - connections through a
+pooler are cheap, and `FORGE_DB_POOL_MIN` keeps one warm.
+
 
 Two things were wrong with "the engine inherits the server's pool", and both were measured rather than assumed.
 
