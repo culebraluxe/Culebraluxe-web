@@ -153,6 +153,18 @@ export default tseslint.config(
       ],
     },
   },
+  // THE ROWS ROUTES ARE THE ONE ALLOWED SEAM.
+  //
+  // They exist to read the read models on behalf of the Rust screens, so they import `legacy/` by design - that is
+  // what they are for. This is an override rather than a suppression on purpose: a suppression is debt that gets
+  // pruned the moment the rule stops firing, and this is not debt, it is the boundary working. The import lives here
+  // and nowhere else; when this feed moves into rust/server (see docs/layers/SERVICES.md), the exception goes with it.
+  {
+    files: ['app/api/portal/rust-ui/rows/route.ts', 'app/api/rust-ui/public-rows/route.ts'],
+    rules: {
+      'no-restricted-imports': 'off',
+    },
+  },
   {
     files: ['**/*.{mjs,cjs,js,jsx}'],
     languageOptions: {

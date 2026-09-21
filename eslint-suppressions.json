@@ -120,16 +120,6 @@
       "count": 1
     }
   },
-  "app/api/portal/rust-ui/rows/route.ts": {
-    "no-restricted-imports": {
-      "count": 36
-    }
-  },
-  "app/api/rust-ui/public-rows/route.ts": {
-    "no-restricted-imports": {
-      "count": 3
-    }
-  },
   "app/login/recovery/actions.ts": {
     "no-restricted-imports": {
       "count": 1
