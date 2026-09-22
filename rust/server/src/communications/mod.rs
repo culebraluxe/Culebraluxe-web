@@ -2,15 +2,16 @@ use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
 use db::{CommsDao, DbResult};
 use domain::{
-    active_source_count, moment_dto, source_dto, summarize_relationship_evidence, CommsAggregate,
-    CommsMomentPage, CommsPanel, CommsSourceRecord, CommsTimeline, GetCommsPanelRequest,
-    GetCommsTimelineRequest, LastContactRecord, RelationshipEvidenceRecord, COMMS_MAX_PAGE_SIZE,
-    COMMS_MOMENT_LIMIT, COMMS_PAGE_SIZE, COMMS_SOURCE_SLOT_COUNT,
+    active_source_count, moment_dto, source_dto, summarize_relationship_evidence, ActivityFeedEntry,
+    CommsAggregate, CommsMomentPage, CommsPanel, CommsSourceRecord, CommsTimeline,
+    GetCommsPanelRequest, GetCommsTimelineRequest, LastContactRecord, RelationshipEvidenceRecord,
+    COMMS_MAX_PAGE_SIZE, COMMS_MOMENT_LIMIT, COMMS_PAGE_SIZE, COMMS_SOURCE_SLOT_COUNT,
 };
 use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
 
 #[async_trait]
 pub trait CommsRepository: Send {
+    async fn activity(&mut self, limit: i64) -> DbResult<Vec<ActivityFeedEntry>>;
     async fn sources(&mut self, person_id: &str) -> DbResult<Vec<CommsSourceRecord>>;
     async fn evidence(&mut self, person_id: &str) -> DbResult<Vec<RelationshipEvidenceRecord>>;
     async fn last_contact(&mut self, person_id: &str) -> DbResult<LastContactRecord>;
@@ -24,6 +25,10 @@ pub trait CommsRepository: Send {
 
 #[async_trait]
 impl CommsRepository for CommsDao {
+    async fn activity(&mut self, limit: i64) -> DbResult<Vec<ActivityFeedEntry>> {
+        CommsDao::activity(self, limit).await
+    }
+
     async fn sources(&mut self, person_id: &str) -> DbResult<Vec<CommsSourceRecord>> {
         CommsDao::sources(self, person_id).await
     }
@@ -57,6 +62,32 @@ impl<R: CommsRepository> CommsService<R> {
             repository,
             runtime: ServiceRuntime::new(infrastructure),
         }
+    }
+
+    pub async fn activity(
+        &mut self,
+        limit: i64,
+        context: &ServiceContext,
+    ) -> Result<Vec<ActivityFeedEntry>, CoreServiceError> {
+        const OP: &str = "comms.activity";
+        let decision = authorize(
+            &self.runtime,
+            "comms",
+            "comms.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+
+        let result = self
+            .repository
+            .activity(limit.clamp(1, 500))
+            .await
+            .map_err(Into::into);
+
+        audit_result(&self.runtime, "comms", OP, context, decision, &result).await?;
+        result
     }
 
     pub async fn panel(
