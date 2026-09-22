@@ -3,6 +3,7 @@ use crate::clients::ClientService;
 use crate::cockpit::CockpitService;
 use crate::communications::CommsService;
 use crate::contracts::ContractService;
+use crate::deals::DealPortalService;
 use crate::firms::FirmService;
 use crate::forms::FormService;
 use crate::lookup::ServiceDirectory;
@@ -18,7 +19,7 @@ use crate::vault::{VaultArtifactPort, VaultService};
 use crate::wbs::WbsService;
 use crate::workflow_portal::WorkflowPortalService;
 use db::{
-    CalendarDao, ClientDao, CockpitDao, CommsDao, ContractDao, Database, FirmDao, FormDao, MediaDao, PersonDao,
+    CalendarDao, ClientDao, CockpitDao, CommsDao, ContractDao, Database, DealPortalDao, FirmDao, FormDao, MediaDao, PersonDao,
     ProjectDao, PropertyDao, SecurityDao, ShowingDao, SignatureDao, TaskDao, VaultDao, WbsDao, WorkflowPortalDao,
 };
 use service::{ServiceInfrastructure, SignatureProvider};
@@ -90,6 +91,13 @@ impl CoreServices {
 
     pub fn comms(&self) -> CommsService<CommsDao> {
         CommsService::new(CommsDao::new(self.db.clone()), self.infrastructure.clone())
+    }
+
+    pub fn deal_portal(&self) -> DealPortalService<DealPortalDao> {
+        DealPortalService::new(
+            DealPortalDao::new(self.db.clone()),
+            self.infrastructure.clone(),
+        )
     }
 
     pub fn contract(&self) -> ContractService<ContractDao> {
