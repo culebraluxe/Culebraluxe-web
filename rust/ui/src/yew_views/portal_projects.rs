@@ -1,16 +1,15 @@
 //! CORE / Project Management — Rust/Yew shell and MVI workspace.
 //!
-//! React is retained only for the original vendor widgets (Arborist, SVAR Gantt, FullCalendar).
-//! Their containers receive serialized read-only props; all application state remains in Model -> update().
+//! React is retained for the mature interaction surfaces that should not be rewritten during the port:
+//! Arborist, SVAR Gantt, FullCalendar, and the existing project asset browser. Their containers receive
+//! serialized read-only props; all application state remains in Model -> update().
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use serde_json::json;
 use yew::prelude::*;
 
-use crate::model::{
-    Msg, PortalProject, PortalProjectDocument, PortalProjectWorkItem, PortalProjectsPage,
-};
+use crate::model::{Msg, PortalProject, PortalProjectWorkItem, PortalProjectsPage};
 use crate::yew_views::portal_shell::PortalShell;
 
 #[derive(Properties, PartialEq)]
