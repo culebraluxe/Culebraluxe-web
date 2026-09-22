@@ -1652,6 +1652,30 @@ fn catch_up_panel() -> String {
         .to_string()
 }
 
+/// A site screen that has its page but no renderer yet.
+///
+/// THIS EXISTS BECAUSE A BLANK PAGE IS INVISIBLE. Sellers, FAQ, Guide, Contact and Buyers are served their payload and
+/// have no body written yet — so before this they rendered chrome, nothing, and no explanation, which is indistinguishable
+/// from a page that is broken, a module that failed to load, or a screen that navigated to the wrong place. Four
+/// different problems, one symptom, no information.
+///
+/// It names the screen, so a stuck page is also a pointer: the key in the message is the key to look up in the registry,
+/// the route and the view.
+fn not_yet_ported(model: &Model) -> String {
+    format!(
+        "<section class=\"mx-auto max-w-[1600px] px-6 py-28 md:px-12 md:py-40\">\
+           <p class=\"mb-4 text-xs font-light uppercase tracking-[0.34em] text-accent\">Not yet ported</p>\
+           <h1 class=\"max-w-4xl text-balance font-serif text-3xl font-light leading-[1.15] text-foreground md:text-4xl\">\
+             This page is still TypeScript. Its content has arrived and its design has not.</h1>\
+           <p class=\"mt-8 max-w-2xl text-sm font-light leading-relaxed text-muted-foreground\">\
+             The Rust view has no renderer for this screen yet, so it is showing this instead of an empty page. \
+             The screen is <code class=\"text-foreground\">{key}</code> and its content is being served correctly: \
+             nothing is broken, the body is simply not written.</p>\
+         </section>",
+        key = escape(model.screen.key),
+    )
+}
+
 /// The body: a screen's own markup when it has any, else a header and rows.
 fn body(model: &Model) -> String {
     // THE SITE HAS NO SCREEN HEADER. On the portal, a title and its route help you know where you are; on the public
@@ -1664,6 +1688,10 @@ fn body(model: &Model) -> String {
     };
     if let Some(custom) = custom_body(model) {
         return format!("{header}{custom}");
+    }
+    // A site screen whose page has arrived but whose renderer has not says so, rather than rendering nothing at all.
+    if model.screen.surface == Surface::Site && model.page.is_some() {
+        return format!("{header}{}", not_yet_ported(model));
     }
     if model.screen.is_deferred() {
         return format!("{header}{}", deferred_notice(model));
