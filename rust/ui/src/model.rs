@@ -1381,6 +1381,30 @@ pub struct DealCreateState {
     pub submitting: bool,
 }
 
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DealWorkspaceState {
+    pub task_title: String,
+    pub task_detail: String,
+    pub task_due_at: String,
+    pub offer_amounts: BTreeMap<String, String>,
+    pub showing_times: BTreeMap<String, String>,
+    pub participant_query: String,
+    pub participant_person_id: String,
+    pub participant_label: String,
+    pub participant_role_label: String,
+    pub participant_people: Vec<PortalDealPersonCandidate>,
+    pub participant_searching: bool,
+    pub other_role_labels: BTreeMap<String, String>,
+    pub structural_role: String,
+    pub structural_query: String,
+    pub structural_person_id: String,
+    pub structural_label: String,
+    pub structural_owner_user_id: String,
+    pub structural_people: Vec<PortalDealPersonCandidate>,
+    pub structural_searching: bool,
+    pub busy_action: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Model {
     pub screen: Screen,
@@ -1405,6 +1429,8 @@ pub struct Model {
     pub seller_strategy: crate::seller_strategy::SellerStrategyState,
     /// Contracts create/search state is reducer-owned just like every other interactive portal surface.
     pub deal_create: DealCreateState,
+    /// One Deal workspace's forms and transient command state.
+    pub deal_workspace: DealWorkspaceState,
     /// WHICH MOUNT THIS STATE BELONGS TO.
     ///
     /// A host run has a generation, the shell stamps it on the program and on every effect it asks for, and every
@@ -1430,6 +1456,7 @@ impl Default for Model {
             page: None,
             seller_strategy: crate::seller_strategy::SellerStrategyState::default(),
             deal_create: DealCreateState::default(),
+            deal_workspace: DealWorkspaceState::default(),
             // Generation zero is "no host has said", which is what a program built by a test or an example holds.
             generation: 0,
         }
@@ -1523,6 +1550,45 @@ pub enum Msg {
     },
     DealCreateRequested,
     DealCreated {
+        screen: String,
+        generation: u64,
+        id: String,
+    },
+    DealWorkspaceTaskTitleChanged(String),
+    DealWorkspaceTaskDetailChanged(String),
+    DealWorkspaceTaskDueChanged(String),
+    DealWorkspaceCreateTaskRequested,
+    DealWorkspaceCompleteTaskRequested { task_id: String },
+    DealWorkspaceOfferAmountChanged { key: String, value: String },
+    DealWorkspaceSubmitOfferRequested { parent_offer_id: Option<String> },
+    DealWorkspaceWithdrawOfferRequested { offer_id: String },
+    DealWorkspaceRejectOfferRequested { offer_id: String },
+    DealWorkspaceCreateShowingRequested,
+    DealWorkspaceShowingTimeChanged { showing_id: String, value: String },
+    DealWorkspaceScheduleShowingRequested { showing_id: String },
+    DealWorkspaceCancelShowingRequested { showing_id: String },
+    DealWorkspaceCompleteShowingRequested { showing_id: String },
+    DealWorkspaceParticipantQueryChanged(String),
+    DealWorkspaceParticipantSelected { id: String, label: String },
+    DealWorkspaceParticipantRoleChanged(String),
+    DealWorkspaceAddParticipantRequested,
+    DealWorkspaceOtherRoleChanged { participant_id: String, value: String },
+    DealWorkspaceUpdateOtherRequested { participant_id: String },
+    DealWorkspaceEndOtherRequested { participant_id: String },
+    DealWorkspaceStructuralRoleChanged(String),
+    DealWorkspaceStructuralQueryChanged(String),
+    DealWorkspaceStructuralPersonSelected { id: String, label: String },
+    DealWorkspaceStructuralOwnerChanged(String),
+    DealWorkspaceSetStructuralRequested,
+    DealWorkspaceEndStructuralRequested { participant_id: String },
+    DealWorkspacePeopleLoaded {
+        screen: String,
+        generation: u64,
+        purpose: String,
+        query: String,
+        people: Vec<PortalDealPersonCandidate>,
+    },
+    DealWorkspaceCommandCompleted {
         screen: String,
         generation: u64,
         id: String,
@@ -1765,6 +1831,20 @@ pub enum Effect {
         client_person_id: String,
         owner_user_id: Option<String>,
         notes: Option<String>,
+    },
+    /// Search people while editing one Deal workspace role.
+    SearchDealWorkspacePeople {
+        screen: &'static str,
+        generation: u64,
+        purpose: String,
+        query: String,
+    },
+    /// Run one Rust-owned Deal workspace command.
+    RunDealWorkspaceCommand {
+        screen: &'static str,
+        generation: u64,
+        deal_id: String,
+        command: PortalDealCommand,
     },
     /// CORE Project Management reads only from Rust Project/WBS/Vault APIs.
     FetchProjects {
