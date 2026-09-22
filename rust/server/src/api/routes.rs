@@ -152,6 +152,21 @@ struct AppleReminderBody {
     alert: Option<bool>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RouteProjectWorkBody {
+    title: String,
+    notes: String,
+    status: String,
+    due_at: Option<String>,
+    owner: Option<String>,
+    destination: String,
+    start_at: Option<String>,
+    end_at: Option<String>,
+    location: Option<String>,
+    alert: Option<bool>,
+}
+
 struct UnavailableVaultArtifactPort;
 
 #[async_trait]
@@ -309,6 +324,7 @@ pub fn router(state: ApiState) -> Router {
             "/v1/wbs/{id}/apple-reminder",
             post(queue_apple_reminder),
         )
+        .route("/v1/wbs/{id}/route", post(route_project_work))
         .route("/v1/clients", get(clients))
         .route("/v1/clients/agents", get(client_agents))
         .route("/v1/clients/{person_id}/history", get(client_history))
@@ -1113,6 +1129,113 @@ async fn activity(
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(value, &resolved))
+}
+
+async fn route_project_work(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<RouteProjectWorkBody>,
+) -> Result<Json<ApiSuccess<serde_json::Value>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut wbs = state.services().wbs();
+    let current = wbs
+        .get(&id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?
+        .ok_or_else(|| {
+            correlate(
+                ApiError::not_found("WBS_NOT_FOUND", format!("WBS item not found: {id}")),
+                &resolved,
+            )
+        })?;
+    let status = domain::WbsStatus::try_from(body.status.as_str()).map_err(|error| {
+        correlate(
+            ApiError::from(CoreServiceError::business("WBS_STATUS_INVALID", error)),
+            &resolved,
+        )
+    })?;
+    let saved = wbs
+        .save(
+            &domain::SaveWbsItemRequest {
+                create: domain::CreateWbsItemRequest {
+                    id: current.id.clone(),
+                    title: body.title,
+                    notes: Some(body.notes),
+                    category: current.category.clone(),
+                    project_id: current.project_id.clone(),
+                    parent_id: current.parent_id.clone(),
+                    due_at: body.due_at,
+                    owner: body.owner,
+                    order: current.order,
+                    entity: current.entity.clone(),
+                },
+                status: Some(status),
+            },
+            &resolved.service,
+        )
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+
+    let alert = body.alert.unwrap_or(true);
+    let route = match body.destination.as_str() {
+        "task" => serde_json::to_value(
+            wbs.queue_apple_reminder(&saved.id, alert, &resolved.service)
+                .await
+                .map_err(|error| correlate(ApiError::from(error), &resolved))?,
+        )
+        .unwrap_or_else(|_| json!({"state":"queued"})),
+        "calendar" => {
+            let start_at = body.start_at.ok_or_else(|| {
+                correlate(
+                    ApiError::from(CoreServiceError::business(
+                        "CALENDAR_TIME_REQUIRED",
+                        "Calendar start time is required.",
+                    )),
+                    &resolved,
+                )
+            })?;
+            let end_at = body.end_at.ok_or_else(|| {
+                correlate(
+                    ApiError::from(CoreServiceError::business(
+                        "CALENDAR_TIME_REQUIRED",
+                        "Calendar end time is required.",
+                    )),
+                    &resolved,
+                )
+            })?;
+            let mut calendar = state.services().calendar();
+            serde_json::to_value(
+                calendar
+                    .create_apple_event(
+                        &domain::CreateAppleCalendarEventRequest {
+                            title: saved.title.clone(),
+                            start_at,
+                            end_at,
+                            all_day: Some(false),
+                            location: body.location,
+                            notes: (!saved.notes.trim().is_empty()).then_some(saved.notes.clone()),
+                            alert: Some(alert),
+                        },
+                        &resolved.service,
+                    )
+                    .await
+                    .map_err(|error| correlate(ApiError::from(error), &resolved))?,
+            )
+            .unwrap_or_else(|_| json!({"state":"queued"}))
+        }
+        _ => {
+            return Err(correlate(
+                ApiError::from(CoreServiceError::business(
+                    "PROJECT_WORK_DESTINATION_INVALID",
+                    "Project work destination must be task or calendar.",
+                )),
+                &resolved,
+            ))
+        }
+    };
+
+    Ok(success(json!({ "item": saved, "route": route }), &resolved))
 }
 
 async fn queue_apple_reminder(
