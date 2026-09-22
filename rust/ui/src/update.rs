@@ -1825,6 +1825,60 @@ mod tests {
     }
 
     #[test]
+    fn deal_workspace_commands_are_reducer_owned_and_scoped() {
+        let mut model = Model {
+            screen: target("deal-record"),
+            scope: Some("deal-7".into()),
+            ..Model::default()
+        };
+
+        update(
+            &mut model,
+            Msg::DealWorkspaceTaskTitleChanged("Call notario".into()),
+        );
+        update(
+            &mut model,
+            Msg::DealWorkspaceTaskDueChanged("2026-09-23T09:30".into()),
+        );
+
+        assert_eq!(
+            update(&mut model, Msg::DealWorkspaceCreateTaskRequested),
+            vec![Effect::RunDealWorkspaceCommand {
+                screen: "deal-record",
+                generation: 0,
+                deal_id: "deal-7".into(),
+                command: PortalDealCommand::CreateTask {
+                    title: "Call notario".into(),
+                    detail: None,
+                    due_at: Some("2026-09-23T09:30".into()),
+                },
+            }]
+        );
+        assert_eq!(
+            model.deal_workspace.busy_action.as_deref(),
+            Some("task:create")
+        );
+
+        assert_eq!(
+            update(
+                &mut model,
+                Msg::DealWorkspaceCommandCompleted {
+                    screen: "deal-record".into(),
+                    generation: 0,
+                    id: "task-1".into(),
+                },
+            ),
+            vec![Effect::FetchDeals {
+                screen: "deal-record",
+                scope: Some("deal-7".into()),
+                generation: 0,
+            }]
+        );
+        assert!(model.deal_workspace.task_title.is_empty());
+        assert!(model.deal_workspace.busy_action.is_none());
+    }
+
+    #[test]
     fn navigating_to_clients_fetches_the_typed_workspace() {
         let mut model = Model::default();
         let effects = update(&mut model, Msg::Navigate(target("clients")));
