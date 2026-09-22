@@ -52,7 +52,7 @@ impl Component for DealRecord {
         let screen = crate::model::screen("deal-record").expect("deal record exists");
         html! {
             <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
-                { deal_workspace(&props.model) }
+                { deal_workspace(&props.model, &props.on_msg) }
             </PortalShell>
         }
     }
@@ -491,21 +491,42 @@ fn contract_row(contract: &PortalDealContract) -> Html {
     }
 }
 
-fn deal_workspace(model: &crate::model::Model) -> Html {
+fn deal_workspace(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
     let Some(data) = payload(model) else {
         return empty_workspace(model.loading, "Loading contract workspace…");
     };
-    let Some(id) = model.scope.as_deref() else {
-        return empty_workspace(false, "No contract was selected.");
-    };
-    let Some(deal) = data.deals.iter().find(|deal| deal.id == id) else {
+    let Some(workspace) = data.workspace.as_ref() else {
         return empty_workspace(model.loading, "Contract not found.");
     };
-    let contracts = data
-        .contracts
-        .iter()
-        .filter(|contract| contract.property_id == deal.property_id)
-        .collect::<Vec<_>>();
+    let Some(deal) = workspace.deal.as_ref() else {
+        return empty_workspace(false, "Contract not found.");
+    };
+    let property = workspace.property.as_ref();
+    let client = workspace.client.as_ref();
+    let busy = model.deal_workspace.busy_action.is_some();
+
+    let next_action = workspace
+        .open_tasks
+        .first()
+        .map(|task| {
+            task.due_at_label
+                .as_deref()
+                .map(|due| format!("{} · {}", task.title, due))
+                .unwrap_or_else(|| task.title.clone())
+        })
+        .unwrap_or_else(|| "No open task".into());
+    let offer_state = workspace
+        .offers
+        .last()
+        .map(|offer| {
+            format!(
+                "{} offer{} · latest {}",
+                workspace.offers.len(),
+                if workspace.offers.len() == 1 { "" } else { "s" },
+                title_case(&offer.status)
+            )
+        })
+        .unwrap_or_else(|| "No offers".into());
 
     html! {
         <div>
@@ -518,9 +539,11 @@ fn deal_workspace(model: &crate::model::Model) -> Html {
                         {"Contract"}
                     </p>
                     <h1 class="mt-1 font-serif text-3xl font-light text-[var(--portal-navy)]">
-                        { deal.property_name.clone() }
+                        { property.map(|item| item.name.clone()).unwrap_or_else(|| "Contract".into()) }
                     </h1>
-                    <p class="mt-1 text-sm font-light text-black/45">{ deal.property_location.clone() }</p>
+                    if let Some(location) = property.and_then(|item| item.location.as_ref()) {
+                        <p class="mt-1 text-sm font-light text-black/45">{ location.clone() }</p>
+                    }
                 </div>
                 <span class={format!("inline-flex rounded-full px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.1em] {}", stage_class(&deal.stage))}>
                     { stage_label(&deal.stage) }
@@ -530,101 +553,804 @@ fn deal_workspace(model: &crate::model::Model) -> Html {
             <section class="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)] p-4">
                 <div class="flex items-center justify-between gap-3">
                     <h2 class="font-serif text-xl font-light text-[var(--portal-navy)]">{"Operating summary"}</h2>
-                    <span class="text-[10px] font-light uppercase tracking-[0.12em] text-black/35">
-                        { format!("{} participants", deal.participant_count) }
-                    </span>
+                    if model.loading {
+                        <span class="text-[10px] font-light uppercase tracking-[0.12em] text-black/35">{"Refreshing…"}</span>
+                    }
                 </div>
                 <div class="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                    { detail("Current gate", stage_label(&deal.stage)) }
-                    { detail("Next action", deal.next_milestone.as_deref().unwrap_or("No open milestone")) }
-                    { detail("Offer state", &offer_summary(deal)) }
-                    { detail("Closing", deal.closing_date.as_deref().unwrap_or("Not recorded")) }
+                    { detail("Current gate", deal.closed_at_label.as_deref().map(|closed| format!("Closed · {closed}")).as_deref().unwrap_or_else(|| stage_label(&deal.stage))) }
+                    { detail("Next action", &next_action) }
+                    { detail("Offer state", &offer_state) }
+                    { detail("Closing", deal.closing_date_label.as_deref().or(deal.closed_at_label.as_deref()).unwrap_or("Not recorded")) }
                 </div>
                 <div class="mt-4 grid gap-4 border-t border-[var(--portal-panel-border)] pt-4 md:grid-cols-3">
-                    { detail("Client", &deal.client_name) }
-                    { detail("Owner", &deal.owner) }
-                    { detail("Last activity", deal.last_activity.as_deref().unwrap_or("No activity yet")) }
+                    { detail("Client", client.map(|item| item.display_name.as_str()).unwrap_or("—")) }
+                    { detail("Property", property.map(|item| item.name.as_str()).unwrap_or("—")) }
+                    { detail("Created", &deal.created_at_label) }
+                </div>
+            </section>
+
+            <section class="portal-glass-panel mt-4 overflow-hidden rounded-[var(--portal-panel-radius)] p-4">
+                <div class="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+                    { detail("List Price", &format_currency(deal.list_price)) }
+                    { detail("Offer Price", &format_currency(deal.offer_price)) }
+                    { detail("Closing", deal.closing_date_label.as_deref().unwrap_or("—")) }
+                    { detail("Last Updated", &deal.updated_at_label) }
                 </div>
             </section>
 
             <div class="mt-4 grid gap-4 lg:grid-cols-3">
-                <section class="portal-glass-panel rounded-[var(--portal-panel-radius)] p-4">
-                    <p class="text-[10px] font-light uppercase tracking-[0.15em] text-black/35">{"Property"}</p>
-                    <a href={format!("/portal/property-admin/{}", deal.property_id)}
-                        class="mt-2 block font-serif text-xl font-light text-[var(--portal-navy)] hover:text-[var(--portal-navy-soft)]">
-                        { deal.property_name.clone() }
-                    </a>
-                    <p class="mt-1 text-sm font-light text-black/45">{ deal.property_location.clone() }</p>
-                    if let Some(descriptor) = deal.property_descriptor.as_ref() {
-                        <p class="mt-2 text-xs font-light text-black/45">{ descriptor.clone() }</p>
-                    }
-                </section>
-
-                <section class="portal-glass-panel rounded-[var(--portal-panel-radius)] p-4">
-                    <p class="text-[10px] font-light uppercase tracking-[0.15em] text-black/35">{"Client"}</p>
-                    <a href={format!("/portal/clients/{}", deal.client_id)}
-                        class="mt-2 block font-serif text-xl font-light text-[var(--portal-navy)] hover:text-[var(--portal-navy-soft)]">
-                        { deal.client_name.clone() }
-                    </a>
-                    <p class="mt-2 text-xs font-light text-black/45">
-                        { format!("{} participant{}", deal.participant_count, if deal.participant_count == 1 { "" } else { "s" }) }
-                    </p>
-                </section>
-
-                <section class="portal-glass-panel rounded-[var(--portal-panel-radius)] p-4">
-                    <p class="text-[10px] font-light uppercase tracking-[0.15em] text-black/35">{"Activity"}</p>
-                    <div class="mt-3 grid grid-cols-2 gap-3">
-                        { metric("Showings", deal.showing_count) }
-                        { metric("Offers", deal.offer_count) }
-                    </div>
-                    <p class="mt-4 text-xs font-light leading-5 text-black/45">
-                        {
-                            deal.last_activity_at.as_deref()
-                                .map(|at| format!("Last activity · {at}"))
-                                .unwrap_or_else(|| "No dated activity yet.".into())
-                        }
-                    </p>
-                </section>
+                { property_card(property) }
+                { client_card(client) }
+                { participants_card(model, workspace, on_msg, busy) }
             </div>
 
-            <section class="portal-glass-panel mt-4 overflow-hidden rounded-[var(--portal-panel-radius)]">
-                <div class="flex items-center justify-between border-b border-[var(--portal-panel-border)] px-4 py-3">
-                    <div>
-                        <p class="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-gold-muted)]">
-                            {"Artifacts"}
-                        </p>
-                        <h2 class="mt-0.5 font-serif text-xl font-light text-[var(--portal-navy)]">
-                            {"Property contract lineage"}
-                        </h2>
-                    </div>
-                    <span class="text-xs font-light text-black/35">{ contracts.len() }</span>
-                </div>
-                if contracts.is_empty() {
-                    <p class="px-4 py-8 text-sm font-light text-black/40">
-                        {"No form-created contract artifacts are attached to this property yet."}
-                    </p>
-                } else {
-                    <div class="divide-y divide-[var(--portal-panel-border)]">
-                        { for contracts.into_iter().map(|contract| html! {
-                            <div class="grid gap-2 px-4 py-3 md:grid-cols-[1.2fr_1fr_1fr_auto] md:items-center">
-                                <div>
-                                    <div class="text-sm font-medium text-[var(--portal-navy)]">{ contract.form_template_id.clone() }</div>
-                                    <div class="text-xs font-light text-black/40">{ title_case(&contract.contract_type) }</div>
-                                </div>
-                                <div class="text-sm font-light text-black/60">{ title_case(&contract.status) }</div>
-                                <div class="text-xs font-light text-black/45">
-                                    { contract.executed_at.clone().unwrap_or_else(|| contract.created_at.clone()) }
-                                </div>
-                                <div class="text-[10px] font-light uppercase tracking-[0.12em] text-[var(--portal-navy-soft)]">
-                                    { if contract.process_instance_id.is_some() { "Workflow attached" } else { "No workflow" } }
-                                </div>
-                            </div>
-                        }) }
-                    </div>
-                }
-            </section>
+            <div class="mt-4 grid gap-4 lg:grid-cols-2">
+                { tasks_card(model, workspace, on_msg, busy) }
+                { activity_card(workspace) }
+            </div>
+
+            <div class="mt-4">
+                { offers_card(model, workspace, on_msg, busy) }
+            </div>
+
+            <div class="mt-4">
+                { showings_card(model, workspace, on_msg, busy) }
+            </div>
+
+            if let Some(notes) = deal.notes.as_ref().filter(|value| !value.trim().is_empty()) {
+                <section class="portal-glass-panel mt-4 overflow-hidden rounded-[var(--portal-panel-radius)] p-5">
+                    <h2 class="font-serif text-xl font-light text-[var(--portal-navy)]">{"Contract Notes"}</h2>
+                    <p class="mt-3 whitespace-pre-wrap text-sm font-light leading-7 text-black/55">{ notes.clone() }</p>
+                </section>
+            }
+
+            <div class="mt-4">
+                { contracts_panel(&workspace.contracts) }
+            </div>
         </div>
     }
+}
+
+fn property_card(property: Option<&crate::model::PortalDealWorkspaceProperty>) -> Html {
+    html! {
+        <section class="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
+            <div class="border-b border-[var(--portal-panel-border)] px-5 py-4">
+                <h2 class="font-serif text-xl font-light text-[var(--portal-navy)]">{"Property"}</h2>
+            </div>
+            <div class="px-5 py-4">
+                if let Some(property) = property {
+                    <a href={format!("/portal/property-admin/{}", property.id)}
+                        class="font-serif text-xl font-light text-[var(--portal-navy)] hover:text-[var(--portal-navy-soft)]">
+                        { property.name.clone() }
+                    </a>
+                    <p class="mt-2 text-xs font-light text-black/45">
+                        { property.location.clone().unwrap_or_else(|| "—".into()) }
+                    </p>
+                    <p class="mt-2 text-xs font-light text-black/45">
+                        { property_descriptor(property) }
+                    </p>
+                } else {
+                    <p class="text-sm font-light text-black/40">{"No property on record."}</p>
+                }
+            </div>
+        </section>
+    }
+}
+
+fn client_card(client: Option<&crate::model::PortalDealWorkspaceClient>) -> Html {
+    html! {
+        <section class="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
+            <div class="border-b border-[var(--portal-panel-border)] px-5 py-4">
+                <h2 class="font-serif text-xl font-light text-[var(--portal-navy)]">{"Client"}</h2>
+            </div>
+            <div class="px-5 py-4">
+                if let Some(client) = client {
+                    <a href={format!("/portal/clients/{}", client.id)}
+                        class="font-serif text-xl font-light text-[var(--portal-navy)] hover:text-[var(--portal-navy-soft)]">
+                        { client.display_name.clone() }
+                    </a>
+                    if let Some(email) = client.email.as_ref() {
+                        <p class="mt-2 text-xs font-light text-black/45">{ email.clone() }</p>
+                    }
+                    if let Some(phone) = client.phone.as_ref() {
+                        <p class="mt-1 text-xs font-light text-black/45">{ phone.clone() }</p>
+                    }
+                } else {
+                    <p class="text-sm font-light text-black/40">{"No client on record."}</p>
+                }
+            </div>
+        </section>
+    }
+}
+
+fn participants_card(
+    model: &crate::model::Model,
+    workspace: &crate::model::PortalDealWorkspace,
+    on_msg: &Callback<Msg>,
+    busy: bool,
+) -> Html {
+    html! {
+        <section class="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
+            <div class="border-b border-[var(--portal-panel-border)] px-5 py-4">
+                <h2 class="font-serif text-xl font-light text-[var(--portal-navy)]">{"Participants"}</h2>
+                <p class="mt-1 text-xs font-light text-black/40">{"Canonical deal_participant roles."}</p>
+            </div>
+            if workspace.participants.is_empty() {
+                <p class="px-5 py-6 text-sm font-light text-black/40">{"No participants on record."}</p>
+            } else {
+                <div>
+                    { for workspace.participants.iter().map(|participant| participant_row(model, participant, on_msg, busy)) }
+                </div>
+            }
+            { add_participant_form(model, on_msg, busy) }
+            { structural_participant_form(model, workspace, on_msg, busy) }
+        </section>
+    }
+}
+
+fn participant_row(
+    model: &crate::model::Model,
+    participant: &crate::model::PortalDealWorkspaceParticipant,
+    on_msg: &Callback<Msg>,
+    busy: bool,
+) -> Html {
+    let role = participant
+        .role_label
+        .as_deref()
+        .unwrap_or_else(|| stage_label(&participant.role_category));
+    let participant_id = participant.id.clone();
+    let end_other = {
+        let on_msg = on_msg.clone();
+        let id = participant_id.clone();
+        Callback::from(move |_: MouseEvent| {
+            on_msg.emit(Msg::DealWorkspaceEndOtherRequested {
+                participant_id: id.clone(),
+            })
+        })
+    };
+    let end_structural = {
+        let on_msg = on_msg.clone();
+        let id = participant_id.clone();
+        Callback::from(move |_: MouseEvent| {
+            on_msg.emit(Msg::DealWorkspaceEndStructuralRequested {
+                participant_id: id.clone(),
+            })
+        })
+    };
+
+    html! {
+        <div class="border-b border-[var(--portal-panel-border)] px-5 py-4 last:border-b-0">
+            <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                    <div class="text-[10px] font-light uppercase tracking-[0.15em] text-[var(--portal-navy-soft)]">
+                        { role }
+                    </div>
+                    <div class="mt-1 font-serif text-lg font-light text-[var(--portal-navy)]">
+                        { participant.name.clone() }
+                    </div>
+                    if let Some(detail) = participant.detail.as_ref() {
+                        <div class="mt-1 truncate text-xs font-light text-black/40">{ detail.clone() }</div>
+                    }
+                </div>
+                <span class="text-[10px] font-light uppercase tracking-[0.12em] text-black/30">
+                    { participant.kind.clone() }
+                </span>
+            </div>
+            if participant.role_category == "other" {
+                { other_participant_controls(model, participant, on_msg, end_other, busy) }
+            } else if participant.role_category != "client" {
+                <button type="button" onclick={end_structural} disabled={busy}
+                    class="mt-3 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--portal-archive)] disabled:opacity-35">
+                    {"End role"}
+                </button>
+            }
+        </div>
+    }
+}
+
+fn other_participant_controls(
+    model: &crate::model::Model,
+    participant: &crate::model::PortalDealWorkspaceParticipant,
+    on_msg: &Callback<Msg>,
+    end_other: Callback<MouseEvent>,
+    busy: bool,
+) -> Html {
+    let id = participant.id.clone();
+    let value = model
+        .deal_workspace
+        .other_role_labels
+        .get(&id)
+        .cloned()
+        .unwrap_or_else(|| participant.role_label.clone().unwrap_or_default());
+    let oninput = {
+        let on_msg = on_msg.clone();
+        let id = id.clone();
+        Callback::from(move |event: InputEvent| {
+            let value = event.target_unchecked_into::<web_sys::HtmlInputElement>().value();
+            on_msg.emit(Msg::DealWorkspaceOtherRoleChanged {
+                participant_id: id.clone(),
+                value,
+            });
+        })
+    };
+    let save = {
+        let on_msg = on_msg.clone();
+        let id = id.clone();
+        Callback::from(move |_: MouseEvent| {
+            on_msg.emit(Msg::DealWorkspaceUpdateOtherRequested {
+                participant_id: id.clone(),
+            })
+        })
+    };
+
+    html! {
+        <div class="mt-3 flex flex-wrap items-center gap-2">
+            <input value={value} {oninput} class="h-8 min-w-0 flex-1 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/65 px-2 text-xs font-light outline-none focus:border-[var(--portal-navy)]" />
+            <button type="button" onclick={save} disabled={busy}
+                class="h-8 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] px-2 text-[9px] font-medium uppercase tracking-[0.1em] text-[var(--portal-navy-soft)] disabled:opacity-35">
+                {"Save"}
+            </button>
+            <button type="button" onclick={end_other} disabled={busy}
+                class="h-8 px-1 text-[9px] font-medium uppercase tracking-[0.1em] text-[var(--portal-archive)] disabled:opacity-35">
+                {"End"}
+            </button>
+        </div>
+    }
+}
+
+fn add_participant_form(model: &crate::model::Model, on_msg: &Callback<Msg>, busy: bool) -> Html {
+    let query_change = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |event: InputEvent| {
+            on_msg.emit(Msg::DealWorkspaceParticipantQueryChanged(
+                event.target_unchecked_into::<web_sys::HtmlInputElement>().value(),
+            ))
+        })
+    };
+    let role_change = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |event: InputEvent| {
+            on_msg.emit(Msg::DealWorkspaceParticipantRoleChanged(
+                event.target_unchecked_into::<web_sys::HtmlInputElement>().value(),
+            ))
+        })
+    };
+    let add = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::DealWorkspaceAddParticipantRequested))
+    };
+
+    html! {
+        <div class="border-t border-[var(--portal-panel-border)] bg-white/20 px-5 py-4">
+            <p class="text-[10px] font-medium uppercase tracking-[0.13em] text-black/40">{"Add participant"}</p>
+            <div class="relative mt-2">
+                <input type="search" value={model.deal_workspace.participant_query.clone()} oninput={query_change}
+                    placeholder="Search person…" class={field_class()} />
+                if !model.deal_workspace.participant_people.is_empty() {
+                    <div class="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white shadow-xl">
+                        { for model.deal_workspace.participant_people.iter().map(|person| workspace_person_choice(person, "participant", on_msg)) }
+                    </div>
+                }
+            </div>
+            <input value={model.deal_workspace.participant_role_label.clone()} oninput={role_change}
+                placeholder="Role: lender, inspector, notario…" class={field_class()} />
+            <button type="button" onclick={add} disabled={busy || model.deal_workspace.participant_person_id.is_empty()}
+                class="mt-2 min-h-9 rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-3 text-[9px] font-medium uppercase tracking-[0.12em] text-white disabled:opacity-35">
+                {"Add"}
+            </button>
+        </div>
+    }
+}
+
+fn structural_participant_form(
+    model: &crate::model::Model,
+    workspace: &crate::model::PortalDealWorkspace,
+    on_msg: &Callback<Msg>,
+    busy: bool,
+) -> Html {
+    let role_change = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |event: Event| {
+            on_msg.emit(Msg::DealWorkspaceStructuralRoleChanged(
+                event.target_unchecked_into::<web_sys::HtmlSelectElement>().value(),
+            ))
+        })
+    };
+    let query_change = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |event: InputEvent| {
+            on_msg.emit(Msg::DealWorkspaceStructuralQueryChanged(
+                event.target_unchecked_into::<web_sys::HtmlInputElement>().value(),
+            ))
+        })
+    };
+    let owner_change = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |event: Event| {
+            on_msg.emit(Msg::DealWorkspaceStructuralOwnerChanged(
+                event.target_unchecked_into::<web_sys::HtmlSelectElement>().value(),
+            ))
+        })
+    };
+    let save = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::DealWorkspaceSetStructuralRequested))
+    };
+    let role = model.deal_workspace.structural_role.as_str();
+
+    html! {
+        <div class="border-t border-[var(--portal-panel-border)] bg-white/20 px-5 py-4">
+            <p class="text-[10px] font-medium uppercase tracking-[0.13em] text-black/40">{"Replace structural role"}</p>
+            <select value={model.deal_workspace.structural_role.clone()} onchange={role_change} class={field_class()}>
+                <option value="">{"Choose role…"}</option>
+                <option value="client">{"Client"}</option>
+                <option value="owner">{"Owner"}</option>
+                <option value="seller">{"Seller"}</option>
+            </select>
+            if role == "owner" {
+                <select value={model.deal_workspace.structural_owner_user_id.clone()} onchange={owner_change} class={field_class()}>
+                    <option value="">{"Choose active user…"}</option>
+                    { for workspace.owner_candidates.iter().map(|user| html! {
+                        <option value={user.id.clone()}>{ user.display_name.clone() }</option>
+                    }) }
+                </select>
+            } else if matches!(role, "client" | "seller") {
+                <div class="relative">
+                    <input type="search" value={model.deal_workspace.structural_query.clone()} oninput={query_change}
+                        placeholder="Search person…" class={field_class()} />
+                    if !model.deal_workspace.structural_people.is_empty() {
+                        <div class="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white shadow-xl">
+                            { for model.deal_workspace.structural_people.iter().map(|person| workspace_person_choice(person, "structural", on_msg)) }
+                        </div>
+                    }
+                </div>
+            }
+            <button type="button" onclick={save} disabled={busy || role.is_empty()}
+                class="mt-2 min-h-9 rounded-[var(--portal-tab-radius)] border border-[var(--portal-navy)] px-3 text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy)] disabled:opacity-35">
+                {"Set / replace"}
+            </button>
+        </div>
+    }
+}
+
+fn workspace_person_choice(
+    person: &PortalDealPersonCandidate,
+    purpose: &'static str,
+    on_msg: &Callback<Msg>,
+) -> Html {
+    let id = person.id.clone();
+    let label = person.display_name.clone();
+    let onclick = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| {
+            if purpose == "participant" {
+                on_msg.emit(Msg::DealWorkspaceParticipantSelected {
+                    id: id.clone(),
+                    label: label.clone(),
+                });
+            } else {
+                on_msg.emit(Msg::DealWorkspaceStructuralPersonSelected {
+                    id: id.clone(),
+                    label: label.clone(),
+                });
+            }
+        })
+    };
+    html! {
+        <button type="button" {onclick}
+            class="block w-full border-b border-[var(--portal-panel-border)] px-3 py-2 text-left last:border-b-0 hover:bg-[var(--portal-mist)]/45">
+            <span class="block text-sm font-medium text-[var(--portal-navy)]">{ person.display_name.clone() }</span>
+            <span class="text-[11px] font-light text-black/40">
+                { person.email.clone().or(person.phone.clone()).or(person.location.clone()).unwrap_or_else(|| person.role.clone()) }
+            </span>
+        </button>
+    }
+}
+
+fn tasks_card(
+    model: &crate::model::Model,
+    workspace: &crate::model::PortalDealWorkspace,
+    on_msg: &Callback<Msg>,
+    busy: bool,
+) -> Html {
+    let title_change = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |event: InputEvent| {
+            on_msg.emit(Msg::DealWorkspaceTaskTitleChanged(
+                event.target_unchecked_into::<web_sys::HtmlInputElement>().value(),
+            ))
+        })
+    };
+    let detail_change = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |event: InputEvent| {
+            on_msg.emit(Msg::DealWorkspaceTaskDetailChanged(
+                event.target_unchecked_into::<web_sys::HtmlInputElement>().value(),
+            ))
+        })
+    };
+    let due_change = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |event: InputEvent| {
+            on_msg.emit(Msg::DealWorkspaceTaskDueChanged(
+                event.target_unchecked_into::<web_sys::HtmlInputElement>().value(),
+            ))
+        })
+    };
+    let create = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::DealWorkspaceCreateTaskRequested))
+    };
+
+    html! {
+        <section class="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
+            <div class="flex items-center justify-between border-b border-[var(--portal-panel-border)] px-5 py-4">
+                <div>
+                    <h2 class="font-serif text-xl font-light text-[var(--portal-navy)]">{"Open Tasks"}</h2>
+                    <p class="mt-1 text-xs font-light text-black/40">{"Milestones and follow-ups on this deal."}</p>
+                </div>
+                <span class="text-xs font-light text-black/35">{ workspace.open_tasks.len() }</span>
+            </div>
+            if workspace.open_tasks.is_empty() {
+                <p class="px-5 py-6 text-sm font-light text-black/40">{"No open tasks on this deal."}</p>
+            } else {
+                <div>
+                    { for workspace.open_tasks.iter().map(|task| {
+                        let task_id = task.id.clone();
+                        let complete = {
+                            let on_msg = on_msg.clone();
+                            Callback::from(move |_: MouseEvent| on_msg.emit(Msg::DealWorkspaceCompleteTaskRequested { task_id: task_id.clone() }))
+                        };
+                        html! {
+                            <div class="border-b border-[var(--portal-panel-border)] px-5 py-4 last:border-b-0">
+                                <div class="flex items-start justify-between gap-3">
+                                    <div>
+                                        <div class="font-serif text-lg font-light text-[var(--portal-navy)]">{ task.title.clone() }</div>
+                                        if let Some(detail) = task.detail.as_ref() {
+                                            <p class="mt-1 text-sm font-light text-black/50">{ detail.clone() }</p>
+                                        }
+                                        <p class="mt-2 text-xs font-light text-black/40">{ task.due_at_label.clone().unwrap_or_else(|| "Unscheduled".into()) }</p>
+                                    </div>
+                                    if task.is_overdue {
+                                        <span class="rounded-full bg-[var(--portal-archive-pale)] px-2 py-1 text-[9px] uppercase tracking-[0.1em] text-[var(--portal-archive)]">{"Overdue"}</span>
+                                    }
+                                </div>
+                                <button type="button" onclick={complete} disabled={busy}
+                                    class="mt-3 min-h-8 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] px-2.5 text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] disabled:opacity-35">
+                                    {"Complete"}
+                                </button>
+                            </div>
+                        }
+                    }) }
+                </div>
+            }
+            <div class="border-t border-[var(--portal-panel-border)] bg-white/20 px-5 py-4">
+                <input value={model.deal_workspace.task_title.clone()} oninput={title_change} placeholder="New task title…" class={field_class()} />
+                <input value={model.deal_workspace.task_detail.clone()} oninput={detail_change} placeholder="Detail (optional)…" class={field_class()} />
+                <input type="datetime-local" value={model.deal_workspace.task_due_at.clone()} oninput={due_change} class={field_class()} />
+                <button type="button" onclick={create} disabled={busy || model.deal_workspace.task_title.trim().is_empty()}
+                    class="mt-2 min-h-9 rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-3 text-[9px] font-medium uppercase tracking-[0.12em] text-white disabled:opacity-35">
+                    {"Add task"}
+                </button>
+            </div>
+        </section>
+    }
+}
+
+fn activity_card(workspace: &crate::model::PortalDealWorkspace) -> Html {
+    html! {
+        <section class="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
+            <div class="flex items-center justify-between border-b border-[var(--portal-panel-border)] px-5 py-4">
+                <div>
+                    <h2 class="font-serif text-xl font-light text-[var(--portal-navy)]">{"Recent Contract Activity"}</h2>
+                    <p class="mt-1 text-xs font-light text-black/40">{"Interactions tied to this contract."}</p>
+                </div>
+                <span class="text-xs font-light text-black/35">{ workspace.activity.len() }</span>
+            </div>
+            if workspace.activity.is_empty() {
+                <p class="px-5 py-6 text-sm font-light text-black/40">{"No deal activity yet."}</p>
+            } else {
+                <div>
+                    { for workspace.activity.iter().map(|item| html! {
+                        <div class="border-b border-[var(--portal-panel-border)] px-5 py-4 last:border-b-0">
+                            <div class="flex flex-wrap items-center gap-2 text-[10px] font-light uppercase tracking-[0.11em] text-[var(--portal-navy-soft)]">
+                                <span>{ title_case(&item.channel) }</span>
+                                if let Some(direction) = item.direction.as_ref() {
+                                    <span class="text-black/30">{ direction.clone() }</span>
+                                }
+                                <span class="ml-auto normal-case tracking-normal text-black/35">{ item.occurred_at_label.clone() }</span>
+                            </div>
+                            <div class="mt-1 text-sm font-medium text-[var(--portal-navy)]">
+                                { item.person_name.clone().unwrap_or_else(|| "—".into()) }
+                            </div>
+                            <p class="mt-1 text-sm font-light text-black/55">
+                                { item.summary.clone().or(item.title.clone()).unwrap_or_else(|| "Interaction".into()) }
+                            </p>
+                        </div>
+                    }) }
+                </div>
+            }
+        </section>
+    }
+}
+
+fn offers_card(
+    model: &crate::model::Model,
+    workspace: &crate::model::PortalDealWorkspace,
+    on_msg: &Callback<Msg>,
+    busy: bool,
+) -> Html {
+    html! {
+        <section class="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
+            <div class="flex items-center justify-between border-b border-[var(--portal-panel-border)] px-5 py-4">
+                <div>
+                    <h2 class="font-serif text-xl font-light text-[var(--portal-navy)]">{"Offers"}</h2>
+                    <p class="mt-1 text-xs font-light text-black/40">{"Offer history and counter lineage for this deal."}</p>
+                </div>
+                <span class="text-xs font-light text-black/35">{ workspace.offers.len() }</span>
+            </div>
+            if workspace.offers.is_empty() {
+                <p class="px-5 py-6 text-sm font-light text-black/40">{"No offers on record for this deal."}</p>
+            } else {
+                <div>
+                    { for workspace.offers.iter().map(|offer| offer_row(model, offer, on_msg, busy)) }
+                </div>
+            }
+            if workspace.client.is_some() {
+                <div class="border-t border-[var(--portal-panel-border)] bg-white/20 px-5 py-4">
+                    { offer_form(model, None, "Submit offer", on_msg, busy) }
+                </div>
+            }
+        </section>
+    }
+}
+
+fn offer_row(
+    model: &crate::model::Model,
+    offer: &crate::model::PortalDealWorkspaceOffer,
+    on_msg: &Callback<Msg>,
+    busy: bool,
+) -> Html {
+    let withdraw = {
+        let on_msg = on_msg.clone();
+        let id = offer.id.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::DealWorkspaceWithdrawOfferRequested { offer_id: id.clone() }))
+    };
+    let reject = {
+        let on_msg = on_msg.clone();
+        let id = offer.id.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::DealWorkspaceRejectOfferRequested { offer_id: id.clone() }))
+    };
+    html! {
+        <div class="border-b border-[var(--portal-panel-border)] px-5 py-4 last:border-b-0">
+            <div class="flex flex-wrap items-center gap-2">
+                <span class="font-serif text-2xl font-light text-[var(--portal-navy)]">{ format_currency(Some(offer.amount)) }</span>
+                <span class="rounded-full bg-[var(--portal-blue-pale)] px-2.5 py-1 text-[9px] uppercase tracking-[0.1em] text-[var(--portal-navy-soft)]">{ title_case(&offer.status) }</span>
+                if offer.is_counter {
+                    <span class="rounded-full border border-[var(--portal-panel-border)] px-2.5 py-1 text-[9px] uppercase tracking-[0.1em] text-black/45">{"Counter"}</span>
+                }
+            </div>
+            <p class="mt-2 text-xs font-light text-black/45">
+                { offer.person_name.clone().unwrap_or_else(|| "—".into()) }
+                {" · Submitted "}
+                { offer.submitted_at_label.clone() }
+            </p>
+            if let Some(note) = offer.note.as_ref() {
+                <p class="mt-2 text-sm font-light text-black/55">{ note.clone() }</p>
+            }
+            if offer.status == "submitted" {
+                <div class="mt-3 flex flex-wrap gap-2">
+                    <button type="button" onclick={withdraw} disabled={busy} class={small_action_class()}>{"Withdraw"}</button>
+                    <button type="button" onclick={reject} disabled={busy} class={small_action_class()}>{"Reject"}</button>
+                </div>
+                <div class="mt-3 max-w-sm">
+                    { offer_form(model, Some(offer.id.clone()), "Counter", on_msg, busy) }
+                </div>
+            }
+        </div>
+    }
+}
+
+fn offer_form(
+    model: &crate::model::Model,
+    parent_offer_id: Option<String>,
+    label: &'static str,
+    on_msg: &Callback<Msg>,
+    busy: bool,
+) -> Html {
+    let key = parent_offer_id.clone().unwrap_or_else(|| "root".into());
+    let value = model.deal_workspace.offer_amounts.get(&key).cloned().unwrap_or_default();
+    let amount_change = {
+        let on_msg = on_msg.clone();
+        let key = key.clone();
+        Callback::from(move |event: InputEvent| {
+            on_msg.emit(Msg::DealWorkspaceOfferAmountChanged {
+                key: key.clone(),
+                value: event.target_unchecked_into::<web_sys::HtmlInputElement>().value(),
+            })
+        })
+    };
+    let submit = {
+        let on_msg = on_msg.clone();
+        let parent_offer_id = parent_offer_id.clone();
+        Callback::from(move |_: MouseEvent| {
+            on_msg.emit(Msg::DealWorkspaceSubmitOfferRequested {
+                parent_offer_id: parent_offer_id.clone(),
+            })
+        })
+    };
+    html! {
+        <div class="flex flex-wrap items-center gap-2">
+            <input type="number" min="1" step="1" value={value} oninput={amount_change}
+                placeholder="Amount" class="h-9 min-w-[140px] flex-1 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 px-3 text-sm font-light outline-none focus:border-[var(--portal-navy)]" />
+            <button type="button" onclick={submit} disabled={busy}
+                class="h-9 rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-3 text-[9px] font-medium uppercase tracking-[0.12em] text-white disabled:opacity-35">
+                { label }
+            </button>
+        </div>
+    }
+}
+
+fn showings_card(
+    model: &crate::model::Model,
+    workspace: &crate::model::PortalDealWorkspace,
+    on_msg: &Callback<Msg>,
+    busy: bool,
+) -> Html {
+    let create = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::DealWorkspaceCreateShowingRequested))
+    };
+    html! {
+        <section class="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--portal-panel-border)] px-5 py-4">
+                <div>
+                    <h2 class="font-serif text-xl font-light text-[var(--portal-navy)]">{"Showings"}</h2>
+                    <p class="mt-1 text-xs font-light text-black/40">{"Showing history for this deal."}</p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <span class="text-xs font-light text-black/35">{ workspace.showings.len() }</span>
+                    <a href="/portal/showings" class="text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)]">{"View all →"}</a>
+                    if workspace.client.is_some() {
+                        <button type="button" onclick={create} disabled={busy} class={small_action_class()}>{"Request showing"}</button>
+                    }
+                </div>
+            </div>
+            if workspace.showings.is_empty() {
+                <p class="px-5 py-6 text-sm font-light text-black/40">{"No showings on record for this deal."}</p>
+            } else {
+                <div>
+                    { for workspace.showings.iter().map(|showing| showing_row(model, showing, on_msg, busy)) }
+                </div>
+            }
+        </section>
+    }
+}
+
+fn showing_row(
+    model: &crate::model::Model,
+    showing: &crate::model::PortalDealWorkspaceShowing,
+    on_msg: &Callback<Msg>,
+    busy: bool,
+) -> Html {
+    let id = showing.id.clone();
+    let time = model.deal_workspace.showing_times.get(&id).cloned().unwrap_or_default();
+    let time_change = {
+        let on_msg = on_msg.clone();
+        let id = id.clone();
+        Callback::from(move |event: InputEvent| {
+            on_msg.emit(Msg::DealWorkspaceShowingTimeChanged {
+                showing_id: id.clone(),
+                value: event.target_unchecked_into::<web_sys::HtmlInputElement>().value(),
+            })
+        })
+    };
+    let schedule = {
+        let on_msg = on_msg.clone();
+        let id = id.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::DealWorkspaceScheduleShowingRequested { showing_id: id.clone() }))
+    };
+    let cancel = {
+        let on_msg = on_msg.clone();
+        let id = id.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::DealWorkspaceCancelShowingRequested { showing_id: id.clone() }))
+    };
+    let complete = {
+        let on_msg = on_msg.clone();
+        let id = id.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::DealWorkspaceCompleteShowingRequested { showing_id: id.clone() }))
+    };
+    html! {
+        <div class="border-b border-[var(--portal-panel-border)] px-5 py-4 last:border-b-0">
+            <div class="flex flex-wrap items-center gap-2">
+                <a href={format!("/portal/clients/{}", showing.person_id)}
+                    class="font-serif text-lg font-light text-[var(--portal-navy)]">{ showing.person_name.clone() }</a>
+                <span class="rounded-full bg-[var(--portal-blue-pale)] px-2.5 py-1 text-[9px] uppercase tracking-[0.1em] text-[var(--portal-navy-soft)]">{ title_case(&showing.status) }</span>
+            </div>
+            <p class="mt-2 text-xs font-light text-black/45">
+                { format_showing_dates(showing) }
+            </p>
+            if let Some(feedback) = showing.feedback.as_ref() {
+                <p class="mt-2 text-sm font-light text-black/55">{ feedback.clone() }</p>
+            }
+            if showing.status == "requested" {
+                <div class="mt-3 flex flex-wrap items-center gap-2">
+                    <input type="datetime-local" value={time} oninput={time_change}
+                        class="h-9 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 px-2 text-xs font-light outline-none focus:border-[var(--portal-navy)]" />
+                    <button type="button" onclick={schedule} disabled={busy} class={small_action_class()}>{"Schedule"}</button>
+                    <button type="button" onclick={complete.clone()} disabled={busy} class={small_action_class()}>{"Complete"}</button>
+                    <button type="button" onclick={cancel.clone()} disabled={busy} class={small_action_class()}>{"Cancel"}</button>
+                </div>
+            } else if showing.status == "scheduled" {
+                <div class="mt-3 flex flex-wrap gap-2">
+                    <button type="button" onclick={complete} disabled={busy} class={small_action_class()}>{"Complete"}</button>
+                    <button type="button" onclick={cancel} disabled={busy} class={small_action_class()}>{"Cancel"}</button>
+                </div>
+            }
+        </div>
+    }
+}
+
+fn property_descriptor(property: &crate::model::PortalDealWorkspaceProperty) -> String {
+    let mut parts = Vec::new();
+    if let Some(kind) = property.property_type.as_ref().filter(|value| !value.trim().is_empty()) {
+        parts.push(kind.clone());
+    }
+    if let Some(bedrooms) = property.bedrooms {
+        parts.push(format!("{} bed", format_number(bedrooms)));
+    }
+    if let Some(bathrooms) = property.bathrooms {
+        parts.push(format!("{} bath", format_number(bathrooms)));
+    }
+    if let Some(square_feet) = property.square_feet {
+        parts.push(format!("{} SF", group_integer(square_feet)));
+    }
+    if parts.is_empty() { "No details on file".into() } else { parts.join(" · ") }
+}
+
+fn format_showing_dates(showing: &crate::model::PortalDealWorkspaceShowing) -> String {
+    let mut parts = vec![format!("Requested {}", showing.requested_at_label)];
+    if let Some(value) = showing.scheduled_at_label.as_ref() {
+        parts.push(format!("Scheduled {value}"));
+    }
+    if let Some(value) = showing.completed_at_label.as_ref() {
+        parts.push(format!("Completed {value}"));
+    }
+    if let Some(value) = showing.cancelled_at_label.as_ref() {
+        parts.push(format!("Cancelled {value}"));
+    }
+    parts.join(" · ")
+}
+
+fn small_action_class() -> Classes {
+    classes!(
+        "min-h-8","rounded-[var(--portal-tab-radius)]","border",
+        "border-[var(--portal-panel-border)]","px-2.5","text-[9px]","font-medium",
+        "uppercase","tracking-[0.11em]","text-[var(--portal-navy-soft)]","disabled:opacity-35"
+    )
+}
+
+fn format_number(value: f64) -> String {
+    if value.fract().abs() < 0.000_001 {
+        format!("{value:.0}")
+    } else {
+        value.to_string()
+    }
+}
+
+fn group_integer(value: i64) -> String {
+    let negative = value < 0;
+    let digits = value.unsigned_abs().to_string();
+    let mut grouped = String::new();
+    for (index, ch) in digits.chars().rev().enumerate() {
+        if index > 0 && index % 3 == 0 {
+            grouped.push(',');
+        }
+        grouped.push(ch);
+    }
+    let grouped = grouped.chars().rev().collect::<String>();
+    format!("{}{}", if negative { "-" } else { "" }, grouped)
 }
 
 fn empty_workspace(loading: bool, text: &str) -> Html {
