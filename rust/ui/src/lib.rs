@@ -28,6 +28,7 @@ pub mod view;
 #[cfg(feature = "wasm")]
 pub mod shell;
 
+mod icons;
 pub use document::{document, ASSETS_ROOT, STYLESHEET_URL};
 pub use model::{
     home, listed, record_for, screen, Block, BlockItem, Controls, Effect, Listing, Model, Msg, Nav, PageContent, Row,
