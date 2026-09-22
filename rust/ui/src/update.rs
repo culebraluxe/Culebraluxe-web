@@ -15,6 +15,7 @@ pub fn is_ported_portal_screen(key: &str) -> bool {
     matches!(
         key,
         "dashboard"
+            | "cabinet"
             | "activity"
             | "workflows"
             | "workflow-record"
@@ -211,6 +212,11 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
         // live side by side while the port goes screen by screen. See `is_ported_portal_screen`.
         if screen.key == "dashboard" {
             vec![Effect::FetchCockpit {
+                screen: screen.key,
+                generation: model.generation,
+            }]
+        } else if screen.key == "cabinet" {
+            vec![Effect::FetchCabinet {
                 screen: screen.key,
                 generation: model.generation,
             }]
@@ -992,6 +998,21 @@ mod tests {
             generation: model.generation,
             message: message.to_string(),
         }
+    }
+
+    #[test]
+    fn navigating_to_cabinet_fetches_the_typed_repository() {
+        let mut model = Model::default();
+        let effects = update(&mut model, Msg::Navigate(target("cabinet")));
+        assert_eq!(model.screen, target("cabinet"));
+        assert!(model.loading);
+        assert_eq!(
+            effects,
+            vec![Effect::FetchCabinet {
+                screen: "cabinet",
+                generation: 0,
+            }]
+        );
     }
 
     #[test]
