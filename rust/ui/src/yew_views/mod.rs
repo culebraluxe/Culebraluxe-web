@@ -17,6 +17,7 @@ pub mod portal_clients;
 pub mod portal_cockpit;
 pub mod portal_forms;
 pub mod portal_projects;
+pub mod portal_seller_strategy;
 pub mod portal_shell;
 pub mod sellers;
 pub mod services;
