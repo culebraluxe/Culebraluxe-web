@@ -381,7 +381,7 @@ fn calendar_view(projects: &PortalProjectsPage, project: &PortalProject) -> Html
 
 fn documents_view(projects: &PortalProjectsPage, project: &PortalProject) -> Html {
     let property_ids = project_property_ids(projects, project);
-    let docs = projects
+    let mut files = projects
         .documents
         .iter()
         .filter(|document| {
@@ -390,38 +390,63 @@ fn documents_view(projects: &PortalProjectsPage, project: &PortalProject) -> Htm
                 .as_ref()
                 .is_some_and(|id| property_ids.contains(id))
         })
+        .map(|document| {
+            json!({
+                "id": format!("vault:{}", document.id),
+                "assetId": document.id,
+                "kind": "document",
+                "name": document.title,
+                "source": "vault",
+                "href": format!("/portal/documents/{}", document.id),
+                "state": document.state,
+                "date": document.created_at,
+            })
+        })
         .collect::<Vec<_>>();
+
+    files.extend(
+        projects
+            .media
+            .iter()
+            .filter(|asset| property_ids.contains(&asset.property_id))
+            .map(|asset| {
+                let photo = asset
+                    .mime_type
+                    .as_deref()
+                    .is_some_and(|mime| mime.starts_with("image/"))
+                    || matches!(asset.media_type.as_str(), "photo" | "image");
+                json!({
+                    "id": format!("media:{}", asset.id),
+                    "assetId": asset.id,
+                    "kind": if photo { "photo" } else { "document" },
+                    "name": asset.filename.clone().unwrap_or_else(|| {
+                        asset.caption.clone().unwrap_or_else(|| "Property media".into())
+                    }),
+                    "source": "property-media",
+                    "href": asset.url,
+                    "caption": asset.caption,
+                    "altText": asset.alt_text,
+                    "mimeType": asset.mime_type,
+                    "size": asset.file_size,
+                    "date": asset.created_at,
+                })
+            }),
+    );
+
+    let widget = json!({ "files": files });
     html! {
-        <div class="h-full min-h-0 overflow-y-auto rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/30">
-            <div class="grid grid-cols-[minmax(0,1fr)_120px_100px] gap-3 border-b border-[var(--portal-panel-border)] px-3 py-2 text-[9px] font-semibold uppercase tracking-[0.12em] text-black/35">
-                <span>{"Document"}</span><span>{"State"}</span><span>{"Issued"}</span>
+        <div
+            id="project-documents-island"
+            data-project-widget={widget.to_string()}
+            class="h-full min-h-[24rem] overflow-hidden"
+        >
+            <div class="flex h-full items-center justify-center text-sm font-light text-black/40">
+                {"Loading project assets…"}
             </div>
-            if docs.is_empty() {
-                <p class="px-4 py-10 text-center text-sm font-light text-black/40">{"No Cabinet documents are linked through this project's property context."}</p>
-            } else {
-                { for docs.into_iter().map(document_row) }
-            }
         </div>
     }
 }
 
-fn document_row(document: &PortalProjectDocument) -> Html {
-    html! {
-        <a href={format!("/portal/documents/{}", document.id)}
-            class="grid grid-cols-[minmax(0,1fr)_120px_100px] items-center gap-3 border-b border-[var(--portal-panel-border)]/65 px-3 py-3 transition hover:bg-white/40">
-            <span class="min-w-0">
-                <span class="block truncate text-[13px] font-medium text-[var(--portal-navy)]">{ document.title.clone() }</span>
-                <span class="mt-0.5 block truncate text-[10px] font-light text-black/40">
-                    { document.template_id.clone().unwrap_or_else(|| "Vault".into()) }
-                </span>
-            </span>
-            <span class="text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--portal-navy-soft)]">{ document.state.clone() }</span>
-            <span class="text-[11px] font-light text-black/45">
-                { document.issued_version.map(|version| format!("v{version}")).unwrap_or_else(|| "—".into()) }
-            </span>
-        </a>
-    }
-}
 
 fn placeholder_view(title: &str, message: &str) -> Html {
     html! {
