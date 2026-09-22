@@ -92,7 +92,9 @@ fn island_bridge(on_msg: &Callback<Msg>) -> Html {
             };
             match intent.get("kind").and_then(|value| value.as_str()) {
                 Some("project") => {
-                    if let Some(project_id) = intent.get("projectId").and_then(|value| value.as_str()) {
+                    if let Some(project_id) =
+                        intent.get("projectId").and_then(|value| value.as_str())
+                    {
                         on_msg.emit(Msg::ProjectSelected(project_id.to_string()));
                     }
                 }
