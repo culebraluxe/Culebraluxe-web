@@ -4,10 +4,14 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { LucideIcon } from 'lucide-react'
 import {
+  AlertCircle,
   Banknote,
   Building2,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
+  Circle,
+  Clock3,
   FileText,
   Flag,
   GitBranch,
@@ -665,6 +669,348 @@ function ProjectNavigatorIsland({ payload }: { payload: NavigatorPayload }) {
   )
 }
 
+type CatchUpPayload = {
+  projects: NavigatorProject[]
+  items: NavigatorItem[]
+  identityNames: Record<string, string>
+  calendar: CatchUpCalendarEvent[]
+  selectedProjectId?: string | null
+  selectedNodeId?: string | null
+  saving: boolean
+}
+
+type CatchUpBucket = 'today' | 'unscheduled'
+type CatchUpFilter = 'all' | 'open' | 'blocked' | 'complete'
+
+type CatchUpEntry = {
+  id: string
+  projectId: string
+  projectTitle: string
+  domain: ProjectDomainKey
+  contextLabel?: string
+  item: NavigatorItem
+}
+
+function catchUpDomain(item: NavigatorItem): ProjectDomainKey {
+  const entity = item.entity ? entityDomain(item.entity.entityType) : null
+  return entity ?? categoryDomain(item.category)
+}
+
+function projectContextLabel(
+  project: NavigatorProject,
+  identityNames: Record<string, string>,
+): string | undefined {
+  if (project.propertyId) return identityNames['property:' + project.propertyId] ?? project.propertyId
+  if (project.personId) return identityNames['person:' + project.personId] ?? project.personId
+  if (project.contractId) return identityNames['contract:' + project.contractId] ?? project.contractId
+  return undefined
+}
+
+function catchUpEntries(payload: CatchUpPayload): CatchUpEntry[] {
+  const projects = new Map(payload.projects.map((project) => [project.id, project]))
+  return payload.items
+    .filter((item) => item.projectId && projects.has(item.projectId))
+    .map((item) => {
+      const project = projects.get(item.projectId!)!
+      const contextLabel = item.entity
+        ? payload.identityNames[item.entity.entityType + ':' + item.entity.id] ?? item.entity.id
+        : projectContextLabel(project, payload.identityNames)
+      return {
+        id: item.id,
+        projectId: project.id,
+        projectTitle: project.name,
+        domain: catchUpDomain(item),
+        ...(contextLabel ? { contextLabel } : {}),
+        item,
+      }
+    })
+}
+
+function dateKey(value?: string | null): string | null {
+  if (!value) return null
+  return /^(\d{4}-\d{2}-\d{2})/.exec(value)?.[1] ?? null
+}
+
+function localDateKey(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return year + '-' + month + '-' + day
+}
+
+function puertoRicoDateKey(value: string | Date): string | null {
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Puerto_Rico',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date)
+  const year = parts.find((part) => part.type === 'year')?.value
+  const month = parts.find((part) => part.type === 'month')?.value
+  const day = parts.find((part) => part.type === 'day')?.value
+  return year && month && day ? year + '-' + month + '-' + day : null
+}
+
+function catchUpStatus(item: NavigatorItem): 'complete' | 'in-progress' | 'dismissed' | 'not-started' {
+  if (item.status === 'done') return 'complete'
+  if (item.status === 'doing') return 'in-progress'
+  if (item.status === 'dismissed') return 'dismissed'
+  return 'not-started'
+}
+
+function CatchUpStatusIcon({ item }: { item: NavigatorItem }) {
+  const status = catchUpStatus(item)
+  if (status === 'complete') return <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-[var(--portal-success)]" aria-hidden />
+  if (status === 'in-progress') return <Circle className="h-3.5 w-3.5 shrink-0 text-[var(--portal-blue-gray)]" aria-hidden />
+  if (status === 'dismissed') return <Circle className="h-3.5 w-3.5 shrink-0 text-black/35" aria-hidden />
+  return <Circle className="h-3.5 w-3.5 shrink-0 text-black/25" aria-hidden />
+}
+
+function catchUpStatusLabel(item: NavigatorItem): string {
+  if (item.status === 'done') return 'Complete'
+  if (item.status === 'doing') return 'In progress'
+  if (item.status === 'dismissed') return 'Dismissed'
+  return 'Not started'
+}
+
+function domainLabel(domain: ProjectDomainKey): string {
+  return domain.charAt(0).toUpperCase() + domain.slice(1)
+}
+
+function ProjectCatchUpIsland({ payload }: { payload: CatchUpPayload }) {
+  const [bucket, setBucket] = useState<CatchUpBucket>('today')
+  const [statusFilter, setStatusFilter] = useState<CatchUpFilter>('all')
+  const [domainFilter, setDomainFilter] = useState<ProjectDomainKey | 'all'>('all')
+  const [selectedEntryKey, setSelectedEntryKey] = useState<string | null>(payload.selectedNodeId ?? null)
+  const today = useMemo(() => new Date(), [])
+  const all = useMemo(() => catchUpEntries(payload), [payload])
+  const todayKey = localDateKey(today)
+
+  const buckets = useMemo(() => ({
+    today: all
+      .filter((entry) => entry.item.status !== 'dismissed' && dateKey(entry.item.dueAt) === todayKey)
+      .sort((a, b) => a.projectTitle.localeCompare(b.projectTitle) || a.item.title.localeCompare(b.item.title)),
+    unscheduled: all
+      .filter((entry) => !entry.item.dueAt && !['done', 'dismissed'].includes(entry.item.status))
+      .sort((a, b) => a.projectTitle.localeCompare(b.projectTitle) || a.item.title.localeCompare(b.item.title)),
+  }), [all, todayKey])
+
+  useEffect(() => {
+    if (buckets.today.length === 0 && buckets.unscheduled.length > 0) setBucket('unscheduled')
+  }, [buckets.today.length, buckets.unscheduled.length])
+
+  const entries = bucket === 'today' ? buckets.today : buckets.unscheduled
+  const completeCount = entries.filter((entry) => entry.item.status === 'done').length
+  const remaining = entries.length - completeCount
+  const domains = useMemo(() => Array.from(new Set(entries.map((entry) => entry.domain))), [entries])
+  const visible = useMemo(
+    () =>
+      entries.filter((entry) => {
+        const statusMatch =
+          statusFilter === 'all'
+            ? true
+            : statusFilter === 'complete'
+              ? entry.item.status === 'done'
+              : statusFilter === 'blocked'
+                ? false
+                : entry.item.status !== 'done' && entry.item.status !== 'dismissed'
+        return statusMatch && (domainFilter === 'all' || entry.domain === domainFilter)
+      }),
+    [domainFilter, entries, statusFilter],
+  )
+
+  useEffect(() => {
+    if (payload.selectedNodeId && visible.some((entry) => entry.id === payload.selectedNodeId)) {
+      setSelectedEntryKey(payload.selectedNodeId)
+      return
+    }
+    if (!selectedEntryKey || !visible.some((entry) => entry.id === selectedEntryKey)) {
+      setSelectedEntryKey(visible[0]?.id ?? null)
+    }
+  }, [payload.selectedNodeId, selectedEntryKey, visible])
+
+  const schedule = useMemo(() => {
+    const key = puertoRicoDateKey(today)
+    return (payload.calendar ?? [])
+      .filter((event) => key && puertoRicoDateKey(event.startAt) === key)
+      .sort((a, b) => Number(b.allDay) - Number(a.allDay) || a.startAt.localeCompare(b.startAt))
+  }, [payload.calendar, today])
+
+  const dateLabel = today.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="shrink-0 border-b border-[var(--portal-panel-border)] px-3 py-2">
+        <div className="flex min-h-11 items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--portal-navy)] text-[var(--portal-gold)] shadow-sm">
+              <ListChecks className="h-5 w-5" strokeWidth={1.7} aria-hidden />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[14px] font-medium uppercase tracking-[0.14em] text-[var(--portal-gold)]">Catch-Up</span>
+              <span className="block text-[11px] font-light uppercase tracking-[0.08em] text-[var(--portal-blue-gray)]">
+                {bucket === 'today' ? 'Today · ' + dateLabel : 'Real project work without a due date'}
+              </span>
+            </span>
+          </div>
+          <span className="shrink-0 text-[11px] font-light text-[var(--portal-blue-gray)]">
+            {entries.length ? remaining + ' remaining · ' + completeCount + ' complete' : bucket === 'today' ? 'Nothing due today' : 'No unscheduled work'}
+          </span>
+        </div>
+      </div>
+
+      <section className="shrink-0 border-b border-[var(--portal-panel-border)]/70 px-3 py-2" aria-label="Today's schedule">
+        <div className="flex items-center gap-2">
+          <Clock3 className="h-4 w-4 shrink-0 text-[var(--portal-gold-muted)]" aria-hidden />
+          <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-black/40">Schedule</span>
+          <span className="rounded-full bg-white/40 px-2 py-0.5 text-[10px] font-medium text-[var(--portal-navy-soft)]">{schedule.length}</span>
+          <span className="text-[10px] font-light text-black/35">Apple Calendar</span>
+        </div>
+        {schedule.length === 0 ? (
+          <p className="mt-2 text-[11px] font-light text-black/40">No calendar events today.</p>
+        ) : (
+          <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+            {schedule.map((event) => (
+              <article key={event.id} className="min-w-[210px] max-w-[300px] flex-1 rounded-[var(--portal-tab-radius)] border border-white/45 bg-white/30 px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-medium text-[var(--portal-navy)]">
+                    {event.allDay ? 'All day' : new Date(event.startAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Puerto_Rico' })}
+                  </span>
+                  <span className="truncate text-[9px] font-medium uppercase tracking-[0.08em] text-black/35">
+                    {event.source === 'canonical:showing' ? 'Showing' : event.source === 'apple_calendar' ? 'Apple Calendar' : 'Calendar'}
+                  </span>
+                </div>
+                <p className="mt-1 truncate text-[13px] font-medium text-[var(--portal-navy)]">{event.title}</p>
+                {event.personName || event.propertyName ? (
+                  <p className="mt-0.5 truncate text-[10px] font-light text-black/45">
+                    {[event.personName, event.propertyName].filter(Boolean).join(' · ')}
+                  </p>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--portal-panel-border)]/70 px-3 py-2">
+        <span className="mr-1 text-[10px] font-medium uppercase tracking-[0.12em] text-black/35">Worklist</span>
+        {([
+          ['today', 'Today', buckets.today.length],
+          ['unscheduled', 'Unscheduled', buckets.unscheduled.length],
+        ] as const).map(([key, label, count]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setBucket(key)}
+            className={['rounded-full px-2.5 py-1 text-[10px] font-medium transition', bucket === key ? 'bg-[var(--portal-gold)]/20 text-[var(--portal-navy)] ring-1 ring-inset ring-[var(--portal-gold)]/35' : 'bg-white/35 text-[var(--portal-navy-soft)] hover:bg-white/55'].join(' ')}
+          >
+            {label} <span className="ml-1 opacity-65">{count}</span>
+          </button>
+        ))}
+        <span className="ml-2 text-[10px] font-medium uppercase tracking-[0.12em] text-black/35">Status</span>
+        {([
+          ['all', 'All'],
+          ['open', 'Open'],
+          ['blocked', 'Blocked'],
+          ['complete', 'Done'],
+        ] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setStatusFilter(key)}
+            className={['rounded-full px-2.5 py-1 text-[10px] font-medium transition', statusFilter === key ? 'bg-[var(--portal-navy)] text-white' : 'bg-white/35 text-[var(--portal-navy-soft)] hover:bg-white/55'].join(' ')}
+          >
+            {label}
+          </button>
+        ))}
+        <span className="ml-auto text-[10px] font-medium uppercase tracking-[0.12em] text-black/35">Area</span>
+        <select
+          value={domainFilter}
+          onChange={(event) => setDomainFilter(event.target.value as ProjectDomainKey | 'all')}
+          className="h-7 rounded-full border border-[var(--portal-panel-border)] bg-white/50 px-2.5 text-[10px] font-medium text-[var(--portal-navy-soft)] outline-none"
+          aria-label="Filter Catch-Up by area"
+        >
+          <option value="all">All areas</option>
+          {domains.map((domain) => <option key={domain} value={domain}>{domainLabel(domain)}</option>)}
+        </select>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-auto px-3 pb-2 pt-2">
+        <div className="min-w-[900px] overflow-hidden rounded-[var(--portal-tab-radius)] border border-white/40 bg-white/20">
+          <div className="grid grid-cols-[minmax(0,1fr)_100px] border-b border-[var(--portal-panel-border)]/70 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-black/40">
+            <div className="grid grid-cols-[30px_minmax(230px,1.55fr)_minmax(180px,1fr)_140px_minmax(120px,0.75fr)_24px] items-center gap-3">
+              <span /><span>Task</span><span>Project</span><span>Area</span><span>Assignee</span><span />
+            </div>
+            <span className="text-right">Action</span>
+          </div>
+          {visible.length === 0 ? (
+            <div className="flex min-h-[220px] items-center justify-center px-6 text-center text-sm font-light text-black/45">
+              {bucket === 'today' ? 'No project tasks are due today.' : 'No unscheduled project work matches those filters.'}
+            </div>
+          ) : (
+            <ul className="divide-y divide-[var(--portal-panel-border)]/70">
+              {visible.map((entry) => {
+                const done = entry.item.status === 'done'
+                const selected = selectedEntryKey === entry.id
+                return (
+                  <li key={entry.id} className={['grid grid-cols-[minmax(0,1fr)_100px] items-stretch', done ? 'opacity-60' : '', selected ? 'bg-white/45 ring-1 ring-inset ring-[var(--portal-gold)]/35' : ''].join(' ')}>
+                    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_32px] items-stretch">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedEntryKey(entry.id)
+                          dispatchNavigatorIntent({ kind: 'catchupSelect', projectId: entry.projectId, nodeId: entry.id })
+                        }}
+                        className="grid w-full grid-cols-[30px_minmax(230px,1.55fr)_minmax(180px,1fr)_140px_minmax(120px,0.75fr)] items-center gap-3 px-3 py-3 text-left transition hover:bg-white/30"
+                      >
+                        <CatchUpStatusIcon item={entry.item} />
+                        <span className="min-w-0">
+                          <span className={['block truncate text-[14px] font-medium text-[var(--portal-navy)]', done ? 'line-through' : ''].join(' ')}>{entry.item.title}</span>
+                          <span className="mt-0.5 block text-[10px] font-light uppercase tracking-[0.08em] text-black/40">{catchUpStatusLabel(entry.item)}</span>
+                        </span>
+                        <span className="min-w-0 truncate text-[13px] font-light text-[var(--portal-navy)]">{entry.projectTitle}</span>
+                        <span className="min-w-0">
+                          <span className="block truncate text-[12px] font-medium text-[var(--portal-navy-soft)]">{domainLabel(entry.domain)}</span>
+                          <span className="block truncate text-[10px] font-light text-black/40">{entry.contextLabel ?? 'Project work'}</span>
+                        </span>
+                        <span className="truncate text-[12px] font-light text-[var(--portal-blue-gray)]">{entry.item.owner ?? '—'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => dispatchNavigatorIntent({ kind: 'work', projectId: entry.projectId, nodeId: entry.id })}
+                        title="Open this work item in its project"
+                        className="flex items-center justify-center text-black/25 transition hover:bg-white/30 hover:text-[var(--portal-gold-muted)]"
+                      >
+                        <ChevronRight className="h-4 w-4" aria-hidden />
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-end px-3 py-2">
+                      {done ? (
+                        <span className="text-[10px] font-medium uppercase tracking-[0.1em] text-[var(--portal-success)]">Done</span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={payload.saving}
+                          onClick={() => dispatchNavigatorIntent({ kind: 'catchupComplete', projectId: entry.projectId, nodeId: entry.id })}
+                          className="rounded-full border border-[var(--portal-success)]/35 bg-white/30 px-2.5 py-1 text-[9px] font-medium uppercase tracking-[0.1em] text-[var(--portal-success)] transition hover:bg-white/55 disabled:opacity-40"
+                        >
+                          {payload.saving && selected ? 'Saving…' : 'Complete'}
+                        </button>
+                      )}
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 type TimelinePayload = {
   project: {
     id: string
@@ -923,6 +1269,9 @@ export function ProjectReactIslands() {
       ))
       syncIsland<DocumentsPayload>(host, mounted, 'project-documents-island', (payload) => (
         <ProjectDocumentsIsland payload={payload} />
+      ))
+      syncIsland<CatchUpPayload>(host, mounted, 'project-catchup-island', (payload) => (
+        <ProjectCatchUpIsland payload={payload} />
       ))
     }
 
