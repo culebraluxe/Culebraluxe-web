@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { LucideIcon } from 'lucide-react'
 import {
-  AlertCircle,
   Banknote,
   Building2,
   CheckCircle2,
