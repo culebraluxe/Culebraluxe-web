@@ -479,6 +479,7 @@ pub struct PortalDealsPage {
     pub contracts: Vec<PortalDealContract>,
     pub properties: Vec<PortalDealableProperty>,
     pub users: Vec<PortalDealOwnerCandidate>,
+    pub workspace: Option<PortalDealWorkspace>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -554,6 +555,184 @@ pub struct PortalDealPersonCandidate {
 #[serde(rename_all = "camelCase", default)]
 pub struct PortalDealPeopleSearch {
     pub people: Vec<PortalDealPersonCandidate>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalDealWorkspace {
+    pub deal: Option<PortalDealWorkspaceDeal>,
+    pub property: Option<PortalDealWorkspaceProperty>,
+    pub client: Option<PortalDealWorkspaceClient>,
+    pub participants: Vec<PortalDealWorkspaceParticipant>,
+    pub open_tasks: Vec<PortalDealWorkspaceTask>,
+    pub activity: Vec<PortalDealWorkspaceActivity>,
+    pub offers: Vec<PortalDealWorkspaceOffer>,
+    pub showings: Vec<PortalDealWorkspaceShowing>,
+    pub contracts: Vec<PortalDealContract>,
+    pub owner_candidates: Vec<PortalDealOwnerCandidate>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalDealWorkspaceDeal {
+    pub id: String,
+    pub stage: String,
+    pub list_price: Option<f64>,
+    pub offer_price: Option<f64>,
+    pub closing_date_label: Option<String>,
+    pub closed_at_label: Option<String>,
+    pub notes: Option<String>,
+    pub created_at_label: String,
+    pub updated_at_label: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalDealWorkspaceProperty {
+    pub id: String,
+    pub name: String,
+    pub location: Option<String>,
+    pub property_type: Option<String>,
+    pub bedrooms: Option<f64>,
+    pub bathrooms: Option<f64>,
+    pub square_feet: Option<i64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalDealWorkspaceClient {
+    pub id: String,
+    pub display_name: String,
+    pub role: String,
+    pub status: String,
+    pub email: Option<String>,
+    pub phone: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalDealWorkspaceParticipant {
+    pub id: String,
+    pub role_category: String,
+    pub role_label: Option<String>,
+    pub kind: String,
+    pub person_id: Option<String>,
+    pub user_id: Option<String>,
+    pub name: String,
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalDealWorkspaceTask {
+    pub id: String,
+    pub title: String,
+    pub detail: Option<String>,
+    pub due_at_label: Option<String>,
+    pub is_overdue: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalDealWorkspaceActivity {
+    pub id: String,
+    pub person_id: Option<String>,
+    pub channel: String,
+    pub direction: Option<String>,
+    pub occurred_at_label: String,
+    pub title: Option<String>,
+    pub summary: Option<String>,
+    pub person_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalDealWorkspaceOffer {
+    pub id: String,
+    pub person_id: String,
+    pub person_name: Option<String>,
+    pub parent_offer_id: Option<String>,
+    pub amount: f64,
+    pub status: String,
+    pub submitted_at_label: String,
+    pub responded_at_label: Option<String>,
+    pub note: Option<String>,
+    pub is_counter: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalDealWorkspaceShowing {
+    pub id: String,
+    pub person_id: String,
+    pub person_name: String,
+    pub status: String,
+    pub requested_at_label: String,
+    pub scheduled_at_label: Option<String>,
+    pub completed_at_label: Option<String>,
+    pub cancelled_at_label: Option<String>,
+    pub feedback: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(
+    tag = "action",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum PortalDealCommand {
+    CreateTask {
+        title: String,
+        detail: Option<String>,
+        due_at: Option<String>,
+    },
+    CompleteTask {
+        task_id: String,
+    },
+    CreateShowing {
+        person_id: String,
+        property_id: Option<String>,
+    },
+    ScheduleShowing {
+        showing_id: String,
+        scheduled_at: String,
+    },
+    CancelShowing {
+        showing_id: String,
+    },
+    CompleteShowing {
+        showing_id: String,
+    },
+    SubmitOffer {
+        person_id: String,
+        amount: String,
+        parent_offer_id: Option<String>,
+    },
+    WithdrawOffer {
+        offer_id: String,
+    },
+    RejectOffer {
+        offer_id: String,
+    },
+    AddOtherParticipant {
+        person_id: String,
+        role_label: String,
+    },
+    UpdateOtherParticipant {
+        participant_id: String,
+        role_label: String,
+    },
+    EndOtherParticipant {
+        participant_id: String,
+    },
+    SetStructuralParticipant {
+        role: String,
+        person_id: Option<String>,
+        user_id: Option<String>,
+    },
+    EndStructuralParticipant {
+        participant_id: String,
+    },
 }
 
 #[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
