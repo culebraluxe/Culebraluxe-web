@@ -1121,6 +1121,8 @@ pub struct Model {
     /// `None` is a real state and not an error: a list screen has no page payload, and a page that has not loaded yet
     /// shows the chrome and its loading line exactly as a list does.
     pub page: Option<PageContent>,
+    /// Seller Strategy is deterministic local application state: no fetch and no parallel React model.
+    pub seller_strategy: crate::seller_strategy::SellerStrategyState,
     /// WHICH MOUNT THIS STATE BELONGS TO.
     ///
     /// A host run has a generation, the shell stamps it on the program and on every effect it asks for, and every
@@ -1144,6 +1146,7 @@ impl Default for Model {
             scope: None,
             controls: Controls::default(),
             page: None,
+            seller_strategy: crate::seller_strategy::SellerStrategyState::default(),
             // Generation zero is "no host has said", which is what a program built by a test or an example holds.
             generation: 0,
         }
@@ -1263,6 +1266,21 @@ pub enum Msg {
     FormCreated {
         form_id: String,
     },
+
+    /// Seller Strategy intents. The reducer owns all assumptions and disclosure state.
+    SellerStrategyFieldChanged {
+        key: String,
+        raw: String,
+        percent: bool,
+    },
+    SellerStrategyOptionToggled {
+        option: u8,
+        enabled: bool,
+    },
+    SellerStrategyEditAllToggled,
+    SellerStrategyActiveEditChanged(Option<u8>),
+    SellerStrategyDetailToggled,
+    SellerStrategyReset,
 
     /// Project Management intents. Vendor widgets are views only; these own workspace state.
     ProjectDomainSelected(String),
