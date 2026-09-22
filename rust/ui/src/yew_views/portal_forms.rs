@@ -177,7 +177,8 @@ fn form_editor(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
             </section>
         };
     };
-    let (Some(form), Some(template)) = (payload.selected.as_ref(), payload.template.as_ref()) else {
+    let (Some(form), Some(template)) = (payload.selected.as_ref(), payload.template.as_ref())
+    else {
         return html! {
             <section class="portal-glass-panel rounded-[var(--portal-panel-radius)] p-8">
                 <h1 class="font-serif text-2xl font-light text-[var(--portal-navy)]">{"Form not found"}</h1>
@@ -353,8 +354,20 @@ fn session_row(
         </>
     };
     let class = classes!(
-        "flex","w-full","items-center","gap-2","border-b","border-[var(--portal-panel-border)]","px-2.5","py-2","text-left",
-        if selected { "border-l-2 border-l-[var(--portal-gold)] bg-white/40" } else { "border-l-2 border-l-transparent hover:bg-white/25" }
+        "flex",
+        "w-full",
+        "items-center",
+        "gap-2",
+        "border-b",
+        "border-[var(--portal-panel-border)]",
+        "px-2.5",
+        "py-2",
+        "text-left",
+        if selected {
+            "border-l-2 border-l-[var(--portal-gold)] bg-white/40"
+        } else {
+            "border-l-2 border-l-transparent hover:bg-white/25"
+        }
     );
 
     if selected {
@@ -416,29 +429,27 @@ fn editor_panel(
 }
 
 fn visible_field(field: &PortalFormField, form: &PortalFormRecord) -> bool {
-    field
-        .when
-        .as_ref()
-        .is_none_or(|gate| {
-            form.field_values
-                .get(&gate.field)
-                .is_some_and(|value| gate.values.iter().any(|candidate| candidate == value))
-        })
+    field.when.as_ref().is_none_or(|gate| {
+        form.field_values
+            .get(&gate.field)
+            .is_some_and(|value| gate.values.iter().any(|candidate| candidate == value))
+    })
 }
 
 fn visible_section(section: &PortalFormSection, form: &PortalFormRecord) -> bool {
-    section
-        .when
-        .as_ref()
-        .is_none_or(|gate| {
-            form.field_values
-                .get(&gate.field)
-                .is_some_and(|value| gate.values.iter().any(|candidate| candidate == value))
-        })
+    section.when.as_ref().is_none_or(|gate| {
+        form.field_values
+            .get(&gate.field)
+            .is_some_and(|value| gate.values.iter().any(|candidate| candidate == value))
+    })
 }
 
 fn field_control(field: &PortalFormField, form: &PortalFormRecord, on_msg: &Callback<Msg>) -> Html {
-    let value = form.field_values.get(&field.name).cloned().unwrap_or_default();
+    let value = form
+        .field_values
+        .get(&field.name)
+        .cloned()
+        .unwrap_or_default();
     let span = if field.field_type == "textarea" {
         "col-span-6"
     } else if matches!(field.field_type.as_str(), "date" | "money" | "select") {
@@ -499,7 +510,11 @@ fn field_control(field: &PortalFormField, form: &PortalFormRecord, on_msg: &Call
         }
         _ => {
             let on_msg = on_msg.clone();
-            let input_type = if field.field_type == "date" { "date" } else { "text" };
+            let input_type = if field.field_type == "date" {
+                "date"
+            } else {
+                "text"
+            };
             let oninput = Callback::from(move |event: InputEvent| {
                 let value = event
                     .target_unchecked_into::<web_sys::HtmlInputElement>()
@@ -524,7 +539,11 @@ fn section_control(
     form: &PortalFormRecord,
     on_msg: &Callback<Msg>,
 ) -> Html {
-    let value = form.sections.get(&section.name).cloned().unwrap_or_default();
+    let value = form
+        .sections
+        .get(&section.name)
+        .cloned()
+        .unwrap_or_default();
     if !section.editable {
         return html! {
             <section>
@@ -635,11 +654,7 @@ fn fact(label: &str, value: &str) -> Html {
     }
 }
 
-fn party_label(
-    buyer: Option<&String>,
-    seller: Option<&String>,
-    client: Option<&String>,
-) -> String {
+fn party_label(buyer: Option<&String>, seller: Option<&String>, client: Option<&String>) -> String {
     let left = buyer
         .filter(|value| !value.trim().is_empty())
         .or_else(|| client.filter(|value| !value.trim().is_empty()));

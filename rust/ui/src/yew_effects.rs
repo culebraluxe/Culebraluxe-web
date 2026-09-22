@@ -115,8 +115,7 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
                                     .get("formId")
                                     .and_then(serde_json::Value::as_str)
                                     .map(str::to_owned)
-                            })
-                        {
+                            }) {
                             Some(form_id) => Msg::FormCreated { form_id },
                             None => Msg::EffectFailed {
                                 screen: screen.to_string(),
@@ -178,13 +177,7 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
             page,
             generation,
         } => (
-            clients_query(
-                screen,
-                scope.as_deref(),
-                selected.as_deref(),
-                &search,
-                page,
-            ),
+            clients_query(screen, scope.as_deref(), selected.as_deref(), &search, page),
             screen,
             generation,
             Kind::Portal,
@@ -209,9 +202,9 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
             generation,
             Kind::Rows,
         ),
-        Effect::SaveForm { .. }
-        | Effect::CreateForm { .. }
-        | Effect::BrowserNavigate { .. } => return,
+        Effect::SaveForm { .. } | Effect::CreateForm { .. } | Effect::BrowserNavigate { .. } => {
+            return
+        }
     };
 
     let dispatch = dispatch.clone();

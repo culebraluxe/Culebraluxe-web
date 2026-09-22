@@ -300,10 +300,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/forms", get(forms).post(create_form))
         .route("/v1/forms/deal-facts/{deal_id}", get(form_deal_facts))
         .route("/v1/forms/{id}/signers", get(form_signers))
-        .route(
-            "/v1/forms/{id}/issued-document",
-            get(form_issued_document),
-        )
+        .route("/v1/forms/{id}/issued-document", get(form_issued_document))
         .route("/v1/forms/{id}", get(form).patch(update_form))
         .route("/v1/comms/{person_id}/panel", get(comms_panel))
         .route("/v1/comms/{person_id}/timeline", get(comms_timeline))
@@ -814,12 +811,14 @@ async fn update_form(
 ) -> Result<Json<ApiSuccess<domain::FormInstance>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
     let status = match body.status.as_deref() {
-        Some(value) => Some(domain::FormInstanceStatus::try_from(value).map_err(|message| {
-            correlate(
-                ApiError::from(CoreServiceError::business("FORM_STATUS_INVALID", message)),
-                &resolved,
-            )
-        })?),
+        Some(value) => Some(
+            domain::FormInstanceStatus::try_from(value).map_err(|message| {
+                correlate(
+                    ApiError::from(CoreServiceError::business("FORM_STATUS_INVALID", message)),
+                    &resolved,
+                )
+            })?,
+        ),
         None => None,
     };
     let mut service = state.services().forms();

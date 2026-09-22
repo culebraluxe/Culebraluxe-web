@@ -60,7 +60,9 @@ impl Component for PortalApp {
         match self.model.screen.key {
             "activity" => html! { <Activity model={self.model.clone()} on_msg={on_msg} /> },
             "clients" => html! { <Clients model={self.model.clone()} on_msg={on_msg} /> },
-            "client-record" => html! { <ClientRecord model={self.model.clone()} on_msg={on_msg} /> },
+            "client-record" => {
+                html! { <ClientRecord model={self.model.clone()} on_msg={on_msg} /> }
+            }
             "forms" => html! { <Forms model={self.model.clone()} on_msg={on_msg} /> },
             "form-record" => html! { <FormRecord model={self.model.clone()} on_msg={on_msg} /> },
             "workflows" => html! { <Workflows model={self.model.clone()} on_msg={on_msg} /> },

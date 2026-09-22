@@ -1013,11 +1013,21 @@ pub enum Msg {
     PageChanged(i64),
 
     /// Forms editor intents. The working draft remains inside Model -> PortalFormsPage.
-    FormFieldChanged { name: String, value: String },
-    FormSectionChanged { name: String, value: String },
+    FormFieldChanged {
+        name: String,
+        value: String,
+    },
+    FormSectionChanged {
+        name: String,
+        value: String,
+    },
     FormSaveRequested,
-    FormCreateRequested { template_id: String },
-    FormCreated { form_id: String },
+    FormCreateRequested {
+        template_id: String,
+    },
+    FormCreated {
+        form_id: String,
+    },
 }
 
 impl Msg {
@@ -1138,9 +1148,7 @@ pub enum Effect {
         property_id: Option<String>,
     },
     /// Browser navigation is an effect, not a view mutation.
-    BrowserNavigate {
-        href: String,
-    },
+    BrowserNavigate { href: String },
     /// Fetch a public page's content: the blocks, not the rows.
     ///
     /// A SEPARATE EFFECT because it is a different request and a different shape. A list screen asks what its rows are;
