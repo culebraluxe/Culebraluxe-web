@@ -344,6 +344,8 @@ pub fn router(state: ApiState) -> Router {
                 .layer(DefaultBodyLimit::max(MAX_MEDIA_UPLOAD_BYTES + 1024 * 1024)),
         )
         .route("/v1/deals", get(deals).post(create_deal))
+        .route("/v1/deals/{id}", get(deal_workspace))
+        .route("/v1/deals/{id}/commands", post(deal_workspace_command))
         .route("/v1/contracts", get(contracts))
         .route("/v1/contracts/{id}", get(contract))
         .route(
@@ -966,6 +968,35 @@ async fn create_deal(
     let mut service = state.services().deal_portal();
     let value = service
         .create(&body, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn deal_workspace(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<ApiSuccess<domain::DealWorkspaceSnapshot>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().deal_portal();
+    let value = service
+        .workspace(&id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn deal_workspace_command(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<domain::DealWorkspaceCommand>,
+) -> Result<Json<ApiSuccess<domain::DealWorkspaceCommandResult>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().deal_portal();
+    let value = service
+        .command(&id, &body, &resolved.service)
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(value, &resolved))
