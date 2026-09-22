@@ -1,10 +1,27 @@
 use crate::{Database, DbFailure, DbResult};
 use chrono::{DateTime, Utc};
 use domain::{
-    CommsDirection, CommsMomentPage, CommsMomentRecord, CommsSourceRecord, LastContactRecord,
-    RelationshipEvidenceRecord,
+    ActivityFeedEntry, CommsDirection, CommsMomentPage, CommsMomentRecord, CommsSourceRecord,
+    LastContactRecord, RelationshipEvidenceRecord,
 };
 use sqlx::FromRow;
+
+#[derive(Debug, FromRow)]
+struct ActivityRow {
+    id: String,
+    person_id: Option<String>,
+    deal_id: Option<String>,
+    property_id: Option<String>,
+    channel: String,
+    direction: Option<String>,
+    occurred_at: DateTime<Utc>,
+    occurred_at_label: String,
+    title: Option<String>,
+    summary: Option<String>,
+    person_name: Option<String>,
+    property_name: Option<String>,
+    deal_property_name: Option<String>,
+}
 
 #[derive(Debug, FromRow)]
 struct SourceRow {
@@ -75,6 +92,63 @@ pub struct CommsDao {
 impl CommsDao {
     pub fn new(db: Database) -> Self {
         Self { db }
+    }
+
+    pub async fn activity(&self, limit: i64) -> DbResult<Vec<ActivityFeedEntry>> {
+        let limit = limit.clamp(1, 500);
+        let rows = crate::retrying_read!(async {
+            sqlx::query_as::<_, ActivityRow>(
+                r#"
+                select
+                  i.id::text as id,
+                  person.id::text as person_id,
+                  deal.id::text as deal_id,
+                  i.property_id::text as property_id,
+                  i.channel,
+                  i.direction,
+                  i.occurred_at,
+                  to_char(
+                    i.occurred_at at time zone 'America/Puerto_Rico',
+                    'Mon FMDD, YYYY HH12:MI AM'
+                  ) as occurred_at_label,
+                  i.title,
+                  i.summary,
+                  person.display_name as person_name,
+                  property.name as property_name,
+                  deal_property.name as deal_property_name
+                from interaction i
+                join person on person.id = i.person_id
+                left join property on property.id = i.property_id
+                left join deal on deal.id = i.deal_id
+                left join property deal_property on deal_property.id = deal.property_id
+                order by i.occurred_at desc, i.id desc
+                limit $1
+                "#,
+            )
+            .bind(limit)
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("comms.activity", &error))
+        })?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| ActivityFeedEntry {
+                id: row.id,
+                person_id: row.person_id,
+                deal_id: row.deal_id,
+                property_id: row.property_id,
+                channel: row.channel,
+                direction: row.direction,
+                occurred_at: row.occurred_at.to_rfc3339(),
+                occurred_at_label: row.occurred_at_label,
+                title: row.title,
+                summary: row.summary,
+                person_name: row.person_name,
+                property_name: row.property_name,
+                deal_property_name: row.deal_property_name,
+            })
+            .collect())
     }
 
     pub async fn sources(&self, person_id: &str) -> DbResult<Vec<CommsSourceRecord>> {
