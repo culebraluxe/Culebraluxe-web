@@ -4079,8 +4079,12 @@ mod tests {
             let mut program = crate::Program::new();
             program.open(screen);
             let html = program.html();
+            // THE LANDING PAGE IS ITS HERO AND NOTHING ELSE LIKE IT. This checked for `/images/hero-villa.png`, which
+            // was a good proxy until the Services page legitimately used that same photograph for its own hero — a
+            // proxy that fails when the thing it stands in for changes. The landing hero is the only full-viewport
+            // section with `id="top"`, so that is what is asserted.
             assert!(
-                !html.contains("/images/hero-villa.png"),
+                !html.contains("<section id=\"top\""),
                 "{key} painted the landing page's hero"
             );
             assert_eq!(
@@ -4096,27 +4100,21 @@ mod tests {
         }
     }
 
-    /// The About page renders the managed about block through the same renderer the homepage's about section uses — so
-    /// the page and the homepage section cannot disagree about what the about block looks like.
+    /// The About page renders ITS OWN COPY, not the managed `about` block.
+    ///
+    /// IT USED TO ASSERT THE BLOCK. `app/about/page.tsx` is the real page — the founder's portrait and biography, her
+    /// credentials, What we value, Why clients choose CulebraLuxe, the four figures, the Life on the island strip and the
+    /// closing band — and it carries its copy in the page, not in the content store. `components/about.tsx` is the
+    /// homepage's section, and rendering that here produced the wrong page with the right-looking markup, which is the
+    /// trap this port has already written down. The test has been red since the page was ported.
     #[test]
-    fn the_about_page_renders_the_about_block() {
+    fn the_about_page_renders_its_own_page() {
+        // A payload whose block carries a marker no page copy can contain, so "the block is not what this renders" is
+        // asserted exactly rather than by looking for words the page might also use. (The page's own eyebrow IS
+        // "About Us", which is what the first version of this test got wrong.)
         let page = crate::model::PageContent {
             about: Block {
-                eyebrow: "About Us".into(),
-                title: "A boutique brokerage devoted to a single island.".into(),
-                body: "We work with few clients.".into(),
-                items: vec![
-                    crate::model::BlockItem {
-                        key: "paragraph".into(),
-                        label: None,
-                        value: Some("Founded by island residents.".into()),
-                    },
-                    crate::model::BlockItem {
-                        key: "stat".into(),
-                        label: Some("14".into()),
-                        value: Some("Years on island".into()),
-                    },
-                ],
+                title: "BLOCK-COPY-MARKER".into(),
                 ..Block::default()
             },
             ..crate::model::PageContent::default()
@@ -4126,17 +4124,12 @@ mod tests {
             page: Some(page),
             ..Model::default()
         });
-        assert!(html.contains("About Us"));
-        assert!(html.contains("Founded by island residents."));
-        // The stats come from items keyed `stat`, the same filter the component used: a stat is a pair, not a line.
-        assert!(html.contains("Years on island"));
-
-        // And no copy before the payload arrives.
-        let bare = render(&Model {
-            screen: target("site-about"),
-            ..Model::default()
-        });
-        assert!(!bare.contains("About Us"));
+        // Its own hero — the page's words, which no payload supplies.
+        assert!(html.contains("Devoted to a single island."));
+        assert!(
+            !html.contains("BLOCK-COPY-MARKER"),
+            "the managed about block must not be rendered here: this page carries its own copy"
+        );
     }
 
     /// THE ROUTE CONTRACT, EXACTLY — the destination of every menu item, not its label.
@@ -4204,48 +4197,33 @@ mod tests {
     }
 
     #[test]
-    fn the_services_page_renders_the_blocks_it_is_made_of() {
-        let page = crate::model::PageContent {
-            buyers: Block {
-                eyebrow: "For Buyers".into(),
-                title: "A considered path".into(),
-                body: "Guided, and not hurried.".into(),
-                items: vec![crate::model::BlockItem {
-                    key: "list".into(),
-                    label: None,
-                    value: Some("Search the island, not the portals".into()),
-                }],
-                ..Block::default()
-            },
-            sellers: Block {
-                eyebrow: "For Sellers".into(),
-                title: "Presented to the few".into(),
-                ..Block::default()
-            },
-            ..crate::model::PageContent::default()
-        };
+    /// The Services page renders ITS OWN page — the eight services with their CTAs — and not the homepage's services
+    /// band.
+    ///
+    /// THIS TEST USED TO ASSERT THE OPPOSITE. It asserted that the page rendered the managed `buyers`/`sellers` blocks
+    /// ("For Buyers", "For Sellers", the coastline portrait) — which is `components/services.tsx`, the *homepage's*
+    /// summary of services — because that is what the screen rendered at the time. The real page is
+    /// `app/services/page.tsx`: eight services from `SERVICES`, a three-step process, four reasons, three principles and
+    /// a closing band, none of it from a block. The test has been red since that page was ported, and a red test that
+    /// asserts the old behaviour is worse than none: it tells the next session the port is broken.
+    #[test]
+    fn the_services_page_renders_its_own_page() {
         let html = render(&Model {
             screen: target("site-services"),
-            page: Some(page),
             ..Model::default()
         });
-        assert!(html.contains("For Buyers"));
-        assert!(html.contains("For Sellers"));
-        // The buyers' list comes from items keyed `list`, so it renders as the ruled list and not as loose text.
-        assert!(html.contains("Search the island, not the portals"));
-        // The sellers block keeps its portrait image, falling back to the coastline the component falls back to.
-        assert!(html.contains("/images/coastline.png"));
-
-        // NO PAYLOAD, NO COPY. Until the page arrives the body is empty and the host owns the loading line. Inventing the
-        // page's words while it loads is how a port stops being a port.
-        let bare = render(&Model {
+        // The page's own copy, from its source rather than from a payload.
+        assert!(html.contains("Market Analysis / CMA"));
+        // The CTA that carries the service intent into the contact page.
+        assert!(html.contains("/contact?service=market-analysis"));
+        // Its own hero, and not the homepage band it used to render.
+        assert!(!html.contains("For Sellers"));
+        // NO PAGE PAYLOAD IS NEEDED, and that is the point: this screen's copy is literal, so it renders with none.
+        assert!(render(&Model {
             screen: target("site-services"),
             ..Model::default()
-        });
-        assert!(
-            !bare.contains("For Buyers"),
-            "the page does not invent its copy while the payload is still in flight"
-        );
+        })
+        .contains("How it works"));
     }
 
     #[test]

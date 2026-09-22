@@ -546,6 +546,14 @@ pub struct Model {
     /// `None` is a real state and not an error: a list screen has no page payload, and a page that has not loaded yet
     /// shows the chrome and its loading line exactly as a list does.
     pub page: Option<PageContent>,
+    /// WHICH MOUNT THIS STATE BELONGS TO.
+    ///
+    /// A host run has a generation, the shell stamps it on the program and on every effect it asks for, and every
+    /// response has to present it back before it is allowed to touch the model. Without it, a request issued for screen
+    /// A can land while screen B is mounted and write A's rows or blocks into B's screen — the browser shows one page
+    /// and the model quietly holds another. Order of arrival is not ownership, and this is the value that says whose
+    /// answer it is.
+    pub generation: u64,
 }
 
 impl Default for Model {
@@ -561,6 +569,8 @@ impl Default for Model {
             scope: None,
             controls: Controls::default(),
             page: None,
+            // Generation zero is "no host has said", which is what a program built by a test or an example holds.
+            generation: 0,
         }
     }
 }
@@ -577,9 +587,16 @@ impl Model {
 pub enum Msg {
     /// The screen mounted, or navigation arrived that needs data.
     ScreenOpened(Screen),
+    /// A HOST RUN OPENED THIS SCREEN, and this is the generation it belongs to.
+    ///
+    /// The difference from `ScreenOpened` is the generation: the host numbers its runs, and the number travels with
+    /// every request this mount makes so the answer can be matched to the question. A run that is replaced — the host
+    /// re-mounted, the route changed, an old async run resuming after its cleanup — must not be able to open its screen
+    /// over the current one, and this is where that is refused.
+    Mount { screen: Screen, generation: u64 },
     /// The user picked a screen from the nav.
     Navigate(Screen),
-    RowsLoaded(Vec<Row>),
+    RowsLoaded { screen: String, generation: u64, rows: Vec<Row> },
     RowSelected(String),
     /// A row was opened as a record rather than merely selected: on a listing, this navigates to that record's own
     /// screen. A screen with no record treats it as a selection instead, so the same click is never ambiguous.
@@ -588,7 +605,15 @@ pub enum Msg {
     EffectFailed(String),
 
     /// A public page's content arrived: the blocks an editorial page is built from.
-    PageLoaded(PageContent),
+    ///
+    /// IT ARRIVES WITH ITS OWNER. `screen` and `generation` are the ones the request was issued under, and the reducer
+    /// refuses the answer if they are not the ones the model holds now — a payload for screen A must never mutate screen
+    /// B, however the network reorders things.
+    PageLoaded {
+        screen: String,
+        generation: u64,
+        page: PageContent,
+    },
 
     // ---- controls: the screen's own input, one message per act --------------------------------------------------
     /// The user typed in the screen's search field.
@@ -617,18 +642,26 @@ pub enum Msg {
 impl Msg {
     /// Parse the JSON the host fetched. A bad payload becomes a visible error rather than a panic, because a panic in
     /// WASM takes the whole screen down and explains nothing.
-    pub fn rows_loaded_json(payload: &str) -> Msg {
+    pub fn rows_loaded_json(screen: &str, generation: u64, payload: &str) -> Msg {
         match serde_json::from_str::<Vec<Row>>(payload) {
-            Ok(rows) => Msg::RowsLoaded(rows),
+            Ok(rows) => Msg::RowsLoaded {
+                screen: screen.to_string(),
+                generation,
+                rows,
+            },
             Err(error) => Msg::EffectFailed(format!("could not read the screen payload: {error}")),
         }
     }
 
     /// The same contract for a page: the host fetched blocks, and a payload that does not parse is an error the user
     /// can see rather than a page that silently renders empty.
-    pub fn page_loaded_json(payload: &str) -> Msg {
+    pub fn page_loaded_json(screen: &str, generation: u64, payload: &str) -> Msg {
         match serde_json::from_str::<PageContent>(payload) {
-            Ok(page) => Msg::PageLoaded(page),
+            Ok(page) => Msg::PageLoaded {
+                screen: screen.to_string(),
+                generation,
+                page,
+            },
             Err(error) => Msg::EffectFailed(format!("could not read the page payload: {error}")),
         }
     }
@@ -652,6 +685,8 @@ pub enum Effect {
     FetchRows {
         screen: &'static str,
         scope: Option<String>,
+        /// Which mount asked. The host puts it on the request and presents it back with the answer.
+        generation: u64,
     },
     /// Fetch a public page's content: the blocks, not the rows.
     ///
@@ -670,5 +705,6 @@ pub enum Effect {
     FetchPage {
         screen: &'static str,
         scope: Option<String>,
+        generation: u64,
     },
 }

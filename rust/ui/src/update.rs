@@ -40,6 +40,20 @@ pub fn is_editorial(key: &str) -> bool {
     )
 }
 
+/// Whether a response belongs to the state the model is holding now.
+///
+/// THE INVARIANT: **a response issued for screen A can never mutate screen B.** The message carries the screen it was
+/// fetched for and the generation it was fetched under — the two facts that were missing when a page payload for one
+/// screen could land while another was mounted, which is the defect the browser showed. Arrival order is not ownership:
+/// two requests can complete in either order, and a slow one is not evidence about what the visitor is looking at.
+///
+/// Both halves matter and neither is redundant. The screen stops a request for another screen, which is the common case
+/// (click away while a page is loading); the generation stops a request for THIS screen that a previous mount issued —
+/// navigating back to a screen the visitor just left, where the screen key matches but the mount does not.
+fn owns(model: &Model, screen: &str, generation: u64) -> bool {
+    model.screen.key == screen && model.generation == generation
+}
+
 /// Move to a screen and ask for its rows. The single place a screen change happens, so navigation and record-opening
 /// cannot drift apart.
 fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect> {
@@ -61,18 +75,20 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
     if model.loading {
         // A page asks for its blocks; a list asks for its rows. Two questions, two payloads, and the screen decides
         // which one it is asking — see `is_editorial`.
+        //
+        // EVERY EFFECT CARRIES THE GENERATION IT WAS ASKED UNDER, so the answer can be matched to the question. See
+        // `Model::generation`: without it, a request issued for one screen can land while another is mounted.
         if is_editorial(screen.key) {
-            // The scope goes with it. `site-property-detail` is the screen this matters for: its page is about one
-            // property, and a `FetchPage` that names only the screen leaves the host unable to say *which* property —
-            // it asks the page route for a record page and no record, and is refused. See `Effect::FetchPage`.
             vec![Effect::FetchPage {
                 screen: screen.key,
                 scope: model.scope.clone(),
+                generation: model.generation,
             }]
         } else {
             vec![Effect::FetchRows {
                 screen: screen.key,
                 scope: model.scope.clone(),
+                generation: model.generation,
             }]
         }
     } else {
@@ -84,6 +100,12 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
 pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
     match msg {
         Msg::ScreenOpened(screen) => open(model, screen, None),
+        Msg::Mount { screen, generation } => {
+            // The generation is stamped BEFORE the screen opens, because opening is what asks for the data and the
+            // request has to carry the number it was asked under.
+            model.generation = generation;
+            open(model, screen, None)
+        }
         Msg::Navigate(screen) => {
             // Already there, and not deep inside a record: nothing to do. Coming *back* from a record with the same
             // screen needs the scope cleared, which is what the second half of the condition allows.
@@ -103,7 +125,18 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 Vec::new()
             }
         },
-        Msg::RowsLoaded(rows) => {
+        Msg::RowsLoaded {
+            screen,
+            generation,
+            rows,
+        } => {
+            // WHOSE ANSWER IS THIS? A response the host fetched for another screen, or for a previous mount of this
+            // one, is dropped rather than applied: the model belongs to the screen the visitor is looking at, and an
+            // answer that arrives late is not a reason to change it. Dropped silently because it is not an error — the
+            // request was correct when it was made, and the user is already somewhere else.
+            if !owns(model, &screen, generation) {
+                return Vec::new();
+            }
             model.loading = false;
             model.error = None;
             if let Some(id) = model.selected_row_id.as_deref() {
@@ -126,7 +159,17 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             model.error = Some(message);
             Vec::new()
         }
-        Msg::PageLoaded(page) => {
+        Msg::PageLoaded {
+            screen,
+            generation,
+            page,
+        } => {
+            // The same ownership rule as rows: a page fetched for another screen, or for a previous mount, cannot
+            // overwrite the page on screen. This is the bug the browser showed — a payload for one screen landing while
+            // another was mounted.
+            if !owns(model, &screen, generation) {
+                return Vec::new();
+            }
             model.loading = false;
             model.error = None;
             model.page = Some(page);
@@ -205,6 +248,19 @@ mod tests {
         }
     }
 
+    /// A rows response that OWNS ITSELF: the screen the model is on, and the mount it holds.
+    ///
+    /// Every response carries who it is for now, so a test that built one by hand with the wrong screen would be testing
+    /// the refusal path by accident — which is the sort of thing that reads as a passing test and asserts nothing. This
+    /// is the shape the shell sends.
+    fn rows_for(model: &Model, rows: Vec<Row>) -> Msg {
+        Msg::RowsLoaded {
+            screen: model.screen.key.to_string(),
+            generation: model.generation,
+            rows,
+        }
+    }
+
     #[test]
     fn navigating_to_a_menu_screen_fetches_its_rows() {
         let mut model = Model::default();
@@ -215,7 +271,8 @@ mod tests {
             effects,
             vec![Effect::FetchRows {
                 screen: "clients",
-                scope: None
+                scope: None,
+                generation: 0
             }]
         );
     }
@@ -256,11 +313,13 @@ mod tests {
         assert_eq!(model.screen, target("site-property-detail"));
         assert_eq!(
             effects,
-            vec![Effect::FetchRows {
+            vec![Effect::FetchPage {
                 screen: "site-property-detail",
                 scope: Some("villa-del-mar".into()),
+                generation: 0,
             }],
-            "the record key must reach the host, and a detail screen fetches about one record"
+            "the record key must reach the host, and a record is a PAGE, not a row list: it is a cockpit, a gallery and \
+             four tabs, so it asks for its blocks. This expected FetchRows until the record page was ported."
         );
     }
 
@@ -271,7 +330,8 @@ mod tests {
             screen: target("activity"),
             ..Model::default()
         };
-        update(&mut model, Msg::RowsLoaded(vec![row("a")]));
+        let rows = rows_for(&model, vec![row("a")]);
+        update(&mut model, rows);
         assert!(update(&mut model, Msg::RecordOpened("a".into())).is_empty());
         assert_eq!(
             model.screen,
@@ -295,7 +355,8 @@ mod tests {
     #[test]
     fn rows_from_the_previous_screen_never_leak_into_the_next() {
         let mut model = Model::default();
-        update(&mut model, Msg::RowsLoaded(vec![row("a")]));
+        let rows = rows_for(&model, vec![row("a")]);
+        update(&mut model, rows);
         update(&mut model, Msg::RowSelected("a".into()));
         update(&mut model, Msg::Navigate(target("deals")));
         assert!(model.rows.is_empty());
@@ -305,16 +366,18 @@ mod tests {
     #[test]
     fn a_refresh_that_loses_the_selected_row_drops_the_selection() {
         let mut model = Model::default();
-        update(&mut model, Msg::RowsLoaded(vec![row("a")]));
+        let rows = rows_for(&model, vec![row("a")]);
+        update(&mut model, rows);
         update(&mut model, Msg::RowSelected("a".into()));
-        update(&mut model, Msg::RowsLoaded(vec![row("b")]));
+        let rows = rows_for(&model, vec![row("b")]);
+        update(&mut model, rows);
         assert_eq!(model.selected_row_id, None);
     }
 
     #[test]
     fn a_broken_payload_is_an_error_not_a_panic() {
         assert!(matches!(
-            Msg::rows_loaded_json("nope"),
+            Msg::rows_loaded_json("clients", 0, "nope"),
             Msg::EffectFailed(_)
         ));
     }
@@ -325,7 +388,8 @@ mod tests {
             loading: true,
             ..Model::default()
         };
-        update(&mut model, Msg::RowsLoaded(vec![row("a")]));
+        let rows = rows_for(&model, vec![row("a")]);
+        update(&mut model, rows);
         model.loading = true;
         update(&mut model, Msg::EffectFailed("network".into()));
         assert_eq!(model.error.as_deref(), Some("network"));
@@ -337,10 +401,8 @@ mod tests {
     #[test]
     fn a_narrowing_control_returns_to_the_first_page() {
         let mut model = Model::default();
-        update(
-            &mut model,
-            Msg::RowsLoaded((0..PAGE_SIZE + 5).map(|i| row(&i.to_string())).collect()),
-        );
+        let rows = rows_for(&model, (0..PAGE_SIZE + 5).map(|i| row(&i.to_string())).collect());
+        update(&mut model, rows);
         update(&mut model, Msg::PageChanged(1));
         assert_eq!(model.controls.page, 1);
         update(&mut model, Msg::QueryChanged("ada".into()));
@@ -353,10 +415,8 @@ mod tests {
     #[test]
     fn paging_is_bounded_by_the_rows_the_model_holds() {
         let mut model = Model::default();
-        update(
-            &mut model,
-            Msg::RowsLoaded((0..PAGE_SIZE + 1).map(|i| row(&i.to_string())).collect()),
-        );
+        let rows = rows_for(&model, (0..PAGE_SIZE + 1).map(|i| row(&i.to_string())).collect());
+        update(&mut model, rows);
         update(&mut model, Msg::PageChanged(-1));
         assert_eq!(model.controls.page, 0, "there is no page before the first");
         update(&mut model, Msg::PageChanged(9));

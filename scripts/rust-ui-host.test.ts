@@ -24,18 +24,30 @@ import {
 
 /** A stand-in for the wasm module, recording what was asked of it. */
 function fakeModule(overrides: Partial<RustUiModule> = {}) {
-  const calls = { init: 0, mount: 0, rowsLoaded: [] as string[] }
+  const calls = {
+    init: 0,
+    mount: 0,
+    /** Every mount as `start@generation`, so a test can see which run asked. */
+    mounts: [] as string[],
+    /** Every rows payload delivered, as `screen@generation`, so a test can see whose answer landed. */
+    rowsLoaded: [] as string[],
+    pagesLoaded: [] as string[],
+  }
   const module: RustUiModule = {
     default: async () => {
       calls.init += 1
       return {}
     },
-    mount: (_elementId, start) => {
+    mount: (_elementId, start, generation) => {
       calls.mount += 1
-      return JSON.stringify([{ effect: 'FetchRows', screen: start, scope: null }])
+      calls.mounts.push(`${start}@${generation}`)
+      return JSON.stringify([{ effect: 'FetchRows', screen: start, scope: null, generation }])
     },
-    rows_loaded: (payload) => {
-      calls.rowsLoaded.push(payload)
+    rows_loaded: (screen, generation, payload) => {
+      calls.rowsLoaded.push(`${screen}@${generation}:${payload}`)
+    },
+    page_loaded: (screen, generation, payload) => {
+      calls.pagesLoaded.push(`${screen}@${generation}:${payload}`)
     },
     mount_id: () => 'rust-ui',
     effect_event_name: () => EFFECT_EVENT,
@@ -182,5 +194,193 @@ test('an island-name mismatch warns and carries on', async () => {
   }
   assert.equal(warnings.length, 1, 'a warning, not a thrown error: islands must not take the screen down')
   assert.match(warnings[0], /island event mismatch/)
+})
+
+
+
+// ---------------------------------------------------------------------------
+// RUN OWNERSHIP: what the browser showed when an old host run outlived its screen.
+//
+// The symptom was "every page renders Buyers": a run that had been replaced could still deliver, so a payload or a mount
+// from the run the visitor had left could land on the run they were on. These tests pin the ordering, because the defect
+// is an ORDERING bug and a test that cannot hold one request open cannot see it.
+// ---------------------------------------------------------------------------
+
+/** A fetch that does not resolve until the test says so — the only way to hold one request inside another. */
+function deferred() {
+  let release!: (value: string) => void
+  const promise = new Promise<string>((resolve) => {
+    release = resolve
+  })
+  return { promise, release }
+}
+
+test('a payload fetched by a superseded run is discarded, and the current run still gets its own', async () => {
+  resetBoot()
+  const { module, calls } = fakeModule()
+  const booted = await bootRustUi(async () => module)
+  const held = deferred()
+
+  // Run 1 mounts Buyers and asks for its page. The request hangs.
+  let current = 1
+  const slow = serveEffect(
+    booted,
+    {
+      rowsPath: '/api/rust-ui/public-rows',
+      pagePath: '/api/rust-ui/public-page',
+      start: 'site-buyers',
+      generation: 1,
+      isCurrent: () => current === 1,
+      fetchRows: async () => ({ ok: true, status: 200, text: () => held.promise }),
+    },
+    { effect: 'FetchPage', screen: 'site-buyers', scope: null, generation: 1 },
+  )
+
+  // The visitor navigates: run 2 is current now, and its own request completes first.
+  current = 2
+  const held2 = deferred()
+  const fast = serveEffect(
+    booted,
+    {
+      rowsPath: '/api/rust-ui/public-rows',
+      pagePath: '/api/rust-ui/public-page',
+      start: 'site-home',
+      generation: 2,
+      isCurrent: () => current === 2,
+      fetchRows: async () => ({ ok: true, status: 200, text: () => held2.promise }),
+    },
+    { effect: 'FetchPage', screen: 'site-home', scope: null, generation: 2 },
+  )
+  held2.release('{"hero":{"title":"Home"}}')
+  await fast
+
+  // Now the old request completes. It must not reach Rust.
+  held.release('{"hero":{"title":"Buyers"}}')
+  await slow
+
+  assert.deepEqual(
+    calls.pagesLoaded,
+    ['site-home@2:{"hero":{"title":"Home"}}'],
+    'the superseded run’s page must be dropped and only the current run’s delivered',
+  )
+})
+
+test('an effect event from a previous program is not this run’s to serve', async () => {
+  resetBoot()
+  const { module, calls } = fakeModule()
+  const booted = await bootRustUi(async () => module)
+  const current: number = 2
+
+  // The current run holds its own request open while an effect from the generation before it arrives late.
+  const held = deferred()
+  const newer = serveEffect(
+    booted,
+    {
+      rowsPath: '/api/rust-ui/public-rows',
+      pagePath: '/api/rust-ui/public-page',
+      start: 'site-home',
+      generation: 2,
+      isCurrent: () => current === 2,
+      fetchRows: async () => ({ ok: true, status: 200, text: () => held.promise }),
+    },
+    { effect: 'FetchPage', screen: 'site-home', scope: null, generation: 2 },
+  )
+  await serveEffect(
+    booted,
+    {
+      rowsPath: '/api/rust-ui/public-rows',
+      pagePath: '/api/rust-ui/public-page',
+      start: 'site-home',
+      generation: 2,
+      isCurrent: () => current === 2,
+      fetchRows: async () => ({ ok: true, status: 200, text: () => Promise.resolve('[]') }),
+    },
+    { effect: 'FetchPage', screen: 'site-buyers', scope: null, generation: 1 },
+  )
+
+  held.release('{"hero":{"title":"Home"}}')
+  await newer
+
+  assert.deepEqual(
+    calls.pagesLoaded,
+    ['site-home@2:{"hero":{"title":"Home"}}'],
+    'the stale generation’s effect was never fetched, so it delivered nothing',
+  )
+})
+
+test('an obsolete run may not mount — the old screen cannot be re-opened over the current one', async () => {
+  resetBoot()
+  const { module, calls } = fakeModule()
+  const booted = await bootRustUi(async () => module)
+  const current: number = 2
+
+  const effects = await mountScreen(booted, {
+    rowsPath: '/api/rust-ui/public-rows',
+    start: 'site-buyers',
+    generation: 1,
+    isCurrent: () => current === 1,
+    fetchRows: async () => rowsResponse('[]'),
+  })
+
+  assert.deepEqual(effects, [])
+  assert.equal(calls.mount, 0, 'an obsolete run must not reach `mount` at all')
+  assert.deepEqual(calls.rowsLoaded, [], 'and it must not deliver anything')
+})
+
+test('a run replaced while its first effect is in flight does not serve the rest of them', async () => {
+  resetBoot()
+  const { module, calls } = fakeModule({
+    mount: (_elementId, start, generation) =>
+      JSON.stringify([
+        { effect: 'FetchRows', screen: start, scope: null, generation },
+        { effect: 'FetchRows', screen: start, scope: null, generation },
+      ]),
+  })
+  const booted = await bootRustUi(async () => module)
+  const held = deferred()
+  let current = 1
+
+  const mounted = mountScreen(booted, {
+    rowsPath: '/api/rust-ui/public-rows',
+    start: 'site-buyers',
+    generation: 1,
+    isCurrent: () => current === 1,
+    fetchRows: async () => ({ ok: true, status: 200, text: () => held.promise }),
+  })
+  // The visitor leaves while the first request is in flight.
+  current = 2
+  held.release('[]')
+  await mounted
+
+  assert.equal(
+    calls.rowsLoaded.length,
+    0,
+    'nothing at all from an obsolete run: the effect already in flight is dropped at the boundary before Rust',
+  )
+})
+
+test('both runs mount while they are current, which is the StrictMode case that must still work', async () => {
+  resetBoot()
+  const { module, calls } = fakeModule()
+  const booted = await bootRustUi(async () => module)
+  let current = 0
+  const run = async () => {
+    const generation = ++current
+    return mountScreen(booted, {
+      rowsPath: '/api/rust-ui/public-rows',
+      start: 'activity',
+      generation,
+      isCurrent: () => current === generation,
+      fetchRows: async () => rowsResponse('[]'),
+    })
+  }
+
+  // React 19: setup, cleanup, setup. The SECOND run must do the work — the old host made it give up and left every page
+  // empty — and BOTH must mount, each under its own generation.
+  await run()
+  await run()
+
+  assert.deepEqual(calls.mounts, ['activity@1', 'activity@2'], 'each run mounts, and says which run it is')
+  assert.equal(calls.rowsLoaded.length, 2, 'and each run is served its own answer')
 })
 

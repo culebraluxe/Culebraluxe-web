@@ -7,10 +7,6 @@
  */
 export function effect_event_name(): string;
 
-/**
- * The DOM event name the shell announces islands on, for the same reason: the host has to agree with it, and a
- * mismatch would present as a widget that never appears.
- */
 export function island_event_name(): string;
 
 /**
@@ -21,7 +17,7 @@ export function island_event_name(): string;
  * quietly opening the first screen: a page that renders the wrong screen without saying so is a bug that gets
  * debugged twice.
  */
-export function mount(element_id: string, start: string): string;
+export function mount(element_id: string, start: string, generation: bigint): string;
 
 /**
  * The mount container id, so the host and the shell cannot disagree about it in silence.
@@ -29,17 +25,22 @@ export function mount(element_id: string, start: string): string;
 export function mount_id(): string;
 
 /**
- * The same bridge for a page: the host fetched its blocks from an application route.
+ * The same bridge for a page: the host fetched its blocks from an application route, and it names the screen and the
+ * mount they were fetched for so the reducer can refuse an answer whose screen has moved on.
  */
-export function page_loaded(payload: string): void;
+export function page_loaded(screen: string, generation: bigint, payload: string): void;
 
 /**
  * The typed bridge: the host fetched the rows from an application route, and this is how they land.
  *
+ * `screen` AND `generation` ARE PART OF THE ANSWER. The host says which screen it fetched for and which mount asked;
+ * the reducer refuses the payload if either has moved on (`update::owns`). Without them a response for one screen can
+ * land while another is mounted — the browser shows the page it was told to and the model holds a different one.
+ *
  * The host owns the network on purpose. It holds the session; this module holds no credential, so a compromised view
  * layer cannot be talked into fetching somewhere else.
  */
-export function rows_loaded(payload: string): void;
+export function rows_loaded(screen: string, generation: bigint, payload: string): void;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
@@ -47,10 +48,10 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly effect_event_name: () => [number, number];
     readonly island_event_name: () => [number, number];
-    readonly mount: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly mount: (a: number, b: number, c: number, d: number, e: bigint) => [number, number, number, number];
     readonly mount_id: () => [number, number];
-    readonly page_loaded: (a: number, b: number) => [number, number];
-    readonly rows_loaded: (a: number, b: number) => [number, number];
+    readonly page_loaded: (a: number, b: number, c: bigint, d: number, e: number) => [number, number];
+    readonly rows_loaded: (a: number, b: number, c: bigint, d: number, e: number) => [number, number];
     readonly wasm_bindgen_2e2b1a5be97eea88___convert__closures_____invoke___web_sys_9b8444acfddb44fe___features__gen_MouseEvent__MouseEvent______true_: (a: number, b: number, c: any) => void;
     readonly wasm_bindgen_2e2b1a5be97eea88___convert__closures_____invoke___web_sys_9b8444acfddb44fe___features__gen_MouseEvent__MouseEvent______true__7: (a: number, b: number, c: any) => void;
     readonly __externref_table_alloc: () => number;

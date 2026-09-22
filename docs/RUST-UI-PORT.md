@@ -16,7 +16,8 @@ owns the network, the session and the permission checks.
 - `rust/ui/src/shell.rs` — the wasm entry points (`mount`, `rows_loaded`, `page_loaded`), the event listeners, and the
   repaint boundary: the whole document on mount or a screen change, `#rust-page` for everything else
 - `rust/ui/src/icons.rs` — lucide icons as inline SVG
-- `lib/rust-ui/boot.ts` — boots the module once, serves the effects (this file was gitignored until recently)
+- `lib/rust-ui/boot.ts` — boots the module once, serves the effects (this file was gitignored until recently), and owns
+  the run generation: every await boundary checks whether the run is still current before it touches Rust
 - `app/api/rust-ui/public-page/route.ts` — page payloads (blocks, listings, guide, property records)
 - `app/api/rust-ui/public-rows/route.ts` — list payloads only; a page served as rows is a heading and three lines
 
@@ -70,6 +71,16 @@ The one thing that will eventually have to change outside `rust/ui/**` is a serv
     current destination per menu: the desktop capsules and the mobile capsules each mark the screen's own entry, the
     logo is marked on the home page, and a property record marks nothing (it is a child of Buyers, not a destination the
     menu offers).
+12. **A response is owned by the mount that asked for it — arrival order is not ownership.** The host numbers its runs;
+    `mount` stamps the number on the program, every effect carries it, and every response carries the screen and
+    generation it was fetched for. `update::owns` refuses the rest. Without this, a page fetched for one screen lands
+    while another is mounted, and a reused host instance re-mounts the screen the visitor already left.
+13. **The DOM listeners resolve `#rust-ui` per event and are installed on the document.** They were installed on the
+    first root and captured it, so once React replaced the container every listener was attached to a detached node and
+    the replacement had none — the screen painted and no control worked.
+14. **The host has a generation too, and every await boundary checks it.** React's cleanup cannot cancel an awaited
+    function: an obsolete run resumes and, unchecked, installs listeners, mounts and delivers. The rule is not "the
+    second run must give up" (that bug left every page blank); it is **only the current run may mutate the app**.
 
 ## Ported, and how they were checked
 

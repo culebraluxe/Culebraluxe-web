@@ -50,10 +50,14 @@ thread_local! {
     static PROGRAM: RefCell<Option<Rc<RefCell<Program>>>> = const { RefCell::new(None) };
     /// Whether the document listeners are already installed.
     ///
-    /// THE HOST CALLS `mount` ON EVERY EFFECT RUN, and React runs effects twice in development. Installing the click
-    /// listener each time would mean two listeners on one container, so a single click would dispatch its intent twice —
-    /// a double navigation, or a row opened twice. The listeners read the CURRENT program out of `PROGRAM`, so
-    /// registering them once is correct however many times the host mounts.
+    /// THE HOST CALLS `mount` ON EVERY EFFECT RUN, and React runs effects twice in development. Installing the listeners
+    /// each time would mean two of each on the document, so a single click would dispatch its intent twice — a double
+    /// navigation, or a row opened twice.
+    ///
+    /// THEY ARE ON THE DOCUMENT AND THEY RESOLVE WHAT THEY NEED PER EVENT: the current program out of `PROGRAM`, and the
+    /// current container out of the DOM (`current_root`). That second half is what an earlier version got wrong: it
+    /// captured the root element it was installed on, so once React replaced `<div id="rust-ui">` the listeners were
+    /// attached to a detached node and the replacement root had none — the screen painted and every control was dead.
     static LISTENERS_INSTALLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
@@ -290,8 +294,28 @@ pub fn effect_event_name() -> String {
     EFFECT_EVENT.to_string()
 }
 
-/// The DOM event name the shell announces islands on, for the same reason: the host has to agree with it, and a
-/// mismatch would present as a widget that never appears.
+/// The `#rust-ui` container as it exists RIGHT NOW.
+///
+/// RESOLVED PER EVENT, NEVER CAPTURED. The listeners are installed once and used to capture the root element they were
+/// installed on — so when React or Next replaced `<div id="rust-ui">`, every listener was left attached to a detached
+/// node, and the next mount saw `LISTENERS_INSTALLED == true` and installed nothing on the replacement. The screen
+/// painted, the controls were dead, and nothing said why. Looking the root up at event time is what makes a replaced
+/// container work without a teardown protocol.
+fn current_root() -> Result<HtmlElement, JsValue> {
+    container(&mount_id())
+}
+
+/// Whether an event's target is inside the current root.
+///
+/// The listeners are on the document, so they see clicks on the whole page: the header's own links, a third-party
+/// widget, anything. An intent-bearing attribute found outside the Rust UI is not this crate's to act on, and acting on
+/// it would let one thing on the page drive another.
+fn inside_root(root: &HtmlElement, event: &Event) -> Option<Element> {
+    let target = event
+        .target()
+        .and_then(|target| target.dyn_into::<Element>().ok())?;
+    root.contains(Some(&target)).then_some(target)
+}
 #[wasm_bindgen]
 pub fn island_event_name() -> String {
     ISLAND_EVENT.to_string()
@@ -304,7 +328,7 @@ pub fn island_event_name() -> String {
 /// quietly opening the first screen: a page that renders the wrong screen without saying so is a bug that gets
 /// debugged twice.
 #[wasm_bindgen]
-pub fn mount(element_id: &str, start: &str) -> Result<String, JsValue> {
+pub fn mount(element_id: &str, start: &str, generation: u64) -> Result<String, JsValue> {
     console_error_panic_hook::set_once();
     let start = screen(start)
         .ok_or_else(|| JsValue::from_str(&format!("ui: '{start}' is not a known screen")))?;
@@ -314,19 +338,28 @@ pub fn mount(element_id: &str, start: &str) -> Result<String, JsValue> {
 
     let already_listening = LISTENERS_INSTALLED.with(|flag| flag.replace(true));
     if already_listening {
-        // The listeners are on the document container and read the program from `PROGRAM`, which was just replaced
-        // above. Mounting again therefore only means repainting, which is what the host's second effect run wants.
-        return Ok(dispatch(&root, &program, Msg::ScreenOpened(start)));
+        // The listeners are on the document and resolve the current program and the current container per event, so
+        // mounting again only means painting the screen this host asked for into the container that exists now.
+        return Ok(dispatch(
+            &root,
+            &program,
+            Msg::Mount {
+                screen: start,
+                generation,
+            },
+        ));
     }
 
+    let document = document()?;
     let listener = {
-        let root = root.clone();
         Closure::<dyn FnMut(MouseEvent)>::wrap(Box::new(move |event: MouseEvent| {
-            // Walk up from the click target to the mount root, taking the first intent-bearing ancestor. A click on
-            // a child of a row must select that row, and a widget's own markup must not have to know about this.
-            let mut node = event
-                .target()
-                .and_then(|target| target.dyn_into::<web_sys::Element>().ok());
+            // THE ROOT IS RESOLVED HERE, not captured when the listener was installed: a container React replaced must
+            // still receive its clicks, and a listener on a detached node receives nothing. See `current_root`.
+            let Ok(root) = current_root() else {
+                return;
+            };
+            // And the click must be inside it: these listeners are on the document, so they see the whole page.
+            let mut node = inside_root(&root, event.as_ref());
             let mut msg = None;
             while let Some(element) = node {
                 if let Some(key) = element.get_attribute(ATTRIBUTE_SURFACE) {
@@ -373,18 +406,17 @@ pub fn mount(element_id: &str, start: &str) -> Result<String, JsValue> {
             }
         }))
     };
-    root.add_event_listener_with_callback("click", listener.as_ref().unchecked_ref())?;
+    document.add_event_listener_with_callback("click", listener.as_ref().unchecked_ref())?;
     listener.forget();
 
     // Typing. `input` fires on every character (and on paste and clear), which is what makes the list follow the field
     // as it is typed rather than after a commit the user never asks for.
     let on_input = {
-        let root = root.clone();
         Closure::<dyn FnMut(Event)>::wrap(Box::new(move |event: Event| {
-            let Some(element) = event
-                .target()
-                .and_then(|target| target.dyn_into::<Element>().ok())
-            else {
+            let Some(root) = current_root().ok() else {
+                return;
+            };
+            let Some(element) = inside_root(&root, &event) else {
                 return;
             };
             let Some(field) = element.get_attribute(ATTRIBUTE_FIELD) else {
@@ -398,18 +430,17 @@ pub fn mount(element_id: &str, start: &str) -> Result<String, JsValue> {
             }
         }))
     };
-    root.add_event_listener_with_callback("input", on_input.as_ref().unchecked_ref())?;
+    document.add_event_listener_with_callback("input", on_input.as_ref().unchecked_ref())?;
     on_input.forget();
 
     // Choosing. A dropdown or a switch has committed by the time `change` fires, so the model is written from the
     // value the browser already holds rather than from a keystroke in progress.
     let on_change = {
-        let root = root.clone();
         Closure::<dyn FnMut(Event)>::wrap(Box::new(move |event: Event| {
-            let Some(element) = event
-                .target()
-                .and_then(|target| target.dyn_into::<Element>().ok())
-            else {
+            let Some(root) = current_root().ok() else {
+                return;
+            };
+            let Some(element) = inside_root(&root, &event) else {
                 return;
             };
             if let Some(msg) = msg_for_change(&element) {
@@ -417,24 +448,35 @@ pub fn mount(element_id: &str, start: &str) -> Result<String, JsValue> {
             }
         }))
     };
-    root.add_event_listener_with_callback("change", on_change.as_ref().unchecked_ref())?;
+    document.add_event_listener_with_callback("change", on_change.as_ref().unchecked_ref())?;
     on_change.forget();
 
-    Ok(dispatch(&root, &program, Msg::ScreenOpened(start)))
+    Ok(dispatch(
+        &root,
+        &program,
+        Msg::Mount {
+            screen: start,
+            generation,
+        },
+    ))
 }
 
 /// The typed bridge: the host fetched the rows from an application route, and this is how they land.
 ///
+/// `screen` AND `generation` ARE PART OF THE ANSWER. The host says which screen it fetched for and which mount asked;
+/// the reducer refuses the payload if either has moved on (`update::owns`). Without them a response for one screen can
+/// land while another is mounted — the browser shows the page it was told to and the model holds a different one.
+///
 /// The host owns the network on purpose. It holds the session; this module holds no credential, so a compromised view
 /// layer cannot be talked into fetching somewhere else.
 #[wasm_bindgen]
-pub fn rows_loaded(payload: &str) -> Result<(), JsValue> {
+pub fn rows_loaded(screen: &str, generation: u64, payload: &str) -> Result<(), JsValue> {
     PROGRAM.with(|slot| {
         let program = slot.borrow().clone();
         match program {
             Some(program) => {
-                let root = container(&mount_id())?;
-                dispatch(&root, &program, Msg::rows_loaded_json(payload));
+                let root = current_root()?;
+                dispatch(&root, &program, Msg::rows_loaded_json(screen, generation, payload));
                 Ok(())
             }
             None => Err(JsValue::from_str(
@@ -444,15 +486,16 @@ pub fn rows_loaded(payload: &str) -> Result<(), JsValue> {
     })
 }
 
-/// The same bridge for a page: the host fetched its blocks from an application route.
+/// The same bridge for a page: the host fetched its blocks from an application route, and it names the screen and the
+/// mount they were fetched for so the reducer can refuse an answer whose screen has moved on.
 #[wasm_bindgen]
-pub fn page_loaded(payload: &str) -> Result<(), JsValue> {
+pub fn page_loaded(screen: &str, generation: u64, payload: &str) -> Result<(), JsValue> {
     PROGRAM.with(|slot| {
         let program = slot.borrow().clone();
         match program {
             Some(program) => {
-                let root = container(&mount_id())?;
-                dispatch(&root, &program, Msg::page_loaded_json(payload));
+                let root = current_root()?;
+                dispatch(&root, &program, Msg::page_loaded_json(screen, generation, payload));
                 Ok(())
             }
             None => Err(JsValue::from_str(

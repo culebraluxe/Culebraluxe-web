@@ -90,6 +90,8 @@ export function RustUiHost({
   const rootsRef = useRef(new Map<string, ReturnType<typeof createRoot>>())
   islandsRef.current = islands
 
+  const generationRef = useRef(0)
+
   useEffect(() => {
     /**
      * The module is booted once and this effect mounts it on EVERY run.
@@ -98,7 +100,16 @@ export function RustUiHost({
      * development run returned early while the first had already been abandoned — leaving every page on an empty
      * container forever, with no error anywhere. `lib/rust-ui/boot.ts` holds the logic now, with tests that run the
      * mount twice, because this file cannot be tested without a DOM and that is exactly how the bug survived.
+     *
+     * WHICH RUN THIS IS. The async work below cannot be cancelled by a cleanup: `run()` is awaiting by the time React
+     * tears the effect down, and an awaited function resumes whatever the component did in the meantime. So the run
+     * carries a generation and every boundary checks it — an obsolete run may not install listeners, may not mount, and
+     * may not deliver a result. The rule is NOT "the second run must not execute" (that was the old bug); it is **only
+     * the current run may mutate the application**.
      */
+    const generation = ++generationRef.current
+    const isCurrent = () => generationRef.current === generation
+
     const fetchRows = async (url: string) => {
       const response = await fetch(url)
       // Logged because the alternative is guessing: the model sat on `loading: true` while the route answered 200, and
@@ -111,6 +122,8 @@ export function RustUiHost({
       pagePath,
       start,
       scope,
+      generation,
+      isCurrent,
       fetchRows,
       onRows: (rows: unknown) => {
         rowsRef.current = Array.isArray(rows) ? (rows as RustUiRow[]) : []
@@ -157,11 +170,19 @@ export function RustUiHost({
 
     const run = async () => {
       module = await bootRustUi(() => import('@/lib/rust-ui/ui.js') as unknown as Promise<RustUiModule>)
+      // AFTER THE BOOT AWAIT: this run may already have been replaced (React's cleanup cannot stop an await), and an
+      // obsolete run must not install listeners or mount anything.
+      if (!isCurrent()) {
+        console.info(`[rust-ui] gen=${generation} aborted after boot: replaced before it could mount`)
+        return
+      }
+      console.info(`[rust-ui] gen=${generation} mount start=${start}`)
       document.addEventListener(EFFECT_EVENT, onEffects)
       document.addEventListener(ISLAND_EVENT, mountIslands)
       // `mount` returns the effects caused by opening the first screen, so the page arrives with data instead of a list
       // that fills in once you click something.
       const effects = await mountScreen(module, options)
+      if (!isCurrent()) return
       mountIslands()
       setMounted(true)
       console.info(
@@ -170,12 +191,16 @@ export function RustUiHost({
     }
 
     void run().catch((cause: unknown) => {
+      // An obsolete run's failure is not this screen's error: it belongs to a host that is no longer on the page.
+      if (!isCurrent()) return
       setError(cause instanceof Error ? cause.message : String(cause))
     })
 
     return () => {
-      // Removing this run's listeners is the whole cleanup. Note what is NOT here: no flag that makes the next run
-      // give up. Aborting the work instead of being idempotent is what broke every page in development.
+      // THE RUN IS INVALIDATED FIRST, so anything it is awaiting is refused at its next boundary. Then the listeners
+      // this run installed are removed. Note what is still NOT here: no flag that makes the next run give up. Aborting
+      // the work instead of being idempotent is what broke every page in development.
+      if (generationRef.current === generation) generationRef.current++
       document.removeEventListener(EFFECT_EVENT, onEffects)
       document.removeEventListener(ISLAND_EVENT, mountIslands)
     }

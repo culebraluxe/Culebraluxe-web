@@ -109,18 +109,20 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&Effect::FetchRows {
                 screen: "clients",
-                scope: None
+                scope: None,
+                generation: 4
             })
             .unwrap(),
-            r#"{"effect":"FetchRows","screen":"clients","scope":null}"#
+            r#"{"effect":"FetchRows","screen":"clients","scope":null,"generation":4}"#
         );
         assert_eq!(
             serde_json::to_string(&Effect::FetchPage {
                 screen: "site-home",
-                scope: None
+                scope: None,
+                generation: 0
             })
             .unwrap(),
-            r#"{"effect":"FetchPage","screen":"site-home","scope":null}"#
+            r#"{"effect":"FetchPage","screen":"site-home","scope":null,"generation":0}"#
         );
         // A page about one record names it, in the same request that names the screen. The child page depended on this
         // and did not get it: the effect carried no key, so the host could not tell the page route which property to
@@ -128,10 +130,11 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&Effect::FetchPage {
                 screen: "site-property-detail",
-                scope: Some("villa-rosada".into())
+                scope: Some("villa-rosada".into()),
+                generation: 12
             })
             .unwrap(),
-            r#"{"effect":"FetchPage","screen":"site-property-detail","scope":"villa-rosada"}"#
+            r#"{"effect":"FetchPage","screen":"site-property-detail","scope":"villa-rosada","generation":12}"#
         );
     }
 
@@ -155,7 +158,8 @@ mod tests {
             effects,
             vec![Effect::FetchRows {
                 screen: "clients",
-                scope: None
+                scope: None,
+                generation: 0,
             }]
         );
     }
@@ -163,18 +167,121 @@ mod tests {
     #[test]
     fn the_view_renders_the_model_it_was_given() {
         let mut program = Program::new();
+        // A mount, so the model's generation matches the response's: opening a screen IS the mount here (this is the
+        // shape the shell uses), and a response is only applied by the run that asked for it.
+        program.dispatch(Msg::Mount {
+            screen: target("clients"),
+            generation: 1,
+        });
         let before = program.html();
-        program.dispatch(Msg::RowsLoaded(vec![Row {
-            id: "c1".into(),
-            cells: vec!["Ada Lovelace".into(), "Buyer".into()],
-            badge: Some("new".into()),
-        }]));
+        program.dispatch(Msg::RowsLoaded {
+            screen: "clients".into(),
+            generation: 1,
+            rows: vec![Row {
+                id: "c1".into(),
+                cells: vec!["Ada Lovelace".into(), "Buyer".into()],
+                badge: Some("new".into()),
+            }],
+        });
         let after = program.html();
         assert_ne!(
             before, after,
             "state that does not change the view is state nothing needed"
         );
         assert!(after.contains("Ada Lovelace"));
+    }
+
+    /// THE INVARIANT THE BROWSER BUG BROKE: **a response issued for screen A can never mutate screen B.**
+    ///
+    /// Two requests are in flight, the visitor clicks away, and the slow one lands second. Arrival order says nothing
+    /// about ownership, so the response has to say whose it is — and this is that, tested where it can be tested without
+    /// a browser. The generation half is the same rule for a screen the visitor has left and come back to.
+    #[test]
+    fn a_response_for_another_screen_or_another_mount_is_discarded() {
+        let mut program = Program::new();
+        program.dispatch(Msg::Mount {
+            screen: target("site-home"),
+            generation: 7,
+        });
+        let home = program.model().page.clone();
+
+        // A page fetched for Buyers, under the mount that asked for it, arriving while Home is on screen.
+        program.dispatch(Msg::PageLoaded {
+            screen: "site-buyers".into(),
+            generation: 7,
+            page: crate::model::PageContent {
+                hero: crate::model::Block {
+                    title: "Buyers hero".into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        });
+        assert_eq!(
+            program.model().page, home,
+            "a payload for another screen must not become the page on screen"
+        );
+        assert!(
+            !program.html().contains("Buyers hero"),
+            "and it must not reach the view"
+        );
+
+        // And the same screen under a mount that has been replaced: the screen matches, the mount does not.
+        program.dispatch(Msg::PageLoaded {
+            screen: "site-home".into(),
+            generation: 6,
+            page: crate::model::PageContent {
+                hero: crate::model::Block {
+                    title: "A stale mount".into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        });
+        assert!(
+            !program.html().contains("A stale mount"),
+            "a payload from a previous mount of this screen is not this mount's answer"
+        );
+
+        // The current mount's own response IS applied, so the guard refuses the stale and not the wanted.
+        program.dispatch(Msg::PageLoaded {
+            screen: "site-home".into(),
+            generation: 7,
+            page: crate::model::PageContent {
+                hero: crate::model::Block {
+                    title: "The home hero".into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        });
+        assert!(program.html().contains("The home hero"));
+        assert!(!program.model().loading, "and the screen is done loading");
+    }
+
+    /// A mount stamps its generation on the requests it makes, which is what lets the answer be matched to the question.
+    ///
+    /// The OTHER half of the rule — an obsolete run may not mount at all — is the host's, and cannot be enforced here:
+    /// generations are numbered per host component instance, so a legitimate new instance starts again at 1 and Rust
+    /// must not refuse it. What Rust can and does enforce is that a RESPONSE only lands on the mount that asked
+    /// (`a_response_for_another_screen_or_another_mount_is_discarded`).
+    #[test]
+    fn a_mount_stamps_its_generation_on_the_requests_it_makes() {
+        let mut program = Program::new();
+        let effects = program.dispatch(Msg::Mount {
+            screen: target("site-home"),
+            generation: 3,
+        });
+        assert_eq!(program.model().generation, 3);
+        assert_eq!(
+            effects,
+            vec![Effect::FetchPage {
+                screen: "site-home",
+                scope: None,
+                generation: 3,
+            }],
+            "the request carries the mount that asked for it"
+        );
     }
 
     #[test]
@@ -186,7 +293,8 @@ mod tests {
             effects,
             vec![Effect::FetchRows {
                 screen: "dashboard",
-                scope: None
+                scope: None,
+                generation: 0
             }]
         );
     }
