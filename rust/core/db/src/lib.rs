@@ -32,6 +32,7 @@ mod signature;
 mod transaction;
 mod vault;
 mod wbs;
+mod workflow_portal;
 
 pub use calendar::CalendarDao;
 pub use capture::{has_sink, on_failure};
@@ -56,3 +57,4 @@ pub use signature::SignatureDao;
 pub use transaction::DbTransaction;
 pub use vault::VaultDao;
 pub use wbs::WbsDao;
+pub use workflow_portal::WorkflowPortalDao;
