@@ -161,10 +161,21 @@ fn task_panel(
         "Clear — nothing on the board today."
     };
 
+    let surface = if actions {
+        "portal-glass-panel portal-glass-panel-attention overflow-hidden rounded-[var(--portal-panel-radius)]"
+    } else {
+        "portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]"
+    };
+    let heading_tone = if actions {
+        "font-serif text-lg font-light text-[var(--portal-attention-heading)]"
+    } else {
+        "font-serif text-lg font-light text-[var(--portal-panel-heading)]"
+    };
+
     html! {
-        <section class="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
+        <section class={surface}>
             <div class="flex items-center justify-between gap-3 border-b border-[var(--portal-panel-border)] px-4 py-3">
-                <h2 class="font-serif text-lg font-light text-[var(--portal-navy)]">{ heading }</h2>
+                <h2 class={heading_tone}>{ heading }</h2>
                 <a href={href} class="text-[10px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy-soft)] transition hover:text-[var(--portal-navy)]">
                     {"View all →"}
                 </a>
@@ -355,9 +366,9 @@ fn pipeline(data: &PortalCockpitPage) -> Html {
 
 fn recent_activity(interactions: &[PortalCockpitInteraction]) -> Html {
     html! {
-        <section class="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
+        <section class="portal-glass-panel portal-glass-panel-soft overflow-hidden rounded-[var(--portal-panel-radius)]">
             <div class="flex items-center justify-between gap-3 border-b border-[var(--portal-panel-border)] px-4 py-3">
-                <h2 class="font-serif text-lg font-light text-[var(--portal-navy)]">{"Recent activity"}</h2>
+                <h2 class="font-serif text-lg font-light text-[var(--portal-soft-heading)]">{"Recent activity"}</h2>
                 <a href="/portal/activity" class="text-[10px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy-soft)] transition hover:text-[var(--portal-navy)]">
                     {"View all →"}
                 </a>
