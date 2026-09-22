@@ -1175,6 +1175,14 @@ pub enum Msg {
     ProjectNodeSelected(Option<String>),
     ProjectViewSelected(String),
     ProjectCatchUpToggled(bool),
+    ProjectCatchUpItemSelected {
+        project_id: String,
+        node_id: String,
+    },
+    ProjectCatchUpItemCompleteRequested {
+        project_id: String,
+        node_id: String,
+    },
     ProjectStatusRequested(String),
     ProjectWorkTitleChanged(String),
     ProjectWorkNotesChanged(String),
