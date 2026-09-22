@@ -11,7 +11,7 @@
 
 use yew::prelude::*;
 
-use crate::model::{home, screen, Msg, Screen, Surface, SCREENS};
+use crate::model::{home, Msg, Screen, Surface, SCREENS};
 
 /// What a portal page hands the shell: which screen it is, the model, and how to dispatch.
 #[derive(Properties, PartialEq)]
@@ -22,7 +22,9 @@ pub struct PortalShellProps {
     pub model: crate::model::Model,
     /// Every intent, dispatched into the one reducer.
     pub on_msg: Callback<Msg>,
-    /// The screen's body.
+    /// The screen's body. Optional so the shell can also be rendered on its own, which is what the mount does for a
+    /// screen it cannot render rather than painting nothing.
+    #[prop_or_default]
     pub children: Children,
 }
 

@@ -1,26 +1,18 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import { YewApp } from '@/components/rust-ui/yew-app'
 
 // ---------------------------------------------------------------------------
-// FLIPPED TO RUST (screen: site-guide, surface Site).
+// /guide — YEW OWNS THIS ROUTE NOW.
 //
-// The route is unchanged; the screen is not. It was a TypeScript page fetching its own data for a TypeScript
-// component. It is now the Rust host: the same read models arrive through the public rows route and
-// rust/ui/src/view.rs paints the screen.
-//
-// It qualified because its TypeScript body has no interaction to lose - no state, form, dialog, filter or paging
-// control - so there is nothing the Rust body can fail to reproduce. Screens whose TypeScript carries behaviour stay
-// in TypeScript until the Rust body has its own controls. scripts/ui-flip-readiness.mjs prints the split at any time.
+// The page is a Yew component (`rust/ui/src/yew_views/guide.rs`) driven by the MVI reducer. The nine sections are
+// `view::GUIDE_SECTIONS` — the table the string renderer read — and every card arrives from `guide_item` through the
+// public page payload. The jump nav is nine in-page anchors, so the index still works with no JavaScript at all, and the
+// closing invitation is a router link rather than a page load. This file only puts the mount point on the page.
 // ---------------------------------------------------------------------------
 
 export default function Page() {
-
   return (
     <div className="min-h-screen bg-background">
-      <RustUiHost
-        rowsPath="/api/rust-ui/public-rows"
-        pagePath="/api/rust-ui/public-page"
-        start="site-guide"
-      />
+      <YewApp />
     </div>
   )
 }

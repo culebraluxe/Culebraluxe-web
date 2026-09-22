@@ -6,6 +6,9 @@
 
 pub mod about;
 pub mod buyers;
+pub mod contact;
+pub mod faq;
+pub mod guide;
 pub mod sellers;
 pub mod services;
 pub mod chrome;

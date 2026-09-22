@@ -79,9 +79,10 @@ impl Component for Header {
                 </NavLink>
             }
         };
-        // EVERY OTHER DESTINATION IS AN ORDINARY ANCHOR, and that is the routing rule rather than a shortcut: this app
-        // owns `/buyers` and nothing else yet, so the links that leave it must be full page loads to the runtimes that
-        // still serve them. Claiming them here would put two routers on one URL.
+        // THE DESTINATIONS THIS APP DOES NOT OWN STAY ORDINARY ANCHORS, and that is the routing rule rather than a
+        // shortcut: a path this bundle does not serve must be a full page load to the runtime that does, because
+        // claiming it here would put two routers on one URL. What is left is the portal, which is its own Yew app behind
+        // its own mount.
         let outside = |href: &'static str, label: &'static str, class: &'static str| {
             html! { <a href={href} class={class}>{ label }</a> }
         };
@@ -97,10 +98,10 @@ impl Component for Header {
                             { item(Route::Buyers, "Buyers", CAPSULE) }
                             { item(Route::Sellers, "Sellers", CAPSULE) }
                             { item(Route::Services, "Services", CAPSULE) }
-                            { outside("/guide", "Guide", CAPSULE) }
+                            { item(Route::Guide, "Guide", CAPSULE) }
                             { item(Route::About, "About", CAPSULE) }
-                            { outside("/faq", "FAQ", CAPSULE) }
-                            { outside("/contact", "Contact", CAPSULE) }
+                            { item(Route::Faq, "FAQ", CAPSULE) }
+                            { item(Route::Contact, "Contact", CAPSULE) }
                             { outside("/portal/dashboard", "Portal", CAPSULE) }
                         </nav>
                         <details class="lg:hidden">
@@ -113,10 +114,10 @@ impl Component for Header {
                                 { item(Route::Buyers, "Buyers", MOBILE_CAPSULE) }
                                 { item(Route::Sellers, "Sellers", MOBILE_CAPSULE) }
                                 { item(Route::Services, "Services", MOBILE_CAPSULE) }
-                                { outside("/guide", "Guide", MOBILE_CAPSULE) }
+                                { item(Route::Guide, "Guide", MOBILE_CAPSULE) }
                                 { item(Route::About, "About", MOBILE_CAPSULE) }
-                                { outside("/faq", "FAQ", MOBILE_CAPSULE) }
-                                { outside("/contact", "Contact", MOBILE_CAPSULE) }
+                                { item(Route::Faq, "FAQ", MOBILE_CAPSULE) }
+                                { item(Route::Contact, "Contact", MOBILE_CAPSULE) }
                                 { outside("/portal/dashboard", "Portal", MOBILE_CAPSULE) }
                             </nav>
                         </details>
@@ -154,10 +155,10 @@ impl Component for Footer {
                             <NavLink to={Route::Buyers} classes={classes!(FOOTER_LINK)}>{"Buyers"}</NavLink>
                             <NavLink to={Route::Sellers} classes={classes!(FOOTER_LINK)}>{"Sellers"}</NavLink>
                             <NavLink to={Route::Services} classes={classes!(FOOTER_LINK)}>{"Services"}</NavLink>
-                            <a href="/guide" class={FOOTER_LINK}>{"Guide"}</a>
+                            <NavLink to={Route::Guide} classes={classes!(FOOTER_LINK)}>{"Guide"}</NavLink>
                             <NavLink to={Route::About} classes={classes!(FOOTER_LINK)}>{"About"}</NavLink>
-                            <a href="/faq" class={FOOTER_LINK}>{"FAQ"}</a>
-                            <a href="/contact" class={FOOTER_LINK}>{"Contact"}</a>
+                            <NavLink to={Route::Faq} classes={classes!(FOOTER_LINK)}>{"FAQ"}</NavLink>
+                            <NavLink to={Route::Contact} classes={classes!(FOOTER_LINK)}>{"Contact"}</NavLink>
                         </nav>
                     </div>
                     <div class="mt-14 flex flex-col gap-3 border-t border-border pt-8 text-xs font-light uppercase tracking-[0.16em] text-muted-foreground md:flex-row md:justify-between">

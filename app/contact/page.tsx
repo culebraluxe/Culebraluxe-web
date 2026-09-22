@@ -1,26 +1,22 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import { YewApp } from '@/components/rust-ui/yew-app'
 
 // ---------------------------------------------------------------------------
-// FLIPPED TO RUST (screen: site-contact, surface Site).
+// /contact — YEW OWNS THIS ROUTE NOW.
 //
-// The route is unchanged; the screen is not. It was a TypeScript page fetching its own data for a TypeScript
-// component. It is now the Rust host: the same read models arrive through the public rows route and
-// rust/ui/src/view.rs paints the screen.
+// The page is a Yew component (`rust/ui/src/yew_views/contact.rs`) driven by the MVI reducer: the hero from the content
+// store, the section's own copy, and the office and email it carries — the email as the `mailto:` link it already was.
 //
-// It qualified because its TypeScript body has no interaction to lose - no state, form, dialog, filter or paging
-// control - so there is nothing the Rust body can fail to reproduce. Screens whose TypeScript carries behaviour stay
-// in TypeScript until the Rust body has its own controls. scripts/ui-flip-readiness.mjs prints the split at any time.
+// THE FORM IS NOT HERE, AND THAT IS NOT AN OMISSION. Its submission state was React state and its submit called a server
+// action whose request never completed on the live site. It comes back when there is an endpoint a plain
+// `<form method="post">` can target — then the fields, the interest choice and the sent/failed states are Rust markup,
+// and the outcome travels in the URL. A form that appears to send and does not is worse than a page that says how to
+// reach someone.
 // ---------------------------------------------------------------------------
 
 export default function Page() {
-
   return (
     <div className="min-h-screen bg-background">
-      <RustUiHost
-        rowsPath="/api/rust-ui/public-rows"
-        pagePath="/api/rust-ui/public-page"
-        start="site-contact"
-      />
+      <YewApp />
     </div>
   )
 }

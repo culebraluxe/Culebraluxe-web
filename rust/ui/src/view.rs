@@ -1790,7 +1790,7 @@ fn site_faq(model: &Model) -> String {
 
 
 // The guide's nine sections, in the order the page presents them: id, number, title, headline, description.
-const GUIDE_SECTIONS: [(&str, &str, &str, &str, &str); 9] = [
+pub const GUIDE_SECTIONS: [(&str, &str, &str, &str, &str); 9] = [
     ("beaches", "01", "BEACHES", "The edges of the island.", "From world-famous shores to quiet hidden coves, every beach in Culebra has its own character."),
     ("water", "02", "WATER", "The island from the water.", "Reefs, protected bays, open water and surrounding cays make the sea part of everyday life on Culebra."),
     ("wildlife-land", "03", "WILDLIFE & LAND", "A landscape worth protecting.", "Refuge lands, dry forest, trails and coastal habitat reveal the quieter natural side of the island."),

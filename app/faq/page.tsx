@@ -1,26 +1,21 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import { YewApp } from '@/components/rust-ui/yew-app'
 
 // ---------------------------------------------------------------------------
-// FLIPPED TO RUST (screen: site-faq, surface Site).
+// /faq — YEW OWNS THIS ROUTE NOW.
 //
-// The route is unchanged; the screen is not. It was a TypeScript page fetching its own data for a TypeScript
-// component. It is now the Rust host: the same read models arrive through the public rows route and
-// rust/ui/src/view.rs paints the screen.
+// The page is a Yew component (`rust/ui/src/yew_views/faq.rs`) driven by the MVI reducer, and the questions are the
+// content store's: the items of the `faq.list` block keyed `faq`, which is the same filter `faqEntries()` applied.
 //
-// It qualified because its TypeScript body has no interaction to lose - no state, form, dialog, filter or paging
-// control - so there is nothing the Rust body can fail to reproduce. Screens whose TypeScript carries behaviour stay
-// in TypeScript until the Rust body has its own controls. scripts/ui-flip-readiness.mjs prints the split at any time.
+// THE ACCORDION IS A `<details>`, NOT AN ISLAND. The live component held `useState` and animated the panel's height; an
+// element that opens with no JavaScript cannot break when a script fails to arrive. The height transition is the one
+// thing not reproduced — the same simplification the mobile menu makes, for the same reason — and the first question
+// loads open, because that is what the component initialised to.
 // ---------------------------------------------------------------------------
 
 export default function Page() {
-
   return (
     <div className="min-h-screen bg-background">
-      <RustUiHost
-        rowsPath="/api/rust-ui/public-rows"
-        pagePath="/api/rust-ui/public-page"
-        start="site-faq"
-      />
+      <YewApp />
     </div>
   )
 }
