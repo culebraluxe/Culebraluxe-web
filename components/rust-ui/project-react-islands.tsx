@@ -251,6 +251,7 @@ function buildNavigatorTree(payload: NavigatorPayload): NavigatorNode[] {
         const type = workType(item.category)
         const status = workStatus(item.status)
         const meta = [type, statusLabel(item.status), dueLabel(item.dueAt)].filter(Boolean).join(' · ')
+        const children = workChildren(poleId, projectId, item.id, projectItems, branchSeen)
         return {
           id: poleId + '::' + projectId + '::' + item.id,
           kind: 'work' as const,
@@ -259,11 +260,18 @@ function buildNavigatorTree(payload: NavigatorPayload): NavigatorNode[] {
           workNodeId: item.id,
           status,
           meta,
-          searchText: [item.title, type, status, item.owner ?? '', dueLabel(item.dueAt)]
+          searchText: [
+            item.title,
+            type,
+            status,
+            item.owner ?? '',
+            dueLabel(item.dueAt),
+            ...children.map((child) => child.searchText),
+          ]
             .filter(Boolean)
             .join(' ')
             .toLowerCase(),
-          children: workChildren(poleId, projectId, item.id, projectItems, branchSeen),
+          children,
         }
       })
 
@@ -338,6 +346,9 @@ function buildNavigatorTree(payload: NavigatorPayload): NavigatorNode[] {
 
   const roots: NavigatorNode[] = []
   for (const bucket of buckets.values()) {
+    if (bucket.id.startsWith('collection-')) {
+      bucket.subtitle = String(bucket.projects.length) + (bucket.projects.length === 1 ? ' project' : ' projects')
+    }
     const projectNodes = bucket.projects.map((project) => {
       const projectItems = itemsByProject.get(project.id) ?? []
       const planned = projectItems.filter((item) => item.status !== 'dismissed').length
