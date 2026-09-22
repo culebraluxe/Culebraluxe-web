@@ -918,7 +918,7 @@ fn project_property_ids(projects: &PortalProjectsPage, project: &PortalProject) 
 fn work_meta(item: &PortalProjectWorkItem) -> String {
     [
         Some(status_label(&item.status).to_string()),
-        item.due_at.as_deref().map(due_label),
+        Some(due_label(item.due_at.as_deref())),
         item.owner.clone(),
     ]
     .into_iter()
