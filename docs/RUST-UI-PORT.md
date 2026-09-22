@@ -19,6 +19,17 @@ owns the network, the session and the permission checks.
 - `app/api/rust-ui/public-page/route.ts` — page payloads (blocks, listings, guide, property records)
 - `app/api/rust-ui/public-rows/route.ts` — list payloads only; a page served as rows is a heading and three lines
 
+## The rule that governs all of this
+
+**No new TypeScript.** The job is converting the site OUT of TypeScript, so TypeScript is not a tool to reach for: not a
+page handed back to a React body, not a new route, not a field borrowed "just for now". If a Rust renderer needs
+something the payload does not carry, the control waits (trap 7) or the work stops and the question gets asked — never a
+new TypeScript file. The TypeScript that remains — the routes, the two payload feeds, the host — is the scaffolding the
+port is removing, not a surface to extend.
+
+The one thing that will eventually have to change outside `rust/ui/**` is a server endpoint a browser form can POST to
+(the Contact form). That is server code, not UI, and it is called out in Not done rather than written silently.
+
 ## Traps that have already cost days
 
 1. **Read the page, not the component.** `components/*.tsx` are homepage *sections*. `app/<route>/page.tsx` is the
@@ -38,7 +49,11 @@ owns the network, the session and the permission checks.
 6. **Icons are extracted, never remembered.** `waves` now draws `waves-horizontal` and `palmtree` draws `tree-palm`.
    Extract with:
    `node -e 'const R=require("react-dom/server"),L=require("lucide-react"),C=require("react");const s=R.renderToStaticMarkup(C.createElement(L["Compass"],{}));console.log(s.slice(s.indexOf(">")+1,s.lastIndexOf("</svg>")))'`
-7. **`view-dump --page` reads the payload from stdin.** Running it without a pipe waits forever, which is why several
+7. **The payload decides what a control can filter.** The Buyers bar can filter on what the payload carries and nothing
+   else: the price arrives as a formatted string (`$2,400,000`) rather than a number, so `listing_price` reads the
+   digits — and the view filter has no `views` field to read at all, so it renders disabled rather than pretending.
+   Before wiring a control, check the payload has its field; adding one is a server change, not a Rust one.
+8. **`view-dump --page` reads the payload from stdin.** Running it without a pipe waits forever, which is why several
    "hangs" were not hang. Correct form:
    `curl -s '<host>/api/rust-ui/public-page?screen=site-buyers' | cargo run -q -p ui --example view-dump -- site-buyers --page`
 
@@ -51,7 +66,9 @@ owns the network, the session and the permission checks.
 | `/about` | site-about | none needed (literal copy) | `site_about` |
 | `/guide` | site-guide | `public-page` (guide catalogue) | `site_guide` |
 | `/sellers` | site-sellers | none needed (literal copy) | `site_sellers` |
-| `/buyers` | site-buyers | `public-page` (listings) | `site_buyers` + `buyer_showroom` |
+| `/buyers` | site-buyers | `public-page` (listings) | `site_buyers` + `buyer_showroom` (filters wired) |
+| `/faq` | site-faq | `public-page` (hero + faq block) | `site_faq` |
+| `/contact` | site-contact | `public-page` (hero + contact block) | `site_contact` (no form — see Not done) |
 | `/properties/<slug>` | site-property-detail | `public-page` + `scope=<slug>` | `site_property_detail` |
 
 Verify a payload, then the render, then look at the page — in that order, and never claim a page works from a green
@@ -64,12 +81,18 @@ cd rust && cargo run -q -p ui --example view-dump -- site-sellers --page < /tmp/
 
 ## Not done
 
-- **Interactivity.** The Buyers filter bar, the category tabs, save/compare, the carousel, the property tabs,
-  `SimilarProperties` and `RecentlyViewed` all need state in the M4/MVI loop (`rust/ui/src/update.rs`) and a host that
-  carries it. They are currently rendered as markup that does not act — deliberately, and labelled as such in the code.
-- **`site-faq` and `site-contact`** have loaders and payloads but no renderers, so they show the NOT-PORTED notice.
-- **The acceptance matrix** from the brief (route → effect → endpoint → renderer → result) and the runtime invariant
-  that forbids "editorial screen → FetchPage → host without pagePath" are both still outstanding.
+- **The Buyers view filter.** The bar's tabs, search, price, beds and sort are wired (the state is `Controls::named`,
+  the messages are `QueryChanged`/`TabSelected`/`FilterSelected`, and the contract is `lib/search-contract.ts`, ported
+  as `buyers_visible`). The view dropdown is disabled, because the payload carries no `views` field to match against —
+  that is a server change, and until it lands the control says so rather than pretending.
+- **Save / compare, the carousel's arrows, `SimilarProperties` and `RecentlyViewed`** on Buyers and on a property
+  record. These are per-visitor reads (favourites, history) and a timed carousel; none of them is markup.
+- **The Contact form.** `site_contact` renders the hero, the copy and the office and email, and no form: the live
+  form's submission never completed in production, and doing it properly needs a POST endpoint a browser form can
+  target. That endpoint is the one thing on this list that is server code, not Rust.
+- **`scripts/ui-flip-readiness.mjs`** and the acceptance matrix from the brief (route → effect → endpoint → renderer →
+  result). The runtime invariant that forbids "editorial screen → FetchPage → host without pagePath" is still
+  outstanding — it is the trap that broke `/properties/<slug>`.
 - The portal surface is untouched: it still renders its own React screens.
 
 ## Build and ship
