@@ -6,7 +6,7 @@ use gloo_net::http::Request;
 use yew::platform::spawn_local;
 use yew::Callback;
 
-use crate::model::{Effect, Msg};
+use crate::model::{Effect, Msg, PortalDealPeopleSearch};
 
 const PAGE_PATH: &str = "/api/rust-ui/public-page";
 const ROWS_PATH: &str = "/api/rust-ui/public-rows";
@@ -16,6 +16,7 @@ const CABINET_PATH: &str = "/api/portal/rust-ui/cabinet";
 const CLIENTS_PATH: &str = "/api/portal/rust-ui/clients";
 const FORMS_PATH: &str = "/api/portal/rust-ui/forms";
 const PROJECTS_PATH: &str = "/api/portal/rust-ui/projects";
+const DEALS_PATH: &str = "/api/portal/rust-ui/deals";
 
 pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
     match effect {
@@ -72,6 +73,31 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
             if let Some(window) = web_sys::window() {
                 let _ = window.location().set_href(&href);
             }
+        }
+        Effect::SearchDealPeople {
+            screen,
+            generation,
+            query,
+        } => {
+            run_deal_people_search(screen, generation, query, dispatch);
+        }
+        Effect::CreateDeal {
+            screen,
+            generation,
+            property_id,
+            client_person_id,
+            owner_user_id,
+            notes,
+        } => {
+            run_deal_create(
+                screen,
+                generation,
+                property_id,
+                client_person_id,
+                owner_user_id,
+                notes,
+                dispatch,
+            );
         }
         Effect::SaveForm {
             screen,
@@ -250,6 +276,125 @@ fn run_cockpit_command(
     });
 }
 
+fn run_deal_people_search(
+    screen: &'static str,
+    generation: u64,
+    query_value: String,
+    dispatch: &Callback<Msg>,
+) {
+    let dispatch = dispatch.clone();
+    spawn_local(async move {
+        let url = format!(
+            "{DEALS_PATH}?peopleSearch={}",
+            encode_component(&query_value)
+        );
+        let answer = Request::get(&url).send().await;
+        let msg = match answer {
+            Ok(response) if response.ok() => match response.text().await {
+                Ok(body) => match serde_json::from_str::<PortalDealPeopleSearch>(&body) {
+                    Ok(payload) => Msg::DealPeopleLoaded {
+                        screen: screen.to_string(),
+                        generation,
+                        query: query_value,
+                        people: payload.people,
+                    },
+                    Err(error) => Msg::EffectFailed {
+                        screen: screen.to_string(),
+                        generation,
+                        message: format!("the client search answer could not be read: {error}"),
+                    },
+                },
+                Err(error) => Msg::EffectFailed {
+                    screen: screen.to_string(),
+                    generation,
+                    message: format!("the client search answer could not be read: {error}"),
+                },
+            },
+            Ok(response) => Msg::EffectFailed {
+                screen: screen.to_string(),
+                generation,
+                message: format!("the client search failed with {}", response.status()),
+            },
+            Err(error) => Msg::EffectFailed {
+                screen: screen.to_string(),
+                generation,
+                message: format!("the client search could not be sent: {error}"),
+            },
+        };
+        dispatch.emit(msg);
+    });
+}
+
+fn run_deal_create(
+    screen: &'static str,
+    generation: u64,
+    property_id: String,
+    client_person_id: String,
+    owner_user_id: Option<String>,
+    notes: Option<String>,
+    dispatch: &Callback<Msg>,
+) {
+    let dispatch = dispatch.clone();
+    spawn_local(async move {
+        let body = serde_json::json!({
+            "propertyId": property_id,
+            "clientPersonId": client_person_id,
+            "ownerUserId": owner_user_id,
+            "notes": notes,
+        })
+        .to_string();
+        let request = match Request::post(DEALS_PATH)
+            .header("content-type", "application/json")
+            .body(body)
+        {
+            Ok(request) => request,
+            Err(error) => {
+                dispatch.emit(Msg::EffectFailed {
+                    screen: screen.to_string(),
+                    generation,
+                    message: format!("the contract create request could not be built: {error}"),
+                });
+                return;
+            }
+        };
+        let msg = match request.send().await {
+            Ok(response) if response.ok() => match response.text().await {
+                Ok(body) => match serde_json::from_str::<serde_json::Value>(&body)
+                    .ok()
+                    .and_then(|value| value.get("id").and_then(serde_json::Value::as_str).map(str::to_owned))
+                {
+                    Some(id) => Msg::DealCreated {
+                        screen: screen.to_string(),
+                        generation,
+                        id,
+                    },
+                    None => Msg::EffectFailed {
+                        screen: screen.to_string(),
+                        generation,
+                        message: "the contract create answer did not contain id".into(),
+                    },
+                },
+                Err(error) => Msg::EffectFailed {
+                    screen: screen.to_string(),
+                    generation,
+                    message: format!("the contract create answer could not be read: {error}"),
+                },
+            },
+            Ok(response) => Msg::EffectFailed {
+                screen: screen.to_string(),
+                generation,
+                message: format!("the contract create request failed with {}", response.status()),
+            },
+            Err(error) => Msg::EffectFailed {
+                screen: screen.to_string(),
+                generation,
+                message: format!("the contract create request could not be sent: {error}"),
+            },
+        };
+        dispatch.emit(msg);
+    });
+}
+
 fn run_projects_command(
     screen: &'static str,
     generation: u64,
@@ -359,6 +504,16 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
             generation,
             Kind::Portal,
         ),
+        Effect::FetchDeals {
+            screen,
+            scope,
+            generation,
+        } => (
+            query(DEALS_PATH, screen, scope.as_deref()),
+            screen,
+            generation,
+            Kind::Portal,
+        ),
         Effect::FetchRows {
             screen,
             scope,
@@ -372,6 +527,8 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
         Effect::CompleteCockpitTask { .. }
         | Effect::SaveForm { .. }
         | Effect::CreateForm { .. }
+        | Effect::SearchDealPeople { .. }
+        | Effect::CreateDeal { .. }
         | Effect::UpdateProjectStatus { .. }
         | Effect::SaveProjectWork { .. }
         | Effect::BrowserNavigate { .. } => return,
