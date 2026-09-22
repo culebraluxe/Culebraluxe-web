@@ -4,6 +4,7 @@
 
 pub mod calendar;
 pub mod cockpit;
+pub mod deal_portal;
 pub mod client;
 pub mod comms;
 pub mod contract;
@@ -106,3 +107,5 @@ pub use signature::{
 pub use task::TaskCompletion;
 
 pub use workflow_portal::*;
+
+pub use deal_portal::*;
