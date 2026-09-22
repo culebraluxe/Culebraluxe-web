@@ -156,6 +156,10 @@ pub fn icon(name: &str, class: &str, stroke_width: &str) -> Option<String> {
              <circle cx=\"11.5\" cy=\"14.5\" r=\"2.5\"></circle>\
              <path d=\"M13.3 16.3 15 18\"></path>"
         }
+        "pen-line" => {
+            "<path d=\"M13 21h8\"></path>\
+             <path d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\"></path>"
+        }
         _ => return None,
     };
     Some(format!(
