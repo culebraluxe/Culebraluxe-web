@@ -6,6 +6,7 @@
 pub mod api;
 pub mod calendar;
 pub mod clients;
+pub mod cockpit;
 pub mod communications;
 pub mod composition;
 pub mod contracts;
