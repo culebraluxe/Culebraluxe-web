@@ -555,6 +555,54 @@ fn hero(block: &Block) -> String {
     )
 }
 
+/// `components/page-hero.tsx` — the header every interior page opens with: a full-bleed photograph, two scrims, the
+/// eyebrow and the statement over it, and an optional intro beneath.
+///
+/// ONE COMPONENT, FIVE PAGES, SO IT IS PORTED ONCE. About, FAQ, Contact, Guide and Sellers all opened with this, and
+/// building it once is what stops five copies of it drifting apart: the height (`68svh`), the padding that clears the
+/// fixed header (`pt-40`), the gradient that makes ivory text legible over a photograph, and the rule that an absent
+/// intro renders nothing rather than an empty line.
+///
+/// The values come from the call site, because that is how the pages had them: Sellers and About carried their hero copy
+/// as literals in the page, while FAQ and Contact read theirs from the managed page-hero slots. Same component, two
+/// sources, and the source is the page's business rather than the hero's.
+fn page_hero(eyebrow: &str, title: &str, intro: Option<&str>, image: &str, image_alt: &str) -> String {
+    // `image || '/placeholder.svg'` in the component. An empty path is not a missing image, it is a broken one.
+    let image = if image.is_empty() {
+        "/placeholder.svg"
+    } else {
+        image
+    };
+    let intro = match intro {
+        Some(text) if !text.trim().is_empty() => format!(
+            "<p class=\"mt-8 max-w-2xl text-pretty text-base font-light leading-relaxed text-background/80 \
+             md:text-lg\">{}</p>",
+            escape(text)
+        ),
+        _ => String::new(),
+    };
+    format!(
+        "<section class=\"relative flex min-h-[68svh] items-end overflow-hidden\">\
+           <img src=\"{image}\" alt=\"{alt}\" sizes=\"100vw\" \
+             class=\"absolute inset-0 h-full w-full object-cover\" />\
+           <div class=\"absolute inset-0 bg-gradient-to-t from-black/70 via-black/25 to-black/40\"></div>\
+           <div class=\"relative w-full px-6 pb-16 pt-40 md:px-12 md:pb-24\">\
+             <div class=\"mx-auto max-w-[1600px]\">\
+               <p class=\"mb-5 text-xs font-light uppercase tracking-[0.4em] text-background/70\">{eyebrow}</p>\
+               <h1 class=\"max-w-4xl text-balance font-serif text-4xl font-light leading-[1.05] text-background \
+                 md:text-6xl\">{title}</h1>\
+               {intro}\
+             </div>\
+           </div>\
+         </section>",
+        image = escape(image),
+        alt = escape(image_alt),
+        eyebrow = escape(eyebrow),
+        title = escape(title),
+        intro = intro,
+    )
+}
+
 /// `components/services.tsx` — the dark primary block: buyers over sellers, buyers as copy plus a ruled list, sellers
 /// as a portrait image beside their copy.
 ///
@@ -1120,7 +1168,23 @@ fn site_about(model: &Model) -> String {
     let Some(page) = model.page.as_ref() else {
         return String::new();
     };
-    format!("{}{}", about_section(&page.about), site_footer())
+    // The hero copy is the page's own, exactly as it was in the TypeScript page that this replaces: it is not in the
+    // managed block, and the block's eyebrow is "About Us" while the page's hero intro is a different sentence. Reading
+    // it from the payload would have put the homepage's words here and looked almost right.
+    format!(
+        "{hero}{about}{footer}",
+        hero = page_hero(
+            "About Us",
+            "Devoted to a single island.",
+            Some(
+                "CulebraLuxe is a boutique brokerage working with few clients, few homes, and an uncommon amount of care."
+            ),
+            "/images/about/about-hero.jpg",
+            "Aerial view across Culebra and the surrounding Caribbean water",
+        ),
+        about = about_section(&page.about),
+        footer = site_footer(),
+    )
 }
 
 
@@ -2010,6 +2074,33 @@ mod tests {
             html.contains("href=\"/\" aria-label=\"CulebraLuxe home\""),
             "the logo is what goes home"
         );
+    }
+
+    /// The page hero, which five pages share, so it is tested once on its own rather than through each of them.
+    #[test]
+    fn the_page_hero_renders_its_copy_and_only_an_intro_when_there_is_one() {
+        let with_intro = page_hero(
+            "Selling on Culebra",
+            "Presented to the few who truly belong here.",
+            Some("Extraordinary properties deserve more than exposure."),
+            "/images/coastline.png",
+            "Culebra coastline and homes overlooking the Caribbean",
+        );
+        assert!(with_intro.contains("Selling on Culebra"));
+        assert!(with_intro.contains("Presented to the few who truly belong here."));
+        assert!(with_intro.contains("Extraordinary properties deserve more than exposure."));
+        assert!(with_intro.contains("src=\"/images/coastline.png\""));
+        // The things that make it the same hero on every page: the height, the padding that clears the fixed header, and
+        // the scrim that makes ivory text legible over a photograph.
+        assert!(with_intro.contains("min-h-[68svh]"));
+        assert!(with_intro.contains("pb-16 pt-40"));
+        assert!(with_intro.contains("bg-gradient-to-t from-black/70 via-black/25 to-black/40"));
+
+        // No intro means no paragraph, rather than an empty line where a sentence should be.
+        let bare = page_hero("About Us", "Devoted to a single island.", None, "", "");
+        assert!(!bare.contains("mt-8 max-w-2xl"), "an absent intro renders nothing");
+        // And an empty image path falls back rather than rendering a broken image.
+        assert!(bare.contains("src=\"/placeholder.svg\""));
     }
 
     #[test]
