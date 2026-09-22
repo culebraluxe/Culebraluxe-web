@@ -4,7 +4,7 @@
 //! cannot point at a screen that does not exist. Every interpolated value is escaped — this crate renders data from a
 //! database and from third-party sources, and a Rust renderer that formats HTML owns that risk.
 
-use crate::model::{home, screen, Model, Row, Surface, PAGE_SIZE, SCREENS};
+use crate::model::{home, screen, Block, Model, Row, Surface, PAGE_SIZE, SCREENS};
 
 /// Escape text for HTML text and attribute positions. Quotes matter because the same helper fills `data-` attributes,
 /// where an unescaped quote would end the attribute early.
@@ -447,57 +447,208 @@ fn rust_lab(model: &Model) -> String {
     )
 }
 
-/// The public homepage: the hero, built from the content rows the screen already fetches.
+/// The public homepage, ported from `app/page.tsx` and the components it composes.
 ///
-/// WHY A BODY AND NOT THE GENERIC LIST. The rows are `home.hero:title`, `home.hero:body` and `home.hero:cta` — the real
-/// marketing copy, read from the same content slot the TypeScript homepage read. Rendered as a list they are a heading
-/// and two lines of text, which is what made the site look broken rather than plain: the copy was all there and none of
-/// it was laid out as the page it belongs to.
+/// THIS IS A REPRODUCTION, NOT AN INTERPRETATION. Every class below is one the TypeScript components use, in the same
+/// structure: the hero is a full-bleed image with two gradient scrims and its copy pinned to the bottom; the services
+/// block is a dark primary section with buyers over sellers; culture is a full-bleed image with an editorial column and
+/// a row of stats under it. Nothing is positioned with an inline style, and no value is invented — where the page used
+/// the block's own content, so does this.
 ///
-/// The call to action navigates through `data-nav` like every other link, so it goes through the same reducer the menu
-/// does and there is no second way to change screens.
+/// A PAGE, NOT A LIST. Its data arrives as blocks (`PageContent`), which is the whole reason the flip was wrong before:
+/// rendered from rows, this page was a heading and three lines of text with none of the design that makes it the
+/// homepage.
 fn site_home(model: &Model) -> String {
-    let cell = |id: &str, index: usize| -> Option<&str> {
-        model
-            .rows
-            .iter()
-            .find(|row| row.id == id)
-            .and_then(|row| row.cells.get(index))
-            .map(String::as_str)
+    let Some(page) = model.page.as_ref() else {
+        // The chrome and the loading line are already on screen; an empty body here is honest, and filling it with
+        // invented copy would be worse than a page that is still arriving.
+        return String::new();
     };
-    let title = cell("home.hero:title", 1).unwrap_or("CulebraLuxe");
-    let overline = cell("home.hero:title", 0).unwrap_or("Culebra · Puerto Rico");
-    let body = cell("home.hero:body", 1).unwrap_or("");
-    // The call to action arrives as "View the Collection → #properties": the label is what is shown, the anchor is
-    // where the live page sent it. The label is used and the destination becomes the properties screen, because the
-    // Rust UI navigates by screen and not by fragment.
-    let cta = cell("home.hero:cta", 1)
-        .and_then(|value| value.split('→').next())
-        .unwrap_or("View the Collection")
-        .trim();
+    let mut out = String::new();
+    out.push_str(&hero(&page.hero));
+    out.push_str(&services(&page.buyers, &page.sellers));
+    out.push_str(&culture(&page.culture));
+    out
+}
 
+/// `components/hero.tsx` — a full-viewport image, two scrims, and the block's copy pinned to the bottom edge.
+fn hero(block: &Block) -> String {
+    let image = block.image_path.as_deref().unwrap_or("/images/hero-villa.png");
+    let alt = block
+        .image_alt
+        .as_deref()
+        .unwrap_or("Cliffside modern villa overlooking the turquoise Caribbean sea in Culebra");
     format!(
-        "<section class=\"border-b bg-card\">\
-           <div class=\"mx-auto flex max-w-5xl flex-col items-start gap-6 px-6 py-24\">\
-             <p class=\"text-xs uppercase tracking-[0.3em] text-muted-foreground\">{overline}</p>\
-             <h1 class=\"max-w-3xl font-serif text-4xl font-light leading-tight md:text-6xl\">{title}</h1>\
-             <p class=\"max-w-2xl text-base font-light leading-8 text-muted-foreground\">{body}</p>\
-             <button type=\"button\" data-nav=\"site-properties\" \
-               class=\"rounded-md bg-primary px-6 py-3 text-sm text-primary-foreground\">{cta}</button>\
+        "<section id=\"top\" class=\"relative h-[100svh] w-full overflow-hidden\">\
+           <img src=\"{image}\" alt=\"{alt}\" sizes=\"100vw\" \
+             class=\"absolute inset-0 h-full w-full object-cover\" />\
+           <div class=\"absolute inset-0 bg-gradient-to-b from-black/40 via-black/10 to-black/50\"></div>\
+           <div class=\"absolute inset-0 bg-gradient-to-t from-black/40 to-transparent\"></div>\
+           <div class=\"relative flex h-full flex-col justify-end px-6 pb-20 md:px-12 md:pb-28\">\
+             <div class=\"mx-auto w-full max-w-[1600px]\">\
+               <p class=\"mb-6 text-xs font-light uppercase tracking-[0.4em] text-background/70\">{eyebrow}</p>\
+               <h1 class=\"max-w-4xl text-balance font-serif text-5xl font-light leading-[1.02] text-background \
+                 md:text-7xl lg:text-8xl\">{title}</h1>\
+               <div class=\"mt-10 flex flex-col gap-6 border-t border-background/25 pt-8 md:flex-row md:items-end \
+                 md:justify-between\">\
+                 <p class=\"max-w-md text-pretty text-sm font-light leading-relaxed text-background/80\">{body}</p>\
+                 {cta}\
+               </div>\
+             </div>\
            </div>\
-         </section>\
-         <section class=\"mx-auto max-w-5xl px-6 py-16\">\
-           <h2 class=\"font-serif text-2xl font-light\">The collection</h2>\
-           <p class=\"mt-3 max-w-2xl text-sm font-light leading-7 text-muted-foreground\">\
-             Architectural residences and beachfront estates, presented with the discretion the island deserves.\
-           </p>\
-           <button type=\"button\" data-nav=\"site-properties\" \
-             class=\"mt-6 rounded-md border px-5 py-2.5 text-sm hover:bg-muted/60\">Browse properties</button>\
          </section>",
-        overline = escape(overline),
-        title = escape(title),
-        body = escape(body),
-        cta = escape(cta)
+        image = escape(image),
+        alt = escape(alt),
+        eyebrow = escape(&block.eyebrow),
+        title = escape(&block.title),
+        body = escape(&block.body),
+        cta = rule_cta(block, "#properties", "bg-background"),
+    )
+}
+
+/// `components/services.tsx` — the dark primary block: buyers over sellers, buyers as copy plus a ruled list, sellers
+/// as a portrait image beside their copy.
+///
+/// THE ITEMS ARE TYPED, NOT POSITIONAL. The buyers' list comes from the block's `items`, filtered to the ones whose key
+/// says `list` — the same filter the TSX used. Rendering every item regardless would mix stats into a services list the
+/// moment someone added one to the slot.
+fn services(buyers: &Block, sellers: &Block) -> String {
+    let buyer_items = block_items(buyers, "list");
+    format!(
+        "<div class=\"bg-primary text-primary-foreground\">\
+           <section id=\"buyers\" class=\"border-b border-primary-foreground/10 px-6 py-28 md:px-12 md:py-40\">\
+             <div class=\"mx-auto grid max-w-[1600px] gap-14 md:grid-cols-2 md:gap-24\">\
+               <div>\
+                 <p class=\"mb-6 text-xs font-light uppercase tracking-[0.34em] text-primary-foreground/50\">{b_eyebrow}</p>\
+                 <h2 class=\"text-balance font-serif text-4xl font-light leading-[1.06] md:text-5xl\">{b_title}</h2>\
+               </div>\
+               <div class=\"flex flex-col justify-center gap-10\">\
+                 <p class=\"max-w-md text-pretty text-sm font-light leading-relaxed text-primary-foreground/75\">{b_body}</p>\
+                 <ul class=\"flex flex-col divide-y divide-primary-foreground/10 border-y border-primary-foreground/10\">{b_items}</ul>\
+                 {b_cta}\
+               </div>\
+             </div>\
+           </section>\
+           <section id=\"sellers\" class=\"px-6 py-28 md:px-12 md:py-40\">\
+             <div class=\"mx-auto grid max-w-[1600px] items-center gap-14 md:grid-cols-2 md:gap-24\">\
+               <div class=\"relative aspect-[4/5] w-full overflow-hidden\">\
+                 <img src=\"{s_image}\" alt=\"{s_alt}\" sizes=\"(min-width: 768px) 50vw, 100vw\" \
+                   class=\"absolute inset-0 h-full w-full object-cover\" />\
+               </div>\
+               <div class=\"flex flex-col gap-10\">\
+                 <div>\
+                   <p class=\"mb-6 text-xs font-light uppercase tracking-[0.34em] text-primary-foreground/50\">{s_eyebrow}</p>\
+                   <h2 class=\"text-balance font-serif text-4xl font-light leading-[1.06] md:text-5xl\">{s_title}</h2>\
+                 </div>\
+                 <p class=\"max-w-md text-pretty text-sm font-light leading-relaxed text-primary-foreground/75\">{s_body}</p>\
+                 {s_cta}\
+               </div>\
+             </div>\
+           </section>\
+         </div>",
+        b_eyebrow = escape(&buyers.eyebrow),
+        b_title = escape(&buyers.title),
+        b_body = escape(&buyers.body),
+        b_items = buyer_items,
+        b_cta = rule_cta(buyers, "#contact", "bg-primary-foreground"),
+        s_image = escape(
+            sellers
+                .image_path
+                .as_deref()
+                .unwrap_or("/images/coastline.png")
+        ),
+        s_alt = escape(sellers.image_alt.as_deref().unwrap_or(
+            "Aerial view of the Culebra coastline with jade and turquoise water"
+        )),
+        s_eyebrow = escape(&sellers.eyebrow),
+        s_title = escape(&sellers.title),
+        s_body = escape(&sellers.body),
+        s_cta = rule_cta(sellers, "#contact", "bg-primary-foreground"),
+    )
+}
+
+/// The items of one kind, so a list renders as a list and a stat as a stat rather than everything as everything.
+fn block_items(block: &Block, key: &str) -> String {
+    block
+        .items
+        .iter()
+        .filter(|item| item.key == key)
+        .filter_map(|item| item.value.as_deref())
+        .map(|value| {
+            format!(
+                "<li class=\"py-5 text-sm font-light tracking-wide text-primary-foreground/85\">{}</li>",
+                escape(value)
+            )
+        })
+        .collect::<String>()
+}
+
+/// `components/culture.tsx` — a full-bleed image with the title over it, then an editorial column: the subtitle in the
+/// accent colour, the body in display serif, and a row of stats under a rule.
+fn culture(block: &Block) -> String {
+    let stats = block
+        .items
+        .iter()
+        .filter(|item| item.key == "stat")
+        .map(|item| {
+            format!(
+                "<div><p class=\"font-serif text-xl font-light text-foreground\">{label}</p>\
+                   <p class=\"mt-2 text-sm font-light leading-relaxed text-muted-foreground\">{value}</p></div>",
+                label = escape(item.label.as_deref().unwrap_or("")),
+                value = escape(item.value.as_deref().unwrap_or(""))
+            )
+        })
+        .collect::<String>();
+    format!(
+        "<section id=\"culture\" class=\"relative\">\
+           <div class=\"relative h-[85svh] w-full overflow-hidden\">\
+             <img src=\"{image}\" alt=\"{alt}\" sizes=\"100vw\" \
+               class=\"absolute inset-0 h-full w-full object-cover\" />\
+             <div class=\"absolute inset-0 bg-gradient-to-t from-black/55 via-black/15 to-black/25\"></div>\
+             <div class=\"absolute inset-0 flex flex-col justify-end px-6 pb-20 md:px-12 md:pb-28\">\
+               <div class=\"mx-auto w-full max-w-[1600px]\">\
+                 <p class=\"mb-5 text-xs font-light uppercase tracking-[0.4em] text-background/70\">{eyebrow}</p>\
+                 <h2 class=\"max-w-3xl text-balance font-serif text-4xl font-light leading-[1.05] text-background \
+                   md:text-6xl\">{title}</h2>\
+               </div>\
+             </div>\
+           </div>\
+           <div class=\"px-6 py-24 md:px-12 md:py-32\">\
+             <div class=\"mx-auto grid max-w-[1600px] gap-14 md:grid-cols-12 md:gap-24\">\
+               <p class=\"text-xs font-light uppercase tracking-[0.28em] text-accent md:col-span-4\">{subtitle}</p>\
+               <div class=\"md:col-span-8\">\
+                 <p class=\"max-w-3xl text-balance font-serif text-2xl font-light leading-[1.4] text-foreground \
+                   md:text-3xl\">{body}</p>\
+                 <div class=\"mt-14 grid gap-10 border-t border-border pt-10 sm:grid-cols-3\">{stats}</div>\
+               </div>\
+             </div>\
+           </div>\
+         </section>",
+        image = escape(block.image_path.as_deref().unwrap_or("/images/culture.png")),
+        alt = escape(block.image_alt.as_deref().unwrap_or(
+            "The white sand crescent and clear turquoise water of Flamenco Beach, Culebra"
+        )),
+        eyebrow = escape(&block.eyebrow),
+        title = escape(&block.title),
+        subtitle = escape(&block.subtitle),
+        body = escape(&block.body),
+        stats = stats,
+    )
+}
+
+/// The underlined-link call to action whose rule takes a colour, because the hero draws it in the page background and
+/// the dark sections draw it in the primary foreground. One function with the colour passed in, rather than two that
+/// drift.
+fn rule_cta(block: &Block, fallback: &str, rule: &str) -> String {
+    let Some(label) = block.cta_label.as_deref().filter(|label| !label.is_empty()) else {
+        return String::new();
+    };
+    format!(
+        "<a href=\"{href}\" class=\"inline-flex items-center gap-3 text-xs font-light uppercase tracking-[0.24em]\">\
+         {label}<span class=\"inline-block h-px w-10 {rule}\"></span></a>",
+        href = escape(block.cta_href.as_deref().unwrap_or(fallback)),
+        label = escape(label),
+        rule = rule
     )
 }
 

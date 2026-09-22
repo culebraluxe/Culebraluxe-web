@@ -5,6 +5,28 @@
 
 use crate::model::{record_for, Controls, Effect, Model, Msg, Screen, PAGE_SIZE};
 
+/// Whether a screen renders from a page payload rather than a list of rows.
+///
+/// This is the distinction the whole conversion turns on. A list screen answers "what rows are there" and renders them.
+/// An editorial page answers "what are my blocks and cards" and lays them out — its hero has an image and an alt text,
+/// its sections have eyebrows and calls to action. Asking for rows on a page like that is asking the wrong question,
+/// and the answer is a page that renders as a list of strings with no design.
+///
+/// It is a small explicit list rather than a property of the surface, because "public" does not imply "editorial":
+/// `/properties` is public and is a list.
+pub fn is_editorial(key: &str) -> bool {
+    matches!(
+        key,
+        "site-home"
+            | "site-about"
+            | "site-buyers"
+            | "site-sellers"
+            | "site-guide"
+            | "site-contact"
+            | "site-faq"
+    )
+}
+
 /// Move to a screen and ask for its rows. The single place a screen change happens, so navigation and record-opening
 /// cannot drift apart.
 fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect> {
@@ -18,14 +40,24 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
     // rendering the previous screen's records.
     model.rows = Vec::new();
     model.selected_row_id = None;
+    // The previous screen's blocks go with its rows: a page that has not loaded must not show the last one's hero.
+    model.page = None;
     // Controls are the screen's own input and live their own life: a filter typed on Clients must not follow the user
     // to Deals and silently narrow a list they never filtered.
     model.controls = Controls::default();
     if model.loading {
-        vec![Effect::FetchRows {
-            screen: screen.key,
-            scope: model.scope.clone(),
-        }]
+        // A page asks for its blocks; a list asks for its rows. Two questions, two payloads, and the screen decides
+        // which one it is asking — see `is_editorial`.
+        if is_editorial(screen.key) {
+            vec![Effect::FetchPage {
+                screen: screen.key,
+            }]
+        } else {
+            vec![Effect::FetchRows {
+                screen: screen.key,
+                scope: model.scope.clone(),
+            }]
+        }
     } else {
         Vec::new()
     }
@@ -75,6 +107,12 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
         Msg::EffectFailed(message) => {
             model.loading = false;
             model.error = Some(message);
+            Vec::new()
+        }
+        Msg::PageLoaded(page) => {
+            model.loading = false;
+            model.error = None;
+            model.page = Some(page);
             Vec::new()
         }
 

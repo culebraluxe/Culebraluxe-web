@@ -29,6 +29,11 @@ export function mount(element_id: string, start: string): string;
 export function mount_id(): string;
 
 /**
+ * The same bridge for a page: the host fetched its blocks from an application route.
+ */
+export function page_loaded(payload: string): void;
+
+/**
  * The typed bridge: the host fetched the rows from an application route, and this is how they land.
  *
  * The host owns the network on purpose. It holds the session; this module holds no credential, so a compromised view
@@ -44,9 +49,10 @@ export interface InitOutput {
     readonly island_event_name: () => [number, number];
     readonly mount: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly mount_id: () => [number, number];
+    readonly page_loaded: (a: number, b: number) => [number, number];
     readonly rows_loaded: (a: number, b: number) => [number, number];
     readonly wasm_bindgen_2e2b1a5be97eea88___convert__closures_____invoke___web_sys_9b8444acfddb44fe___features__gen_MouseEvent__MouseEvent______true_: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen_2e2b1a5be97eea88___convert__closures_____invoke___web_sys_9b8444acfddb44fe___features__gen_MouseEvent__MouseEvent______true__6: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_2e2b1a5be97eea88___convert__closures_____invoke___web_sys_9b8444acfddb44fe___features__gen_MouseEvent__MouseEvent______true__7: (a: number, b: number, c: any) => void;
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_exn_store: (a: number) => void;

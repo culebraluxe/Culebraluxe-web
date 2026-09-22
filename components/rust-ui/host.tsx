@@ -48,11 +48,17 @@ export type RustUiRow = { id: string; cells: string[]; badge?: string | null }
 
 export function RustUiHost({
   rowsPath,
+  pagePath,
   start,
   scope,
   islands,
 }: {
   rowsPath: string
+  /**
+   * Where a page's blocks come from, for screens that are pages rather than lists (the public site). Left out, a screen
+   * that asks for its page says so loudly instead of fetching a path that does not exist.
+   */
+  pagePath?: string
   start: string
   /**
    * The record key this page is about, for a detail route (`/portal/clients/[personId]`). A screen reached by clicking a
@@ -102,6 +108,7 @@ export function RustUiHost({
     }
     const options = {
       rowsPath,
+      pagePath,
       start,
       scope,
       fetchRows,

@@ -296,7 +296,72 @@ pub const SCREENS: &[Screen] = &[
     Screen { key: "console-story", title: "Command Console story", path: "/portal/command-console/[storyId]", surface: Surface::Tech, nav: Nav::Record, deferred: None, detail_of: Some("command-console") },
 ];
 
-/// A row of any list screen.
+/// One editorial block of a public page: exactly the shape `lib/marketing-content` gives the TypeScript pages.
+///
+/// WHY A PAYLOAD AND NOT ROWS. A list screen's data is a list, and `Row` is the right shape for it. A page is not a
+/// list: its hero has an image and an alt text, its sections have eyebrows and calls to action, and rendering those as
+/// `cells[0]`/`cells[1]` is how a converted page ends up as a list of strings with no design. This is the shape the
+/// page needs, and it is the same shape the TypeScript page read, so the port is a reproduction rather than a guess.
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Block {
+    pub eyebrow: String,
+    pub title: String,
+    pub subtitle: String,
+    pub body: String,
+    pub cta_label: Option<String>,
+    pub cta_href: Option<String>,
+    /// The image this block is built around, and what it shows. Both parts are required for an accessible page, so they
+    /// travel together rather than the alt text being optional in practice and omitted in fact.
+    pub image_path: Option<String>,
+    pub image_alt: Option<String>,
+    /// The block's list items, for the blocks that have them (a buyer's services, a set of stats).
+    pub items: Vec<BlockItem>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct BlockItem {
+    /// `list`, `stat`, `office`, `email`, `faq` — what the item is FOR, so the view can render it as what it is.
+    pub key: String,
+    pub label: Option<String>,
+    pub value: Option<String>,
+}
+
+/// A card in the featured/property grids: the public shape of a listing.
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Listing {
+    pub slug: String,
+    pub name: String,
+    pub location: Option<String>,
+    pub price: Option<String>,
+    pub kind: Option<String>,
+    pub image_path: Option<String>,
+    pub image_alt: Option<String>,
+    pub beds: Option<i64>,
+    pub baths: Option<i64>,
+    pub area: Option<String>,
+}
+
+/// Everything a public page renders from.
+///
+/// A page is a set of named blocks, not an ordered list, because the page decides where each one goes — the hero is a
+/// full-bleed image with the title over it, the culture block is an image followed by an editorial column. Flattening
+/// them into an ordered list would put the layout in the data, where the view could no longer decide it.
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PageContent {
+    pub hero: Block,
+    pub buyers: Block,
+    pub sellers: Block,
+    pub culture: Block,
+    pub about: Block,
+    pub contact: Block,
+    pub featured: Vec<Listing>,
+    pub listings: Vec<Listing>,
+}
+
 ///
 /// Deliberately generic. This sweep ports screen *structure* — route, heading, nav, state boundary — and per-screen
 /// data contracts come after. A generic row means a new screen is a table entry rather than a new module, and it keeps
@@ -354,6 +419,11 @@ pub struct Model {
     pub scope: Option<String>,
     /// What the user has typed, chosen and paged to on this screen.
     pub controls: Controls,
+    /// A public page's own content, when the screen is an editorial page rather than a list.
+    ///
+    /// `None` is a real state and not an error: a list screen has no page payload, and a page that has not loaded yet
+    /// shows the chrome and its loading line exactly as a list does.
+    pub page: Option<PageContent>,
 }
 
 impl Default for Model {
@@ -368,6 +438,7 @@ impl Default for Model {
             selected_row_id: None,
             scope: None,
             controls: Controls::default(),
+            page: None,
         }
     }
 }
@@ -394,6 +465,9 @@ pub enum Msg {
     /// The host reports a failed request. The model keeps what it had; the message is the record.
     EffectFailed(String),
 
+    /// A public page's content arrived: the blocks an editorial page is built from.
+    PageLoaded(PageContent),
+
     // ---- controls: the screen's own input, one message per act --------------------------------------------------
     /// The user typed in the screen's search field.
     QueryChanged(String),
@@ -417,6 +491,15 @@ impl Msg {
             Err(error) => Msg::EffectFailed(format!("could not read the screen payload: {error}")),
         }
     }
+
+    /// The same contract for a page: the host fetched blocks, and a payload that does not parse is an error the user
+    /// can see rather than a page that silently renders empty.
+    pub fn page_loaded_json(payload: &str) -> Msg {
+        match serde_json::from_str::<PageContent>(payload) {
+            Ok(page) => Msg::PageLoaded(page),
+            Err(error) => Msg::EffectFailed(format!("could not read the page payload: {error}")),
+        }
+    }
 }
 
 /// What the host must do next. Requests, never decisions.
@@ -432,4 +515,11 @@ pub enum Effect {
         screen: &'static str,
         scope: Option<String>,
     },
+    /// Fetch a public page's content: the blocks, not the rows.
+    ///
+    /// A SEPARATE EFFECT because it is a different request and a different shape. A list screen asks what its rows are;
+    /// an editorial page asks for its hero, its sections and its cards, and the answer is a `PageContent`. Sending that
+    /// through `FetchRows` would mean overloading one payload with two meanings, which is how a page ends up rendered
+    /// as a list of strings.
+    FetchPage { screen: &'static str },
 }

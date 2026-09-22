@@ -1,22 +1,26 @@
 import { RustUiHost } from '@/components/rust-ui/host'
 
 // ---------------------------------------------------------------------------
-// FLIPPED TO RUST (screen: site-home, surface Site).
+// THE HOMEPAGE, RENDERED BY RUST.
 //
-// The route is unchanged; the screen is not. It was a TypeScript page fetching its own data for a TypeScript
-// component. It is now the Rust host: the same read models arrive through the public rows route and
-// rust/ui/src/view.rs paints the screen.
+// The structure is ported from the components this page used to compose - `hero.tsx`, `services.tsx`, `culture.tsx` -
+// into `rust/ui/src/view.rs`, on the same design tokens and the same classes. Its content does not arrive as rows: a
+// page is not a list, so it reads blocks (hero, buyers, sellers, culture, about, contact and the listing cards) from
+// `/api/rust-ui/public-page`, built from the same two reads this page made.
 //
-// It qualified because its TypeScript body has no interaction to lose - no state, form, dialog, filter or paging
-// control - so there is nothing the Rust body can fail to reproduce. Screens whose TypeScript carries behaviour stay
-// in TypeScript until the Rust body has its own controls. scripts/ui-flip-readiness.mjs prints the split at any time.
+// SECTIONS STILL TO PORT, in the order they appear below the hero: FeaturedProperties, HomeProperties, About, Contact,
+// and the site footer. They are not on this page yet; the port is going in from the top so each step can be looked at.
 // ---------------------------------------------------------------------------
 
 export default function Page() {
-
   return (
     <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/rust-ui/public-rows" start="site-home" />
+      <RustUiHost
+        rowsPath="/api/rust-ui/public-rows"
+        pagePath="/api/rust-ui/public-page"
+        start="site-home"
+      />
     </div>
   )
 }
+

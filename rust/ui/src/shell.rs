@@ -405,6 +405,24 @@ pub fn rows_loaded(payload: &str) -> Result<(), JsValue> {
     })
 }
 
+/// The same bridge for a page: the host fetched its blocks from an application route.
+#[wasm_bindgen]
+pub fn page_loaded(payload: &str) -> Result<(), JsValue> {
+    PROGRAM.with(|slot| {
+        let program = slot.borrow().clone();
+        match program {
+            Some(program) => {
+                let root = container(&mount_id())?;
+                dispatch(&root, &program, Msg::page_loaded_json(payload));
+                Ok(())
+            }
+            None => Err(JsValue::from_str(
+                "ui: mount was not called before page_loaded",
+            )),
+        }
+    })
+}
+
 /// The mount container id, so the host and the shell cannot disagree about it in silence.
 #[wasm_bindgen]
 pub fn mount_id() -> String {
