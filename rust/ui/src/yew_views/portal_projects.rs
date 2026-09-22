@@ -379,14 +379,10 @@ fn timeline_view(projects: &PortalProjectsPage, project: &PortalProject) -> Html
 }
 
 fn calendar_view(projects: &PortalProjectsPage, project: &PortalProject) -> Html {
+    // An empty schedule is a valid project state: this is the surface where due
+    // dates are created. Always mount FullCalendar and let the mature widget
+    // render its own empty grid instead of replacing the calendar with prose.
     let widget = calendar_widget_json(projects, project);
-    if widget
-        .get("events")
-        .and_then(|value| value.as_array())
-        .is_none_or(|events| events.is_empty())
-    {
-        return placeholder_view("Calendar", "No real WBS due dates exist for this project.");
-    }
     html! {
         <div
             id="project-calendar-island"
