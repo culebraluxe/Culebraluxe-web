@@ -343,6 +343,7 @@ pub fn router(state: ApiState) -> Router {
                 .post(upload_property_media)
                 .layer(DefaultBodyLimit::max(MAX_MEDIA_UPLOAD_BYTES + 1024 * 1024)),
         )
+        .route("/v1/deals", get(deals).post(create_deal))
         .route("/v1/contracts", get(contracts))
         .route("/v1/contracts/{id}", get(contract))
         .route(
@@ -940,6 +941,33 @@ async fn upload_property_media(
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
 
+    Ok(success(value, &resolved))
+}
+
+async fn deals(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<domain::DealPortfolioSnapshot>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().deal_portal();
+    let value = service
+        .portfolio(&resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn create_deal(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<domain::CreateDealRequest>,
+) -> Result<Json<ApiSuccess<domain::CreateDealResult>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().deal_portal();
+    let value = service
+        .create(&body, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(value, &resolved))
 }
 
