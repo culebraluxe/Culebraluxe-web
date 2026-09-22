@@ -179,7 +179,6 @@ fn center_panel(
     html! {
         <section class="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
             { project_header(model, projects, project, on_msg) }
-            { project_tabs(projects, on_msg) }
             <div class="min-h-0 flex-1 overflow-hidden px-3 py-2">
                 { active_view(projects, project, on_msg) }
             </div>
@@ -207,38 +206,46 @@ fn project_header(
         })
     };
     html! {
-        <header class="shrink-0 border-b border-[var(--portal-panel-border)] px-4 py-3">
-            <div class="flex flex-wrap items-start justify-between gap-3">
-                <div class="min-w-0">
-                    <div class="text-[10px] font-medium uppercase tracking-[0.16em] text-[var(--portal-gold-muted)]">
-                        { project.project_type.clone().unwrap_or_else(|| "Project".into()) }
+        <>
+            <div class="shrink-0 border-b border-[var(--portal-panel-border)] px-3 py-2">
+                <div class="flex min-w-0 items-center gap-3">
+                    <p class="w-[190px] shrink-0 whitespace-normal text-left text-[14px] font-medium uppercase leading-tight tracking-[0.14em] text-[var(--portal-gold)]">
+                        { project.name.clone() }
+                    </p>
+                    <div class="min-w-0 flex-1 overflow-x-auto">
+                        { project_tabs(projects, on_msg) }
                     </div>
-                    <h1 class="mt-1 truncate font-serif text-2xl font-light text-[var(--portal-navy)]">{ project.name.clone() }</h1>
-                    <p class="mt-1 truncate text-xs font-light text-black/45">{ project_context(project, projects) }</p>
-                    if let Some(error) = model.error.as_ref() {
-                        <p class="mt-1 text-xs text-red-700">{ error.clone() }</p>
-                    }
+                    <div class="flex shrink-0 items-center gap-2">
+                        <span class="text-[11px] font-light text-[var(--portal-blue-gray)]">
+                            { format!("{}%", project_progress(projects, &project.id)) }
+                        </span>
+                        <select
+                            value={status}
+                            onchange={onchange}
+                            disabled={projects.saving}
+                            aria-label="Project status"
+                            class="rounded-full bg-white/50 px-2.5 py-1 text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] outline-none disabled:opacity-40"
+                        >
+                            <option value="open">{"Open"}</option>
+                            <option value="doing">{"In progress"}</option>
+                            <option value="done">{"Complete"}</option>
+                            <option value="archived">{"Archived"}</option>
+                        </select>
+                        <button
+                            type="button"
+                            disabled=true
+                            title="The listing-playbook instantiation command still lives only in retired TypeScript; Rust create primitives exist, but the orchestration has not been ported."
+                            class="rounded-full bg-[var(--portal-navy)] px-3.5 py-2 text-[12px] font-medium text-white opacity-35 shadow-sm"
+                        >
+                            {"New Project"}
+                        </button>
+                    </div>
                 </div>
-                <div class="flex items-center gap-3">
-                    <span class="text-sm font-light text-[var(--portal-blue-gray)]">
-                        { format!("{}%", project_progress(projects, &project.id)) }
-                    </span>
-                    <select value={status} onchange={onchange} disabled={projects.saving}
-                        aria-label="Project status"
-                        class="rounded-full bg-white/55 px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.1em] text-[var(--portal-navy-soft)] outline-none disabled:opacity-40">
-                        <option value="open">{"Open"}</option>
-                        <option value="doing">{"In progress"}</option>
-                        <option value="done">{"Complete"}</option>
-                        <option value="archived">{"Archived"}</option>
-                    </select>
-                    <button type="button" disabled=true
-                        title="The existing playbook-instantiation command has not yet been moved into the Rust transaction boundary."
-                        class="rounded-full bg-[var(--portal-navy)] px-3.5 py-2 text-[11px] font-medium text-white opacity-35">
-                        {"New Project"}
-                    </button>
-                </div>
+                if let Some(error) = model.error.as_ref() {
+                    <p class="mt-1 text-xs text-red-700">{ error.clone() }</p>
+                }
             </div>
-        </header>
+        </>
     }
 }
 
@@ -252,23 +259,23 @@ fn project_tabs(projects: &PortalProjectsPage, on_msg: &Callback<Msg>) -> Html {
         ("activity", "Activity"),
     ];
     html! {
-        <div class="flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--portal-panel-border)] px-3 py-2">
+        <nav aria-label="Project workspace views" class="portal-glass-rail h-11 w-max">
             { for TABS.iter().map(|(key, label)| {
                 let active = projects.active_view == *key;
                 let key_string = (*key).to_string();
                 let on_msg = on_msg.clone();
                 html! {
-                    <button type="button"
+                    <button
+                        type="button"
                         onclick={Callback::from(move |_: MouseEvent| on_msg.emit(Msg::ProjectViewSelected(key_string.clone())))}
-                        class={classes!(
-                            "rounded-full","px-3","py-1.5","text-[10px]","font-medium","uppercase","tracking-[0.1em]","transition",
-                            if active { "bg-[var(--portal-navy)] text-white" } else { "text-[var(--portal-navy-soft)] hover:bg-white/50" }
-                        )}>
+                        aria-current={if active { Some("page") } else { None }}
+                        class={classes!("portal-glass-tab", active.then_some("bg-[var(--portal-navy)] text-white shadow-sm"))}
+                    >
                         { *label }
                     </button>
                 }
             }) }
-        </div>
+        </nav>
     }
 }
 
@@ -300,23 +307,24 @@ fn work_plan_view(
 ) -> Html {
     let roots = root_items(projects, &project.id);
     html! {
-        <div class="h-full min-h-0 overflow-y-auto rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/30">
-            <div class="grid grid-cols-[minmax(0,1fr)_130px_110px_110px] gap-3 border-b border-[var(--portal-panel-border)] px-3 py-2 text-[9px] font-semibold uppercase tracking-[0.12em] text-black/35">
-                <span>{"Work item"}</span><span>{"Owner"}</span><span>{"Due"}</span><span>{"Status"}</span>
+        <div class="flex h-full min-h-0 flex-1 flex-col overflow-y-auto rounded-[var(--portal-tab-radius)] border border-white/40 bg-white/20 px-1.5 py-1">
+            <div class="grid grid-cols-[22px_minmax(0,1fr)_72px_88px] gap-2 border-b border-[var(--portal-panel-border)]/70 px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-black/40">
+                <span></span><span>{"Work item"}</span><span class="text-right">{"Due"}</span><span class="text-right">{"Owner"}</span>
             </div>
             if roots.is_empty() {
                 <p class="px-4 py-10 text-center text-sm font-light text-black/40">{"No WBS items are attached to this project."}</p>
             } else {
-                { for roots.into_iter().map(|item| work_plan_row(projects, item, 0, on_msg)) }
+                <ul class="space-y-0.5">
+                    { for roots.into_iter().map(|item| work_plan_node(projects, item, on_msg)) }
+                </ul>
             }
         </div>
     }
 }
 
-fn work_plan_row(
+fn work_plan_node(
     projects: &PortalProjectsPage,
     item: &PortalProjectWorkItem,
-    depth: usize,
     on_msg: &Callback<Msg>,
 ) -> Html {
     let selected = projects.selected_node_id.as_deref() == Some(item.id.as_str());
@@ -325,24 +333,36 @@ fn work_plan_row(
         let on_msg = on_msg.clone();
         Callback::from(move |_: MouseEvent| on_msg.emit(Msg::ProjectNodeSelected(Some(id.clone()))))
     };
+    let children = child_items(projects, &item.id);
     html! {
-        <>
-            <button type="button" onclick={on_select}
+        <li>
+            <button
+                type="button"
+                onclick={on_select}
                 class={classes!(
-                    "grid","w-full","grid-cols-[minmax(0,1fr)_130px_110px_110px]","items-center","gap-3",
-                    "border-b","border-[var(--portal-panel-border)]/65","px-3","py-2.5","text-left","transition",
-                    if selected { "bg-[var(--portal-gold)]/8" } else { "hover:bg-white/40" }
-                )}>
-                <span class="flex min-w-0 items-center gap-2" style={format!("padding-left:{}px", depth * 18)}>
-                    <span class={classes!("h-2","w-2","shrink-0","rounded-full",status_dot(&item.status))}></span>
-                    <span class="truncate text-[13px] font-medium text-[var(--portal-navy)]">{ item.title.clone() }</span>
+                    "grid","w-full","grid-cols-[22px_minmax(0,1fr)_72px_88px]","items-center","gap-2",
+                    "rounded-[var(--portal-tab-radius)]","px-2","py-2","text-left","transition",
+                    if selected { "bg-white/65 ring-1 ring-inset ring-[var(--portal-panel-border)]" } else { "hover:bg-white/40" }
+                )}
+            >
+                <span class={classes!("h-3.5","w-3.5","justify-self-center","rounded-full","border","border-black/10",status_dot(&item.status))}></span>
+                <span class="min-w-0 flex-1">
+                    <span class="block truncate text-[13.5px] text-[var(--portal-navy)]">{ item.title.clone() }</span>
+                    <span class="block truncate text-[10px] font-light text-black/40">{ item.category.clone() }</span>
                 </span>
-                <span class="truncate text-[11px] font-light text-black/50">{ item.owner.clone().unwrap_or_else(|| "—".into()) }</span>
-                <span class="text-[11px] font-light text-black/45">{ due_label(item.due_at.as_deref()) }</span>
-                <span class="text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--portal-navy-soft)]">{ status_label(&item.status) }</span>
+                <span class="text-right text-[10px] font-light text-[var(--portal-blue-gray)]">
+                    { due_label(item.due_at.as_deref()) }
+                </span>
+                <span class="truncate text-right text-[9px] font-light text-black/40">
+                    { item.owner.clone().unwrap_or_else(|| "—".into()) }
+                </span>
             </button>
-            { for child_items(projects, &item.id).into_iter().map(|child| work_plan_row(projects, child, depth + 1, on_msg)) }
-        </>
+            if !children.is_empty() {
+                <ul class="ml-5 border-l border-[var(--portal-mist-3)]/70 pl-1.5">
+                    { for children.into_iter().map(|child| work_plan_node(projects, child, on_msg)) }
+                </ul>
+            }
+        </li>
     }
 }
 
