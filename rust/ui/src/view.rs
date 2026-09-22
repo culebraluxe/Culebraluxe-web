@@ -1835,6 +1835,45 @@ mod tests {
     /// It guards the two halves of the bug this page had. It carried a second, hand-typed copy of copy that already
     /// lives in the content store; and it fetched nothing, because the route that mounts it never handed it a `pagePath`,
     /// so the Rust screen had no page to read and rendered an empty body under the chrome.
+    /// EVERY URL PAINTS ITS OWN SCREEN — pinned at the level the tests above cannot reach.
+    ///
+    /// Those tests build a `Model` by hand and call `render`, so they exercise the view and nothing else. A real page
+    /// takes a longer path: the host calls `mount(id, key)`, `update` opens that screen, and `render` paints it. Nothing
+    /// tested that path, so a bug in it shows up as "the Services page shows the homepage" with a green test suite.
+    ///
+    /// The second half is the landmine in the header: its links resolve their hrefs from the registry with a fallback of
+    /// "/", so a key that fails to resolve does not fail — it silently sends the visitor to the homepage. That is exactly
+    /// what a "Services" page showing the landing page looks like from the outside, so it is asserted rather than trusted.
+    #[test]
+    fn each_site_url_paints_its_own_screen_and_links_to_its_own_url() {
+        for key in [
+            "site-services",
+            "site-sellers",
+            "site-about",
+            "site-faq",
+            "site-guide",
+        ] {
+            let screen = target(key);
+            let mut program = crate::Program::new();
+            program.open(screen);
+            let html = program.html();
+            assert!(
+                !html.contains("/images/hero-villa.png"),
+                "{key} painted the landing page's hero"
+            );
+            assert_eq!(
+                program.model().screen.key,
+                key,
+                "{key} did not stay open after being opened"
+            );
+            assert!(
+                html.contains(&format!("href=\"{}\"", screen.path)),
+                "the header of {key} does not link to {} — the fallback sends the visitor to the homepage instead",
+                screen.path
+            );
+        }
+    }
+
     #[test]
     fn the_services_page_renders_the_blocks_it_is_made_of() {
         let page = crate::model::PageContent {
