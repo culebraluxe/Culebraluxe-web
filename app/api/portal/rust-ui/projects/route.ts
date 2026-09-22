@@ -71,6 +71,35 @@ type RustVaultDocument = {
   signedAuditAvailable: boolean
 }
 
+type RustActivityFeedEntry = {
+  id: string
+  personId: string | null
+  dealId: string | null
+  propertyId: string | null
+  channel: string
+  direction: string | null
+  occurredAt: string
+  occurredAtLabel: string
+  title: string | null
+  summary: string | null
+  personName: string | null
+  propertyName: string | null
+  dealPropertyName: string | null
+}
+
+type RustCalendarEvent = {
+  id: string
+  title: string
+  startAt: string
+  endAt: string | null
+  allDay: boolean
+  personId: string | null
+  personName: string | null
+  propertyName: string | null
+  kind: 'showing' | 'meeting' | 'call' | 'other'
+  source: string
+}
+
 type ProjectAction =
   | {
       action: 'projectStatus'
@@ -202,7 +231,7 @@ async function workspacePayload() {
     rustApiRead<RustVaultDocument[]>('/v1/vault/documents'),
   ])
   const propertyIds = workspacePropertyIds(projects.value, items.value)
-  const [identityNames, mediaByProperty] = await Promise.all([
+  const [identityNames, mediaByProperty, activity, calendar] = await Promise.all([
     resolveIdentityNames(projects.value, items.value),
     Promise.all(
       propertyIds.map(async (id) => {
@@ -217,6 +246,12 @@ async function workspacePayload() {
         }
       }),
     ),
+    rustApiRead<RustActivityFeedEntry[]>('/v1/activity?limit=200' as `/v1/${string}`)
+      .then((result) => result.value)
+      .catch(() => [] as RustActivityFeedEntry[]),
+    rustApiRead<RustCalendarEvent[]>('/v1/calendar')
+      .then((result) => result.value)
+      .catch(() => [] as RustCalendarEvent[]),
   ])
   return {
     projects: {
@@ -235,6 +270,8 @@ async function workspacePayload() {
         signedAuditAvailable: document.signedAuditAvailable,
       })),
       media: mediaByProperty.flat(),
+      activity,
+      calendar,
       identityNames,
     },
   }
