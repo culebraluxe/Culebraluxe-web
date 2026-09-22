@@ -2,7 +2,8 @@ use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
 use db::{DbResult, WbsDao};
 use domain::{
-    CreateWbsItemRequest, SaveWbsItemRequest, WbsCategory, WbsEntityType, WbsItem, WbsStatus,
+    AppleReminderCommandReceipt, AppleReminderUpsertRequest, CreateWbsItemRequest,
+    SaveWbsItemRequest, WbsCategory, WbsEntityType, WbsItem, WbsStatus,
 };
 use serde_json::json;
 use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
@@ -21,6 +22,12 @@ pub trait WbsRepository: Send {
     async fn create(&mut self, request: &CreateWbsItemRequest) -> DbResult<WbsItem>;
     async fn save(&mut self, request: &SaveWbsItemRequest) -> DbResult<Option<WbsItem>>;
     async fn set_status(&mut self, id: &str, status: WbsStatus) -> DbResult<Option<WbsItem>>;
+    async fn queue_apple_reminder(
+        &mut self,
+        request: &AppleReminderUpsertRequest,
+        actor_app_user_id: Option<&str>,
+        correlation_id: &str,
+    ) -> DbResult<AppleReminderCommandReceipt>;
 }
 
 #[async_trait]
@@ -55,6 +62,15 @@ impl WbsRepository for WbsDao {
 
     async fn set_status(&mut self, id: &str, status: WbsStatus) -> DbResult<Option<WbsItem>> {
         WbsDao::set_status(self, id, status).await
+    }
+
+    async fn queue_apple_reminder(
+        &mut self,
+        request: &AppleReminderUpsertRequest,
+        actor_app_user_id: Option<&str>,
+        correlation_id: &str,
+    ) -> DbResult<AppleReminderCommandReceipt> {
+        WbsDao::queue_apple_reminder(self, request, actor_app_user_id, correlation_id).await
     }
 }
 
@@ -246,6 +262,54 @@ impl<R: WbsRepository> WbsService<R> {
             context,
         )
         .await
+    }
+
+    pub async fn queue_apple_reminder(
+        &mut self,
+        id: &str,
+        alert: bool,
+        context: &ServiceContext,
+    ) -> Result<AppleReminderCommandReceipt, CoreServiceError> {
+        const OP: &str = "wbs.queueAppleReminder";
+        let decision = authorize(
+            &self.runtime,
+            "wbs",
+            "wbs.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+
+        let result = async {
+            let item = self.repository.get(id).await?.ok_or_else(|| {
+                CoreServiceError::business("WBS_NOT_FOUND", format!("WBS item not found: {id}"))
+            })?;
+            let actor = context
+                .principal
+                .as_ref()
+                .map(|principal| principal.app_user_id.as_str())
+                .or(context.actor.id.as_deref());
+            self.repository
+                .queue_apple_reminder(
+                    &AppleReminderUpsertRequest {
+                        wbs_id: item.id,
+                        title: item.title,
+                        due_at: item.due_at,
+                        completed: item.status == WbsStatus::Done,
+                        notes: (!item.notes.trim().is_empty()).then_some(item.notes),
+                        alert,
+                    },
+                    actor,
+                    &context.correlation_id,
+                )
+                .await
+                .map_err(Into::into)
+        }
+        .await;
+
+        audit_result(&self.runtime, "wbs", OP, context, decision, &result).await?;
+        result
     }
 
     pub async fn dismiss(
