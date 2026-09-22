@@ -329,6 +329,11 @@ impl CockpitDao {
                     when d.stage <> 'closed' then 2
                     else 3
                   end,
+                  case
+                    when d.stage <> 'closed' and d.closing_date is not null
+                      then to_char(d.closing_date, 'Mon FMDD, YYYY')
+                    else null
+                  end asc nulls last,
                   case d.stage
                     when 'under_contract' then 1
                     when 'offer' then 2
