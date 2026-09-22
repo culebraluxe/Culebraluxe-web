@@ -142,9 +142,17 @@ skills-lock.json
 # the SERVER, which is built inside a Linux container (rust/Dockerfile.vercel) and never shipped from a Mac.
 #
 # `node scripts/build.mjs` rebuilds these when a wasm32 target is present, and keeps the committed ones when it is not.
+#
+# `boot.ts` IS SOURCE, NOT OUTPUT, AND THIS RULE WAS SWALLOWING IT. It is hand-written, and it is the module that both
+# `components/rust-ui/host.tsx` and `scripts/rust-ui-host.test.ts` import. The blanket `/lib/rust-ui/*` below silently
+# ignored it, so the repository contained a host importing a module the repository did not contain: a fresh clone had a
+# broken import with nothing in the build to say so, and the file was invisible to every review because it was never in a
+# diff. The directory is build output; this one file in it is not. The exception keeps that distinction explicit rather
+# than accidental.
 /lib/rust-ui/*
 !/lib/rust-ui/ui.js
 !/lib/rust-ui/ui.d.ts
+!/lib/rust-ui/boot.ts
 /public/rust-ui/*
 !/public/rust-ui/ui_bg.wasm
 !/public/rust-ui/ui_bg.wasm.d.ts
