@@ -16,9 +16,10 @@ use crate::signature::SignatureService;
 use crate::task::TaskService;
 use crate::vault::{VaultArtifactPort, VaultService};
 use crate::wbs::WbsService;
+use crate::workflow_portal::WorkflowPortalService;
 use db::{
     CalendarDao, ClientDao, CockpitDao, CommsDao, ContractDao, Database, FirmDao, FormDao, MediaDao, PersonDao,
-    ProjectDao, PropertyDao, SecurityDao, ShowingDao, SignatureDao, TaskDao, VaultDao, WbsDao,
+    ProjectDao, PropertyDao, SecurityDao, ShowingDao, SignatureDao, TaskDao, VaultDao, WbsDao, WorkflowPortalDao,
 };
 use service::{ServiceInfrastructure, SignatureProvider};
 use std::sync::Arc;
@@ -139,6 +140,13 @@ impl CoreServices {
 
     pub fn wbs(&self) -> WbsService<WbsDao> {
         WbsService::new(WbsDao::new(self.db.clone()), self.infrastructure.clone())
+    }
+
+    pub fn workflow_portal(&self) -> WorkflowPortalService<WorkflowPortalDao> {
+        WorkflowPortalService::new(
+            WorkflowPortalDao::new(self.db.clone()),
+            self.infrastructure.clone(),
+        )
     }
 
     pub fn project(&self) -> ProjectService<ProjectDao> {
