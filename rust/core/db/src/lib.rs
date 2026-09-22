@@ -23,6 +23,7 @@ mod property;
 pub mod metrics;
 pub mod retry;
 mod security;
+mod task;
 // The one pool per process. Public because it is how the composition root hands its pool to components that cannot be
 // constructed with one - the workflow engine's store, the Forge session helper.
 pub mod shared;
@@ -49,6 +50,7 @@ pub use project::{ProjectDao, ProjectTxDao};
 pub use property::PropertyDao;
 pub use retry::{retry, RetryPolicy};
 pub use security::SecurityDao;
+pub use task::TaskDao;
 pub use showing::ShowingDao;
 pub use signature::SignatureDao;
 pub use transaction::DbTransaction;
