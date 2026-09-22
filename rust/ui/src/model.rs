@@ -796,6 +796,8 @@ pub struct PortalProjectsPage {
     pub items: Vec<PortalProjectWorkItem>,
     pub documents: Vec<PortalProjectDocument>,
     pub media: Vec<PortalProjectMedia>,
+    pub activity: Vec<PortalProjectActivity>,
+    pub calendar: Vec<PortalProjectCalendarEvent>,
     pub identity_names: BTreeMap<String, String>,
     /// Workspace state lives with the payload and changes only in update().
     pub active_domain: String,
@@ -885,6 +887,39 @@ pub struct PortalProjectMedia {
     pub caption: Option<String>,
     pub created_at: Option<String>,
     pub url: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalProjectActivity {
+    pub id: String,
+    pub person_id: Option<String>,
+    pub deal_id: Option<String>,
+    pub property_id: Option<String>,
+    pub channel: String,
+    pub direction: Option<String>,
+    pub occurred_at: String,
+    pub occurred_at_label: String,
+    pub title: Option<String>,
+    pub summary: Option<String>,
+    pub person_name: Option<String>,
+    pub property_name: Option<String>,
+    pub deal_property_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalProjectCalendarEvent {
+    pub id: String,
+    pub title: String,
+    pub start_at: String,
+    pub end_at: Option<String>,
+    pub all_day: bool,
+    pub person_id: Option<String>,
+    pub person_name: Option<String>,
+    pub property_name: Option<String>,
+    pub kind: String,
+    pub source: String,
 }
 
 /// Everything a public page renders from.
