@@ -14,7 +14,7 @@ questions on purpose: a port can be complete and still cut over to nothing.
 | `people` | built | typescript | 3 | `legacy/db/person-admin.ts` |
 | `properties` | built | typescript | 2 | `legacy/db/listing-property-service-repository.ts` |
 | `contracts` | built | typescript | 3 | `legacy/db/contract-service-repository.ts` |
-| `forms` | built | typescript | 2 | `legacy/db/form-service-repository.ts` |
+| `forms` | built | typescript | 5 | `legacy/db/form-service-repository.ts` |
 | `comms` | built | typescript | 2 | `legacy/db/comms-service-repository.ts` |
 | `calendar` | built | typescript | 1 | — |
 | `vault` | built | typescript | 2 | — |
@@ -34,7 +34,7 @@ questions on purpose: a port can be complete and still cut over to nothing.
 
 ## The live Rust surface
 
-33 routes mounted (read from the router, not from this file):
+36 routes mounted (read from the router, not from this file):
 
 - `/healthz` _(infrastructure)_
 - `/readyz` _(infrastructure)_
@@ -54,6 +54,9 @@ questions on purpose: a port can be complete and still cut over to nothing.
 - `/v1/contracts/{id}`
 - `/v1/process-instances/{id}/contracts`
 - `/v1/forms`
+- `/v1/forms/deal-facts/{deal_id}`
+- `/v1/forms/{id}/signers`
+- `/v1/forms/{id}/issued-document`
 - `/v1/forms/{id}`
 - `/v1/comms/{person_id}/panel`
 - `/v1/comms/{person_id}/timeline`

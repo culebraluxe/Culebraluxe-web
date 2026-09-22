@@ -63,7 +63,13 @@
       "id": "forms",
       "rustStatus": "built",
       "productionPath": "typescript",
-      "routes": ["/v1/forms", "/v1/forms/{id}"],
+      "routes": [
+        "/v1/forms",
+        "/v1/forms/deal-facts/{deal_id}",
+        "/v1/forms/{id}/signers",
+        "/v1/forms/{id}/issued-document",
+        "/v1/forms/{id}"
+      ],
       "rustModules": ["rust/server/src/forms", "rust/core/db/src/forms.rs", "rust/core/domain/src/forms.rs"],
       "tsFiles": ["legacy/db/form-service-repository.ts"]
     },
