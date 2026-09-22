@@ -156,7 +156,13 @@ fn site_header(model: &Model) -> String {
         );
         found.map(|screen| screen.path)
     };
-    let mark = |key: &str| if key == current { " aria-current=\"page\"" } else { "" };
+    let mark = |key: &str| {
+        if key == current {
+            " aria-current=\"page\""
+        } else {
+            ""
+        }
+    };
     let desktop = LINKS
         .iter()
         .filter_map(|(label, key)| {
@@ -221,7 +227,6 @@ fn site_error_banner(model: &Model) -> String {
         None => String::new(),
     }
 }
-
 
 fn nav(model: &Model) -> String {
     let surface = model.screen.surface;
@@ -422,7 +427,11 @@ const LAB_ROWS: [(&str, &str, &str, &str); 11] = [
 ];
 
 /// Statuses the dropdown offers. `""` is "no filter" rather than a status, so an unset dropdown filters nothing.
-const LAB_STATUSES: [(&str, &str); 3] = [("", "Any status"), ("ready", "Ready"), ("planned", "Planned")];
+const LAB_STATUSES: [(&str, &str); 3] = [
+    ("", "Any status"),
+    ("ready", "Ready"),
+    ("planned", "Planned"),
+];
 
 /// The tabs, and what each one narrows to.
 const LAB_TABS: [(&str, &str); 4] = [
@@ -580,7 +589,10 @@ fn site_home(model: &Model) -> String {
 
 /// `components/hero.tsx` — a full-viewport image, two scrims, and the block's copy pinned to the bottom edge.
 fn hero(block: &Block) -> String {
-    let image = block.image_path.as_deref().unwrap_or("/images/hero-villa.png");
+    let image = block
+        .image_path
+        .as_deref()
+        .unwrap_or("/images/hero-villa.png");
     let alt = block
         .image_alt
         .as_deref()
@@ -624,7 +636,13 @@ fn hero(block: &Block) -> String {
 /// The values come from the call site, because that is how the pages had them: Sellers and About carried their hero copy
 /// as literals in the page, while FAQ and Contact read theirs from the managed page-hero slots. Same component, two
 /// sources, and the source is the page's business rather than the hero's.
-fn page_hero(eyebrow: &str, title: &str, intro: Option<&str>, image: &str, image_alt: &str) -> String {
+fn page_hero(
+    eyebrow: &str,
+    title: &str,
+    intro: Option<&str>,
+    image: &str,
+    image_alt: &str,
+) -> String {
     // `image || '/placeholder.svg'` in the component. An empty path is not a missing image, it is a broken one.
     let image = if image.is_empty() {
         "/placeholder.svg"
@@ -1185,13 +1203,11 @@ fn privacy_view() -> String {
     )
 }
 
-
 /// The site-services page's own text, extracted from the TypeScript page it replaces.
 ///
 /// NOT retyped, deliberately: this is reviewed wording (a policy Meta requires for the WhatsApp integration), and a
 /// hand-copied paragraph is a paragraph that can quietly differ. `kind` is the tag it had, so the render below can put
 /// it back in the same shape.
-
 use crate::icons::icon;
 
 /// `app/services/page.tsx` — the Services page.
@@ -1318,9 +1334,24 @@ pub(crate) const SERVICES: [(&str, &str, &str, &str, &str, &str); 8] = [
 
 // "How it works": number, title, body, icon.
 pub(crate) const SERVICE_PROCESS: [(&str, &str, &str, &str); 3] = [
-    ("1", "Share your needs", "Tell us about the property, your objectives, and the support you are looking for.", "message-circle"),
-    ("2", "We review & coordinate", "We research the situation, connect the right professionals, and organize the details.", "map-pinned"),
-    ("3", "Clear next steps", "You receive thoughtful guidance, timely updates, and a clear path forward.", "clipboard-check"),
+    (
+        "1",
+        "Share your needs",
+        "Tell us about the property, your objectives, and the support you are looking for.",
+        "message-circle",
+    ),
+    (
+        "2",
+        "We review & coordinate",
+        "We research the situation, connect the right professionals, and organize the details.",
+        "map-pinned",
+    ),
+    (
+        "3",
+        "Clear next steps",
+        "You receive thoughtful guidance, timely updates, and a clear path forward.",
+        "clipboard-check",
+    ),
 ];
 
 // The four reasons in the "Why clients come to CulebraLuxe" split.
@@ -1521,10 +1552,22 @@ pub(crate) const ABOUT_VALUES: [(&str, &str, &str); 3] = [
 
 // "Why clients choose CulebraLuxe": title and body.
 pub(crate) const ABOUT_REASONS: [(&str, &str); 4] = [
-    ("Boutique by design", "We intentionally work with a limited number of clients."),
-    ("Island-specific expertise", "We understand unique homes, land, waterfront, and the realities of island ownership."),
-    ("Personally handled", "Every search, showing, and negotiation is handled directly and deliberately."),
-    ("Trusted by referral", "Much of our work comes through personal introductions and word of mouth."),
+    (
+        "Boutique by design",
+        "We intentionally work with a limited number of clients.",
+    ),
+    (
+        "Island-specific expertise",
+        "We understand unique homes, land, waterfront, and the realities of island ownership.",
+    ),
+    (
+        "Personally handled",
+        "Every search, showing, and negotiation is handled directly and deliberately.",
+    ),
+    (
+        "Trusted by referral",
+        "Much of our work comes through personal introductions and word of mouth.",
+    ),
 ];
 
 // The four figures, in the order the page shows them.
@@ -1711,8 +1754,7 @@ fn site_faq(model: &Model) -> String {
         &page.hero.title,
         // Absent intro renders nothing rather than an empty line, which is the rule the shared hero already keeps.
         (!intro.is_empty()).then_some(intro),
-        page
-            .hero
+        page.hero
             .image_path
             .as_deref()
             .unwrap_or("/images/hero-villa.png"),
@@ -1782,12 +1824,8 @@ fn site_faq(model: &Model) -> String {
              </div>"
         )
     };
-    format!(
-        "{hero}<section class=\"px-6 py-24 md:px-12 md:py-32\">{accordion}{closing}</section>"
-    )
+    format!("{hero}<section class=\"px-6 py-24 md:px-12 md:py-32\">{accordion}{closing}</section>")
 }
-
-
 
 // The guide's nine sections, in the order the page presents them: id, number, title, headline, description.
 pub const GUIDE_SECTIONS: [(&str, &str, &str, &str, &str); 9] = [
@@ -1827,8 +1865,7 @@ fn site_contact(model: &Model) -> String {
         &page.hero.eyebrow,
         &page.hero.title,
         (!intro.is_empty()).then_some(intro),
-        page
-            .hero
+        page.hero
             .image_path
             .as_deref()
             .unwrap_or("/images/coastline.png"),
@@ -2066,11 +2103,15 @@ fn buyer_inventory_card(listing: &crate::model::Listing) -> String {
         ""
     };
     // The facts line: only the facts the listing actually has, in the component's order.
-    let facts = [listing.beds.map(|beds| format!("{beds} Beds")), listing.baths.map(|baths| format!("{baths} Baths")), listing.area.clone()]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
-        .join("  ·  ");
+    let facts = [
+        listing.beds.map(|beds| format!("{beds} Beds")),
+        listing.baths.map(|baths| format!("{baths} Baths")),
+        listing.area.clone(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join("  ·  ");
     let location = listing
         .location
         .as_deref()
@@ -2206,8 +2247,12 @@ fn buyer_filters(model: &Model) -> String {
             })
             .collect::<String>()
     };
-    let search_icon = icon("search", "absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground", "2")
-        .unwrap_or_default();
+    let search_icon = icon(
+        "search",
+        "absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground",
+        "2",
+    )
+    .unwrap_or_default();
     format!(
         "<div class=\"sticky top-0 z-30 mb-12 border-y border-border bg-background/95 py-4 backdrop-blur-md\">\
            <div class=\"grid gap-3 md:grid-cols-12\">\
@@ -2307,24 +2352,68 @@ pub(crate) const SELLER_WHY_US: [(&str, &str, &str); 3] = [
 
 // Section 02: the six steps of the process.
 pub(crate) const SELLER_PROCESS: [(&str, &str, &str); 6] = [
-    ("Understand", "The property, circumstances, and objectives.", "search"),
-    ("Position", "Market analysis and pricing strategy.", "target"),
-    ("Prepare", "Property preparation and media production.", "camera"),
-    ("Launch", "Market introduction and targeted exposure.", "send"),
-    ("Represent", "Showings, offers, and skilled negotiation.", "users"),
-    ("Close", "Contract-to-closing coordination and follow-through.", "check-circle-2"),
+    (
+        "Understand",
+        "The property, circumstances, and objectives.",
+        "search",
+    ),
+    (
+        "Position",
+        "Market analysis and pricing strategy.",
+        "target",
+    ),
+    (
+        "Prepare",
+        "Property preparation and media production.",
+        "camera",
+    ),
+    (
+        "Launch",
+        "Market introduction and targeted exposure.",
+        "send",
+    ),
+    (
+        "Represent",
+        "Showings, offers, and skilled negotiation.",
+        "users",
+    ),
+    (
+        "Close",
+        "Contract-to-closing coordination and follow-through.",
+        "check-circle-2",
+    ),
 ];
 
 // Section 03: the five dimensions that feed the market position, and the two on the other side of it.
 pub(crate) const SELLER_MARKET_LEFT: [(&str, &str, &str); 3] = [
-    ("Property", "Home, improvements, land, views, condition.", "home"),
-    ("Place", "Micro-location, access, infrastructure, island context.", "map-pin"),
-    ("Market", "Comparable sales, competition, supply, and current conditions.", "bar-chart-3"),
+    (
+        "Property",
+        "Home, improvements, land, views, condition.",
+        "home",
+    ),
+    (
+        "Place",
+        "Micro-location, access, infrastructure, island context.",
+        "map-pin",
+    ),
+    (
+        "Market",
+        "Comparable sales, competition, supply, and current conditions.",
+        "bar-chart-3",
+    ),
 ];
 
 pub(crate) const SELLER_MARKET_RIGHT: [(&str, &str, &str); 2] = [
-    ("Buyer", "Likely buyer pool, motivations, ability, and timing.", "user-round"),
-    ("Objectives", "Your goals, timing, flexibility, and desired outcome.", "flag"),
+    (
+        "Buyer",
+        "Likely buyer pool, motivations, ability, and timing.",
+        "user-round",
+    ),
+    (
+        "Objectives",
+        "Your goals, timing, flexibility, and desired outcome.",
+        "flag",
+    ),
 ];
 
 // Section 04: the two lists under Presentation & Exposure. Titles only — that is all the page shows.
@@ -2348,12 +2437,36 @@ pub(crate) const SELLER_DISTRIBUTION: [(&str, &str); 6] = [
 
 // Section 05: the six stages of representation.
 pub(crate) const SELLER_REPRESENTATION: [(&str, &str, &str); 6] = [
-    ("Private showings", "Personally presenting the property to qualified buyers.", "users"),
-    ("Offers & negotiation", "Evaluating offers and negotiating terms that align with your goals.", "file-text"),
-    ("Contract progression", "Moving from accepted offer into the appropriate purchase-and-sale process.", "pen-line"),
-    ("Due diligence coordination", "Survey, appraisal, inspections, financing, title, and other diligence items.", "clipboard-check"),
-    ("Closing coordination", "Coordinating with attorneys, title professionals, and all parties.", "handshake"),
-    ("Successful close", "Following through until the transaction is complete.", "key-round"),
+    (
+        "Private showings",
+        "Personally presenting the property to qualified buyers.",
+        "users",
+    ),
+    (
+        "Offers & negotiation",
+        "Evaluating offers and negotiating terms that align with your goals.",
+        "file-text",
+    ),
+    (
+        "Contract progression",
+        "Moving from accepted offer into the appropriate purchase-and-sale process.",
+        "pen-line",
+    ),
+    (
+        "Due diligence coordination",
+        "Survey, appraisal, inspections, financing, title, and other diligence items.",
+        "clipboard-check",
+    ),
+    (
+        "Closing coordination",
+        "Coordinating with attorneys, title professionals, and all parties.",
+        "handshake",
+    ),
+    (
+        "Successful close",
+        "Following through until the transaction is complete.",
+        "key-round",
+    ),
 ];
 
 /// `app/sellers/page.tsx` — the Sellers page.
@@ -2968,7 +3081,11 @@ pub(crate) fn buyers_visible<'a>(listings: &'a [Listing], model: &Model) -> Vec<
             if !query.is_empty() {
                 let haystack = [
                     listing.name.to_ascii_lowercase(),
-                    listing.location.as_deref().unwrap_or("").to_ascii_lowercase(),
+                    listing
+                        .location
+                        .as_deref()
+                        .unwrap_or("")
+                        .to_ascii_lowercase(),
                     listing.kind.as_deref().unwrap_or("").to_ascii_lowercase(),
                 ]
                 .join(" ");
@@ -2988,12 +3105,17 @@ pub(crate) fn buyers_visible<'a>(listings: &'a [Listing], model: &Model) -> Vec<
             .unwrap_or(Ordering::Equal),
         "price-low" => {
             let for_low = |listing: &&Listing| listing_price(listing).unwrap_or(f64::MAX);
-            for_low(a).partial_cmp(&for_low(b)).unwrap_or(Ordering::Equal)
+            for_low(a)
+                .partial_cmp(&for_low(b))
+                .unwrap_or(Ordering::Equal)
         }
         // Case-insensitive: the contract compares with `localeCompare`, and comparing raw bytes would file every
         // capitalised name under a different letter than a lowercase one. Accents order by codepoint rather than by
         // collation, which is the one place this can disagree with the live order.
-        "name" => a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()),
+        "name" => a
+            .name
+            .to_ascii_lowercase()
+            .cmp(&b.name.to_ascii_lowercase()),
         // `featured` is the default: featured first, then price high to low.
         _ => {
             if a.featured != b.featured {
@@ -3184,8 +3306,6 @@ fn about_values() -> String {
     )
 }
 
-
-
 /// The login-unauthorized page's own text, extracted from the TypeScript page it replaces.
 ///
 /// NOT retyped, deliberately: this is reviewed wording (a policy Meta requires for the WhatsApp integration), and a
@@ -3219,7 +3339,6 @@ fn login_unauthorized_view() -> String {
     )
 }
 
-
 /// The auth-error page's own text, extracted from the TypeScript page it replaces.
 ///
 /// NOT retyped, deliberately: this is reviewed wording (a policy Meta requires for the WhatsApp integration), and a
@@ -3252,7 +3371,6 @@ fn auth_error_view() -> String {
     )
 }
 
-
 /// The portal-auth-proof page's own text, extracted from the TypeScript page it replaces.
 ///
 /// NOT retyped, deliberately: this is reviewed wording (a policy Meta requires for the WhatsApp integration), and a
@@ -3284,8 +3402,6 @@ fn portal_auth_proof_view() -> String {
         "<article class=\"px-6 py-20 md:px-12 md:py-28\"><div class=\"mx-auto max-w-4xl space-y-6\">{body}</div></article>"
     )
 }
-
-
 
 /// The seller-strategy page's own text, extracted from the TypeScript page it replaces.
 ///
@@ -3337,8 +3453,6 @@ fn seller_strategy_view() -> String {
         "<article class=\"px-6 py-20 md:px-12 md:py-28\"><div class=\"mx-auto max-w-4xl space-y-6\">{body}</div></article>"
     )
 }
-
-
 
 /// The login-recovery page's own text, extracted from the TypeScript page it replaces.
 ///
@@ -4046,7 +4160,10 @@ mod tests {
             screen: target("site-buyers"),
             ..Model::default()
         });
-        assert_eq!(html.matches(&format!("id=\"{}\"", crate::PAGE_ID)).count(), 1);
+        assert_eq!(
+            html.matches(&format!("id=\"{}\"", crate::PAGE_ID)).count(),
+            1
+        );
         assert!(html.contains("<header"));
         assert!(html.contains("<footer"));
     }
@@ -4191,7 +4308,10 @@ mod tests {
 
         // No intro means no paragraph, rather than an empty line where a sentence should be.
         let bare = page_hero("About Us", "Devoted to a single island.", None, "", "");
-        assert!(!bare.contains("mt-8 max-w-2xl"), "an absent intro renders nothing");
+        assert!(
+            !bare.contains("mt-8 max-w-2xl"),
+            "an absent intro renders nothing"
+        );
         // And an empty image path falls back rather than rendering a broken image.
         assert!(bare.contains("src=\"/placeholder.svg\""));
     }
@@ -4238,14 +4358,7 @@ mod tests {
             .and_then(|rest| rest.split("</nav>").next())
             .expect("the site header has a primary nav");
         for label in [
-            "Buyers",
-            "Sellers",
-            "Services",
-            "Guide",
-            "About",
-            "FAQ",
-            "Contact",
-            "Portal",
+            "Buyers", "Sellers", "Services", "Guide", "About", "FAQ", "Contact", "Portal",
         ] {
             assert!(
                 menu.contains(&format!(">{label}</a>")),
@@ -4261,7 +4374,8 @@ mod tests {
         // invariant — it catches a registry entry leaking in and a label going missing, which is what the first version
         // of this header got wrong in both directions.
         assert_eq!(
-            menu.matches("top-nav-capsule top-nav-capsule--tight").count(),
+            menu.matches("top-nav-capsule top-nav-capsule--tight")
+                .count(),
             8,
             "the site menu is the design's eight entries: seven links and Portal"
         );

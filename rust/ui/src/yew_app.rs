@@ -1,5 +1,4 @@
-//! The Yew application: the Model, the reducer, and the mount point.
-//!
+//! The Yew application: the Model, the reducer, and the mount point.//!
 //! THE LOOP IS THE ONE THIS CRATE ALREADY HAD. `update(&mut Model, Msg)` is the only thing that changes application
 //! state; this module owns a `Model`, turns Yew callbacks into `Msg`s, runs the `Effect`s the reducer returns, and
 //! renders the model. There is no `use_state`, no second copy of the state, and no component that mutates anything: a
@@ -114,9 +113,9 @@ pub fn yew_mount(element_id: &str) -> Result<(), wasm_bindgen::JsValue> {
     let document = web_sys::window()
         .and_then(|window| window.document())
         .ok_or_else(|| wasm_bindgen::JsValue::from_str("ui: no document"))?;
-    let root = document
-        .get_element_by_id(element_id)
-        .ok_or_else(|| wasm_bindgen::JsValue::from_str(&format!("ui: no element '{element_id}'")))?;
+    let root = document.get_element_by_id(element_id).ok_or_else(|| {
+        wasm_bindgen::JsValue::from_str(&format!("ui: no element '{element_id}'"))
+    })?;
     yew::Renderer::<App>::with_root(root).render();
     Ok(())
 }

@@ -486,8 +486,14 @@ mod tests {
             message: "the previous run's request failed".into(),
         };
         update(&mut model, stale_mount);
-        assert_eq!(model.error, None, "a superseded run's failure is not this one's");
-        assert!(model.loading, "and it must not clear the loading state of a live request");
+        assert_eq!(
+            model.error, None,
+            "a superseded run's failure is not this one's"
+        );
+        assert!(
+            model.loading,
+            "and it must not clear the loading state of a live request"
+        );
 
         // A failure for a screen the visitor has left.
         let other_screen = Msg::EffectFailed {
@@ -515,7 +521,10 @@ mod tests {
     #[test]
     fn a_narrowing_control_returns_to_the_first_page() {
         let mut model = Model::default();
-        let rows = rows_for(&model, (0..PAGE_SIZE + 5).map(|i| row(&i.to_string())).collect());
+        let rows = rows_for(
+            &model,
+            (0..PAGE_SIZE + 5).map(|i| row(&i.to_string())).collect(),
+        );
         update(&mut model, rows);
         update(&mut model, Msg::PageChanged(1));
         assert_eq!(model.controls.page, 1);
@@ -529,7 +538,10 @@ mod tests {
     #[test]
     fn paging_is_bounded_by_the_rows_the_model_holds() {
         let mut model = Model::default();
-        let rows = rows_for(&model, (0..PAGE_SIZE + 1).map(|i| row(&i.to_string())).collect());
+        let rows = rows_for(
+            &model,
+            (0..PAGE_SIZE + 1).map(|i| row(&i.to_string())).collect(),
+        );
         update(&mut model, rows);
         update(&mut model, Msg::PageChanged(-1));
         assert_eq!(model.controls.page, 0, "there is no page before the first");

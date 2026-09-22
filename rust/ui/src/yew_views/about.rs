@@ -43,7 +43,6 @@ impl Component for About {
         }
     }
 }
-
 impl About {
     /// The founder: her portrait, her biography, her words and her credentials.
     fn founder(&self) -> Html {
@@ -163,7 +162,6 @@ impl About {
         }
     }
 }
-
 
 impl About {
     /// "Life on the island" — eight photographs in a single scrolling row.

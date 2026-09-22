@@ -58,7 +58,9 @@ impl Component for PortalApp {
         match self.model.screen.key {
             "activity" => html! { <Activity model={self.model.clone()} on_msg={on_msg} /> },
             "workflows" => html! { <Workflows model={self.model.clone()} on_msg={on_msg} /> },
-            "workflow-record" => html! { <WorkflowRecord model={self.model.clone()} on_msg={on_msg} /> },
+            "workflow-record" => {
+                html! { <WorkflowRecord model={self.model.clone()} on_msg={on_msg} /> }
+            }
             other => html! {
                 <div class="p-6 text-sm text-destructive" role="alert">
                     { format!("Portal Yew screen '{other}' has no component.") }
@@ -75,8 +77,9 @@ pub fn portal_mount(
     scope: &str,
 ) -> Result<(), wasm_bindgen::JsValue> {
     console_error_panic_hook::set_once();
-    let screen = crate::model::screen(screen_key)
-        .ok_or_else(|| wasm_bindgen::JsValue::from_str(&format!("ui: '{screen_key}' is not a known screen")))?;
+    let screen = crate::model::screen(screen_key).ok_or_else(|| {
+        wasm_bindgen::JsValue::from_str(&format!("ui: '{screen_key}' is not a known screen"))
+    })?;
     if !crate::update::is_ported_portal_screen(screen.key) {
         return Err(wasm_bindgen::JsValue::from_str(&format!(
             "ui: '{screen_key}' has no Yew component yet"
@@ -85,14 +88,15 @@ pub fn portal_mount(
     let document = web_sys::window()
         .and_then(|window| window.document())
         .ok_or_else(|| wasm_bindgen::JsValue::from_str("ui: no document"))?;
-    let root = document
-        .get_element_by_id(element_id)
-        .ok_or_else(|| wasm_bindgen::JsValue::from_str(&format!("ui: no element '{element_id}'")))?;
+    let root = document.get_element_by_id(element_id).ok_or_else(|| {
+        wasm_bindgen::JsValue::from_str(&format!("ui: no element '{element_id}'"))
+    })?;
     let scope = if scope.trim().is_empty() {
         None
     } else {
         Some(scope.to_string())
     };
-    yew::Renderer::<PortalApp>::with_root_and_props(root, PortalAppProps { screen, scope }).render();
+    yew::Renderer::<PortalApp>::with_root_and_props(root, PortalAppProps { screen, scope })
+        .render();
     Ok(())
 }
