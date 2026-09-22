@@ -43,7 +43,8 @@ pub use security::{
 pub use showing::{SaveShowingReportRequest, Showing, ShowingReportOutcome};
 
 pub use wbs::{
-    CreateWbsItemRequest, SaveWbsItemRequest, WbsEntityLink, WbsEntityType, WbsItem, WbsStatus,
+    AppleReminderCommandReceipt, AppleReminderUpsertRequest, CreateWbsItemRequest,
+    SaveWbsItemRequest, WbsEntityLink, WbsEntityType, WbsItem, WbsStatus,
 };
 
 pub use contract::{
