@@ -47,6 +47,10 @@ type CommsPanel = {
     inboundCount: number
     outboundCount: number
     twoWay: boolean
+    firstObservedAt?: string | null
+    lastInboundAt?: string | null
+    lastOutboundAt?: string | null
+    lastContactAt?: string | null
     lastContactLabel?: string | null
     activeSourceCount: number
     sourceCount: number
