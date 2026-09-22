@@ -89,25 +89,40 @@ fn site_header(model: &Model) -> String {
     // A link is a link: real hrefs, so the address bar, the back button and a bookmark all behave. The Rust UI
     // navigates on the paths in the registry rather than intercepting clicks, which is also what lets the same markup
     // be served by a Rust document route later without changing the page.
-    let href_of = |key: &str| screen(key).map(|screen| screen.path).unwrap_or("/");
+    //
+    // A BROKEN KEY MUST NOT BECOME THE HOMEPAGE. This resolved each key with `unwrap_or("/")`, so a typo in the table
+    // above sent the visitor Home — the menu looked like it worked, the destination was wrong, and nothing anywhere said
+    // so. Now an unresolvable key is a development failure (`debug_assert!`, live in tests and debug builds and compiled
+    // out of release) and the item is omitted, so the worst a release can do is show one link fewer. It can never show
+    // the wrong destination, and the exact-hrefs test below fails on the typo before it ships.
+    let href_of = |key: &str| -> Option<&'static str> {
+        let found = screen(key);
+        debug_assert!(
+            found.is_some(),
+            "the site menu names '{key}', which is not a screen in the registry"
+        );
+        found.map(|screen| screen.path)
+    };
     let desktop = LINKS
         .iter()
-        .map(|(label, key)| {
-            format!(
+        .filter_map(|(label, key)| {
+            let href = href_of(key)?;
+            Some(format!(
                 "<a href=\"{href}\" class=\"{CAPSULE}\">{label}</a>",
-                href = escape(href_of(key)),
+                href = escape(href),
                 label = escape(label)
-            )
+            ))
         })
         .collect::<String>();
     let mobile = LINKS
         .iter()
-        .map(|(label, key)| {
-            format!(
+        .filter_map(|(label, key)| {
+            let href = href_of(key)?;
+            Some(format!(
                 "<a href=\"{href}\" class=\"{MOBILE_CAPSULE}\">{label}</a>",
-                href = escape(href_of(key)),
+                href = escape(href),
                 label = escape(label)
-            )
+            ))
         })
         .collect::<String>();
     format!(
@@ -1958,6 +1973,43 @@ mod tests {
             ..Model::default()
         });
         assert!(!bare.contains("About Us"));
+    }
+
+    /// THE ROUTE CONTRACT, EXACTLY — the destination of every menu item, not its label.
+    ///
+    /// The existing header test checks that the labels are present and that there are eight capsules. That is satisfied by
+    /// a menu where every link points somewhere wrong, which is precisely the failure this header has already had once:
+    /// `unwrap_or("/")` turned an unresolvable key into Home, silently. A label is what a visitor reads; the href is where
+    /// they end up, and only the second one is the contract.
+    #[test]
+    fn the_site_header_links_to_the_exact_urls_of_the_public_site() {
+        let html = render(&Model {
+            screen: target("site-home"),
+            ..Model::default()
+        });
+        for (label, href) in [
+            ("Buyers", "/buyers"),
+            ("Sellers", "/sellers"),
+            ("Services", "/services"),
+            ("Guide", "/guide"),
+            ("About", "/about"),
+            ("FAQ", "/faq"),
+            ("Contact", "/contact"),
+            ("Portal", "/portal/dashboard"),
+        ] {
+            let expected = format!(
+                "href=\"{href}\" class=\"top-nav-capsule top-nav-capsule--tight\">{label}</a>"
+            );
+            assert!(
+                html.contains(&expected),
+                "{label} does not link to {href} with the shared capsule class; expected {expected}"
+            );
+        }
+        // The logo is home, and it is the only element that promises home.
+        assert!(
+            html.contains("href=\"/\" aria-label=\"CulebraLuxe home\""),
+            "the logo is what goes home"
+        );
     }
 
     #[test]
