@@ -101,6 +101,26 @@ fn island_bridge(on_msg: &Callback<Msg>) -> Html {
                     }
                 }
                 Some("catchup") => on_msg.emit(Msg::ProjectCatchUpToggled(true)),
+                Some("catchupSelect") => {
+                    let project_id = intent.get("projectId").and_then(|value| value.as_str());
+                    let node_id = intent.get("nodeId").and_then(|value| value.as_str());
+                    if let (Some(project_id), Some(node_id)) = (project_id, node_id) {
+                        on_msg.emit(Msg::ProjectCatchUpItemSelected {
+                            project_id: project_id.to_string(),
+                            node_id: node_id.to_string(),
+                        });
+                    }
+                }
+                Some("catchupComplete") => {
+                    let project_id = intent.get("projectId").and_then(|value| value.as_str());
+                    let node_id = intent.get("nodeId").and_then(|value| value.as_str());
+                    if let (Some(project_id), Some(node_id)) = (project_id, node_id) {
+                        on_msg.emit(Msg::ProjectCatchUpItemCompleteRequested {
+                            project_id: project_id.to_string(),
+                            node_id: node_id.to_string(),
+                        });
+                    }
+                }
                 Some("project") => {
                     if let Some(project_id) =
                         intent.get("projectId").and_then(|value| value.as_str())
@@ -292,10 +312,7 @@ fn active_view(
             "No project-scoped accounting read model is attached to the Rust workspace yet.",
         ),
         "documents" => documents_view(projects, project),
-        "activity" => placeholder_view(
-            "Activity",
-            "Project-scoped activity is not yet exposed by the Rust Project/WBS transport. No synthetic history is shown.",
-        ),
+        "activity" => activity_view(projects, project),
         _ => work_plan_view(projects, project, on_msg),
     }
 }
@@ -585,52 +602,28 @@ fn catchup_center(
     projects: &PortalProjectsPage,
     on_msg: &Callback<Msg>,
 ) -> Html {
-    let mut items = projects
-        .items
-        .iter()
-        .filter(|item| matches!(item.status.as_str(), "open" | "doing"))
-        .collect::<Vec<_>>();
-    items.sort_by(|left, right| {
-        left.due_at
-            .as_deref()
-            .unwrap_or("9999")
-            .cmp(right.due_at.as_deref().unwrap_or("9999"))
-            .then_with(|| left.title.cmp(&right.title))
+    let widget = json!({
+        "projects": &projects.projects,
+        "items": &projects.items,
+        "identityNames": &projects.identity_names,
+        "calendar": &projects.calendar,
+        "selectedProjectId": &projects.selected_project_id,
+        "selectedNodeId": &projects.selected_node_id,
+        "saving": projects.saving,
     });
+    let selected = selected_item(projects);
     html! {
         <section class="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
-            <header class="shrink-0 border-b border-[var(--portal-panel-border)] px-4 py-3">
-                <div class="text-[10px] font-medium uppercase tracking-[0.16em] text-[var(--portal-gold-muted)]">{"Catch-Up"}</div>
-                <h1 class="mt-1 font-serif text-2xl font-light text-[var(--portal-navy)]">{"Open project work"}</h1>
-                <p class="mt-1 text-xs font-light text-black/45">{"Real WBS work across Projects, ordered by persisted due date. No sample rows."}</p>
-            </header>
-            <div class="min-h-0 flex-1 overflow-y-auto p-3">
-                { for items.into_iter().map(|item| {
-                    let id = item.id.clone();
-                    let project_id = item.project_id.clone();
-                    let project_name = project_id.as_deref()
-                        .and_then(|id| projects.projects.iter().find(|project| project.id == id))
-                        .map(|project| project.name.clone())
-                        .unwrap_or_else(|| "Project".into());
-                    let on_msg = on_msg.clone();
-                    html! {
-                        <button type="button"
-                            onclick={Callback::from(move |_: MouseEvent| {
-                                if let Some(project_id) = project_id.as_ref() {
-                                    on_msg.emit(Msg::ProjectSelected(project_id.clone()));
-                                    on_msg.emit(Msg::ProjectNodeSelected(Some(id.clone())));
-                                }
-                            })}
-                            class="mb-2 grid w-full grid-cols-[minmax(0,1fr)_160px_120px] items-center gap-3 rounded-xl border border-[var(--portal-panel-border)] bg-white/35 px-4 py-3 text-left transition hover:bg-white/55">
-                            <span>
-                                <span class="block text-[13px] font-medium text-[var(--portal-navy)]">{ item.title.clone() }</span>
-                                <span class="mt-0.5 block text-[10px] font-light text-black/40">{ project_name }</span>
-                            </span>
-                            <span class="text-[11px] font-light text-black/45">{ item.owner.clone().unwrap_or_else(|| "—".into()) }</span>
-                            <span class="text-[11px] font-light text-black/45">{ due_label(item.due_at.as_deref()) }</span>
-                        </button>
-                    }
-                }) }
+            <div class="min-h-0 flex-1 overflow-hidden">
+                <div
+                    id="project-catchup-island"
+                    data-project-widget={widget.to_string()}
+                    class="h-full min-h-[28rem] overflow-hidden"
+                    aria-label="Project Catch-Up"
+                />
+            </div>
+            <div class="shrink-0 px-3 pb-3">
+                { selected_work_editor(_model, projects, selected, on_msg) }
             </div>
         </section>
     }
@@ -824,6 +817,94 @@ fn project_context(project: &PortalProject, projects: &PortalProjectsPage) -> St
             .unwrap_or_else(|| "Project".into())
     } else {
         labels.join(" · ")
+    }
+}
+
+fn project_person_ids(projects: &PortalProjectsPage, project: &PortalProject) -> BTreeSet<String> {
+    if let Some(id) = project.person_id.as_ref() {
+        return BTreeSet::from([id.clone()]);
+    }
+    project_items(projects, &project.id)
+        .into_iter()
+        .filter_map(|item| item.entity.as_ref())
+        .filter(|entity| entity.entity_type == "person")
+        .map(|entity| entity.id.clone())
+        .collect()
+}
+
+fn effective_project_property_ids(
+    projects: &PortalProjectsPage,
+    project: &PortalProject,
+) -> BTreeSet<String> {
+    if let Some(id) = project.property_id.as_ref() {
+        return BTreeSet::from([id.clone()]);
+    }
+    project_items(projects, &project.id)
+        .into_iter()
+        .filter_map(|item| item.entity.as_ref())
+        .filter(|entity| entity.entity_type == "property")
+        .map(|entity| entity.id.clone())
+        .collect()
+}
+
+fn activity_view(projects: &PortalProjectsPage, project: &PortalProject) -> Html {
+    let people = project_person_ids(projects, project);
+    let properties = effective_project_property_ids(projects, project);
+    let entries = projects
+        .activity
+        .iter()
+        .filter(|entry| {
+            entry
+                .person_id
+                .as_ref()
+                .is_some_and(|id| people.contains(id))
+                || entry
+                    .property_id
+                    .as_ref()
+                    .is_some_and(|id| properties.contains(id))
+        })
+        .collect::<Vec<_>>();
+
+    if entries.is_empty() {
+        let message = if people.is_empty() && properties.is_empty() {
+            "This project is not anchored to a contact or property, so activity cannot be linked."
+        } else {
+            "No activity is linked to this project yet."
+        };
+        return placeholder_view("Activity", message);
+    }
+
+    html! {
+        <div class="h-full min-h-0 overflow-y-auto rounded-[var(--portal-tab-radius)] border border-white/40 bg-white/20 p-2">
+            <ul class="divide-y divide-[var(--portal-panel-border)]/70">
+                { for entries.into_iter().map(|entry| {
+                    let channel = entry.direction.as_ref()
+                        .map(|direction| format!("{} · {}", entry.channel, direction))
+                        .unwrap_or_else(|| entry.channel.clone());
+                    let title = entry.title.clone()
+                        .or_else(|| entry.summary.clone())
+                        .unwrap_or_else(|| "Activity recorded".into());
+                    html! {
+                        <li key={entry.id.clone()} class="px-2 py-2.5">
+                            <div class="flex items-center justify-between gap-3">
+                                <span class="text-[11px] font-medium uppercase tracking-[0.08em] text-[var(--portal-gold-muted)]">
+                                    { channel }
+                                </span>
+                                <time datetime={entry.occurred_at.clone()} class="text-[10px] font-light text-black/40">
+                                    { entry.occurred_at_label.clone() }
+                                </time>
+                            </div>
+                            <p class="mt-1 text-[13px] text-[var(--portal-navy)]">{ title }</p>
+                            if entry.summary.is_some() && entry.title.is_some() {
+                                <p class="mt-0.5 truncate text-[11px] font-light text-black/45">
+                                    { entry.summary.clone().unwrap_or_default() }
+                                </p>
+                            }
+                        </li>
+                    }
+                }) }
+            </ul>
+        </div>
     }
 }
 
