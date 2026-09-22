@@ -134,7 +134,7 @@ fn site_header(model: &Model) -> String {
              </details>\
            </div>\
          </header>\
-         <div class=\"h-[76px] lg:h-[92px]\" aria-hidden=\"true\"></div>"
+         <div class=\"h-[76px] flex-none shrink-0 lg:h-[92px]\" aria-hidden=\"true\"></div>"
     )
 }
 
