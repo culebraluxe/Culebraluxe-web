@@ -3,7 +3,9 @@
 //! Navigation is a message like everything else, which is what keeps the shell dumb: a nav click, a deep link and a
 //! restored session all arrive as `Navigate` and produce the same state.
 
-use crate::model::{record_for, Controls, Effect, Model, Msg, Screen, PAGE_SIZE};
+use crate::model::{
+    record_for, Controls, DealCreateState, Effect, Model, Msg, Screen, PAGE_SIZE,
+};
 
 /// THE PORTAL SCREENS THAT HAVE A REAL COMPONENT, which is the other half of the coupling `is_editorial` warns about.
 ///
@@ -24,6 +26,8 @@ pub fn is_ported_portal_screen(key: &str) -> bool {
             | "forms"
             | "form-record"
             | "projects"
+            | "deals"
+            | "deal-record"
             | "seller-strategy"
     )
 }
@@ -203,6 +207,7 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
     // Controls are the screen's own input and live their own life: a filter typed on Clients must not follow the user
     // to Deals and silently narrow a list they never filtered.
     model.controls = Controls::default();
+    model.deal_create = DealCreateState::default();
 
     // Seller Strategy is a local deterministic calculator. Opening it resets the
     // same state the former React component created on mount and performs no fetch.
@@ -234,6 +239,12 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
             vec![client_effect(model)]
         } else if matches!(screen.key, "forms" | "form-record") {
             vec![Effect::FetchForms {
+                screen: screen.key,
+                scope: model.scope.clone(),
+                generation: model.generation,
+            }]
+        } else if matches!(screen.key, "deals" | "deal-record") {
+            vec![Effect::FetchDeals {
                 screen: screen.key,
                 scope: model.scope.clone(),
                 generation: model.generation,
@@ -493,6 +504,8 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                     projects.saving = false;
                 }
             }
+            model.deal_create.searching = false;
+            model.deal_create.submitting = false;
             model.error = Some(message);
             Vec::new()
         }
@@ -511,6 +524,131 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             model.error = None;
             model.page = Some(page);
             Vec::new()
+        }
+
+        // ---- Contracts / Deal workspace -------------------------------------------------------------------------
+        Msg::DealCreateToggled => {
+            if model.screen.key != "deals" {
+                return Vec::new();
+            }
+            model.deal_create.open = !model.deal_create.open;
+            model.error = None;
+            Vec::new()
+        }
+        Msg::DealCreatePropertyChanged(value) => {
+            if model.screen.key == "deals" {
+                model.deal_create.property_id = value;
+                model.error = None;
+            }
+            Vec::new()
+        }
+        Msg::DealCreateClientQueryChanged(value) => {
+            if model.screen.key != "deals" {
+                return Vec::new();
+            }
+            if value != model.deal_create.client_label {
+                model.deal_create.client_person_id.clear();
+                model.deal_create.client_label.clear();
+            }
+            model.deal_create.client_query = value;
+            let query = model.deal_create.client_query.trim().to_string();
+            model.deal_create.people.clear();
+            model.error = None;
+            if query.len() < 2 {
+                model.deal_create.searching = false;
+                return Vec::new();
+            }
+            model.deal_create.searching = true;
+            vec![Effect::SearchDealPeople {
+                screen: model.screen.key,
+                generation: model.generation,
+                query,
+            }]
+        }
+        Msg::DealCreateClientSelected { id, label } => {
+            if model.screen.key != "deals" {
+                return Vec::new();
+            }
+            model.deal_create.client_person_id = id;
+            model.deal_create.client_label = label.clone();
+            model.deal_create.client_query = label;
+            model.deal_create.people.clear();
+            model.deal_create.searching = false;
+            model.error = None;
+            Vec::new()
+        }
+        Msg::DealCreateOwnerChanged(value) => {
+            if model.screen.key == "deals" {
+                model.deal_create.owner_user_id = value;
+                model.error = None;
+            }
+            Vec::new()
+        }
+        Msg::DealCreateNotesChanged(value) => {
+            if model.screen.key == "deals" {
+                model.deal_create.notes = value;
+                model.error = None;
+            }
+            Vec::new()
+        }
+        Msg::DealPeopleLoaded {
+            screen,
+            generation,
+            query,
+            people,
+        } => {
+            if !owns(model, &screen, generation) || model.screen.key != "deals" {
+                return Vec::new();
+            }
+            if model.deal_create.client_query.trim() != query {
+                return Vec::new();
+            }
+            model.deal_create.people = people;
+            model.deal_create.searching = false;
+            Vec::new()
+        }
+        Msg::DealCreateRequested => {
+            if model.screen.key != "deals" || model.deal_create.submitting {
+                return Vec::new();
+            }
+            let property_id = model.deal_create.property_id.trim().to_string();
+            let client_person_id = model.deal_create.client_person_id.trim().to_string();
+            if property_id.is_empty() {
+                model.error = Some("Choose a property first.".into());
+                return Vec::new();
+            }
+            if client_person_id.is_empty() {
+                model.error = Some("Select an existing client person first.".into());
+                return Vec::new();
+            }
+            let owner_user_id = (!model.deal_create.owner_user_id.trim().is_empty())
+                .then(|| model.deal_create.owner_user_id.trim().to_string());
+            let notes = (!model.deal_create.notes.trim().is_empty())
+                .then(|| model.deal_create.notes.trim().to_string());
+            model.deal_create.submitting = true;
+            model.error = None;
+            vec![Effect::CreateDeal {
+                screen: model.screen.key,
+                generation: model.generation,
+                property_id,
+                client_person_id,
+                owner_user_id,
+                notes,
+            }]
+        }
+        Msg::DealCreated {
+            screen,
+            generation,
+            id,
+        } => {
+            if !owns(model, &screen, generation) {
+                return Vec::new();
+            }
+            model.deal_create.submitting = false;
+            model.error = None;
+            vec![Effect::BrowserNavigate {
+                href: format!("/portal/deals/{id}"),
+            }]
         }
 
         // ---- controls -------------------------------------------------------------------------------------------
@@ -1129,6 +1267,89 @@ mod tests {
             },
         );
         assert!(!model.seller_strategy.inputs.o3_on);
+    }
+
+    #[test]
+    fn navigating_to_deals_fetches_the_typed_portfolio() {
+        let mut model = Model::default();
+        let effects = update(&mut model, Msg::Navigate(target("deals")));
+        assert_eq!(model.screen, target("deals"));
+        assert!(model.loading);
+        assert_eq!(
+            effects,
+            vec![Effect::FetchDeals {
+                screen: "deals",
+                scope: None,
+                generation: 0,
+            }]
+        );
+    }
+
+    #[test]
+    fn direct_deal_record_mount_preserves_scope_on_the_typed_fetch() {
+        let mut model = Model::default();
+        let effects = update(
+            &mut model,
+            Msg::MountScoped {
+                screen: target("deal-record"),
+                scope: Some("deal-7".into()),
+                generation: 4,
+            },
+        );
+        assert_eq!(
+            effects,
+            vec![Effect::FetchDeals {
+                screen: "deal-record",
+                scope: Some("deal-7".into()),
+                generation: 4,
+            }]
+        );
+    }
+
+    #[test]
+    fn deal_creation_and_people_search_are_reducer_owned() {
+        let mut model = Model {
+            screen: target("deals"),
+            ..Model::default()
+        };
+        let search = update(
+            &mut model,
+            Msg::DealCreateClientQueryChanged("Ali".into()),
+        );
+        assert!(model.deal_create.searching);
+        assert_eq!(
+            search,
+            vec![Effect::SearchDealPeople {
+                screen: "deals",
+                generation: 0,
+                query: "Ali".into(),
+            }]
+        );
+
+        update(
+            &mut model,
+            Msg::DealCreateClientSelected {
+                id: "person-1".into(),
+                label: "Alicia".into(),
+            },
+        );
+        update(
+            &mut model,
+            Msg::DealCreatePropertyChanged("property-1".into()),
+        );
+        let create = update(&mut model, Msg::DealCreateRequested);
+        assert!(model.deal_create.submitting);
+        assert_eq!(
+            create,
+            vec![Effect::CreateDeal {
+                screen: "deals",
+                generation: 0,
+                property_id: "property-1".into(),
+                client_person_id: "person-1".into(),
+                owner_user_id: None,
+                notes: None,
+            }]
+        );
     }
 
     #[test]
