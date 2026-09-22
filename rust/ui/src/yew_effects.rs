@@ -17,6 +17,7 @@ const CLIENTS_PATH: &str = "/api/portal/rust-ui/clients";
 const FORMS_PATH: &str = "/api/portal/rust-ui/forms";
 const PROJECTS_PATH: &str = "/api/portal/rust-ui/projects";
 const DEALS_PATH: &str = "/api/portal/rust-ui/deals";
+const ACCOUNTING_PATH: &str = "/api/portal/rust-ui/accounting";
 
 pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
     match effect {
@@ -26,6 +27,13 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
             task_id,
         } => {
             run_cockpit_command(screen, generation, task_id, dispatch);
+        }
+        Effect::AccountingCommand {
+            screen,
+            generation,
+            body,
+        } => {
+            run_accounting_command(screen, generation, body, dispatch);
         }
         Effect::UpdateProjectStatus {
             screen,
@@ -595,6 +603,13 @@ fn run_projects_command(
 
 fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
     let (url, screen, generation, kind) = match effect {
+        // A COMMAND IS NOT A READ and cannot arrive here: every command effect has its own runner, matched in `run`
+        // before its catch-all passes anything unhandled to this function. The arm is here because the match must be
+        // exhaustive — and a command falling through to a read would be a request to the wrong route with the wrong verb,
+        // which is exactly the kind of silence this file exists to avoid.
+        Effect::AccountingCommand { .. } => {
+            unreachable!("Accounting commands are run by `run_accounting_command`")
+        }
         Effect::FetchCabinet { screen, generation } => (
             CABINET_PATH.to_string(),
             screen,
@@ -775,3 +790,72 @@ fn encode_component(value: &str) -> String {
     }
     encoded
 }
+
+/// Run one Accounting command.
+///
+/// THE ANSWER IS THE REFRESHED SCREEN, so a success is parsed exactly like a read: the payload becomes a `PortalLoaded`
+/// for the screen that asked. On failure the bridge's own message is surfaced — "Vendor is required.", or the conflict for
+/// a voided receivable — because a form that says only "failed" makes the operator guess which of their fields was wrong.
+fn run_accounting_command(
+    screen: &'static str,
+    generation: u64,
+    body: serde_json::Value,
+    dispatch: &Callback<Msg>,
+) {
+    let dispatch = dispatch.clone();
+    spawn_local(async move {
+        let request = match Request::post(ACCOUNTING_PATH)
+            .header("content-type", "application/json")
+            .body(body.to_string())
+        {
+            Ok(request) => request,
+            Err(error) => {
+                dispatch.emit(Msg::EffectFailed {
+                    screen: screen.to_string(),
+                    generation,
+                    message: format!("the Accounting command could not be built: {error}"),
+                });
+                return;
+            }
+        };
+        let msg = match request.send().await {
+            Ok(response) => {
+                let status = response.status();
+                let text = response.text().await.unwrap_or_default();
+                if status >= 200 && status < 300 {
+                    Msg::portal_loaded_json(screen, generation, &text)
+                } else {
+                    Msg::EffectFailed {
+                        screen: screen.to_string(),
+                        generation,
+                        message: bridge_error_message(&text, status),
+                    }
+                }
+            }
+            Err(error) => Msg::EffectFailed {
+                screen: screen.to_string(),
+                generation,
+                message: format!("the Accounting command could not be sent: {error}"),
+            },
+        };
+        dispatch.emit(msg);
+    });
+}
+
+/// The message out of a failed bridge response: the `error` the route wrote, or the status when there is nothing to read.
+///
+/// A non-JSON body is not an error worth inventing words for — the status is still true, and a made-up sentence would be
+/// less useful than the number.
+fn bridge_error_message(body: &str, status: u16) -> String {
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("error")
+                .and_then(|error| error.as_str())
+                .map(str::to_owned)
+        })
+        .filter(|message| !message.trim().is_empty())
+        .unwrap_or_else(|| format!("the Accounting command failed with {status}"))
+}
+

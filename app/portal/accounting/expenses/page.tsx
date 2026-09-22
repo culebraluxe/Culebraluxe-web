@@ -1,21 +1,13 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import { PortalYewApp } from '@/components/rust-ui/portal-yew-app'
 
 // ---------------------------------------------------------------------------
-// FLIPPED TO RUST (screen: accounting-expenses).
+// /portal/accounting/expenses — YEW OWNS THIS SCREEN NOW.
 //
-// The route is unchanged; the screen is not. What used to be a TypeScript page fetching its own data and handing it to
-// a TypeScript component is now the Rust host, which reads the same data through the portal rows route and paints the
-// screen from rust/ui/src/view.rs.
-//
-// This page qualified because it is a read-only list: its TypeScript body carries no state, no form, no dialog and no
-// paging control, so there is nothing the Rust screen can fail to reproduce. Screens that carry interaction stay in
-// TypeScript until the Rust body has its own controls. The list is in docs/layers/UI.md.
+// The screen is `rust/ui/src/yew_views/portal_accounting_expenses.rs`. The list and its category breakdown come from the
+// Rust service (`/v1/accounting/expenses` and `/v1/accounting/expense-categories`), and creating an expense is a Rust
+// command: this route posts nothing, holds no state, and runs no server action. The form's fields live in the reducer.
 // ---------------------------------------------------------------------------
 
 export default function Page() {
-  return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="accounting-expenses" />
-    </div>
-  )
+  return <PortalYewApp screen="accounting-expenses" />
 }

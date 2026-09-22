@@ -1384,6 +1384,52 @@ pub struct DealCreateState {
     pub submitting: bool,
 }
 
+/// Reducer-owned state for the Accounting screens' forms and commands.
+///
+/// WHY ONE STRUCT RATHER THAN A FIELD PER INPUT ON `Model`: the three Accounting screens are one module with three
+/// shapes — an expense form, a receivable form, and a P&L period — and grouping them keeps `Model`'s own list of a dozen
+/// screen states from growing by another dozen. Nothing here is duplicated in the DOM: every input reads its value from
+/// this and writes it back through a message, which is the whole point of the exercise.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AccountingState {
+    /// Whether the New Expense panel is open.
+    pub expense_open: bool,
+    pub expense_vendor: String,
+    pub expense_category: String,
+    /// The digits the operator typed, as a string. Deliberately not a number: it is validated in Rust, and a `f64` here
+    /// would round it before validation ever saw it.
+    pub expense_amount: String,
+    pub expense_on: String,
+    pub expense_memo: String,
+    /// A command is in flight: the form is disabled and the button says so.
+    pub submitting: bool,
+    /// What the last command said, if it has said anything. Cleared when a new one starts.
+    pub notice: Option<CommandNotice>,
+}
+
+/// The outcome of a command, as the screen reports it: the live forms printed a green "Created." or a red message.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommandNotice {
+    pub ok: bool,
+    pub message: String,
+}
+
+impl CommandNotice {
+    pub fn success(message: impl Into<String>) -> Self {
+        Self {
+            ok: true,
+            message: message.into(),
+        }
+    }
+
+    pub fn failure(message: impl Into<String>) -> Self {
+        Self {
+            ok: false,
+            message: message.into(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct DealWorkspaceState {
     pub task_title: String,
@@ -1432,6 +1478,9 @@ pub struct Model {
     pub seller_strategy: crate::seller_strategy::SellerStrategyState,
     /// Contracts create/search state is reducer-owned just like every other interactive portal surface.
     pub deal_create: DealCreateState,
+    /// Accounting V1's forms and their command state: the expense form, the receivable form, the P&L period and the
+    /// receipt scanner's demonstration.
+    pub accounting: AccountingState,
     /// One Deal workspace's forms and transient command state.
     pub deal_workspace: DealWorkspaceState,
     /// WHICH MOUNT THIS STATE BELONGS TO.
@@ -1459,6 +1508,7 @@ impl Default for Model {
             page: None,
             seller_strategy: crate::seller_strategy::SellerStrategyState::default(),
             deal_create: DealCreateState::default(),
+            accounting: AccountingState::default(),
             deal_workspace: DealWorkspaceState::default(),
             // Generation zero is "no host has said", which is what a program built by a test or an example holds.
             generation: 0,
@@ -1619,6 +1669,21 @@ pub enum Msg {
     /// The user asked to move by `delta` pages. A DELTA rather than a target page, so the reducer owns the bounds and
     /// a stale button cannot land the user past the end of a list that shrank while they were reading it.
     PageChanged(i64),
+
+    // ---- accounting: the expense form's own input, one message per act -------------------------------------------
+    /// The user opened or closed the New Expense panel.
+    ExpenseFormToggled,
+    ExpenseVendorChanged(String),
+    ExpenseCategoryChanged(String),
+    ExpenseAmountChanged(String),
+    ExpenseDateChanged(String),
+    ExpenseMemoChanged(String),
+    /// The user submitted the form.
+    ///
+    /// NOTHING IS VALIDATED HERE. The rules — vendor required, canonical category, a real non-negative amount — belong to
+    /// Rust, and a second copy of them in the reducer is the copy that goes stale. This asks for the command; the answer
+    /// decides what the form says.
+    ExpenseSubmitted,
 
     /// Cockpit task command. The Rust engine owns application-task completion.
     CockpitTaskCompleteRequested {
@@ -1782,6 +1847,17 @@ pub enum Effect {
         scope: Option<String>,
         generation: u64,
     },
+    /// One of Accounting V1's commands, and the refreshed screen as its answer.
+    ///
+    /// THE BODY IS THE COMMAND, in the bridge's own vocabulary (`action`, `vendor`, `amount`, …), and it is built by the
+    /// reducer rather than by the view: an effect is a request, and what a screen is asking for is the reducer's decision.
+    /// The answer is a portal payload, so a successful write and the refresh that follows it are one round trip and the
+    /// list can never be a row behind what was just saved.
+    AccountingCommand {
+        screen: &'static str,
+        generation: u64,
+        body: serde_json::Value,
+    },
     /// CORE Clients uses server-side search and paging, plus one selected person's detail bundle.
     FetchClients {
         screen: &'static str,
@@ -1911,10 +1987,15 @@ pub struct PortalAccountingPage {
     pub dashboard: Option<PortalAccountingDashboard>,
     /// `/portal/accounting/expenses`.
     pub expenses: Vec<PortalAccountingExpense>,
+    /// `/portal/accounting/expenses` — every posted expense by category with its share, so the screen's ring is drawn from
+    /// one aggregation instead of a second sum computed in the browser.
+    pub expense_categories: Vec<PortalAccountingShare>,
     /// `/portal/accounting/receivables`.
     pub receivables: Vec<PortalAccountingReceivable>,
     /// `/portal/accounting/pnl` — the period the caller asked for, echoed back.
     pub pnl: Option<PortalAccountingPnl>,
+    /// The database's idea of today, so a new record's date field starts on the book's day rather than the browser's.
+    pub today: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]

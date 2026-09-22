@@ -11,6 +11,7 @@ pub mod contact;
 pub mod faq;
 pub mod guide;
 pub mod portal_accounting_dashboard;
+pub mod portal_accounting_expenses;
 pub mod portal_accounting_shell;
 pub mod home;
 pub mod portal_activity;

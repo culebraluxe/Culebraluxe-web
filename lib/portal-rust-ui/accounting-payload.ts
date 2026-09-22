@@ -1,5 +1,6 @@
 import 'server-only'
 
+import { todayISO } from '@/lib/accounting/format'
 import { rustApiRead } from '@/lib/rust-api/client'
 
 // ---------------------------------------------------------------------------
@@ -77,6 +78,8 @@ export type AccountingPnl = {
   netIncome: string
 }
 
+export type AccountingCategoryShare = AccountingLine & { percent: number }
+
 /** The accounting screens, so a caller cannot ask this module for a screen it does not serve. */
 export const ACCOUNTING_SCREENS = [
   'accounting',
@@ -109,8 +112,25 @@ export async function accountingPayload(
       return { accounting: { dashboard: result.value } }
     }
     case 'accounting-expenses': {
-      const result = await rustApiRead<AccountingExpense[]>('/v1/accounting/expenses')
-      return { accounting: { expenses: result.value } }
+      // The list, its breakdown, and today.
+      //
+      // THE BREAKDOWN IS THE SERVICE'S, NOT THE LIST'S. The live screen summed the rows it had already fetched — a float
+      // sum of money computed in the browser, and a second aggregation that can disagree with the rows under it.
+      //
+      // `today` travels with the payload because the form's date field defaults to it. It is the same `todayISO()` the
+      // server-rendered form used, so the default is unchanged; the alternative was a date the browser guesses, which for
+      // an operator an hour from the server is a different day than the book's.
+      const [expenses, categories] = await Promise.all([
+        rustApiRead<AccountingExpense[]>('/v1/accounting/expenses'),
+        rustApiRead<AccountingCategoryShare[]>('/v1/accounting/expense-categories'),
+      ])
+      return {
+        accounting: {
+          expenses: expenses.value,
+          expenseCategories: categories.value,
+          today: todayISO(),
+        },
+      }
     }
     case 'accounting-receivables': {
       const result = await rustApiRead<AccountingReceivable[]>('/v1/accounting/receivables')

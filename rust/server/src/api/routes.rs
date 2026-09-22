@@ -428,9 +428,10 @@ pub fn router(state: ApiState) -> Router {
             "/v1/accounting/receivables/{id}/paid",
             post(mark_receivable_paid),
         )
+        .route("/v1/accounting/expenses", get(accounting_expenses).post(create_expense))
         .route(
-            "/v1/accounting/expenses",
-            get(accounting_expenses).post(create_expense),
+            "/v1/accounting/expense-categories",
+            get(accounting_expense_categories),
         )
         .route("/v1/accounting/pnl", get(accounting_pnl))
         .route("/v1/calendar", get(calendar).post(create_apple_calendar_event))
@@ -1370,8 +1371,24 @@ async fn accounting_expenses(
     Ok(success(value, &resolved))
 }
 
+/// Every posted expense by category, for the Expenses screen's breakdown.
+async fn accounting_expense_categories(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<Vec<domain::CategoryShare>>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().accounting();
+    let value = service
+        .expense_categories(&resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
 /// The P&L for the period the caller asked for.
 ///
+/// BOTH DATES ARE REQUIRED. Defaulting them here would mean a screen that lost its range silently reported a different
+/// period's numbers, which is worse than an error: the figures would look right and be about another quarter.
 /// BOTH DATES ARE REQUIRED. Defaulting them here would mean a screen that lost its range silently reported a different
 /// period's numbers, which is worse than an error: the figures would look right and be about another quarter.
 async fn accounting_pnl(

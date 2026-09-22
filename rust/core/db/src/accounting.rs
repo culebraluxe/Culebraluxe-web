@@ -193,6 +193,14 @@ impl AccountingDao {
         Ok(rows.into_iter().map(ExpenseRow::into_domain).collect())
     }
 
+    /// Every posted expense by category, with each one's share of the total.
+    pub async fn expense_categories(&self) -> DbResult<Vec<CategoryShare>> {
+        let rows = share_rows(self.db.pool(), EXPENSE_CATEGORY_SHARES_SELECT)
+            .await
+            .map_err(|error| DbFailure::from_sqlx("accounting.expense_categories", &error))?;
+        Ok(rows.into_iter().map(ShareRow::into_share).collect())
+    }
+
     /// The dashboard's figures.
     ///
     /// EIGHT READS, CONCURRENTLY, against the same two tables the lists read — the shape the live screen used. They are
@@ -563,7 +571,22 @@ order by t.issued_on desc
 limit 6
 "#;
 
-/// This month's posted expenses by category — the dashboard's breakdown, largest first, with each one's share of the
+/// Every posted expense by category — the breakdown the Expenses screen draws, all time, largest first, with each
+/// category's share.
+///
+/// THE LIVE SCREEN ADDED THESE UP IN THE BROWSER, filtering the rows it had already fetched for `POSTED` and summing them
+/// as floats. That is a float sum of money, and it is a second aggregation that can disagree with the rows beneath it —
+/// so it is a query here instead, in `numeric`, with the share computed at the same time.
+const EXPENSE_CATEGORY_SHARES_SELECT: &str = r#"
+select
+  t.category as label,
+  coalesce(sum(t.amount), 0)::text as amount,
+  coalesce(round(100 * sum(t.amount) / nullif(sum(sum(t.amount)) over (), 0)), 0)::bigint as percent
+from account_expense t
+where t.status = 'POSTED'
+group by t.category
+order by sum(t.amount) desc
+"#;
 /// month. The share is `numeric` arithmetic in the database and arrives as a rounded percentage, so the ring the screen
 /// draws and the figures printed beside it come from the same calculation.
 const CATEGORY_BREAKDOWN_SELECT: &str = r#"

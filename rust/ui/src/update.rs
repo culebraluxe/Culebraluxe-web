@@ -32,6 +32,7 @@ pub fn is_ported_portal_screen(key: &str) -> bool {
             // Accounting V1 — the dashboard is the first of its five screens to have a component; the other four follow
             // one at a time, and each is added here and to the portal app's match together.
             | "accounting"
+            | "accounting-expenses"
             | "seller-strategy"
     )
 }
@@ -459,6 +460,29 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             }
             model.loading = false;
             model.error = None;
+            // AN ACCOUNTING PAYLOAD CAN BE A COMMAND'S ANSWER. A successful write comes back as the refreshed screen, so
+            // the form's pending state ends here and the notice is the success the live forms printed — which also means
+            // the screen cannot be left saying "Creating…" after the row it created is already on it.
+            if matches!(
+                model.screen.key,
+                "accounting-expenses" | "accounting-receivables" | "accounting"
+            ) {
+                if model.accounting.submitting {
+                    model.accounting.submitting = false;
+                    model.accounting.notice = Some(crate::model::CommandNotice::success("Created."));
+                }
+                // A new record's date starts on the book's day: the payload carries what the database calls today, and the
+                // draft takes it only while it has none of its own — so a date the operator chose is never overwritten by
+                // a later refresh.
+                let today = page
+                    .accounting
+                    .as_ref()
+                    .map(|accounting| accounting.today.clone())
+                    .unwrap_or_default();
+                if !today.is_empty() && model.accounting.expense_on.is_empty() {
+                    model.accounting.expense_on = today;
+                }
+            }
             if matches!(model.screen.key, "clients" | "client-record") {
                 model.selected_row_id = page
                     .clients
@@ -569,6 +593,13 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             }
             model.deal_create.searching = false;
             model.deal_create.submitting = false;
+            // A failed Accounting command ends the form's pending state and says why, in the service's own words — this is
+            // where "Vendor is required." or the 409 for a voided receivable reaches the operator.
+            if model.accounting.submitting {
+                model.accounting.submitting = false;
+                model.accounting.notice =
+                    Some(crate::model::CommandNotice::failure(message.clone()));
+            }
             model.deal_workspace.participant_searching = false;
             model.deal_workspace.structural_searching = false;
             model.deal_workspace.busy_action = None;
@@ -593,6 +624,78 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
         }
 
         // ---- Contracts / Deal workspace -------------------------------------------------------------------------
+        // ---- accounting: the expense form ------------------------------------------------------------------------
+        //
+        // EVERY ARM IS GATED BY THE SCREEN, as the Contracts form's are: a field message that arrives while another screen
+        // is mounted must not write into this screen's draft. The view only renders these inputs on the Expenses screen,
+        // but a message is not obliged to come from a view.
+        Msg::ExpenseFormToggled => {
+            if model.screen.key != "accounting-expenses" {
+                return Vec::new();
+            }
+            model.accounting.expense_open = !model.accounting.expense_open;
+            model.accounting.notice = None;
+            Vec::new()
+        }
+        Msg::ExpenseVendorChanged(value) => {
+            if model.screen.key == "accounting-expenses" {
+                model.accounting.expense_vendor = value;
+                model.accounting.notice = None;
+            }
+            Vec::new()
+        }
+        Msg::ExpenseCategoryChanged(value) => {
+            if model.screen.key == "accounting-expenses" {
+                model.accounting.expense_category = value;
+                model.accounting.notice = None;
+            }
+            Vec::new()
+        }
+        Msg::ExpenseAmountChanged(value) => {
+            if model.screen.key == "accounting-expenses" {
+                model.accounting.expense_amount = value;
+                model.accounting.notice = None;
+            }
+            Vec::new()
+        }
+        Msg::ExpenseDateChanged(value) => {
+            if model.screen.key == "accounting-expenses" {
+                model.accounting.expense_on = value;
+                model.accounting.notice = None;
+            }
+            Vec::new()
+        }
+        Msg::ExpenseMemoChanged(value) => {
+            if model.screen.key == "accounting-expenses" {
+                model.accounting.expense_memo = value;
+                model.accounting.notice = None;
+            }
+            Vec::new()
+        }
+        Msg::ExpenseSubmitted => {
+            if model.screen.key != "accounting-expenses" || model.accounting.submitting {
+                return Vec::new();
+            }
+            // A second click while the first is in flight would write a second row, so the reducer refuses to start
+            // another command until the answer to this one arrives.
+            model.accounting.submitting = true;
+            model.accounting.notice = None;
+            model.error = None;
+            vec![Effect::AccountingCommand {
+                screen: "accounting-expenses",
+                generation: model.generation,
+                body: serde_json::json!({
+                    "action": "createExpense",
+                    "screen": "accounting-expenses",
+                    "vendor": model.accounting.expense_vendor.clone(),
+                    "category": model.accounting.expense_category.clone(),
+                    "amount": model.accounting.expense_amount.clone(),
+                    "expenseOn": model.accounting.expense_on.clone(),
+                    "memo": model.accounting.expense_memo.clone(),
+                }),
+            }]
+        }
+
         Msg::DealCreateToggled => {
             if model.screen.key != "deals" {
                 return Vec::new();
@@ -2218,5 +2321,140 @@ mod tests {
                 "filtering is local until a screen's filter becomes a server round trip, and then it earns an effect"
             );
         }
+    }
+
+    // ---- accounting: the expense form's reducer ownership, and what a command completion says ------------------------
+
+    /// A model sitting on the Expenses screen with a filled-in draft, which is where the tests below start.
+    fn expenses_screen() -> Model {
+        let mut model = Model {
+            screen: target("accounting-expenses"),
+            ..Model::default()
+        };
+        model.accounting.expense_open = true;
+        model.accounting.expense_vendor = "Sunrise Fuel".into();
+        model.accounting.expense_category = "Office".into();
+        model.accounting.expense_amount = "125.50".into();
+        model.accounting.expense_on = "2026-03-04".into();
+        model
+    }
+
+    #[test]
+    fn the_expense_draft_belongs_to_the_expenses_screen() {
+        // The same field message, on another screen: nothing is written. A draft that only the Expenses screen renders can
+        // still be written by a message from anywhere, so the guard is the reducer's rather than the view's.
+        let mut elsewhere = Model {
+            screen: target("accounting"),
+            ..Model::default()
+        };
+        update(&mut elsewhere, Msg::ExpenseVendorChanged("Sunrise Fuel".into()));
+        assert_eq!(elsewhere.accounting.expense_vendor, "");
+
+        let mut model = expenses_screen();
+        update(&mut model, Msg::ExpenseVendorChanged("  Harbour Marine  ".into()));
+        // The reducer stores what was typed, spaces and all: trimming is the domain's job, and doing it here as well would
+        // mean two ideas of what the operator entered.
+        assert_eq!(model.accounting.expense_vendor, "  Harbour Marine  ");
+    }
+
+    #[test]
+    fn the_expense_form_asks_rust_to_create_the_row() {
+        let mut model = expenses_screen();
+        let effects = update(&mut model, Msg::ExpenseSubmitted);
+
+        assert_eq!(effects.len(), 1);
+        let Effect::AccountingCommand { screen, body, .. } = &effects[0] else {
+            panic!("submitting the expense form must ask for an Accounting command");
+        };
+        assert_eq!(*screen, "accounting-expenses");
+        assert_eq!(body["action"], "createExpense");
+        // The amount travels as the digits the operator typed. A number here would have been through a float before Rust
+        // could validate it.
+        assert_eq!(body["amount"], "125.50");
+        assert_eq!(body["vendor"], "Sunrise Fuel");
+        assert_eq!(body["expenseOn"], "2026-03-04");
+        assert!(model.accounting.submitting, "the form is pending until the answer arrives");
+        assert!(model.accounting.notice.is_none());
+    }
+
+    #[test]
+    fn a_second_click_cannot_write_a_second_row() {
+        let mut model = expenses_screen();
+        update(&mut model, Msg::ExpenseSubmitted);
+        let again = update(&mut model, Msg::ExpenseSubmitted);
+        assert!(
+            again.is_empty(),
+            "a form already waiting on its answer must not issue another command"
+        );
+    }
+
+    #[test]
+    fn a_command_completion_is_the_refresh_and_says_so() {
+        let mut model = expenses_screen();
+        update(&mut model, Msg::ExpenseSubmitted);
+
+        // What the bridge answers with: the screen as it now is, including the row just written.
+        let payload = r#"{"accounting":{"expenses":[{"id":"e1","vendor":"Sunrise Fuel","category":"Office",
+            "amount":"125.50","expenseOn":"2026-03-04","status":"POSTED"}],"today":"2026-03-04"}}"#;
+        update(&mut model, Msg::portal_loaded_json("accounting-expenses", 0, payload));
+
+        assert!(!model.accounting.submitting, "the pending state ends with the answer");
+        assert_eq!(
+            model.accounting.notice,
+            Some(crate::model::CommandNotice::success("Created."))
+        );
+        let rows = model
+            .page
+            .as_ref()
+            .and_then(|page| page.portal.as_ref())
+            .and_then(|portal| portal.accounting.as_ref())
+            .map(|accounting| accounting.expenses.clone())
+            .unwrap_or_default();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].vendor, "Sunrise Fuel");
+    }
+
+    #[test]
+    fn a_failed_command_says_what_rust_said_and_leaves_the_draft_alone() {
+        let mut model = expenses_screen();
+        update(&mut model, Msg::ExpenseSubmitted);
+
+        update(
+            &mut model,
+            Msg::EffectFailed {
+                screen: "accounting-expenses".into(),
+                generation: 0,
+                message: "Vendor is required.".into(),
+            },
+        );
+
+        assert!(!model.accounting.submitting);
+        assert_eq!(
+            model.accounting.notice,
+            Some(crate::model::CommandNotice::failure("Vendor is required."))
+        );
+        // The draft survives, which is the point: an operator fixes one field rather than retyping four.
+        assert_eq!(model.accounting.expense_vendor, "Sunrise Fuel");
+        assert_eq!(model.accounting.expense_amount, "125.50");
+    }
+
+    #[test]
+    fn the_book_s_day_fills_an_empty_date_and_never_overwrites_a_chosen_one() {
+        let payload = r#"{"accounting":{"expenses":[],"today":"2026-03-04"}}"#;
+
+        let mut fresh = Model {
+            screen: target("accounting-expenses"),
+            ..Model::default()
+        };
+        update(&mut fresh, Msg::portal_loaded_json("accounting-expenses", 0, payload));
+        assert_eq!(fresh.accounting.expense_on, "2026-03-04");
+
+        let mut chosen = expenses_screen();
+        chosen.accounting.expense_on = "2026-03-01".into();
+        update(&mut chosen, Msg::portal_loaded_json("accounting-expenses", 0, payload));
+        assert_eq!(
+            chosen.accounting.expense_on, "2026-03-01",
+            "a date the operator chose must survive a refresh"
+        );
     }
 }

@@ -11,8 +11,9 @@
 use async_trait::async_trait;
 use db::{AccountingDao, DbResult};
 use domain::{
-    AccountingDashboard, AccountingError, CreateExpenseCommand, CreateReceivableCommand, Expense,
-    MarkReceivablePaidCommand, MarkReceivablePaidOutcome, PnlRequest, PnlStatement, Receivable,
+    AccountingDashboard, AccountingError, CategoryShare, CreateExpenseCommand,
+    CreateReceivableCommand, Expense, MarkReceivablePaidCommand, MarkReceivablePaidOutcome,
+    PnlRequest, PnlStatement, Receivable,
 };
 use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
 
@@ -27,6 +28,8 @@ const RESOURCE: &str = "accounting";
 pub trait AccountingRepository: Send {
     async fn receivables(&mut self) -> DbResult<Vec<Receivable>>;
     async fn expenses(&mut self) -> DbResult<Vec<Expense>>;
+    /// Every posted expense by category, for the Expenses screen's breakdown.
+    async fn expense_categories(&mut self) -> DbResult<Vec<CategoryShare>>;
     async fn dashboard(&mut self) -> DbResult<AccountingDashboard>;
     async fn pnl(&mut self, request: &PnlRequest) -> DbResult<PnlStatement>;
     async fn create_expense(&mut self, command: &CreateExpenseCommand) -> DbResult<String>;
@@ -45,6 +48,10 @@ impl AccountingRepository for AccountingDao {
 
     async fn expenses(&mut self) -> DbResult<Vec<Expense>> {
         AccountingDao::expenses(self).await
+    }
+
+    async fn expense_categories(&mut self) -> DbResult<Vec<CategoryShare>> {
+        AccountingDao::expense_categories(self).await
     }
 
     async fn dashboard(&mut self) -> DbResult<AccountingDashboard> {
@@ -152,6 +159,30 @@ impl<R: AccountingRepository> AccountingService<R> {
         )
         .await?;
         let result = self.repository.expenses().await.map_err(Into::into);
+        audit_result(&self.runtime, RESOURCE, OP, context, decision, &result).await?;
+        result
+    }
+
+    /// The Expenses screen's breakdown: every posted expense by category, with each one's share.
+    pub async fn expense_categories(
+        &mut self,
+        context: &ServiceContext,
+    ) -> Result<Vec<CategoryShare>, CoreServiceError> {
+        const OP: &str = "accounting.expenseCategories";
+        let decision = authorize(
+            &self.runtime,
+            RESOURCE,
+            "accounting.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+        let result = self
+            .repository
+            .expense_categories()
+            .await
+            .map_err(Into::into);
         audit_result(&self.runtime, RESOURCE, OP, context, decision, &result).await?;
         result
     }
@@ -354,6 +385,10 @@ mod tests {
 
         async fn expenses(&mut self) -> DbResult<Vec<Expense>> {
             unreachable!("this test does not list expenses")
+        }
+
+        async fn expense_categories(&mut self) -> DbResult<Vec<CategoryShare>> {
+            unreachable!("this test does not read the breakdown")
         }
 
         async fn dashboard(&mut self) -> DbResult<AccountingDashboard> {
