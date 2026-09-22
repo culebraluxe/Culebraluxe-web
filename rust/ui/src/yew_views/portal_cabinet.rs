@@ -120,18 +120,18 @@ fn cabinet(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
                         </p>
                     </div>
 
-                    <label class="w-full max-w-xs">
-                        <span class="mb-1 block text-[10px] font-light uppercase tracking-[0.16em] text-black/40">
+                    <div class="w-full max-w-xs space-y-2">
+                        <label class="block text-[10px] font-light uppercase tracking-[0.18em] text-black/45">
                             {"Filter by deal / client / property"}
-                        </span>
+                        </label>
                         <input
                             type="search"
                             {oninput}
                             value={model.controls.query.clone()}
                             placeholder="Search…"
-                            class="w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/40 px-3 py-2 text-sm font-light outline-none placeholder:text-black/35 focus:border-[var(--portal-navy)]"
+                            class="min-h-11 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white px-3 text-sm font-light text-[var(--portal-text)] outline-none transition placeholder:text-black/35 hover:border-[var(--portal-blue-gray)]/60 focus:border-[var(--portal-navy-soft)] focus:ring-1 focus:ring-[var(--portal-gold)]/35"
                         />
-                    </label>
+                    </div>
                 </header>
 
                 <div class="hidden md:block">
@@ -280,18 +280,8 @@ fn state_pill(state: &str) -> Html {
         "border border-[var(--portal-blue-gray)]/40 text-[var(--portal-navy-soft)]"
     };
     html! {
-        <span class={classes!(
-            "inline-block",
-            "shrink-0",
-            "whitespace-nowrap",
-            "rounded-full",
-            "px-3",
-            "py-1",
-            "text-[10px]",
-            "font-light",
-            "uppercase",
-            "tracking-[0.14em]",
-            tone,
+        <span class={format!(
+            "inline-block shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-[10px] font-light uppercase tracking-[0.14em] {tone}"
         )}>
             { state }
         </span>
