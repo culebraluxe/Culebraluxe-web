@@ -118,11 +118,16 @@ async function GETHandler(req: NextRequest): Promise<Response> {
       return NextResponse.json({ sellers: block(home?.sellers) })
     }
     case 'site-buyers': {
-      const result = await getMarketingContent()
-      const home = result.ok ? buildHomeContent(result.data) : undefined
-      // The Buyers page is the buyers block in full — the same slot Services renders as its first section, and the same
-      // one the homepage summarises.
-      return NextResponse.json({ buyers: block(home?.buyers) })
+      // THE BUYERS PAGE IS INVENTORY, NOT COPY. It read the same public properties the homepage's grids read, through the
+      // same read model and the same formatting. The marketing `buyers` block is the *homepage's* summary of buying, and
+      // serving it here is how the site's most important page ended up with the wrong words on it — the same mistake
+      // that put "For Buyers" on the Services page.
+      const result = await getProperties({ publicOnly: true })
+      const properties = result.ok ? result.data : []
+      return NextResponse.json({
+        listings: properties.map(listing),
+        featured: properties.filter((property) => property.featured === true).map(listing),
+      })
     }
     case 'site-about': {
       const result = await getMarketingContent()

@@ -1800,6 +1800,24 @@ fn guide_card(item: &crate::model::GuideItem) -> String {
     )
 }
 
+// The four steps of "A considered path from first look to ownership".
+const BUYER_STEPS: [(&str, &str, &str); 4] = [
+    ("01", "A quiet conversation", "We begin by understanding what you are truly seeking — the light, the outlook, the rhythm of days. No pressure, no listings sheet. Just a considered discussion of possibility."),
+    ("02", "Private viewings", "Many of the finest homes on Culebra never reach a public listing. We arrange discreet, unhurried viewings — including off-market residences held within our private network."),
+    ("03", "Diligence & title", "We coordinate title research, survey review, and legal counsel, translating the particulars of Puerto Rico property law into clear, unhurried guidance."),
+    ("04", "Closing & beyond", "From closing logistics to introductions for architects, builders, and island life, we remain a steady presence well after the keys change hands."),
+];
+
+// The six supporting services, listed as one ruled column.
+const BUYER_SERVICES: [&str; 6] = [
+    "Private, unlisted viewings",
+    "Legal, title & closing guidance",
+    "Architecture & renovation introductions",
+    "Residency & relocation support",
+    "Property management referrals",
+    "Long-term stewardship advice",
+];
+
 // Sellers, section 01: title, body, icon.
 const SELLER_WHY_US: [(&str, &str, &str); 3] = [
     ("Local intelligence", "Deep knowledge of properties, places, and local conditions that do not appear neatly in a database.", "compass"),
@@ -2152,6 +2170,102 @@ fn seller_cta() -> String {
         .to_string()
 }
 
+/// `app/buyers/page.tsx` — the parent: the showroom's inventory, and the guidance around it.
+///
+/// THE INVENTORY IS THE PAGE. It arrives as listings — the same public properties and the same card renderer the homepage
+/// uses — rather than as editorial copy, because a buyers page that shows no homes is a brochure. What is NOT here yet is
+/// the showroom's own machinery: the filter bar, the URL contract that drives it, saving, comparing and the carousel are
+/// interactive state, and they are the next slice rather than something to fake with a static grid.
+fn site_buyers(model: &Model) -> String {
+    let listings: &[crate::model::Listing] = model
+        .page
+        .as_ref()
+        .map(|page| page.listings.as_slice())
+        .unwrap_or(&[]);
+    let steps = BUYER_STEPS
+        .iter()
+        .map(|(number, title, body)| {
+            format!(
+                "<div class=\"border-t border-border pt-7\">\
+                   <span class=\"font-serif text-2xl font-light text-accent\">{number}</span>\
+                   <h3 class=\"mt-7 font-serif text-2xl font-light leading-snug text-foreground\">{title}</h3>\
+                   <p class=\"mt-4 text-sm font-light leading-relaxed text-muted-foreground\">{body}</p>\
+                 </div>",
+                number = escape(number),
+                title = escape(title),
+                body = escape(body),
+            )
+        })
+        .collect::<String>();
+    let services = BUYER_SERVICES
+        .iter()
+        .map(|item| {
+            format!(
+                "<li class=\"py-5 text-sm font-light tracking-wide text-foreground/80\">{}</li>",
+                escape(item)
+            )
+        })
+        .collect::<String>();
+    format!(
+        "{hero}{inventory}\
+         <section class=\"px-6 py-24 md:px-12 md:py-32\">\
+           <div class=\"mx-auto max-w-[1600px]\">\
+             <div class=\"mb-16 max-w-3xl md:mb-20\">\
+               <p class=\"mb-5 text-xs font-light uppercase tracking-[0.34em] text-accent\">Buying on Culebra</p>\
+               <h2 class=\"text-balance font-serif text-4xl font-light leading-[1.05] text-foreground md:text-5xl\">\
+                 A considered path from first look to ownership.</h2>\
+               <p class=\"mt-6 max-w-2xl text-sm font-light leading-relaxed text-muted-foreground\">\
+                 Finding the right property is only the beginning. We guide the details that follow — privately, \
+                 carefully, and with an understanding of how transactions work on the island.</p>\
+             </div>\
+             <div class=\"grid gap-12 md:grid-cols-2 lg:grid-cols-4 lg:gap-8\">{steps}</div>\
+           </div>\
+         </section>\
+         <section class=\"bg-foreground px-6 py-24 text-background md:px-12 md:py-32\">\
+           <div class=\"mx-auto grid max-w-[1600px] gap-14 lg:grid-cols-12 lg:items-center\">\
+             <div class=\"lg:col-span-7\">\
+               <p class=\"mb-5 text-xs font-light uppercase tracking-[0.34em] text-background/50\">Private Opportunities</p>\
+               <h2 class=\"max-w-4xl text-balance font-serif text-4xl font-light leading-[1.05] md:text-5xl lg:text-6xl\">\
+                 Not every exceptional property is publicly listed.</h2>\
+             </div>\
+             <div class=\"lg:col-span-4 lg:col-start-9\">\
+               <p class=\"text-sm font-light leading-relaxed text-background/70\">\
+                 Culebra remains a small island with a highly relationship-driven property market. Some owners prefer \
+                 discretion. Tell us what you are looking for, and we can widen the search beyond the public inventory.</p>\
+               <a href=\"/contact\" class=\"group mt-8 inline-flex items-center gap-3 border border-background/30 px-8 \
+                 py-4 text-xs font-light uppercase tracking-[0.2em] transition-colors duration-500 \
+                 hover:border-background\">Begin a private search\
+                 <span class=\"inline-block h-px w-8 bg-background transition-all duration-500 group-hover:w-12\"></span></a>\
+             </div>\
+           </div>\
+         </section>\
+         <section class=\"px-6 py-24 md:px-12 md:py-32\">\
+           <div class=\"mx-auto grid max-w-[1600px] gap-14 lg:grid-cols-12 lg:gap-20\">\
+             <div class=\"lg:col-span-5\">\
+               <p class=\"mb-5 text-xs font-light uppercase tracking-[0.34em] text-accent\">Beyond the Search</p>\
+               <h2 class=\"max-w-lg text-balance font-serif text-4xl font-light leading-[1.05] text-foreground md:text-5xl\">\
+                 Every detail, quietly handled.</h2>\
+             </div>\
+             <div class=\"lg:col-span-6 lg:col-start-7\">\
+               <ul class=\"flex flex-col divide-y divide-border border-y border-border\">{services}</ul>\
+             </div>\
+           </div>\
+         </section>",
+        hero = page_hero(
+            "For Buyers",
+            "Find your place on Culebra.",
+            Some(
+                "Exceptional homes, villas, and land — presented with the perspective of people who know the island intimately."
+            ),
+            "/images/hero-villa.png",
+            "A modern luxury villa overlooking the Culebra coastline",
+        ),
+        // The inventory, through the card renderer the homepage already uses, so a listing looks the same wherever it
+        // appears. An island with nothing published renders as an empty grid, not as invented homes.
+        inventory = featured_properties(listings),
+    )
+}
+
 fn about_founder() -> String {
     let credentials = ABOUT_CREDENTIALS
         .iter()
@@ -2471,6 +2585,7 @@ fn custom_body(model: &Model) -> Option<String> {
         "auth-error" => Some(auth_error_view()),
         "login-unauthorized" => Some(login_unauthorized_view()),
         "site-services" => Some(site_services(model)),
+        "site-buyers" => Some(site_buyers(model)),
         "site-guide" => Some(site_guide(model)),
         "site-sellers" => Some(site_sellers(model)),
         "site-about" => Some(site_about(model)),
