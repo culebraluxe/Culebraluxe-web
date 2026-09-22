@@ -21,6 +21,7 @@ pub mod security;
 pub mod service_support;
 pub mod showings;
 pub mod signature;
+pub mod task;
 pub mod vault;
 pub mod wbs;
 
