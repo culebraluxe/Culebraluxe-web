@@ -494,3 +494,56 @@ export async function rustApiCompleteTask<T>(
     options,
   )
 }
+
+/**
+ * Accounting V1's three commands.
+ *
+ * `amount` is a STRING on the way in, as it is on the way out: the digits the operator typed are the digits Postgres
+ * stores. Passing a number here would round it before the service could validate it, which is the sort of loss that only
+ * shows up as a reconciliation difference months later.
+ */
+export async function rustApiCreateExpense<T>(
+  body: {
+    vendor: string
+    category: string
+    amount: string
+    expenseOn: string
+    memo?: string | null
+    dealId?: string | null
+    propertyId?: string | null
+    personId?: string | null
+  },
+  options: RustApiJsonWriteOptions = {},
+): Promise<RustApiSuccess<T>> {
+  return rustApiJsonWrite<T>('/v1/accounting/expenses', 'POST', body, options)
+}
+
+export async function rustApiCreateReceivable<T>(
+  body: {
+    reference?: string | null
+    description: string
+    category: string
+    amount: string
+    issuedOn: string
+    dueOn?: string | null
+    dealId?: string | null
+    propertyId?: string | null
+    personId?: string | null
+  },
+  options: RustApiJsonWriteOptions = {},
+): Promise<RustApiSuccess<T>> {
+  return rustApiJsonWrite<T>('/v1/accounting/receivables', 'POST', body, options)
+}
+
+export async function rustApiMarkReceivablePaid<T>(
+  receivableId: string,
+  body: { paidOn: string },
+  options: RustApiJsonWriteOptions = {},
+): Promise<RustApiSuccess<T>> {
+  return rustApiJsonWrite<T>(
+    (`/v1/accounting/receivables/${encodeURIComponent(receivableId)}/paid`) as `/v1/${string}`,
+    'POST',
+    body,
+    options,
+  )
+}

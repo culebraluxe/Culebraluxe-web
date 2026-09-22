@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { getActivityFeed } from '@/legacy/db/activity-feed'
 import { getPortalActingUser } from '@/lib/auth/portal-session'
 import { withApiHandler } from '@/lib/error-capture-seam'
+import { accountingPayload, isAccountingScreen } from '@/lib/portal-rust-ui/accounting-payload'
 import { rustApiRead } from '@/lib/rust-api/client'
 
 // A portal screen's payload in the screen's own shape — never flattened generic cells.
@@ -11,6 +12,15 @@ async function GETHandler(req: NextRequest): Promise<Response> {
   if (!actor) return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 })
 
   const screen = req.nextUrl.searchParams.get('screen') ?? ''
+  // Every Accounting screen reads the Rust service, so they are answered before the switch rather than as five arms.
+  if (isAccountingScreen(screen)) {
+    return NextResponse.json(
+      await accountingPayload(screen, {
+        from: req.nextUrl.searchParams.get('from'),
+        to: req.nextUrl.searchParams.get('to'),
+      }),
+    )
+  }
   switch (screen) {
     case 'activity': {
       const entries = await getActivityFeed(50)
