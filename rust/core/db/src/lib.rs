@@ -8,6 +8,7 @@
 mod calendar;
 mod capture;
 mod client;
+mod cockpit;
 mod comms;
 mod contract;
 mod error;
@@ -34,6 +35,7 @@ mod wbs;
 pub use calendar::CalendarDao;
 pub use capture::{has_sink, on_failure};
 pub use client::ClientDao;
+pub use cockpit::CockpitDao;
 pub use comms::CommsDao;
 pub use contract::ContractDao;
 pub use domain;
