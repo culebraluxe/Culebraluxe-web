@@ -566,6 +566,9 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             }
             model.deal_create.searching = false;
             model.deal_create.submitting = false;
+            model.deal_workspace.participant_searching = false;
+            model.deal_workspace.structural_searching = false;
+            model.deal_workspace.busy_action = None;
             model.error = Some(message);
             Vec::new()
         }
