@@ -96,7 +96,7 @@ impl Component for Header {
                         <nav class="hidden items-center gap-1 lg:flex" aria-label="Primary">
                             { item(Route::Buyers, "Buyers", CAPSULE) }
                             { outside("/sellers", "Sellers", CAPSULE) }
-                            { outside("/services", "Services", CAPSULE) }
+                            { item(Route::Services, "Services", CAPSULE) }
                             { outside("/guide", "Guide", CAPSULE) }
                             { outside("/about", "About", CAPSULE) }
                             { outside("/faq", "FAQ", CAPSULE) }
@@ -112,7 +112,7 @@ impl Component for Header {
                             <nav class="absolute inset-x-0 top-full flex max-h-[75svh] flex-col gap-2 overflow-y-auto border-t border-brand-gold/25 bg-brand-navy px-4 py-4 backdrop-blur-md" aria-label="Mobile">
                                 { item(Route::Buyers, "Buyers", MOBILE_CAPSULE) }
                                 { outside("/sellers", "Sellers", MOBILE_CAPSULE) }
-                                { outside("/services", "Services", MOBILE_CAPSULE) }
+                                { item(Route::Services, "Services", MOBILE_CAPSULE) }
                                 { outside("/guide", "Guide", MOBILE_CAPSULE) }
                                 { outside("/about", "About", MOBILE_CAPSULE) }
                                 { outside("/faq", "FAQ", MOBILE_CAPSULE) }
@@ -153,7 +153,7 @@ impl Component for Footer {
                         <nav class="flex flex-wrap gap-x-8 gap-y-3" aria-label="Footer">
                             <NavLink to={Route::Buyers} classes={classes!(FOOTER_LINK)}>{"Buyers"}</NavLink>
                             <a href="/sellers" class={FOOTER_LINK}>{"Sellers"}</a>
-                            <a href="/services" class={FOOTER_LINK}>{"Services"}</a>
+                            <NavLink to={Route::Services} classes={classes!(FOOTER_LINK)}>{"Services"}</NavLink>
                             <a href="/guide" class={FOOTER_LINK}>{"Guide"}</a>
                             <a href="/about" class={FOOTER_LINK}>{"About"}</a>
                             <a href="/faq" class={FOOTER_LINK}>{"FAQ"}</a>
@@ -171,3 +171,11 @@ impl Component for Footer {
 }
 
 pub const FOOTER_LINK: &str = "text-xs font-light uppercase tracking-[0.2em] text-muted-foreground transition-colors hover:text-foreground";
+
+/// The props every screen component takes: the model, and the one dispatch callback that carries every intent into the
+/// reducer. A screen that needs nothing else is a function of these two.
+#[derive(Properties, PartialEq)]
+pub struct PageProps {
+    pub model: crate::model::Model,
+    pub on_msg: Callback<crate::model::Msg>,
+}

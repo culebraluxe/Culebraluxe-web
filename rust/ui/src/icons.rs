@@ -15,6 +15,26 @@
 //! `stroke-width` is an argument because the design asks for `1.25` on the About cards — a real difference at 2.5rem, not
 //! a rounding detail. The class is an argument for the same reason: the size belongs to the stylesheet.
 
+/// The lucide icon named `name`, as YEW `Html`.
+///
+/// THE ONE PLACE RAW MARKUP REACHES THE YEW VIEWS, AND IT IS SCOPED TO THIS TABLE. `yew::Html::from_html_unchecked` is
+/// an innerHTML write, which is exactly what this port removed from the pages — so this adapter exists to keep ONE source
+/// of icon geometry (`icon()` above, extracted from the installed lucide) instead of copying path data into the Yew
+/// views, where it would drift from the table the string renderers use.
+///
+/// WHAT MAY PASS THROUGH IT: nothing but the static, developer-authored SVG that `icon()` returns for a name in its own
+/// `match`. There is no parameter that reaches the markup: `name` is looked up, and `class` and `stroke_width` are
+/// escaped by `icon()`. No model data, no API or database content, no user input, and no general-purpose `raw_html()`
+/// helper anywhere in this crate.
+///
+/// `None` stays `None`: an unknown icon does not become an empty `<svg>` that renders as nothing.
+#[cfg(all(feature = "wasm", feature = "yew"))]
+pub fn icon_html(name: &str, class: &str, stroke_width: &str) -> Option<yew::Html> {
+    use yew::prelude::*;
+    let svg = icon(name, class, stroke_width)?;
+    Some(Html::from_html_unchecked(AttrValue::from(svg)))
+}
+
 /// The lucide icon named `name`, as inline SVG, with `class` and `stroke_width` applied.
 ///
 /// `None` for an unknown name. An unknown icon is a mistake in the view, and a mistake that renders an empty box in

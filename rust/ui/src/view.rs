@@ -1249,7 +1249,7 @@ fn service_intro() -> String {
 ///
 /// A TABLE RATHER THAN EIGHT BLOCKS OF MARKUP, because the page renders them from an array and the array is the thing a
 /// reader needs to check against the live site: number, title, body, call to action, destination, image — in that order.
-const SERVICES: [(&str, &str, &str, &str, &str, &str); 8] = [
+pub(crate) const SERVICES: [(&str, &str, &str, &str, &str, &str); 8] = [
     (
         "01",
         "Market Analysis / CMA",
@@ -1317,14 +1317,14 @@ const SERVICES: [(&str, &str, &str, &str, &str, &str); 8] = [
 ];
 
 // "How it works": number, title, body, icon.
-const SERVICE_PROCESS: [(&str, &str, &str, &str); 3] = [
+pub(crate) const SERVICE_PROCESS: [(&str, &str, &str, &str); 3] = [
     ("1", "Share your needs", "Tell us about the property, your objectives, and the support you are looking for.", "message-circle"),
     ("2", "We review & coordinate", "We research the situation, connect the right professionals, and organize the details.", "map-pinned"),
     ("3", "Clear next steps", "You receive thoughtful guidance, timely updates, and a clear path forward.", "clipboard-check"),
 ];
 
 // The four reasons in the "Why clients come to CulebraLuxe" split.
-const SERVICE_REASONS: [(&str, &str, &str); 4] = [
+pub(crate) const SERVICE_REASONS: [(&str, &str, &str); 4] = [
     ("Island-specific knowledge", "Deep understanding of Culebra's properties, neighborhoods, infrastructure, market, and way of life.", "compass"),
     ("Personally handled", "Thoughtful, attentive service with direct involvement rather than a high-volume handoff model.", "user-round"),
     ("Trusted local network", "Established relationships with surveyors, attorneys, appraisers, contractors, and other island professionals.", "network"),
@@ -1332,7 +1332,7 @@ const SERVICE_REASONS: [(&str, &str, &str); 4] = [
 ];
 
 // The three-column strip of principles: icon, heading, body.
-const SERVICE_PRINCIPLES: [(&str, &str, &str); 3] = [
+pub(crate) const SERVICE_PRINCIPLES: [(&str, &str, &str); 3] = [
     ("file-search", "Research before action", "Decisions begin with understanding the property, context, documentation, and objective."),
     ("handshake", "The right people", "We help connect each need with appropriate local expertise rather than treating every request the same."),
     ("check-circle-2", "Follow-through", "Thoughtful coordination and clear communication keep small details from becoming large problems."),
