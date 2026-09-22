@@ -1,5 +1,6 @@
 use crate::calendar::CalendarService;
 use crate::clients::ClientService;
+use crate::cockpit::CockpitService;
 use crate::communications::CommsService;
 use crate::contracts::ContractService;
 use crate::firms::FirmService;
@@ -15,7 +16,7 @@ use crate::signature::SignatureService;
 use crate::vault::{VaultArtifactPort, VaultService};
 use crate::wbs::WbsService;
 use db::{
-    CalendarDao, ClientDao, CommsDao, ContractDao, Database, FirmDao, FormDao, MediaDao, PersonDao,
+    CalendarDao, ClientDao, CockpitDao, CommsDao, ContractDao, Database, FirmDao, FormDao, MediaDao, PersonDao,
     ProjectDao, PropertyDao, SecurityDao, ShowingDao, SignatureDao, VaultDao, WbsDao,
 };
 use service::{ServiceInfrastructure, SignatureProvider};
@@ -46,6 +47,13 @@ impl CoreServices {
 
     pub fn clients(&self) -> ClientService<ClientDao> {
         ClientService::new(ClientDao::new(self.db.clone()), self.infrastructure.clone())
+    }
+
+    pub fn cockpit(&self) -> CockpitService<CockpitDao> {
+        CockpitService::new(
+            CockpitDao::new(self.db.clone()),
+            self.infrastructure.clone(),
+        )
     }
 
     pub fn media(&self) -> MediaService<MediaDao> {
