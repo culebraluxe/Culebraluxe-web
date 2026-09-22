@@ -1,6 +1,12 @@
-import { PortalYewApp } from '@/components/rust-ui/portal-yew-app'
+import { FormEditorSurface } from "@/components/portal/forms/form-editor-surface"
 
-export default async function Page({ params }: { params: Promise<Record<'formId', string>> }) {
+export const dynamic = "force-dynamic"
+
+export default async function FormPage({
+  params,
+}: {
+  params: Promise<{ formId: string }>
+}) {
   const { formId } = await params
-  return <PortalYewApp screen="form-record" scope={formId} />
+  return <FormEditorSurface formId={formId} />
 }
