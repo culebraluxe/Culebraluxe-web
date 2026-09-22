@@ -250,7 +250,8 @@ impl SellerStrategyState {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Branch {
     pub id: &'static str,
     pub label: &'static str,
@@ -266,7 +267,8 @@ pub struct Branch {
     pub pv: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OptionScore {
     pub option: OptionId,
     pub name: &'static str,
@@ -280,7 +282,8 @@ pub struct OptionScore {
     pub best: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ModelResult {
     pub basis: f64,
     pub branches: Vec<Branch>,
