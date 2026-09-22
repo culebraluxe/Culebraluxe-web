@@ -29,6 +29,9 @@ pub fn is_ported_portal_screen(key: &str) -> bool {
             | "projects"
             | "deals"
             | "deal-record"
+            // Accounting V1 — the dashboard is the first of its five screens to have a component; the other four follow
+            // one at a time, and each is added here and to the portal app's match together.
+            | "accounting"
             | "seller-strategy"
     )
 }

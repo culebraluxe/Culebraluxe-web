@@ -470,6 +470,9 @@ pub struct PortalPage {
     pub projects: Option<PortalProjectsPage>,
     /// CORE Contracts — canonical Deal portfolio plus form-created Contract artifacts.
     pub deals: Option<PortalDealsPage>,
+    /// Accounting V1 — the dashboard's projections, the two lists, and the P&L for a requested period. One word per
+    /// screen, in the same shape the other surfaces use, so a screen reads `portal.accounting.<what it renders>`.
+    pub accounting: Option<PortalAccountingPage>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -1889,3 +1892,122 @@ pub enum Effect {
         generation: u64,
     },
 }
+
+// ---------------------------------------------------------------------------
+// Accounting V1, on the wire.
+//
+// MONEY IS A STRING IN ALL OF THESE, and that is the point rather than an oversight: the amounts are Postgres `numeric`
+// and they arrive as the digits the database holds. A `f64` here would round a cent away somewhere between the server and
+// the screen, and a total that is a cent out is a total nobody can reconcile.
+//
+// These mirror `domain::accounting` field for field. The UI crate does not depend on the domain crate — the browser only
+// ever sees JSON — so the two are kept in step by the payload being the contract.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalAccountingPage {
+    /// `/portal/accounting` — the projections over the two tables.
+    pub dashboard: Option<PortalAccountingDashboard>,
+    /// `/portal/accounting/expenses`.
+    pub expenses: Vec<PortalAccountingExpense>,
+    /// `/portal/accounting/receivables`.
+    pub receivables: Vec<PortalAccountingReceivable>,
+    /// `/portal/accounting/pnl` — the period the caller asked for, echoed back.
+    pub pnl: Option<PortalAccountingPnl>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalAccountingLine {
+    pub label: String,
+    pub amount: String,
+}
+
+/// A category's total and its share of the month, both computed by the database.
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalAccountingShare {
+    pub label: String,
+    pub amount: String,
+    pub percent: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalAccountingTrendPoint {
+    pub month: String,
+    pub income: String,
+    pub expenses: String,
+    pub net: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalAccountingDashboard {
+    pub receivables_outstanding: String,
+    pub expenses_this_month: String,
+    pub net_income: String,
+    pub open_count: i64,
+    pub overdue_count: i64,
+    pub pnl_trend: Vec<PortalAccountingTrendPoint>,
+    pub trend_income: String,
+    pub trend_expenses: String,
+    pub trend_net: String,
+    pub recent_expenses: Vec<PortalAccountingExpense>,
+    pub recent_activity: Vec<PortalAccountingReceivable>,
+    pub expense_categories: Vec<PortalAccountingShare>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalAccountingReceivable {
+    pub id: String,
+    pub reference: Option<String>,
+    pub description: String,
+    pub category: String,
+    pub amount: String,
+    pub issued_on: String,
+    pub due_on: Option<String>,
+    /// `OPEN`, `PAID` or `VOID`.
+    pub status: String,
+    pub paid_on: Option<String>,
+    pub deal_id: Option<String>,
+    pub deal_name: Option<String>,
+    pub property_id: Option<String>,
+    pub property_name: Option<String>,
+    pub person_id: Option<String>,
+    pub person_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalAccountingExpense {
+    pub id: String,
+    pub vendor: String,
+    pub category: String,
+    pub amount: String,
+    pub expense_on: String,
+    /// `DRAFT`, `POSTED` or `VOID`.
+    pub status: String,
+    pub memo: Option<String>,
+    pub deal_id: Option<String>,
+    pub deal_name: Option<String>,
+    pub property_id: Option<String>,
+    pub property_name: Option<String>,
+    pub person_id: Option<String>,
+    pub person_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalAccountingPnl {
+    pub from: String,
+    pub to: String,
+    pub income: Vec<PortalAccountingLine>,
+    pub total_income: String,
+    pub expenses: Vec<PortalAccountingLine>,
+    pub total_expenses: String,
+    pub net_income: String,
+}
+

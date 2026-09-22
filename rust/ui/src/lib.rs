@@ -21,6 +21,7 @@
 //! entry replaces, and Project Management is deliberately a placeholder.
 
 pub mod document;
+pub mod format;
 pub mod model;
 pub mod seller_strategy;
 pub mod update;

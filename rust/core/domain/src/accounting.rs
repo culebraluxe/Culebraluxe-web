@@ -215,6 +215,19 @@ pub struct MonthAmounts {
     pub amount: Money,
 }
 
+/// One category, its total, and its share of the total — the breakdown's three numbers.
+///
+/// THE SHARE IS COMPUTED BY POSTGRES. The live screen divided `amount / total` in the browser, which is a float division
+/// of money; here it is `numeric` arithmetic in the query and travels as a rounded percentage. A ring chart is drawn from
+/// shares, and a share that came from a float is a share that can disagree with the figures printed beside it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CategoryShare {
+    pub label: String,
+    pub amount: Money,
+    pub percent: i64,
+}
+
 /// The dashboard's numbers, all of them projections over the two tables.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -230,12 +243,16 @@ pub struct AccountingDashboard {
     /// `OPEN` receivables whose due date has passed.
     pub overdue_count: i64,
     pub pnl_trend: Vec<PnlTrendPoint>,
+    /// The six trend months added up, which the chart's own header prints.
+    pub trend_income: Money,
+    pub trend_expenses: Money,
+    pub trend_net: Money,
     /// The five most recent `POSTED` expenses.
     pub recent_expenses: Vec<Expense>,
     /// The six most recent receivables that are not `VOID`.
     pub recent_activity: Vec<Receivable>,
-    /// This month's `POSTED` expenses, grouped by category — the screen's breakdown.
-    pub expense_categories: Vec<PnlLine>,
+    /// This month's `POSTED` expenses by category, largest first, with each one's share.
+    pub expense_categories: Vec<CategoryShare>,
 }
 
 /// The period a P&L projection covers.

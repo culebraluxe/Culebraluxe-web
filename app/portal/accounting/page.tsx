@@ -1,22 +1,16 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import { PortalYewApp } from '@/components/rust-ui/portal-yew-app'
 
 // ---------------------------------------------------------------------------
-// FLIPPED TO RUST (screen: accounting, surface Accounting).
+// /portal/accounting — YEW OWNS THIS SCREEN NOW.
 //
-// The route is unchanged; the screen is not. It was a TypeScript page fetching its own data for a TypeScript
-// component. It is now the Rust host: the same read models arrive through the portal rows route and
-// rust/ui/src/view.rs paints the screen.
+// The generic rows renderer is gone from this route. The screen is
+// `rust/ui/src/yew_views/portal_accounting_dashboard.rs`, its data comes from `/api/portal/rust-ui/page` (which reads the
+// Rust `/v1/accounting/dashboard` projection), and every figure on it was computed by Postgres on `numeric`: the amounts
+// arrive as decimal strings and nothing on this screen adds or divides money.
 //
-// It qualified because its TypeScript body has no interaction to lose - no state, form, dialog, filter or paging
-// control - so there is nothing the Rust body can fail to reproduce. Screens whose TypeScript carries behaviour stay
-// in TypeScript until the Rust body has its own controls. scripts/ui-flip-readiness.mjs prints the split at any time.
+// This file only puts the mount point on the page.
 // ---------------------------------------------------------------------------
 
 export default function Page() {
-
-  return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="accounting" />
-    </div>
-  )
+  return <PortalYewApp screen="accounting" />
 }

@@ -10,7 +10,7 @@
 //! from being a possible state.
 
 use domain::{
-    AccountingDashboard, CreateExpenseCommand, CreateReceivableCommand, Expense,
+    AccountingDashboard, CategoryShare, CreateExpenseCommand, CreateReceivableCommand, Expense,
     MarkReceivablePaidCommand, MarkReceivablePaidOutcome, Money, PnlLine, PnlRequest, PnlStatement,
     PnlTrendPoint, Receivable,
 };
@@ -117,29 +117,34 @@ struct CountsRow {
     overdue_count: i64,
 }
 
-/// One category and its total, as a P&L line reads it.
+/// One category in the dashboard's breakdown: its total and its share, both from the query.
 #[derive(Debug, Clone, FromRow)]
-struct LineRow {
+struct ShareRow {
     label: String,
     amount: String,
+    percent: i64,
 }
 
-impl LineRow {
-    fn into_line(self) -> PnlLine {
-        PnlLine {
+impl ShareRow {
+    fn into_share(self) -> CategoryShare {
+        CategoryShare {
             label: self.label,
             amount: Money::from_database(self.amount),
+            percent: self.percent,
         }
     }
 }
 
-/// One month of the trend: two sums and their difference, all computed by Postgres.
+/// One month of the trend: two sums, their difference and the six-month totals, all computed by Postgres.
 #[derive(Debug, Clone, FromRow)]
 struct TrendRow {
     month: String,
     income: String,
     expenses: String,
     net: String,
+    total_income: Option<String>,
+    total_expenses: Option<String>,
+    total_net: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -215,7 +220,7 @@ impl AccountingDao {
             trend_rows(pool),
             expense_rows(pool, RECENT_EXPENSES_SELECT),
             receivable_rows(pool, RECENT_RECEIVABLES_SELECT),
-            line_rows(pool, CATEGORY_BREAKDOWN_SELECT),
+            share_rows(pool, CATEGORY_BREAKDOWN_SELECT),
         )
         .map_err(|error| DbFailure::from_sqlx("accounting.dashboard", &error))?;
 
@@ -225,6 +230,22 @@ impl AccountingDao {
             net_income: net.money(),
             open_count: counts.open_count,
             overdue_count: counts.overdue_count,
+            // The totals ride on every trend row; whichever arrived is the same figure, and an empty series has none.
+            trend_income: trend
+                .first()
+                .and_then(|row| row.total_income.clone())
+                .map(Money::from_database)
+                .unwrap_or_else(|| Money::from_database("0")),
+            trend_expenses: trend
+                .first()
+                .and_then(|row| row.total_expenses.clone())
+                .map(Money::from_database)
+                .unwrap_or_else(|| Money::from_database("0")),
+            trend_net: trend
+                .first()
+                .and_then(|row| row.total_net.clone())
+                .map(Money::from_database)
+                .unwrap_or_else(|| Money::from_database("0")),
             pnl_trend: trend.into_iter().map(trend_point).collect(),
             recent_expenses: recent_expenses
                 .into_iter()
@@ -236,7 +257,7 @@ impl AccountingDao {
                 .collect(),
             expense_categories: categories
                 .into_iter()
-                .map(|row| row.into_line())
+                .map(ShareRow::into_share)
                 .collect(),
         })
     }
@@ -459,29 +480,32 @@ with months as (
     date_trunc('month', current_date),
     interval '1 month'
   ) as month
-)
-select
-  to_char(m.month, 'YYYY-MM') as month,
-  coalesce((
-    select sum(r.amount) from account_receivable r
-    where r.status = 'PAID' and date_trunc('month', r.paid_on) = m.month
-  ), 0)::text as income,
-  coalesce((
-    select sum(e.amount) from account_expense e
-    where e.status = 'POSTED' and date_trunc('month', e.expense_on) = m.month
-  ), 0)::text as expenses,
-  (
+),
+points as (
+  select
+    to_char(m.month, 'YYYY-MM') as month,
     coalesce((
       select sum(r.amount) from account_receivable r
       where r.status = 'PAID' and date_trunc('month', r.paid_on) = m.month
-    ), 0)
-    - coalesce((
+    ), 0) as income,
+    coalesce((
       select sum(e.amount) from account_expense e
       where e.status = 'POSTED' and date_trunc('month', e.expense_on) = m.month
-    ), 0)
-  )::text as net
-from months m
-order by m.month
+    ), 0) as expenses
+  from months m
+)
+select
+  month,
+  income::text as income,
+  expenses::text as expenses,
+  (income - expenses)::text as net,
+  -- The three totals the chart's header prints, added up by the database over the same six months rather than by the
+  -- screen: a figure beside a chart must be the chart's own figure, to the cent.
+  (sum(income) over ())::text as total_income,
+  (sum(expenses) over ())::text as total_expenses,
+  (sum(income - expenses) over ())::text as total_net
+from points
+order by month
 "#;
 
 /// The five most recent posted expenses, spelled out rather than parameterised: a `limit` cannot be bound into a
@@ -539,9 +563,14 @@ order by t.issued_on desc
 limit 6
 "#;
 
-/// This month's posted expenses by category — the dashboard's breakdown, largest first.
+/// This month's posted expenses by category — the dashboard's breakdown, largest first, with each one's share of the
+/// month. The share is `numeric` arithmetic in the database and arrives as a rounded percentage, so the ring the screen
+/// draws and the figures printed beside it come from the same calculation.
 const CATEGORY_BREAKDOWN_SELECT: &str = r#"
-select t.category as label, coalesce(sum(t.amount), 0)::text as amount
+select
+  t.category as label,
+  coalesce(sum(t.amount), 0)::text as amount,
+  coalesce(round(100 * sum(t.amount) / nullif(sum(sum(t.amount)) over (), 0)), 0)::bigint as percent
 from account_expense t
 where t.status = 'POSTED'
   and date_trunc('month', t.expense_on) = date_trunc('month', current_date)
@@ -683,8 +712,8 @@ async fn receivable_rows(
         .await
 }
 
-async fn line_rows(pool: &sqlx::PgPool, sql: &'static str) -> Result<Vec<LineRow>, sqlx::Error> {
-    sqlx::query_as::<_, LineRow>(sql).fetch_all(pool).await
+async fn share_rows(pool: &sqlx::PgPool, sql: &'static str) -> Result<Vec<ShareRow>, sqlx::Error> {
+    sqlx::query_as::<_, ShareRow>(sql).fetch_all(pool).await
 }
 
 async fn line_total_rows(
@@ -731,6 +760,9 @@ mod tests {
             income: "12000.00".into(),
             expenses: "125.50".into(),
             net: "11874.50".into(),
+            total_income: Some("24000.00".into()),
+            total_expenses: Some("1000.00".into()),
+            total_net: Some("23000.00".into()),
         });
         assert_eq!(point.month, "Mar");
         assert_eq!(point.income.as_str(), "12000.00");
