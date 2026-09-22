@@ -160,7 +160,11 @@ export default tseslint.config(
   // pruned the moment the rule stops firing, and this is not debt, it is the boundary working. The import lives here
   // and nowhere else; when this feed moves into rust/server (see docs/layers/SERVICES.md), the exception goes with it.
   {
-    files: ['app/api/portal/rust-ui/rows/route.ts', 'app/api/rust-ui/public-rows/route.ts'],
+    files: [
+      'app/api/portal/rust-ui/rows/route.ts',
+      'app/api/rust-ui/public-rows/route.ts',
+      'app/api/rust-ui/public-page/route.ts',
+    ],
     rules: {
       'no-restricted-imports': 'off',
     },
