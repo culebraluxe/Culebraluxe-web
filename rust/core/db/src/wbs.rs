@@ -1,10 +1,12 @@
 use crate::{Database, DbFailure, DbResult};
 use chrono::{DateTime, Utc};
 use domain::{
-    CreateWbsItemRequest, SaveWbsItemRequest, WbsCategory, WbsEntityLink, WbsEntityType, WbsItem,
-    WbsStatus,
+    AppleReminderCommandReceipt, AppleReminderUpsertRequest, CreateWbsItemRequest,
+    SaveWbsItemRequest, WbsCategory, WbsEntityLink, WbsEntityType, WbsItem, WbsStatus,
 };
+use serde_json::json;
 use sqlx::FromRow;
+use uuid::Uuid;
 
 #[derive(Debug, FromRow)]
 struct WbsRow {
@@ -195,6 +197,46 @@ impl WbsDao {
         .await
         .map_err(|error| DbFailure::from_sqlx("wbs.save", &error))?;
         row.map(map_row).transpose()
+    }
+
+    pub async fn queue_apple_reminder(
+        &self,
+        request: &AppleReminderUpsertRequest,
+        actor_app_user_id: Option<&str>,
+        correlation_id: &str,
+    ) -> DbResult<AppleReminderCommandReceipt> {
+        let command_id = Uuid::new_v4().to_string();
+        let payload = json!({
+            "wbsId": request.wbs_id,
+            "title": request.title,
+            "dueAt": request.due_at,
+            "completed": request.completed,
+            "notes": request.notes,
+            "alert": request.alert,
+        });
+        sqlx::query(
+            r#"
+            insert into outbox_message (
+                id, event_type, aggregate_type, aggregate_id,
+                correlation_id, actor_app_user_id, occurred_at, payload
+            )
+            values ($1::uuid,'apple.reminder.upsert.requested','task',$2,$3,$4,now(),$5)
+            on conflict (id) do nothing
+            "#,
+        )
+        .bind(&command_id)
+        .bind(&request.wbs_id)
+        .bind(correlation_id)
+        .bind(actor_app_user_id)
+        .bind(payload)
+        .execute(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("wbs.queue_apple_reminder", &error))?;
+
+        Ok(AppleReminderCommandReceipt {
+            command_id,
+            state: "queued".into(),
+        })
     }
 
     pub async fn set_status(&self, id: &str, status: WbsStatus) -> DbResult<Option<WbsItem>> {
