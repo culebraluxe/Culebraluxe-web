@@ -15,6 +15,7 @@ pub mod portal_activity;
 pub mod portal_cabinet;
 pub mod portal_clients;
 pub mod portal_cockpit;
+pub mod portal_deals;
 pub mod portal_forms;
 pub mod portal_projects;
 pub mod portal_seller_strategy;
