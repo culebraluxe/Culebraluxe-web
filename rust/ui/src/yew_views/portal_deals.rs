@@ -698,7 +698,7 @@ fn participant_row(
     let role = participant
         .role_label
         .as_deref()
-        .unwrap_or_else(|| stage_label(&participant.role_category));
+        .unwrap_or_else(|| participant_role_label(&participant.role_category));
     let participant_id = participant.id.clone();
     let end_other = {
         let on_msg = on_msg.clone();
@@ -1055,7 +1055,7 @@ fn activity_card(workspace: &crate::model::PortalDealWorkspace) -> Html {
                     { for workspace.activity.iter().map(|item| html! {
                         <div class="border-b border-[var(--portal-panel-border)] px-5 py-4 last:border-b-0">
                             <div class="flex flex-wrap items-center gap-2 text-[10px] font-light uppercase tracking-[0.11em] text-[var(--portal-navy-soft)]">
-                                <span>{ title_case(&item.channel) }</span>
+                                <span>{ channel_label(&item.channel) }</span>
                                 if let Some(direction) = item.direction.as_ref() {
                                     <span class="text-black/30">{ direction.clone() }</span>
                                 }
@@ -1135,6 +1135,10 @@ fn offer_row(
                 { offer.person_name.clone().unwrap_or_else(|| "—".into()) }
                 {" · Submitted "}
                 { offer.submitted_at_label.clone() }
+                if let Some(responded) = offer.responded_at_label.as_ref() {
+                    {" · Responded "}
+                    { responded.clone() }
+                }
             </p>
             if let Some(note) = offer.note.as_ref() {
                 <p class="mt-2 text-sm font-light text-black/55">{ note.clone() }</p>
@@ -1404,6 +1408,32 @@ fn field_class() -> Classes {
         "border-[var(--portal-panel-border)]","bg-white/70","px-3","text-sm","font-light",
         "normal-case","tracking-normal","text-black/70","outline-none","focus:border-[var(--portal-navy)]"
     )
+}
+
+fn participant_role_label(role: &str) -> &str {
+    match role {
+        "client" => "Client",
+        "owner" => "Owner",
+        "seller" => "Seller",
+        "other" => "Other",
+        value => value,
+    }
+}
+
+fn channel_label(channel: &str) -> &str {
+    match channel {
+        "website" => "Website",
+        "email" => "Email",
+        "call" => "Phone Call",
+        "imessage" => "iMessage",
+        "sms" => "SMS",
+        "meeting" => "Meeting",
+        "showing" => "Showing",
+        "document" => "Document",
+        "manual" => "Manual Entry",
+        "whatsapp" => "WhatsApp",
+        value => value,
+    }
 }
 
 fn stage_label(stage: &str) -> &str {
