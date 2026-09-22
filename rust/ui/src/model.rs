@@ -452,6 +452,8 @@ pub struct PropertyRecord {
 #[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PortalPage {
+    /// CORE Cockpit — the situational-awareness landing page.
+    pub cockpit: Option<PortalCockpitPage>,
     /// `/portal/activity` — the unified feed, ordered as the read model returned it.
     pub activity: Vec<PortalActivityEntry>,
     /// `/portal/workflows` — definition-driven transaction workflow cards.
@@ -464,6 +466,64 @@ pub struct PortalPage {
     pub forms: Option<PortalFormsPage>,
     /// CORE Projects — authoritative Rust Project/WBS data plus reducer-owned workspace selection.
     pub projects: Option<PortalProjectsPage>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalCockpitPage {
+    pub active_client_count: i64,
+    pub live_deal_count: i64,
+    pub upcoming_count: i64,
+    pub under_contract_count: i64,
+    pub active_workflow_count: i64,
+    pub blocked_workflow_count: i64,
+    pub overdue_tasks: Vec<PortalCockpitTask>,
+    pub tasks_due_soon: Vec<PortalCockpitTask>,
+    pub recent_interactions: Vec<PortalCockpitInteraction>,
+    pub featured_deal: Option<PortalCockpitDeal>,
+    pub pipeline: Vec<PortalCockpitStageCount>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalCockpitTask {
+    pub id: String,
+    pub person_id: Option<String>,
+    pub title: String,
+    pub detail: Option<String>,
+    pub due_at: Option<String>,
+    pub due_at_label: Option<String>,
+    pub context_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalCockpitInteraction {
+    pub id: String,
+    pub person_name: String,
+    pub channel: String,
+    pub occurred_at_label: String,
+    pub summary: Option<String>,
+    pub title: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalCockpitDeal {
+    pub id: String,
+    pub property_name: String,
+    pub hero_media_id: Option<String>,
+    pub stage: String,
+    pub list_price: Option<f64>,
+    pub offer_price: Option<f64>,
+    pub closing_date: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalCockpitStageCount {
+    pub stage: String,
+    pub count: i64,
 }
 
 /// One line of the unified activity feed, with the fields the live screen renders.
@@ -1152,6 +1212,11 @@ pub enum Msg {
     /// a stale button cannot land the user past the end of a list that shrank while they were reading it.
     PageChanged(i64),
 
+    /// Cockpit task command. The Rust engine owns application-task completion.
+    CockpitTaskCompleteRequested {
+        task_id: String,
+    },
+
     /// Forms editor intents. The working draft remains inside Model -> PortalFormsPage.
     FormFieldChanged {
         name: String,
@@ -1267,6 +1332,17 @@ pub enum Effect {
         scope: Option<String>,
         /// Which mount asked. The host puts it on the request and presents it back with the answer.
         generation: u64,
+    },
+    /// Fetch the CORE Cockpit from its dedicated Rust-backed bridge.
+    FetchCockpit {
+        screen: &'static str,
+        generation: u64,
+    },
+    /// Complete one application task from the Cockpit and return a refreshed snapshot.
+    CompleteCockpitTask {
+        screen: &'static str,
+        generation: u64,
+        task_id: String,
     },
     /// Fetch a portal screen's payload.
     ///
