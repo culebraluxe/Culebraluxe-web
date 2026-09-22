@@ -13,9 +13,52 @@ const ROWS_PATH: &str = "/api/rust-ui/public-rows";
 const PORTAL_PATH: &str = "/api/portal/rust-ui/page";
 const CLIENTS_PATH: &str = "/api/portal/rust-ui/clients";
 const FORMS_PATH: &str = "/api/portal/rust-ui/forms";
+const PROJECTS_PATH: &str = "/api/portal/rust-ui/projects";
 
 pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
     match effect {
+        Effect::UpdateProjectStatus {
+            screen,
+            generation,
+            project_id,
+            status,
+        } => {
+            run_projects_command(
+                screen,
+                generation,
+                serde_json::json!({
+                    "action": "projectStatus",
+                    "projectId": project_id,
+                    "status": status,
+                }),
+                dispatch,
+            );
+        }
+        Effect::SaveProjectWork {
+            screen,
+            generation,
+            item_id,
+            title,
+            notes,
+            status,
+            due_at,
+            owner,
+        } => {
+            run_projects_command(
+                screen,
+                generation,
+                serde_json::json!({
+                    "action": "wbsSave",
+                    "itemId": item_id,
+                    "title": title,
+                    "notes": notes,
+                    "status": status,
+                    "dueAt": due_at,
+                    "owner": owner,
+                }),
+                dispatch,
+            );
+        }
         Effect::BrowserNavigate { href } => {
             if let Some(window) = web_sys::window() {
                 let _ = window.location().set_href(&href);
@@ -147,6 +190,52 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
     }
 }
 
+fn run_projects_command(
+    screen: &'static str,
+    generation: u64,
+    body: serde_json::Value,
+    dispatch: &Callback<Msg>,
+) {
+    let dispatch = dispatch.clone();
+    spawn_local(async move {
+        let request = match Request::post(PROJECTS_PATH)
+            .header("content-type", "application/json")
+            .body(body.to_string())
+        {
+            Ok(request) => request,
+            Err(error) => {
+                dispatch.emit(Msg::EffectFailed {
+                    screen: screen.to_string(),
+                    generation,
+                    message: format!("the Projects command could not be built: {error}"),
+                });
+                return;
+            }
+        };
+        let msg = match request.send().await {
+            Ok(response) if response.ok() => match response.text().await {
+                Ok(body) => Msg::portal_loaded_json(screen, generation, &body),
+                Err(error) => Msg::EffectFailed {
+                    screen: screen.to_string(),
+                    generation,
+                    message: format!("the Projects command answer could not be read: {error}"),
+                },
+            },
+            Ok(response) => Msg::EffectFailed {
+                screen: screen.to_string(),
+                generation,
+                message: format!("the Projects command failed with {}", response.status()),
+            },
+            Err(error) => Msg::EffectFailed {
+                screen: screen.to_string(),
+                generation,
+                message: format!("the Projects command could not be sent: {error}"),
+            },
+        };
+        dispatch.emit(msg);
+    });
+}
+
 fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
     let (url, screen, generation, kind) = match effect {
         Effect::FetchPage {
@@ -192,6 +281,12 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
             generation,
             Kind::Portal,
         ),
+        Effect::FetchProjects { screen, generation } => (
+            PROJECTS_PATH.to_string(),
+            screen,
+            generation,
+            Kind::Portal,
+        ),
         Effect::FetchRows {
             screen,
             scope,
@@ -202,9 +297,11 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
             generation,
             Kind::Rows,
         ),
-        Effect::SaveForm { .. } | Effect::CreateForm { .. } | Effect::BrowserNavigate { .. } => {
-            return
-        }
+        Effect::SaveForm { .. }
+        | Effect::CreateForm { .. }
+        | Effect::UpdateProjectStatus { .. }
+        | Effect::SaveProjectWork { .. }
+        | Effect::BrowserNavigate { .. } => return,
     };
 
     let dispatch = dispatch.clone();

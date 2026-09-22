@@ -21,6 +21,7 @@ pub fn is_ported_portal_screen(key: &str) -> bool {
             | "client-record"
             | "forms"
             | "form-record"
+            | "projects"
     )
 }
 
@@ -84,6 +85,103 @@ fn client_effect(model: &Model) -> Effect {
     }
 }
 
+fn project_in_domain(
+    project: &crate::model::PortalProject,
+    items: &[crate::model::PortalProjectWorkItem],
+    domain: &str,
+) -> bool {
+    let project_items = items
+        .iter()
+        .filter(|item| item.project_id.as_deref() == Some(project.id.as_str()));
+    match domain {
+        "properties" => {
+            project.property_id.is_some()
+                || project.areas.iter().any(|area| area == "properties" || area == "media")
+                || project_items
+                    .clone()
+                    .any(|item| item.entity.as_ref().is_some_and(|entity| entity.entity_type == "property"))
+        }
+        "people" => {
+            project.person_id.is_some()
+                || project.areas.iter().any(|area| area == "clients")
+                || project_items
+                    .clone()
+                    .any(|item| item.entity.as_ref().is_some_and(|entity| entity.entity_type == "person"))
+        }
+        "deals" => {
+            project.contract_id.is_some()
+                || project.areas.iter().any(|area| area == "contracts")
+                || project_items.clone().any(|item| {
+                    item.entity.as_ref().is_some_and(|entity| {
+                        matches!(entity.entity_type.as_str(), "contract" | "deal")
+                    })
+                })
+        }
+        "marketing" => project.areas.iter().any(|area| area == "marketing"),
+        "accounting" => project.areas.iter().any(|area| area == "accounting"),
+        "firm" => {
+            project.areas.iter().any(|area| area == "management")
+                || (project.person_id.is_none()
+                    && project.property_id.is_none()
+                    && project.contract_id.is_none())
+        }
+        _ => false,
+    }
+}
+
+fn initial_project_domain(projects: &crate::model::PortalProjectsPage) -> String {
+    const DOMAINS: &[&str] = &[
+        "properties",
+        "people",
+        "deals",
+        "firm",
+        "marketing",
+        "accounting",
+    ];
+    DOMAINS
+        .iter()
+        .find(|domain| {
+            projects
+                .projects
+                .iter()
+                .any(|project| project_in_domain(project, &projects.items, domain))
+        })
+        .copied()
+        .unwrap_or("properties")
+        .to_string()
+}
+
+fn first_project_for_domain(
+    projects: &crate::model::PortalProjectsPage,
+    domain: &str,
+) -> Option<String> {
+    projects
+        .projects
+        .iter()
+        .find(|project| project_in_domain(project, &projects.items, domain))
+        .or_else(|| projects.projects.first())
+        .map(|project| project.id.clone())
+}
+
+fn first_node_for_project(
+    projects: &crate::model::PortalProjectsPage,
+    project_id: Option<&str>,
+) -> Option<String> {
+    let project_id = project_id?;
+    projects
+        .items
+        .iter()
+        .filter(|item| item.project_id.as_deref() == Some(project_id))
+        .find(|item| matches!(item.status.as_str(), "doing" | "open"))
+        .or_else(|| {
+            projects
+                .items
+                .iter()
+                .find(|item| item.project_id.as_deref() == Some(project_id))
+        })
+        .map(|item| item.id.clone())
+}
+
 /// Move to a screen and ask for its rows. The single place a screen change happens, so navigation and record-opening
 /// cannot drift apart.
 fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect> {
@@ -118,6 +216,11 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
                 scope: model.scope.clone(),
                 generation: model.generation,
             }]
+        } else if screen.key == "projects" {
+            vec![Effect::FetchProjects {
+                screen: screen.key,
+                generation: model.generation,
+            }]
         } else if is_ported_portal_screen(screen.key) {
             vec![Effect::FetchPortal {
                 screen: screen.key,
@@ -140,6 +243,30 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
     } else {
         Vec::new()
     }
+}
+
+fn project_work_change<F>(model: &mut Model, change: F) -> Vec<Effect>
+where
+    F: FnOnce(&mut crate::model::PortalProjectWorkItem),
+{
+    let Some(projects) = model
+        .page
+        .as_mut()
+        .and_then(|page| page.portal.as_mut())
+        .and_then(|portal| portal.projects.as_mut())
+    else {
+        return Vec::new();
+    };
+    let Some(node_id) = projects.selected_node_id.as_deref() else {
+        return Vec::new();
+    };
+    let Some(item) = projects.items.iter_mut().find(|item| item.id == node_id) else {
+        return Vec::new();
+    };
+    change(item);
+    projects.work_dirty = true;
+    model.error = None;
+    Vec::new()
 }
 
 /// Apply one intent. Returns the effects the host must run.
@@ -227,7 +354,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
         Msg::PortalLoaded {
             screen,
             generation,
-            page,
+            mut page,
         } => {
             // The same ownership rule as every other response: a payload for a screen the user has left cannot become
             // the payload of the screen they are on.
@@ -241,6 +368,65 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                     .clients
                     .as_ref()
                     .and_then(|clients| clients.selected_id.clone());
+            }
+            if model.screen.key == "projects" {
+                let previous = model
+                    .page
+                    .as_ref()
+                    .and_then(|content| content.portal.as_ref())
+                    .and_then(|portal| portal.projects.as_ref())
+                    .map(|projects| {
+                        (
+                            projects.active_domain.clone(),
+                            projects.selected_project_id.clone(),
+                            projects.selected_node_id.clone(),
+                            projects.active_view.clone(),
+                            projects.catch_up,
+                        )
+                    });
+                if let Some(projects) = page.projects.as_mut() {
+                    if let Some((domain, project_id, node_id, view, catch_up)) = previous {
+                        projects.active_domain = if domain.is_empty() {
+                            initial_project_domain(projects)
+                        } else {
+                            domain
+                        };
+                        projects.selected_project_id = project_id
+                            .filter(|id| projects.projects.iter().any(|project| &project.id == id))
+                            .or_else(|| first_project_for_domain(projects, &projects.active_domain));
+                        projects.selected_node_id = node_id
+                            .filter(|id| {
+                                projects.items.iter().any(|item| {
+                                    &item.id == id
+                                        && item.project_id.as_deref()
+                                            == projects.selected_project_id.as_deref()
+                                })
+                            })
+                            .or_else(|| {
+                                first_node_for_project(
+                                    projects,
+                                    projects.selected_project_id.as_deref(),
+                                )
+                            });
+                        projects.active_view = if view.is_empty() {
+                            "work-plan".into()
+                        } else {
+                            view
+                        };
+                        projects.catch_up = catch_up;
+                    } else {
+                        projects.active_domain = initial_project_domain(projects);
+                        projects.selected_project_id =
+                            first_project_for_domain(projects, &projects.active_domain);
+                        projects.selected_node_id = first_node_for_project(
+                            projects,
+                            projects.selected_project_id.as_deref(),
+                        );
+                        projects.active_view = "work-plan".into();
+                    }
+                    projects.work_dirty = false;
+                    projects.saving = false;
+                }
             }
             // The portal payload rides in `page` as `portal`: one place on the model holds "the payload this screen
             // asked for", so a screen and its data cannot be out of step.
@@ -262,13 +448,17 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 return Vec::new();
             }
             model.loading = false;
-            if let Some(forms) = model
+            if let Some(portal) = model
                 .page
                 .as_mut()
                 .and_then(|page| page.portal.as_mut())
-                .and_then(|portal| portal.forms.as_mut())
             {
-                forms.saving = false;
+                if let Some(forms) = portal.forms.as_mut() {
+                    forms.saving = false;
+                }
+                if let Some(projects) = portal.projects.as_mut() {
+                    projects.saving = false;
+                }
             }
             model.error = Some(message);
             Vec::new()
@@ -467,6 +657,190 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 href: format!("/portal/forms/{form_id}"),
             }]
         }
+
+        Msg::ProjectDomainSelected(domain) => {
+            let Some(projects) = model
+                .page
+                .as_mut()
+                .and_then(|page| page.portal.as_mut())
+                .and_then(|portal| portal.projects.as_mut())
+            else {
+                return Vec::new();
+            };
+            if !matches!(
+                domain.as_str(),
+                "properties" | "people" | "deals" | "firm" | "marketing" | "accounting"
+            ) {
+                return Vec::new();
+            }
+            projects.active_domain = domain.clone();
+            projects.catch_up = false;
+            projects.selected_project_id = first_project_for_domain(projects, &domain);
+            projects.selected_node_id =
+                first_node_for_project(projects, projects.selected_project_id.as_deref());
+            projects.active_view = "work-plan".into();
+            projects.work_dirty = false;
+            Vec::new()
+        }
+        Msg::ProjectSelected(project_id) => {
+            let Some(projects) = model
+                .page
+                .as_mut()
+                .and_then(|page| page.portal.as_mut())
+                .and_then(|portal| portal.projects.as_mut())
+            else {
+                return Vec::new();
+            };
+            if !projects
+                .projects
+                .iter()
+                .any(|project| project.id == project_id)
+            {
+                return Vec::new();
+            }
+            projects.selected_project_id = Some(project_id);
+            projects.selected_node_id =
+                first_node_for_project(projects, projects.selected_project_id.as_deref());
+            projects.catch_up = false;
+            projects.active_view = "work-plan".into();
+            projects.work_dirty = false;
+            Vec::new()
+        }
+        Msg::ProjectNodeSelected(node_id) => {
+            let Some(projects) = model
+                .page
+                .as_mut()
+                .and_then(|page| page.portal.as_mut())
+                .and_then(|portal| portal.projects.as_mut())
+            else {
+                return Vec::new();
+            };
+            if let Some(id) = node_id.as_deref() {
+                let valid = projects.items.iter().any(|item| {
+                    item.id == id
+                        && item.project_id.as_deref()
+                            == projects.selected_project_id.as_deref()
+                });
+                if !valid {
+                    return Vec::new();
+                }
+            }
+            projects.selected_node_id = node_id;
+            projects.work_dirty = false;
+            Vec::new()
+        }
+        Msg::ProjectViewSelected(view) => {
+            let Some(projects) = model
+                .page
+                .as_mut()
+                .and_then(|page| page.portal.as_mut())
+                .and_then(|portal| portal.projects.as_mut())
+            else {
+                return Vec::new();
+            };
+            if !matches!(
+                view.as_str(),
+                "work-plan" | "timeline" | "calendar" | "financials" | "documents" | "activity"
+            ) {
+                return Vec::new();
+            }
+            projects.active_view = view;
+            projects.catch_up = false;
+            Vec::new()
+        }
+        Msg::ProjectCatchUpToggled(on) => {
+            let Some(projects) = model
+                .page
+                .as_mut()
+                .and_then(|page| page.portal.as_mut())
+                .and_then(|portal| portal.projects.as_mut())
+            else {
+                return Vec::new();
+            };
+            projects.catch_up = on;
+            projects.work_dirty = false;
+            Vec::new()
+        }
+        Msg::ProjectStatusRequested(status) => {
+            let Some(projects) = model
+                .page
+                .as_mut()
+                .and_then(|page| page.portal.as_mut())
+                .and_then(|portal| portal.projects.as_mut())
+            else {
+                return Vec::new();
+            };
+            if projects.saving
+                || !matches!(status.as_str(), "open" | "doing" | "done" | "archived")
+            {
+                return Vec::new();
+            }
+            let Some(project_id) = projects.selected_project_id.clone() else {
+                return Vec::new();
+            };
+            projects.saving = true;
+            model.error = None;
+            vec![Effect::UpdateProjectStatus {
+                screen: model.screen.key,
+                generation: model.generation,
+                project_id,
+                status,
+            }]
+        }
+        Msg::ProjectWorkTitleChanged(value) => {
+            project_work_change(model, |item| item.title = value)
+        }
+        Msg::ProjectWorkNotesChanged(value) => {
+            project_work_change(model, |item| item.notes = value)
+        }
+        Msg::ProjectWorkOwnerChanged(value) => {
+            project_work_change(model, |item| {
+                item.owner = (!value.trim().is_empty()).then_some(value)
+            })
+        }
+        Msg::ProjectWorkDueChanged(value) => {
+            project_work_change(model, |item| {
+                item.due_at = (!value.trim().is_empty()).then_some(value)
+            })
+        }
+        Msg::ProjectWorkStatusChanged(value) => {
+            if !matches!(value.as_str(), "open" | "doing" | "done" | "dismissed") {
+                return Vec::new();
+            }
+            project_work_change(model, |item| item.status = value)
+        }
+        Msg::ProjectWorkSaveRequested => {
+            let Some(projects) = model
+                .page
+                .as_mut()
+                .and_then(|page| page.portal.as_mut())
+                .and_then(|portal| portal.projects.as_mut())
+            else {
+                return Vec::new();
+            };
+            if projects.saving || !projects.work_dirty {
+                return Vec::new();
+            }
+            let Some(node_id) = projects.selected_node_id.as_deref() else {
+                return Vec::new();
+            };
+            let Some(item) = projects.items.iter().find(|item| item.id == node_id) else {
+                return Vec::new();
+            };
+            let effect = Effect::SaveProjectWork {
+                screen: model.screen.key,
+                generation: model.generation,
+                item_id: item.id.clone(),
+                title: item.title.clone(),
+                notes: item.notes.clone(),
+                status: item.status.clone(),
+                due_at: item.due_at.clone(),
+                owner: item.owner.clone(),
+            };
+            projects.saving = true;
+            model.error = None;
+            vec![effect]
+        }
     }
 }
 
@@ -528,6 +902,83 @@ mod tests {
                 search: String::new(),
                 page: 0,
                 generation: 0
+            }]
+        );
+    }
+
+    #[test]
+    fn navigating_to_projects_fetches_the_typed_workspace() {
+        let mut model = Model::default();
+        let effects = update(&mut model, Msg::Navigate(target("projects")));
+        assert_eq!(model.screen, target("projects"));
+        assert!(model.loading);
+        assert_eq!(
+            effects,
+            vec![Effect::FetchProjects {
+                screen: "projects",
+                generation: 0,
+            }]
+        );
+    }
+
+    #[test]
+    fn project_work_changes_are_reducer_owned_and_save_as_one_effect() {
+        let mut model = Model {
+            screen: target("projects"),
+            ..Model::default()
+        };
+        model.page = Some(crate::model::PageContent {
+            portal: Some(crate::model::PortalPage {
+                projects: Some(crate::model::PortalProjectsPage {
+                    projects: vec![crate::model::PortalProject {
+                        id: "p1".into(),
+                        name: "Listing".into(),
+                        ..Default::default()
+                    }],
+                    items: vec![crate::model::PortalProjectWorkItem {
+                        id: "w1".into(),
+                        title: "Agreement".into(),
+                        status: "open".into(),
+                        project_id: Some("p1".into()),
+                        ..Default::default()
+                    }],
+                    selected_project_id: Some("p1".into()),
+                    selected_node_id: Some("w1".into()),
+                    active_domain: "properties".into(),
+                    active_view: "work-plan".into(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+
+        assert!(update(
+            &mut model,
+            Msg::ProjectWorkTitleChanged("Listing Agreement".into())
+        )
+        .is_empty());
+
+        let projects = model
+            .page
+            .as_ref()
+            .and_then(|page| page.portal.as_ref())
+            .and_then(|portal| portal.projects.as_ref())
+            .expect("projects payload");
+        assert!(projects.work_dirty);
+        assert_eq!(projects.items[0].title, "Listing Agreement");
+
+        assert_eq!(
+            update(&mut model, Msg::ProjectWorkSaveRequested),
+            vec![Effect::SaveProjectWork {
+                screen: "projects",
+                generation: 0,
+                item_id: "w1".into(),
+                title: "Listing Agreement".into(),
+                notes: String::new(),
+                status: "open".into(),
+                due_at: None,
+                owner: None,
             }]
         );
     }

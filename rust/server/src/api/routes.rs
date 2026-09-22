@@ -126,6 +126,22 @@ struct UpdateFormBody {
     contract_id: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateProjectBody {
+    status: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateWbsBody {
+    title: Option<String>,
+    notes: Option<String>,
+    status: Option<String>,
+    due_at: Option<Option<String>>,
+    owner: Option<Option<String>>,
+}
+
 struct UnavailableVaultArtifactPort;
 
 #[async_trait]
@@ -276,7 +292,9 @@ pub fn router(state: ApiState) -> Router {
         .route("/readyz", get(ready))
         .route("/v1/whoami", get(whoami))
         .route("/v1/projects", get(projects))
-        .route("/v1/projects/{id}", get(project))
+        .route("/v1/projects/{id}", get(project).patch(update_project))
+        .route("/v1/wbs/project-items", get(wbs_project_items))
+        .route("/v1/wbs/{id}", get(wbs_item).patch(update_wbs_item))
         .route("/v1/clients", get(clients))
         .route("/v1/clients/agents", get(client_agents))
         .route("/v1/clients/{person_id}/history", get(client_history))
@@ -402,6 +420,141 @@ async fn project(
                 &resolved,
             )
         })?;
+    Ok(success(value, &resolved))
+}
+
+async fn update_project(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateProjectBody>,
+) -> Result<Json<ApiSuccess<domain::Project>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let status = match body.status.as_deref() {
+        Some(value) => Some(domain::ProjectStatus::try_from(value).map_err(|error| {
+            correlate(
+                ApiError::from(CoreServiceError::business(
+                    "PROJECT_STATUS_INVALID",
+                    error.to_string(),
+                )),
+                &resolved,
+            )
+        })?),
+        None => None,
+    };
+    let mut service = state.services().project();
+    let value = service
+        .update(
+            &domain::UpdateProjectRequest {
+                id,
+                name: None,
+                owner: None,
+                status,
+                description: None,
+                areas: None,
+                starts_at: None,
+                ends_at: None,
+                project_type: None,
+                playbook_id: None,
+                playbook_version: None,
+                person_id: None,
+                property_id: None,
+                contract_id: None,
+            },
+            &resolved.service,
+        )
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn wbs_project_items(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<Vec<domain::WbsItem>>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().wbs();
+    let value = service
+        .list_project_items(&resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn wbs_item(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<ApiSuccess<domain::WbsItem>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().wbs();
+    let value = service
+        .get(&id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?
+        .ok_or_else(|| {
+            correlate(
+                ApiError::not_found("WBS_NOT_FOUND", format!("WBS item not found: {id}")),
+                &resolved,
+            )
+        })?;
+    Ok(success(value, &resolved))
+}
+
+async fn update_wbs_item(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateWbsBody>,
+) -> Result<Json<ApiSuccess<domain::WbsItem>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().wbs();
+    let current = service
+        .get(&id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?
+        .ok_or_else(|| {
+            correlate(
+                ApiError::not_found("WBS_NOT_FOUND", format!("WBS item not found: {id}")),
+                &resolved,
+            )
+        })?;
+    let status = match body.status.as_deref() {
+        Some(value) => Some(domain::WbsStatus::try_from(value).map_err(|message| {
+            correlate(
+                ApiError::from(CoreServiceError::business("WBS_STATUS_INVALID", message)),
+                &resolved,
+            )
+        })?),
+        None => None,
+    };
+    let value = service
+        .save(
+            &domain::SaveWbsItemRequest {
+                create: domain::CreateWbsItemRequest {
+                    id: current.id.clone(),
+                    title: body.title.unwrap_or(current.title),
+                    notes: Some(body.notes.unwrap_or(current.notes)),
+                    category: current.category,
+                    project_id: current.project_id,
+                    parent_id: current.parent_id,
+                    due_at: match body.due_at {
+                        Some(value) => value,
+                        None => current.due_at,
+                    },
+                    owner: match body.owner {
+                        Some(value) => value,
+                        None => current.owner,
+                    },
+                    order: current.order,
+                    entity: current.entity,
+                },
+                status,
+            },
+            &resolved.service,
+        )
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(value, &resolved))
 }
 

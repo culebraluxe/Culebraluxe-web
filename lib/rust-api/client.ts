@@ -420,3 +420,30 @@ export async function rustApiUpdateForm<T>(
     options,
   )
 }
+
+
+export async function rustApiUpdateProject<T>(
+  projectId: string,
+  body: Record<string, unknown>,
+  options: RustApiJsonWriteOptions = {},
+): Promise<RustApiSuccess<T>> {
+  return rustApiJsonWrite<T>(
+    (`/v1/projects/${encodeURIComponent(projectId)}`) as `/v1/${string}`,
+    'PATCH',
+    body,
+    options,
+  )
+}
+
+export async function rustApiUpdateWbs<T>(
+  itemId: string,
+  body: Record<string, unknown>,
+  options: RustApiJsonWriteOptions = {},
+): Promise<RustApiSuccess<T>> {
+  return rustApiJsonWrite<T>(
+    (`/v1/wbs/${encodeURIComponent(itemId)}`) as `/v1/${string}`,
+    'PATCH',
+    body,
+    options,
+  )
+}

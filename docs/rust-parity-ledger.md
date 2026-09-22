@@ -22,7 +22,7 @@ questions on purpose: a port can be complete and still cut over to nothing.
 | `firms` | built | typescript | 0 | `legacy/db/firm-service-repository.ts` |
 | `signature` | built | typescript | 4 | `legacy/db/bold-sign-request.ts`, `legacy/db/broker-signature.ts` |
 | `showings` | built | typescript | 0 | — |
-| `wbs` | built | typescript | 0 | — |
+| `wbs` | built | typescript | 2 | — |
 | `whatsapp-intake` | partial | typescript | 0 | — |
 
 **13 built · 1 partial · 0 not started** — and
@@ -34,13 +34,15 @@ questions on purpose: a port can be complete and still cut over to nothing.
 
 ## The live Rust surface
 
-36 routes mounted (read from the router, not from this file):
+38 routes mounted (read from the router, not from this file):
 
 - `/healthz` _(infrastructure)_
 - `/readyz` _(infrastructure)_
 - `/v1/whoami` _(infrastructure)_
 - `/v1/projects`
 - `/v1/projects/{id}`
+- `/v1/wbs/project-items`
+- `/v1/wbs/{id}`
 - `/v1/clients`
 - `/v1/clients/agents`
 - `/v1/clients/{person_id}/history`

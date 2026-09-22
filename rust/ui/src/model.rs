@@ -462,6 +462,8 @@ pub struct PortalPage {
     pub clients: Option<PortalClientsPage>,
     /// CORE Forms — saved sessions plus the working record/editor payload.
     pub forms: Option<PortalFormsPage>,
+    /// CORE Projects — authoritative Rust Project/WBS data plus reducer-owned workspace selection.
+    pub projects: Option<PortalProjectsPage>,
 }
 
 /// One line of the unified activity feed, with the fields the live screen renders.
@@ -782,6 +784,85 @@ pub struct PortalFormTemplateChoice {
     pub active_version: i32,
 }
 
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalProjectsPage {
+    pub projects: Vec<PortalProject>,
+    pub items: Vec<PortalProjectWorkItem>,
+    pub documents: Vec<PortalProjectDocument>,
+    pub identity_names: BTreeMap<String, String>,
+    /// Workspace state lives with the payload and changes only in update().
+    pub active_domain: String,
+    pub selected_project_id: Option<String>,
+    pub selected_node_id: Option<String>,
+    pub active_view: String,
+    pub catch_up: bool,
+    pub work_dirty: bool,
+    pub saving: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalProject {
+    pub id: String,
+    pub name: String,
+    pub owner: Option<String>,
+    pub status: String,
+    pub description: String,
+    pub areas: Vec<String>,
+    pub project_type: Option<String>,
+    pub playbook_id: Option<String>,
+    pub playbook_version: Option<i32>,
+    pub person_id: Option<String>,
+    pub property_id: Option<String>,
+    pub contract_id: Option<String>,
+    pub starts_at: Option<String>,
+    pub ends_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalProjectWorkItem {
+    pub id: String,
+    pub title: String,
+    pub notes: String,
+    pub category: String,
+    pub status: String,
+    pub project_id: Option<String>,
+    pub parent_id: Option<String>,
+    pub due_at: Option<String>,
+    pub owner: Option<String>,
+    pub order: Option<i32>,
+    pub entity: Option<PortalProjectEntity>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalProjectEntity {
+    pub entity_type: String,
+    pub id: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalProjectDocument {
+    pub id: String,
+    pub property_id: Option<String>,
+    pub title: String,
+    pub state: String,
+    pub template_id: Option<String>,
+    pub template_version: Option<i32>,
+    pub issued_version: Option<i32>,
+    pub created_at: String,
+    pub signed_artifact_available: bool,
+    pub signed_audit_available: bool,
+}
+
 /// Everything a public page renders from.
 ///
 /// A page is a set of named blocks, not an ordered list, because the page decides where each one goes — the hero is a
@@ -1028,6 +1109,20 @@ pub enum Msg {
     FormCreated {
         form_id: String,
     },
+
+    /// Project Management intents. Vendor widgets are views only; these own workspace state.
+    ProjectDomainSelected(String),
+    ProjectSelected(String),
+    ProjectNodeSelected(Option<String>),
+    ProjectViewSelected(String),
+    ProjectCatchUpToggled(bool),
+    ProjectStatusRequested(String),
+    ProjectWorkTitleChanged(String),
+    ProjectWorkNotesChanged(String),
+    ProjectWorkOwnerChanged(String),
+    ProjectWorkDueChanged(String),
+    ProjectWorkStatusChanged(String),
+    ProjectWorkSaveRequested,
 }
 
 impl Msg {
@@ -1146,6 +1241,27 @@ pub enum Effect {
         deal_id: Option<String>,
         person_id: Option<String>,
         property_id: Option<String>,
+    },
+    /// CORE Project Management reads only from Rust Project/WBS/Vault APIs.
+    FetchProjects {
+        screen: &'static str,
+        generation: u64,
+    },
+    UpdateProjectStatus {
+        screen: &'static str,
+        generation: u64,
+        project_id: String,
+        status: String,
+    },
+    SaveProjectWork {
+        screen: &'static str,
+        generation: u64,
+        item_id: String,
+        title: String,
+        notes: String,
+        status: String,
+        due_at: Option<String>,
+        owner: Option<String>,
     },
     /// Browser navigation is an effect, not a view mutation.
     BrowserNavigate { href: String },

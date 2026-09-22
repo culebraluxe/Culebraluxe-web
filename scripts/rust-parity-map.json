@@ -160,7 +160,7 @@
       "id": "wbs",
       "rustStatus": "built",
       "productionPath": "typescript",
-      "routes": [],
+      "routes": ["/v1/wbs/project-items", "/v1/wbs/{id}"],
       "rustModules": ["rust/server/src/wbs", "rust/core/db/src/wbs.rs", "rust/core/domain/src/wbs.rs"],
       "tsFiles": []
     },

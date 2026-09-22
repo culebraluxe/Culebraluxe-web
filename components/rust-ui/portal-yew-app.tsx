@@ -2,11 +2,14 @@
 
 import { useEffect, useState } from 'react'
 
+import { ProjectReactIslands } from '@/components/rust-ui/project-react-islands'
+
 // ---------------------------------------------------------------------------
 // THE PORTAL APP'S MOUNT POINT.
 //
-// Same shape as the public one and the same smallness: boot the module, call `portal_mount` with the screen the page
-// serves, and stop. No state, no effect, no listener, no fetch — the Yew application owns all of it from there.
+// Same shape as the public one: boot the module and call `portal_mount` for the screen. Yew owns application state,
+// effects and network. Projects adds one rendering-only React adapter for SVAR/FullCalendar vendor islands; those islands
+// receive read-only props from Yew-owned DOM slots and never mutate application state.
 // ---------------------------------------------------------------------------
 
 type RustUiModule = {
@@ -54,6 +57,7 @@ export function PortalYewApp({
   return (
     <>
       <div id="rust-ui" />
+      {screen === 'projects' ? <ProjectReactIslands /> : null}
       {error ? (
         <p className="p-6 text-sm text-destructive" role="alert">
           The portal could not start: {error}
