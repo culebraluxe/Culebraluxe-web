@@ -114,3 +114,22 @@ pub struct SaveWbsItemRequest {
     pub create: CreateWbsItemRequest,
     pub status: Option<WbsStatus>,
 }
+
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppleReminderUpsertRequest {
+    pub wbs_id: String,
+    pub title: String,
+    pub due_at: Option<String>,
+    pub completed: bool,
+    pub notes: Option<String>,
+    pub alert: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppleReminderCommandReceipt {
+    pub command_id: String,
+    pub state: String,
+}
