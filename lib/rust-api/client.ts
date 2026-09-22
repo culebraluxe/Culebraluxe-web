@@ -461,3 +461,16 @@ export async function rustApiRouteProjectWork<T>(
   )
 }
 
+
+
+export async function rustApiCompleteTask<T>(
+  taskId: string,
+  options: RustApiJsonWriteOptions = {},
+): Promise<RustApiSuccess<T>> {
+  return rustApiJsonWrite<T>(
+    (`/v1/tasks/${encodeURIComponent(taskId)}/complete`) as `/v1/${string}`,
+    'POST',
+    {},
+    options,
+  )
+}
