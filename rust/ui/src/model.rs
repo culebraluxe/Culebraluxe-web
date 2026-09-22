@@ -627,5 +627,16 @@ pub enum Effect {
     /// an editorial page asks for its hero, its sections and its cards, and the answer is a `PageContent`. Sending that
     /// through `FetchRows` would mean overloading one payload with two meanings, which is how a page ends up rendered
     /// as a list of strings.
-    FetchPage { screen: &'static str },
+    ///
+    /// `scope` IS THE RECORD KEY FOR A PAGE ABOUT ONE RECORD, and it is carried here for the same reason it is carried
+    /// on `FetchRows` — because the alternative is a request that cannot name what it is about. `/properties/<slug>` is
+    /// an editorial page *and* a record page: it is served by the page feed, it renders blocks, and the slug is the
+    /// whole of what makes it that property rather than another. This effect used to carry the screen and nothing else,
+    /// so a slug the screen already knew was dropped on the floor between the reducer and the host; the request went out
+    /// without it, the page route correctly refused to guess (`if (!slug)`), and the child page showed a host error
+    /// instead of a property. The key travels with the request, in both of the two requests that can be about a record.
+    FetchPage {
+        screen: &'static str,
+        scope: Option<String>,
+    },
 }

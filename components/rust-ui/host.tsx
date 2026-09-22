@@ -179,7 +179,7 @@ export function RustUiHost({
       document.removeEventListener(EFFECT_EVENT, onEffects)
       document.removeEventListener(ISLAND_EVENT, mountIslands)
     }
-  }, [rowsPath, start, scope])
+  }, [rowsPath, pagePath, start, scope])
 
   return (
     <>

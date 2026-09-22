@@ -97,8 +97,23 @@ mod tests {
             r#"{"effect":"FetchRows","screen":"clients","scope":null}"#
         );
         assert_eq!(
-            serde_json::to_string(&Effect::FetchPage { screen: "site-home" }).unwrap(),
-            r#"{"effect":"FetchPage","screen":"site-home"}"#
+            serde_json::to_string(&Effect::FetchPage {
+                screen: "site-home",
+                scope: None
+            })
+            .unwrap(),
+            r#"{"effect":"FetchPage","screen":"site-home","scope":null}"#
+        );
+        // A page about one record names it, in the same request that names the screen. The child page depended on this
+        // and did not get it: the effect carried no key, so the host could not tell the page route which property to
+        // serve and the route — which refuses to guess — answered with an error.
+        assert_eq!(
+            serde_json::to_string(&Effect::FetchPage {
+                screen: "site-property-detail",
+                scope: Some("villa-rosada".into())
+            })
+            .unwrap(),
+            r#"{"effect":"FetchPage","screen":"site-property-detail","scope":"villa-rosada"}"#
         );
     }
 

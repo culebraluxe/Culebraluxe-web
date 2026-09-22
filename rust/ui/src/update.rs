@@ -62,8 +62,12 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
         // A page asks for its blocks; a list asks for its rows. Two questions, two payloads, and the screen decides
         // which one it is asking — see `is_editorial`.
         if is_editorial(screen.key) {
+            // The scope goes with it. `site-property-detail` is the screen this matters for: its page is about one
+            // property, and a `FetchPage` that names only the screen leaves the host unable to say *which* property —
+            // it asks the page route for a record page and no record, and is refused. See `Effect::FetchPage`.
             vec![Effect::FetchPage {
                 screen: screen.key,
+                scope: model.scope.clone(),
             }]
         } else {
             vec![Effect::FetchRows {
