@@ -34,6 +34,7 @@ pub fn is_ported_portal_screen(key: &str) -> bool {
             // one at a time, and each is added here and to the portal app's match together.
             | "accounting"
             | "accounting-expenses"
+            | "accounting-receivables"
             | "seller-strategy"
     )
 }
@@ -345,6 +346,20 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
     }
 }
 
+/// The database's idea of today, as the payload carries it.
+///
+/// The screen's date fields default to it rather than to a date the browser works out: an operator an hour from the server
+/// is on a different day than the book, and a record dated by the browser would be filed on the wrong side of midnight.
+pub(crate) fn accounting_today(model: &Model) -> String {
+    model
+        .page
+        .as_ref()
+        .and_then(|page| page.portal.as_ref())
+        .and_then(|portal| portal.accounting.as_ref())
+        .map(|accounting| accounting.today.clone())
+        .unwrap_or_default()
+}
+
 fn project_work_change<F>(model: &mut Model, change: F) -> Vec<Effect>
 where
     F: FnOnce(&mut crate::model::PortalProjectWorkItem),
@@ -483,7 +498,15 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                     .map(|accounting| accounting.today.clone())
                     .unwrap_or_default();
                 if !today.is_empty() && model.accounting.expense_on.is_empty() {
-                    model.accounting.expense_on = today;
+                    model.accounting.expense_on = today.clone();
+                }
+                // The receivable form's two dates have the same default, and its category starts where the live form's did:
+                // `COMMISSION`, uppercased, which is what the seam stores anyway.
+                if !today.is_empty() && model.accounting.receivable_issued_on.is_empty() {
+                    model.accounting.receivable_issued_on = today;
+                }
+                if model.accounting.receivable_category.is_empty() {
+                    model.accounting.receivable_category = "COMMISSION".to_owned();
                 }
             }
             if matches!(model.screen.key, "clients" | "client-record") {
@@ -695,6 +718,117 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                     "amount": model.accounting.expense_amount.clone(),
                     "expenseOn": model.accounting.expense_on.clone(),
                     "memo": model.accounting.expense_memo.clone(),
+                }),
+            }]
+        }
+
+        // ---- accounting: the receivable form, and mark-paid ------------------------------------------------------
+        //
+        // Gated by the screen for the same reason as the expense form's: a draft is written only while its own screen is
+        // mounted.
+        Msg::ReceivableFormToggled => {
+            if model.screen.key != "accounting-receivables" {
+                return Vec::new();
+            }
+            model.accounting.receivable_open = !model.accounting.receivable_open;
+            model.accounting.notice = None;
+            Vec::new()
+        }
+        Msg::ReceivableReferenceChanged(value) => {
+            if model.screen.key == "accounting-receivables" {
+                model.accounting.receivable_reference = value;
+                model.accounting.notice = None;
+            }
+            Vec::new()
+        }
+        Msg::ReceivableDescriptionChanged(value) => {
+            if model.screen.key == "accounting-receivables" {
+                model.accounting.receivable_description = value;
+                model.accounting.notice = None;
+            }
+            Vec::new()
+        }
+        Msg::ReceivableCategoryChanged(value) => {
+            if model.screen.key == "accounting-receivables" {
+                model.accounting.receivable_category = value;
+                model.accounting.notice = None;
+            }
+            Vec::new()
+        }
+        Msg::ReceivableAmountChanged(value) => {
+            if model.screen.key == "accounting-receivables" {
+                model.accounting.receivable_amount = value;
+                model.accounting.notice = None;
+            }
+            Vec::new()
+        }
+        Msg::ReceivableIssuedOnChanged(value) => {
+            if model.screen.key == "accounting-receivables" {
+                model.accounting.receivable_issued_on = value;
+                model.accounting.notice = None;
+            }
+            Vec::new()
+        }
+        Msg::ReceivableDueOnChanged(value) => {
+            if model.screen.key == "accounting-receivables" {
+                model.accounting.receivable_due_on = value;
+                model.accounting.notice = None;
+            }
+            Vec::new()
+        }
+        Msg::ReceivableSubmitted => {
+            if model.screen.key != "accounting-receivables" || model.accounting.submitting {
+                return Vec::new();
+            }
+            model.accounting.submitting = true;
+            model.accounting.notice = None;
+            model.error = None;
+            vec![Effect::AccountingCommand {
+                screen: "accounting-receivables",
+                generation: model.generation,
+                body: serde_json::json!({
+                    "action": "createReceivable",
+                    "screen": "accounting-receivables",
+                    "reference": model.accounting.receivable_reference.clone(),
+                    "description": model.accounting.receivable_description.clone(),
+                    "category": model.accounting.receivable_category.clone(),
+                    "amount": model.accounting.receivable_amount.clone(),
+                    "issuedOn": model.accounting.receivable_issued_on.clone(),
+                    "dueOn": model.accounting.receivable_due_on.clone(),
+                }),
+            }]
+        }
+        Msg::ReceivablePaidDateChanged { id, value } => {
+            if model.screen.key == "accounting-receivables" {
+                // One row's date, not the table's: the live screen gave every row its own input.
+                model.accounting.paid_on.insert(id, value);
+            }
+            Vec::new()
+        }
+        Msg::ReceivablePaidSubmitted { id } => {
+            if model.screen.key != "accounting-receivables" || model.accounting.submitting {
+                return Vec::new();
+            }
+            // The date is the row's own, falling back to the book's today while the operator has not changed it — the same
+            // default its input shows, so what is sent is what is on screen.
+            let today = accounting_today(model);
+            let paid_on = model
+                .accounting
+                .paid_on
+                .get(&id)
+                .cloned()
+                .unwrap_or(today);
+            model.accounting.submitting = true;
+            model.accounting.notice = None;
+            model.error = None;
+            vec![Effect::AccountingCommand {
+                screen: "accounting-receivables",
+                generation: model.generation,
+                body: serde_json::json!({
+                    "action": "markReceivablePaid",
+                    "screen": "accounting-receivables",
+                    "receivableId": id,
+                    "paidOn": paid_on,
                 }),
             }]
         }
@@ -2458,6 +2592,128 @@ mod tests {
         assert_eq!(
             chosen.accounting.expense_on, "2026-03-01",
             "a date the operator chose must survive a refresh"
+        );
+    }
+
+    // ---- accounting: receivables, and the mark-paid transition ------------------------------------------------------
+
+    fn receivables_screen() -> Model {
+        let mut model = Model {
+            screen: target("accounting-receivables"),
+            ..Model::default()
+        };
+        model.accounting.receivable_open = true;
+        model.accounting.receivable_description = "Closing commission".into();
+        model.accounting.receivable_amount = "12000".into();
+        model.accounting.receivable_category = "COMMISSION".into();
+        model.accounting.receivable_issued_on = "2026-03-01".into();
+        model
+    }
+
+    #[test]
+    fn the_receivable_form_asks_rust_to_create_the_row() {
+        let mut model = receivables_screen();
+        let effects = update(&mut model, Msg::ReceivableSubmitted);
+
+        let Effect::AccountingCommand { screen, body, .. } = &effects[0] else {
+            panic!("submitting the receivable form must ask for an Accounting command");
+        };
+        assert_eq!(*screen, "accounting-receivables");
+        assert_eq!(body["action"], "createReceivable");
+        assert_eq!(body["amount"], "12000");
+        assert_eq!(body["issuedOn"], "2026-03-01");
+        assert!(model.accounting.submitting);
+    }
+
+    #[test]
+    fn mark_paid_names_the_receivable_and_the_date_it_was_paid_on() {
+        let mut model = receivables_screen();
+        update(
+            &mut model,
+            Msg::ReceivablePaidDateChanged {
+                id: "r1".into(),
+                value: "2026-03-10".into(),
+            },
+        );
+        let effects = update(
+            &mut model,
+            Msg::ReceivablePaidSubmitted { id: "r1".into() },
+        );
+
+        let Effect::AccountingCommand { body, .. } = &effects[0] else {
+            panic!("marking a receivable paid must ask for an Accounting command");
+        };
+        assert_eq!(body["action"], "markReceivablePaid");
+        assert_eq!(body["receivableId"], "r1");
+        // The date is the row's own, not one shared across the table.
+        assert_eq!(body["paidOn"], "2026-03-10");
+    }
+
+    #[test]
+    fn a_row_with_no_chosen_date_is_paid_on_the_books_day() {
+        let mut model = receivables_screen();
+        // What the payload brought with it, which is also what the row's input is showing.
+        let payload = r#"{"accounting":{"receivables":[],"today":"2026-03-04"}}"#;
+        update(
+            &mut model,
+            Msg::portal_loaded_json("accounting-receivables", 0, payload),
+        );
+
+        let effects = update(
+            &mut model,
+            Msg::ReceivablePaidSubmitted { id: "r1".into() },
+        );
+        let Effect::AccountingCommand { body, .. } = &effects[0] else {
+            panic!("marking a receivable paid must ask for an Accounting command");
+        };
+        assert_eq!(body["paidOn"], "2026-03-04");
+    }
+
+    #[test]
+    fn one_required_field_missing_is_the_service_s_decision_not_the_reducer_s() {
+        let mut model = receivables_screen();
+        // No description. The reducer does not refuse it — it asks, and Rust answers — which is what keeps one set of rules
+        // in one place.
+        model.accounting.receivable_description = String::new();
+        let effects = update(&mut model, Msg::ReceivableSubmitted);
+        assert_eq!(effects.len(), 1);
+
+        update(
+            &mut model,
+            Msg::EffectFailed {
+                screen: "accounting-receivables".into(),
+                generation: 0,
+                message: "Description is required.".into(),
+            },
+        );
+        assert_eq!(
+            model.accounting.notice,
+            Some(crate::model::CommandNotice::failure("Description is required."))
+        );
+    }
+
+    #[test]
+    fn a_void_receivable_that_cannot_be_paid_keeps_its_row_and_reports_the_conflict() {
+        let mut model = receivables_screen();
+        update(
+            &mut model,
+            Msg::ReceivablePaidSubmitted { id: "r1".into() },
+        );
+        // The service's answer for a receivable that is missing or void: nothing was transitioned.
+        update(
+            &mut model,
+            Msg::EffectFailed {
+                screen: "accounting-receivables".into(),
+                generation: 0,
+                message: "Receivable not found or voided.".into(),
+            },
+        );
+        assert!(!model.accounting.submitting);
+        assert_eq!(
+            model.accounting.notice,
+            Some(crate::model::CommandNotice::failure(
+                "Receivable not found or voided."
+            ))
         );
     }
 }

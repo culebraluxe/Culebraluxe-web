@@ -8,6 +8,7 @@ use yew::prelude::*;
 use crate::model::{Msg, Screen};
 use crate::yew_views::portal_accounting_dashboard::Dashboard as AccountingDashboard;
 use crate::yew_views::portal_accounting_expenses::Expenses as AccountingExpenses;
+use crate::yew_views::portal_accounting_receivables::Receivables as AccountingReceivables;
 use crate::yew_views::portal_activity::Activity;
 use crate::yew_views::portal_cabinet::Cabinet;
 use crate::yew_views::portal_clients::{ClientRecord, Clients};
@@ -75,6 +76,9 @@ impl Component for PortalApp {
             }
             "accounting-expenses" => {
                 html! { <AccountingExpenses model={self.model.clone()} on_msg={on_msg} /> }
+            }
+            "accounting-receivables" => {
+                html! { <AccountingReceivables model={self.model.clone()} on_msg={on_msg} /> }
             }
             "clients" => html! { <Clients model={self.model.clone()} on_msg={on_msg} /> },
             "client-record" => {

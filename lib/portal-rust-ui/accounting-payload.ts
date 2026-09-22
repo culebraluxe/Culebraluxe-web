@@ -133,8 +133,12 @@ export async function accountingPayload(
       }
     }
     case 'accounting-receivables': {
-      const result = await rustApiRead<AccountingReceivable[]>('/v1/accounting/receivables')
-      return { accounting: { receivables: result.value } }
+      // The list, plus the book's date: the create form's issue date and each row's paid date default to it, so a record
+      // is dated by the book rather than by the browser.
+      const receivables = await rustApiRead<AccountingReceivable[]>('/v1/accounting/receivables')
+      return {
+        accounting: { receivables: receivables.value, today: todayISO() },
+      }
     }
     case 'accounting-pnl': {
       // THE PERIOD IS THE CALLER'S, AND IT IS REQUIRED. The route refuses without both ends rather than defaulting them:

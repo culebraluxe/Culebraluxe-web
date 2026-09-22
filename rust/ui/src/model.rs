@@ -1401,6 +1401,18 @@ pub struct AccountingState {
     pub expense_amount: String,
     pub expense_on: String,
     pub expense_memo: String,
+    /// Whether the New Receivable panel is open, and its six fields.
+    pub receivable_open: bool,
+    pub receivable_reference: String,
+    pub receivable_description: String,
+    pub receivable_category: String,
+    pub receivable_amount: String,
+    pub receivable_issued_on: String,
+    pub receivable_due_on: String,
+    /// The paid date per receivable, keyed by id — only where the operator has changed it. A row with no entry shows the
+    /// book's `today`, so the map holds edits rather than copies of a default, and a row that arrives later needs no
+    /// seeding.
+    pub paid_on: std::collections::BTreeMap<String, String>,
     /// A command is in flight: the form is disabled and the button says so.
     pub submitting: bool,
     /// What the last command said, if it has said anything. Cleared when a new one starts.
@@ -1684,6 +1696,20 @@ pub enum Msg {
     /// Rust, and a second copy of them in the reducer is the copy that goes stale. This asks for the command; the answer
     /// decides what the form says.
     ExpenseSubmitted,
+
+    // ---- accounting: the receivable form, and mark-paid ----------------------------------------------
+    ReceivableFormToggled,
+    ReceivableReferenceChanged(String),
+    ReceivableDescriptionChanged(String),
+    ReceivableCategoryChanged(String),
+    ReceivableAmountChanged(String),
+    ReceivableIssuedOnChanged(String),
+    ReceivableDueOnChanged(String),
+    ReceivableSubmitted,
+    /// The operator chose the date one receivable was paid on.
+    ReceivablePaidDateChanged { id: String, value: String },
+    /// The operator marked a receivable paid. The transition itself is Rust's and the database's: this asks for it.
+    ReceivablePaidSubmitted { id: String },
 
     /// Cockpit task command. The Rust engine owns application-task completion.
     CockpitTaskCompleteRequested {
