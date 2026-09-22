@@ -1204,9 +1204,15 @@ function syncIsland<T>(
     return
   }
 
-  const marker = target.querySelector('[data-project-react-island="' + id + '"]')
-
-  if (current && current.target === target && marker) {
+  // Container identity is the root-ownership invariant.
+  //
+  // Do NOT inspect React-rendered child DOM to decide whether this target
+  // already has a root. createRoot() claims the container before React's
+  // concurrent render necessarily commits its first child. A MutationObserver
+  // scan can therefore run in that window; treating a missing child marker as
+  // "unmounted" creates a second root on the same element and races unmount
+  // against React's commit (the createRoot/removeChild failure seen in DEV).
+  if (current && current.target === target) {
     if (current.payloadRaw !== payloadRaw) {
       current.payloadRaw = payloadRaw
       current.root.render(
@@ -1223,11 +1229,9 @@ function syncIsland<T>(
     mounted.delete(id)
   }
 
-  // Yew owns the slot element; React owns everything inside it. Clearing the
-  // loading placeholder is the ownership handoff. Yew deliberately renders no
-  // children into these slots after this migration, so it has nothing inside
-  // the container to reconcile against or overwrite later.
-  target.replaceChildren()
+  // Yew owns the empty slot element; React owns everything inside it. The Yew
+  // view deliberately renders no children into island slots, so there is
+  // nothing to clear before React claims a newly-created slot.
   const root = createRoot(target)
   mounted.set(id, { target, root, payloadRaw })
   root.render(
