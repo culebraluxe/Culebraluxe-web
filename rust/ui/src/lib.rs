@@ -161,7 +161,7 @@ mod tests {
     }
 
     #[test]
-    fn opening_a_screen_asks_the_host_for_its_rows() {
+    fn opening_clients_asks_for_its_typed_workspace() {
         let mut program = Program::new();
         let effects = program.dispatch(Msg::ScreenOpened(target("clients")));
         assert!(
@@ -170,9 +170,12 @@ mod tests {
         );
         assert_eq!(
             effects,
-            vec![Effect::FetchRows {
+            vec![Effect::FetchClients {
                 screen: "clients",
                 scope: None,
+                selected: None,
+                search: String::new(),
+                page: 0,
                 generation: 0,
             }]
         );
