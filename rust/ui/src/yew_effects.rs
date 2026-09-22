@@ -19,23 +19,41 @@ use crate::model::{Effect, Msg};
 const PAGE_PATH: &str = "/api/rust-ui/public-page";
 /// Rows: a list screen's data, and nothing else.
 const ROWS_PATH: &str = "/api/rust-ui/public-rows";
+/// A portal screen's payload, for the screens that have a real component.
+const PORTAL_PATH: &str = "/api/portal/rust-ui/page";
 
 /// Run one effect and dispatch what it produces.
 ///
 /// A failed request becomes `Msg::EffectFailed`, which the model renders as a message rather than an empty screen:
 /// "nothing to show" and "we could not ask" are different states, and the user deserves the difference.
 pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
-    let (url, screen, generation, is_page) = match effect {
+    let (url, screen, generation, kind) = match effect {
         Effect::FetchPage {
             screen,
             scope,
             generation,
-        } => (query(PAGE_PATH, screen, scope.as_deref()), screen, generation, true),
+        } => (
+            query(PAGE_PATH, screen, scope.as_deref()),
+            screen,
+            generation,
+            Kind::Page,
+        ),
+        Effect::FetchPortal { screen, generation } => (
+            query(PORTAL_PATH, screen, None),
+            screen,
+            generation,
+            Kind::Portal,
+        ),
         Effect::FetchRows {
             screen,
             scope,
             generation,
-        } => (query(ROWS_PATH, screen, scope.as_deref()), screen, generation, false),
+        } => (
+            query(ROWS_PATH, screen, scope.as_deref()),
+            screen,
+            generation,
+            Kind::Rows,
+        ),
     };
 
     let dispatch = dispatch.clone();
@@ -53,19 +71,35 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
             Ok(response) if response.ok() => match response.text().await {
                 // The payload carries the screen and the generation it was fetched for, so the reducer can refuse an
                 // answer whose owner has moved on. Order of arrival is not ownership.
-                Ok(body) if is_page => Msg::page_loaded_json(screen, generation, &body),
-                Ok(body) => Msg::rows_loaded_json(screen, generation, &body),
+                Ok(body) => match kind {
+                    Kind::Page => Msg::page_loaded_json(screen, generation, &body),
+                    Kind::Portal => Msg::portal_loaded_json(screen, generation, &body),
+                    Kind::Rows => Msg::rows_loaded_json(screen, generation, &body),
+                },
                 Err(error) => fail(format!("the answer could not be read: {error}")),
             },
             Ok(response) => fail(format!(
                 "the {} request failed with {}",
-                if is_page { "page" } else { "rows" },
+                match kind {
+                    Kind::Page => "page",
+                    Kind::Portal => "portal",
+                    Kind::Rows => "rows",
+                },
                 response.status()
             )),
             Err(error) => fail(format!("the request could not be sent: {error}")),
         };
         dispatch.emit(msg);
     });
+}
+
+/// What a payload is for, so the right parser reads it. Three requests, three shapes — and a portal payload parsed as
+/// rows would be an empty screen that looks like a successful answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Page,
+    Portal,
+    Rows,
 }
 
 /// The request URL: the screen, and the record key when the screen is about one record.

@@ -1,23 +1,14 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import { PortalYewApp } from '@/components/rust-ui/portal-yew-app'
 
 // ---------------------------------------------------------------------------
-// ACTIVITY — the first portal screen flipped to Rust.
+// /portal/activity — YEW OWNS THIS SCREEN NOW, AS A REAL SCREEN.
 //
-// A real flip, not a preview: the route a user already has now renders the Rust screen. It was chosen because it is
-// the safest kind of screen to move — a read-only list. Its TypeScript body
-// (`components/portal/activity-feed.tsx`) has no state, no form, no dialog and no paging control (131 lines, zero
-// interactive hooks), so there is nothing the Rust body can fail to reproduce. The feed is the same
-// `getActivityFeed(50)` the old page server-fetched, now read through the rows route.
-//
-// Screens that carry interaction are deliberately NOT flipped: the issue queue's two-pane filter and paging and the
-// projects workspace's tree, Gantt and calendar have no Rust equivalent yet, so a flip would remove them. The rule and
-// the per-screen list are in docs/layers/UI.md.
+// The generic row list that used to render here is gone: the feed is its own Yew component
+// (`rust/ui/src/yew_views/portal_activity.rs`) inside the portal's own Yew shell, with the layout, the channel labels,
+// the entry count, the empty state and the person/deal links of `components/portal/activity-feed.tsx`. The payload comes
+// from `/api/portal/rust-ui/page`, which serves the read model's fields rather than a column list.
 // ---------------------------------------------------------------------------
 
-export default function ActivityPage() {
-  return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="activity" />
-    </div>
-  )
+export default function Page() {
+  return <PortalYewApp screen="activity" />
 }

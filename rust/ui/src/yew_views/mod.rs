@@ -9,4 +9,6 @@ pub mod buyers;
 pub mod sellers;
 pub mod services;
 pub mod chrome;
+pub mod portal_activity;
+pub mod portal_shell;
 pub mod home;

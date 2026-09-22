@@ -38,6 +38,8 @@ pub mod yew_effects;
 #[cfg(all(feature = "wasm", feature = "yew-router"))]
 pub mod yew_router;
 #[cfg(all(feature = "wasm", feature = "yew"))]
+pub mod yew_portal;
+#[cfg(all(feature = "wasm", feature = "yew"))]
 pub mod yew_views;
 
 pub mod icons;

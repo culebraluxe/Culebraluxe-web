@@ -442,6 +442,44 @@ pub struct PropertyRecord {
     pub documents: Vec<MediaItem>,
 }
 
+/// The portal's own page payload: what one portal screen renders, in the screen's real shape.
+///
+/// WHY THIS EXISTS. A portal screen used to arrive as `RustUiRow { id, cells, badge }` — a generic list with the fields
+/// flattened in and the rest thrown away. That is a fine transport for a table and a wrong one for a screen: the
+/// Activity feed renders a channel, a direction, a person, a summary and the property or deal a line belongs to, and
+/// `cells` keeps none of those as fields. So a screen that is really ported gets a DTO of its own here — the read
+/// model's fields, not a column list it has to decode.
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalPage {
+    /// `/portal/activity` — the unified feed, ordered as the read model returned it.
+    pub activity: Vec<PortalActivityEntry>,
+}
+
+/// One line of the unified activity feed, with the fields the live screen renders.
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalActivityEntry {
+    pub id: String,
+    /// `website`, `email`, `call`, `imessage`, `sms`, `meeting`, `showing`, `document`, `manual`, `whatsapp` — labelled
+    /// for display by the screen, not here.
+    pub channel: String,
+    /// Which way it went, when the channel has a direction.
+    pub direction: Option<String>,
+    /// Already formatted by the read model: the screen shows the label, it does not compute a date.
+    pub occurred_at_label: String,
+    pub title: Option<String>,
+    pub summary: Option<String>,
+    /// The person this line is about, and the key its link uses when there is one.
+    pub person_id: Option<String>,
+    pub person_name: Option<String>,
+    pub property_name: Option<String>,
+    /// The deal this line belongs to, and the property that deal is about — two different names, which is why both are
+    /// here.
+    pub deal_id: Option<String>,
+    pub deal_property_name: Option<String>,
+}
+
 /// Everything a public page renders from.
 ///
 /// A page is a set of named blocks, not an ordered list, because the page decides where each one goes — the hero is a
@@ -470,6 +508,11 @@ pub struct PageContent {
     pub guide: Vec<GuideItem>,
     /// The property record (screen `site-property-detail`), when the page is about one property.
     pub property: Option<PropertyRecord>,
+    /// The portal screen's payload, when the screen is one that has been ported to a real component.
+    ///
+    /// `None` for every screen still rendering rows: a screen with no DTO yet keeps the generic list, and the two live
+    /// side by side while the port goes screen by screen.
+    pub portal: Option<PortalPage>,
 }
 
 ///
@@ -624,6 +667,13 @@ pub enum Msg {
         page: PageContent,
     },
 
+    /// A portal screen's payload arrived, with its owner — the same rule as a public page's.
+    PortalLoaded {
+        screen: String,
+        generation: u64,
+        page: PortalPage,
+    },
+
     // ---- controls: the screen's own input, one message per act --------------------------------------------------
     /// The user typed in the screen's search field.
     QueryChanged(String),
@@ -685,6 +735,21 @@ impl Msg {
             },
         }
     }
+    /// The same contract for a portal screen: the fields its real component renders, not a column list.
+    pub fn portal_loaded_json(screen: &str, generation: u64, payload: &str) -> Msg {
+        match serde_json::from_str::<PortalPage>(payload) {
+            Ok(page) => Msg::PortalLoaded {
+                screen: screen.to_string(),
+                generation,
+                page,
+            },
+            Err(error) => Msg::EffectFailed {
+                screen: screen.to_string(),
+                generation,
+                message: format!("could not read the portal payload: {error}"),
+            },
+        }
+    }
 }
 
 /// What the host must do next. Requests, never decisions.
@@ -706,6 +771,15 @@ pub enum Effect {
         screen: &'static str,
         scope: Option<String>,
         /// Which mount asked. The host puts it on the request and presents it back with the answer.
+        generation: u64,
+    },
+    /// Fetch a portal screen's payload.
+    ///
+    /// A SEPARATE EFFECT FROM `FetchPage` because it is a separate route with a separate audience: the public page feed
+    /// is unauthenticated and reads what the site already publishes, while this one answers only for an authenticated
+    /// portal user. One effect meaning two audiences is how a public request ends up asking a private route.
+    FetchPortal {
+        screen: &'static str,
         generation: u64,
     },
     /// Fetch a public page's content: the blocks, not the rows.

@@ -5,6 +5,16 @@
 
 use crate::model::{record_for, Controls, Effect, Model, Msg, Screen, PAGE_SIZE};
 
+/// THE PORTAL SCREENS THAT HAVE A REAL COMPONENT, which is the other half of the coupling `is_editorial` warns about.
+///
+/// A screen named here asks for the portal page DTO and is rendered by its own Yew component; a screen that is not keeps
+/// asking for rows and keeps the generic list. The two lists — this one and the set of screens the portal Yew app can
+/// render — must agree, and the test below pins that: a screen that asks for a payload nobody renders is a screen with
+/// an empty body, which is the failure this project has already paid for once.
+pub fn is_ported_portal_screen(key: &str) -> bool {
+    matches!(key, "activity")
+}
+
 /// Whether a screen renders from a page payload rather than a list of rows.
 ///
 /// This is the distinction the whole conversion turns on. A list screen answers "what rows are there" and renders them.
@@ -78,7 +88,14 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
         //
         // EVERY EFFECT CARRIES THE GENERATION IT WAS ASKED UNDER, so the answer can be matched to the question. See
         // `Model::generation`: without it, a request issued for one screen can land while another is mounted.
-        if is_editorial(screen.key) {
+        // A screen that has a real component asks for its DTO; every other portal screen still asks for rows, so the two
+        // live side by side while the port goes screen by screen. See `is_ported_portal_screen`.
+        if is_ported_portal_screen(screen.key) {
+            vec![Effect::FetchPortal {
+                screen: screen.key,
+                generation: model.generation,
+            }]
+        } else if is_editorial(screen.key) {
             vec![Effect::FetchPage {
                 screen: screen.key,
                 scope: model.scope.clone(),
@@ -152,6 +169,26 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             if model.rows.iter().any(|row| row.id == id) {
                 model.selected_row_id = Some(id);
             }
+            Vec::new()
+        }
+        Msg::PortalLoaded {
+            screen,
+            generation,
+            page,
+        } => {
+            // The same ownership rule as every other response: a payload for a screen the user has left cannot become
+            // the payload of the screen they are on.
+            if !owns(model, &screen, generation) {
+                return Vec::new();
+            }
+            model.loading = false;
+            model.error = None;
+            // The portal payload rides in `page` as `portal`: one place on the model holds "the payload this screen
+            // asked for", so a screen and its data cannot be out of step.
+            model.page = Some(crate::model::PageContent {
+                portal: Some(page),
+                ..Default::default()
+            });
             Vec::new()
         }
         Msg::EffectFailed {

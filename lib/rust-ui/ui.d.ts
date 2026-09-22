@@ -36,6 +36,14 @@ export function mount_id(): string;
 export function page_loaded(screen: string, generation: number, payload: string): void;
 
 /**
+ * Mount the portal application for `screen` into `element_id`.
+ *
+ * The screen key comes from the page because the page owns the URL; the generator is stamped on the mount so a response
+ * can be matched to the run that asked for it.
+ */
+export function portal_mount(element_id: string, screen_key: string): void;
+
+/**
  * The typed bridge: the host fetched the rows from an application route, and this is how they land.
  *
  * `screen` AND `generation` ARE PART OF THE ANSWER. The host says which screen it fetched for and which mount asked;
@@ -65,6 +73,7 @@ export interface InitOutput {
     readonly mount: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
     readonly mount_id: () => [number, number];
     readonly page_loaded: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly portal_mount: (a: number, b: number, c: number, d: number) => [number, number];
     readonly rows_loaded: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly yew_mount: (a: number, b: number) => [number, number];
     readonly wasm_bindgen_4d678d08ce442f14___convert__closures_____invoke___wasm_bindgen_4d678d08ce442f14___JsValue__core_ed718c3d60ebd546___result__Result_____wasm_bindgen_4d678d08ce442f14___JsError___true_: (a: number, b: number, c: any) => [number, number];
