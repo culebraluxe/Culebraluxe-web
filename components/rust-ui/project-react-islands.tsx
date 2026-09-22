@@ -756,8 +756,9 @@ function sameIslandState(left: IslandState, right: IslandState): boolean {
  * Rendering adapter only.
  *
  * Yew owns the page, project selection, tabs, and commands. This component
- * observes Yew's two vendor slots and portals the existing React-only widgets
- * into them. No application state crosses back from these read-only widgets.
+ * observes Yew's React-island slots and portals the existing mature widgets
+ * into them. Yew remains the application-state owner; only navigator intents
+ * cross back through the reducer bridge.
  */
 export function ProjectReactIslands() {
   const [state, setState] = useState<IslandState>(EMPTY)
