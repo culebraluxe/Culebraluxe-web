@@ -12,6 +12,7 @@ const PAGE_PATH: &str = "/api/rust-ui/public-page";
 const ROWS_PATH: &str = "/api/rust-ui/public-rows";
 const PORTAL_PATH: &str = "/api/portal/rust-ui/page";
 const COCKPIT_PATH: &str = "/api/portal/rust-ui/cockpit";
+const CABINET_PATH: &str = "/api/portal/rust-ui/cabinet";
 const CLIENTS_PATH: &str = "/api/portal/rust-ui/clients";
 const FORMS_PATH: &str = "/api/portal/rust-ui/forms";
 const PROJECTS_PATH: &str = "/api/portal/rust-ui/projects";
@@ -297,6 +298,12 @@ fn run_projects_command(
 
 fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
     let (url, screen, generation, kind) = match effect {
+        Effect::FetchCabinet { screen, generation } => (
+            CABINET_PATH.to_string(),
+            screen,
+            generation,
+            Kind::Portal,
+        ),
         Effect::FetchCockpit { screen, generation } => (
             COCKPIT_PATH.to_string(),
             screen,
