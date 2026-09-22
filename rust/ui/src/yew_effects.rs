@@ -11,12 +11,20 @@ use crate::model::{Effect, Msg};
 const PAGE_PATH: &str = "/api/rust-ui/public-page";
 const ROWS_PATH: &str = "/api/rust-ui/public-rows";
 const PORTAL_PATH: &str = "/api/portal/rust-ui/page";
+const COCKPIT_PATH: &str = "/api/portal/rust-ui/cockpit";
 const CLIENTS_PATH: &str = "/api/portal/rust-ui/clients";
 const FORMS_PATH: &str = "/api/portal/rust-ui/forms";
 const PROJECTS_PATH: &str = "/api/portal/rust-ui/projects";
 
 pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
     match effect {
+        Effect::CompleteCockpitTask {
+            screen,
+            generation,
+            task_id,
+        } => {
+            run_cockpit_command(screen, generation, task_id, dispatch);
+        }
         Effect::UpdateProjectStatus {
             screen,
             generation,
@@ -190,6 +198,57 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
     }
 }
 
+fn run_cockpit_command(
+    screen: &'static str,
+    generation: u64,
+    task_id: String,
+    dispatch: &Callback<Msg>,
+) {
+    let dispatch = dispatch.clone();
+    spawn_local(async move {
+        let body = serde_json::json!({
+            "action": "completeTask",
+            "taskId": task_id,
+        })
+        .to_string();
+        let request = match Request::post(COCKPIT_PATH)
+            .header("content-type", "application/json")
+            .body(body)
+        {
+            Ok(request) => request,
+            Err(error) => {
+                dispatch.emit(Msg::EffectFailed {
+                    screen: screen.to_string(),
+                    generation,
+                    message: format!("the Cockpit command could not be built: {error}"),
+                });
+                return;
+            }
+        };
+        let msg = match request.send().await {
+            Ok(response) if response.ok() => match response.text().await {
+                Ok(body) => Msg::portal_loaded_json(screen, generation, &body),
+                Err(error) => Msg::EffectFailed {
+                    screen: screen.to_string(),
+                    generation,
+                    message: format!("the Cockpit command answer could not be read: {error}"),
+                },
+            },
+            Ok(response) => Msg::EffectFailed {
+                screen: screen.to_string(),
+                generation,
+                message: format!("the Cockpit command failed with {}", response.status()),
+            },
+            Err(error) => Msg::EffectFailed {
+                screen: screen.to_string(),
+                generation,
+                message: format!("the Cockpit command could not be sent: {error}"),
+            },
+        };
+        dispatch.emit(msg);
+    });
+}
+
 fn run_projects_command(
     screen: &'static str,
     generation: u64,
@@ -238,6 +297,12 @@ fn run_projects_command(
 
 fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
     let (url, screen, generation, kind) = match effect {
+        Effect::FetchCockpit { screen, generation } => (
+            COCKPIT_PATH.to_string(),
+            screen,
+            generation,
+            Kind::Portal,
+        ),
         Effect::FetchPage {
             screen,
             scope,
@@ -297,7 +362,8 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
             generation,
             Kind::Rows,
         ),
-        Effect::SaveForm { .. }
+        Effect::CompleteCockpitTask { .. }
+        | Effect::SaveForm { .. }
         | Effect::CreateForm { .. }
         | Effect::UpdateProjectStatus { .. }
         | Effect::SaveProjectWork { .. }
