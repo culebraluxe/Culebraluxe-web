@@ -454,6 +454,8 @@ pub struct PropertyRecord {
 pub struct PortalPage {
     /// CORE Cockpit — the situational-awareness landing page.
     pub cockpit: Option<PortalCockpitPage>,
+    /// CORE Cabinet — canonical immutable issued-document repository.
+    pub cabinet: Option<PortalCabinetPage>,
     /// `/portal/activity` — the unified feed, ordered as the read model returned it.
     pub activity: Vec<PortalActivityEntry>,
     /// `/portal/workflows` — definition-driven transaction workflow cards.
@@ -466,6 +468,34 @@ pub struct PortalPage {
     pub forms: Option<PortalFormsPage>,
     /// CORE Projects — authoritative Rust Project/WBS data plus reducer-owned workspace selection.
     pub projects: Option<PortalProjectsPage>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalCabinetPage {
+    pub documents: Vec<PortalCabinetDocument>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalCabinetDocument {
+    pub id: String,
+    pub deal_id: Option<String>,
+    pub property_id: Option<String>,
+    pub document_type_label: Option<String>,
+    pub title: Option<String>,
+    pub state: String,
+    pub template_id: Option<String>,
+    pub template_version: Option<i32>,
+    pub issued_version: Option<i32>,
+    pub issued_checksum_sha256: Option<String>,
+    pub issued_by_display_name: Option<String>,
+    pub party_name: Option<String>,
+    pub property_name: Option<String>,
+    pub deal_name: Option<String>,
+    pub created_at: String,
+    pub signed_artifact_available: bool,
+    pub signed_audit_available: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -1331,6 +1361,11 @@ pub enum Effect {
         screen: &'static str,
         scope: Option<String>,
         /// Which mount asked. The host puts it on the request and presents it back with the answer.
+        generation: u64,
+    },
+    /// Fetch the CORE Cabinet from the authoritative Rust Vault service.
+    FetchCabinet {
+        screen: &'static str,
         generation: u64,
     },
     /// Fetch the CORE Cockpit from its dedicated Rust-backed bridge.
