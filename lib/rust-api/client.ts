@@ -408,6 +408,19 @@ export async function rustApiCreateDeal<T>(
   return rustApiJsonWrite<T>('/v1/deals', 'POST', body, options)
 }
 
+export async function rustApiDealCommand<T>(
+  dealId: string,
+  body: Record<string, unknown>,
+  options: RustApiJsonWriteOptions = {},
+): Promise<RustApiSuccess<T>> {
+  return rustApiJsonWrite<T>(
+    (`/v1/deals/${encodeURIComponent(dealId)}/commands`) as `/v1/${string}`,
+    'POST',
+    body,
+    options,
+  )
+}
+
 export async function rustApiCreateForm<T>(
   body: Record<string, unknown>,
   options: RustApiJsonWriteOptions = {},
