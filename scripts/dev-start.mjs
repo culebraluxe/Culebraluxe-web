@@ -62,6 +62,17 @@ function isNextProcess(pid) {
   return NEXT_RE.test(commandOf(pid))
 }
 
+/**
+ * The process state field (`ps -o stat=`): `T` means STOPPED, which is what Ctrl-Z leaves behind.
+ *
+ * Worth its own function because it changes which signal works, not just how a message reads: a stopped process never
+ * runs a SIGTERM handler, so the port stays held and the next dev server fails to bind — while the browser keeps
+ * talking to a server that accepts a connection and never answers.
+ */
+function processState(pid) {
+  return sh(`ps -o stat= -p ${pid}`).trim()
+}
+
 /** cwd of a process (macOS via lsof). Empty string when it cannot be resolved. */
 function processCwd(pid) {
   const raw = sh(`lsof -a -p ${pid} -d cwd -Fn`)
@@ -92,6 +103,19 @@ function collectNextProcesses() {
 }
 
 function killPid(pid) {
+  // A STOPPED PROCESS CANNOT BE KILLED BY SIGTERM. Ctrl-Z suspends the dev server with SIGTSTP, and a suspended process
+  // does not run its signal handler — so SIGTERM sits queued, the process keeps the port, and the next `pnpm dev` fails
+  // to bind while the browser talks to something that accepts a connection and never answers. That presents as a blank
+  // white page in a normal AND a private window, which is indistinguishable from a broken UI and cost an hour today.
+  // SIGKILL cannot be caught or deferred, so it works on a stopped process; it is the right tool for exactly one case.
+  if (processState(pid).includes('T')) {
+    out(`  ✓ Suspended Next server PID ${pid} (Ctrl-Z) force-stopped`)
+    try {
+      process.kill(Number(pid), 'SIGKILL')
+    } catch {
+      /* already gone */
+    }
+  }
   try {
     process.kill(Number(pid), 'SIGTERM')
   } catch {
