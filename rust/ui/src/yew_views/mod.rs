@@ -6,6 +6,7 @@
 
 pub mod about;
 pub mod buyers;
+pub mod sellers;
 pub mod services;
 pub mod chrome;
 pub mod home;

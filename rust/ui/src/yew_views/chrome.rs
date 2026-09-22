@@ -95,7 +95,7 @@ impl Component for Header {
                         </NavLink>
                         <nav class="hidden items-center gap-1 lg:flex" aria-label="Primary">
                             { item(Route::Buyers, "Buyers", CAPSULE) }
-                            { outside("/sellers", "Sellers", CAPSULE) }
+                            { item(Route::Sellers, "Sellers", CAPSULE) }
                             { item(Route::Services, "Services", CAPSULE) }
                             { outside("/guide", "Guide", CAPSULE) }
                             { item(Route::About, "About", CAPSULE) }
@@ -111,7 +111,7 @@ impl Component for Header {
                             </summary>
                             <nav class="absolute inset-x-0 top-full flex max-h-[75svh] flex-col gap-2 overflow-y-auto border-t border-brand-gold/25 bg-brand-navy px-4 py-4 backdrop-blur-md" aria-label="Mobile">
                                 { item(Route::Buyers, "Buyers", MOBILE_CAPSULE) }
-                                { outside("/sellers", "Sellers", MOBILE_CAPSULE) }
+                                { item(Route::Sellers, "Sellers", MOBILE_CAPSULE) }
                                 { item(Route::Services, "Services", MOBILE_CAPSULE) }
                                 { outside("/guide", "Guide", MOBILE_CAPSULE) }
                                 { item(Route::About, "About", MOBILE_CAPSULE) }
@@ -152,7 +152,7 @@ impl Component for Footer {
                         </div>
                         <nav class="flex flex-wrap gap-x-8 gap-y-3" aria-label="Footer">
                             <NavLink to={Route::Buyers} classes={classes!(FOOTER_LINK)}>{"Buyers"}</NavLink>
-                            <a href="/sellers" class={FOOTER_LINK}>{"Sellers"}</a>
+                            <NavLink to={Route::Sellers} classes={classes!(FOOTER_LINK)}>{"Sellers"}</NavLink>
                             <NavLink to={Route::Services} classes={classes!(FOOTER_LINK)}>{"Services"}</NavLink>
                             <a href="/guide" class={FOOTER_LINK}>{"Guide"}</a>
                             <NavLink to={Route::About} classes={classes!(FOOTER_LINK)}>{"About"}</NavLink>

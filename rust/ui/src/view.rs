@@ -2299,14 +2299,14 @@ pub(crate) const BUYER_SERVICES: [&str; 6] = [
 ];
 
 // Sellers, section 01: title, body, icon.
-const SELLER_WHY_US: [(&str, &str, &str); 3] = [
+pub(crate) const SELLER_WHY_US: [(&str, &str, &str); 3] = [
     ("Local intelligence", "Deep knowledge of properties, places, and local conditions that do not appear neatly in a database.", "compass"),
     ("Individual attention", "Every property receives its own positioning, strategy, presentation, and path to market.", "user-round"),
     ("Selective representation", "We maintain a limited portfolio so each listing receives meaningful focus and care.", "gem"),
 ];
 
 // Section 02: the six steps of the process.
-const SELLER_PROCESS: [(&str, &str, &str); 6] = [
+pub(crate) const SELLER_PROCESS: [(&str, &str, &str); 6] = [
     ("Understand", "The property, circumstances, and objectives.", "search"),
     ("Position", "Market analysis and pricing strategy.", "target"),
     ("Prepare", "Property preparation and media production.", "camera"),
@@ -2316,19 +2316,19 @@ const SELLER_PROCESS: [(&str, &str, &str); 6] = [
 ];
 
 // Section 03: the five dimensions that feed the market position, and the two on the other side of it.
-const SELLER_MARKET_LEFT: [(&str, &str, &str); 3] = [
+pub(crate) const SELLER_MARKET_LEFT: [(&str, &str, &str); 3] = [
     ("Property", "Home, improvements, land, views, condition.", "home"),
     ("Place", "Micro-location, access, infrastructure, island context.", "map-pin"),
     ("Market", "Comparable sales, competition, supply, and current conditions.", "bar-chart-3"),
 ];
 
-const SELLER_MARKET_RIGHT: [(&str, &str, &str); 2] = [
+pub(crate) const SELLER_MARKET_RIGHT: [(&str, &str, &str); 2] = [
     ("Buyer", "Likely buyer pool, motivations, ability, and timing.", "user-round"),
     ("Objectives", "Your goals, timing, flexibility, and desired outcome.", "flag"),
 ];
 
 // Section 04: the two lists under Presentation & Exposure. Titles only — that is all the page shows.
-const SELLER_PRESENTATION: [(&str, &str); 6] = [
+pub(crate) const SELLER_PRESENTATION: [(&str, &str); 6] = [
     ("Professional photography", "camera"),
     ("Video & walkthroughs", "video"),
     ("Staging & presentation guidance", "home"),
@@ -2337,7 +2337,7 @@ const SELLER_PRESENTATION: [(&str, &str); 6] = [
     ("Print & marketing materials", "clipboard-check"),
 ];
 
-const SELLER_DISTRIBUTION: [(&str, &str); 6] = [
+pub(crate) const SELLER_DISTRIBUTION: [(&str, &str); 6] = [
     ("CulebraLuxe buyer relationships", "users"),
     ("Direct qualified-buyer outreach", "user-round"),
     ("Targeted email campaigns", "mail"),
@@ -2347,7 +2347,7 @@ const SELLER_DISTRIBUTION: [(&str, &str); 6] = [
 ];
 
 // Section 05: the six stages of representation.
-const SELLER_REPRESENTATION: [(&str, &str, &str); 6] = [
+pub(crate) const SELLER_REPRESENTATION: [(&str, &str, &str); 6] = [
     ("Private showings", "Personally presenting the property to qualified buyers.", "users"),
     ("Offers & negotiation", "Evaluating offers and negotiating terms that align with your goals.", "file-text"),
     ("Contract progression", "Moving from accepted offer into the appropriate purchase-and-sale process.", "pen-line"),
@@ -2462,9 +2462,9 @@ fn seller_process() -> String {
 
 // The two braces in the market diagram. Held as constants because a `{` or `}` inside a format string has to be doubled,
 // and a brace that means a brace is easier to read than an escape sequence.
-const SELLER_BRACE_RIGHT: &str =
+pub(crate) const SELLER_BRACE_RIGHT: &str =
     "<span class=\"select-none font-serif text-[150px] font-extralight leading-none text-accent/35\">}</span>";
-const SELLER_BRACE_LEFT: &str =
+pub(crate) const SELLER_BRACE_LEFT: &str =
     "<span class=\"select-none font-serif text-[150px] font-extralight leading-none text-accent/35\">{</span>";
 
 /// 03 — Market Positioning: five dimensions in, one considered position out.
@@ -3292,7 +3292,7 @@ fn portal_auth_proof_view() -> String {
 /// NOT retyped, deliberately: this is reviewed wording (a policy Meta requires for the WhatsApp integration), and a
 /// hand-copied paragraph is a paragraph that can quietly differ. `kind` is the tag it had, so the render below can put
 /// it back in the same shape.
-const SELLER_STRATEGY_VIEW_CONTENT: [(&str, &str); 21] = [
+pub(crate) const SELLER_STRATEGY_VIEW_CONTENT: [(&str, &str); 21] = [
     ("p", "Core · Strategic disposition"),
     ("h1", "Seller Strategy"),
     ("p", "Strategic disposition analysis for sellers — change any assumption and the model recalculates live."),
