@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 
 import { withApiHandler } from '@/lib/error-capture-seam'
-import { rustApiEngineCommand, rustApiRead } from '@/lib/rust-api/client'
+import { rustApiCompleteTask, rustApiRead } from '@/lib/rust-api/client'
 
 type CockpitSnapshot = {
   activeClientCount: number
@@ -36,10 +36,7 @@ async function POSTHandler(req: NextRequest): Promise<Response> {
     return NextResponse.json({ error: 'taskId is required.' }, { status: 400 })
   }
 
-  await rustApiEngineCommand('/v1/engine/tasks/complete', {
-    task: taskId,
-    kind: 'application',
-  })
+  await rustApiCompleteTask(taskId)
 
   return NextResponse.json(await payload())
 }
