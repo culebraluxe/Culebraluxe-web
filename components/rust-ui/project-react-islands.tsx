@@ -1176,6 +1176,21 @@ function safeUnmount(root: Root) {
   }
 }
 
+/**
+ * Route cleanup runs inside React's own commit. Unmounting one of the nested
+ * island roots synchronously from that cleanup asks React to tear down a second
+ * root while it is still rendering the outer portal tree, which produces:
+ *
+ *   "Attempted to synchronously unmount a root while React was already rendering."
+ *
+ * Queue the island teardown until the current commit stack has finished. The
+ * old island target is already obsolete at that point; this changes only the
+ * timing of disposal, not root ownership.
+ */
+function deferUnmount(root: Root) {
+  queueMicrotask(() => safeUnmount(root))
+}
+
 function syncIsland<T>(
   host: Element,
   mounted: Map<string, MountedIsland>,
@@ -1295,8 +1310,9 @@ export function ProjectReactIslands() {
     return () => {
       observer.disconnect()
       if (frame) window.cancelAnimationFrame(frame)
-      for (const island of mountedRef.current.values()) safeUnmount(island.root)
+      const mounted = [...mountedRef.current.values()]
       mountedRef.current.clear()
+      for (const island of mounted) deferUnmount(island.root)
     }
   }, [])
 
