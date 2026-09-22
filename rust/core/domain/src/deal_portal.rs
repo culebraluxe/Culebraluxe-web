@@ -229,7 +229,7 @@ pub enum DealWorkspaceCommand {
     },
     SubmitOffer {
         person_id: String,
-        amount: f64,
+        amount: String,
         parent_offer_id: Option<String>,
     },
     WithdrawOffer {
