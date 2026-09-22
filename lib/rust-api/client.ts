@@ -323,3 +323,100 @@ export async function rustApiWriteForm<T>(
 
   return payload
 }
+
+
+type RustApiJsonWriteOptions = RustApiReadOptions
+
+async function rustApiJsonWrite<T>(
+  path: `/v1/${string}`,
+  method: 'POST' | 'PATCH',
+  body: Record<string, unknown>,
+  options: RustApiJsonWriteOptions = {},
+): Promise<RustApiSuccess<T>> {
+  const identity =
+    (await createAuthJsSessionAdapter().getSession()) ??
+    (await bypassBridgeIdentity())
+  if (!identity) {
+    throw new RustApiError({
+      status: 401,
+      code: 'AUTH_IDENTITY_REQUIRED',
+      message: 'An authenticated provider identity is required.',
+    })
+  }
+
+  const correlationId = options.correlationId?.trim() || randomUUID()
+  const headers = {
+    ...buildRustBridgeHeaders({
+      identity,
+      internalApiKey: internalApiKey(),
+      correlationId,
+      causationId: options.causationId,
+    }),
+    'content-type': 'application/json',
+  }
+
+  let response: Response
+  try {
+    response = await fetch(`${rustApiBaseUrl()}${path}`, {
+      method,
+      headers,
+      body: JSON.stringify(body),
+      cache: 'no-store',
+    })
+  } catch (cause) {
+    throw new RustApiError({
+      status: 503,
+      code: 'RUST_API_UNAVAILABLE',
+      message: cause instanceof Error ? cause.message : 'Rust API request failed.',
+      retryable: true,
+      correlationId,
+    })
+  }
+
+  let payload: RustApiSuccess<T> | RustApiFailure
+  try {
+    payload = (await response.json()) as RustApiSuccess<T> | RustApiFailure
+  } catch {
+    throw new RustApiError({
+      status: 502,
+      code: 'RUST_API_INVALID_RESPONSE',
+      message: 'Rust API returned a non-JSON response.',
+      retryable: true,
+      correlationId,
+    })
+  }
+
+  if (!response.ok || !payload.ok) {
+    const failure = payload as RustApiFailure
+    throw new RustApiError({
+      status: response.status,
+      code: failure.error?.code ?? 'RUST_API_FAILURE',
+      message: failure.error?.message ?? 'Rust API request failed.',
+      retryable: failure.error?.retryable ?? response.status >= 500,
+      correlationId: failure.correlationId ?? correlationId,
+      incidentId: failure.error?.incidentId ?? null,
+    })
+  }
+
+  return payload
+}
+
+export async function rustApiCreateForm<T>(
+  body: Record<string, unknown>,
+  options: RustApiJsonWriteOptions = {},
+): Promise<RustApiSuccess<T>> {
+  return rustApiJsonWrite<T>('/v1/forms', 'POST', body, options)
+}
+
+export async function rustApiUpdateForm<T>(
+  formId: string,
+  body: Record<string, unknown>,
+  options: RustApiJsonWriteOptions = {},
+): Promise<RustApiSuccess<T>> {
+  return rustApiJsonWrite<T>(
+    (`/v1/forms/${encodeURIComponent(formId)}`) as `/v1/${string}`,
+    'PATCH',
+    body,
+    options,
+  )
+}

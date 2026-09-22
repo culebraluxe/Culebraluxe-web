@@ -19,7 +19,7 @@ use integrations::boldsign::{BoldSignConfig, BoldSignSignatureProvider};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use service::SignatureProvider;
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -101,6 +101,29 @@ struct CommsPanelQuery {
 struct CommsTimelineQuery {
     page: Option<i64>,
     page_size: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateFormBody {
+    template_id: String,
+    template_version: i32,
+    deal_id: Option<String>,
+    person_id: Option<String>,
+    property_id: Option<String>,
+    #[serde(default)]
+    field_values: BTreeMap<String, String>,
+    #[serde(default)]
+    sections: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateFormBody {
+    field_values: Option<BTreeMap<String, String>>,
+    sections: Option<BTreeMap<String, String>>,
+    status: Option<String>,
+    contract_id: Option<String>,
 }
 
 struct UnavailableVaultArtifactPort;
@@ -274,8 +297,14 @@ pub fn router(state: ApiState) -> Router {
             "/v1/process-instances/{id}/contracts",
             get(contracts_for_process_instance),
         )
-        .route("/v1/forms", get(forms))
-        .route("/v1/forms/{id}", get(form))
+        .route("/v1/forms", get(forms).post(create_form))
+        .route("/v1/forms/deal-facts/{deal_id}", get(form_deal_facts))
+        .route("/v1/forms/{id}/signers", get(form_signers))
+        .route(
+            "/v1/forms/{id}/issued-document",
+            get(form_issued_document),
+        )
+        .route("/v1/forms/{id}", get(form).patch(update_form))
         .route("/v1/comms/{person_id}/panel", get(comms_panel))
         .route("/v1/comms/{person_id}/timeline", get(comms_timeline))
         .route("/v1/calendar", get(calendar))
@@ -743,6 +772,122 @@ async fn form(
                 &resolved,
             )
         })?;
+    Ok(success(value, &resolved))
+}
+
+async fn create_form(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<CreateFormBody>,
+) -> Result<Json<ApiSuccess<domain::FormInstance>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().forms();
+    let deal_id = body.deal_id.filter(|value| !value.trim().is_empty());
+    let request = domain::CreateFormInstanceRequest {
+        template_id: body.template_id,
+        template_version: body.template_version,
+        deal_id: deal_id.clone(),
+        person_id: body.person_id.filter(|value| !value.trim().is_empty()),
+        property_id: body.property_id.filter(|value| !value.trim().is_empty()),
+        field_values: body.field_values,
+        sections: body.sections,
+        created_by_user_id: Some(resolved.acting_user.app_user_id.clone()),
+    };
+    let value = service
+        .create_instance(&request, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    if let Some(deal_id) = deal_id.as_deref() {
+        service
+            .seed_participants_from_deal(&value.id, deal_id, &resolved.service)
+            .await
+            .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    }
+    Ok(success(value, &resolved))
+}
+
+async fn update_form(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateFormBody>,
+) -> Result<Json<ApiSuccess<domain::FormInstance>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let status = match body.status.as_deref() {
+        Some(value) => Some(domain::FormInstanceStatus::try_from(value).map_err(|message| {
+            correlate(
+                ApiError::from(CoreServiceError::business("FORM_STATUS_INVALID", message)),
+                &resolved,
+            )
+        })?),
+        None => None,
+    };
+    let mut service = state.services().forms();
+    let value = service
+        .update_instance(
+            &domain::UpdateFormInstanceRequest {
+                form_instance_id: id.clone(),
+                input: domain::UpdateFormInstanceInput {
+                    field_values: body.field_values,
+                    sections: body.sections,
+                    status,
+                    contract_id: body.contract_id,
+                },
+            },
+            &resolved.service,
+        )
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?
+        .ok_or_else(|| {
+            correlate(
+                ApiError::not_found("FORM_NOT_FOUND", format!("Form instance not found: {id}")),
+                &resolved,
+            )
+        })?;
+    Ok(success(value, &resolved))
+}
+
+async fn form_deal_facts(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(deal_id): Path<String>,
+) -> Result<Json<ApiSuccess<Option<domain::DealFormFacts>>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().forms();
+    let value = service
+        .deal_facts(&deal_id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn form_signers(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<ApiSuccess<Vec<domain::FormSignerPerson>>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().forms();
+    let value = service
+        .list_signer_people(&id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn form_issued_document(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<ApiSuccess<Option<domain::IssuedDocumentForFormInstance>>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state
+        .services()
+        .vault(Arc::new(UnavailableVaultArtifactPort));
+    let value = service
+        .issued_for_form_instance(&id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(value, &resolved))
 }
 

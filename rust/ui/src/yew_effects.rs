@@ -1,13 +1,6 @@
 //! The effects, run by Yew.
 //!
-//! WHAT THIS REPLACES: the TypeScript host, which owned the network on the old path and had to be told what to fetch by
-//! a JSON effect list over a DOM event. Here an `Effect` is a value the app can act on directly, the request is an async
-//! function, and the answer comes back as a `Msg` — which is the only way state changes, so a late response is subject
-//! to the same ownership rule as everything else (`update::owns`).
-//!
-//! THE ENDPOINTS ARE UNCHANGED. `/api/rust-ui/public-page` and `/api/rust-ui/public-rows` are the application's own
-//! routes: they hold the session and the database, and this module holds no credential. The one thing that moved is the
-//! side of the boundary the fetch happens on.
+//! The reducer decides what must happen; this module only performs those effects and returns completion messages.
 
 use gloo_net::http::Request;
 use yew::platform::spawn_local;
@@ -15,20 +8,147 @@ use yew::Callback;
 
 use crate::model::{Effect, Msg};
 
-/// Page content: a screen's blocks, hero, listings and records.
 const PAGE_PATH: &str = "/api/rust-ui/public-page";
-/// Rows: a list screen's data, and nothing else.
 const ROWS_PATH: &str = "/api/rust-ui/public-rows";
-/// A portal screen's payload, for the screens that have a real component.
 const PORTAL_PATH: &str = "/api/portal/rust-ui/page";
-/// CORE Clients has its own Rust-API-backed transport because search/paging/selection are server-side.
 const CLIENTS_PATH: &str = "/api/portal/rust-ui/clients";
+const FORMS_PATH: &str = "/api/portal/rust-ui/forms";
 
-/// Run one effect and dispatch what it produces.
-///
-/// A failed request becomes `Msg::EffectFailed`, which the model renders as a message rather than an empty screen:
-/// "nothing to show" and "we could not ask" are different states, and the user deserves the difference.
 pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
+    match effect {
+        Effect::BrowserNavigate { href } => {
+            if let Some(window) = web_sys::window() {
+                let _ = window.location().set_href(&href);
+            }
+        }
+        Effect::SaveForm {
+            screen,
+            generation,
+            form_id,
+            field_values,
+            sections,
+        } => {
+            let dispatch = dispatch.clone();
+            spawn_local(async move {
+                let body = serde_json::json!({
+                    "action": "save",
+                    "formId": form_id,
+                    "fieldValues": field_values,
+                    "sections": sections,
+                })
+                .to_string();
+                let request = match Request::post(FORMS_PATH)
+                    .header("content-type", "application/json")
+                    .body(body)
+                {
+                    Ok(request) => request,
+                    Err(error) => {
+                        dispatch.emit(Msg::EffectFailed {
+                            screen: screen.to_string(),
+                            generation,
+                            message: format!("the form save request could not be built: {error}"),
+                        });
+                        return;
+                    }
+                };
+                let msg = match request.send().await {
+                    Ok(response) if response.ok() => match response.text().await {
+                        Ok(body) => Msg::portal_loaded_json(screen, generation, &body),
+                        Err(error) => Msg::EffectFailed {
+                            screen: screen.to_string(),
+                            generation,
+                            message: format!("the form save answer could not be read: {error}"),
+                        },
+                    },
+                    Ok(response) => Msg::EffectFailed {
+                        screen: screen.to_string(),
+                        generation,
+                        message: format!("the form save failed with {}", response.status()),
+                    },
+                    Err(error) => Msg::EffectFailed {
+                        screen: screen.to_string(),
+                        generation,
+                        message: format!("the form save request could not be sent: {error}"),
+                    },
+                };
+                dispatch.emit(msg);
+            });
+        }
+        Effect::CreateForm {
+            screen,
+            generation,
+            template_id,
+            deal_id,
+            person_id,
+            property_id,
+        } => {
+            let dispatch = dispatch.clone();
+            spawn_local(async move {
+                let body = serde_json::json!({
+                    "action": "create",
+                    "templateId": template_id,
+                    "dealId": deal_id,
+                    "personId": person_id,
+                    "propertyId": property_id,
+                })
+                .to_string();
+                let request = match Request::post(FORMS_PATH)
+                    .header("content-type", "application/json")
+                    .body(body)
+                {
+                    Ok(request) => request,
+                    Err(error) => {
+                        dispatch.emit(Msg::EffectFailed {
+                            screen: screen.to_string(),
+                            generation,
+                            message: format!("the new-form request could not be built: {error}"),
+                        });
+                        return;
+                    }
+                };
+                let msg = match request.send().await {
+                    Ok(response) if response.ok() => match response.text().await {
+                        Ok(body) => match serde_json::from_str::<serde_json::Value>(&body)
+                            .ok()
+                            .and_then(|value| {
+                                value
+                                    .get("formId")
+                                    .and_then(serde_json::Value::as_str)
+                                    .map(str::to_owned)
+                            })
+                        {
+                            Some(form_id) => Msg::FormCreated { form_id },
+                            None => Msg::EffectFailed {
+                                screen: screen.to_string(),
+                                generation,
+                                message: "the new-form answer did not contain formId".into(),
+                            },
+                        },
+                        Err(error) => Msg::EffectFailed {
+                            screen: screen.to_string(),
+                            generation,
+                            message: format!("the new-form answer could not be read: {error}"),
+                        },
+                    },
+                    Ok(response) => Msg::EffectFailed {
+                        screen: screen.to_string(),
+                        generation,
+                        message: format!("the new-form request failed with {}", response.status()),
+                    },
+                    Err(error) => Msg::EffectFailed {
+                        screen: screen.to_string(),
+                        generation,
+                        message: format!("the new-form request could not be sent: {error}"),
+                    },
+                };
+                dispatch.emit(msg);
+            });
+        }
+        effect => run_read(effect, dispatch),
+    }
+}
+
+fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
     let (url, screen, generation, kind) = match effect {
         Effect::FetchPage {
             screen,
@@ -69,6 +189,16 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
             generation,
             Kind::Portal,
         ),
+        Effect::FetchForms {
+            screen,
+            scope,
+            generation,
+        } => (
+            query(FORMS_PATH, screen, scope.as_deref()),
+            screen,
+            generation,
+            Kind::Portal,
+        ),
         Effect::FetchRows {
             screen,
             scope,
@@ -79,14 +209,14 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
             generation,
             Kind::Rows,
         ),
+        Effect::SaveForm { .. }
+        | Effect::CreateForm { .. }
+        | Effect::BrowserNavigate { .. } => return,
     };
 
     let dispatch = dispatch.clone();
     spawn_local(async move {
         let answer = Request::get(&url).send().await;
-        // A FAILURE CARRIES ITS OWNER TOO. The message names the screen and the generation the request was made under,
-        // so the reducer can refuse a failure that belongs to a screen the visitor has already left — otherwise a
-        // rejected request for one page would put its error on another.
         let fail = |message: String| Msg::EffectFailed {
             screen: screen.to_string(),
             generation,
@@ -94,8 +224,6 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
         };
         let msg = match answer {
             Ok(response) if response.ok() => match response.text().await {
-                // The payload carries the screen and the generation it was fetched for, so the reducer can refuse an
-                // answer whose owner has moved on. Order of arrival is not ownership.
                 Ok(body) => match kind {
                     Kind::Page => Msg::page_loaded_json(screen, generation, &body),
                     Kind::Portal => Msg::portal_loaded_json(screen, generation, &body),
@@ -118,8 +246,6 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
     });
 }
 
-/// What a payload is for, so the right parser reads it. Three requests, three shapes — and a portal payload parsed as
-/// rows would be an empty screen that looks like a successful answer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Page,
@@ -127,14 +253,16 @@ enum Kind {
     Rows,
 }
 
-/// The request URL: the screen, and the record key when the screen is about one record.
 fn query(path: &str, screen: &str, scope: Option<&str>) -> String {
     match scope {
-        Some(key) if !key.is_empty() => format!("{path}?screen={screen}&scope={key}"),
-        _ => format!("{path}?screen={screen}"),
+        Some(key) if !key.is_empty() => format!(
+            "{path}?screen={}&scope={}",
+            encode_component(screen),
+            encode_component(key)
+        ),
+        _ => format!("{path}?screen={}", encode_component(screen)),
     }
 }
-
 
 fn clients_query(
     screen: &str,

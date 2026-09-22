@@ -13,6 +13,7 @@ pub mod guide;
 pub mod home;
 pub mod portal_activity;
 pub mod portal_clients;
+pub mod portal_forms;
 pub mod portal_shell;
 pub mod sellers;
 pub mod services;

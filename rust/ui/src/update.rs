@@ -14,7 +14,13 @@ use crate::model::{record_for, Controls, Effect, Model, Msg, Screen, PAGE_SIZE};
 pub fn is_ported_portal_screen(key: &str) -> bool {
     matches!(
         key,
-        "activity" | "workflows" | "workflow-record" | "clients" | "client-record"
+        "activity"
+            | "workflows"
+            | "workflow-record"
+            | "clients"
+            | "client-record"
+            | "forms"
+            | "form-record"
     )
 }
 
@@ -106,6 +112,12 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
         // live side by side while the port goes screen by screen. See `is_ported_portal_screen`.
         if matches!(screen.key, "clients" | "client-record") {
             vec![client_effect(model)]
+        } else if matches!(screen.key, "forms" | "form-record") {
+            vec![Effect::FetchForms {
+                screen: screen.key,
+                scope: model.scope.clone(),
+                generation: model.generation,
+            }]
         } else if is_ported_portal_screen(screen.key) {
             vec![Effect::FetchPortal {
                 screen: screen.key,
@@ -250,6 +262,14 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 return Vec::new();
             }
             model.loading = false;
+            if let Some(forms) = model
+                .page
+                .as_mut()
+                .and_then(|page| page.portal.as_mut())
+                .and_then(|portal| portal.forms.as_mut())
+            {
+                forms.saving = false;
+            }
             model.error = Some(message);
             Vec::new()
         }
@@ -346,6 +366,106 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 next.min(pages as i64 - 1) as usize
             };
             Vec::new()
+        }
+        Msg::FormFieldChanged { name, value } => {
+            let Some(forms) = model
+                .page
+                .as_mut()
+                .and_then(|page| page.portal.as_mut())
+                .and_then(|portal| portal.forms.as_mut())
+            else {
+                return Vec::new();
+            };
+            let Some(form) = forms.selected.as_mut() else {
+                return Vec::new();
+            };
+            form.field_values.insert(name, value);
+            forms.dirty = true;
+            model.error = None;
+            Vec::new()
+        }
+        Msg::FormSectionChanged { name, value } => {
+            let Some(forms) = model
+                .page
+                .as_mut()
+                .and_then(|page| page.portal.as_mut())
+                .and_then(|portal| portal.forms.as_mut())
+            else {
+                return Vec::new();
+            };
+            let Some(form) = forms.selected.as_mut() else {
+                return Vec::new();
+            };
+            form.sections.insert(name, value);
+            forms.dirty = true;
+            model.error = None;
+            Vec::new()
+        }
+        Msg::FormSaveRequested => {
+            let Some(forms) = model
+                .page
+                .as_mut()
+                .and_then(|page| page.portal.as_mut())
+                .and_then(|portal| portal.forms.as_mut())
+            else {
+                return Vec::new();
+            };
+            if forms.saving || !forms.dirty {
+                return Vec::new();
+            }
+            let Some(form) = forms.selected.as_ref() else {
+                return Vec::new();
+            };
+            let effect = Effect::SaveForm {
+                screen: model.screen.key,
+                generation: model.generation,
+                form_id: form.id.clone(),
+                field_values: form.field_values.clone(),
+                sections: form.sections.clone(),
+            };
+            forms.saving = true;
+            model.error = None;
+            vec![effect]
+        }
+        Msg::FormCreateRequested { template_id } => {
+            let Some(forms) = model
+                .page
+                .as_mut()
+                .and_then(|page| page.portal.as_mut())
+                .and_then(|portal| portal.forms.as_mut())
+            else {
+                return Vec::new();
+            };
+            if forms.saving {
+                return Vec::new();
+            }
+            let Some(form) = forms.selected.as_ref() else {
+                return Vec::new();
+            };
+            let effect = Effect::CreateForm {
+                screen: model.screen.key,
+                generation: model.generation,
+                template_id,
+                deal_id: form.deal_id.clone(),
+                person_id: form.person_id.clone(),
+                property_id: form.property_id.clone(),
+            };
+            forms.saving = true;
+            model.error = None;
+            vec![effect]
+        }
+        Msg::FormCreated { form_id } => {
+            if let Some(forms) = model
+                .page
+                .as_mut()
+                .and_then(|page| page.portal.as_mut())
+                .and_then(|portal| portal.forms.as_mut())
+            {
+                forms.saving = false;
+            }
+            vec![Effect::BrowserNavigate {
+                href: format!("/portal/forms/{form_id}"),
+            }]
         }
     }
 }

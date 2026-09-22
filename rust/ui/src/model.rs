@@ -460,6 +460,8 @@ pub struct PortalPage {
     pub workflow: Option<PortalWorkflowDetail>,
     /// CORE Clients — directory plus whichever person is selected or directly addressed.
     pub clients: Option<PortalClientsPage>,
+    /// CORE Forms — saved sessions plus the working record/editor payload.
+    pub forms: Option<PortalFormsPage>,
 }
 
 /// One line of the unified activity feed, with the fields the live screen renders.
@@ -652,6 +654,132 @@ pub struct PortalClientProperty {
     pub relation: String,
     pub relation_status: Option<String>,
     pub address: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalFormsPage {
+    pub items: Vec<PortalFormSummary>,
+    pub selected: Option<PortalFormRecord>,
+    pub template: Option<PortalFormTemplate>,
+    pub issued: Option<PortalIssuedFormDocument>,
+    pub signers: Vec<PortalFormSigner>,
+    pub template_choices: Vec<PortalFormTemplateChoice>,
+    /// Working-editor state owned by the reducer, never by Yew hooks.
+    pub dirty: bool,
+    pub saving: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalFormSummary {
+    pub id: String,
+    pub template_id: String,
+    pub template_version: i32,
+    pub template_name: String,
+    pub active_version: i32,
+    pub status: String,
+    pub deal_id: Option<String>,
+    pub person_id: Option<String>,
+    pub property_id: Option<String>,
+    pub contract_id: Option<String>,
+    pub deal_label: Option<String>,
+    pub property_label: Option<String>,
+    pub client_name: Option<String>,
+    pub field_values: BTreeMap<String, String>,
+    pub sections: BTreeMap<String, String>,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalFormRecord {
+    pub id: String,
+    pub template_id: String,
+    pub template_version: i32,
+    pub template_name: String,
+    pub active_version: i32,
+    pub status: String,
+    pub deal_id: Option<String>,
+    pub person_id: Option<String>,
+    pub property_id: Option<String>,
+    pub contract_id: Option<String>,
+    pub deal_label: Option<String>,
+    pub property_label: Option<String>,
+    pub client_name: Option<String>,
+    pub field_values: BTreeMap<String, String>,
+    pub sections: BTreeMap<String, String>,
+    pub updated_at: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalFormTemplate {
+    pub id: String,
+    pub version: i32,
+    pub active_version: i32,
+    pub display_name: String,
+    pub document_type_label: String,
+    pub rendering_title: String,
+    pub presentation: String,
+    pub fields: Vec<PortalFormField>,
+    pub sections: Vec<PortalFormSection>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalFormField {
+    pub name: String,
+    pub label: String,
+    #[serde(rename = "type")]
+    pub field_type: String,
+    pub required: bool,
+    pub options: Vec<String>,
+    pub when: Option<PortalFormWhen>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalFormSection {
+    pub name: String,
+    pub label: String,
+    pub editable: bool,
+    pub when: Option<PortalFormWhen>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalFormWhen {
+    pub field: String,
+    pub values: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalIssuedFormDocument {
+    pub document_id: String,
+    pub issued_version: i32,
+    pub checksum: String,
+    pub created_at: String,
+    pub media_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalFormSigner {
+    pub person_id: Option<String>,
+    pub name: String,
+    pub email: Option<String>,
+    pub role: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalFormTemplateChoice {
+    pub id: String,
+    pub display_name: String,
+    pub active_version: i32,
 }
 
 /// Everything a public page renders from.
@@ -883,6 +1011,13 @@ pub enum Msg {
     /// The user asked to move by `delta` pages. A DELTA rather than a target page, so the reducer owns the bounds and
     /// a stale button cannot land the user past the end of a list that shrank while they were reading it.
     PageChanged(i64),
+
+    /// Forms editor intents. The working draft remains inside Model -> PortalFormsPage.
+    FormFieldChanged { name: String, value: String },
+    FormSectionChanged { name: String, value: String },
+    FormSaveRequested,
+    FormCreateRequested { template_id: String },
+    FormCreated { form_id: String },
 }
 
 impl Msg {
@@ -978,6 +1113,33 @@ pub enum Effect {
         search: String,
         page: usize,
         generation: u64,
+    },
+    /// CORE Forms read transport.
+    FetchForms {
+        screen: &'static str,
+        scope: Option<String>,
+        generation: u64,
+    },
+    /// Persist the reducer-owned working draft.
+    SaveForm {
+        screen: &'static str,
+        generation: u64,
+        form_id: String,
+        field_values: BTreeMap<String, String>,
+        sections: BTreeMap<String, String>,
+    },
+    /// Start another form from the current transaction/client/property context.
+    CreateForm {
+        screen: &'static str,
+        generation: u64,
+        template_id: String,
+        deal_id: Option<String>,
+        person_id: Option<String>,
+        property_id: Option<String>,
+    },
+    /// Browser navigation is an effect, not a view mutation.
+    BrowserNavigate {
+        href: String,
     },
     /// Fetch a public page's content: the blocks, not the rows.
     ///
