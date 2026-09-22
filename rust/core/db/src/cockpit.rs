@@ -64,16 +64,31 @@ impl CockpitDao {
     }
 
     pub async fn snapshot(&self) -> DbResult<CockpitSnapshot> {
-        let active_client_count = self.active_client_count().await?;
-        let live_deal_count = self.live_deal_count().await?;
-        let upcoming_count = self.upcoming_count().await?;
-        let under_contract_count = self.under_contract_count().await?;
-        let workflow_counts = self.workflow_counts().await?;
-        let overdue_tasks = self.overdue_tasks().await?;
-        let tasks_due_soon = self.tasks_due_soon().await?;
-        let recent_interactions = self.recent_interactions().await?;
-        let featured_deal = self.featured_deal().await?;
-        let pipeline = self.pipeline().await?;
+        // The Cockpit is the landing page: independent read projections run together
+        // instead of paying Neon round-trip latency one after another.
+        let (
+            active_client_count,
+            live_deal_count,
+            upcoming_count,
+            under_contract_count,
+            workflow_counts,
+            overdue_tasks,
+            tasks_due_soon,
+            recent_interactions,
+            featured_deal,
+            pipeline,
+        ) = tokio::try_join!(
+            self.active_client_count(),
+            self.live_deal_count(),
+            self.upcoming_count(),
+            self.under_contract_count(),
+            self.workflow_counts(),
+            self.overdue_tasks(),
+            self.tasks_due_soon(),
+            self.recent_interactions(),
+            self.featured_deal(),
+            self.pipeline(),
+        )?;
 
         Ok(CockpitSnapshot {
             active_client_count,
@@ -314,7 +329,15 @@ impl CockpitDao {
                     when d.stage <> 'closed' then 2
                     else 3
                   end,
-                  case when d.stage <> 'closed' then d.closing_date end asc nulls last,
+                  case d.stage
+                    when 'under_contract' then 1
+                    when 'offer' then 2
+                    when 'showing' then 3
+                    when 'qualified' then 4
+                    when 'new_lead' then 5
+                    when 'closed' then 6
+                    else 7
+                  end,
                   d.updated_at desc
                 limit 1
                 "#,
