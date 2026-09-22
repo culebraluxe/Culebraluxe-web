@@ -104,6 +104,11 @@ struct CommsTimelineQuery {
 }
 
 #[derive(Debug, Deserialize)]
+struct ActivityQuery {
+    limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CreateFormBody {
     template_id: String,
@@ -322,6 +327,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/forms/{id}", get(form).patch(update_form))
         .route("/v1/comms/{person_id}/panel", get(comms_panel))
         .route("/v1/comms/{person_id}/timeline", get(comms_timeline))
+        .route("/v1/activity", get(activity))
         .route("/v1/calendar", get(calendar))
         .route("/v1/vault/documents", get(vault_documents))
         .route("/v1/vault/documents/{id}", get(vault_document))
@@ -1081,6 +1087,20 @@ async fn comms_timeline(
             },
             &resolved.service,
         )
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn activity(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Query(query): Query<ActivityQuery>,
+) -> Result<Json<ApiSuccess<Vec<domain::ActivityFeedEntry>>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().comms();
+    let value = service
+        .activity(query.limit.unwrap_or(200), &resolved.service)
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(value, &resolved))
