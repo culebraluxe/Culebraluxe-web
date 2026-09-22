@@ -162,7 +162,7 @@ impl CockpitDao {
                         from tokens t
                         where t.process_instance_id = pi.id
                           and t.status = 'active'
-                          and t.node_id like '%\_blocker' escape '\'
+                          and right(t.node_id, 8) = '_blocker'
                           and pd.definition -> 'nodes' -> t.node_id ->> 'type' = 'task'
                       )
                   )::bigint as blocked_count
