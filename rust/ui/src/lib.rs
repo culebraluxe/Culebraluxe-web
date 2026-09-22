@@ -22,6 +22,7 @@
 
 pub mod document;
 pub mod model;
+pub mod seller_strategy;
 pub mod update;
 pub mod view;
 
