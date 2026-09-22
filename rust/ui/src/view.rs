@@ -1069,45 +1069,28 @@ fn privacy_view() -> String {
 /// NOT retyped, deliberately: this is reviewed wording (a policy Meta requires for the WhatsApp integration), and a
 /// hand-copied paragraph is a paragraph that can quietly differ. `kind` is the tag it had, so the render below can put
 /// it back in the same shape.
-const SERVICES_VIEW_CONTENT: [(&str, &str); 17] = [
-    ("h2", "More than transactions. Thoughtful support at every step."),
-    ("p", "From valuations and research to coordination and marketing, our services are designed to simplify decisions, connect the right expertise, and protect your interests on Culebra."),
-    ("p", "Local knowledge · Thoughtful coordination · Exceptional discretion"),
-    ("p", "What we can help with"),
-    ("h2", "Practical expertise around island property."),
-    ("h2", "How it works"),
-    ("p", "Why CulebraLuxe"),
-    ("h2", "Why clients come to CulebraLuxe"),
-    ("p", "Research before action"),
-    ("p", "Decisions begin with understanding the property, context, documentation, and objective."),
-    ("p", "The right people"),
-    ("p", "We help connect each need with appropriate local expertise rather than treating every request the same."),
-    ("p", "Follow-through"),
-    ("p", "Thoughtful coordination and clear communication keep small details from becoming large problems."),
-    ("p", "Culebra · Puerto Rico"),
-    ("h2", "Let's begin a quiet conversation."),
-    ("p", "Tell us what you need. We'll help determine the right next step and whether CulebraLuxe can help."),
-];
 
-/// The static page, rendered from that text. No read model and no fetch: a static page is content, and content does not
-/// belong in a database query.
-fn services_view() -> String {
-    let body = SERVICES_VIEW_CONTENT
-        .iter()
-        .map(|(kind, text)| match *kind {
-            "h1" | "h2" | "h3" => format!(
-                "<h2 class=\"font-serif text-2xl font-light text-foreground\">{}</h2>",
-                escape(text)
-            ),
-            "li" => format!("<li class=\"ml-6 list-disc\">{}</li>", escape(text)),
-            _ => format!(
-                "<p class=\"mt-4 text-sm font-light leading-7 text-muted-foreground\">{}</p>",
-                escape(text)
-            ),
-        })
-        .collect::<String>();
+/// `app/services/page.tsx` — the Services page, which is `components/services.tsx`.
+///
+/// THE BODY ALREADY EXISTED, and reusing it is the point: `services()` above renders exactly these two blocks, ported
+/// from the same component for the homepage, so the page and the homepage's summary of it are one renderer and cannot
+/// drift apart. The homepage shows the buyers and sellers blocks as a band between the listings and the culture section;
+/// this page is where they are the page.
+///
+/// WHAT WAS HERE INSTEAD was a hardcoded article of hand-typed paragraphs, on the stated theory that "a static page is
+/// content, and content does not belong in a database query". That is the opposite of how this site is built: the copy
+/// is managed content in Neon, addressed by slot, and the live page read it from there. Retyping it into Rust would have
+/// created a second copy that silently diverges from the one the client edits — and the deleted text had already drifted
+/// from the slot it claimed to reproduce.
+fn site_services(model: &Model) -> String {
+    let Some(page) = model.page.as_ref() else {
+        // The chrome and the loading line are already on screen; an empty body is honest here and invented copy is not.
+        return String::new();
+    };
     format!(
-        "<article class=\"px-6 py-20 md:px-12 md:py-28\"><div class=\"mx-auto max-w-4xl space-y-6\">{body}</div></article>"
+        "{}{}",
+        services(&page.buyers, &page.sellers),
+        site_footer()
     )
 }
 
@@ -1355,7 +1338,7 @@ fn custom_body(model: &Model) -> Option<String> {
         "portal-auth-proof" => Some(portal_auth_proof_view()),
         "auth-error" => Some(auth_error_view()),
         "login-unauthorized" => Some(login_unauthorized_view()),
-        "site-services" => Some(services_view()),
+        "site-services" => Some(site_services(model)),
         "site-privacy" => Some(privacy_view()),
         "site-whatsapp" => Some(whatsapp_view()),
         "site-home" => Some(site_home(model)),
@@ -1846,6 +1829,57 @@ mod tests {
     /// The user's report, pinned. The first version of the header listed registry titles — twelve of them, "Home" first,
     /// Portal nowhere — and the report was: the logo is missing, the bar should be navy, "Home" should not be there,
     /// Portal is missing. This is the design's menu, and the registry's bookkeeping does not leak into it.
+    /// The Services page renders the two blocks it is made of, through the same renderer the homepage uses — which is
+    /// the point: one renderer, so the page and the homepage's summary of it cannot drift.
+    ///
+    /// It guards the two halves of the bug this page had. It carried a second, hand-typed copy of copy that already
+    /// lives in the content store; and it fetched nothing, because the route that mounts it never handed it a `pagePath`,
+    /// so the Rust screen had no page to read and rendered an empty body under the chrome.
+    #[test]
+    fn the_services_page_renders_the_blocks_it_is_made_of() {
+        let page = crate::model::PageContent {
+            buyers: Block {
+                eyebrow: "For Buyers".into(),
+                title: "A considered path".into(),
+                body: "Guided, and not hurried.".into(),
+                items: vec![crate::model::BlockItem {
+                    key: "list".into(),
+                    label: None,
+                    value: Some("Search the island, not the portals".into()),
+                }],
+                ..Block::default()
+            },
+            sellers: Block {
+                eyebrow: "For Sellers".into(),
+                title: "Presented to the few".into(),
+                ..Block::default()
+            },
+            ..crate::model::PageContent::default()
+        };
+        let html = render(&Model {
+            screen: target("site-services"),
+            page: Some(page),
+            ..Model::default()
+        });
+        assert!(html.contains("For Buyers"));
+        assert!(html.contains("For Sellers"));
+        // The buyers' list comes from items keyed `list`, so it renders as the ruled list and not as loose text.
+        assert!(html.contains("Search the island, not the portals"));
+        // The sellers block keeps its portrait image, falling back to the coastline the component falls back to.
+        assert!(html.contains("/images/coastline.png"));
+
+        // NO PAYLOAD, NO COPY. Until the page arrives the body is empty and the host owns the loading line. Inventing the
+        // page's words while it loads is how a port stops being a port.
+        let bare = render(&Model {
+            screen: target("site-services"),
+            ..Model::default()
+        });
+        assert!(
+            !bare.contains("For Buyers"),
+            "the page does not invent its copy while the payload is still in flight"
+        );
+    }
+
     #[test]
     fn the_site_header_is_the_designs_menu_and_not_the_registry() {
         let html = render(&Model {
