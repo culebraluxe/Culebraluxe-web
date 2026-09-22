@@ -1771,7 +1771,15 @@ mod tests {
                 ..Model::default()
             });
             for candidate in SCREENS {
-                let count = html
+                // COUNTED WITHIN THE MENU, not the whole document. The site header links home from its brand as well,
+                // and that is a header doing its job rather than a screen listed twice — the invariant this test
+                // protects is that no screen gets two MENU entries, so the count is scoped to the menu.
+                let menu = html
+                    .split("aria-label=\"Site\"")
+                    .nth(1)
+                    .and_then(|rest| rest.split("</nav>").next())
+                    .unwrap_or(html.as_str());
+                let count = menu
                     .matches(&format!("data-nav=\"{}\"", candidate.key))
                     .count();
                 match candidate.nav {

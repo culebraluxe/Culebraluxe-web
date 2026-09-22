@@ -20,6 +20,7 @@
 //! SCOPE: the portal menu. `SCREENS` is the port's to-do list, `Screen::path` names the live route each
 //! entry replaces, and Project Management is deliberately a placeholder.
 
+pub mod document;
 pub mod model;
 pub mod update;
 pub mod view;
@@ -27,6 +28,7 @@ pub mod view;
 #[cfg(feature = "wasm")]
 pub mod shell;
 
+pub use document::{document, ASSETS_ROOT, STYLESHEET_URL};
 pub use model::{
     home, listed, record_for, screen, Block, BlockItem, Controls, Effect, Listing, Model, Msg, Nav, PageContent, Row,
     Screen, Surface, PAGE_SIZE, SCREENS,

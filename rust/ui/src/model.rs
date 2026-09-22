@@ -271,13 +271,13 @@ pub const SCREENS: &[Screen] = &[
     Screen { key: "site-about", title: "About", path: "/about", surface: Surface::Site, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "site-buyers", title: "Buyers", path: "/buyers", surface: Surface::Site, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "site-sellers", title: "Sellers", path: "/sellers", surface: Surface::Site, nav: Nav::Listed, deferred: None, detail_of: None },
-    Screen { key: "site-faq", title: "FAQ", path: "/faq", surface: Surface::Site, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "site-faq", title: "FAQ", path: "/faq", surface: Surface::Site, nav: Nav::Unlisted, deferred: None, detail_of: None },
     Screen { key: "site-contact", title: "Contact", path: "/contact", surface: Surface::Site, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "site-guide", title: "Guide", path: "/guide", surface: Surface::Site, nav: Nav::Listed, deferred: None, detail_of: None },
-    Screen { key: "site-services", title: "Services", path: "/services", surface: Surface::Site, nav: Nav::Listed, deferred: None , detail_of: None },
-    Screen { key: "site-privacy", title: "Privacy", path: "/privacy", surface: Surface::Site, nav: Nav::Listed, deferred: None , detail_of: None },
-    Screen { key: "site-video", title: "Video", path: "/video", surface: Surface::Site, nav: Nav::Listed, deferred: Some("A tool-test page for video playback: one Mux player and a hardcoded playback id. The player is a third-party island and is not ported, so what is left is the note instead of the embed.") , detail_of: None },
-    Screen { key: "site-whatsapp", title: "WhatsApp", path: "/whatsapp", surface: Surface::Site, nav: Nav::Listed, deferred: None , detail_of: None },
+    Screen { key: "site-services", title: "Services", path: "/services", surface: Surface::Site, nav: Nav::Unlisted, deferred: None , detail_of: None },
+    Screen { key: "site-privacy", title: "Privacy", path: "/privacy", surface: Surface::Site, nav: Nav::Unlisted, deferred: None , detail_of: None },
+    Screen { key: "site-video", title: "Video", path: "/video", surface: Surface::Site, nav: Nav::Unlisted, deferred: Some("A tool-test page for video playback: one Mux player and a hardcoded playback id. The player is a third-party island and is not ported, so what is left is the note instead of the embed.") , detail_of: None },
+    Screen { key: "site-whatsapp", title: "WhatsApp", path: "/whatsapp", surface: Surface::Site, nav: Nav::Unlisted, deferred: None , detail_of: None },
     Screen { key: "site-favorites", title: "Favorites", path: "/favorites", surface: Surface::Site, nav: Nav::Unlisted, deferred: Some("Never finished: this screen was meant to hold saved properties and never held anything. A Rust body belongs with the feature, not ahead of it - and the feature is a real decision, not a port.") , detail_of: None },
 
     // ---- ROUTES THE TABLE WAS MISSING. It is now checked against `find app -name page.tsx` (80 routes, minus the two
