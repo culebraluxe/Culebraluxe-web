@@ -160,6 +160,9 @@ pub fn icon(name: &str, class: &str, stroke_width: &str) -> Option<String> {
             "<path d=\"M13 21h8\"></path>\
              <path d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\"></path>"
         }
+        "arrow-up-right" => {
+            "<path d=\"M7 7h10v10\"></path><path d=\"M7 17 17 7\"></path>"
+        }
         _ => return None,
     };
     Some(format!(

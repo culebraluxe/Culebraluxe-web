@@ -1800,6 +1800,198 @@ fn guide_card(item: &crate::model::GuideItem) -> String {
     )
 }
 
+/// One inventory card: the photograph with its badges, then the place, the price and its facts.
+///
+/// WHAT IS NOT ON IT YET: the save and compare controls that sit top-right in the component. They are interactive, and
+/// they belong with the filters in the state slice rather than half-rendered here.
+fn buyer_inventory_card(listing: &crate::model::Listing) -> String {
+    let featured = if listing.featured {
+        "<span class=\"absolute left-4 top-4 z-20 bg-background/90 px-3 py-1.5 text-[10px] font-light uppercase \
+         tracking-[0.18em] text-foreground backdrop-blur-sm\">Featured</span>"
+    } else {
+        ""
+    };
+    // `isLand()` in the component: the property's type says land, whatever else it says.
+    let is_land = listing
+        .kind
+        .as_deref()
+        .is_some_and(|kind| kind.to_ascii_lowercase().contains("land"));
+    let land = if is_land {
+        "<span class=\"absolute bottom-4 left-4 z-20 bg-foreground/80 px-3 py-1.5 text-[10px] font-light uppercase \
+         tracking-[0.18em] text-background backdrop-blur-sm\">Land</span>"
+    } else {
+        ""
+    };
+    // The facts line: only the facts the listing actually has, in the component's order.
+    let facts = [listing.beds.map(|beds| format!("{beds} Beds")), listing.baths.map(|baths| format!("{baths} Baths")), listing.area.clone()]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join("  ·  ");
+    let location = listing
+        .location
+        .as_deref()
+        .map(|value| {
+            format!(
+                "<p class=\"mb-2 text-[10px] font-light uppercase tracking-[0.2em] text-muted-foreground\">{}</p>",
+                escape(value)
+            )
+        })
+        .unwrap_or_default();
+    let arrow = icon(
+        "arrow-up-right",
+        "h-4 w-4 flex-none text-muted-foreground transition-transform duration-500 group-hover:-translate-y-0.5 \
+         group-hover:translate-x-0.5",
+        "2",
+    )
+    .unwrap_or_default();
+    format!(
+        "<article class=\"group relative\">\
+           <div class=\"relative aspect-[4/3] overflow-hidden bg-muted\">{image}{featured}{land}</div>\
+           <a href=\"/properties/{slug}\" aria-label=\"View {name}\" class=\"absolute inset-0 z-10\"></a>\
+           <div class=\"pointer-events-none relative z-20 pt-5\">\
+             {location}\
+             <div class=\"flex items-start justify-between gap-6\">\
+               <h3 class=\"font-serif text-2xl font-light leading-tight text-foreground\">{name}</h3>\
+               <p class=\"whitespace-nowrap pt-1 text-sm font-light text-foreground\">{price}</p>\
+             </div>\
+             <div class=\"mt-3 flex items-center justify-between gap-4\">\
+               <p class=\"text-[11px] font-light uppercase tracking-[0.14em] text-muted-foreground\">{facts}</p>\
+               {arrow}\
+             </div>\
+           </div>\
+         </article>",
+        image = listing_image(listing, "absolute inset-0 h-full w-full object-cover", true),
+        featured = featured,
+        land = land,
+        slug = escape(&listing.slug),
+        name = escape(&listing.name),
+        location = location,
+        price = escape(listing.price.as_deref().unwrap_or("Price on request")),
+        facts = escape(&facts),
+        arrow = arrow,
+    )
+}
+
+/// A listing's photograph, or the gradient the showroom uses when a property has no hero image.
+fn listing_image(listing: &crate::model::Listing, class: &str, _full_bleed: bool) -> String {
+    match listing.image_path.as_deref() {
+        Some(src) => format!(
+            "<img src=\"{src}\" alt=\"{alt}\" sizes=\"(min-width: 1024px) 80vw, 100vw\" class=\"{class}\" />",
+            src = escape(src),
+            alt = escape(listing.image_alt.as_deref().unwrap_or(&listing.name)),
+            class = class,
+        ),
+        // No photograph is a real state: the component renders a soft gradient rather than a broken frame.
+        None => "<div class=\"h-full w-full bg-gradient-to-br from-[#d9dde0] via-[#eef0f1] to-[#c4cbd0]\"></div>"
+            .to_string(),
+    }
+}
+
+/// The three category tabs with their underline. Static: the tab that is current is `all`, and the behaviour is state.
+fn buyer_tabs() -> String {
+    [("all", "All", true), ("homes", "Homes & Villas", false), ("land", "Land", false)]
+        .iter()
+        .map(|(_, label, current)| {
+            format!(
+                "<span class=\"relative -mb-px pb-4 text-xs font-light uppercase tracking-[0.2em] {colour}\">{label}\
+                   <span class=\"absolute inset-x-0 bottom-0 h-px {rule}\"></span></span>",
+                colour = if *current {
+                    "text-foreground"
+                } else {
+                    "text-muted-foreground"
+                },
+                rule = if *current { "bg-foreground" } else { "bg-transparent" },
+                label = escape(label),
+            )
+        })
+        .collect::<String>()
+}
+
+/// The filter bar: the real controls, with the real options, in the real grid.
+///
+/// THEY DO NOT FILTER YET, and that is stated rather than hidden. Rendering them keeps the page's shape and its labels;
+/// making them narrow the list is Rust state, which is the next slice. A buyers page missing its filter bar reads as a
+/// broken page, which is why it is here before it is wired.
+fn buyer_filters() -> String {
+    let select = |label: &str, options: &str, span: &str, disabled: bool| {
+        format!(
+            "<select aria-label=\"{label}\" class=\"h-12 border border-border bg-background px-4 text-xs font-light \
+             uppercase tracking-[0.12em] text-foreground outline-none {span} {dim}\">{options}</select>",
+            label = escape(label),
+            span = span,
+            dim = if disabled { "opacity-40" } else { "" },
+            options = options,
+        )
+    };
+    let options = |pairs: &[(&str, &str)]| {
+        pairs
+            .iter()
+            .map(|(value, label)| {
+                format!(
+                    "<option value=\"{value}\">{label}</option>",
+                    value = escape(value),
+                    label = escape(label)
+                )
+            })
+            .collect::<String>()
+    };
+    let search_icon = icon("search", "absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground", "2")
+        .unwrap_or_default();
+    format!(
+        "<div class=\"sticky top-0 z-30 mb-12 border-y border-border bg-background/95 py-4 backdrop-blur-md\">\
+           <div class=\"grid gap-3 md:grid-cols-12\">\
+             <label class=\"relative md:col-span-4\">\
+               <span class=\"sr-only\">Search properties</span>\
+               {search_icon}\
+               <input placeholder=\"Property, neighborhood, view...\" \
+                 class=\"h-12 w-full border border-border bg-transparent pl-11 pr-4 text-sm font-light text-foreground \
+                 outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground\" />\
+             </label>\
+             {price}{beds}{view}{sort}\
+           </div>\
+         </div>",
+        search_icon = search_icon,
+        price = select(
+            "Any Price",
+            &options(&[
+                ("", "Any Price"),
+                ("1000000", "Up to $1M"),
+                ("2000000", "Up to $2M"),
+                ("3000000", "Up to $3M"),
+                ("5000000", "Up to $5M"),
+                ("10000000", "Up to $10M"),
+            ]),
+            "md:col-span-2",
+            false,
+        ),
+        beds = select(
+            "Any Beds",
+            &options(&[
+                ("", "Any Beds"),
+                ("2", "2+ Beds"),
+                ("3", "3+ Beds"),
+                ("4", "4+ Beds"),
+                ("5", "5+ Beds"),
+            ]),
+            "md:col-span-2",
+            false,
+        ),
+        view = select("Any View", &options(&[("", "Any View")]), "md:col-span-2", false),
+        sort = select(
+            "Sort",
+            &options(&[
+                ("featured", "Featured"),
+                ("price-high", "Price High"),
+                ("price-low", "Price Low"),
+                ("name", "Name"),
+            ]),
+            "md:col-span-2",
+            false,
+        ),
+    )
+}
+
 // The four steps of "A considered path from first look to ownership".
 const BUYER_STEPS: [(&str, &str, &str); 4] = [
     ("01", "A quiet conversation", "We begin by understanding what you are truly seeking — the light, the outlook, the rhythm of days. No pressure, no listings sheet. Just a considered discussion of possibility."),
@@ -2260,9 +2452,98 @@ fn site_buyers(model: &Model) -> String {
             "/images/hero-villa.png",
             "A modern luxury villa overlooking the Culebra coastline",
         ),
-        // The inventory, through the card renderer the homepage already uses, so a listing looks the same wherever it
-        // appears. An island with nothing published renders as an empty grid, not as invented homes.
-        inventory = featured_properties(listings),
+        // The showroom, which is the bulk of this page: the featured strip, the tabs, the filter bar and the inventory
+        // cards. Replacing it with a plain grid is what left the page with major sections missing.
+        inventory = buyer_showroom(listings),
+    )
+}
+
+/// The Buyers showroom: the featured strip, the tabs, the filter bar and the inventory.
+///
+/// THE PART THE PAGE IS MADE OF. `components/buyers-property-showroom.tsx` is 470 lines and it is the bulk of `/buyers`:
+/// a featured carousel, category tabs, a sticky filter bar, saved searches, and the inventory grid of cards with their
+/// Featured and Land badges. Writing the page without it produced a page with major sections missing — the markup was
+/// right around a hole where the showroom should be.
+///
+/// WHAT IS STATIC HERE, STATED PLAINLY: the filter controls render with the real options and the real styling, but they
+/// are `<select>`s and an input that do not yet narrow the list — that is Rust state, and it is the next slice. The
+/// carousel is a scrolling strip of the same cards rather than the timed carousel with arrows, because a carousel is
+/// behaviour and a strip is honest markup.
+fn buyer_showroom(listings: &[crate::model::Listing]) -> String {
+    if listings.is_empty() {
+        // The component's own empty state, verbatim: an island with nothing published says so.
+        return "<section class=\"px-6 py-24 md:px-12 md:py-32\"><div class=\"mx-auto max-w-[1600px]\">\
+                  <p class=\"font-serif text-3xl font-light text-foreground\">New opportunities are being prepared.</p>\
+                  <p class=\"mt-4 max-w-xl text-sm font-light leading-relaxed text-muted-foreground\">\
+                    Contact CulebraLuxe for private and upcoming properties on the island.</p>\
+                </div></section>"
+            .to_string();
+    }
+    let slides = listings
+        .iter()
+        .map(|listing| {
+            format!(
+                "<article class=\"group relative h-full w-[86vw] flex-none overflow-hidden bg-muted sm:w-[420px]\">\
+                   {image}\
+                   <div class=\"absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/25 to-transparent \
+                     p-6\">\
+                     <p class=\"text-[10px] font-light uppercase tracking-[0.2em] text-background/75\">{location}</p>\
+                     <div class=\"mt-2 flex items-end justify-between gap-4\">\
+                       <h3 class=\"font-serif text-2xl font-light text-background\">{name}</h3>\
+                       <p class=\"whitespace-nowrap text-sm font-light text-background/85\">{price}</p>\
+                     </div>\
+                   </div>\
+                 </article>",
+                image = listing_image(listing, "absolute inset-0 h-full w-full object-cover", true),
+                location = escape(listing.location.as_deref().unwrap_or("")),
+                name = escape(&listing.name),
+                price = escape(listing.price.as_deref().unwrap_or("Price on request")),
+            )
+        })
+        .collect::<String>();
+    let cards = listings
+        .iter()
+        .map(buyer_inventory_card)
+        .collect::<String>();
+    format!(
+        "<section class=\"px-6 pb-12 pt-12 md:px-12 md:pb-16 md:pt-16\">\
+           <div class=\"mx-auto max-w-[1600px]\">\
+             <div class=\"mb-6 flex flex-col gap-5 md:flex-row md:items-end md:justify-between\">\
+               <div>\
+                 <p class=\"mb-3 text-xs font-light uppercase tracking-[0.34em] text-accent\">Selected Properties</p>\
+                 <h2 class=\"max-w-3xl text-balance font-serif text-4xl font-light leading-[1.03] text-foreground md:text-5xl\">\
+                   Exceptional places.<br />Singular settings.</h2>\
+               </div>\
+               <p class=\"max-w-md text-sm font-light leading-relaxed text-muted-foreground md:pb-1\">\
+                 A considered selection of residences and land across Culebra.</p>\
+             </div>\
+             <div class=\"flex h-[320px] gap-2 overflow-x-auto sm:h-[360px] md:h-[400px] lg:h-[420px]\">{slides}</div>\
+           </div>\
+         </section>\
+         <section id=\"inventory\" class=\"border-t border-border bg-background px-6 py-16 md:px-12 md:py-20\">\
+           <div class=\"mx-auto max-w-[1600px]\">\
+             <div class=\"mb-10\">\
+               <p class=\"mb-3 text-xs font-light uppercase tracking-[0.34em] text-accent\">Explore Culebra</p>\
+               <div class=\"flex flex-col gap-5 md:flex-row md:items-end md:justify-between\">\
+                 <h2 class=\"font-serif text-4xl font-light leading-none text-foreground md:text-5xl\">\
+                   Available properties.</h2>\
+                 <div class=\"flex items-center gap-5\">\
+                   <p class=\"text-xs font-light uppercase tracking-[0.18em] text-muted-foreground\">{count} properties</p>\
+                   <a href=\"/favorites\" class=\"text-xs font-light uppercase tracking-[0.18em] text-accent \
+                     transition-colors hover:text-foreground\">Saved</a>\
+                 </div>\
+               </div>\
+             </div>\
+             <div class=\"mb-7 flex flex-wrap gap-x-8 gap-y-3 border-b border-border\">{tabs}</div>\
+             {filters}\
+             <div class=\"grid gap-x-7 gap-y-14 md:grid-cols-2 xl:grid-cols-3\">{cards}</div>\
+           </div>\
+         </section>",
+        slides = slides,
+        count = listings.len(),
+        tabs = buyer_tabs(),
+        filters = buyer_filters(),
+        cards = cards,
     )
 }
 
