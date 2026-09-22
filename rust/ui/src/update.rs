@@ -386,7 +386,15 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                         )
                     });
                 if let Some(projects) = page.projects.as_mut() {
-                    if let Some((domain, project_id, node_id, view, catch_up, work_collapsed)) = previous {
+                    if let Some((
+                        domain,
+                        project_id,
+                        node_id,
+                        view,
+                        catch_up,
+                        work_collapsed,
+                    )) = previous
+                    {
                         projects.active_domain = if domain.is_empty() {
                             initial_project_domain(projects)
                         } else {
