@@ -349,9 +349,6 @@ fn work_plan_row(
 
 fn timeline_view(projects: &PortalProjectsPage, project: &PortalProject) -> Html {
     let widget = timeline_widget_json(projects, project);
-    if widget.get("tasks").and_then(|value| value.as_array()).is_none_or(|tasks| tasks.len() <= 1) {
-        return placeholder_view("Timeline", "No dated WBS work exists yet. The Rust view does not invent a schedule.");
-    }
     html! {
         <div id="project-timeline-island"
             data-project-widget={widget.to_string()}
@@ -878,46 +875,12 @@ fn date_value(value: Option<&str>) -> String {
 }
 
 fn timeline_widget_json(projects: &PortalProjectsPage, project: &PortalProject) -> serde_json::Value {
-    let dated = project_items(projects, &project.id)
-        .into_iter()
-        .filter(|item| item.due_at.as_deref().and_then(|value| value.get(0..10)).is_some())
-        .collect::<Vec<_>>();
-    let mut id_map = BTreeMap::new();
-    for (index, item) in dated.iter().enumerate() {
-        id_map.insert(item.id.clone(), index as i64 + 2);
-    }
-    let mut tasks = vec![json!({
-        "id": 1,
-        "text": project.name,
-        "type": "summary",
-        "parent": 0,
-        "open": true,
+    let items = project_items(projects, &project.id);
+    json!({
+        "project": project,
+        "items": items,
         "progress": project_progress(projects, &project.id),
-    })];
-    for item in dated {
-        let id = id_map.get(&item.id).copied().unwrap_or(2);
-        let parent = item
-            .parent_id
-            .as_ref()
-            .and_then(|parent| id_map.get(parent))
-            .copied()
-            .unwrap_or(1);
-        tasks.push(json!({
-            "id": id,
-            "text": item.title,
-            "type": "task",
-            "parent": parent,
-            "start": date_value(item.due_at.as_deref()),
-            "duration": 1,
-            "progress": match item.status.as_str() {
-                "done" => 100,
-                "doing" => 60,
-                _ => 0,
-            },
-            "details": item.notes,
-        }));
-    }
-    json!({ "tasks": tasks, "links": [] })
+    })
 }
 
 fn calendar_widget_json(projects: &PortalProjectsPage, project: &PortalProject) -> serde_json::Value {
