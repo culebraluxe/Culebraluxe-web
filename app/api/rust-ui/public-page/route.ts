@@ -94,6 +94,27 @@ async function GETHandler(req: NextRequest): Promise<Response> {
         listings: properties.map(listing),
       })
     }
+    // THE EDITORIAL PAGES, each fed by the slot the live page read. These do not need a new read model: the copy is
+    // already in Neon and `buildHomeContent` addresses it by slot. The payload is deliberately PARTIAL — a screen sends
+    // the blocks it renders and nothing else — which is safe because `PageContent` carries `default` and `block()` fills
+    // an absent block with empty values rather than nulls. One missing block empties that block, never the page.
+    case 'site-services': {
+      const result = await getMarketingContent()
+      const home = result.ok ? buildHomeContent(result.data) : undefined
+      // `components/services.tsx` takes exactly these two blocks, and their slot names say why: home.services.buyers and
+      // home.services.sellers are the Services page's copy, rendered on the homepage as a summary and here in full.
+      return NextResponse.json({ buyers: block(home?.buyers), sellers: block(home?.sellers) })
+    }
+    case 'site-sellers': {
+      const result = await getMarketingContent()
+      const home = result.ok ? buildHomeContent(result.data) : undefined
+      return NextResponse.json({ sellers: block(home?.sellers) })
+    }
+    case 'site-about': {
+      const result = await getMarketingContent()
+      const home = result.ok ? buildHomeContent(result.data) : undefined
+      return NextResponse.json({ about: block(home?.about) })
+    }
     default:
       // An empty payload rather than an error: a screen with no page content is a state Rust already renders.
       return NextResponse.json({})
