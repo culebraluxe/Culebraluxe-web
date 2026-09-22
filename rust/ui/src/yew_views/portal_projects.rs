@@ -145,16 +145,16 @@ fn navigator(model: &crate::model::Model, projects: &PortalProjectsPage) -> Html
         "query": model.controls.query.clone(),
     });
     html! {
-        <aside class="portal-glass-panel min-h-0 overflow-hidden rounded-[var(--portal-panel-radius)] bg-[var(--portal-navy)] text-white">
+        <aside
+            class="portal-glass-panel min-h-0 overflow-hidden rounded-[var(--portal-panel-radius)] text-white"
+            style="background-color: color-mix(in srgb, var(--portal-navy) 90%, transparent);"
+        >
             <div
                 id="project-navigator-island"
                 data-project-widget={widget.to_string()}
                 class="h-full min-h-[20rem] overflow-hidden"
-            >
-                <div class="flex h-full items-center justify-center px-3 text-sm font-light text-white/40">
-                    {"Loading project navigator…"}
-                </div>
-            </div>
+                aria-label="Project navigator"
+            />
         </aside>
     }
 }
@@ -369,11 +369,12 @@ fn work_plan_node(
 fn timeline_view(projects: &PortalProjectsPage, project: &PortalProject) -> Html {
     let widget = timeline_widget_json(projects, project);
     html! {
-        <div id="project-timeline-island"
+        <div
+            id="project-timeline-island"
             data-project-widget={widget.to_string()}
-            class="h-full min-h-[26rem] overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)]">
-            <div class="flex h-full items-center justify-center text-sm font-light text-black/40">{"Loading timeline…"}</div>
-        </div>
+            class="h-full min-h-[26rem] overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)]"
+            aria-label="Project timeline"
+        />
     }
 }
 
@@ -387,11 +388,12 @@ fn calendar_view(projects: &PortalProjectsPage, project: &PortalProject) -> Html
         return placeholder_view("Calendar", "No real WBS due dates exist for this project.");
     }
     html! {
-        <div id="project-calendar-island"
+        <div
+            id="project-calendar-island"
             data-project-widget={widget.to_string()}
-            class="h-full min-h-[28rem] overflow-hidden">
-            <div class="flex h-full items-center justify-center text-sm font-light text-black/40">{"Loading calendar…"}</div>
-        </div>
+            class="h-full min-h-[28rem] overflow-hidden"
+            aria-label="Project calendar"
+        />
     }
 }
 
@@ -455,11 +457,8 @@ fn documents_view(projects: &PortalProjectsPage, project: &PortalProject) -> Htm
             id="project-documents-island"
             data-project-widget={widget.to_string()}
             class="h-full min-h-[24rem] overflow-hidden"
-        >
-            <div class="flex h-full items-center justify-center text-sm font-light text-black/40">
-                {"Loading project assets…"}
-            </div>
-        </div>
+            aria-label="Project assets"
+        />
     }
 }
 
