@@ -508,8 +508,14 @@ impl Msg {
 }
 
 /// What the host must do next. Requests, never decisions.
+///
+/// THE WIRE FORMAT IS A CONTRACT WITH THE HOST, and it is not `camelCase`: the tag is the variant name exactly as the
+/// TypeScript side spells it (`FetchRows`, `FetchPage`). `rename_all = "camelCase"` renamed the TAG as well as the
+/// fields, so Rust emitted `"fetchRows"` while the host looked for `"FetchRows"` — and a host that does not recognise an
+/// effect ignores it. Every request was silently discarded: no rows, no page content, no error, just the chrome that
+/// renders before the first effect. That is what every blank screen was.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "camelCase", tag = "effect")]
+#[serde(tag = "effect")]
 pub enum Effect {
     /// Fetch rows for this screen, optionally about one record.
     ///

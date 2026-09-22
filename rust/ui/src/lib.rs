@@ -82,6 +82,26 @@ mod tests {
     }
 
     #[test]
+    fn the_effect_wire_format_is_exactly_what_the_host_looks_for() {
+        // THE CONTRACT THAT WAS BROKEN FOR EVERY RELEASE OF THIS UI. The host switches on the tag string
+        // (`FetchRows`, `FetchPage`); when this enum renamed its tags to camelCase, every effect was emitted with a
+        // name the host did not recognise, and an unrecognised effect is ignored in silence — no data, no error, just
+        // the chrome. Nothing tested the wire format, so nothing caught it. This does.
+        assert_eq!(
+            serde_json::to_string(&Effect::FetchRows {
+                screen: "clients",
+                scope: None
+            })
+            .unwrap(),
+            r#"{"effect":"FetchRows","screen":"clients","scope":null}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&Effect::FetchPage { screen: "site-home" }).unwrap(),
+            r#"{"effect":"FetchPage","screen":"site-home"}"#
+        );
+    }
+
+    #[test]
     fn a_new_program_opens_on_the_first_menu_screen_with_nothing_loaded() {
         let program = Program::new();
         assert_eq!(program.model().screen, SCREENS[0]);
