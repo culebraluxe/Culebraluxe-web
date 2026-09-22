@@ -18,7 +18,7 @@ use crate::vault::{VaultArtifactPort, VaultService};
 use crate::wbs::WbsService;
 use db::{
     CalendarDao, ClientDao, CockpitDao, CommsDao, ContractDao, Database, FirmDao, FormDao, MediaDao, PersonDao,
-    ProjectDao, PropertyDao, SecurityDao, ShowingDao, SignatureDao, VaultDao, WbsDao,
+    ProjectDao, PropertyDao, SecurityDao, ShowingDao, SignatureDao, TaskDao, VaultDao, WbsDao,
 };
 use service::{ServiceInfrastructure, SignatureProvider};
 use std::sync::Arc;
