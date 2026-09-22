@@ -458,6 +458,8 @@ pub struct PortalPage {
     pub workflows: Option<PortalWorkflowList>,
     /// `/portal/workflows/[instanceId]` — one workflow instance in its real timeline shape.
     pub workflow: Option<PortalWorkflowDetail>,
+    /// CORE Clients — directory plus whichever person is selected or directly addressed.
+    pub clients: Option<PortalClientsPage>,
 }
 
 /// One line of the unified activity feed, with the fields the live screen renders.
@@ -552,6 +554,104 @@ pub struct PortalWorkflowEvent {
     pub event_type: String,
     pub node_label: Option<String>,
     pub actor: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalClientsPage {
+    pub rows: Vec<PortalClientSummary>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub selected_id: Option<String>,
+    pub selected: Option<PortalClientDetail>,
+    pub comms: Option<PortalCommsPanel>,
+    pub properties: Vec<PortalClientProperty>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalClientSummary {
+    pub id: String,
+    pub display_name: String,
+    pub name_resolved: bool,
+    pub role: String,
+    pub status: String,
+    pub primary_email: Option<String>,
+    pub primary_phone: Option<String>,
+    pub observed_count: i64,
+    pub two_way: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalClientDetail {
+    pub id: String,
+    pub display_name: String,
+    pub role: String,
+    pub status: String,
+    pub email: Option<String>,
+    pub phone: Option<String>,
+    pub budget_min: Option<f64>,
+    pub budget_max: Option<f64>,
+    pub timeline: Option<String>,
+    pub assigned_agent: Option<String>,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalCommsPanel {
+    pub person_id: String,
+    pub aggregate: PortalCommsAggregate,
+    pub sources: Vec<PortalCommsSource>,
+    pub moments: Vec<PortalCommsMoment>,
+    pub moment_count: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalCommsAggregate {
+    pub observed_count: i64,
+    pub inbound_count: i64,
+    pub outbound_count: i64,
+    pub two_way: bool,
+    pub last_contact_label: Option<String>,
+    pub active_source_count: i64,
+    pub source_count: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalCommsSource {
+    pub source: String,
+    pub channel: String,
+    pub label: String,
+    pub total_count: i64,
+    pub two_way: bool,
+    pub last_context: Option<String>,
+    pub last_contact_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalCommsMoment {
+    pub id: String,
+    pub channel: Option<String>,
+    pub direction: Option<String>,
+    pub occurred_at: String,
+    pub title: Option<String>,
+    pub summary: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalClientProperty {
+    pub id: String,
+    pub display_name: String,
+    pub relation: String,
+    pub relation_status: Option<String>,
+    pub address: String,
 }
 
 /// Everything a public page renders from.
@@ -868,6 +968,15 @@ pub enum Effect {
     FetchPortal {
         screen: &'static str,
         scope: Option<String>,
+        generation: u64,
+    },
+    /// CORE Clients uses server-side search and paging, plus one selected person's detail bundle.
+    FetchClients {
+        screen: &'static str,
+        scope: Option<String>,
+        selected: Option<String>,
+        search: String,
+        page: usize,
         generation: u64,
     },
     /// Fetch a public page's content: the blocks, not the rows.

@@ -12,7 +12,10 @@ use crate::model::{record_for, Controls, Effect, Model, Msg, Screen, PAGE_SIZE};
 /// render — must agree, and the test below pins that: a screen that asks for a payload nobody renders is a screen with
 /// an empty body, which is the failure this project has already paid for once.
 pub fn is_ported_portal_screen(key: &str) -> bool {
-    matches!(key, "activity" | "workflows" | "workflow-record")
+    matches!(
+        key,
+        "activity" | "workflows" | "workflow-record" | "clients" | "client-record"
+    )
 }
 
 /// Whether a screen renders from a page payload rather than a list of rows.
@@ -64,6 +67,17 @@ fn owns(model: &Model, screen: &str, generation: u64) -> bool {
     model.screen.key == screen && model.generation == generation
 }
 
+fn client_effect(model: &Model) -> Effect {
+    Effect::FetchClients {
+        screen: model.screen.key,
+        scope: model.scope.clone(),
+        selected: model.selected_row_id.clone(),
+        search: model.controls.query.clone(),
+        page: model.controls.page,
+        generation: model.generation,
+    }
+}
+
 /// Move to a screen and ask for its rows. The single place a screen change happens, so navigation and record-opening
 /// cannot drift apart.
 fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect> {
@@ -90,7 +104,9 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
         // `Model::generation`: without it, a request issued for one screen can land while another is mounted.
         // A screen that has a real component asks for its DTO; every other portal screen still asks for rows, so the two
         // live side by side while the port goes screen by screen. See `is_ported_portal_screen`.
-        if is_ported_portal_screen(screen.key) {
+        if matches!(screen.key, "clients" | "client-record") {
+            vec![client_effect(model)]
+        } else if is_ported_portal_screen(screen.key) {
             vec![Effect::FetchPortal {
                 screen: screen.key,
                 scope: model.scope.clone(),
@@ -174,7 +190,23 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             Vec::new()
         }
         Msg::RowSelected(id) => {
-            // Selecting never writes and never fetches. An unknown id is refused rather than half-applied.
+            if model.screen.key == "clients" {
+                let valid = model
+                    .page
+                    .as_ref()
+                    .and_then(|page| page.portal.as_ref())
+                    .and_then(|portal| portal.clients.as_ref())
+                    .is_some_and(|clients| clients.rows.iter().any(|row| row.id == id));
+                if valid {
+                    model.selected_row_id = Some(id);
+                    model.loading = true;
+                    model.error = None;
+                    return vec![client_effect(model)];
+                }
+                return Vec::new();
+            }
+
+            // Selecting never writes and never fetches on generic row screens.
             if model.rows.iter().any(|row| row.id == id) {
                 model.selected_row_id = Some(id);
             }
@@ -192,6 +224,12 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             }
             model.loading = false;
             model.error = None;
+            if matches!(model.screen.key, "clients" | "client-record") {
+                model.selected_row_id = page
+                    .clients
+                    .as_ref()
+                    .and_then(|clients| clients.selected_id.clone());
+            }
             // The portal payload rides in `page` as `portal`: one place on the model holds "the payload this screen
             // asked for", so a screen and its data cannot be out of step.
             model.page = Some(crate::model::PageContent {
@@ -240,6 +278,12 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             model.controls.query = query;
             // Page 4 of an unfiltered list means nothing once the list is not that list any more.
             model.controls.page = 0;
+            if model.screen.key == "clients" {
+                model.selected_row_id = None;
+                model.loading = true;
+                model.error = None;
+                return vec![client_effect(model)];
+            }
             Vec::new()
         }
         Msg::FilterChanged(filter) => {
@@ -268,6 +312,27 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             Vec::new()
         }
         Msg::PageChanged(delta) => {
+            if model.screen.key == "clients" {
+                let pages = model
+                    .page
+                    .as_ref()
+                    .and_then(|page| page.portal.as_ref())
+                    .and_then(|portal| portal.clients.as_ref())
+                    .map(|clients| {
+                        let size = clients.page_size.max(1);
+                        ((clients.total + size - 1) / size).max(1)
+                    })
+                    .unwrap_or(1);
+                let next = (model.controls.page as i64)
+                    .saturating_add(delta)
+                    .clamp(0, pages - 1);
+                model.controls.page = next as usize;
+                model.selected_row_id = None;
+                model.loading = true;
+                model.error = None;
+                return vec![client_effect(model)];
+            }
+
             // The bounds live here rather than in the buttons, so a list that shrank while the user was reading it
             // cannot leave them on a page that no longer exists.
             let next = (model.controls.page as i64).saturating_add(delta).max(0);
@@ -329,16 +394,19 @@ mod tests {
     }
 
     #[test]
-    fn navigating_to_a_menu_screen_fetches_its_rows() {
+    fn navigating_to_clients_fetches_the_typed_workspace() {
         let mut model = Model::default();
         let effects = update(&mut model, Msg::Navigate(target("clients")));
         assert_eq!(model.screen, target("clients"));
         assert!(model.loading);
         assert_eq!(
             effects,
-            vec![Effect::FetchRows {
+            vec![Effect::FetchClients {
                 screen: "clients",
                 scope: None,
+                selected: None,
+                search: String::new(),
+                page: 0,
                 generation: 0
             }]
         );

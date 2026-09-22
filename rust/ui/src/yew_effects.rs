@@ -21,6 +21,8 @@ const PAGE_PATH: &str = "/api/rust-ui/public-page";
 const ROWS_PATH: &str = "/api/rust-ui/public-rows";
 /// A portal screen's payload, for the screens that have a real component.
 const PORTAL_PATH: &str = "/api/portal/rust-ui/page";
+/// CORE Clients has its own Rust-API-backed transport because search/paging/selection are server-side.
+const CLIENTS_PATH: &str = "/api/portal/rust-ui/clients";
 
 /// Run one effect and dispatch what it produces.
 ///
@@ -44,6 +46,25 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
             generation,
         } => (
             query(PORTAL_PATH, screen, scope.as_deref()),
+            screen,
+            generation,
+            Kind::Portal,
+        ),
+        Effect::FetchClients {
+            screen,
+            scope,
+            selected,
+            search,
+            page,
+            generation,
+        } => (
+            clients_query(
+                screen,
+                scope.as_deref(),
+                selected.as_deref(),
+                &search,
+                page,
+            ),
             screen,
             generation,
             Kind::Portal,
@@ -112,4 +133,43 @@ fn query(path: &str, screen: &str, scope: Option<&str>) -> String {
         Some(key) if !key.is_empty() => format!("{path}?screen={screen}&scope={key}"),
         _ => format!("{path}?screen={screen}"),
     }
+}
+
+
+fn clients_query(
+    screen: &str,
+    scope: Option<&str>,
+    selected: Option<&str>,
+    search: &str,
+    page: usize,
+) -> String {
+    let mut url = format!(
+        "{CLIENTS_PATH}?screen={}&page={}&search={}",
+        encode_component(screen),
+        page,
+        encode_component(search)
+    );
+    if let Some(scope) = scope.filter(|value| !value.is_empty()) {
+        url.push_str("&scope=");
+        url.push_str(&encode_component(scope));
+    }
+    if let Some(selected) = selected.filter(|value| !value.is_empty()) {
+        url.push_str("&selected=");
+        url.push_str(&encode_component(selected));
+    }
+    url
+}
+
+fn encode_component(value: &str) -> String {
+    use std::fmt::Write;
+
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            encoded.push(byte as char);
+        } else {
+            let _ = write!(&mut encoded, "%{byte:02X}");
+        }
+    }
+    encoded
 }
