@@ -714,6 +714,415 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             }]
         }
 
+        Msg::DealWorkspaceTaskTitleChanged(value) => {
+            if model.screen.key == "deal-record" {
+                model.deal_workspace.task_title = value;
+                model.error = None;
+            }
+            Vec::new()
+        }
+        Msg::DealWorkspaceTaskDetailChanged(value) => {
+            if model.screen.key == "deal-record" {
+                model.deal_workspace.task_detail = value;
+                model.error = None;
+            }
+            Vec::new()
+        }
+        Msg::DealWorkspaceTaskDueChanged(value) => {
+            if model.screen.key == "deal-record" {
+                model.deal_workspace.task_due_at = value;
+                model.error = None;
+            }
+            Vec::new()
+        }
+        Msg::DealWorkspaceCreateTaskRequested => {
+            let title = model.deal_workspace.task_title.trim().to_string();
+            if title.is_empty() {
+                model.error = Some("Task title is required.".into());
+                return Vec::new();
+            }
+            let detail = (!model.deal_workspace.task_detail.trim().is_empty())
+                .then(|| model.deal_workspace.task_detail.trim().to_string());
+            let due_at = (!model.deal_workspace.task_due_at.trim().is_empty())
+                .then(|| model.deal_workspace.task_due_at.trim().to_string());
+            deal_workspace_command(
+                model,
+                "task:create",
+                PortalDealCommand::CreateTask {
+                    title,
+                    detail,
+                    due_at,
+                },
+            )
+        }
+        Msg::DealWorkspaceCompleteTaskRequested { task_id } => deal_workspace_command(
+            model,
+            format!("task:complete:{task_id}"),
+            PortalDealCommand::CompleteTask { task_id },
+        ),
+        Msg::DealWorkspaceOfferAmountChanged { key, value } => {
+            if model.screen.key == "deal-record" {
+                if value.is_empty() {
+                    model.deal_workspace.offer_amounts.remove(&key);
+                } else {
+                    model.deal_workspace.offer_amounts.insert(key, value);
+                }
+                model.error = None;
+            }
+            Vec::new()
+        }
+        Msg::DealWorkspaceSubmitOfferRequested { parent_offer_id } => {
+            let key = parent_offer_id.as_deref().unwrap_or("root").to_string();
+            let amount = model
+                .deal_workspace
+                .offer_amounts
+                .get(&key)
+                .map(|value| value.trim().to_string())
+                .unwrap_or_default();
+            if amount.is_empty() {
+                model.error = Some("Offer amount is required.".into());
+                return Vec::new();
+            }
+            let client_id = model
+                .page
+                .as_ref()
+                .and_then(|page| page.portal.as_ref())
+                .and_then(|portal| portal.deals.as_ref())
+                .and_then(|deals| deals.workspace.as_ref())
+                .and_then(|workspace| workspace.client.as_ref())
+                .map(|client| client.id.clone());
+            let Some(person_id) = client_id else {
+                model.error = Some("This deal does not have an active client.".into());
+                return Vec::new();
+            };
+            deal_workspace_command(
+                model,
+                format!("offer:submit:{key}"),
+                PortalDealCommand::SubmitOffer {
+                    person_id,
+                    amount,
+                    parent_offer_id,
+                },
+            )
+        }
+        Msg::DealWorkspaceWithdrawOfferRequested { offer_id } => deal_workspace_command(
+            model,
+            format!("offer:withdraw:{offer_id}"),
+            PortalDealCommand::WithdrawOffer { offer_id },
+        ),
+        Msg::DealWorkspaceRejectOfferRequested { offer_id } => deal_workspace_command(
+            model,
+            format!("offer:reject:{offer_id}"),
+            PortalDealCommand::RejectOffer { offer_id },
+        ),
+        Msg::DealWorkspaceCreateShowingRequested => {
+            let workspace = model
+                .page
+                .as_ref()
+                .and_then(|page| page.portal.as_ref())
+                .and_then(|portal| portal.deals.as_ref())
+                .and_then(|deals| deals.workspace.as_ref());
+            let person_id = workspace
+                .and_then(|workspace| workspace.client.as_ref())
+                .map(|client| client.id.clone());
+            let property_id = workspace
+                .and_then(|workspace| workspace.property.as_ref())
+                .map(|property| property.id.clone());
+            let Some(person_id) = person_id else {
+                model.error = Some("This deal does not have an active client.".into());
+                return Vec::new();
+            };
+            deal_workspace_command(
+                model,
+                "showing:create",
+                PortalDealCommand::CreateShowing {
+                    person_id,
+                    property_id,
+                },
+            )
+        }
+        Msg::DealWorkspaceShowingTimeChanged { showing_id, value } => {
+            if model.screen.key == "deal-record" {
+                if value.is_empty() {
+                    model.deal_workspace.showing_times.remove(&showing_id);
+                } else {
+                    model.deal_workspace.showing_times.insert(showing_id, value);
+                }
+                model.error = None;
+            }
+            Vec::new()
+        }
+        Msg::DealWorkspaceScheduleShowingRequested { showing_id } => {
+            let scheduled_at = model
+                .deal_workspace
+                .showing_times
+                .get(&showing_id)
+                .map(|value| value.trim().to_string())
+                .unwrap_or_default();
+            if scheduled_at.is_empty() {
+                model.error = Some("Choose a showing date and time first.".into());
+                return Vec::new();
+            }
+            deal_workspace_command(
+                model,
+                format!("showing:schedule:{showing_id}"),
+                PortalDealCommand::ScheduleShowing {
+                    showing_id,
+                    scheduled_at,
+                },
+            )
+        }
+        Msg::DealWorkspaceCancelShowingRequested { showing_id } => deal_workspace_command(
+            model,
+            format!("showing:cancel:{showing_id}"),
+            PortalDealCommand::CancelShowing { showing_id },
+        ),
+        Msg::DealWorkspaceCompleteShowingRequested { showing_id } => deal_workspace_command(
+            model,
+            format!("showing:complete:{showing_id}"),
+            PortalDealCommand::CompleteShowing { showing_id },
+        ),
+        Msg::DealWorkspaceParticipantQueryChanged(value) => {
+            if model.screen.key != "deal-record" {
+                return Vec::new();
+            }
+            if value != model.deal_workspace.participant_label {
+                model.deal_workspace.participant_person_id.clear();
+                model.deal_workspace.participant_label.clear();
+            }
+            model.deal_workspace.participant_query = value.clone();
+            model.error = None;
+            deal_workspace_people_search(model, "participant", value)
+        }
+        Msg::DealWorkspaceParticipantSelected { id, label } => {
+            if model.screen.key == "deal-record" {
+                model.deal_workspace.participant_person_id = id;
+                model.deal_workspace.participant_label = label.clone();
+                model.deal_workspace.participant_query = label;
+                model.deal_workspace.participant_people.clear();
+                model.deal_workspace.participant_searching = false;
+                model.error = None;
+            }
+            Vec::new()
+        }
+        Msg::DealWorkspaceParticipantRoleChanged(value) => {
+            if model.screen.key == "deal-record" {
+                model.deal_workspace.participant_role_label = value;
+                model.error = None;
+            }
+            Vec::new()
+        }
+        Msg::DealWorkspaceAddParticipantRequested => {
+            let person_id = model.deal_workspace.participant_person_id.trim().to_string();
+            let role_label = model.deal_workspace.participant_role_label.trim().to_string();
+            if person_id.is_empty() {
+                model.error = Some("Select an existing person first.".into());
+                return Vec::new();
+            }
+            if role_label.is_empty() {
+                model.error = Some("Enter a participant role label.".into());
+                return Vec::new();
+            }
+            deal_workspace_command(
+                model,
+                "participant:add",
+                PortalDealCommand::AddOtherParticipant {
+                    person_id,
+                    role_label,
+                },
+            )
+        }
+        Msg::DealWorkspaceOtherRoleChanged {
+            participant_id,
+            value,
+        } => {
+            if model.screen.key == "deal-record" {
+                if value.is_empty() {
+                    model.deal_workspace.other_role_labels.remove(&participant_id);
+                } else {
+                    model
+                        .deal_workspace
+                        .other_role_labels
+                        .insert(participant_id, value);
+                }
+                model.error = None;
+            }
+            Vec::new()
+        }
+        Msg::DealWorkspaceUpdateOtherRequested { participant_id } => {
+            let role_label = model
+                .deal_workspace
+                .other_role_labels
+                .get(&participant_id)
+                .map(|value| value.trim().to_string())
+                .unwrap_or_default();
+            if role_label.is_empty() {
+                model.error = Some("Enter a new role label.".into());
+                return Vec::new();
+            }
+            deal_workspace_command(
+                model,
+                format!("participant:update:{participant_id}"),
+                PortalDealCommand::UpdateOtherParticipant {
+                    participant_id,
+                    role_label,
+                },
+            )
+        }
+        Msg::DealWorkspaceEndOtherRequested { participant_id } => deal_workspace_command(
+            model,
+            format!("participant:end:{participant_id}"),
+            PortalDealCommand::EndOtherParticipant { participant_id },
+        ),
+        Msg::DealWorkspaceStructuralRoleChanged(role) => {
+            if model.screen.key != "deal-record" {
+                return Vec::new();
+            }
+            model.deal_workspace.structural_role = role;
+            model.deal_workspace.structural_query.clear();
+            model.deal_workspace.structural_person_id.clear();
+            model.deal_workspace.structural_label.clear();
+            model.deal_workspace.structural_owner_user_id.clear();
+            model.deal_workspace.structural_people.clear();
+            model.deal_workspace.structural_searching = false;
+            model.error = None;
+            Vec::new()
+        }
+        Msg::DealWorkspaceStructuralQueryChanged(value) => {
+            if model.screen.key != "deal-record" {
+                return Vec::new();
+            }
+            if value != model.deal_workspace.structural_label {
+                model.deal_workspace.structural_person_id.clear();
+                model.deal_workspace.structural_label.clear();
+            }
+            model.deal_workspace.structural_query = value.clone();
+            model.error = None;
+            deal_workspace_people_search(model, "structural", value)
+        }
+        Msg::DealWorkspaceStructuralPersonSelected { id, label } => {
+            if model.screen.key == "deal-record" {
+                model.deal_workspace.structural_person_id = id;
+                model.deal_workspace.structural_label = label.clone();
+                model.deal_workspace.structural_query = label;
+                model.deal_workspace.structural_people.clear();
+                model.deal_workspace.structural_searching = false;
+                model.error = None;
+            }
+            Vec::new()
+        }
+        Msg::DealWorkspaceStructuralOwnerChanged(value) => {
+            if model.screen.key == "deal-record" {
+                model.deal_workspace.structural_owner_user_id = value;
+                model.error = None;
+            }
+            Vec::new()
+        }
+        Msg::DealWorkspaceSetStructuralRequested => {
+            let role = model.deal_workspace.structural_role.clone();
+            if !matches!(role.as_str(), "client" | "owner" | "seller") {
+                model.error = Some("Choose client, owner, or seller first.".into());
+                return Vec::new();
+            }
+            let (person_id, user_id) = if role == "owner" {
+                let id = model
+                    .deal_workspace
+                    .structural_owner_user_id
+                    .trim()
+                    .to_string();
+                if id.is_empty() {
+                    model.error = Some("Choose an owner user first.".into());
+                    return Vec::new();
+                }
+                (None, Some(id))
+            } else {
+                let id = model.deal_workspace.structural_person_id.trim().to_string();
+                if id.is_empty() {
+                    model.error = Some("Select an existing person first.".into());
+                    return Vec::new();
+                }
+                (Some(id), None)
+            };
+            deal_workspace_command(
+                model,
+                format!("structural:set:{role}"),
+                PortalDealCommand::SetStructuralParticipant {
+                    role,
+                    person_id,
+                    user_id,
+                },
+            )
+        }
+        Msg::DealWorkspaceEndStructuralRequested { participant_id } => deal_workspace_command(
+            model,
+            format!("structural:end:{participant_id}"),
+            PortalDealCommand::EndStructuralParticipant { participant_id },
+        ),
+        Msg::DealWorkspacePeopleLoaded {
+            screen,
+            generation,
+            purpose,
+            query,
+            people,
+        } => {
+            if !owns(model, &screen, generation) || model.screen.key != "deal-record" {
+                return Vec::new();
+            }
+            match purpose.as_str() {
+                "participant"
+                    if model.deal_workspace.participant_query.trim() == query =>
+                {
+                    model.deal_workspace.participant_people = people;
+                    model.deal_workspace.participant_searching = false;
+                }
+                "structural"
+                    if model.deal_workspace.structural_query.trim() == query =>
+                {
+                    model.deal_workspace.structural_people = people;
+                    model.deal_workspace.structural_searching = false;
+                }
+                _ => {}
+            }
+            Vec::new()
+        }
+        Msg::DealWorkspaceCommandCompleted {
+            screen,
+            generation,
+            id: _,
+        } => {
+            if !owns(model, &screen, generation) || model.screen.key != "deal-record" {
+                return Vec::new();
+            }
+            let completed = model.deal_workspace.busy_action.take().unwrap_or_default();
+            if completed == "task:create" {
+                model.deal_workspace.task_title.clear();
+                model.deal_workspace.task_detail.clear();
+                model.deal_workspace.task_due_at.clear();
+            } else if let Some(key) = completed.strip_prefix("offer:submit:") {
+                model.deal_workspace.offer_amounts.remove(key);
+            } else if completed == "participant:add" {
+                model.deal_workspace.participant_query.clear();
+                model.deal_workspace.participant_person_id.clear();
+                model.deal_workspace.participant_label.clear();
+                model.deal_workspace.participant_role_label.clear();
+                model.deal_workspace.participant_people.clear();
+            } else if completed.starts_with("structural:set:") {
+                model.deal_workspace.structural_role.clear();
+                model.deal_workspace.structural_query.clear();
+                model.deal_workspace.structural_person_id.clear();
+                model.deal_workspace.structural_label.clear();
+                model.deal_workspace.structural_owner_user_id.clear();
+                model.deal_workspace.structural_people.clear();
+            }
+            model.loading = true;
+            model.error = None;
+            vec![Effect::FetchDeals {
+                screen: model.screen.key,
+                scope: model.scope.clone(),
+                generation: model.generation,
+            }]
+        }
+
         // ---- controls -------------------------------------------------------------------------------------------
         // None of these fetch. Filtering is applied to the rows already in the model, in the view, so it cannot be
         // mistaken for a server-side search that is not wired yet. When a filter does become a server round trip it
