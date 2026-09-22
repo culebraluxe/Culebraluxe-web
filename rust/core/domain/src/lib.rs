@@ -16,6 +16,7 @@ pub mod property;
 pub mod security;
 pub mod showing;
 pub mod signature;
+pub mod task;
 pub mod vault;
 pub mod wbs;
 
