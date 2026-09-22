@@ -382,10 +382,11 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                             projects.selected_node_id.clone(),
                             projects.active_view.clone(),
                             projects.catch_up,
+                            projects.work_collapsed,
                         )
                     });
                 if let Some(projects) = page.projects.as_mut() {
-                    if let Some((domain, project_id, node_id, view, catch_up)) = previous {
+                    if let Some((domain, project_id, node_id, view, catch_up, work_collapsed)) = previous {
                         projects.active_domain = if domain.is_empty() {
                             initial_project_domain(projects)
                         } else {
@@ -414,6 +415,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                             view
                         };
                         projects.catch_up = catch_up;
+                        projects.work_collapsed = work_collapsed;
                     } else {
                         projects.active_domain = initial_project_domain(projects);
                         projects.selected_project_id =
@@ -423,6 +425,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                             projects.selected_project_id.as_deref(),
                         );
                         projects.active_view = "work-plan".into();
+                        projects.work_collapsed = false;
                     }
                     projects.work_dirty = false;
                     projects.saving = false;
@@ -679,6 +682,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             projects.selected_node_id =
                 first_node_for_project(projects, projects.selected_project_id.as_deref());
             projects.active_view = "work-plan".into();
+            projects.work_collapsed = false;
             projects.work_dirty = false;
             Vec::new()
         }
@@ -703,6 +707,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 first_node_for_project(projects, projects.selected_project_id.as_deref());
             projects.catch_up = false;
             projects.active_view = "work-plan".into();
+            projects.work_collapsed = false;
             projects.work_dirty = false;
             Vec::new()
         }
@@ -724,6 +729,9 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 if !valid {
                     return Vec::new();
                 }
+            }
+            if node_id.is_some() {
+                projects.work_collapsed = false;
             }
             projects.selected_node_id = node_id;
             projects.work_dirty = false;
@@ -808,6 +816,18 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 return Vec::new();
             }
             project_work_change(model, |item| item.status = value)
+        }
+        Msg::ProjectWorkCollapsedToggled => {
+            let Some(projects) = model
+                .page
+                .as_mut()
+                .and_then(|page| page.portal.as_mut())
+                .and_then(|portal| portal.projects.as_mut())
+            else {
+                return Vec::new();
+            };
+            projects.work_collapsed = !projects.work_collapsed;
+            Vec::new()
         }
         Msg::ProjectWorkSaveRequested => {
             let Some(projects) = model
