@@ -16,7 +16,11 @@ export default function Page() {
 
   return (
     <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/rust-ui/public-rows" start="site-sellers" />
+      <RustUiHost
+        rowsPath="/api/rust-ui/public-rows"
+        pagePath="/api/rust-ui/public-page"
+        start="site-sellers"
+      />
     </div>
   )
 }
