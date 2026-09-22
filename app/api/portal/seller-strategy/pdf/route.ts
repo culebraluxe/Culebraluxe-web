@@ -36,7 +36,7 @@ async function POSTHandler(req: NextRequest): Promise<Response> {
   }
 
   const bytes = await buildDecisionPdf(payload.inputs, payload.model)
-  return new Response(bytes, {
+  return new Response(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, {
     status: 200,
     headers: {
       'content-type': 'application/pdf',
