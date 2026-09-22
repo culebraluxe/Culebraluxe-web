@@ -4,6 +4,8 @@
 //! shape the string renderers have, with a virtual DOM diffing the result instead of a string being written over the
 //! page. The chrome lives here too, because the header and footer belong to every one of them.
 
+pub mod about;
 pub mod buyers;
 pub mod services;
 pub mod chrome;
+pub mod home;

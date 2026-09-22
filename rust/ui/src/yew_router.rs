@@ -12,16 +12,22 @@ use yew::prelude::*;
 use yew_router::prelude::*;
 
 use crate::model::{screen, Msg, Screen};
+use crate::yew_views::about::About;
 use crate::yew_views::buyers::Buyers;
+use crate::yew_views::home::Home;
 use crate::yew_views::services::Services;
 
 /// The public paths this app owns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Routable)]
 pub enum Route {
+    #[at("/")]
+    Home,
     #[at("/buyers")]
     Buyers,
     #[at("/services")]
     Services,
+    #[at("/about")]
+    About,
     /// A URL this app does not serve. It renders a message rather than a blank page, and the reader is offered the way
     /// back to the home page — the honest answer to a path that has no screen here.
     #[not_found]
@@ -33,8 +39,10 @@ impl Route {
     /// The screen this URL serves, from the registry the model and the payload routes already share.
     pub fn screen(self) -> Option<Screen> {
         match self {
+            Route::Home => screen("site-home"),
             Route::Buyers => screen("site-buyers"),
             Route::Services => screen("site-services"),
+            Route::About => screen("site-about"),
             Route::NotFound => None,
         }
     }
@@ -68,8 +76,10 @@ impl Component for Shell {
                 <crate::yew_views::chrome::Header />
                 <main class="min-w-0 flex-1">
                     <Switch<Route> render={Callback::from(move |route: Route| match route {
+                        Route::Home => html! { <Home model={model.clone()} on_msg={on_msg.clone()} /> },
                         Route::Buyers => html! { <Buyers model={model.clone()} on_msg={on_msg.clone()} /> },
                         Route::Services => html! { <Services model={model.clone()} on_msg={on_msg.clone()} /> },
+                        Route::About => html! { <About model={model.clone()} on_msg={on_msg.clone()} /> },
                         Route::NotFound => html! { <NotFound /> },
                     })} />
                 </main>

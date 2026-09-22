@@ -89,16 +89,16 @@ impl Component for Header {
             <>
                 <header class="fixed inset-x-0 top-0 z-50 border-b border-brand-gold/15 bg-brand-navy py-6">
                     <div class="mx-auto flex max-w-[1600px] items-center justify-between px-6 md:px-12">
-                        <a href="/" aria-label="CulebraLuxe home" class="flex h-7 w-[250px] flex-none items-center">
+                        <NavLink to={Route::Home} classes={classes!("flex", "h-7", "w-[250px]", "flex-none", "items-center")} aria_label={AttrValue::Static("CulebraLuxe home")}>
                             <img src="/images/culebraluxe-header-logo-test.png" alt="CulebraLuxe" width="2050"
                                 height="300" class="h-9 max-h-9 w-auto max-w-full flex-none object-contain" />
-                        </a>
+                        </NavLink>
                         <nav class="hidden items-center gap-1 lg:flex" aria-label="Primary">
                             { item(Route::Buyers, "Buyers", CAPSULE) }
                             { outside("/sellers", "Sellers", CAPSULE) }
                             { item(Route::Services, "Services", CAPSULE) }
                             { outside("/guide", "Guide", CAPSULE) }
-                            { outside("/about", "About", CAPSULE) }
+                            { item(Route::About, "About", CAPSULE) }
                             { outside("/faq", "FAQ", CAPSULE) }
                             { outside("/contact", "Contact", CAPSULE) }
                             { outside("/portal/dashboard", "Portal", CAPSULE) }
@@ -114,7 +114,7 @@ impl Component for Header {
                                 { outside("/sellers", "Sellers", MOBILE_CAPSULE) }
                                 { item(Route::Services, "Services", MOBILE_CAPSULE) }
                                 { outside("/guide", "Guide", MOBILE_CAPSULE) }
-                                { outside("/about", "About", MOBILE_CAPSULE) }
+                                { item(Route::About, "About", MOBILE_CAPSULE) }
                                 { outside("/faq", "FAQ", MOBILE_CAPSULE) }
                                 { outside("/contact", "Contact", MOBILE_CAPSULE) }
                                 { outside("/portal/dashboard", "Portal", MOBILE_CAPSULE) }
@@ -155,7 +155,7 @@ impl Component for Footer {
                             <a href="/sellers" class={FOOTER_LINK}>{"Sellers"}</a>
                             <NavLink to={Route::Services} classes={classes!(FOOTER_LINK)}>{"Services"}</NavLink>
                             <a href="/guide" class={FOOTER_LINK}>{"Guide"}</a>
-                            <a href="/about" class={FOOTER_LINK}>{"About"}</a>
+                            <NavLink to={Route::About} classes={classes!(FOOTER_LINK)}>{"About"}</NavLink>
                             <a href="/faq" class={FOOTER_LINK}>{"FAQ"}</a>
                             <a href="/contact" class={FOOTER_LINK}>{"Contact"}</a>
                         </nav>

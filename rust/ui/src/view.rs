@@ -1513,14 +1513,14 @@ fn service_cta() -> String {
 }
 
 // "What we value": title, body, icon.
-const ABOUT_VALUES: [(&str, &str, &str); 3] = [
+pub(crate) const ABOUT_VALUES: [(&str, &str, &str); 3] = [
     ("Fit over volume", "We measure success not in transactions but in fit — pairing the right stewards with the right homes.", "waves"),
     ("Local, truly", "Founded by island residents, we know Culebra beyond its coordinates — the trade winds, the tide charts, and the people who shape it.", "palmtree"),
     ("Quiet stewardship", "We protect the character that makes this place rare, advising with discretion and patience at every turn.", "leaf"),
 ];
 
 // "Why clients choose CulebraLuxe": title and body.
-const ABOUT_REASONS: [(&str, &str); 4] = [
+pub(crate) const ABOUT_REASONS: [(&str, &str); 4] = [
     ("Boutique by design", "We intentionally work with a limited number of clients."),
     ("Island-specific expertise", "We understand unique homes, land, waterfront, and the realities of island ownership."),
     ("Personally handled", "Every search, showing, and negotiation is handled directly and deliberately."),
@@ -1528,7 +1528,7 @@ const ABOUT_REASONS: [(&str, &str); 4] = [
 ];
 
 // The four figures, in the order the page shows them.
-const ABOUT_STATS: [(&str, &str); 4] = [
+pub(crate) const ABOUT_STATS: [(&str, &str); 4] = [
     ("14", "Years on island"),
     ("1", "Island, entirely"),
     ("40+", "Homes stewarded"),
@@ -1536,14 +1536,14 @@ const ABOUT_STATS: [(&str, &str); 4] = [
 ];
 
 // The founder's four credentials, and the eight photographs in the "Life on the island" strip.
-const ABOUT_CREDENTIALS: [&str; 4] = [
+pub(crate) const ABOUT_CREDENTIALS: [&str; 4] = [
     "Former Windsurfing World Champion",
     "Licensed Puerto Rico Real Estate Broker",
     "Full-time Culebra resident",
     "Referral-led, boutique practice",
 ];
 
-const ABOUT_LIFE: [&str; 8] = [
+pub(crate) const ABOUT_LIFE: [&str; 8] = [
     "/images/about/life-01.jpg",
     "/images/about/life-02.jpg",
     "/images/about/life-03.jpg",
