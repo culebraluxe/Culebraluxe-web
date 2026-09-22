@@ -1134,6 +1134,327 @@ fn privacy_view() -> String {
 /// hand-copied paragraph is a paragraph that can quietly differ. `kind` is the tag it had, so the render below can put
 /// it back in the same shape.
 
+use crate::icons::icon;
+
+/// `app/services/page.tsx` — the Services page.
+///
+/// IT IS NOT `components/services.tsx`. That component is the homepage's buyers/sellers band, and the first version of
+/// this page was built from it: the /services page rendered the homepage's words, with a "For Buyers" heading on a page
+/// that has no such section. The real page is this file's own design and its own copy — eight service cards with their
+/// own images and enquiry links, a three-step process, four reasons, a strip of three principles, and a closing band.
+///
+/// The copy is literal here because it is literal there: this page reads no managed content. The payload still arrives,
+/// because the screen is editorial like every other public page, and it is deliberately unused — inventing a slot for
+/// copy that never had one would be a second source of truth for words the page already owns.
+fn site_services(model: &Model) -> String {
+    let _ = model;
+    format!(
+        "{hero}{intro}{cards}{how}{why}{strip}{cta}{footer}",
+        hero = page_hero(
+            "Services",
+            "Real estate services, quietly handled.",
+            Some(
+                "Thoughtful advisory, research, coordination, and property support for owners, buyers, and clients across Culebra."
+            ),
+            "/images/coastline.png",
+            "Aerial view of Culebra coastline and turquoise Caribbean water",
+        ),
+        intro = service_intro(),
+        cards = service_cards(),
+        how = service_process(),
+        why = service_reasons(),
+        strip = service_principles(),
+        cta = service_cta(),
+        footer = site_footer(),
+    )
+}
+
+/// "More than transactions. / Thoughtful support at every step."
+fn service_intro() -> String {
+    "<section class=\"border-b border-border bg-[#f8f6f1] px-6 py-20 md:px-12 md:py-24\">\
+       <div class=\"mx-auto max-w-[1600px]\">\
+         <div class=\"mx-auto max-w-3xl text-center\">\
+           <h2 class=\"font-serif text-3xl font-light leading-[1.1] text-foreground md:text-4xl\">\
+             More than transactions.<br />Thoughtful support at every step.</h2>\
+           <div class=\"mx-auto mt-6 h-px w-12 bg-accent\"></div>\
+           <p class=\"mx-auto mt-7 max-w-2xl text-sm font-light leading-relaxed text-muted-foreground\">\
+             From valuations and research to coordination and marketing, our services are designed to simplify decisions, \
+             connect the right expertise, and protect your interests on Culebra.</p>\
+           <p class=\"mt-7 text-[10px] font-medium uppercase tracking-[0.24em] text-accent\">\
+             Local knowledge · Thoughtful coordination · Exceptional discretion</p>\
+         </div>\
+       </div>\
+     </section>"
+        .to_string()
+}
+
+/// The eight services, in the order the page lists them, with their own images and enquiry links.
+///
+/// A TABLE RATHER THAN EIGHT BLOCKS OF MARKUP, because the page renders them from an array and the array is the thing a
+/// reader needs to check against the live site: number, title, body, call to action, destination, image — in that order.
+const SERVICES: [(&str, &str, &str, &str, &str, &str); 8] = [
+    (
+        "01",
+        "Market Analysis / CMA",
+        "Comprehensive market data and local insight to help you understand current value and position with confidence.",
+        "Request analysis",
+        "/contact?service=market-analysis",
+        "/images/services/service-01-market-analysis-cma.jpg",
+    ),
+    (
+        "02",
+        "Property Evaluation",
+        "A considered evaluation of your home or land based on property characteristics, location, and current market conditions.",
+        "Request evaluation",
+        "/contact?service=property-evaluation",
+        "/images/services/service-02-property-evaluation.jpg",
+    ),
+    (
+        "03",
+        "Comparable Research",
+        "Detailed comparable-property research to support informed decisions when buying, selling, or evaluating an opportunity.",
+        "Request comparables",
+        "/contact?service=comparable-research",
+        "/images/services/service-03-comparable-research.jpg",
+    ),
+    (
+        "04",
+        "Land Survey Coordination",
+        "Coordination with trusted local professionals for surveys, boundary work, and related property documentation.",
+        "Request survey",
+        "/contact?service=land-survey",
+        "/images/services/service-04-land-survey-coordination.jpg",
+    ),
+    (
+        "05",
+        "Appraisal Coordination",
+        "Assistance arranging professional appraisal services for lending, estate planning, investment, or personal decision-making.",
+        "Request appraisal",
+        "/contact?service=appraisal",
+        "/images/services/service-05-appraisal-coordination.jpg",
+    ),
+    (
+        "06",
+        "Deed & Title Research",
+        "Coordination of title history, deed research, lien checks, and document retrieval with the appropriate local professionals.",
+        "Request research",
+        "/contact?service=title-research",
+        "/images/services/service-06-deed-title-research.jpg",
+    ),
+    (
+        "07",
+        "Real Estate Consultation",
+        "Personalized guidance for property ownership, purchases, sales, investment questions, and long-range planning on Culebra.",
+        "Book consultation",
+        "/contact?service=consultation",
+        "/images/services/service-07-real-estate-consultation.jpg",
+    ),
+    (
+        "08",
+        "Property Marketing Services",
+        "Discreet, elevated property presentation and marketing support designed around the property, audience, and objective.",
+        "Discuss marketing",
+        "/contact?service=property-marketing",
+        "/images/services/service-08-property-marketing-services.jpg",
+    ),
+];
+
+// "How it works": number, title, body, icon.
+const SERVICE_PROCESS: [(&str, &str, &str, &str); 3] = [
+    ("1", "Share your needs", "Tell us about the property, your objectives, and the support you are looking for.", "message-circle"),
+    ("2", "We review & coordinate", "We research the situation, connect the right professionals, and organize the details.", "map-pinned"),
+    ("3", "Clear next steps", "You receive thoughtful guidance, timely updates, and a clear path forward.", "clipboard-check"),
+];
+
+// The four reasons in the "Why clients come to CulebraLuxe" split.
+const SERVICE_REASONS: [(&str, &str, &str); 4] = [
+    ("Island-specific knowledge", "Deep understanding of Culebra's properties, neighborhoods, infrastructure, market, and way of life.", "compass"),
+    ("Personally handled", "Thoughtful, attentive service with direct involvement rather than a high-volume handoff model.", "user-round"),
+    ("Trusted local network", "Established relationships with surveyors, attorneys, appraisers, contractors, and other island professionals.", "network"),
+    ("Boutique service", "Selective client relationships, careful coordination, and discreet high-touch support.", "handshake"),
+];
+
+// The three-column strip of principles: icon, heading, body.
+const SERVICE_PRINCIPLES: [(&str, &str, &str); 3] = [
+    ("file-search", "Research before action", "Decisions begin with understanding the property, context, documentation, and objective."),
+    ("handshake", "The right people", "We help connect each need with appropriate local expertise rather than treating every request the same."),
+    ("check-circle-2", "Follow-through", "Thoughtful coordination and clear communication keep small details from becoming large problems."),
+];
+
+/// The eight service cards, four across on a wide screen.
+fn service_cards() -> String {
+    let cards = SERVICES
+        .iter()
+        .map(|(number, title, body, cta, href, image)| {
+            format!(
+                "<article class=\"group flex h-full flex-col overflow-hidden border border-border bg-[#fbfaf7] \
+                   transition-transform duration-500 hover:-translate-y-1\">\
+                   <div class=\"relative aspect-[4/2.7] overflow-hidden bg-muted\">\
+                     <img src=\"{image}\" alt=\"{title}\" sizes=\"(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw\" \
+                       class=\"absolute inset-0 h-full w-full object-cover transition-transform duration-700 \
+                       group-hover:scale-[1.03]\" /></div>\
+                   <div class=\"flex flex-1 flex-col px-6 pb-7 pt-6\">\
+                     <p class=\"text-[10px] font-light uppercase tracking-[0.22em] text-accent\">{number}</p>\
+                     <h3 class=\"mt-3 font-serif text-xl font-light leading-tight text-foreground\">{title}</h3>\
+                     <p class=\"mt-4 flex-1 text-sm font-light leading-relaxed text-muted-foreground\">{body}</p>\
+                     <a href=\"{href}\" class=\"group/link mt-7 inline-flex items-center gap-3 text-[10px] font-medium \
+                       uppercase tracking-[0.18em] text-accent\">{cta}\
+                       <span class=\"inline-block h-px w-6 bg-accent transition-all duration-500 \
+                         group-hover/link:w-10\"></span></a>\
+                   </div>\
+                 </article>",
+                image = escape(image),
+                title = escape(title),
+                number = escape(number),
+                body = escape(body),
+                href = escape(href),
+                cta = escape(cta),
+            )
+        })
+        .collect::<String>();
+    format!(
+        "<section class=\"border-b border-border bg-[#f3efe8] px-6 py-20 md:px-12 md:py-28\">\
+           <div class=\"mx-auto max-w-[1600px]\">\
+             <div class=\"mb-12 md:mb-16\">\
+               <p class=\"text-xs font-light uppercase tracking-[0.28em] text-accent\">What we can help with</p>\
+               <h2 class=\"mt-4 max-w-2xl font-serif text-3xl font-light leading-[1.1] text-foreground md:text-4xl\">\
+                 Practical expertise around island property.</h2>\
+             </div>\
+             <div class=\"grid gap-5 sm:grid-cols-2 lg:grid-cols-4\">{cards}</div>\
+           </div>\
+         </section>"
+    )
+}
+
+/// "How it works" — three numbered steps, each with its icon.
+///
+/// AN ICON IS NEVER DRAWN WITHOUT AN ANSWER: `icon()` returns `None` for a name that is not in the table, and that is
+/// faced here rather than papered over. A missing icon is an invisible hole in a layout.
+fn service_process() -> String {
+    let steps = SERVICE_PROCESS
+        .iter()
+        .map(|(number, title, body, icon_name)| {
+            let icon = icon(icon_name, "h-11 w-11", "1.15").unwrap_or_else(|| {
+                panic!("the Services page asks for an icon that is not in the table: {icon_name}")
+            });
+            format!(
+                "<div class=\"h-full px-6 text-center md:border-r md:border-border md:px-14 last:md:border-r-0\">\
+                   <div class=\"mx-auto flex h-14 w-14 items-center justify-center text-accent\">{icon}</div>\
+                   <div class=\"mt-7 flex items-baseline justify-center gap-4\">\
+                     <span class=\"font-serif text-3xl font-light text-accent\">{number}</span>\
+                     <h3 class=\"font-serif text-xl font-light text-foreground\">{title}</h3>\
+                   </div>\
+                   <p class=\"mx-auto mt-4 max-w-xs text-sm font-light leading-relaxed text-muted-foreground\">{body}</p>\
+                 </div>",
+                icon = icon,
+                number = escape(number),
+                title = escape(title),
+                body = escape(body),
+            )
+        })
+        .collect::<String>();
+    format!(
+        "<section class=\"border-b border-border bg-[#efebe3] px-6 py-20 md:px-12 md:py-24\">\
+           <div class=\"mx-auto max-w-[1600px]\">\
+             <div class=\"text-center\">\
+               <h2 class=\"font-serif text-3xl font-light text-foreground md:text-4xl\">How it works</h2>\
+               <div class=\"mx-auto mt-5 h-px w-12 bg-accent\"></div>\
+             </div>\
+             <div class=\"mx-auto mt-14 grid max-w-6xl gap-12 md:grid-cols-3 md:gap-0\">{steps}</div>\
+           </div>\
+         </section>"
+    )
+}
+
+/// "Why clients come to CulebraLuxe" — the property photograph beside the four reasons.
+fn service_reasons() -> String {
+    let reasons = SERVICE_REASONS
+        .iter()
+        .map(|(title, body, icon_name)| {
+            let icon = icon(icon_name, "h-4 w-4", "1.3").unwrap_or_else(|| {
+                panic!("the Services page asks for an icon that is not in the table: {icon_name}")
+            });
+            format!(
+                "<div class=\"flex gap-5\">\
+                   <div class=\"mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full \
+                     border border-accent/60 text-accent\">{icon}</div>\
+                   <div>\
+                     <h3 class=\"text-sm font-medium text-foreground\">{title}</h3>\
+                     <p class=\"mt-1.5 max-w-lg text-sm font-light leading-relaxed text-muted-foreground\">{body}</p>\
+                   </div>\
+                 </div>",
+                icon = icon,
+                title = escape(title),
+                body = escape(body),
+            )
+        })
+        .collect::<String>();
+    format!(
+        "<section class=\"border-b border-border bg-[#f8f6f1]\">\
+           <div class=\"mx-auto max-w-[1600px]\">\
+             <div class=\"grid items-stretch md:grid-cols-2\">\
+               <div class=\"relative min-h-[420px] overflow-hidden bg-muted md:min-h-[620px]\">\
+                 <img src=\"/images/hero-villa.png\" alt=\"Culebra property overlooking the Caribbean\" \
+                   sizes=\"(min-width: 768px) 50vw, 100vw\" \
+                   class=\"absolute inset-0 h-full w-full object-cover\" /></div>\
+               <div class=\"flex h-full flex-col justify-center px-6 py-16 md:px-14 md:py-20 lg:px-20\">\
+                 <p class=\"text-xs font-light uppercase tracking-[0.28em] text-accent\">Why CulebraLuxe</p>\
+                 <h2 class=\"mt-4 font-serif text-3xl font-light leading-[1.1] text-foreground md:text-4xl\">\
+                   Why clients come to CulebraLuxe</h2>\
+                 <div class=\"mt-9 space-y-7\">{reasons}</div>\
+               </div>\
+             </div>\
+           </div>\
+         </section>"
+    )
+}
+
+/// The three-column strip of principles: research, the right people, follow-through.
+fn service_principles() -> String {
+    let columns = SERVICE_PRINCIPLES
+        .iter()
+        .map(|(icon_name, heading, body)| {
+            let icon = icon(icon_name, "mx-auto h-8 w-8", "1.2").unwrap_or_else(|| {
+                panic!("the Services page asks for an icon that is not in the table: {icon_name}")
+            });
+            format!(
+                "<div class=\"px-5 text-center md:border-r md:border-border md:px-12 last:md:border-r-0\">\
+                   {icon}\
+                   <p class=\"mt-5 text-xs font-medium uppercase tracking-[0.16em] text-foreground\">{heading}</p>\
+                   <p class=\"mx-auto mt-3 max-w-sm text-sm font-light leading-relaxed text-muted-foreground\">{body}</p>\
+                 </div>",
+                icon = icon,
+                heading = escape(heading),
+                body = escape(body),
+            )
+        })
+        .collect::<String>();
+    format!(
+        "<section class=\"border-b border-border bg-[#f2ede5] px-6 py-16 md:px-12 md:py-20\">\
+           <div class=\"mx-auto max-w-[1600px]\">\
+             <div class=\"grid gap-10 md:grid-cols-3 md:gap-0\">{columns}</div>\
+           </div>\
+         </section>"
+    )
+}
+
+/// The closing band: the same words the page ends on.
+fn service_cta() -> String {
+    "<section class=\"bg-primary px-6 py-24 text-primary-foreground md:px-12 md:py-28\">\
+       <div class=\"mx-auto max-w-[1600px] text-center\">\
+         <p class=\"text-xs font-light uppercase tracking-[0.28em] text-primary-foreground/60\">Culebra · Puerto Rico</p>\
+         <h2 class=\"mx-auto mt-5 max-w-3xl font-serif text-3xl font-light leading-[1.1] md:text-4xl\">\
+           Let&#39;s begin a quiet conversation.</h2>\
+         <p class=\"mx-auto mt-5 max-w-xl text-sm font-light leading-relaxed text-primary-foreground/70\">\
+           Tell us what you need. We&#39;ll help determine the right next step and whether CulebraLuxe can help.</p>\
+         <a href=\"/contact\" class=\"mt-10 inline-flex border border-primary-foreground/40 px-8 py-4 text-xs \
+           font-light uppercase tracking-[0.22em] transition-colors hover:bg-primary-foreground hover:text-primary\">\
+           Start a conversation</a>\
+       </div>\
+     </section>"
+        .to_string()
+}
+
 /// `app/about/page.tsx` — the About page, which is `components/about.tsx`.
 ///
 /// The same shape as the Services page above, for the same reason: `about_section()` is the renderer the homepage already
@@ -1407,6 +1728,7 @@ fn custom_body(model: &Model) -> Option<String> {
         "portal-auth-proof" => Some(portal_auth_proof_view()),
         "auth-error" => Some(auth_error_view()),
         "login-unauthorized" => Some(login_unauthorized_view()),
+        "site-services" => Some(site_services(model)),
         "site-about" => Some(site_about(model)),
         "site-privacy" => Some(privacy_view()),
         "site-whatsapp" => Some(whatsapp_view()),
