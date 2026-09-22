@@ -321,6 +321,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/projects/{id}", get(project).patch(update_project))
         .route("/v1/wbs/project-items", get(wbs_project_items))
         .route("/v1/wbs/{id}", get(wbs_item).patch(update_wbs_item))
+        .route("/v1/tasks/{id}/complete", post(complete_task))
         .route(
             "/v1/wbs/{id}/apple-reminder",
             post(queue_apple_reminder),
@@ -508,6 +509,20 @@ async fn update_project(
             },
             &resolved.service,
         )
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn complete_task(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<ApiSuccess<domain::TaskCompletion>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().task();
+    let value = service
+        .complete(&id, &resolved.service)
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(value, &resolved))
