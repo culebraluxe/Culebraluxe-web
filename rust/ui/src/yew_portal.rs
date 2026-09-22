@@ -16,6 +16,7 @@ use crate::yew_views::portal_deals::{DealRecord, Deals};
 use crate::yew_views::portal_forms::{FormRecord, Forms};
 use crate::yew_views::portal_projects::Projects;
 use crate::yew_views::portal_seller_strategy::SellerStrategy;
+use crate::yew_views::portal_ui_lab::UiLab;
 use crate::yew_views::portal_workflow_record::WorkflowRecord;
 use crate::yew_views::portal_workflows::Workflows;
 
@@ -80,6 +81,7 @@ impl Component for PortalApp {
                 html! { <ClientRecord model={self.model.clone()} on_msg={on_msg} /> }
             }
             "deals" => html! { <Deals model={self.model.clone()} on_msg={on_msg} /> },
+            "design-lab" => html! { <UiLab model={self.model.clone()} on_msg={on_msg} /> },
             "deal-record" => {
                 html! { <DealRecord model={self.model.clone()} on_msg={on_msg} /> }
             }

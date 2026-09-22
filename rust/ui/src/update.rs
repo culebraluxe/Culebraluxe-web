@@ -29,6 +29,7 @@ pub fn is_ported_portal_screen(key: &str) -> bool {
             | "projects"
             | "deals"
             | "deal-record"
+            | "design-lab"
             // Accounting V1 — the dashboard is the first of its five screens to have a component; the other four follow
             // one at a time, and each is added here and to the portal app's match together.
             | "accounting"
@@ -273,10 +274,12 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
     model.deal_create = DealCreateState::default();
     model.deal_workspace = DealWorkspaceState::default();
 
-    // Seller Strategy is a local deterministic calculator. Opening it resets the
-    // same state the former React component created on mount and performs no fetch.
-    if screen.key == "seller-strategy" {
-        model.seller_strategy = crate::seller_strategy::SellerStrategyState::default();
+    // Local screens own deterministic browser-only state and do not ask the server for a payload.
+    // Seller Strategy resets its calculator model; UI Lab owns its comparison/demo model inside its Yew component.
+    if matches!(screen.key, "seller-strategy" | "design-lab") {
+        if screen.key == "seller-strategy" {
+            model.seller_strategy = crate::seller_strategy::SellerStrategyState::default();
+        }
         model.loading = false;
         return Vec::new();
     }
