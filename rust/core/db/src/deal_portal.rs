@@ -1,6 +1,9 @@
 use domain::{
     CreateDealRequest, CreateDealResult, DealContractPortfolioItem, DealOwnerCandidate,
-    DealPortfolioItem, DealPortfolioSnapshot, DealableProperty,
+    DealPortfolioItem, DealPortfolioSnapshot, DealWorkspaceActivity, DealWorkspaceClient,
+    DealWorkspaceCommand, DealWorkspaceCommandResult, DealWorkspaceDeal, DealWorkspaceOffer,
+    DealWorkspaceParticipant, DealWorkspaceProperty, DealWorkspaceShowing, DealWorkspaceSnapshot,
+    DealWorkspaceTask, DealableProperty,
 };
 use sqlx::FromRow;
 use uuid::Uuid;
@@ -59,6 +62,92 @@ struct UserRow {
     id: String,
     display_name: String,
     email: Option<String>,
+}
+
+#[derive(Debug, FromRow)]
+struct WorkspaceHeaderRow {
+    deal_id: String,
+    stage: String,
+    list_price: Option<String>,
+    offer_price: Option<String>,
+    closing_date_label: Option<String>,
+    closed_at_label: Option<String>,
+    notes: Option<String>,
+    created_at_label: String,
+    updated_at_label: String,
+    property_id: String,
+    property_name: String,
+    property_location: Option<String>,
+    property_type: Option<String>,
+    bedrooms: Option<String>,
+    bathrooms: Option<String>,
+    square_feet: Option<i64>,
+    client_id: String,
+    client_name: String,
+    client_role: String,
+    client_status: String,
+    client_email: Option<String>,
+    client_phone: Option<String>,
+}
+
+#[derive(Debug, FromRow)]
+struct WorkspaceTaskRow {
+    id: String,
+    title: String,
+    detail: Option<String>,
+    due_at_label: Option<String>,
+    is_overdue: bool,
+}
+
+#[derive(Debug, FromRow)]
+struct WorkspaceActivityRow {
+    id: String,
+    person_id: Option<String>,
+    channel: String,
+    direction: Option<String>,
+    occurred_at_label: String,
+    title: Option<String>,
+    summary: Option<String>,
+    person_name: Option<String>,
+}
+
+#[derive(Debug, FromRow)]
+struct WorkspaceParticipantRow {
+    id: String,
+    role_category: String,
+    role_label: Option<String>,
+    person_id: Option<String>,
+    user_id: Option<String>,
+    person_name: Option<String>,
+    user_name: Option<String>,
+    person_email: Option<String>,
+    person_phone: Option<String>,
+}
+
+#[derive(Debug, FromRow)]
+struct WorkspaceOfferRow {
+    id: String,
+    person_id: String,
+    person_name: Option<String>,
+    parent_offer_id: Option<String>,
+    amount: String,
+    status: String,
+    submitted_at_label: String,
+    responded_at_label: Option<String>,
+    note: Option<String>,
+}
+
+#[derive(Debug, FromRow)]
+struct WorkspaceShowingRow {
+    id: String,
+    person_id: String,
+    person_name: String,
+    status: String,
+    requested_at_label: String,
+    scheduled_at_label: Option<String>,
+    completed_at_label: Option<String>,
+    cancelled_at_label: Option<String>,
+    feedback: Option<String>,
 }
 
 #[derive(Clone)]
