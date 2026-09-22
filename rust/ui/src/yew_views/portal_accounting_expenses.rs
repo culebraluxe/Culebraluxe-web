@@ -96,7 +96,9 @@ impl Expenses {
                 if model.accounting.expense_open {
                     { self.form(model, on_msg) }
                 }
-                <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                // THE ROW IS 40/60, as the live screen was. The ring gets two columns of five and the table three, so the
+                // table has the width its seven columns need and the row is not two-fifths empty.
+                <div class="grid grid-cols-1 gap-4 lg:grid-cols-5">
                     { self.category_panel(&categories) }
                     { self.table(&rows) }
                 </div>
@@ -220,7 +222,7 @@ impl Expenses {
             .iter()
             .any(|category| !crate::format::is_zero(&category.amount));
         html! {
-            <GlassPanel title="Expenses by Category">
+            <GlassPanel title="Expenses by Category" class={classes!("lg:col-span-2")}>
                 if non_empty {
                     <div class="flex items-center gap-5">
                         <div class="relative h-32 w-32 flex-none rounded-full"
@@ -255,7 +257,7 @@ impl Expenses {
     /// The book: every expense, newest first, with the name that identifies what it belongs to.
     fn table(&self, rows: &[PortalAccountingExpense]) -> Html {
         html! {
-            <GlassPanel title="All Expenses">
+            <GlassPanel title="All Expenses" class={classes!("lg:col-span-3")}>
                 <div class="overflow-x-auto">
                     <table class="w-full min-w-[640px] text-left text-sm">
                         <thead>

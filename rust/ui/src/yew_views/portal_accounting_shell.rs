@@ -55,6 +55,14 @@ pub struct GlassPanelProps {
     /// The action on the right of the title bar — a link, usually.
     #[prop_or_default]
     pub action: Option<Html>,
+    /// Layout classes the caller adds to the panel itself — a grid span, usually.
+    ///
+    /// FROM THE LIVE COMPONENT'S `className`, and it earned its place by being missed: the Expenses screen splits its row
+    /// 40/60 — the ring takes two columns of five and the table the other three — and a panel with nowhere to put a span
+    /// silently gives each child one column of a five-column grid, which leaves the row two-fifths empty and the table
+    /// squeezed into a fifth of the width it was designed for. That is what "the table is cut off" looks like.
+    #[prop_or_default]
+    pub class: Classes,
     #[prop_or_default]
     pub children: Children,
 }
@@ -63,7 +71,8 @@ pub struct GlassPanelProps {
 pub fn GlassPanel(props: &GlassPanelProps) -> Html {
     let has_header = props.title.is_some() || props.action.is_some();
     html! {
-        <section class="rounded-[var(--portal-panel-radius)] border border-white/10 bg-gradient-to-b from-white/[0.06] to-white/[0.02]">
+        <section class={classes!("rounded-[var(--portal-panel-radius)]", "border", "border-white/10",
+            "bg-gradient-to-b", "from-white/[0.06]", "to-white/[0.02]", props.class.clone())}>
             if has_header {
                 <div class="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
                     if let Some(title) = props.title.clone() {
