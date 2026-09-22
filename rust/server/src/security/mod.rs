@@ -75,9 +75,11 @@ impl<R: SecurityRepository> SecurityService<R> {
             .resolve_provider_subject(provider, provider_subject)
             .await
         {
-            Err(_) | Ok(None) => Ok(SecurityIdentityResolution::Unmapped),
+            Err(error) => Err(error.into()),
+            Ok(None) => Ok(SecurityIdentityResolution::Unmapped),
             Ok(Some(app_user_id)) => match self.repository.get_principal(&app_user_id).await {
-                Err(_) | Ok(None) => Ok(SecurityIdentityResolution::Inactive),
+                Err(error) => Err(error.into()),
+                Ok(None) => Ok(SecurityIdentityResolution::Inactive),
                 Ok(Some(acting_user)) => {
                     let level = resolve_security_level(&acting_user.role_codes);
                     Ok(SecurityIdentityResolution::Known(SecurityPrincipal {
@@ -114,7 +116,8 @@ impl<R: SecurityRepository> SecurityService<R> {
 
         let result: Result<Option<SecurityPrincipal>, CoreServiceError> =
             match self.repository.get_principal(app_user_id).await {
-                Err(_) | Ok(None) => Ok(None),
+                Err(error) => Err(error.into()),
+                Ok(None) => Ok(None),
                 Ok(Some(acting_user)) => {
                     let level = resolve_security_level(&acting_user.role_codes);
                     Ok(Some(SecurityPrincipal { acting_user, level }))
@@ -123,5 +126,111 @@ impl<R: SecurityRepository> SecurityService<R> {
 
         audit_result(&self.runtime, "security", OP, context, decision, &result).await?;
         result
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use db::{DbFailure, DbFailureKind};
+    use service::{
+        CapturingAuditPort, CapturingDomainEventPort, DefaultAuthorizationPort, ServiceActor,
+        ServiceActorKind,
+    };
+    use std::sync::Arc;
+    use uuid::Uuid;
+
+    fn infrastructure() -> ServiceInfrastructure {
+        ServiceInfrastructure::new(
+            Arc::new(DefaultAuthorizationPort),
+            Arc::new(CapturingAuditPort::default()),
+            Arc::new(CapturingDomainEventPort::default()),
+        )
+    }
+
+    fn context() -> ServiceContext {
+        ServiceContext {
+            actor: ServiceActor {
+                id: Some("authjs-edge".into()),
+                kind: ServiceActorKind::System,
+            },
+            correlation_id: "security-test".into(),
+            causation_id: None,
+            principal: None,
+        }
+    }
+
+    fn transient(operation: &'static str) -> DbFailure {
+        DbFailure {
+            kind: DbFailureKind::DatabaseUnavailable,
+            operation,
+            incident_id: Uuid::nil(),
+            code: None,
+            detail: None,
+            retryable: true,
+        }
+    }
+
+    struct IdentityLookupFailure;
+
+    #[async_trait]
+    impl SecurityRepository for IdentityLookupFailure {
+        async fn resolve_provider_subject(
+            &mut self,
+            _provider: &str,
+            _provider_subject: &str,
+        ) -> DbResult<Option<String>> {
+            Err(transient("security.resolve_provider_subject"))
+        }
+
+        async fn get_principal(&mut self, _app_user_id: &str) -> DbResult<Option<ActingUser>> {
+            unreachable!("principal lookup must not run after identity lookup failure")
+        }
+    }
+
+    struct PrincipalLookupFailure;
+
+    #[async_trait]
+    impl SecurityRepository for PrincipalLookupFailure {
+        async fn resolve_provider_subject(
+            &mut self,
+            _provider: &str,
+            _provider_subject: &str,
+        ) -> DbResult<Option<String>> {
+            Ok(Some("user-1".into()))
+        }
+
+        async fn get_principal(&mut self, _app_user_id: &str) -> DbResult<Option<ActingUser>> {
+            Err(transient("security.get_principal"))
+        }
+    }
+
+    #[tokio::test]
+    async fn identity_database_failure_is_not_reported_as_unmapped() {
+        let mut service = SecurityService::new(IdentityLookupFailure, infrastructure());
+        let result = service
+            .resolve_identity("test-provider-db-failure", "subject-1", &context())
+            .await;
+
+        assert!(matches!(result, Err(CoreServiceError::Database(_))));
+    }
+
+    #[tokio::test]
+    async fn principal_database_failure_is_not_reported_as_inactive() {
+        let mut service = SecurityService::new(PrincipalLookupFailure, infrastructure());
+        let result = service
+            .resolve_identity("test-provider-principal-failure", "subject-2", &context())
+            .await;
+
+        assert!(matches!(result, Err(CoreServiceError::Database(_))));
+    }
+
+    #[tokio::test]
+    async fn direct_principal_database_failure_is_not_reported_as_missing() {
+        let mut service = SecurityService::new(PrincipalLookupFailure, infrastructure());
+        let result = service.get_principal("user-1", &context()).await;
+
+        assert!(matches!(result, Err(CoreServiceError::Database(_))));
     }
 }
