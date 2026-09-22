@@ -24,7 +24,8 @@ pub struct CalendarEvent {
     pub source: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateAppleCalendarEventRequest {
     pub title: String,
     pub start_at: String,
