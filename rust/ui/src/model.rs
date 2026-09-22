@@ -349,6 +349,31 @@ pub struct Listing {
     pub featured: bool,
 }
 
+/// One entry in the Island Guide: a place, with its photograph.
+///
+/// THE FIRST PAYLOAD TYPE THAT IS NOT EDITORIAL COPY. The guide is a catalogue read from `guide_item` — beaches, dining,
+/// essentials — and each entry is a card with a picture, an area, contact details and a website. Forcing that into a
+/// `Block` would have meant cramming a place into `cells`, which is the abstraction the page route exists to avoid.
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct GuideItem {
+    /// Which section of the guide it belongs to (`beaches`, `dining`, …), so the page can group it.
+    pub section: String,
+    pub name: String,
+    /// The line above the name: the neighbourhood if there is one, else the area, else the entry's own eyebrow.
+    pub subtitle: Option<String>,
+    pub area: Option<String>,
+    pub eyebrow: Option<String>,
+    pub description: String,
+    pub address: Option<String>,
+    pub phone: Option<String>,
+    pub website_url: Option<String>,
+    /// The card photograph. Absent is a real state — the page says "Image coming soon" rather than showing a broken
+    /// frame, and it keeps the alt text travelling with the image for the case where there is one.
+    pub image_path: Option<String>,
+    pub image_alt: Option<String>,
+}
+
 /// Everything a public page renders from.
 ///
 /// A page is a set of named blocks, not an ordered list, because the page decides where each one goes — the hero is a
@@ -365,6 +390,8 @@ pub struct PageContent {
     pub contact: Block,
     pub featured: Vec<Listing>,
     pub listings: Vec<Listing>,
+    /// The Island Guide's catalogue (screen `site-guide`). Empty for every other page, which is what `default` is for.
+    pub guide: Vec<GuideItem>,
 }
 
 ///
