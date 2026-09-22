@@ -100,3 +100,6 @@ pub use signature::{
     SignatureRequestResult, SignatureRequestStatus, SignatureStatusResult,
     SignatureWebhookVerification,
 };
+
+
+pub use task::TaskCompletion;
