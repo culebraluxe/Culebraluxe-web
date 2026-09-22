@@ -38,8 +38,12 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
             generation,
             Kind::Page,
         ),
-        Effect::FetchPortal { screen, generation } => (
-            query(PORTAL_PATH, screen, None),
+        Effect::FetchPortal {
+            screen,
+            scope,
+            generation,
+        } => (
+            query(PORTAL_PATH, screen, scope.as_deref()),
             screen,
             generation,
             Kind::Portal,

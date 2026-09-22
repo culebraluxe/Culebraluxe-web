@@ -1,34 +1,47 @@
-//! The Portal application, on Yew: the model, the reducer, and the browser entry point for a portal page.
+//! The Portal application, on Yew.
 //!
-//! THE SAME LOOP AS THE PUBLIC APP, and deliberately a separate root: a portal page mounts ITS screen (the URL belongs
-//! to Next), where the public app mounts a router that owns five paths. Both own a `Model` and dispatch into the one
-//! `update`, so there is still exactly one reducer and one state.
+//! Next owns portal URLs. It passes the registry screen and optional record scope;
+//! the reducer still owns opening the screen and choosing the effect.
 
 use yew::prelude::*;
 
-use crate::model::Msg;
+use crate::model::{Msg, Screen};
 use crate::yew_views::portal_activity::Activity;
+use crate::yew_views::portal_workflow_record::WorkflowRecord;
+use crate::yew_views::portal_workflows::Workflows;
 
-/// The application's own message: the reducer's, plus the one thing only the browser knows.
 pub enum AppMsg {
     Ui(Msg),
 }
 
+#[derive(Properties, PartialEq, Clone)]
+pub struct PortalAppProps {
+    pub screen: Screen,
+    pub scope: Option<String>,
+}
+
 pub struct PortalApp {
     model: crate::model::Model,
-    /// Which mount this is. Stamped on every request, and every response presents it back before it is applied.
-    generation: u32,
 }
 
 impl Component for PortalApp {
     type Message = AppMsg;
-    type Properties = ();
+    type Properties = PortalAppProps;
 
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self {
-            model: crate::model::Model::default(),
-            generation: 0,
+    fn create(ctx: &Context<Self>) -> Self {
+        let mut model = crate::model::Model::default();
+        let effects = crate::update::update(
+            &mut model,
+            Msg::MountScoped {
+                screen: ctx.props().screen,
+                scope: ctx.props().scope.clone(),
+                generation: 1,
+            },
+        );
+        for effect in effects {
+            crate::yew_effects::run(effect, &ctx.link().callback(AppMsg::Ui));
         }
+        Self { model }
     }
 
     fn update(&mut self, ctx: &Context<Self>, msg: Self::Message) -> bool {
@@ -42,24 +55,29 @@ impl Component for PortalApp {
 
     fn view(&self, ctx: &Context<Self>) -> Html {
         let on_msg = ctx.link().callback(AppMsg::Ui);
-        html! {
-            <Activity model={self.model.clone()} on_msg={on_msg} />
+        match self.model.screen.key {
+            "activity" => html! { <Activity model={self.model.clone()} on_msg={on_msg} /> },
+            "workflows" => html! { <Workflows model={self.model.clone()} on_msg={on_msg} /> },
+            "workflow-record" => html! { <WorkflowRecord model={self.model.clone()} on_msg={on_msg} /> },
+            other => html! {
+                <div class="p-6 text-sm text-destructive" role="alert">
+                    { format!("Portal Yew screen '{other}' has no component.") }
+                </div>
+            },
         }
     }
 }
 
-/// Mount the portal application for `screen` into `element_id`.
-///
-/// The screen key comes from the page because the page owns the URL; the generator is stamped on the mount so a response
-/// can be matched to the run that asked for it.
 #[wasm_bindgen::prelude::wasm_bindgen]
-pub fn portal_mount(element_id: &str, screen_key: &str) -> Result<(), wasm_bindgen::JsValue> {
+pub fn portal_mount(
+    element_id: &str,
+    screen_key: &str,
+    scope: &str,
+) -> Result<(), wasm_bindgen::JsValue> {
     console_error_panic_hook::set_once();
     let screen = crate::model::screen(screen_key)
         .ok_or_else(|| wasm_bindgen::JsValue::from_str(&format!("ui: '{screen_key}' is not a known screen")))?;
     if !crate::update::is_ported_portal_screen(screen.key) {
-        // A screen with no Yew component must not half-mount: the honest answer is to say so rather than paint a shell
-        // around an empty body.
         return Err(wasm_bindgen::JsValue::from_str(&format!(
             "ui: '{screen_key}' has no Yew component yet"
         )));
@@ -70,6 +88,11 @@ pub fn portal_mount(element_id: &str, screen_key: &str) -> Result<(), wasm_bindg
     let root = document
         .get_element_by_id(element_id)
         .ok_or_else(|| wasm_bindgen::JsValue::from_str(&format!("ui: no element '{element_id}'")))?;
-    yew::Renderer::<PortalApp>::with_root(root).render();
+    let scope = if scope.trim().is_empty() {
+        None
+    } else {
+        Some(scope.to_string())
+    };
+    yew::Renderer::<PortalApp>::with_root_and_props(root, PortalAppProps { screen, scope }).render();
     Ok(())
 }

@@ -12,3 +12,6 @@ pub mod chrome;
 pub mod portal_activity;
 pub mod portal_shell;
 pub mod home;
+
+pub mod portal_workflows;
+pub mod portal_workflow_record;

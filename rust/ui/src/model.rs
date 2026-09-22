@@ -454,6 +454,10 @@ pub struct PropertyRecord {
 pub struct PortalPage {
     /// `/portal/activity` — the unified feed, ordered as the read model returned it.
     pub activity: Vec<PortalActivityEntry>,
+    /// `/portal/workflows` — definition-driven transaction workflow cards.
+    pub workflows: Option<PortalWorkflowList>,
+    /// `/portal/workflows/[instanceId]` — one workflow instance in its real timeline shape.
+    pub workflow: Option<PortalWorkflowDetail>,
 }
 
 /// One line of the unified activity feed, with the fields the live screen renders.
@@ -478,6 +482,76 @@ pub struct PortalActivityEntry {
     /// here.
     pub deal_id: Option<String>,
     pub deal_property_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalWorkflowList {
+    pub configured: bool,
+    pub items: Vec<PortalWorkflowSummary>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalWorkflowSummary {
+    pub instance_id: String,
+    pub workflow_name: String,
+    pub workflow_version: i64,
+    pub property_name: Option<String>,
+    pub status: String,
+    pub outcome: Option<String>,
+    pub active_milestones: Vec<String>,
+    pub open_task_count: i64,
+    pub blocker_count: i64,
+    pub responsible_party: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalWorkflowDetail {
+    pub instance_id: String,
+    pub workflow_name: String,
+    pub workflow_version: i64,
+    pub property_name: Option<String>,
+    pub status: String,
+    pub outcome: Option<String>,
+    pub responsible_party: Option<String>,
+    pub started_at_label: String,
+    pub timeline: Vec<PortalWorkflowTimelineItem>,
+    pub milestones: Vec<PortalWorkflowMilestone>,
+    pub open_task_count: i64,
+    pub pending_timer_count: i64,
+    pub blockers: Vec<String>,
+    pub events: Vec<PortalWorkflowEvent>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalWorkflowTimelineItem {
+    pub id: String,
+    pub label: String,
+    pub description: Option<String>,
+    pub deadline: Option<String>,
+    pub completed: bool,
+    pub active: bool,
+    pub optional: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalWorkflowMilestone {
+    pub id: String,
+    pub label: String,
+    pub owner: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalWorkflowEvent {
+    pub id: String,
+    pub event_type: String,
+    pub node_label: Option<String>,
+    pub actor: Option<String>,
 }
 
 /// Everything a public page renders from.
@@ -637,6 +711,12 @@ pub enum Msg {
     /// re-mounted, the route changed, an old async run resuming after its cleanup — must not be able to open its screen
     /// over the current one, and this is where that is refused.
     Mount { screen: Screen, generation: u64 },
+    /// A dynamic portal record mounted directly from its Next route.
+    MountScoped {
+        screen: Screen,
+        scope: Option<String>,
+        generation: u64,
+    },
     /// The user picked a screen from the nav.
     Navigate(Screen),
     RowsLoaded { screen: String, generation: u64, rows: Vec<Row> },
@@ -780,6 +860,7 @@ pub enum Effect {
     /// portal user. One effect meaning two audiences is how a public request ends up asking a private route.
     FetchPortal {
         screen: &'static str,
+        scope: Option<String>,
         generation: u64,
     },
     /// Fetch a public page's content: the blocks, not the rows.

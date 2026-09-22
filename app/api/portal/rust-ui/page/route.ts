@@ -3,34 +3,19 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { getActivityFeed } from '@/legacy/db/activity-feed'
 import { getPortalActingUser } from '@/lib/auth/portal-session'
 import { withApiHandler } from '@/lib/error-capture-seam'
+import { engineConfigured } from '@/legacy/workflow_app/engine-client'
+import { getWorkflowDetail, getWorkflowSummaries } from '@/legacy/workflow_app/read-service'
+import { resolveResponsibility } from '@/legacy/workflow_app/responsibility'
+import { deadlineLabelFor } from '@/legacy/workflow_app/deadlines'
 
-// ---------------------------------------------------------------------------
-// A PORTAL SCREEN'S PAYLOAD, IN THE SCREEN'S OWN SHAPE.
-//
-// WHY THIS IS NOT THE ROWS ROUTE. That route answers with `{ id, cells, badge }` — a column list, which is the right
-// transport for a table and the wrong one for a screen. The Activity feed renders a channel, a direction, the person,
-// the summary, and the property or deal a line belongs to, and the person and deal are LINKS, so they need their ids.
-// Flattening those into five cells threw away everything but the words, which is why the ported screens looked like
-// generic lists: they were being handed generic lists.
-//
-// ONE CASE PER PORTED SCREEN, added as the screen arrives, and each case reads the same read model the live TypeScript
-// screen reads — so the two cannot disagree about the data.
-//
-// AUTHENTICATED, unlike the public page feed: this answers with the book's data, so it asks for the acting portal user
-// and refuses a request without one. Read-only.
-// ---------------------------------------------------------------------------
-
+// A portal screen's payload in the screen's own shape — never flattened generic cells.
 async function GETHandler(req: NextRequest): Promise<Response> {
   const actor = await getPortalActingUser()
-  if (!actor) {
-    return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 })
-  }
+  if (!actor) return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 })
 
   const screen = req.nextUrl.searchParams.get('screen') ?? ''
   switch (screen) {
     case 'activity': {
-      // The same call the live screen makes, with the same limit, and the read model's own field names — `direction`,
-      // `personId`, `dealId` and `occurredAtLabel` are all things the screen renders.
       const entries = await getActivityFeed(50)
       return NextResponse.json({
         activity: entries.map((entry) => ({
@@ -48,14 +33,79 @@ async function GETHandler(req: NextRequest): Promise<Response> {
         })),
       })
     }
-    default: {
-      // NO SILENT EMPTY SCREEN. A screen that asks for a payload nobody serves is a wiring mistake — the Rust side only
-      // asks for a DTO when `is_ported_portal_screen` names the screen — so it fails loudly and names the screen.
-      return NextResponse.json(
-        { error: `no portal payload source for screen '${screen}'` },
-        { status: 400 },
-      )
+    case 'workflows': {
+      const configured = engineConfigured()
+      const summaries = configured ? await getWorkflowSummaries() : []
+      return NextResponse.json({
+        workflows: {
+          configured,
+          items: summaries.map((summary) => ({
+            instanceId: summary.instanceId,
+            workflowName: summary.workflowName,
+            workflowVersion: summary.workflowVersion,
+            propertyName: summary.propertyName,
+            status: summary.status,
+            outcome: summary.outcome,
+            activeMilestones: summary.activeMilestones,
+            openTaskCount: summary.openTaskCount,
+            blockerCount: summary.blockerCount,
+            responsibleParty: summary.responsibleParty,
+          })),
+        },
+      })
     }
+    case 'workflow-record': {
+      const scope = req.nextUrl.searchParams.get('scope')
+      if (!scope) return NextResponse.json({ error: 'workflow-record requires scope.' }, { status: 400 })
+
+      const detail = await getWorkflowDetail(scope)
+      if (!detail) return NextResponse.json({ workflow: null })
+
+      const completed = new Set(detail.completedNodes)
+      const active = new Set(detail.currentNodes)
+      const optional = new Set(detail.optionalNodes)
+      const timelineIds = detail.displayOrder.length > 0 ? detail.displayOrder : detail.currentNodes
+
+      return NextResponse.json({
+        workflow: {
+          instanceId: detail.instanceId,
+          workflowName: detail.workflowName,
+          workflowVersion: detail.workflowVersion,
+          propertyName: detail.propertyName,
+          status: detail.status,
+          outcome: detail.outcome,
+          responsibleParty: detail.responsibleParty,
+          startedAtLabel: new Intl.DateTimeFormat('en-US').format(new Date(detail.startedAt)),
+          timeline: timelineIds.map((id) => ({
+            id,
+            label: detail.nodeLabels[id] ?? id.replace(/_/g, ' '),
+            description: detail.nodeDescriptions[id] ?? null,
+            deadline: deadlineLabelFor(id) ?? null,
+            completed: completed.has(id),
+            active: active.has(id),
+            optional: optional.has(id),
+          })),
+          milestones: detail.activeMilestoneNodeIds.map((id) => ({
+            id,
+            label: detail.nodeLabels[id] ?? id.replace(/_/g, ' '),
+            owner: resolveResponsibility(detail.nodeResponsibility[id]).owner,
+          })),
+          openTaskCount: detail.openTaskCount,
+          pendingTimerCount: detail.pendingTimerCount,
+          blockers: detail.currentNodes
+            .filter((id) => id.endsWith('_blocker'))
+            .map((id) => detail.nodeLabels[id] ?? id),
+          events: detail.events.map((event) => ({
+            id: event.id,
+            eventType: event.eventType,
+            nodeLabel: event.nodeId ? (detail.nodeLabels[event.nodeId] ?? event.nodeId) : null,
+            actor: event.actor,
+          })),
+        },
+      })
+    }
+    default:
+      return NextResponse.json({ error: `no portal payload source for screen '${screen}'` }, { status: 400 })
   }
 }
 

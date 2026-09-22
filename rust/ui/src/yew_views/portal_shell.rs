@@ -87,36 +87,22 @@ impl Component for PortalShell {
 }
 
 impl PortalShell {
-    /// One rail entry: a screen that has a Yew component navigates by intent, one that does not is a full page load to
-    /// the route that serves it. Both are marked `aria-current` when they are the screen on screen, so the rail reads
-    /// the same either way.
-    fn rail_entry(&self, candidate: Screen, current: Screen, on_msg: &Callback<Msg>) -> Html {
+    /// Portal URLs still belong to Next while the Yew conversion is screen-by-screen.
+    ///
+    /// Keep every rail entry as a real anchor until the Portal itself owns routing. A button that only dispatched
+    /// Msg::Navigate changed the Rust model without changing the browser URL, which breaks refresh, back/forward and
+    /// deep-link truth. Full document navigation is the honest bridge during this staged cutover.
+    fn rail_entry(&self, candidate: Screen, current: Screen, _on_msg: &Callback<Msg>) -> Html {
         let active = candidate == current;
         let class = classes!(
             "block", "w-full", "rounded-md", "px-2", "py-1.5", "text-left", "text-sm",
             if active { "bg-muted font-medium" } else { "hover:bg-muted/60 text-muted-foreground" }
         );
-        if crate::update::is_ported_portal_screen(candidate.key) {
-            let on_msg = on_msg.clone();
-            let key = candidate.key;
-            let onclick = Callback::from(move |_: MouseEvent| {
-                if let Some(target) = screen(key) {
-                    on_msg.emit(Msg::Navigate(target));
-                }
-            });
-            html! {
-                <button type="button" {onclick} aria-current={active.then_some("page")} {class}>
-                    { candidate.title }
-                    if candidate.is_deferred() { {" (no data yet)"} }
-                </button>
-            }
-        } else {
-            html! {
-                <a href={candidate.path.to_string()} aria-current={active.then_some("page")} {class}>
-                    { candidate.title }
-                    if candidate.is_deferred() { {" (no data yet)"} }
-                </a>
-            }
+        html! {
+            <a href={candidate.path.to_string()} aria-current={active.then_some("page")} {class}>
+                { candidate.title }
+                if candidate.is_deferred() { {" (no data yet)"} }
+            </a>
         }
     }
 }

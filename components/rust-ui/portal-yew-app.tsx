@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react'
 
 type RustUiModule = {
   default: (init?: { module_or_path?: string }) => Promise<unknown>
-  portal_mount: (elementId: string, screenKey: string) => void
+  portal_mount: (elementId: string, screenKey: string, scope: string) => void
 }
 
 /** Booted once per document, and mounted for the one screen this page serves. */
@@ -28,9 +28,11 @@ async function boot(wasmPath: string): Promise<RustUiModule> {
 
 export function PortalYewApp({
   screen,
+  scope,
   wasmPath = '/rust-ui/ui_bg.wasm',
 }: {
   screen: string
+  scope?: string
   wasmPath?: string
 }) {
   const [error, setError] = useState<string | null>(null)
@@ -39,7 +41,7 @@ export function PortalYewApp({
     let cancelled = false
     void boot(wasmPath)
       .then((module) => {
-        if (!cancelled) module.portal_mount('rust-ui', screen)
+        if (!cancelled) module.portal_mount('rust-ui', screen, scope ?? '')
       })
       .catch((cause: unknown) => {
         if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause))
@@ -47,7 +49,7 @@ export function PortalYewApp({
     return () => {
       cancelled = true
     }
-  }, [screen, wasmPath])
+  }, [screen, scope, wasmPath])
 
   return (
     <>

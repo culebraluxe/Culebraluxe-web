@@ -12,7 +12,7 @@ use crate::model::{record_for, Controls, Effect, Model, Msg, Screen, PAGE_SIZE};
 /// render — must agree, and the test below pins that: a screen that asks for a payload nobody renders is a screen with
 /// an empty body, which is the failure this project has already paid for once.
 pub fn is_ported_portal_screen(key: &str) -> bool {
-    matches!(key, "activity")
+    matches!(key, "activity" | "workflows" | "workflow-record")
 }
 
 /// Whether a screen renders from a page payload rather than a list of rows.
@@ -93,6 +93,7 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
         if is_ported_portal_screen(screen.key) {
             vec![Effect::FetchPortal {
                 screen: screen.key,
+                scope: model.scope.clone(),
                 generation: model.generation,
             }]
         } else if is_editorial(screen.key) {
@@ -122,6 +123,14 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             // request has to carry the number it was asked under.
             model.generation = generation;
             open(model, screen, None)
+        }
+        Msg::MountScoped {
+            screen,
+            scope,
+            generation,
+        } => {
+            model.generation = generation;
+            open(model, screen, scope)
         }
         Msg::Navigate(screen) => {
             // Already there, and not deep inside a record: nothing to do. Coming *back* from a record with the same
