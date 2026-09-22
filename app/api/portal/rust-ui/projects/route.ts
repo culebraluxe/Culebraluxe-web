@@ -42,6 +42,21 @@ type RustWbsItem = {
   updated_at: string | null
 }
 
+type RustMediaAsset = {
+  id: string
+  propertyId: string
+  mediaType: string
+  role: string
+  sortOrder: number
+  filename: string | null
+  mimeType: string | null
+  fileSize: number | null
+  altText: string | null
+  caption: string | null
+  createdAt: string | null
+  url: string
+}
+
 type RustVaultDocument = {
   id: string
   propertyId: string | null
@@ -169,13 +184,40 @@ async function resolveIdentityNames(projects: RustProject[], items: RustWbsItem[
   return names
 }
 
+function workspacePropertyIds(projects: RustProject[], items: RustWbsItem[]): string[] {
+  const ids = new Set<string>()
+  for (const project of projects) {
+    if (project.property_id) ids.add(project.property_id)
+  }
+  for (const item of items) {
+    if (item.entity?.entity_type === 'property') ids.add(item.entity.id)
+  }
+  return [...ids]
+}
+
 async function workspacePayload() {
   const [projects, items, documents] = await Promise.all([
     rustApiRead<RustProject[]>('/v1/projects'),
     rustApiRead<RustWbsItem[]>('/v1/wbs/project-items'),
     rustApiRead<RustVaultDocument[]>('/v1/vault/documents'),
   ])
-  const identityNames = await resolveIdentityNames(projects.value, items.value)
+  const propertyIds = workspacePropertyIds(projects.value, items.value)
+  const [identityNames, mediaByProperty] = await Promise.all([
+    resolveIdentityNames(projects.value, items.value),
+    Promise.all(
+      propertyIds.map(async (id) => {
+        try {
+          const result = await rustApiRead<RustMediaAsset[]>(
+            (`/v1/properties/${encodeURIComponent(id)}/media`) as `/v1/${string}`,
+          )
+          return result.value
+        } catch {
+          // Media is supplemental to the project workspace. Vault/WBS still render if one property-media read fails.
+          return []
+        }
+      }),
+    ),
+  ])
   return {
     projects: {
       projects: projects.value.map(projectPayload),
@@ -192,6 +234,7 @@ async function workspacePayload() {
         signedArtifactAvailable: document.signedArtifactAvailable,
         signedAuditAvailable: document.signedAuditAvailable,
       })),
+      media: mediaByProperty.flat(),
       identityNames,
     },
   }
