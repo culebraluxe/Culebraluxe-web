@@ -121,13 +121,14 @@ fn site_header(model: &Model) -> String {
                <a href=\"/portal/dashboard\" class=\"{CAPSULE}\">Portal</a>\
              </nav>\
              <details class=\"lg:hidden\">\
-               <summary class=\"flex cursor-pointer list-none flex-col items-end gap-1.5 text-brand-ivory\" \
-                 aria-label=\"Menu\">\
+               <summary class=\"flex cursor-pointer list-none flex-col items-end gap-1.5 text-brand-ivory \
+                 [&::-webkit-details-marker]:hidden\" aria-label=\"Menu\">\
                  <span class=\"block h-px w-6 bg-current\"></span>\
                  <span class=\"block h-px w-6 bg-current\"></span>\
                  <span class=\"block h-px w-6 bg-current\"></span>\
                </summary>\
-               <nav class=\"mt-4 flex flex-col gap-2 border-t border-brand-gold/25 pt-4\" aria-label=\"Mobile\">\
+               <nav class=\"absolute inset-x-0 top-full flex max-h-[75svh] flex-col gap-2 overflow-y-auto \
+                 border-t border-brand-gold/25 bg-brand-navy px-4 py-4 backdrop-blur-md\" aria-label=\"Mobile\">\
                  {mobile}<a href=\"/portal/dashboard\" class=\"{MOBILE_CAPSULE}\">Portal</a>\
                </nav>\
              </details>\
