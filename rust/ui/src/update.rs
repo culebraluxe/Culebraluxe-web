@@ -14,7 +14,8 @@ use crate::model::{record_for, Controls, Effect, Model, Msg, Screen, PAGE_SIZE};
 pub fn is_ported_portal_screen(key: &str) -> bool {
     matches!(
         key,
-        "activity"
+        "dashboard"
+            | "activity"
             | "workflows"
             | "workflow-record"
             | "clients"
@@ -208,7 +209,12 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
         // `Model::generation`: without it, a request issued for one screen can land while another is mounted.
         // A screen that has a real component asks for its DTO; every other portal screen still asks for rows, so the two
         // live side by side while the port goes screen by screen. See `is_ported_portal_screen`.
-        if matches!(screen.key, "clients" | "client-record") {
+        if screen.key == "dashboard" {
+            vec![Effect::FetchCockpit {
+                screen: screen.key,
+                generation: model.generation,
+            }]
+        } else if matches!(screen.key, "clients" | "client-record") {
             vec![client_effect(model)]
         } else if matches!(screen.key, "forms" | "form-record") {
             vec![Effect::FetchForms {
@@ -669,6 +675,18 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             }]
         }
 
+        Msg::CockpitTaskCompleteRequested { task_id } => {
+            if model.screen.key != "dashboard" || model.loading || task_id.trim().is_empty() {
+                return Vec::new();
+            }
+            model.loading = true;
+            model.error = None;
+            vec![Effect::CompleteCockpitTask {
+                screen: model.screen.key,
+                generation: model.generation,
+                task_id,
+            }]
+        }
         Msg::ProjectDomainSelected(domain) => {
             let Some(projects) = model
                 .page
@@ -974,6 +992,43 @@ mod tests {
             generation: model.generation,
             message: message.to_string(),
         }
+    }
+
+    #[test]
+    fn navigating_to_dashboard_fetches_the_typed_cockpit() {
+        let mut model = Model::default();
+        let effects = update(&mut model, Msg::Navigate(target("dashboard")));
+        assert_eq!(model.screen, target("dashboard"));
+        assert!(model.loading);
+        assert_eq!(
+            effects,
+            vec![Effect::FetchCockpit {
+                screen: "dashboard",
+                generation: 0,
+            }]
+        );
+    }
+
+    #[test]
+    fn cockpit_task_completion_is_reducer_owned() {
+        let mut model = Model {
+            screen: target("dashboard"),
+            ..Model::default()
+        };
+        assert_eq!(
+            update(
+                &mut model,
+                Msg::CockpitTaskCompleteRequested {
+                    task_id: "task-1".into(),
+                },
+            ),
+            vec![Effect::CompleteCockpitTask {
+                screen: "dashboard",
+                generation: 0,
+                task_id: "task-1".into(),
+            }]
+        );
+        assert!(model.loading);
     }
 
     #[test]
