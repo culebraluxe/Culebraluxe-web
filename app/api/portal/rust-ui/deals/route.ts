@@ -1,7 +1,11 @@
 import { NextResponse, type NextRequest } from 'next/server'
 
 import { withApiHandler } from '@/lib/error-capture-seam'
-import { rustApiCreateDeal, rustApiRead } from '@/lib/rust-api/client'
+import {
+  rustApiCreateDeal,
+  rustApiDealCommand,
+  rustApiRead,
+} from '@/lib/rust-api/client'
 
 type DealPortfolioItem = {
   id: string
@@ -125,8 +129,24 @@ async function GETHandler(req: NextRequest): Promise<Response> {
     })
   }
 
+  const dealId = req.nextUrl.searchParams.get('id')?.trim()
+  if (dealId) {
+    const result = await rustApiRead<unknown>(
+      (`/v1/deals/${encodeURIComponent(dealId)}`) as `/v1/${string}`,
+    )
+    return NextResponse.json({
+      deals: {
+        deals: [],
+        contracts: [],
+        properties: [],
+        users: [],
+        workspace: result.value,
+      },
+    })
+  }
+
   const result = await rustApiRead<DealPortfolioSnapshot>('/v1/deals')
-  return NextResponse.json({ deals: result.value })
+  return NextResponse.json({ deals: { ...result.value, workspace: null } })
 }
 
 async function POSTHandler(req: NextRequest): Promise<Response> {
@@ -135,6 +155,18 @@ async function POSTHandler(req: NextRequest): Promise<Response> {
     raw = await req.json()
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 })
+  }
+
+  const dealId = req.nextUrl.searchParams.get('id')?.trim()
+  if (dealId) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      return NextResponse.json({ error: 'Invalid command body.' }, { status: 400 })
+    }
+    const result = await rustApiDealCommand<{ id: string }>(
+      dealId,
+      raw as Record<string, unknown>,
+    )
+    return NextResponse.json({ id: result.value.id })
   }
 
   const input = parseCreateDealInput(raw)
