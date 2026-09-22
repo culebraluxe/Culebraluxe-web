@@ -73,7 +73,7 @@ fn workspace(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
     html! {
         <div class="grid min-h-0 gap-3 lg:h-[calc(100dvh-8.5rem)] lg:grid-cols-[390px_minmax(0,1fr)]">
             { island_bridge(on_msg) }
-            { navigator(model, projects, on_msg) }
+            { navigator(model, projects) }
             { center_panel(model, projects, on_msg) }
         </div>
     }
@@ -91,6 +91,17 @@ fn island_bridge(on_msg: &Callback<Msg>) -> Html {
                 return;
             };
             match intent.get("kind").and_then(|value| value.as_str()) {
+                Some("query") => {
+                    if let Some(query) = intent.get("query").and_then(|value| value.as_str()) {
+                        on_msg.emit(Msg::QueryChanged(query.to_string()));
+                    }
+                }
+                Some("domain") => {
+                    if let Some(domain) = intent.get("domain").and_then(|value| value.as_str()) {
+                        on_msg.emit(Msg::ProjectDomainSelected(domain.to_string()));
+                    }
+                }
+                Some("catchup") => on_msg.emit(Msg::ProjectCatchUpToggled(true)),
                 Some("project") => {
                     if let Some(project_id) =
                         intent.get("projectId").and_then(|value| value.as_str())
@@ -123,274 +134,29 @@ fn island_bridge(on_msg: &Callback<Msg>) -> Html {
     }
 }
 
-fn navigator(
-    model: &crate::model::Model,
-    projects: &PortalProjectsPage,
-    on_msg: &Callback<Msg>,
-) -> Html {
-    const DOMAINS: &[(&str, &str)] = &[
-        ("properties", "Properties"),
-        ("people", "People"),
-        ("deals", "Deals"),
-        ("firm", "Firm"),
-        ("marketing", "Marketing"),
-        ("accounting", "Accounting"),
-    ];
-    let query = model.controls.query.trim().to_lowercase();
-    let on_query = {
-        let on_msg = on_msg.clone();
-        Callback::from(move |event: InputEvent| {
-            let value = event
-                .target_unchecked_into::<web_sys::HtmlInputElement>()
-                .value();
-            on_msg.emit(Msg::QueryChanged(value));
-        })
-    };
-
-    let visible = projects
-        .projects
-        .iter()
-        .filter(|project| project_in_domain(project, &projects.items, &projects.active_domain))
-        .filter(|project| {
-            query.is_empty()
-                || project.name.to_lowercase().contains(&query)
-                || project_context(project, projects)
-                    .to_lowercase()
-                    .contains(&query)
-                || project_items(projects, &project.id)
-                    .iter()
-                    .any(|item| item.title.to_lowercase().contains(&query))
-        })
-        .collect::<Vec<_>>();
-
+fn navigator(model: &crate::model::Model, projects: &PortalProjectsPage) -> Html {
+    let widget = json!({
+        "projects": &projects.projects,
+        "items": &projects.items,
+        "identityNames": &projects.identity_names,
+        "activeDomain": projects.active_domain.clone(),
+        "catchUp": projects.catch_up,
+        "selectedProjectId": projects.selected_project_id.clone(),
+        "selectedNodeId": projects.selected_node_id.clone(),
+        "query": model.controls.query.clone(),
+    });
     html! {
-        <aside class="portal-glass-panel flex min-h-0 overflow-hidden rounded-[var(--portal-panel-radius)] bg-[var(--portal-navy)] text-white">
-            <div class="w-[92px] shrink-0 border-r border-white/10 py-3">
-                <button type="button"
-                    onclick={{
-                        let on_msg = on_msg.clone();
-                        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::ProjectCatchUpToggled(true)))
-                    }}
-                    class={rail_class(projects.catch_up)}>
-                    <span class="text-[12px] font-medium">{"Catch-Up"}</span>
-                </button>
-                <div class="mx-auto my-2 w-12 border-b border-white/15"></div>
-                { for DOMAINS.iter().map(|(key, label)| {
-                    let key_string = (*key).to_string();
-                    let active = !projects.catch_up && projects.active_domain == *key;
-                    let on_msg = on_msg.clone();
-                    html! {
-                        <button type="button"
-                            onclick={Callback::from(move |_: MouseEvent| on_msg.emit(Msg::ProjectDomainSelected(key_string.clone())))}
-                            class={rail_class(active)}>
-                            <span class="text-[12px] font-medium">{ *label }</span>
-                        </button>
-                    }
-                }) }
-            </div>
-
-            <div class="flex min-w-0 flex-1 flex-col">
-                <div class="shrink-0 border-b border-white/10 p-3">
-                    <div class="mb-2 flex items-center justify-between gap-2">
-                        <div>
-                            <div class="font-serif text-xl font-bold text-white">{"Projects"}</div>
-                            <div class="text-[10px] uppercase tracking-[0.13em] text-white/45">
-                                { if projects.catch_up { "Cross-project work" } else { projects.active_domain.as_str() } }
-                            </div>
-                        </div>
-                        <button type="button" disabled=true
-                            title="New Project stays gated until the Rust playbook-instantiation transaction is attached."
-                            class="rounded-full border border-white/15 px-2.5 py-1.5 text-[10px] uppercase tracking-[0.1em] text-white/40">
-                            {"New"}
-                        </button>
-                    </div>
-                    <input type="search" value={model.controls.query.clone()} oninput={on_query}
-                        placeholder="Search projects / work…"
-                        class="w-full rounded-[var(--portal-tab-radius)] border border-white/15 bg-white/10 px-3 py-2 text-sm font-light text-white outline-none placeholder:text-white/35 focus:border-[var(--portal-gold)]/60" />
-                </div>
-
-                <div class="min-h-0 flex-1 overflow-y-auto p-2">
-                    if projects.catch_up {
-                        { catchup_nav(projects, on_msg) }
-                    } else if visible.is_empty() {
-                        <p class="px-3 py-8 text-sm font-light text-white/45">{"No matching projects in this perspective."}</p>
-                    } else {
-                        { navigator_island(projects, &visible, &query) }
-                    }
+        <aside class="portal-glass-panel min-h-0 overflow-hidden rounded-[var(--portal-panel-radius)] bg-[var(--portal-navy)] text-white">
+            <div
+                id="project-navigator-island"
+                data-project-widget={widget.to_string()}
+                class="h-full min-h-[20rem] overflow-hidden"
+            >
+                <div class="flex h-full items-center justify-center px-3 text-sm font-light text-white/40">
+                    {"Loading project navigator…"}
                 </div>
             </div>
         </aside>
-    }
-}
-
-fn navigator_island(
-    projects: &PortalProjectsPage,
-    visible: &[&PortalProject],
-    query: &str,
-) -> Html {
-    let visible_ids = visible
-        .iter()
-        .map(|project| project.id.as_str())
-        .collect::<BTreeSet<_>>();
-    let items = projects
-        .items
-        .iter()
-        .filter(|item| {
-            item.project_id
-                .as_deref()
-                .is_some_and(|project_id| visible_ids.contains(project_id))
-        })
-        .collect::<Vec<_>>();
-    let widget = json!({
-        "projects": visible,
-        "items": items,
-        "selectedProjectId": projects.selected_project_id.clone(),
-        "selectedNodeId": projects.selected_node_id.clone(),
-        "query": query,
-    });
-    html! {
-        <div
-            id="project-navigator-island"
-            data-project-widget={widget.to_string()}
-            class="h-full min-h-[16rem] overflow-hidden"
-        >
-            <div class="flex h-full items-center justify-center px-3 text-sm font-light text-white/40">
-                {"Loading project tree…"}
-            </div>
-        </div>
-    }
-}
-
-fn rail_class(active: bool) -> Classes {
-    classes!(
-        "relative",
-        "flex",
-        "w-full",
-        "min-h-14",
-        "items-center",
-        "justify-center",
-        "px-1",
-        "text-center",
-        "transition",
-        if active {
-            "border-l-[3px] border-l-[var(--portal-gold)] bg-black/20 text-[var(--portal-gold)]"
-        } else {
-            "border-l-[3px] border-l-transparent text-white/65 hover:bg-white/[0.07] hover:text-white"
-        }
-    )
-}
-
-fn project_tree_row(
-    projects: &PortalProjectsPage,
-    project: &PortalProject,
-    on_msg: &Callback<Msg>,
-) -> Html {
-    let selected = projects.selected_project_id.as_deref() == Some(project.id.as_str());
-    let id = project.id.clone();
-    let on_project = {
-        let on_msg = on_msg.clone();
-        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::ProjectSelected(id.clone())))
-    };
-    html! {
-        <div class="mb-1">
-            <button type="button" onclick={on_project}
-                class={classes!(
-                    "w-full","rounded-xl","px-3","py-2.5","text-left","transition",
-                    if selected { "bg-white/12 ring-1 ring-inset ring-white/15" } else { "hover:bg-white/[0.06]" }
-                )}>
-                <div class="flex items-start justify-between gap-3">
-                    <span class="min-w-0">
-                        <span class="block truncate font-serif text-[18px] font-bold text-white/95">{ project.name.clone() }</span>
-                        <span class="mt-0.5 block truncate text-[11px] font-light text-white/45">
-                            { project_context(project, projects) }
-                        </span>
-                    </span>
-                    <span class="shrink-0 text-[10px] font-light uppercase tracking-[0.1em] text-white/45">
-                        { format!("{}%", project_progress(projects, &project.id)) }
-                    </span>
-                </div>
-            </button>
-            if selected {
-                <div class="ml-4 border-l border-white/10 pl-2">
-                    { for root_items(projects, &project.id).into_iter().map(|item| work_tree_row(projects, item, 0, on_msg)) }
-                </div>
-            }
-        </div>
-    }
-}
-
-fn work_tree_row(
-    projects: &PortalProjectsPage,
-    item: &PortalProjectWorkItem,
-    depth: usize,
-    on_msg: &Callback<Msg>,
-) -> Html {
-    let selected = projects.selected_node_id.as_deref() == Some(item.id.as_str());
-    let id = item.id.clone();
-    let on_select = {
-        let on_msg = on_msg.clone();
-        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::ProjectNodeSelected(Some(id.clone()))))
-    };
-    let children = child_items(projects, &item.id);
-    html! {
-        <>
-            <button type="button" onclick={on_select}
-                style={format!("padding-left:{}px", 8 + depth * 14)}
-                class={classes!(
-                    "flex","w-full","items-center","gap-2","rounded-lg","py-2","pr-2","text-left","transition",
-                    if selected { "bg-white/10 text-white" } else { "text-white/68 hover:bg-white/[0.05] hover:text-white" }
-                )}>
-                <span class={classes!("h-2","w-2","shrink-0","rounded-full",status_dot(&item.status))}></span>
-                <span class="min-w-0 flex-1">
-                    <span class="block truncate text-[13px] font-medium">{ item.title.clone() }</span>
-                    <span class="block truncate text-[10px] font-light text-white/38">
-                        { work_meta(item) }
-                    </span>
-                </span>
-            </button>
-            { for children.into_iter().map(|child| work_tree_row(projects, child, depth + 1, on_msg)) }
-        </>
-    }
-}
-
-fn catchup_nav(projects: &PortalProjectsPage, on_msg: &Callback<Msg>) -> Html {
-    let mut items = projects
-        .items
-        .iter()
-        .filter(|item| matches!(item.status.as_str(), "open" | "doing"))
-        .collect::<Vec<_>>();
-    items.sort_by(|left, right| {
-        left.due_at
-            .as_deref()
-            .unwrap_or("9999")
-            .cmp(right.due_at.as_deref().unwrap_or("9999"))
-            .then_with(|| left.title.cmp(&right.title))
-    });
-    html! {
-        <div>
-            { for items.into_iter().map(|item| {
-                let id = item.id.clone();
-                let project_id = item.project_id.clone();
-                let project = project_id.as_deref()
-                    .and_then(|project_id| projects.projects.iter().find(|project| project.id == project_id));
-                let on_msg = on_msg.clone();
-                html! {
-                    <button type="button"
-                        onclick={Callback::from(move |_: MouseEvent| {
-                            if let Some(project_id) = project_id.as_ref() {
-                                on_msg.emit(Msg::ProjectSelected(project_id.clone()));
-                                on_msg.emit(Msg::ProjectNodeSelected(Some(id.clone())));
-                            }
-                        })}
-                        class="mb-1 w-full rounded-xl px-3 py-2.5 text-left text-white/75 transition hover:bg-white/[0.07] hover:text-white">
-                        <span class="block text-[13px] font-medium">{ item.title.clone() }</span>
-                        <span class="mt-0.5 block truncate text-[10px] font-light text-white/40">
-                            { format!("{} · {}", project.map(|p| p.name.as_str()).unwrap_or("Project"), work_meta(item)) }
-                        </span>
-                    </button>
-                }
-            }) }
-        </div>
     }
 }
 
