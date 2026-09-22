@@ -24,7 +24,9 @@ use std::rc::Rc;
 
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-use web_sys::{Document, Element, Event, HtmlElement, HtmlInputElement, HtmlSelectElement, MouseEvent, Window};
+use web_sys::{
+    Document, Element, Event, HtmlElement, HtmlInputElement, HtmlSelectElement, MouseEvent, Window,
+};
 
 use crate::{home, screen, Msg, Program, Surface};
 
@@ -141,7 +143,10 @@ fn paint(root: &HtmlElement, program: &Rc<RefCell<Program>>, repaint: Repaint) {
     // mount point before the first render, and the reason a screen-local message arriving first cannot paint half a page.
     let repaint_target = match repaint {
         Repaint::Chrome => None,
-        Repaint::Page => root.query_selector(&format!("#{}", crate::view::PAGE_ID)).ok().flatten(),
+        Repaint::Page => root
+            .query_selector(&format!("#{}", crate::view::PAGE_ID))
+            .ok()
+            .flatten(),
     };
     match repaint_target {
         Some(page) => page.set_inner_html(&program.borrow().page_html()),
@@ -171,7 +176,9 @@ fn announce_islands(root: &HtmlElement) {
     };
     let mut islands: Vec<String> = Vec::new();
     for index in 0..nodes.length() {
-        let Some(node) = nodes.item(index) else { continue };
+        let Some(node) = nodes.item(index) else {
+            continue;
+        };
         let Ok(element) = node.dyn_into::<Element>() else {
             continue;
         };
@@ -481,7 +488,11 @@ pub fn rows_loaded(screen: &str, generation: u32, payload: &str) -> Result<(), J
         match program {
             Some(program) => {
                 let root = current_root()?;
-                dispatch(&root, &program, Msg::rows_loaded_json(screen, generation as u64, payload));
+                dispatch(
+                    &root,
+                    &program,
+                    Msg::rows_loaded_json(screen, generation as u64, payload),
+                );
                 Ok(())
             }
             None => Err(JsValue::from_str(
@@ -500,7 +511,11 @@ pub fn page_loaded(screen: &str, generation: u32, payload: &str) -> Result<(), J
         match program {
             Some(program) => {
                 let root = current_root()?;
-                dispatch(&root, &program, Msg::page_loaded_json(screen, generation as u64, payload));
+                dispatch(
+                    &root,
+                    &program,
+                    Msg::page_loaded_json(screen, generation as u64, payload),
+                );
                 Ok(())
             }
             None => Err(JsValue::from_str(

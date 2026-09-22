@@ -710,7 +710,10 @@ pub enum Msg {
     /// every request this mount makes so the answer can be matched to the question. A run that is replaced — the host
     /// re-mounted, the route changed, an old async run resuming after its cleanup — must not be able to open its screen
     /// over the current one, and this is where that is refused.
-    Mount { screen: Screen, generation: u64 },
+    Mount {
+        screen: Screen,
+        generation: u64,
+    },
     /// A dynamic portal record mounted directly from its Next route.
     MountScoped {
         screen: Screen,
@@ -719,7 +722,11 @@ pub enum Msg {
     },
     /// The user picked a screen from the nav.
     Navigate(Screen),
-    RowsLoaded { screen: String, generation: u64, rows: Vec<Row> },
+    RowsLoaded {
+        screen: String,
+        generation: u64,
+        rows: Vec<Row>,
+    },
     RowSelected(String),
     /// A row was opened as a record rather than merely selected: on a listing, this navigates to that record's own
     /// screen. A screen with no record treats it as a selection instead, so the same click is never ambiguous.

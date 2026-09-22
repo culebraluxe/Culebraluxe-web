@@ -208,7 +208,10 @@ mod tests {
             let svg = icon(name, "h-10 w-10", "1.25").expect("the icon is in the table");
             assert!(svg.starts_with("<svg "), "{name} is an svg");
             assert!(svg.contains("<path d=\""), "{name} draws a path");
-            assert!(svg.contains("stroke-width=\"1.25\""), "{name} keeps its weight");
+            assert!(
+                svg.contains("stroke-width=\"1.25\""),
+                "{name} keeps its weight"
+            );
             assert!(
                 svg.contains("class=\"h-10 w-10\""),
                 "{name} keeps the size the design asks for"

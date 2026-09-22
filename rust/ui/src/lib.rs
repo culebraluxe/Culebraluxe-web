@@ -35,18 +35,18 @@ pub mod shell;
 pub mod yew_app;
 #[cfg(all(feature = "wasm", feature = "yew"))]
 pub mod yew_effects;
-#[cfg(all(feature = "wasm", feature = "yew-router"))]
-pub mod yew_router;
 #[cfg(all(feature = "wasm", feature = "yew"))]
 pub mod yew_portal;
+#[cfg(all(feature = "wasm", feature = "yew-router"))]
+pub mod yew_router;
 #[cfg(all(feature = "wasm", feature = "yew"))]
 pub mod yew_views;
 
 pub mod icons;
 pub use document::{document, ASSETS_ROOT, STYLESHEET_URL};
 pub use model::{
-    home, listed, record_for, screen, Block, BlockItem, Controls, Effect, Listing, Model, Msg, Nav, PageContent, Row,
-    Screen, Surface, PAGE_SIZE, SCREENS,
+    home, listed, record_for, screen, Block, BlockItem, Controls, Effect, Listing, Model, Msg, Nav,
+    PageContent, Row, Screen, Surface, PAGE_SIZE, SCREENS,
 };
 pub use update::update;
 pub use view::{render, render_page, PAGE_ID};
@@ -232,7 +232,8 @@ mod tests {
             },
         });
         assert_eq!(
-            program.model().page, home,
+            program.model().page,
+            home,
             "a payload for another screen must not become the page on screen"
         );
         assert!(

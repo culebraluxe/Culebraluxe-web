@@ -35,7 +35,9 @@ fn main() {
     // sample guessed.
     let page = if page_from_stdin {
         let mut payload = String::new();
-        std::io::stdin().read_to_string(&mut payload).expect("payload");
+        std::io::stdin()
+            .read_to_string(&mut payload)
+            .expect("payload");
         match serde_json::from_str::<PageContent>(&payload) {
             Ok(page) => {
                 eprintln!(
