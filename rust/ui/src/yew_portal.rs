@@ -10,6 +10,7 @@ use crate::yew_views::portal_activity::Activity;
 use crate::yew_views::portal_cabinet::Cabinet;
 use crate::yew_views::portal_clients::{ClientRecord, Clients};
 use crate::yew_views::portal_cockpit::Cockpit;
+use crate::yew_views::portal_deals::{DealRecord, Deals};
 use crate::yew_views::portal_forms::{FormRecord, Forms};
 use crate::yew_views::portal_projects::Projects;
 use crate::yew_views::portal_seller_strategy::SellerStrategy;
@@ -68,6 +69,10 @@ impl Component for PortalApp {
             "clients" => html! { <Clients model={self.model.clone()} on_msg={on_msg} /> },
             "client-record" => {
                 html! { <ClientRecord model={self.model.clone()} on_msg={on_msg} /> }
+            }
+            "deals" => html! { <Deals model={self.model.clone()} on_msg={on_msg} /> },
+            "deal-record" => {
+                html! { <DealRecord model={self.model.clone()} on_msg={on_msg} /> }
             }
             "forms" => html! { <Forms model={self.model.clone()} on_msg={on_msg} /> },
             "form-record" => html! { <FormRecord model={self.model.clone()} on_msg={on_msg} /> },
