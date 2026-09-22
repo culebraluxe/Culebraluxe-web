@@ -54,12 +54,12 @@ pub use contract::{
 
 pub use comms::{
     active_source_count, is_facetime_interaction, moment_channel_for, moment_dto,
-    source_channel_for, source_dto, summarize_relationship_evidence, CommsAggregate,
-    CommsDirection, CommsMoment, CommsMomentChannel, CommsMomentPage, CommsMomentRecord,
-    CommsPanel, CommsSource, CommsSourceChannel, CommsSourceRecord, CommsTimeline,
-    GetCommsPanelRequest, GetCommsTimelineRequest, LastContactRecord, RelationshipEvidenceRecord,
-    RelationshipSummary, COMMS_MAX_PAGE_SIZE, COMMS_MOMENT_LIMIT, COMMS_PAGE_SIZE,
-    COMMS_SOURCE_SLOT_COUNT,
+    source_channel_for, source_dto, summarize_relationship_evidence, ActivityFeedEntry,
+    CommsAggregate, CommsDirection, CommsMoment, CommsMomentChannel, CommsMomentPage,
+    CommsMomentRecord, CommsPanel, CommsSource, CommsSourceChannel, CommsSourceRecord,
+    CommsTimeline, GetCommsPanelRequest, GetCommsTimelineRequest, LastContactRecord,
+    RelationshipEvidenceRecord, RelationshipSummary, COMMS_MAX_PAGE_SIZE, COMMS_MOMENT_LIMIT,
+    COMMS_PAGE_SIZE, COMMS_SOURCE_SLOT_COUNT,
 };
 
 pub use forms::{
