@@ -128,6 +128,24 @@ pub struct RelationshipEvidenceRecord {
     pub coverage_note: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityFeedEntry {
+    pub id: String,
+    pub person_id: Option<String>,
+    pub deal_id: Option<String>,
+    pub property_id: Option<String>,
+    pub channel: String,
+    pub direction: Option<String>,
+    pub occurred_at: String,
+    pub occurred_at_label: String,
+    pub title: Option<String>,
+    pub summary: Option<String>,
+    pub person_name: Option<String>,
+    pub property_name: Option<String>,
+    pub deal_property_name: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommsMomentRecord {
     pub id: String,
