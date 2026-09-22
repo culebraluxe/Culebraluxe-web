@@ -57,7 +57,6 @@ pub fn nav_link(props: &NavLinkProps) -> Html {
     }
 }
 
-
 /// The header: the logo, the menu in the design's order, and the mobile menu that is a `<details>` element.
 pub struct Header;
 

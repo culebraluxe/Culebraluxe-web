@@ -92,7 +92,6 @@ pub fn page_hero(
     }
 }
 
-
 /// The option lists, exactly as the live bar offers them.
 const PRICES: [(&str, &str); 6] = [
     ("", "Any Price"),
@@ -190,11 +189,14 @@ impl Buyers {
     }
 }
 
-
 impl Buyers {
     /// The three category tabs: real buttons, each emitting the intent the reducer already understands.
     fn tabs(&self, model: &Model, on_msg: &Callback<Msg>) -> Html {
-        let current = model.controls.tab.clone().unwrap_or_else(|| "all".to_string());
+        let current = model
+            .controls
+            .tab
+            .clone()
+            .unwrap_or_else(|| "all".to_string());
         [("all", "All"), ("homes", "Homes & Villas"), ("land", "Land")]
             .into_iter()
             .map(|(key, label)| {
@@ -222,7 +224,6 @@ impl Buyers {
     }
 }
 
-
 impl Buyers {
     /// The filter bar. Every control renders the MODEL's value and emits exactly one message; none is read back out of
     /// the DOM, which is what makes filtering a pure function of the model.
@@ -235,7 +236,9 @@ impl Buyers {
         let oninput = {
             let on_msg = on_msg.clone();
             Callback::from(move |event: InputEvent| {
-                let value = event.target_unchecked_into::<web_sys::HtmlInputElement>().value();
+                let value = event
+                    .target_unchecked_into::<web_sys::HtmlInputElement>()
+                    .value();
                 on_msg.emit(Msg::QueryChanged(value));
             })
         };
@@ -279,7 +282,9 @@ fn select(
     let onchange = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: Event| {
-            let value = event.target_unchecked_into::<web_sys::HtmlSelectElement>().value();
+            let value = event
+                .target_unchecked_into::<web_sys::HtmlSelectElement>()
+                .value();
             on_msg.emit(Msg::FilterSelected {
                 key: name.to_string(),
                 value,
@@ -310,7 +315,6 @@ fn view_filter() -> Html {
         </select>
     }
 }
-
 
 /// A listing's photograph, or the soft gradient the design uses when a property has no hero image.
 fn listing_image(listing: &Listing, class: &str) -> Html {
@@ -394,7 +398,6 @@ fn card(listing: &Listing) -> Html {
         </article>
     }
 }
-
 
 impl Buyers {
     /// "Buying on Culebra" — the four-step path, from `BUYER_STEPS`.

@@ -59,7 +59,8 @@ impl Component for Activity {
 
     fn view(&self, ctx: &Context<Self>) -> Html {
         let props = ctx.props();
-        let screen = crate::model::screen("activity").expect("the activity screen is in the registry");
+        let screen =
+            crate::model::screen("activity").expect("the activity screen is in the registry");
         html! {
             <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
                 { self.feed(&props.model) }
@@ -167,4 +168,3 @@ fn entry_row(entry: &PortalActivityEntry) -> Html {
         </div>
     }
 }
-

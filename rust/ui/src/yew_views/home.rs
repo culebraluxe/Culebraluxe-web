@@ -43,10 +43,12 @@ impl Component for Home {
         }
     }
 }
-
 /// `components/hero.tsx` — a full-viewport image, two scrims, and the block's copy pinned to the bottom edge.
 fn hero(block: &Block) -> Html {
-    let image = block.image_path.as_deref().unwrap_or("/images/hero-villa.png");
+    let image = block
+        .image_path
+        .as_deref()
+        .unwrap_or("/images/hero-villa.png");
     let alt = block
         .image_alt
         .as_deref()
@@ -189,7 +191,6 @@ impl Home {
     }
 }
 
-
 impl Home {
     /// The dark portfolio band: a heading, a "View All Properties" button, and four cards.
     fn portfolio(&self, block: &Block, items: &[Listing]) -> Html {
@@ -198,8 +199,16 @@ impl Home {
             // The component rendered nothing at all with no listings, rather than an empty band.
             return Html::default();
         }
-        let eyebrow = if block.eyebrow.is_empty() { "The Portfolio" } else { block.eyebrow.as_str() };
-        let title = if block.title.is_empty() { "Find your place in Culebra." } else { block.title.as_str() };
+        let eyebrow = if block.eyebrow.is_empty() {
+            "The Portfolio"
+        } else {
+            block.eyebrow.as_str()
+        };
+        let title = if block.title.is_empty() {
+            "Find your place in Culebra."
+        } else {
+            block.title.as_str()
+        };
         let intro = if block.body.is_empty() {
             "Exquisite properties on an extraordinary island — each chosen for its light, its outlook, and its relationship to the sea."
         } else {
@@ -252,7 +261,6 @@ impl Home {
     }
 }
 
-
 impl Home {
     /// `components/services.tsx` — the dark primary band: buyers over sellers.
     fn services_band(&self, buyers: &Block, sellers: &Block) -> Html {
@@ -304,7 +312,6 @@ impl Home {
     }
 }
 
-
 impl Home {
     /// `components/culture.tsx` — a full-bleed image with the title over it, then an editorial column.
     fn culture(&self, block: &Block) -> Html {
@@ -312,7 +319,12 @@ impl Home {
             .items
             .iter()
             .filter(|item| item.key == "stat")
-            .map(|item| (item.label.clone().unwrap_or_default(), item.value.clone().unwrap_or_default()))
+            .map(|item| {
+                (
+                    item.label.clone().unwrap_or_default(),
+                    item.value.clone().unwrap_or_default(),
+                )
+            })
             .collect::<Vec<_>>();
         html! {
             <section id="culture" class="relative">
@@ -353,7 +365,6 @@ impl Home {
     }
 }
 
-
 impl Home {
     /// `components/about.tsx` — the eyebrow, the statement, and three columns: body, first paragraph, and the stats.
     ///
@@ -371,7 +382,12 @@ impl Home {
             .items
             .iter()
             .filter(|item| item.key == "stat")
-            .map(|item| (item.label.clone().unwrap_or_default(), item.value.clone().unwrap_or_default()))
+            .map(|item| {
+                (
+                    item.label.clone().unwrap_or_default(),
+                    item.value.clone().unwrap_or_default(),
+                )
+            })
             .collect::<Vec<_>>();
         html! {
             <section id="about" class="px-6 py-28 md:px-12 md:py-40">

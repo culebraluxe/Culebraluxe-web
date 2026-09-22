@@ -6,15 +6,15 @@
 
 pub mod about;
 pub mod buyers;
+pub mod chrome;
 pub mod contact;
 pub mod faq;
 pub mod guide;
-pub mod sellers;
-pub mod services;
-pub mod chrome;
+pub mod home;
 pub mod portal_activity;
 pub mod portal_shell;
-pub mod home;
+pub mod sellers;
+pub mod services;
 
-pub mod portal_workflows;
 pub mod portal_workflow_record;
+pub mod portal_workflows;
