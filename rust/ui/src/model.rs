@@ -795,6 +795,7 @@ pub struct PortalProjectsPage {
     pub projects: Vec<PortalProject>,
     pub items: Vec<PortalProjectWorkItem>,
     pub documents: Vec<PortalProjectDocument>,
+    pub media: Vec<PortalProjectMedia>,
     pub identity_names: BTreeMap<String, String>,
     /// Workspace state lives with the payload and changes only in update().
     pub active_domain: String,
@@ -867,6 +868,23 @@ pub struct PortalProjectDocument {
     pub created_at: String,
     pub signed_artifact_available: bool,
     pub signed_audit_available: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalProjectMedia {
+    pub id: String,
+    pub property_id: String,
+    pub media_type: String,
+    pub role: String,
+    pub sort_order: i32,
+    pub filename: Option<String>,
+    pub mime_type: Option<String>,
+    pub file_size: Option<i64>,
+    pub alt_text: Option<String>,
+    pub caption: Option<String>,
+    pub created_at: Option<String>,
+    pub url: String,
 }
 
 /// Everything a public page renders from.
