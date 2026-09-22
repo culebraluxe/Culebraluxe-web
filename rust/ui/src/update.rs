@@ -15,12 +15,22 @@ use crate::model::{record_for, Controls, Effect, Model, Msg, Screen, PAGE_SIZE};
 /// It is a small explicit list rather than a property of the surface, because "public" does not imply "editorial":
 /// `/properties` is public and is a list.
 pub fn is_editorial(key: &str) -> bool {
+    // WHICH SCREENS ASK FOR A PAGE RATHER THAN ROWS. This list has to name every screen whose body renders blocks, and
+    // on 2026-09-21 it did not name `site-services`: the Services page was ported, its route was wired, its payload was
+    // served, and it still rendered an empty body, because opening it asked the host for ROWS. `model.page` stayed
+    // `None`, the body function returned nothing, and the page was chrome over white. Nothing failed; nothing was empty
+    // in a way anybody could see; the page was simply, silently, not the page.
+    //
+    // THE COUPLING IS THE HAZARD: a screen needs its page exactly when `custom_body` renders blocks for it, and the two
+    // facts live in different files with nothing tying them together. If a screen renders blocks and is not named here,
+    // it is blank; if it is named here and renders rows, it fetches a payload nobody reads. Both are invisible.
     matches!(
         key,
         "site-home"
             | "site-about"
             | "site-buyers"
             | "site-sellers"
+            | "site-services"
             | "site-guide"
             | "site-contact"
             | "site-faq"
