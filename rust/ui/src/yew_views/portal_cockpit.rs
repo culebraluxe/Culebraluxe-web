@@ -330,14 +330,14 @@ fn pipeline(data: &PortalCockpitPage) -> Html {
     ];
 
     html! {
-        <section class="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
-            <div class="flex items-center justify-between gap-3 border-b border-[var(--portal-panel-border)] px-4 py-3">
-                <h2 class="font-serif text-lg font-light text-[var(--portal-navy)]">{"Pipeline"}</h2>
+        <section class="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)] p-4">
+            <div class="mb-3 flex items-center justify-between gap-3">
+                <h2 class="font-serif text-lg font-light text-[var(--portal-panel-heading)]">{"Pipeline"}</h2>
                 <a href="/portal/deals" class="text-[10px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy-soft)] transition hover:text-[var(--portal-navy)]">
                     {"View all →"}
                 </a>
             </div>
-            <div class="space-y-2 p-4">
+            <div class="space-y-2">
                 { for STAGES.iter().map(|stage| {
                     let count = stage_count(&data.pipeline, stage);
                     let percent = if data.live_deal_count > 0 {
@@ -387,7 +387,7 @@ fn activity_row(interaction: &PortalCockpitInteraction) -> Html {
         .summary
         .as_deref()
         .or(interaction.title.as_deref())
-        .unwrap_or("Activity recorded");
+        .unwrap_or("");
 
     html! {
         <div class="grid grid-cols-[1fr_auto] gap-x-4 gap-y-0.5 border-b border-[var(--portal-border)] px-4 py-2 last:border-b-0 sm:grid-cols-[7.5rem_5.5rem_1fr_auto]">
@@ -455,6 +455,9 @@ fn format_currency(value: Option<f64>) -> String {
     let Some(value) = value else {
         return "—".into();
     };
+    if value == 0.0 {
+        return "—".into();
+    }
     let negative = value < 0.0;
     let digits = format!("{:.0}", value.abs());
     let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
