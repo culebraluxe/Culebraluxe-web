@@ -516,7 +516,8 @@ fn site_home(model: &Model) -> String {
     out.push_str(&services(&page.buyers, &page.sellers));
     out.push_str(&culture(&page.culture));
     out.push_str(&about_section(&page.about));
-    out.push_str(&site_footer());
+    // NO FOOTER HERE: `render()` wraps every site screen with the header and the footer, so appending one from a page is
+    // how a page ends up with two. The chrome belongs to the shell; a page renders sections.
     out
 }
 
@@ -1149,7 +1150,7 @@ use crate::icons::icon;
 fn site_services(model: &Model) -> String {
     let _ = model;
     format!(
-        "{hero}{intro}{cards}{how}{why}{strip}{cta}{footer}",
+        "{hero}{intro}{cards}{how}{why}{strip}{cta}",
         hero = page_hero(
             "Services",
             "Real estate services, quietly handled.",
@@ -1165,7 +1166,6 @@ fn site_services(model: &Model) -> String {
         why = service_reasons(),
         strip = service_principles(),
         cta = service_cta(),
-        footer = site_footer(),
     )
 }
 
@@ -1506,7 +1506,7 @@ const ABOUT_LIFE: [&str; 8] = [
 fn site_about(model: &Model) -> String {
     let _ = model;
     format!(
-        "{hero}{founder}{values}{reasons}{stats}{life}{cta}{footer}",
+        "{hero}{founder}{values}{reasons}{stats}{life}{cta}",
         hero = page_hero(
             "About Us",
             "Devoted to a single island.",
@@ -1522,7 +1522,6 @@ fn site_about(model: &Model) -> String {
         stats = about_stats(),
         life = about_life(),
         cta = about_cta(),
-        footer = site_footer(),
     )
 }
 
