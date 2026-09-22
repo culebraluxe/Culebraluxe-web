@@ -1094,6 +1094,19 @@ fn site_services(model: &Model) -> String {
     )
 }
 
+/// `app/about/page.tsx` — the About page, which is `components/about.tsx`.
+///
+/// The same shape as the Services page above, for the same reason: `about_section()` is the renderer the homepage already
+/// uses for this block, and it renders exactly what the component does — the eyebrow, the statement, the body paragraph,
+/// the first `paragraph` item and the `stat` items. One renderer, so the About page and the homepage's about section
+/// cannot disagree about what the about block looks like.
+fn site_about(model: &Model) -> String {
+    let Some(page) = model.page.as_ref() else {
+        return String::new();
+    };
+    format!("{}{}", about_section(&page.about), site_footer())
+}
+
 
 /// The login-unauthorized page's own text, extracted from the TypeScript page it replaces.
 ///
@@ -1339,6 +1352,7 @@ fn custom_body(model: &Model) -> Option<String> {
         "auth-error" => Some(auth_error_view()),
         "login-unauthorized" => Some(login_unauthorized_view()),
         "site-services" => Some(site_services(model)),
+        "site-about" => Some(site_about(model)),
         "site-privacy" => Some(privacy_view()),
         "site-whatsapp" => Some(whatsapp_view()),
         "site-home" => Some(site_home(model)),
@@ -1872,6 +1886,49 @@ mod tests {
                 screen.path
             );
         }
+    }
+
+    /// The About page renders the managed about block through the same renderer the homepage's about section uses — so
+    /// the page and the homepage section cannot disagree about what the about block looks like.
+    #[test]
+    fn the_about_page_renders_the_about_block() {
+        let page = crate::model::PageContent {
+            about: Block {
+                eyebrow: "About Us".into(),
+                title: "A boutique brokerage devoted to a single island.".into(),
+                body: "We work with few clients.".into(),
+                items: vec![
+                    crate::model::BlockItem {
+                        key: "paragraph".into(),
+                        label: None,
+                        value: Some("Founded by island residents.".into()),
+                    },
+                    crate::model::BlockItem {
+                        key: "stat".into(),
+                        label: Some("14".into()),
+                        value: Some("Years on island".into()),
+                    },
+                ],
+                ..Block::default()
+            },
+            ..crate::model::PageContent::default()
+        };
+        let html = render(&Model {
+            screen: target("site-about"),
+            page: Some(page),
+            ..Model::default()
+        });
+        assert!(html.contains("About Us"));
+        assert!(html.contains("Founded by island residents."));
+        // The stats come from items keyed `stat`, the same filter the component used: a stat is a pair, not a line.
+        assert!(html.contains("Years on island"));
+
+        // And no copy before the payload arrives.
+        let bare = render(&Model {
+            screen: target("site-about"),
+            ..Model::default()
+        });
+        assert!(!bare.contains("About Us"));
     }
 
     #[test]
