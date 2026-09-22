@@ -1746,6 +1746,90 @@ const GUIDE_SECTIONS: [(&str, &str, &str, &str, &str); 9] = [
 ];
 
 /// The founder: her portrait, her biography, her words and her credentials.
+/// `app/contact/page.tsx` — how to reach the office, rendered by Rust.
+///
+/// THE LIVE PAGE'S FORM IS NOT HERE, AND THAT IS THE HONEST PORT OF IT. `components/contact.tsx` held a form whose
+/// submission state was React state and whose submit called a server action — and on the live site the request it made
+/// never completed. Reproducing it would mean either an island holding React state (the thing this port is removing
+/// from public pages) or a POST endpoint for a browser form to target, which is new server code rather than ported
+/// markup. Neither is markup, so this renders what the page genuinely has: the hero from the content store, the
+/// section's own copy, and the office and email the content store carries — the email as the `mailto:` link it already
+/// was. A form that appears to send and does not is worse than a page that says how to reach someone.
+///
+/// WHEN THE FORM COMES BACK it needs one thing first: an endpoint a plain `<form method="post">` can target, with the
+/// honeypot, the request type, the property context and the submission id it already had. Then the fields, the
+/// interest choice and the sent/failed states are Rust markup, because a form submission is a page load and a page load
+/// can carry its outcome in the URL.
+fn site_contact(model: &Model) -> String {
+    // No page, no page furniture: a hero with no words over a section with no address is not the Contact page.
+    let Some(page) = model.page.as_ref() else {
+        return String::new();
+    };
+    let intro = page.hero.body.as_str();
+    let hero = page_hero(
+        &page.hero.eyebrow,
+        &page.hero.title,
+        (!intro.is_empty()).then_some(intro),
+        page
+            .hero
+            .image_path
+            .as_deref()
+            .unwrap_or("/images/coastline.png"),
+        page.hero
+            .image_alt
+            .as_deref()
+            .unwrap_or("The Culebra coastline at golden hour"),
+    );
+    // The block's items are typed, not positional: `office` and `email` are the two the live page read, by key. A
+    // missing one renders nothing rather than a label with no value under it.
+    let item = |key: &str| page.contact.items.iter().find(|item| item.key == key);
+    let label = "text-xs font-light uppercase tracking-[0.2em] text-primary-foreground/45";
+    let value = "mt-2 text-sm font-light text-primary-foreground/85";
+    let office = item("office").map(|item| {
+        format!(
+            "<div><p class=\"{label}\">{name}</p><p class=\"{value}\">{address}</p></div>",
+            name = escape(item.label.as_deref().unwrap_or("")),
+            address = escape(item.value.as_deref().unwrap_or("")),
+        )
+    });
+    let email = item("email").map(|item| {
+        let address = item.value.as_deref().unwrap_or("");
+        format!(
+            "<div>\
+               <p class=\"{label}\">{name}</p>\
+               <a href=\"mailto:{address}\" class=\"{value} transition-colors hover:text-primary-foreground\">\
+                 {address}</a>\
+             </div>",
+            name = escape(item.label.as_deref().unwrap_or("")),
+            address = escape(address),
+        )
+    });
+    let details = [office, email].into_iter().flatten().collect::<String>();
+    // ONE COLUMN, NOT A 12-COLUMN GRID WITH AN EMPTY HALF. The live section put the copy on the left and the form on
+    // the right; with no form there is no second column, and a two-column grid holding one column is a gap a visitor
+    // reads as something that failed to load.
+    let details = if details.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "<div class=\"mt-14 flex max-w-xl flex-col gap-8 border-t border-primary-foreground/10 pt-10\">{details}</div>"
+        )
+    };
+    format!(
+        "{hero}<section id=\"contact\" class=\"bg-primary px-6 py-28 text-primary-foreground md:px-12 md:py-40\">\
+           <div class=\"mx-auto max-w-[1600px]\">\
+             <div class=\"max-w-3xl\">\
+               <p class=\"mb-6 text-xs font-light uppercase tracking-[0.34em] text-primary-foreground/50\">{eyebrow}</p>\
+               <h2 class=\"text-balance font-serif text-4xl font-light leading-[1.06] md:text-6xl\">{title}</h2>\
+               {details}\
+             </div>\
+           </div>\
+         </section>",
+        eyebrow = escape(&page.contact.eyebrow),
+        title = escape(&page.contact.title),
+    )
+}
+
 /// `app/guide/page.tsx` — the Island Guide.
 ///
 /// THE PAGE THAT IS A CATALOGUE RATHER THAN COPY. Its words come from `guide_item` through the page route, grouped into
@@ -3119,6 +3203,7 @@ fn custom_body(model: &Model) -> Option<String> {
         "site-property-detail" => Some(site_property_detail(model)),
         "site-guide" => Some(site_guide(model)),
         "site-faq" => Some(site_faq(model)),
+        "site-contact" => Some(site_contact(model)),
         "site-sellers" => Some(site_sellers(model)),
         "site-about" => Some(site_about(model)),
         "site-privacy" => Some(privacy_view()),
