@@ -317,6 +317,8 @@ pub fn router(state: ApiState) -> Router {
         .route("/readyz", get(ready))
         .route("/v1/whoami", get(whoami))
         .route("/v1/cockpit", get(cockpit))
+        .route("/v1/workflows", get(workflows))
+        .route("/v1/workflows/{id}", get(workflow_detail))
         .route("/v1/projects", get(projects))
         .route("/v1/projects/{id}", get(project).patch(update_project))
         .route("/v1/wbs/project-items", get(wbs_project_items))
@@ -433,6 +435,42 @@ async fn cockpit(
         .snapshot(&resolved.service)
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn workflows(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<domain::WorkflowPortalList>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().workflow_portal();
+    let value = service
+        .list(&resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn workflow_detail(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<ApiSuccess<domain::WorkflowPortalDetail>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().workflow_portal();
+    let value = service
+        .detail(&id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?
+        .ok_or_else(|| {
+            correlate(
+                ApiError::not_found(
+                    "WORKFLOW_NOT_FOUND",
+                    format!("Workflow instance not found: {id}"),
+                ),
+                &resolved,
+            )
+        })?;
     Ok(success(value, &resolved))
 }
 
