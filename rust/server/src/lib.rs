@@ -10,6 +10,7 @@ pub mod cockpit;
 pub mod communications;
 pub mod composition;
 pub mod contracts;
+pub mod deals;
 pub mod firms;
 pub mod forms;
 pub mod lookup;
