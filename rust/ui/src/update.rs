@@ -24,6 +24,7 @@ pub fn is_ported_portal_screen(key: &str) -> bool {
             | "forms"
             | "form-record"
             | "projects"
+            | "seller-strategy"
     )
 }
 
@@ -202,6 +203,15 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
     // Controls are the screen's own input and live their own life: a filter typed on Clients must not follow the user
     // to Deals and silently narrow a list they never filtered.
     model.controls = Controls::default();
+
+    // Seller Strategy is a local deterministic calculator. Opening it resets the
+    // same state the former React component created on mount and performs no fetch.
+    if screen.key == "seller-strategy" {
+        model.seller_strategy = crate::seller_strategy::SellerStrategyState::default();
+        model.loading = false;
+        return Vec::new();
+    }
+
     if model.loading {
         // A page asks for its blocks; a list asks for its rows. Two questions, two payloads, and the screen decides
         // which one it is asking — see `is_editorial`.
@@ -580,6 +590,48 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             };
             Vec::new()
         }
+        Msg::SellerStrategyFieldChanged { key, raw, percent } => {
+            if model.screen.key != "seller-strategy" {
+                return Vec::new();
+            }
+            model.seller_strategy.set_field(&key, &raw, percent);
+            model.error = None;
+            Vec::new()
+        }
+        Msg::SellerStrategyOptionToggled { option, enabled } => {
+            if model.screen.key != "seller-strategy" {
+                return Vec::new();
+            }
+            model.seller_strategy.set_option(option, enabled);
+            model.error = None;
+            Vec::new()
+        }
+        Msg::SellerStrategyEditAllToggled => {
+            if model.screen.key == "seller-strategy" {
+                model.seller_strategy.edit_all = !model.seller_strategy.edit_all;
+            }
+            Vec::new()
+        }
+        Msg::SellerStrategyActiveEditChanged(option) => {
+            if model.screen.key == "seller-strategy" {
+                model.seller_strategy.active_edit = option;
+            }
+            Vec::new()
+        }
+        Msg::SellerStrategyDetailToggled => {
+            if model.screen.key == "seller-strategy" {
+                model.seller_strategy.show_detail = !model.seller_strategy.show_detail;
+            }
+            Vec::new()
+        }
+        Msg::SellerStrategyReset => {
+            if model.screen.key == "seller-strategy" {
+                model.seller_strategy.reset();
+                model.error = None;
+            }
+            Vec::new()
+        }
+
         Msg::FormFieldChanged { name, value } => {
             let Some(forms) = model
                 .page
@@ -1050,6 +1102,33 @@ mod tests {
             }]
         );
         assert!(model.loading);
+    }
+
+    #[test]
+    fn seller_strategy_is_local_and_reducer_owned() {
+        let mut model = Model::default();
+        let effects = update(&mut model, Msg::Navigate(target("seller-strategy")));
+        assert!(effects.is_empty());
+        assert!(!model.loading);
+
+        update(
+            &mut model,
+            Msg::SellerStrategyFieldChanged {
+                key: "appraisal".into(),
+                raw: "500000".into(),
+                percent: false,
+            },
+        );
+        assert_eq!(model.seller_strategy.inputs.appraisal, 500000.0);
+
+        update(
+            &mut model,
+            Msg::SellerStrategyOptionToggled {
+                option: 3,
+                enabled: false,
+            },
+        );
+        assert!(!model.seller_strategy.inputs.o3_on);
     }
 
     #[test]
