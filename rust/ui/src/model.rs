@@ -374,6 +374,72 @@ pub struct GuideItem {
     pub image_alt: Option<String>,
 }
 
+/// One piece of a property's media: a gallery frame, a video, or a document.
+///
+/// PERMISSIVE ON PURPOSE. The read model owns the shape of its media rows — a gallery image and a video do not carry the
+/// same fields, and a document carries neither an alt text nor a duration. The route passes them through untouched, so
+/// this accepts whatever arrives and the view reads whichever fields are present rather than assuming a shape the read
+/// model never promised.
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MediaItem {
+    pub id: Option<String>,
+    pub url: Option<String>,
+    pub href: Option<String>,
+    pub media_url: Option<String>,
+    pub media_id: Option<String>,
+    pub alt: Option<String>,
+    pub alt_text: Option<String>,
+    pub title: Option<String>,
+    pub name: Option<String>,
+    pub label: Option<String>,
+    pub caption: Option<String>,
+}
+
+impl MediaItem {
+    /// Where the item lives, whichever of the read model's fields carried it. The guide's photographs arrive as a media
+    /// id that has to be turned into a route; these arrive as a URL, and both must work.
+    pub fn src(&self) -> Option<String> {
+        self.url
+            .clone()
+            .or_else(|| self.href.clone())
+            .or_else(|| self.media_url.clone())
+            .or_else(|| self.media_id.clone().map(|id| format!("/api/media/{id}")))
+    }
+
+    /// What it is called, for the alt text and the label.
+    pub fn text(&self) -> Option<&str> {
+        self.alt
+            .as_deref()
+            .or(self.alt_text.as_deref())
+            .or(self.title.as_deref())
+            .or(self.name.as_deref())
+            .or(self.label.as_deref())
+            .or(self.caption.as_deref())
+    }
+}
+
+/// A property record: the facts the card shows, and the media the page is made of.
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PropertyRecord {
+    pub slug: String,
+    pub title: String,
+    pub kind: Option<String>,
+    pub price: Option<String>,
+    pub beds: Option<f64>,
+    pub baths: Option<f64>,
+    pub area: Option<String>,
+    pub location: Option<String>,
+    pub description: Option<String>,
+    pub year_built: Option<i64>,
+    pub architecture: Option<String>,
+    pub hero_url: Option<String>,
+    pub gallery: Vec<MediaItem>,
+    pub videos: Vec<MediaItem>,
+    pub documents: Vec<MediaItem>,
+}
+
 /// Everything a public page renders from.
 ///
 /// A page is a set of named blocks, not an ordered list, because the page decides where each one goes — the hero is a
@@ -392,6 +458,8 @@ pub struct PageContent {
     pub listings: Vec<Listing>,
     /// The Island Guide's catalogue (screen `site-guide`). Empty for every other page, which is what `default` is for.
     pub guide: Vec<GuideItem>,
+    /// The property record (screen `site-property-detail`), when the page is about one property.
+    pub property: Option<PropertyRecord>,
 }
 
 ///

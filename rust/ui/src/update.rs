@@ -34,6 +34,9 @@ pub fn is_editorial(key: &str) -> bool {
             | "site-guide"
             | "site-contact"
             | "site-faq"
+            // The property record is a page, not a list: it is a cockpit, a gallery, four tabs of documents and video, and
+            // the neighbours. Serving it as rows was what flattened it into a fact table.
+            | "site-property-detail"
     )
 }
 

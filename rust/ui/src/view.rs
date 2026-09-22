@@ -2458,7 +2458,152 @@ fn site_buyers(model: &Model) -> String {
     )
 }
 
-/// The Buyers showroom: the featured strip, the tabs, the filter bar and the inventory.
+/// `app/properties/[slug]/page.tsx` — the child page: the record of one property.
+///
+/// THE PAGE THE COCKPIT AND THE TABS ARE BUILT FROM. `PropertyMediaPanel` (453 lines) and `PropertyTabs` (545) are the
+/// bulk of it: a hero with a gallery, a facts card, and tabs of description, location, documents and video.
+///
+/// WHAT IS RENDERED NOW: the breadcrumb, the hero and its gallery, the name, price, location and facts, the long
+/// description, the documents and the videos — every piece of the record the route serves. The tabs are sections rather
+/// than a tab strip, because switching a tab is state; `SimilarProperties` and `RecentlyViewed` are absent because they
+/// are per-visitor reads the route does not serve yet.
+fn site_property_detail(model: &Model) -> String {
+    let Some(record) = model.page.as_ref().and_then(|page| page.property.as_ref()) else {
+        // The slug is in the URL and the record is in flight, or it matched nothing. An empty body under the chrome is
+        // honest; inventing facts about a property is not.
+        return String::new();
+    };
+    let chevron = icon("chevron-right", "h-3 w-3", "2").unwrap_or_default();
+    let hero = match record.hero_url.as_deref() {
+        Some(src) => format!(
+            "<div class=\"relative aspect-[16/9] w-full overflow-hidden bg-muted\">\
+               <img src=\"{src}\" alt=\"{alt}\" sizes=\"100vw\" class=\"absolute inset-0 h-full w-full object-cover\" />\
+             </div>",
+            src = escape(src),
+            alt = escape(&record.title),
+        ),
+        None => {
+            "<div class=\"aspect-[16/9] w-full bg-gradient-to-br from-[#d9dde0] via-[#eef0f1] to-[#c4cbd0]\"></div>"
+                .to_string()
+        }
+    };
+    let gallery = record
+        .gallery
+        .iter()
+        .filter_map(|item| item.src())
+        .map(|src| {
+            format!(
+                "<div class=\"relative aspect-[4/3] w-[240px] flex-none overflow-hidden bg-muted md:w-[300px]\">\
+                   <img src=\"{}\" alt=\"{}\" class=\"absolute inset-0 h-full w-full object-cover\" /></div>",
+                escape(&src),
+                escape(&record.title),
+            )
+        })
+        .collect::<String>();
+    // The facts: only the ones this property actually has, in the component's order.
+    let facts = [
+        record.kind.clone(),
+        record.beds.map(|beds| format!("{beds} Beds")),
+        record.baths.map(|baths| format!("{baths} Baths")),
+        record.area.clone(),
+        record.year_built.map(|year| format!("Built {year}")),
+        record.architecture.clone(),
+    ]
+    .into_iter()
+    .flatten()
+    .map(|fact| {
+        format!(
+            "<p class=\"border-b border-border py-3 text-[11px] font-light uppercase tracking-[0.18em] \
+             text-muted-foreground\">{}</p>",
+            escape(&fact)
+        )
+    })
+    .collect::<String>();
+    // The record's lists: a document and a video are both a labelled link.
+    let links = |items: &[crate::model::MediaItem], fallback: &str| {
+        items
+            .iter()
+            .filter_map(|item| item.src().map(|src| (src, item.text().unwrap_or(fallback).to_string())))
+            .map(|(src, label)| {
+                format!(
+                    "<li class=\"border-b border-border py-4\"><a href=\"{}\" target=\"_blank\" rel=\"noreferrer\" \
+                     class=\"text-sm font-light text-foreground underline underline-offset-4\">{}</a></li>",
+                    escape(&src),
+                    escape(&label)
+                )
+            })
+            .collect::<String>()
+    };
+    let documents = links(&record.documents, "Document");
+    let videos = links(&record.videos, "Video");
+    let description = record
+        .description
+        .as_deref()
+        .map(|text| {
+            format!(
+                "<section class=\"mt-16 max-w-3xl\">\
+                   <h2 class=\"font-serif text-2xl font-light text-foreground\">About this property</h2>\
+                   <p class=\"mt-6 whitespace-pre-line text-sm font-light leading-relaxed text-muted-foreground\">{}</p>\
+                 </section>",
+                escape(text)
+            )
+        })
+        .unwrap_or_default();
+    let gallery_row = if gallery.is_empty() {
+        String::new()
+    } else {
+        format!("<div class=\"mt-10 flex gap-3 overflow-x-auto pb-2\">{gallery}</div>")
+    };
+    let documents = if documents.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "<section class=\"mt-16\"><h2 class=\"font-serif text-2xl font-light text-foreground\">Documents</h2>\
+             <ul class=\"mt-6 border-t border-border\">{documents}</ul></section>"
+        )
+    };
+    let videos = if videos.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "<section class=\"mt-16\"><h2 class=\"font-serif text-2xl font-light text-foreground\">Video</h2>\
+             <ul class=\"mt-6 border-t border-border\">{videos}</ul></section>"
+        )
+    };
+    format!(
+        "<div class=\"mx-auto max-w-[1600px] px-6 py-8 md:px-12 md:py-10\">\
+           <nav aria-label=\"Breadcrumb\" class=\"mb-6 flex items-center gap-2 text-[11px] font-light uppercase \
+             tracking-[0.18em] text-muted-foreground\">\
+             <a href=\"/\" class=\"transition-colors hover:text-foreground\">Home</a>{chevron}\
+             <a href=\"/buyers\" class=\"transition-colors hover:text-foreground\">Properties</a>{chevron}\
+             <span class=\"text-foreground\">{title}</span>\
+           </nav>\
+           {hero}\
+           <div class=\"mt-10 grid gap-12 lg:grid-cols-12 lg:gap-16\">\
+             <div class=\"lg:col-span-8\">\
+               <p class=\"text-[11px] font-light uppercase tracking-[0.2em] text-muted-foreground\">{location}</p>\
+               <h1 class=\"mt-3 font-serif text-4xl font-light leading-[1.05] text-foreground md:text-5xl\">{title}</h1>\
+               {gallery_row}{description}{videos}{documents}\
+             </div>\
+             <aside class=\"lg:col-span-4\">\
+               <p class=\"font-serif text-3xl font-light text-accent\">{price}</p>\
+               <div class=\"mt-8\">{facts}</div>\
+             </aside>\
+           </div>\
+         </div>",
+        chevron = chevron,
+        title = escape(&record.title),
+        location = escape(record.location.as_deref().unwrap_or("")),
+        price = escape(record.price.as_deref().unwrap_or("Price on request")),
+        hero = hero,
+        gallery_row = gallery_row,
+        description = description,
+        videos = videos,
+        documents = documents,
+        facts = facts,
+    )
+}
+
 ///
 /// THE PART THE PAGE IS MADE OF. `components/buyers-property-showroom.tsx` is 470 lines and it is the bulk of `/buyers`:
 /// a featured carousel, category tabs, a sticky filter bar, saved searches, and the inventory grid of cards with their
@@ -2867,6 +3012,7 @@ fn custom_body(model: &Model) -> Option<String> {
         "login-unauthorized" => Some(login_unauthorized_view()),
         "site-services" => Some(site_services(model)),
         "site-buyers" => Some(site_buyers(model)),
+        "site-property-detail" => Some(site_property_detail(model)),
         "site-guide" => Some(site_guide(model)),
         "site-sellers" => Some(site_sellers(model)),
         "site-about" => Some(site_about(model)),

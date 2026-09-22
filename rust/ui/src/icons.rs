@@ -163,6 +163,9 @@ pub fn icon(name: &str, class: &str, stroke_width: &str) -> Option<String> {
         "arrow-up-right" => {
             "<path d=\"M7 7h10v10\"></path><path d=\"M7 17 17 7\"></path>"
         }
+        "chevron-right" => {
+            "<path d=\"m9 18 6-6-6-6\"></path>"
+        }
         _ => return None,
     };
     Some(format!(

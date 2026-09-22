@@ -103,7 +103,13 @@ export async function serveEffect(
     if (!options.pagePath) {
       throw new Error(`screen "${screen}" asked for its page but no page feed is configured for this host`)
     }
-    const response = await options.fetchRows(`${options.pagePath}?${new URLSearchParams({ screen })}`)
+    // A page can be about one record, exactly as a row list can. The detail route has no row to click — the slug comes
+    // from the URL, which the page hands in — so it travels the same way the rows route's scope does: the host knows the
+    // URL, Rust knows what it is showing, and the key is exchanged rather than scraped out of the DOM.
+    const query = new URLSearchParams({ screen })
+    const key = effect.scope ?? (screen === options.start ? options.scope : null)
+    if (key) query.set('scope', key)
+    const response = await options.fetchRows(`${options.pagePath}?${query.toString()}`)
     if (!response.ok) throw new Error(`page request failed with ${response.status}`)
     module.page_loaded?.(await response.text())
     return

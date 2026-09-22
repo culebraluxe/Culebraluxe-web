@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 
 import { getGuideItems } from '@/legacy/db/guide'
 import { getMarketingContent } from '@/legacy/db/marketing-content'
+import { getPropertyBySlug } from '@/lib/property-reads'
 import {
   blockById,
   buildContactPageContent,
@@ -179,6 +180,54 @@ async function GETHandler(req: NextRequest): Promise<Response> {
           imagePath: item.imageUrl,
           imageAlt: item.imageAlt,
         })),
+      })
+    }
+    case 'site-property-detail': {
+      // THE PROPERTY RECORD, IN FULL. This is the one page that is neither a list nor editorial copy: a cockpit with the
+      // media panel, a facts card and the actions, four tabs of description, location, documents and video, and the two
+      // rails beside it. The rows route flattened it into a fact table, which is what the child page was showing.
+      const slug = req.nextUrl.searchParams.get('scope')
+      if (!slug) {
+        return NextResponse.json({ error: 'a property record needs a slug' }, { status: 400 })
+      }
+      const result = await getPropertyBySlug(slug)
+      if (!result.ok) {
+        return NextResponse.json(
+          { error: `the property could not be read: ${result.error.kind}` },
+          { status: 502 },
+        )
+      }
+      if (!result.data) {
+        // A slug that matches nothing is a 404, not an empty page: the component calls `notFound()` for the same case.
+        return NextResponse.json({ error: `no property with the slug '${slug}'` }, { status: 404 })
+      }
+      const { property, heroUrl, galleryImages, videos, documents } = result.data
+      // THE FIELD NAMES ARE THE READ MODEL'S, NOT GUESSED — which is the lesson this route already carries in its header
+      // and which I ignored once: `slug`, `name`, `bedrooms`, `bathrooms` and `lotSize` do not exist on a PropertyDetail.
+      // It carries `_id`, `title`, `bedroomsTotal`, `bathroomsTotal`, `lotSizeArea` and `livingArea`, and the compiler
+      // caught every one of my inventions.
+      const city = [property.city, property.stateOrProvince].filter(Boolean).join(', ')
+      return NextResponse.json({
+        property: {
+          // The slug is the key the page was asked for; the record itself carries only its id.
+          slug,
+          title: property.title ?? slug,
+          kind: property.propertyType ?? null,
+          price: property.listPrice == null ? null : formatPrice(property.listPrice),
+          beds: property.bedroomsTotal ?? null,
+          baths: property.bathroomsTotal ?? null,
+          area: property.livingArea == null ? null : `${property.livingArea} sq ft`,
+          location: city || property.neighborhood || null,
+          description: property.shortDescription ?? property.editorialDescription ?? null,
+          yearBuilt: property.yearBuilt ?? null,
+          architecture: property.architecture ?? null,
+        },
+        heroUrl: heroUrl ?? null,
+        // Passed through as the read model returns them: `GalleryImage` is `{ url, alt, caption }`, and the Rust side
+        // reads whichever of those fields it finds rather than this route inventing a second shape for them.
+        gallery: galleryImages ?? [],
+        videos: videos ?? [],
+        documents: documents ?? [],
       })
     }
     default: {
