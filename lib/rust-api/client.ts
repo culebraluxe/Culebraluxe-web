@@ -447,3 +447,17 @@ export async function rustApiUpdateWbs<T>(
     options,
   )
 }
+
+export async function rustApiRouteProjectWork<T>(
+  itemId: string,
+  body: Record<string, unknown>,
+  options: RustApiJsonWriteOptions = {},
+): Promise<RustApiSuccess<T>> {
+  return rustApiJsonWrite<T>(
+    (`/v1/wbs/${encodeURIComponent(itemId)}/route`) as `/v1/${string}`,
+    'POST',
+    body,
+    options,
+  )
+}
+
