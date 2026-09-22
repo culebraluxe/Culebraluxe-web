@@ -4,7 +4,7 @@
 //! cannot point at a screen that does not exist. Every interpolated value is escaped — this crate renders data from a
 //! database and from third-party sources, and a Rust renderer that formats HTML owns that risk.
 
-use crate::model::{home, screen, Block, Model, Row, Surface, PAGE_SIZE, SCREENS};
+use crate::model::{home, screen, Block, Listing, Model, Row, Surface, PAGE_SIZE, SCREENS};
 
 /// Escape text for HTML text and attribute positions. Quotes matter because the same helper fills `data-` attributes,
 /// where an unescaped quote would end the attribute early.
@@ -101,15 +101,6 @@ fn site_header(model: &Model) -> String {
            <nav class=\"flex flex-wrap items-center gap-1\" aria-label=\"Site\">{links}</nav>\
          </header>"
     )
-}
-
-/// The public site's footer. One line, and it says what the site is rather than pretending to be a portal.
-fn site_footer() -> String {
-    "<footer class=\"border-t bg-card px-6 py-6 text-xs text-muted-foreground\">\
-       CulebraLuxe LLC — Culebra, Puerto Rico. \
-       <button type=\"button\" data-nav=\"site-contact\" class=\"underline underline-offset-2\">Contact</button>\
-     </footer>"
-        .to_string()
 }
 
 /// The error banner on the public site, with the same escaping and the same wording as the portal's.
@@ -466,8 +457,16 @@ fn site_home(model: &Model) -> String {
     };
     let mut out = String::new();
     out.push_str(&hero(&page.hero));
+    // The live page put the property grids between the hero and the services band, and only when there were listings
+    // to show — a portfolio section with nothing in it is worse than no portfolio section.
+    if !page.listings.is_empty() {
+        out.push_str(&featured_properties(&page.featured));
+        out.push_str(&home_properties(&page.buyers, &page.listings));
+    }
     out.push_str(&services(&page.buyers, &page.sellers));
     out.push_str(&culture(&page.culture));
+    out.push_str(&about_section(&page.about));
+    out.push_str(&site_footer());
     out
 }
 
@@ -636,9 +635,292 @@ fn culture(block: &Block) -> String {
     )
 }
 
-/// The underlined-link call to action whose rule takes a colour, because the hero draws it in the page background and
-/// the dark sections draw it in the primary foreground. One function with the colour passed in, rather than two that
-/// drift.
+/// `components/featured-properties.tsx` — "The Collection": three estates, each an image beside its numeral, name,
+/// location, facts and price, alternating sides down the page.
+///
+/// THE SIDES ALTERNATE BY INDEX, the way the component did it: `md:[direction:rtl]` on every second article, with the
+/// inner columns set back to `ltr`. Reproduced rather than simplified to a single side, because the alternation is
+/// most of what the section looks like.
+fn featured_properties(items: &[Listing]) -> String {
+    let heading = "<div class=\"mb-20 md:mb-28\">\
+         <div class=\"flex flex-col gap-6 border-b border-border pb-10 md:flex-row md:items-end md:justify-between\">\
+           <div>\
+             <p class=\"mb-4 text-xs font-light uppercase tracking-[0.34em] text-accent\">The Collection</p>\
+             <h2 class=\"max-w-2xl text-balance font-serif text-4xl font-light leading-[1.05] text-foreground md:text-6xl\">\
+               Residences chosen for their silence.</h2>\
+           </div>\
+           <p class=\"max-w-xs text-pretty text-sm font-light leading-relaxed text-muted-foreground\">\
+             Each estate is selected in person, for its light, its outlook, and its relationship to the sea.</p>\
+         </div>\
+       </div>";
+    // Three, as the component's default limit. A different number is a decision for whoever asks for one.
+    let shown = &items[..items.len().min(3)];
+    let body = if shown.is_empty() {
+        "<p class=\"max-w-xl text-sm font-light leading-relaxed text-muted-foreground\">\
+         The next collection is being prepared.</p>"
+            .to_string()
+    } else {
+        shown
+            .iter()
+            .enumerate()
+            .map(|(index, listing)| {
+                let reversed = if index % 2 == 1 {
+                    " md:[direction:rtl]"
+                } else {
+                    ""
+                };
+                format!(
+                    "<article class=\"grid items-center gap-10 md:grid-cols-12 md:gap-16{reversed}\">\
+                       <div class=\"md:col-span-8 md:[direction:ltr]\">\
+                         <a href=\"/properties/{slug}\" aria-label=\"View {name}\" \
+                           class=\"group relative block aspect-[16/10] w-full overflow-hidden\">\
+                           <img src=\"{image}\" alt=\"{alt}\" sizes=\"(min-width: 768px) 66vw, 100vw\" \
+                             class=\"absolute inset-0 h-full w-full object-cover transition-transform duration-[1600ms] \
+                             ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-[1.04]\" />\
+                         </a>\
+                       </div>\
+                       <div class=\"md:col-span-4 md:[direction:ltr]\">\
+                         <span class=\"font-serif text-sm font-light text-accent\">({numeral})</span>\
+                         <h3 class=\"mt-4 font-serif text-3xl font-light leading-tight text-foreground md:text-4xl\">\
+                           <a href=\"/properties/{slug}\" \
+                             class=\"transition-colors duration-300 hover:text-accent\">{name}</a></h3>\
+                         {location}\
+                         <p class=\"mt-8 max-w-xs text-sm font-light leading-relaxed text-foreground/80\">{facts}</p>\
+                         <div class=\"mt-8 flex items-center justify-between border-t border-border pt-6\">\
+                           <span class=\"text-xs font-light uppercase tracking-[0.2em] text-muted-foreground\">{price}</span>\
+                           <a href=\"#contact\" \
+                             class=\"inline-flex items-center gap-2 text-xs font-light uppercase tracking-[0.2em] \
+                             text-foreground\">Enquire<span class=\"inline-block h-px w-6 bg-foreground\"></span></a>\
+                         </div>\
+                       </div>\
+                     </article>",
+                    reversed = reversed,
+                    slug = escape(&listing.slug),
+                    name = escape(&listing.name),
+                    image = escape(listing.image_path.as_deref().unwrap_or("/placeholder.svg")),
+                    alt = escape(listing.image_alt.as_deref().unwrap_or(&listing.name)),
+                    numeral = format!("{:02}", index + 1),
+                    location = match listing.location.as_deref().filter(|value| !value.is_empty()) {
+                        Some(location) => format!(
+                            "<p class=\"mt-3 text-xs font-light uppercase tracking-[0.24em] text-muted-foreground\">{}</p>",
+                            escape(location)
+                        ),
+                        None => String::new(),
+                    },
+                    facts = escape(&listing_facts(listing)),
+                    price = escape(listing.price.as_deref().unwrap_or("Price upon request")),
+                )
+            })
+            .collect::<String>()
+    };
+    format!(
+        "<section id=\"properties\" class=\"px-6 py-28 md:px-12 md:py-40\">\
+           <div class=\"mx-auto max-w-[1600px]\">{heading}\
+             <div class=\"flex flex-col gap-28 md:gap-40\">{body}</div>\
+           </div>\
+         </section>"
+    )
+}
+
+/// The one-line facts under an estate's name: beds and baths, or the lot size for land, joined the way the TypeScript
+/// `propertyFacts` joined them. Missing numbers are omitted rather than printed as zero.
+fn listing_facts(listing: &Listing) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(beds) = listing.beds {
+        parts.push(format!("{beds} Bed"));
+    }
+    if let Some(baths) = listing.baths {
+        parts.push(format!("{baths} Bath"));
+    }
+    if let Some(area) = listing.area.as_deref().filter(|value| !value.is_empty()) {
+        parts.push(area.to_string());
+    }
+    parts.join("  ·  ")
+}
+
+/// `components/home-properties.tsx` — the dark portfolio band: a heading and a "View All Properties" button, then four
+/// cards in a row, each an image, a name, a price and a facts line.
+///
+/// THE SAVE CONTROL IS NOT HERE YET. The TypeScript card carries a `SaveProperty` island in its top-right corner, and
+/// saving is a session-backed action with its own state — so it arrives with the island work rather than as a button
+/// that looks like it saves and does not. The Featured badge is here, because that one is just a flag on the card.
+fn home_properties(block: &Block, items: &[Listing]) -> String {
+    let shown = &items[..items.len().min(4)];
+    if shown.is_empty() {
+        // The component rendered nothing at all with no listings, rather than an empty band.
+        return String::new();
+    }
+    let cards = shown
+        .iter()
+        .map(|listing| {
+            let badge = if listing.featured {
+                "<span class=\"absolute left-3 top-3 bg-background/90 px-3 py-1 text-[10px] font-light uppercase \
+                 tracking-[0.18em] text-foreground\">Featured</span>"
+            } else {
+                ""
+            };
+            format!(
+                "<article class=\"group flex flex-col\">\
+                   <div class=\"relative aspect-[5/4] w-full overflow-hidden bg-background/10\">\
+                     <a href=\"/properties/{slug}\" aria-label=\"{name}\">\
+                       <img src=\"{image}\" alt=\"{name}\" \
+                         sizes=\"(min-width: 1024px) 22vw, (min-width: 640px) 45vw, 90vw\" \
+                         class=\"absolute inset-0 h-full w-full object-cover transition-transform duration-[1400ms] \
+                         ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-[1.05]\" />\
+                     </a>{badge}\
+                   </div>\
+                   <div class=\"mt-5 flex items-baseline justify-between gap-4\">\
+                     <a href=\"/properties/{slug}\" \
+                       class=\"font-serif text-xl font-light transition-colors duration-300 hover:text-background/70\">{name}</a>\
+                     <span class=\"whitespace-nowrap text-sm font-light text-background/80\">{price}</span>\
+                   </div>\
+                   <p class=\"mt-2 text-[11px] font-light uppercase tracking-[0.16em] text-background/55\">{facts}</p>\
+                 </article>",
+                slug = escape(&listing.slug),
+                name = escape(&listing.name),
+                image = escape(listing.image_path.as_deref().unwrap_or("/placeholder.svg")),
+                badge = badge,
+                price = escape(listing.price.as_deref().unwrap_or("Price upon request")),
+                facts = escape(&listing_facts(listing)),
+            )
+        })
+        .collect::<String>();
+    let eyebrow = if block.eyebrow.is_empty() {
+        "The Portfolio"
+    } else {
+        block.eyebrow.as_str()
+    };
+    let title = if block.title.is_empty() {
+        "Find your place in Culebra."
+    } else {
+        block.title.as_str()
+    };
+    let intro = if block.body.is_empty() {
+        "Exquisite properties on an extraordinary island — each chosen for its light, its outlook, and its \
+         relationship to the sea."
+    } else {
+        block.body.as_str()
+    };
+    format!(
+        "<section class=\"bg-foreground px-6 py-24 text-background md:px-12 md:py-32\">\
+           <div class=\"mx-auto max-w-[1600px]\">\
+             <div class=\"mb-14 flex flex-col gap-8 md:flex-row md:items-end md:justify-between\">\
+               <div class=\"max-w-xl\">\
+                 <p class=\"mb-4 text-xs font-light uppercase tracking-[0.34em] text-background/60\">{eyebrow}</p>\
+                 <h2 class=\"text-balance font-serif text-4xl font-light leading-[1.05] md:text-5xl\">{title}</h2>\
+                 <p class=\"mt-5 max-w-md text-pretty text-sm font-light leading-relaxed text-background/70\">{intro}</p>\
+               </div>\
+               <a href=\"#properties\" class=\"inline-flex items-center gap-3 self-start border border-background/30 \
+                 px-8 py-4 text-xs font-light uppercase tracking-[0.2em] transition-colors duration-500 \
+                 hover:border-background md:self-auto\">View All Properties<span aria-hidden=\"true\">&rarr;</span></a>\
+             </div>\
+             <div class=\"grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4\">{cards}</div>\
+           </div>\
+         </section>",
+        eyebrow = escape(eyebrow),
+        title = escape(title),
+        intro = escape(intro),
+        cards = cards,
+    )
+}
+
+/// `components/about.tsx` — the eyebrow, the display-serif statement, and three columns: the block's body, its first
+/// paragraph, and a two-by-two of its stats.
+///
+/// THE THIRD COLUMN IS THE STATS, and the middle one is the block's first `paragraph` item — that is the component's
+/// structure, not a simplification: the stats sit beside the prose rather than under it.
+fn about_section(block: &Block) -> String {
+    let first_paragraph = block
+        .items
+        .iter()
+        .filter(|item| item.key == "paragraph")
+        .filter_map(|item| item.value.as_deref())
+        .next()
+        .unwrap_or("");
+    let stats = block
+        .items
+        .iter()
+        .filter(|item| item.key == "stat")
+        .map(|item| {
+            format!(
+                "<div><p class=\"font-serif text-4xl font-light text-foreground\">{label}</p>\
+                   <p class=\"mt-2 text-xs font-light uppercase tracking-[0.2em] text-muted-foreground\">{value}</p></div>",
+                label = escape(item.label.as_deref().unwrap_or("")),
+                value = escape(item.value.as_deref().unwrap_or(""))
+            )
+        })
+        .collect::<String>();
+    format!(
+        "<section id=\"about\" class=\"px-6 py-28 md:px-12 md:py-40\">\
+           <div class=\"mx-auto max-w-[1600px]\">\
+             <p class=\"mb-16 text-xs font-light uppercase tracking-[0.34em] text-accent md:mb-24\">{eyebrow}</p>\
+             <h2 class=\"max-w-5xl text-balance font-serif text-3xl font-light leading-[1.2] text-foreground \
+               md:text-5xl md:leading-[1.18]\">{title}</h2>\
+             <div class=\"mt-20 grid gap-14 border-t border-border pt-16 md:mt-28 md:grid-cols-3 md:gap-16\">\
+               <p class=\"max-w-sm text-sm font-light leading-relaxed text-muted-foreground\">{body}</p>\
+               <p class=\"max-w-sm text-sm font-light leading-relaxed text-muted-foreground\">{paragraph}</p>\
+               <div class=\"flex flex-col justify-between gap-8\">\
+                 <div class=\"grid grid-cols-2 gap-8\">{stats}</div>\
+               </div>\
+             </div>\
+           </div>\
+         </section>",
+        eyebrow = escape(&block.eyebrow),
+        title = escape(&block.title),
+        body = escape(&block.body),
+        paragraph = escape(first_paragraph),
+        stats = stats,
+    )
+}
+
+/// The items of one kind rendered as paragraphs. Kept for the sections that need more than the first one.
+/// The items of one kind rendered as paragraphs. Kept for the sections that need more than the first one.
+///
+/// The year is the host's, not the page's: a page rendered once and cached would carry last year's date forever, which
+/// is the kind of detail nobody notices until January.
+fn site_footer() -> String {
+    let links = [
+        ("Buyers", "/buyers"),
+        ("Sellers", "/sellers"),
+        ("Services", "/services"),
+        ("Guide", "/guide"),
+        ("About", "/about"),
+        ("FAQ", "/faq"),
+        ("Contact", "/contact"),
+    ]
+    .iter()
+    .map(|(label, href)| {
+        format!(
+            "<a href=\"{href}\" class=\"text-xs font-light uppercase tracking-[0.2em] text-muted-foreground \
+             transition-colors hover:text-foreground\">{label}</a>",
+            href = escape(href),
+            label = escape(label)
+        )
+    })
+    .collect::<String>();
+    format!(
+        "<footer class=\"border-t border-border px-6 py-16 md:px-12\">\
+           <div class=\"mx-auto max-w-[1600px]\">\
+             <div class=\"flex flex-col gap-12 md:flex-row md:items-end md:justify-between\">\
+               <div>\
+                 <p class=\"font-serif text-lg font-normal uppercase tracking-[0.35em] text-foreground\">CulebraLuxe</p>\
+                 <p class=\"mt-4 max-w-xs text-sm font-light leading-relaxed text-muted-foreground\">\
+                   Architectural estates and beachfront residences on the island of Culebra, Puerto Rico.</p>\
+               </div>\
+               <nav class=\"flex flex-wrap gap-x-8 gap-y-3\" aria-label=\"Footer\">{links}</nav>\
+             </div>\
+             <div class=\"mt-14 flex flex-col gap-3 border-t border-border pt-8 text-xs font-light uppercase \
+               tracking-[0.16em] text-muted-foreground md:flex-row md:justify-between\">\
+               <p>&copy; CulebraLuxe. All rights reserved.</p>\
+               <p>Culebra &middot; Puerto Rico</p>\
+             </div>\
+           </div>\
+         </footer>"
+    )
+}
+
+/// The call to action whose rule takes a colour, because the hero draws it in the page background and the dark sections
+/// draw it in the primary foreground. One function with the colour passed in, rather than two that drift.
 fn rule_cta(block: &Block, fallback: &str, rule: &str) -> String {
     let Some(label) = block.cta_label.as_deref().filter(|label| !label.is_empty()) else {
         return String::new();

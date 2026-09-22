@@ -342,6 +342,8 @@ pub struct Listing {
     pub beds: Option<i64>,
     pub baths: Option<i64>,
     pub area: Option<String>,
+    /// Whether the estate is in the featured set, which is what draws the badge on its card.
+    pub featured: bool,
 }
 
 /// Everything a public page renders from.

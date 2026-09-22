@@ -2,7 +2,9 @@ import { NextResponse, type NextRequest } from 'next/server'
 
 import { getMarketingContent } from '@/legacy/db/marketing-content'
 import { buildHomeContent } from '@/lib/marketing-content'
+import { formatArea, formatPrice, propertyLocation } from '@/lib/property'
 import { getProperties } from '@/lib/property-reads'
+import type { PropertySummary } from '@/legacy/services/property'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
 // ---------------------------------------------------------------------------
@@ -46,21 +48,26 @@ function block(source: unknown) {
   }
 }
 
-/** A property, in the shape the Rust `Listing` expects. `null` stays `null`: a missing bath count is not zero. */
-function listing(source: Record<string, unknown>) {
-  const text = (value: unknown) => (typeof value === 'string' ? value : null)
-  const number = (value: unknown) => (typeof value === 'number' ? value : null)
+/** A property, in the shape the Rust `Listing` expects.
+ *
+ * THE NAMES ARE THE READ MODEL'S, NOT GUESSED: `listPrice`, `heroUrl`, `bedrooms`. My first pass assumed `price`,
+ * `imagePath` and `beds`, and every card came back with a null price and no photograph — the page would have rendered
+ * four empty frames and a "Price upon request" on an estate with a price. Formatting goes through the same helpers the
+ * TypeScript cards used, so a price reads the same on both sides.
+ */
+function listing(source: PropertySummary) {
   return {
-    slug: text(source.slug) ?? '',
-    name: text(source.name) ?? '',
-    location: text(source.location),
-    price: text(source.price),
-    kind: text(source.kind),
-    imagePath: text(source.imagePath),
-    imageAlt: text(source.imageAlt),
-    beds: number(source.beds),
-    baths: number(source.baths),
-    area: text(source.area),
+    slug: source.slug ?? '',
+    name: source.name ?? '',
+    location: propertyLocation(source) ?? null,
+    price: source.listPrice == null ? null : formatPrice(source.listPrice),
+    kind: source.propertyType ?? null,
+    imagePath: source.heroUrl ?? null,
+    imageAlt: source.heroAlt ?? null,
+    beds: source.bedrooms ?? null,
+    baths: source.bathrooms ?? null,
+    area: formatArea(source.lotSize, source.lotSizeUnits) ?? null,
+    featured: source.featured === true,
   }
 }
 
@@ -76,7 +83,6 @@ async function GETHandler(req: NextRequest): Promise<Response> {
       ])
       const properties = propertiesResult.ok ? propertiesResult.data : []
       const home = contentResult.ok ? buildHomeContent(contentResult.data) : undefined
-      const rows = properties as unknown as Record<string, unknown>[]
       return NextResponse.json({
         hero: block(home?.hero),
         buyers: block(home?.buyers),
@@ -84,8 +90,8 @@ async function GETHandler(req: NextRequest): Promise<Response> {
         culture: block(home?.culture),
         about: block(home?.about),
         contact: block(home?.contact),
-        featured: rows.filter((property) => property.featured === true).map(listing),
-        listings: rows.map(listing),
+        featured: properties.filter((property) => property.featured === true).map(listing),
+        listings: properties.map(listing),
       })
     }
     default:
