@@ -7,8 +7,40 @@
 use ui::Effect;
 
 fn main() {
-    println!("rows   -> {}", serde_json::to_string(&Effect::FetchRows { screen: "clients", scope: None, generation: 1 }).unwrap());
-    println!("page   -> {}", serde_json::to_string(&Effect::FetchPage { screen: "site-home", scope: None, generation: 1 }).unwrap());
-    println!("mount  -> {}", serde_json::to_string(&vec![Effect::FetchPage { screen: "site-home", scope: None, generation: 1 }]).unwrap());
-    println!("record -> {}", serde_json::to_string(&Effect::FetchPage { screen: "site-property-detail", scope: Some("villa-rosada".into()), generation: 12 }).unwrap());
+    println!(
+        "rows   -> {}",
+        serde_json::to_string(&Effect::FetchRows {
+            screen: "clients",
+            scope: None,
+            generation: 1
+        })
+        .unwrap()
+    );
+    println!(
+        "page   -> {}",
+        serde_json::to_string(&Effect::FetchPage {
+            screen: "site-home",
+            scope: None,
+            generation: 1
+        })
+        .unwrap()
+    );
+    println!(
+        "mount  -> {}",
+        serde_json::to_string(&vec![Effect::FetchPage {
+            screen: "site-home",
+            scope: None,
+            generation: 1
+        }])
+        .unwrap()
+    );
+    println!(
+        "record -> {}",
+        serde_json::to_string(&Effect::FetchPage {
+            screen: "site-property-detail",
+            scope: Some("villa-rosada".into()),
+            generation: 12
+        })
+        .unwrap()
+    );
 }

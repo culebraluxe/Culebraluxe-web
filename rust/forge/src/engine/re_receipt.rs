@@ -48,9 +48,7 @@ pub fn claim_receipt(command_id: &str, actor: Option<&str>) -> Result<Option<Rec
     })??;
 
     let Some(row) = row else { return Ok(None) };
-    let outcome: String = row
-        .try_get("outcome")
-        .map_err(|error| error.to_string())?;
+    let outcome: String = row.try_get("outcome").map_err(|error| error.to_string())?;
     let message: Option<String> = row.try_get("message").map_err(|error| error.to_string())?;
     let message = message.filter(|value| !value.is_empty());
     if outcome == "pending" {
@@ -85,4 +83,3 @@ pub fn finalize_receipt(
     })??;
     Ok(())
 }
-

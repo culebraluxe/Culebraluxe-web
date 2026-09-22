@@ -5,8 +5,8 @@ use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 mod context;
-mod engine;
 mod diagnostics;
+mod engine;
 mod error;
 pub mod error_capture;
 mod routes;

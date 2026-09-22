@@ -29,7 +29,6 @@ pub fn install(database: Database) -> bool {
 /// Written with the same column list as `db/app-error.ts`, so both languages land in one place and one query reads
 /// them. `route` carries the operation, `meta` carries the taxonomy that has no column of its own.
 fn sink(failure: &DbFailure) {
-
     let Some(database) = POOL.get() else { return };
     let pool = database.pool().clone();
     // Copy everything the spawned thread needs BEFORE spawning it: `failure` is borrowed, and the capture must not
@@ -72,7 +71,6 @@ fn sink(failure: &DbFailure) {
     });
 }
 
-
 /// Record a failure that did not come from the database taxonomy - a panic, or a route returning a 5xx.
 ///
 /// WHY THIS EXISTS. `sink` below only knows `DbFailure`, so before this every other way a Rust request could fail was
@@ -82,7 +80,14 @@ fn sink(failure: &DbFailure) {
 /// Same two rules as the sink: best effort, and no recursion. `kind` is the classification
 /// (`rust:panic`, `rust:api`), `operation` is the route or operation name, `level` follows the same
 /// info/warn/error/fatal vocabulary as `db/app-error.ts`.
-pub fn record(kind: &str, operation: &str, message: &str, level: &str, stack: Option<&str>, meta: serde_json::Value) {
+pub fn record(
+    kind: &str,
+    operation: &str,
+    message: &str,
+    level: &str,
+    stack: Option<&str>,
+    meta: serde_json::Value,
+) {
     let Some(database) = POOL.get() else { return };
     let pool = database.pool().clone();
     let kind = kind.to_owned();
@@ -93,7 +98,10 @@ pub fn record(kind: &str, operation: &str, message: &str, level: &str, stack: Op
     let meta = meta.to_string();
 
     std::thread::spawn(move || {
-        let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+        let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        else {
             return;
         };
         let _ = runtime.block_on(async move {
@@ -151,4 +159,3 @@ fn install_panic_hook() {
         );
     }));
 }
-

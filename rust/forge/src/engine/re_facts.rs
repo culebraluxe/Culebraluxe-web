@@ -107,7 +107,6 @@ impl DealFactColumns {
     }
 }
 
-
 pub fn deal_workflow_facts(deal_id: &str) -> Value {
     let mut facts = Value::object();
     facts.insert("dealId", Value::String(deal_id.into()));
