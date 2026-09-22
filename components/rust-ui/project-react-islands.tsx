@@ -26,8 +26,10 @@ import type { NodeApi, NodeRendererProps } from 'react-arborist'
 
 import type { ILink, ITask } from '@svar-ui/react-gantt'
 import { FullCalendarCandidate } from '@/components/portal/fullcalendar-candidate'
+import { ProjectFilemanager } from '@/components/portal/project-filemanager'
 import { ProjectTimeline } from '@/components/portal/project-timeline'
 import type { CatchUpCalendarEvent } from '@/lib/catchup/calendar-adapter'
+import type { ProjectAssetBrowserItem } from '@/ui/projects/documents-projection'
 
 
 type ProjectDomainKey =
@@ -680,6 +682,23 @@ type CalendarPayload = {
   events: CatchUpCalendarEvent[]
 }
 
+type DocumentsPayload = {
+  files: Array<{
+    id: string
+    assetId: string
+    kind: 'document' | 'photo'
+    name: string
+    source: 'vault' | 'property-media'
+    href?: string | null
+    state?: string | null
+    caption?: string | null
+    altText?: string | null
+    mimeType?: string | null
+    size?: number | null
+    date?: string | null
+  }>
+}
+
 type IslandState = {
   navigatorTarget: Element | null
   navigator: NavigatorPayload | null
@@ -687,6 +706,8 @@ type IslandState = {
   timeline: TimelinePayload | null
   calendarTarget: Element | null
   calendar: CalendarPayload | null
+  documentsTarget: Element | null
+  documents: DocumentsPayload | null
 }
 
 const EMPTY: IslandState = {
@@ -696,6 +717,8 @@ const EMPTY: IslandState = {
   timeline: null,
   calendarTarget: null,
   calendar: null,
+  documentsTarget: null,
+  documents: null,
 }
 
 function readPayload<T>(element: Element | null): T | null {
@@ -713,9 +736,11 @@ function sameIslandState(left: IslandState, right: IslandState): boolean {
     left.navigatorTarget === right.navigatorTarget &&
     left.timelineTarget === right.timelineTarget &&
     left.calendarTarget === right.calendarTarget &&
+    left.documentsTarget === right.documentsTarget &&
     JSON.stringify(left.navigator) === JSON.stringify(right.navigator) &&
     JSON.stringify(left.timeline) === JSON.stringify(right.timeline) &&
-    JSON.stringify(left.calendar) === JSON.stringify(right.calendar)
+    JSON.stringify(left.calendar) === JSON.stringify(right.calendar) &&
+    JSON.stringify(left.documents) === JSON.stringify(right.documents)
   )
 }
 
@@ -737,6 +762,7 @@ export function ProjectReactIslands() {
       const navigatorTarget = root.querySelector('#project-navigator-island')
       const timelineTarget = root.querySelector('#project-timeline-island')
       const calendarTarget = root.querySelector('#project-calendar-island')
+      const documentsTarget = root.querySelector('#project-documents-island')
       const next: IslandState = {
         navigatorTarget,
         navigator: readPayload<NavigatorPayload>(navigatorTarget),
@@ -744,6 +770,8 @@ export function ProjectReactIslands() {
         timeline: readPayload<TimelinePayload>(timelineTarget),
         calendarTarget,
         calendar: readPayload<CalendarPayload>(calendarTarget),
+        documentsTarget,
+        documents: readPayload<DocumentsPayload>(documentsTarget),
       }
       setState((current) => (sameIslandState(current, next) ? current : next))
     }
@@ -772,6 +800,23 @@ export function ProjectReactIslands() {
     })) as ITask[]
   }, [state.timeline])
 
+  const documentFiles = useMemo<ProjectAssetBrowserItem[]>(() => {
+    return (state.documents?.files ?? []).map((file) => ({
+      id: file.id,
+      assetId: file.assetId,
+      kind: file.kind,
+      name: file.name,
+      source: file.source,
+      ...(file.href ? { href: file.href } : {}),
+      ...(file.state ? { state: file.state } : {}),
+      ...(file.caption !== undefined ? { caption: file.caption } : {}),
+      ...(file.altText !== undefined ? { altText: file.altText } : {}),
+      ...(file.mimeType !== undefined ? { mimeType: file.mimeType } : {}),
+      ...(file.size !== undefined ? { size: file.size } : {}),
+      ...(file.date ? { date: new Date(file.date) } : {}),
+    }))
+  }, [state.documents])
+
   return (
     <>
       {state.navigatorTarget && state.navigator
@@ -788,6 +833,9 @@ export function ProjectReactIslands() {
             <FullCalendarCandidate events={state.calendar.events ?? []} heading={null} />,
             state.calendarTarget,
           )
+        : null}
+      {state.documentsTarget && state.documents
+        ? createPortal(<ProjectFilemanager files={documentFiles} />, state.documentsTarget)
         : null}
     </>
   )
