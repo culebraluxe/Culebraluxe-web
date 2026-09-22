@@ -35,7 +35,7 @@ pub use model::{
     Screen, Surface, PAGE_SIZE, SCREENS,
 };
 pub use update::update;
-pub use view::render;
+pub use view::{render, render_page, PAGE_ID};
 
 /// The whole program, so a host never has to remember the loop's shape.
 #[derive(Debug, Default)]
@@ -69,6 +69,24 @@ impl Program {
 
     pub fn html(&self) -> String {
         render(&self.model)
+    }
+
+    /// The screen's own area — everything inside `#rust-page` and nothing else.
+    ///
+    /// The shell repaints this for a screen-local message and the whole document only when the chrome itself changed.
+    /// Both halves come from here rather than from the shell, because which markup is chrome is a property of the view.
+    pub fn page_html(&self) -> String {
+        view::render_page(&self.model)
+    }
+
+    /// What the chrome is a function of: the screen being shown, and its surface.
+    ///
+    /// The shell compares this before and after a message and repaints the chrome only when it differs. A signature
+    /// rather than a list of "messages that change the screen" because such a list is a second place to be wrong the
+    /// moment a new message can navigate — and comparing the thing itself is what keeps the rule true without anyone
+    /// maintaining it.
+    pub fn chrome_signature(&self) -> String {
+        format!("{:?}:{}", self.model.screen.surface, self.model.screen.key)
     }
 }
 

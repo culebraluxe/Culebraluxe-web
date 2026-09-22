@@ -25,6 +25,20 @@ pub fn escape(value: &str) -> String {
     out
 }
 
+/// The element the shell repaints when only the screen has changed.
+///
+/// WHY A NAMED TARGET RATHER THAN THE WHOLE MOUNT POINT: the chrome is not a function of screen-local state. A Buyers
+/// filter, a keystroke in the search field, a tab — none of them changes the header, and repainting the whole Rust UI
+/// for them destroyed and rebuilt the navigation on every keystroke. That is not merely wasteful: the public mobile
+/// menu is a `<details>` element whose open state belongs to the DOM, so the menu closed itself while the visitor was
+/// using it, and the header's `aria-current` had to be recomputed for a page that had not changed.
+///
+/// The split is not "header and footer" but *chrome* and *page*, because a screen change moves the chrome too: the
+/// active destination is marked in it. The shell compares the chrome's signature across a message and repaints the whole
+/// thing only when the screen itself changed — so the rule is a property of the model, not a list of messages someone
+/// has to remember to update.
+pub const PAGE_ID: &str = "rust-page";
+
 /// Render the whole screen: the chrome its surface calls for, plus the current screen's body.
 ///
 /// TWO CHROMES, ONE PER KIND OF SURFACE. The public site is a website: a header across the top, content at full width,
@@ -38,22 +52,47 @@ pub fn render(model: &Model) -> String {
              data-rust-screen=\"{}\">{}{}{}</div>",
             escape(model.screen.key),
             site_header(model),
-            format!(
-                "<main class=\"min-w-0 flex-1\">{}{}{}</main>",
-                site_error_banner(model),
-                loading_banner(model),
-                body(model)
-            ),
+            page_container("min-w-0 flex-1", model),
             site_footer()
         );
     }
     format!(
         "<div class=\"flex min-h-screen text-foreground\" data-rust-screen=\"{}\">\
            <nav class=\"w-60 shrink-0 border-r bg-card p-4\" aria-label=\"Portal\">{}</nav>\
-           <main class=\"min-w-0 flex-1 p-6\">{}{}{}</main>\
+           {}\
          </div>",
         escape(model.screen.key),
         nav(model),
+        page_container("min-w-0 flex-1 p-6", model)
+    )
+}
+
+/// The screen's own area, wrapped in the element the shell repaints: `<main id="rust-page">` plus what the screen says
+/// about itself — the error banner, the loading banner, and the body.
+fn page_container(class: &str, model: &Model) -> String {
+    format!(
+        "<main id=\"{PAGE_ID}\" class=\"{class}\">{}</main>",
+        render_page(model)
+    )
+}
+
+/// Everything inside [`PAGE_ID`]: what the screen says about itself, then its body.
+///
+/// This is the half of `render` that a screen-local message may repaint, and it is deliberately the half that contains
+/// no navigation. The banners belong here rather than in the chrome because they are news about THIS screen — a failed
+/// request for the list you are looking at — and a banner that outlived the screen it described would be worse than no
+/// banner.
+pub fn render_page(model: &Model) -> String {
+    if model.screen.surface == Surface::Site {
+        return format!(
+            "{}{}{}",
+            site_error_banner(model),
+            loading_banner(model),
+            body(model)
+        );
+    }
+    format!(
+        "{}{}{}",
         error_banner(model),
         loading_banner(model),
         body(model)
@@ -72,9 +111,21 @@ pub fn render(model: &Model) -> String {
 /// the stylesheet never arrives. The animated X is not reproduced — the summary is the same three rules, static, and
 /// that is a deliberate simplification rather than an oversight.
 fn site_header(model: &Model) -> String {
-    let _ = model;
     const CAPSULE: &str = "top-nav-capsule top-nav-capsule--tight";
     const MOBILE_CAPSULE: &str = "top-nav-capsule top-nav-capsule--full";
+    // WHICH DESTINATION IS CURRENT, from the model — the header used to discard it (`let _ = model`) and so had no way
+    // to say where the visitor was. The stylesheet already carries the rule for this attribute
+    // (`app/globals.css`: `.top-nav-capsule[aria-current='page']`), so the view's job is to place it, and the design's
+    // job stays the stylesheet's.
+    //
+    // The mapping is the public menu's, exactly: each key below is the screen that URL serves. The logo is the home
+    // destination and is marked when the visitor is on it, which keeps "exactly one current destination" true on every
+    // public screen rather than only the seven in the menu.
+    //
+    // NOT MARKED: a property record (`site-property-detail`) — it is a child of Buyers, but it is not a destination the
+    // menu offers, and marking Buyers there would tell a screen reader the visitor is on a page they are not.
+    let current = model.screen.key;
+    let at_home = home(Surface::Site).is_some_and(|screen| screen.key == current);
     // The site's menu, as the component lists it: these are the labels and the order the live header uses. Favorites is
     // deliberately not among them: the user's call — it does nothing yet (there is no favorites model behind it), and a
     // nav item that leads to an empty promise is worse than no nav item. The screen stays in the registry, so the page
@@ -105,13 +156,15 @@ fn site_header(model: &Model) -> String {
         );
         found.map(|screen| screen.path)
     };
+    let mark = |key: &str| if key == current { " aria-current=\"page\"" } else { "" };
     let desktop = LINKS
         .iter()
         .filter_map(|(label, key)| {
             let href = href_of(key)?;
             Some(format!(
-                "<a href=\"{href}\" class=\"{CAPSULE}\">{label}</a>",
+                "<a href=\"{href}\" class=\"{CAPSULE}\"{mark}>{label}</a>",
                 href = escape(href),
+                mark = mark(key),
                 label = escape(label)
             ))
         })
@@ -121,8 +174,9 @@ fn site_header(model: &Model) -> String {
         .filter_map(|(label, key)| {
             let href = href_of(key)?;
             Some(format!(
-                "<a href=\"{href}\" class=\"{MOBILE_CAPSULE}\">{label}</a>",
+                "<a href=\"{href}\" class=\"{MOBILE_CAPSULE}\"{mark}>{label}</a>",
                 href = escape(href),
+                mark = mark(key),
                 label = escape(label)
             ))
         })
@@ -130,7 +184,7 @@ fn site_header(model: &Model) -> String {
     format!(
         "<header class=\"fixed inset-x-0 top-0 z-50 border-b border-brand-gold/15 bg-brand-navy py-6\">\
            <div class=\"mx-auto flex max-w-[1600px] items-center justify-between px-6 md:px-12\">\
-             <a href=\"/\" aria-label=\"CulebraLuxe home\" class=\"flex h-7 w-[250px] flex-none items-center\">\
+             <a href=\"/\" aria-label=\"CulebraLuxe home\"{at_home} class=\"flex h-7 w-[250px] flex-none items-center\">\
                <img src=\"/images/culebraluxe-header-logo-test.png\" alt=\"CulebraLuxe\" width=\"2050\" \
                  height=\"300\" class=\"h-9 max-h-9 w-auto max-w-full flex-none object-contain\" />\
              </a>\
@@ -151,7 +205,8 @@ fn site_header(model: &Model) -> String {
              </details>\
            </div>\
          </header>\
-         <div class=\"h-[76px] flex-none shrink-0 lg:h-[92px]\" aria-hidden=\"true\"></div>"
+         <div class=\"h-[76px] flex-none shrink-0 lg:h-[92px]\" aria-hidden=\"true\"></div>",
+        at_home = if at_home { " aria-current=\"page\"" } else { "" },
     )
 }
 
@@ -3900,6 +3955,102 @@ mod tests {
     /// The user's report, pinned. The first version of the header listed registry titles — twelve of them, "Home" first,
     /// Portal nowhere — and the report was: the logo is missing, the bar should be navy, "Home" should not be there,
     /// Portal is missing. This is the design's menu, and the registry's bookkeeping does not leak into it.
+    /// THE HEADER SAYS WHERE THE VISITOR IS, and it says it exactly once per menu.
+    ///
+    /// The header used to discard the model (`let _ = model`), so no public page could mark its own destination and the
+    /// stylesheet's `[aria-current='page']` rule had nothing to match. A test rather than trust, because the failure is
+    /// silent: the page looks right and the navigation lies about where you are.
+    ///
+    /// ONE PER NAV, not one in the document: the desktop capsules and the mobile capsules are two lists of the same
+    /// destinations, only one of which is visible at a time, and each has to mark the current one. So the count is 2 —
+    /// and for a screen that is not a destination the menu offers, 0.
+    #[test]
+    fn the_header_marks_the_current_destination_exactly_once_per_menu() {
+        let menus = [
+            ("site-buyers", "/buyers"),
+            ("site-sellers", "/sellers"),
+            ("site-services", "/services"),
+            ("site-guide", "/guide"),
+            ("site-about", "/about"),
+            ("site-faq", "/faq"),
+            ("site-contact", "/contact"),
+        ];
+        for (key, path) in menus {
+            let html = render(&Model {
+                screen: target(key),
+                ..Model::default()
+            });
+            assert_eq!(
+                html.matches("aria-current=\"page\"").count(),
+                2,
+                "{key} should mark its own destination in the desktop menu and in the mobile menu"
+            );
+            // The marked item is THIS page's, in both menus, with the href the registry gives.
+            for capsule in [
+                "top-nav-capsule top-nav-capsule--tight",
+                "top-nav-capsule top-nav-capsule--full",
+            ] {
+                assert!(
+                    html.contains(&format!(
+                        "href=\"{path}\" class=\"{capsule}\" aria-current=\"page\""
+                    )),
+                    "the capsule {capsule} should mark {path} as the current page"
+                );
+            }
+        }
+        // The home destination is the logo, and it is marked when the visitor is on it — which is what keeps "exactly
+        // one current destination" true on every public screen rather than only the seven in the menu.
+        let home_html = render(&Model {
+            screen: target("site-home"),
+            ..Model::default()
+        });
+        assert_eq!(home_html.matches("aria-current=\"page\"").count(), 1);
+        assert!(home_html.contains("aria-label=\"CulebraLuxe home\" aria-current=\"page\""));
+        // A property record is not a destination the menu offers, so nothing is marked: telling a screen reader it is
+        // on Buyers would be a lie about a page it is not on.
+        let record_html = render(&Model {
+            screen: target("site-property-detail"),
+            ..Model::default()
+        });
+        assert_eq!(record_html.matches("aria-current=\"page\"").count(), 0);
+        // And the portal's own chrome is untouched by any of this.
+        let portal_html = render(&Model {
+            screen: target("dashboard"),
+            ..Model::default()
+        });
+        assert_eq!(portal_html.matches("aria-current=\"page\"").count(), 0);
+    }
+
+    /// THE REPAINT BOUNDARY, pinned where it can be checked without a browser: the page's markup is rendered on its
+    /// own, and it is exactly the half of the document that has no navigation in it.
+    ///
+    /// This is what the shell repaints for a screen-local message. If the page ever came to contain the header, every
+    /// keystroke would rebuild the navigation again — and the mobile menu would close itself, which is how this bug was
+    /// found.
+    #[test]
+    fn the_page_half_of_a_screen_carries_no_chrome() {
+        let page = crate::render_page(&Model {
+            screen: target("site-buyers"),
+            ..Model::default()
+        });
+        for chrome in ["<header", "<footer", "top-nav-capsule", "aria-current"] {
+            assert!(
+                !page.contains(chrome),
+                "the repaint target must not contain '{chrome}' — that is the chrome's job"
+            );
+        }
+        // It is the body, though: the page's own sections are there, which is what makes repainting it useful.
+        assert!(page.contains("For Buyers"));
+        // And the whole document wraps it in the element the shell looks for, once.
+        let html = render(&Model {
+            screen: target("site-buyers"),
+            ..Model::default()
+        });
+        assert_eq!(html.matches(&format!("id=\"{}\"", crate::PAGE_ID)).count(), 1);
+        assert!(html.contains("<header"));
+        assert!(html.contains("<footer"));
+    }
+
     /// The Services page renders the two blocks it is made of, through the same renderer the homepage uses — which is
     /// the point: one renderer, so the page and the homepage's summary of it cannot drift.
     ///

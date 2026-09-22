@@ -13,7 +13,8 @@ owns the network, the session and the permission checks.
 - `rust/ui/src/model.rs` — the screen registry, the model, the effects as types
 - `rust/ui/src/update.rs` — messages to state and effects (`is_editorial()` lives here)
 - `rust/ui/src/view.rs` — every renderer; pages are functions returning HTML strings
-- `rust/ui/src/shell.rs` — the wasm entry points (`mount`, `rows_loaded`, `page_loaded`) and the event listeners
+- `rust/ui/src/shell.rs` — the wasm entry points (`mount`, `rows_loaded`, `page_loaded`), the event listeners, and the
+  repaint boundary: the whole document on mount or a screen change, `#rust-page` for everything else
 - `rust/ui/src/icons.rs` — lucide icons as inline SVG
 - `lib/rust-ui/boot.ts` — boots the module once, serves the effects (this file was gitignored until recently)
 - `app/api/rust-ui/public-page/route.ts` — page payloads (blocks, listings, guide, property records)
@@ -56,6 +57,19 @@ The one thing that will eventually have to change outside `rust/ui/**` is a serv
 8. **`view-dump --page` reads the payload from stdin.** Running it without a pipe waits forever, which is why several
    "hangs" were not hang. Correct form:
    `curl -s '<host>/api/rust-ui/public-page?screen=site-buyers' | cargo run -q -p ui --example view-dump -- site-buyers --page`
+9. **The browser runs the WASM, not the source.** `cargo check` proves the source compiles and says nothing about what
+   the page executes: a fix can be committed, pushed and invisible for days while the browser runs an artifact built
+   before it. `pnpm ui:build:release` owns the artifact and the artifact is committed with the slice that changed it —
+   `pnpm dev` now refuses to start when `rust/ui/src/**` is newer than `public/rust-ui/ui_bg.wasm`.
+10. **Screen-local state must not destroy the chrome.** The shell repaints `#rust-page` and leaves the header and footer
+    alone unless the model says the screen itself changed (`Program::chrome_signature`). Repainting the whole mount
+    point for a keystroke rebuilt the navigation on every character — which closed the mobile menu, because a
+    `<details>` open state belongs to the DOM and cannot survive being thrown away.
+11. **`site_header` needs the model, because the header says where you are.** It used to `let _ = model` and so could
+    mark no active destination; the stylesheet's `.top-nav-capsule[aria-current='page']` had nothing to match. One
+    current destination per menu: the desktop capsules and the mobile capsules each mark the screen's own entry, the
+    logo is marked on the home page, and a property record marks nothing (it is a child of Buyers, not a destination the
+    menu offers).
 
 ## Ported, and how they were checked
 

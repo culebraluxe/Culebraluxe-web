@@ -27,7 +27,7 @@
 //   pnpm dev:raw        → direct `next dev` (Next default / Turbopack)
 // ---------------------------------------------------------------------------
 import { execSync, spawn } from 'node:child_process'
-import { existsSync, rmSync } from 'node:fs'
+import { existsSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -174,6 +174,71 @@ if (existsSync(resolve(ROOT, '.next'))) {
   rmSync(resolve(ROOT, '.next'), { recursive: true, force: true })
 }
 out('  ✓ Cleared .next')
+
+// D1. Rust UI freshness: the browser runs the WASM, so a WASM older than `rust/ui/src/**` is a bug in whatever screen
+// you are looking at, and it presents as a Rust bug you cannot reproduce in the source you are reading.
+//
+// EVERY UI BUG IN THIS PORT WAS DIAGNOSED AGAINST STALE WASM AT LEAST ONCE. `cargo check` proves the source compiles;
+// it says nothing about what the browser is running, and neither does a green build of a crate nobody rebuilt. So the
+// comparison is made here, every dev session, and it is a FAILURE rather than a warning: a warning that scrolls past
+// in startup output is how this went unnoticed, and the failure costs ten seconds to clear.
+{
+  const gluePath = resolve(ROOT, 'lib/rust-ui/ui.js')
+  const wasmPath = resolve(ROOT, 'public/rust-ui/ui_bg.wasm')
+  const sourceDir = resolve(ROOT, 'rust/ui')
+
+  /** The newest mtime under a directory, for files the predicate accepts. */
+  const newestIn = (dir, accept) => {
+    let newest = { path: '', mtime: 0 }
+    const walk = (current) => {
+      for (const entry of readdirSync(current, { withFileTypes: true })) {
+        if (entry.name === 'target' || entry.name === 'node_modules') continue
+        const full = resolve(current, entry.name)
+        if (entry.isDirectory()) {
+          walk(full)
+          continue
+        }
+        if (!accept(entry.name)) continue
+        const { mtimeMs } = statSync(full)
+        if (mtimeMs > newest.mtime) newest = { path: full, mtime: mtimeMs }
+      }
+    }
+    walk(dir)
+    return newest
+  }
+
+  const source = newestIn(sourceDir, (name) => name.endsWith('.rs') || name === 'Cargo.toml')
+  // Both generated files matter: the glue is what imports the wasm, so stale glue loads a stale module just as happily.
+  const artifacts = [
+    { label: 'lib/rust-ui/ui.js', path: gluePath },
+    { label: 'public/rust-ui/ui_bg.wasm', path: wasmPath },
+  ]
+  const missing = artifacts.filter((artifact) => !existsSync(artifact.path))
+  const stale = artifacts.filter(
+    (artifact) => existsSync(artifact.path) && statSync(artifact.path).mtimeMs < source.mtime,
+  )
+
+  if (source.path && (missing.length > 0 || stale.length > 0)) {
+    err('  ✗ The Rust UI the browser will run is not built from the source in this repo.')
+    err(`    newest source:  ${source.path.replace(`${ROOT}/`, '')}  (${new Date(source.mtime).toISOString()})`)
+    for (const artifact of missing) err(`    missing:        ${artifact.label}`)
+    for (const artifact of stale) {
+      err(
+        `    stale:          ${artifact.label}  (${new Date(statSync(artifact.path).mtimeMs).toISOString()})`,
+      )
+    }
+    err('    Build it, and commit the artifacts with the source:')
+    err('      pnpm ui:build:release')
+    if (process.env.RUST_UI_ALLOW_STALE === '1') {
+      err('    RUST_UI_ALLOW_STALE=1 is set, so starting anyway. What you are testing is NOT this source.')
+    } else {
+      err('    To start anyway (not recommended): RUST_UI_ALLOW_STALE=1 pnpm dev')
+      process.exit(1)
+    }
+  } else {
+    out('  ✓ Rust UI WASM is newer than rust/ui/src')
+  }
+}
 
 // D2. Bounce the Rust API: the cut-over routes call it through lib/rust-api/client.ts, so it must be RUNNING and
 // FRESH for every dev session. An already-listening instance is stopped and restarted rather than reused, because a

@@ -114,11 +114,35 @@ fn restore_focus(focus: &Focus) {
     }
 }
 
+/// What a paint has to replace.
+///
+/// SCREEN-LOCAL STATE MAY REPAINT THE SCREEN; IT MUST NOT DESTROY APPLICATION CHROME. The whole mount point used to be
+/// replaced after every message, so a keystroke in the Buyers search field rebuilt the header and the footer — and with
+/// them the mobile menu's `<details>` open state, which belongs to the DOM and cannot survive being thrown away. The
+/// distinction is derived from the model (see `Program::chrome_signature`), not from a list of messages, so a message
+/// added later cannot silently invalidate it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Repaint {
+    /// The screen changed: the header's current destination moves with it, so the chrome is rewritten too.
+    Chrome,
+    /// Only the screen's own state changed: the chrome is left exactly as it is.
+    Page,
+}
+
 /// Write the current model into the container. The single place the DOM is written, which is also why the focus
 /// handling lives here and nowhere else.
-fn paint(root: &HtmlElement, program: &Rc<RefCell<Program>>) {
+fn paint(root: &HtmlElement, program: &Rc<RefCell<Program>>, repaint: Repaint) {
     let focus = capture_focus();
-    root.set_inner_html(&program.borrow().html());
+    // The page-only path falls back to the whole document when there is no chrome to keep — which is the state of the
+    // mount point before the first render, and the reason a screen-local message arriving first cannot paint half a page.
+    let repaint_target = match repaint {
+        Repaint::Chrome => None,
+        Repaint::Page => root.query_selector(&format!("#{}", crate::view::PAGE_ID)).ok().flatten(),
+    };
+    match repaint_target {
+        Some(page) => page.set_inner_html(&program.borrow().page_html()),
+        None => root.set_inner_html(&program.borrow().html()),
+    }
     if let Some(focus) = focus {
         restore_focus(&focus);
     }
@@ -219,8 +243,16 @@ fn dispatch_current(root: &HtmlElement, msg: Msg) -> Option<String> {
 }
 
 fn dispatch(root: &HtmlElement, program: &Rc<RefCell<Program>>, msg: Msg) -> String {
+    // What the chrome is a function of, before the message. Compared after it, so "does the header need rewriting?"
+    // is answered by the model rather than by a guess about which messages navigate.
+    let chrome_before = program.borrow().chrome_signature();
     let effects = program.borrow_mut().dispatch(msg);
-    paint(root, program);
+    let repaint = if program.borrow().chrome_signature() == chrome_before {
+        Repaint::Page
+    } else {
+        Repaint::Chrome
+    };
+    paint(root, program, repaint);
     let payload = serde_json::to_string(&effects).unwrap_or_else(|_| "[]".to_string());
     publish(&payload);
     payload
