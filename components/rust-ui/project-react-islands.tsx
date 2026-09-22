@@ -28,11 +28,28 @@ import { ProjectTimeline } from '@/components/portal/project-timeline'
 import type { CatchUpCalendarEvent } from '@/lib/catchup/calendar-adapter'
 
 
+type ProjectDomainKey =
+  | 'properties'
+  | 'people'
+  | 'deals'
+  | 'firm'
+  | 'marketing'
+  | 'accounting'
+
 type NavigatorProject = {
   id: string
   name: string
   status: string
+  areas: string[]
   projectType?: string | null
+  personId?: string | null
+  propertyId?: string | null
+  contractId?: string | null
+}
+
+type NavigatorEntity = {
+  entityType: string
+  id: string
 }
 
 type NavigatorItem = {
@@ -45,60 +62,147 @@ type NavigatorItem = {
   dueAt?: string | null
   owner?: string | null
   order?: number | null
+  entity?: NavigatorEntity | null
 }
 
 type NavigatorPayload = {
   projects: NavigatorProject[]
   items: NavigatorItem[]
+  identityNames: Record<string, string>
+  activeDomain: ProjectDomainKey
+  catchUp: boolean
   selectedProjectId?: string | null
   selectedNodeId?: string | null
-  query?: string
+  query: string
 }
 
 type NavigatorNode = {
   id: string
-  kind: 'project' | 'work'
+  kind: 'pole' | 'project' | 'work'
   label: string
-  projectId: string
+  domain?: ProjectDomainKey
+  projectId?: string
   workNodeId?: string
   status?: string
   meta?: string
+  subtitle?: string
   searchText: string
   progress?: number
   children?: NavigatorNode[]
 }
 
+const DOMAIN_META: Array<{ key: ProjectDomainKey; label: string; icon: LucideIcon }> = [
+  { key: 'properties', label: 'Properties', icon: Home },
+  { key: 'people', label: 'People', icon: Users },
+  { key: 'deals', label: 'Deals', icon: Handshake },
+  { key: 'firm', label: 'Firm', icon: Building2 },
+  { key: 'marketing', label: 'Marketing', icon: Megaphone },
+  { key: 'accounting', label: 'Accounting', icon: Banknote },
+]
+
 const PROJECT_KIND_ICON: Record<string, LucideIcon> = {
-  listing: KeyRound,
-  marketing: Megaphone,
-  closing: Handshake,
-  deal: Handshake,
-  client: Users,
-  buyer_rep: Users,
-  firm: Building2,
-  accounting: Banknote,
+  LISTING: KeyRound,
+  MARKETING: Megaphone,
+  CLOSING: Handshake,
+  DEAL: Handshake,
+  CLIENT: Users,
+  BUYER_REP: Users,
+  FIRM: Building2,
+  ACCOUNTING: Banknote,
 }
 
 const WORK_TYPE_ICON: Record<string, LucideIcon> = {
-  clients: Users,
-  contracts: FileText,
-  properties: Home,
-  media: Image,
-  marketing: Megaphone,
-  accounting: Banknote,
-  management: GitBranch,
+  contract: FileText,
   approval: PenLine,
+  media: Image,
+  accounting: Banknote,
+  marketing: Megaphone,
   workflow: GitBranch,
   task: CheckCircle2,
   milestone: Flag,
   document: FileText,
 }
 
+function projectKindIcon(kind: string): LucideIcon {
+  return PROJECT_KIND_ICON[kind.toUpperCase()] ?? FileText
+}
+
+function workType(category: string): string {
+  if (category === 'contracts') return 'contract'
+  if (category === 'media') return 'media'
+  if (category === 'marketing') return 'workflow'
+  if (category === 'accounting') return 'accounting'
+  if (category === 'clients' || category === 'properties') return 'group'
+  return 'task'
+}
+
+function workTypeIcon(type: string, label: string): LucideIcon {
+  const found = WORK_TYPE_ICON[type]
+  if (found) return found
+  if (type === 'group') return /client|parties|people|person|seller/i.test(label) ? Users : Home
+  return FileText
+}
+
+function workStatus(status: string): string {
+  if (status === 'done') return 'complete'
+  if (status === 'doing') return 'in-progress'
+  if (status === 'dismissed') return 'dismissed'
+  return 'not-started'
+}
+
+function statusLabel(status: string): string {
+  if (status === 'done') return 'complete'
+  if (status === 'doing') return 'in progress'
+  if (status === 'dismissed') return 'dismissed'
+  return 'not started'
+}
+
 function navigatorStatusClass(status?: string): string {
-  if (status === 'done') return 'text-[var(--portal-success)]'
-  if (status === 'doing') return 'text-[var(--portal-gold)]'
+  if (status === 'complete') return 'text-[var(--portal-success)]'
+  if (status === 'blocked') return 'text-[var(--portal-archive)]'
+  if (status === 'waiting') return 'text-[var(--portal-gold)]'
+  if (status === 'in-progress') return 'text-[var(--portal-gold)]/80'
   if (status === 'dismissed') return 'text-white/35'
   return 'text-white/55'
+}
+
+function categoryDomain(category: string): ProjectDomainKey {
+  if (category === 'properties' || category === 'media') return 'properties'
+  if (category === 'clients') return 'people'
+  if (category === 'contracts') return 'deals'
+  if (category === 'marketing') return 'marketing'
+  if (category === 'accounting') return 'accounting'
+  return 'firm'
+}
+
+function entityDomain(entityType: string): ProjectDomainKey | null {
+  if (entityType === 'property') return 'properties'
+  if (entityType === 'person') return 'people'
+  if (entityType === 'contract' || entityType === 'deal') return 'deals'
+  return null
+}
+
+function projectInDomain(project: NavigatorProject, items: NavigatorItem[], domain: ProjectDomainKey): boolean {
+  if (domain === 'properties' && project.propertyId) return true
+  if (domain === 'people' && project.personId) return true
+  if (domain === 'deals' && project.contractId) return true
+  if (project.areas.some((area) => categoryDomain(area) === domain)) return true
+  return items.some((item) => item.entity && entityDomain(item.entity.entityType) === domain)
+}
+
+function dueLabel(value?: string | null): string {
+  if (!value) return ''
+  const key = /^(\d{4}-\d{2}-\d{2})/.exec(value)?.[1]
+  if (!key) return ''
+  const date = new Date(key + 'T12:00:00')
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+function compareItems(left: NavigatorItem, right: NavigatorItem): number {
+  const order = (left.order ?? Number.MAX_SAFE_INTEGER) - (right.order ?? Number.MAX_SAFE_INTEGER)
+  if (order !== 0) return order
+  return (left.dueAt ?? '9999').localeCompare(right.dueAt ?? '9999') || left.id.localeCompare(right.id)
 }
 
 function dispatchNavigatorIntent(intent: Record<string, string>) {
@@ -108,7 +212,19 @@ function dispatchNavigatorIntent(intent: Record<string, string>) {
   bridge.click()
 }
 
-function navigatorTree(payload: NavigatorPayload): NavigatorNode[] {
+function ProjectProgress({ value, className }: { value: number; className?: string }) {
+  const clamped = Math.max(0, Math.min(100, value))
+  return (
+    <div className={['h-1 w-full overflow-hidden rounded-full bg-white/15', className ?? ''].join(' ')}>
+      <div
+        className="h-full rounded-full bg-[var(--portal-gold)] transition-[width] duration-300"
+        style={{ width: String(clamped) + '%' }}
+      />
+    </div>
+  )
+}
+
+function buildNavigatorTree(payload: NavigatorPayload): NavigatorNode[] {
   const itemsByProject = new Map<string, NavigatorItem[]>()
   for (const item of payload.items) {
     if (!item.projectId) continue
@@ -117,51 +233,186 @@ function navigatorTree(payload: NavigatorPayload): NavigatorNode[] {
     itemsByProject.set(item.projectId, bucket)
   }
 
-  const childrenFor = (
+  const workChildren = (
+    poleId: string,
     projectId: string,
     parentId: string | null,
     projectItems: NavigatorItem[],
     seen: Set<string>,
-  ): NavigatorNode[] => {
-    return projectItems
+  ): NavigatorNode[] =>
+    projectItems
       .filter((item) => (item.parentId ?? null) === parentId && !seen.has(item.id))
-      .sort((left, right) => (left.order ?? Number.MAX_SAFE_INTEGER) - (right.order ?? Number.MAX_SAFE_INTEGER))
+      .sort(compareItems)
       .map((item) => {
         const branchSeen = new Set(seen)
         branchSeen.add(item.id)
-        const meta = [item.category, item.owner ?? '', item.dueAt?.slice(0, 10) ?? '']
-          .filter(Boolean)
-          .join(' · ')
+        const type = workType(item.category)
+        const status = workStatus(item.status)
+        const meta = [type, statusLabel(item.status), dueLabel(item.dueAt)].filter(Boolean).join(' · ')
         return {
-          id: 'work:' + item.id,
+          id: poleId + '::' + projectId + '::' + item.id,
           kind: 'work' as const,
           label: item.title,
           projectId,
           workNodeId: item.id,
-          status: item.status,
+          status,
           meta,
-          searchText: (item.title + ' ' + meta).toLowerCase(),
-          children: childrenFor(projectId, item.id, projectItems, branchSeen),
+          searchText: [item.title, type, status, item.owner ?? '', dueLabel(item.dueAt)]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase(),
+          children: workChildren(poleId, projectId, item.id, projectItems, branchSeen),
         }
       })
+
+  type PoleBucket = {
+    id: string
+    domain: ProjectDomainKey
+    label: string
+    subtitle: string
+    projects: NavigatorProject[]
   }
 
-  return payload.projects.map((project) => {
-    const projectItems = itemsByProject.get(project.id) ?? []
-    const planned = projectItems.filter((item) => item.status !== 'dismissed').length
-    const done = projectItems.filter((item) => item.status === 'done').length
-    const progress = planned ? Math.round((done / planned) * 100) : 0
-    return {
-      id: 'project:' + project.id,
-      kind: 'project' as const,
-      label: project.name,
-      projectId: project.id,
-      meta: project.projectType ?? 'project',
-      searchText: (project.name + ' ' + (project.projectType ?? '')).toLowerCase(),
-      progress,
-      children: childrenFor(project.id, null, projectItems, new Set<string>()),
+  const buckets = new Map<string, PoleBucket>()
+  const addToBucket = (bucket: PoleBucket, project: NavigatorProject) => {
+    const existing = buckets.get(bucket.id)
+    if (existing) {
+      if (!existing.projects.some((candidate) => candidate.id === project.id)) existing.projects.push(project)
+    } else {
+      buckets.set(bucket.id, { ...bucket, projects: [project] })
     }
-  })
+  }
+
+  for (const project of payload.projects) {
+    const projectItems = itemsByProject.get(project.id) ?? []
+    if (!projectInDomain(project, projectItems, payload.activeDomain)) continue
+
+    const anchors = new Map<string, { entityType: string; id: string }>()
+    if (project.propertyId) anchors.set('property:' + project.propertyId, { entityType: 'property', id: project.propertyId })
+    if (project.personId) anchors.set('person:' + project.personId, { entityType: 'person', id: project.personId })
+    if (project.contractId) anchors.set('contract:' + project.contractId, { entityType: 'contract', id: project.contractId })
+    for (const item of projectItems) {
+      if (!item.entity) continue
+      anchors.set(item.entity.entityType + ':' + item.entity.id, item.entity)
+    }
+
+    const matching = [...anchors.values()].filter((anchor) => entityDomain(anchor.entityType) === payload.activeDomain)
+    if (matching.length > 0) {
+      for (const anchor of matching) {
+        const key = anchor.entityType + ':' + anchor.id
+        addToBucket(
+          {
+            id: 'entity-' + anchor.entityType + '-' + anchor.id,
+            domain: payload.activeDomain,
+            label: payload.identityNames[key] ?? anchor.id,
+            subtitle:
+              anchor.entityType === 'person'
+                ? 'Client'
+                : anchor.entityType === 'property'
+                  ? 'Property'
+                  : anchor.entityType === 'contract'
+                    ? 'Contract'
+                    : 'Workspace',
+            projects: [],
+          },
+          project,
+        )
+      }
+      continue
+    }
+
+    const meta = DOMAIN_META.find((entry) => entry.key === payload.activeDomain)
+    addToBucket(
+      {
+        id: 'collection-' + payload.activeDomain,
+        domain: payload.activeDomain,
+        label: meta?.label ?? 'Projects',
+        subtitle: 'Project collection',
+        projects: [],
+      },
+      project,
+    )
+  }
+
+  const roots: NavigatorNode[] = []
+  for (const bucket of buckets.values()) {
+    const projectNodes = bucket.projects.map((project) => {
+      const projectItems = itemsByProject.get(project.id) ?? []
+      const planned = projectItems.filter((item) => item.status !== 'dismissed').length
+      const done = projectItems.filter((item) => item.status === 'done').length
+      const progress = planned ? Math.round((done / planned) * 100) : 0
+      const kind = String(project.projectType ?? project.areas[0] ?? 'WORK').toUpperCase()
+      const meta = kind + ' · ' + (project.status === 'doing' ? 'In progress' : project.status === 'done' ? 'Complete' : project.status === 'archived' ? 'Archived' : 'Open')
+      const work = workChildren(bucket.id, project.id, null, projectItems, new Set<string>())
+      return {
+        id: bucket.id + '::' + project.id,
+        kind: 'project' as const,
+        label: project.name,
+        projectId: project.id,
+        progress,
+        meta,
+        searchText: [project.name, kind, meta, ...work.map((node) => node.searchText)].join(' ').toLowerCase(),
+        children: work,
+      }
+    })
+    const progress = projectNodes.length
+      ? Math.round(projectNodes.reduce((sum, project) => sum + (project.progress ?? 0), 0) / projectNodes.length)
+      : 0
+    roots.push({
+      id: bucket.id,
+      kind: 'pole',
+      label: bucket.label,
+      domain: bucket.domain,
+      subtitle: bucket.subtitle,
+      progress,
+      searchText: [bucket.label, bucket.subtitle, ...projectNodes.map((project) => project.searchText)].join(' ').toLowerCase(),
+      children: projectNodes,
+    })
+  }
+
+  return roots
+}
+
+function selectedNavigatorId(
+  nodes: NavigatorNode[],
+  selectedProjectId?: string | null,
+  selectedNodeId?: string | null,
+): string | undefined {
+  if (!selectedProjectId) return undefined
+  const visit = (node: NavigatorNode): string | undefined => {
+    if (selectedNodeId && node.workNodeId === selectedNodeId && node.projectId === selectedProjectId) return node.id
+    for (const child of node.children ?? []) {
+      const found = visit(child)
+      if (found) return found
+    }
+    if (!selectedNodeId && node.kind === 'project' && node.projectId === selectedProjectId) return node.id
+    return undefined
+  }
+  for (const node of nodes) {
+    const found = visit(node)
+    if (found) return found
+  }
+  for (const node of nodes) {
+    const project = node.children?.find((child) => child.kind === 'project' && child.projectId === selectedProjectId)
+    if (project) return project.id
+  }
+  return undefined
+}
+
+function openAncestors(nodes: NavigatorNode[], selectedId?: string): Record<string, boolean> {
+  const open: Record<string, boolean> = {}
+  if (!selectedId) return open
+  const findPath = (branch: NavigatorNode[]): NavigatorNode[] => {
+    for (const node of branch) {
+      if (node.id === selectedId) return [node]
+      const nested = node.children ? findPath(node.children) : []
+      if (nested.length) return [node, ...nested]
+    }
+    return []
+  }
+  const path = findPath(nodes)
+  for (const node of path.slice(0, -1)) open[node.id] = true
+  return open
 }
 
 function NavigatorToggle({ node }: { node: NodeApi<NavigatorNode> }) {
@@ -181,13 +432,55 @@ function NavigatorToggle({ node }: { node: NodeApi<NavigatorNode> }) {
   )
 }
 
+function NavigatorGlyph({ icon, className }: { icon: LucideIcon; className?: string }) {
+  const Icon = icon
+  return (
+    <Icon
+      className={['h-[18px] w-[18px] shrink-0', className ?? 'text-[var(--portal-gold)]'].join(' ')}
+      strokeWidth={1.6}
+      aria-hidden
+    />
+  )
+}
+
 function NavigatorNodeView({ node, style }: NodeRendererProps<NavigatorNode>) {
   const item = node.data
   const selected = node.isSelected
   const focused = node.isFocused ? 'ring-1 ring-inset ring-white/25' : ''
 
+  if (item.kind === 'pole') {
+    const Icon = DOMAIN_META.find((entry) => entry.key === item.domain)?.icon ?? Home
+    return (
+      <div
+        style={style}
+        className={[
+          'flex items-center gap-2 rounded-xl px-1',
+          selected ? 'bg-white/10 shadow-[0_2px_12px_rgba(0,0,0,0.16)]' : '',
+          focused,
+        ].join(' ')}
+      >
+        <NavigatorToggle node={node} />
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px] bg-white/10 text-[var(--portal-gold)] ring-1 ring-inset ring-white/15">
+          <Icon className="h-[18px] w-[18px]" strokeWidth={1.5} aria-hidden />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-serif text-[23px] font-bold leading-tight text-white/95">{item.label}</span>
+          {item.subtitle ? (
+            <span className="mt-0.5 block truncate text-[15px] font-light leading-snug text-white/60">{item.subtitle}</span>
+          ) : null}
+        </span>
+        {typeof item.progress === 'number' ? (
+          <span className="flex shrink-0 items-center gap-1.5 pr-1">
+            <ProjectProgress value={item.progress} className="w-11" />
+            <span className="text-[14px] font-light text-white/55">{item.progress}%</span>
+          </span>
+        ) : null}
+      </div>
+    )
+  }
+
   if (item.kind === 'project') {
-    const Icon = PROJECT_KIND_ICON[(item.meta ?? '').toLowerCase()] ?? FileText
+    const kind = (item.meta ?? '').split(' · ')[0] ?? ''
     return (
       <div
         style={style}
@@ -198,14 +491,16 @@ function NavigatorNodeView({ node, style }: NodeRendererProps<NavigatorNode>) {
         ].join(' ')}
       >
         <NavigatorToggle node={node} />
-        <Icon className="h-[18px] w-[18px] shrink-0 text-[var(--portal-gold)]" strokeWidth={1.6} aria-hidden />
+        {kind ? <NavigatorGlyph icon={projectKindIcon(kind)} /> : null}
         <span className="min-w-0 flex-1 truncate text-[19px] font-light leading-tight text-white/95">{item.label}</span>
-        <span className="shrink-0 pr-1 text-[14px] font-light text-white/55">{item.progress ?? 0}%</span>
+        {typeof item.progress === 'number' ? (
+          <span className="shrink-0 pr-1 text-[14px] font-light text-white/55">{item.progress}%</span>
+        ) : null}
       </div>
     )
   }
 
-  const Icon = WORK_TYPE_ICON[(item.meta ?? '').split(' · ')[0] ?? ''] ?? FileText
+  const type = (item.meta ?? '').split(' · ')[0] ?? ''
   return (
     <div
       style={style}
@@ -216,39 +511,72 @@ function NavigatorNodeView({ node, style }: NodeRendererProps<NavigatorNode>) {
       ].join(' ')}
     >
       <NavigatorToggle node={node} />
-      <Icon className={['h-[18px] w-[18px] shrink-0', navigatorStatusClass(item.status)].join(' ')} strokeWidth={1.6} aria-hidden />
+      <NavigatorGlyph icon={workTypeIcon(type, item.label)} className={navigatorStatusClass(item.status)} />
       <span className="min-w-0 flex-1 truncate text-[17px] font-light leading-tight text-white/95">{item.label}</span>
+    </div>
+  )
+}
+
+function ProjectDomainRail({ payload }: { payload: NavigatorPayload }) {
+  return (
+    <div className="flex w-[86px] shrink-0 flex-col items-center border-r border-white/10 py-3" aria-label="Project scope and domain">
+      <button
+        type="button"
+        onClick={() => dispatchNavigatorIntent({ kind: 'catchup' })}
+        title="Catch-Up"
+        aria-current={payload.catchUp ? 'page' : undefined}
+        className={['group relative flex w-full flex-col items-center gap-1.5 py-2.5 transition', payload.catchUp ? '' : 'opacity-95 hover:opacity-100'].join(' ')}
+      >
+        <span className={['absolute inset-y-2 left-0 w-[3px] rounded-r-full transition', payload.catchUp ? 'bg-[var(--portal-gold)]' : 'bg-transparent group-hover:bg-white/30'].join(' ')} />
+        <span className={['flex h-10 w-10 items-center justify-center rounded-xl transition', payload.catchUp ? 'bg-black/25 text-[var(--portal-gold)] shadow-sm ring-1 ring-inset ring-white/25' : 'bg-white/[0.07] text-white/85 group-hover:bg-white/[0.16] group-hover:text-white'].join(' ')}>
+          <CheckCircle2 className="h-[23px] w-[23px]" strokeWidth={1.6} aria-hidden />
+        </span>
+        <span className={['text-center text-[14px] font-medium uppercase leading-tight tracking-[0.02em]', payload.catchUp ? 'text-white' : 'text-white/70 group-hover:text-white/95'].join(' ')}>
+          Catch-Up
+        </span>
+      </button>
+      <div className="my-1 w-[60%] border-b border-white/15" aria-hidden />
+      {DOMAIN_META.map((domain) => {
+        const Icon = domain.icon
+        const active = !payload.catchUp && payload.activeDomain === domain.key
+        return (
+          <button
+            key={domain.key}
+            type="button"
+            onClick={() => dispatchNavigatorIntent({ kind: 'domain', domain: domain.key })}
+            title={domain.label}
+            aria-current={active ? 'true' : undefined}
+            className={['group relative flex w-full flex-col items-center gap-1.5 py-2.5 transition', active ? '' : 'opacity-95 hover:opacity-100'].join(' ')}
+          >
+            <span className={['absolute inset-y-2 left-0 w-[3px] rounded-r-full transition', active ? 'bg-[var(--portal-gold)]' : 'bg-transparent group-hover:bg-white/30'].join(' ')} />
+            <span className={['flex h-10 w-10 items-center justify-center rounded-xl transition', active ? 'bg-black/25 text-[var(--portal-gold)] shadow-sm ring-1 ring-inset ring-white/25' : 'bg-white/[0.07] text-white/85 group-hover:bg-white/[0.16] group-hover:text-white'].join(' ')}>
+              <Icon className="h-[23px] w-[23px]" strokeWidth={1.6} aria-hidden />
+            </span>
+            <span className={['text-center text-[14px] font-medium uppercase leading-tight tracking-[0.02em]', active ? 'text-white' : 'text-white/70 group-hover:text-white/95'].join(' ')}>
+              {domain.label.slice(0, 12)}
+            </span>
+          </button>
+        )
+      })}
     </div>
   )
 }
 
 function ProjectNavigatorIsland({ payload }: { payload: NavigatorPayload }) {
   const wrapRef = useRef<HTMLDivElement | null>(null)
-  const [height, setHeight] = useState(520)
-  const data = useMemo(() => navigatorTree(payload), [payload])
-  const selection = payload.selectedNodeId
-    ? 'work:' + payload.selectedNodeId
-    : payload.selectedProjectId
-      ? 'project:' + payload.selectedProjectId
-      : undefined
-
-  const initialOpenState = useMemo(() => {
-    const open: Record<string, boolean> = {}
-    if (payload.selectedProjectId) open['project:' + payload.selectedProjectId] = true
-    let current = payload.selectedNodeId
-    while (current) {
-      const item = payload.items.find((candidate) => candidate.id === current)
-      if (!item) break
-      open['work:' + item.id] = true
-      current = item.parentId ?? null
-    }
-    return open
-  }, [payload.items, payload.selectedNodeId, payload.selectedProjectId])
+  const [height, setHeight] = useState(560)
+  const data = useMemo(() => buildNavigatorTree(payload), [payload])
+  const selection = useMemo(
+    () => selectedNavigatorId(data, payload.selectedProjectId, payload.selectedNodeId),
+    [data, payload.selectedNodeId, payload.selectedProjectId],
+  )
+  const initialOpenState = useMemo(() => openAncestors(data, selection), [data, selection])
+  const activeLabel = DOMAIN_META.find((domain) => domain.key === payload.activeDomain)?.label ?? 'Projects'
 
   useEffect(() => {
     const element = wrapRef.current
     if (!element) return
-    const update = () => setHeight(Math.max(220, element.clientHeight))
+    const update = () => setHeight(Math.max(200, element.clientHeight))
     update()
     const observer = new ResizeObserver(update)
     observer.observe(element)
@@ -256,44 +584,67 @@ function ProjectNavigatorIsland({ payload }: { payload: NavigatorPayload }) {
   }, [])
 
   return (
-    <div ref={wrapRef} className="h-full min-h-0 overflow-hidden px-1 pt-1.5">
-      <Tree<NavigatorNode>
-        key={payload.selectedProjectId ?? 'projects'}
-        data={data}
-        selection={selection}
-        initialOpenState={initialOpenState}
-        openByDefault={false}
-        searchTerm={payload.query ?? ''}
-        searchMatch={(node, term) => node.data.searchText.includes(term.trim().toLowerCase())}
-        width="100%"
-        height={height}
-        indent={7}
-        rowHeight={(node) => (node.data.kind === 'project' ? 50 : 46)}
-        overscanCount={6}
-        disableDrag
-        disableDrop
-        disableEdit
-        disableMultiSelection
-        onSelect={(nodes) => {
-          const selectedNode = nodes[0]?.data
-          if (!selectedNode) return
-          if (selectedNode.kind === 'project') {
-            dispatchNavigatorIntent({ kind: 'project', projectId: selectedNode.projectId })
-          } else if (selectedNode.workNodeId) {
-            dispatchNavigatorIntent({
-              kind: 'work',
-              projectId: selectedNode.projectId,
-              nodeId: selectedNode.workNodeId,
-            })
-          }
-        }}
-        onActivate={(node) => {
-          if (!node.isLeaf) node.toggle()
-        }}
-      >
-        {NavigatorNodeView}
-      </Tree>
-    </div>
+    <section className="flex h-full min-h-0 overflow-hidden bg-[var(--portal-navy)] text-white">
+      <ProjectDomainRail payload={payload} />
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="border-b border-white/10 px-3 pb-2 pt-3">
+          <p className="text-[14px] font-medium uppercase tracking-[0.14em] text-[var(--portal-gold)]">{activeLabel}</p>
+          <label className="mt-2 flex h-11 items-center gap-2 rounded-[var(--portal-tab-radius)] border border-white/15 bg-white/10 px-3">
+            <span className="text-white/50" aria-hidden>⌕</span>
+            <input
+              value={payload.query}
+              onChange={(event) => dispatchNavigatorIntent({ kind: 'query', query: event.target.value })}
+              placeholder="Find work…"
+              className="min-w-0 flex-1 bg-transparent text-[16px] font-light text-white outline-none placeholder:text-white/55"
+            />
+          </label>
+        </div>
+        <div ref={wrapRef} className="min-h-0 flex-1 overflow-hidden px-1 pt-1.5">
+          {data.length === 0 ? (
+            <div className="px-3 py-8 text-sm font-light text-white/45">No matching projects in this perspective.</div>
+          ) : (
+            <Tree<NavigatorNode>
+              key={payload.activeDomain}
+              data={data}
+              selection={selection}
+              initialOpenState={initialOpenState}
+              openByDefault={false}
+              searchTerm={payload.query}
+              searchMatch={(node, term) =>
+                term.trim() ? node.data.searchText.includes(term.trim().toLowerCase()) : true
+              }
+              width="100%"
+              height={height}
+              indent={7}
+              rowHeight={(node) => (node.data.kind === 'pole' ? 70 : node.data.kind === 'project' ? 50 : 46)}
+              overscanCount={6}
+              disableDrag
+              disableDrop
+              disableEdit
+              disableMultiSelection
+              onSelect={(nodes) => {
+                const selectedNode = nodes[0]?.data
+                if (!selectedNode) return
+                if (selectedNode.kind === 'project' && selectedNode.projectId) {
+                  dispatchNavigatorIntent({ kind: 'project', projectId: selectedNode.projectId })
+                } else if (selectedNode.kind === 'work' && selectedNode.projectId && selectedNode.workNodeId) {
+                  dispatchNavigatorIntent({
+                    kind: 'work',
+                    projectId: selectedNode.projectId,
+                    nodeId: selectedNode.workNodeId,
+                  })
+                }
+              }}
+              onActivate={(node) => {
+                if (!node.isLeaf) node.toggle()
+              }}
+            >
+              {NavigatorNodeView}
+            </Tree>
+          )}
+        </div>
+      </div>
+    </section>
   )
 }
 
