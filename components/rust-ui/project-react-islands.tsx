@@ -15,7 +15,9 @@ import {
   Home,
   Image,
   KeyRound,
+  ListChecks,
   Megaphone,
+  Search,
   PenLine,
   Users,
 } from 'lucide-react'
@@ -529,7 +531,7 @@ function ProjectDomainRail({ payload }: { payload: NavigatorPayload }) {
       >
         <span className={['absolute inset-y-2 left-0 w-[3px] rounded-r-full transition', payload.catchUp ? 'bg-[var(--portal-gold)]' : 'bg-transparent group-hover:bg-white/30'].join(' ')} />
         <span className={['flex h-10 w-10 items-center justify-center rounded-xl transition', payload.catchUp ? 'bg-black/25 text-[var(--portal-gold)] shadow-sm ring-1 ring-inset ring-white/25' : 'bg-white/[0.07] text-white/85 group-hover:bg-white/[0.16] group-hover:text-white'].join(' ')}>
-          <CheckCircle2 className="h-[23px] w-[23px]" strokeWidth={1.6} aria-hidden />
+          <ListChecks className="h-[23px] w-[23px]" strokeWidth={1.6} aria-hidden />
         </span>
         <span className={['text-center text-[14px] font-medium uppercase leading-tight tracking-[0.02em]', payload.catchUp ? 'text-white' : 'text-white/70 group-hover:text-white/95'].join(' ')}>
           Catch-Up
@@ -590,7 +592,7 @@ function ProjectNavigatorIsland({ payload }: { payload: NavigatorPayload }) {
         <div className="border-b border-white/10 px-3 pb-2 pt-3">
           <p className="text-[14px] font-medium uppercase tracking-[0.14em] text-[var(--portal-gold)]">{activeLabel}</p>
           <label className="mt-2 flex h-11 items-center gap-2 rounded-[var(--portal-tab-radius)] border border-white/15 bg-white/10 px-3">
-            <span className="text-white/50" aria-hidden>⌕</span>
+            <Search className="h-4 w-4 shrink-0 text-white/50" aria-hidden />
             <input
               value={payload.query}
               onChange={(event) => dispatchNavigatorIntent({ kind: 'query', query: event.target.value })}
