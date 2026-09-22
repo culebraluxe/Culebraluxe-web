@@ -13,6 +13,7 @@ use crate::properties::PropertyService;
 use crate::security::SecurityService;
 use crate::showings::ShowingService;
 use crate::signature::SignatureService;
+use crate::task::TaskService;
 use crate::vault::{VaultArtifactPort, VaultService};
 use crate::wbs::WbsService;
 use db::{
@@ -130,6 +131,10 @@ impl CoreServices {
             artifacts,
             self.infrastructure.clone(),
         )
+    }
+
+    pub fn task(&self) -> TaskService<TaskDao> {
+        TaskService::new(TaskDao::new(self.db.clone()), self.infrastructure.clone())
     }
 
     pub fn wbs(&self) -> WbsService<WbsDao> {
