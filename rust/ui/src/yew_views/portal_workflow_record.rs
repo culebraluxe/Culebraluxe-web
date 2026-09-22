@@ -17,7 +17,9 @@ impl Component for WorkflowRecord {
     type Message = ();
     type Properties = WorkflowRecordProps;
 
-    fn create(_ctx: &Context<Self>) -> Self { Self }
+    fn create(_ctx: &Context<Self>) -> Self {
+        Self
+    }
 
     fn view(&self, ctx: &Context<Self>) -> Html {
         let props = ctx.props();
@@ -32,7 +34,9 @@ impl Component for WorkflowRecord {
 
 impl WorkflowRecord {
     fn body(&self, model: &crate::model::Model) -> Html {
-        let detail = model.page.as_ref()
+        let detail = model
+            .page
+            .as_ref()
             .and_then(|page| page.portal.as_ref())
             .and_then(|portal| portal.workflow.as_ref());
 
@@ -68,12 +72,18 @@ fn status_pill(detail: &PortalWorkflowDetail) -> (&'static str, String) {
         return ("bg-black/5 text-black/55", "Cancelled".into());
     }
     if matches!(detail.outcome.as_deref(), Some("failed") | Some("conflict")) {
-        return ("bg-red-50 text-red-700", detail.outcome.clone().unwrap_or_default());
+        return (
+            "bg-red-50 text-red-700",
+            detail.outcome.clone().unwrap_or_default(),
+        );
     }
     if detail.outcome.as_deref() == Some("completed") {
         return ("bg-emerald-50 text-emerald-700", "Closed".into());
     }
-    ("bg-[var(--portal-blue-pale)] text-[var(--portal-navy)]", detail.status.clone())
+    (
+        "bg-[var(--portal-blue-pale)] text-[var(--portal-navy)]",
+        detail.status.clone(),
+    )
 }
 
 fn header(detail: &PortalWorkflowDetail) -> Html {

@@ -97,8 +97,18 @@ impl PortalShell {
     fn rail_entry(&self, candidate: Screen, current: Screen, _on_msg: &Callback<Msg>) -> Html {
         let active = candidate == current;
         let class = classes!(
-            "block", "w-full", "rounded-md", "px-2", "py-1.5", "text-left", "text-sm",
-            if active { "bg-muted font-medium" } else { "hover:bg-muted/60 text-muted-foreground" }
+            "block",
+            "w-full",
+            "rounded-md",
+            "px-2",
+            "py-1.5",
+            "text-left",
+            "text-sm",
+            if active {
+                "bg-muted font-medium"
+            } else {
+                "hover:bg-muted/60 text-muted-foreground"
+            }
         );
         html! {
             <a href={candidate.path.to_string()} aria-current={active.then_some("page")} {class}>

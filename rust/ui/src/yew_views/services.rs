@@ -10,9 +10,9 @@
 use yew::prelude::*;
 
 use crate::icons::icon_html;
+use crate::view::{SERVICES, SERVICE_PRINCIPLES, SERVICE_PROCESS, SERVICE_REASONS};
 use crate::yew_views::buyers::page_hero;
 use crate::yew_views::chrome::PageProps;
-use crate::view::{SERVICE_PRINCIPLES, SERVICE_PROCESS, SERVICE_REASONS, SERVICES};
 
 pub struct Services;
 
@@ -44,7 +44,6 @@ impl Component for Services {
         }
     }
 }
-
 impl Services {
     /// "More than transactions." — the line the page opens its body with.
     fn intro(&self) -> Html {
@@ -137,7 +136,6 @@ impl Services {
         }
     }
 }
-
 
 impl Services {
     /// "Why clients come to CulebraLuxe" — the photograph beside the four reasons.

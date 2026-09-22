@@ -17,7 +17,9 @@ impl Component for Workflows {
     type Message = ();
     type Properties = WorkflowsProps;
 
-    fn create(_ctx: &Context<Self>) -> Self { Self }
+    fn create(_ctx: &Context<Self>) -> Self {
+        Self
+    }
 
     fn view(&self, ctx: &Context<Self>) -> Html {
         let props = ctx.props();
@@ -32,7 +34,9 @@ impl Component for Workflows {
 
 impl Workflows {
     fn body(&self, model: &crate::model::Model) -> Html {
-        let payload = model.page.as_ref()
+        let payload = model
+            .page
+            .as_ref()
             .and_then(|page| page.portal.as_ref())
             .and_then(|portal| portal.workflows.as_ref());
 
@@ -85,19 +89,35 @@ fn pill(summary: &PortalWorkflowSummary) -> (&'static str, String) {
     if summary.outcome.as_deref() == Some("cancelled") {
         return ("bg-black/5 text-black/55", "Cancelled".into());
     }
-    if matches!(summary.outcome.as_deref(), Some("failed") | Some("conflict")) || summary.status == "error" {
-        return ("bg-red-50 text-red-700", summary.outcome.clone().unwrap_or_else(|| summary.status.clone()));
+    if matches!(
+        summary.outcome.as_deref(),
+        Some("failed") | Some("conflict")
+    ) || summary.status == "error"
+    {
+        return (
+            "bg-red-50 text-red-700",
+            summary
+                .outcome
+                .clone()
+                .unwrap_or_else(|| summary.status.clone()),
+        );
     }
     if summary.outcome.as_deref() == Some("completed") {
         return ("bg-emerald-50 text-emerald-700", "Closed".into());
     }
-    ("bg-[var(--portal-blue-pale)] text-[var(--portal-navy)]", summary.status.clone())
+    (
+        "bg-[var(--portal-blue-pale)] text-[var(--portal-navy)]",
+        summary.status.clone(),
+    )
 }
 
 fn workflow_card(summary: &PortalWorkflowSummary) -> Html {
     let (pill_class, pill_label) = pill(summary);
     let milestone = if summary.active_milestones.is_empty() {
-        summary.responsible_party.clone().unwrap_or_else(|| "No active milestone".into())
+        summary
+            .responsible_party
+            .clone()
+            .unwrap_or_else(|| "No active milestone".into())
     } else {
         summary.active_milestones.join(", ")
     };

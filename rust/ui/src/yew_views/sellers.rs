@@ -13,8 +13,8 @@ use yew::prelude::*;
 
 use crate::icons::icon_html;
 use crate::view::{
-    SELLER_DISTRIBUTION, SELLER_MARKET_LEFT, SELLER_MARKET_RIGHT, SELLER_PRESENTATION, SELLER_PROCESS,
-    SELLER_REPRESENTATION, SELLER_WHY_US,
+    SELLER_DISTRIBUTION, SELLER_MARKET_LEFT, SELLER_MARKET_RIGHT, SELLER_PRESENTATION,
+    SELLER_PROCESS, SELLER_REPRESENTATION, SELLER_WHY_US,
 };
 use crate::yew_views::buyers::page_hero;
 use crate::yew_views::chrome::PageProps;
@@ -62,7 +62,6 @@ impl Component for Sellers {
         }
     }
 }
-
 impl Sellers {
     /// 01 — Why CulebraLuxe: the argument on the left, three reasons to its right.
     fn why_us(&self) -> Html {
@@ -125,7 +124,6 @@ impl Sellers {
         }
     }
 }
-
 
 impl Sellers {
     /// 03 — Market Positioning: five dimensions in, one considered position out.
@@ -199,7 +197,6 @@ impl Sellers {
         }
     }
 }
-
 
 impl Sellers {
     /// 04 — Presentation & Exposure: the two lists, and the line that ends the section.
