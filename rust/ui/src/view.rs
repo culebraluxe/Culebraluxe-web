@@ -58,48 +58,82 @@ pub fn render(model: &Model) -> String {
     )
 }
 
-/// The public site's menu, in the order the real site uses it.
+/// The public site's header, ported from `components/site-header.tsx`.
 ///
-/// A CURATED LIST, NOT EVERY PUBLIC SCREEN. Deriving the menu from `listed(Surface::Site)` was wrong: a menu is a
-/// decision about what a visitor should be offered, and the registry's job is to know what exists — so the header grew
-/// to twelve items the moment every page was ported, including Privacy and Video. These are the ones the site's own
-/// header offers; the rest are still reachable (footer, in-page links) and still in the table.
-const SITE_MENU: [&str; 7] = [
-    "site-home",
-    "site-properties",
-    "site-buyers",
-    "site-sellers",
-    "site-guide",
-    "site-about",
-    "site-contact",
-];
-
-/// The public site's header: the brand, and the site's own menu.
+/// THE FIRST VERSION WAS MINE, NOT THE DESIGN'S, and it showed: a light bar with a text wordmark and a menu of registry
+/// titles. The real header is fixed, navy with a gold hairline, carries the logo image, and its menu is the seven site
+/// links plus Favorites and Portal — no "Home" (the logo is home) and Portal always present. Written from the component
+/// this time, class for class.
+///
+/// THE MOBILE MENU IS A `<details>`. The component used React state and a hamburger that animates into an X; a details
+/// element gives the same open/close behaviour with no JavaScript and no island, and it degrades to a working menu if
+/// the stylesheet never arrives. The animated X is not reproduced — the summary is the same three rules, static, and
+/// that is a deliberate simplification rather than an oversight.
 fn site_header(model: &Model) -> String {
-    let mut links = String::new();
-    for key in SITE_MENU {
-        let Some(screen) = screen(key) else { continue };
-        let active = screen.key == model.screen.key;
-        links.push_str(&format!(
-            "<button type=\"button\" data-nav=\"{key}\" class=\"px-3 py-2 text-xs uppercase tracking-[0.14em] \
-             transition {state}\">{label}</button>",
-            key = escape(screen.key),
-            state = if active {
-                "text-foreground"
-            } else {
-                "text-muted-foreground hover:text-foreground"
-            },
-            label = escape(screen.title)
-        ));
-    }
+    let _ = model;
+    const CAPSULE: &str = "top-nav-capsule top-nav-capsule--tight";
+    const MOBILE_CAPSULE: &str = "top-nav-capsule top-nav-capsule--full";
+    // The site's menu, as the component lists it: these are the labels and the order the live header uses. Favorites is
+    // deliberately not among them: the user's call — it does nothing yet (there is no favorites model behind it), and a
+    // nav item that leads to an empty promise is worse than no nav item. The screen stays in the registry, so the page
+    // is not lost when the feature is.
+    const LINKS: [(&str, &str); 7] = [
+        ("Buyers", "site-buyers"),
+        ("Sellers", "site-sellers"),
+        ("Services", "site-services"),
+        ("Guide", "site-guide"),
+        ("About", "site-about"),
+        ("FAQ", "site-faq"),
+        ("Contact", "site-contact"),
+    ];
+    // A link is a link: real hrefs, so the address bar, the back button and a bookmark all behave. The Rust UI
+    // navigates on the paths in the registry rather than intercepting clicks, which is also what lets the same markup
+    // be served by a Rust document route later without changing the page.
+    let href_of = |key: &str| screen(key).map(|screen| screen.path).unwrap_or("/");
+    let desktop = LINKS
+        .iter()
+        .map(|(label, key)| {
+            format!(
+                "<a href=\"{href}\" class=\"{CAPSULE}\">{label}</a>",
+                href = escape(href_of(key)),
+                label = escape(label)
+            )
+        })
+        .collect::<String>();
+    let mobile = LINKS
+        .iter()
+        .map(|(label, key)| {
+            format!(
+                "<a href=\"{href}\" class=\"{MOBILE_CAPSULE}\">{label}</a>",
+                href = escape(href_of(key)),
+                label = escape(label)
+            )
+        })
+        .collect::<String>();
     format!(
-        "<header class=\"flex flex-wrap items-center justify-between gap-4 border-b bg-card px-6 py-4\">\
-           <button type=\"button\" data-nav=\"site-home\" class=\"flex items-baseline gap-3\">\
-             <span class=\"font-serif text-lg font-light tracking-[0.08em]\">CulebraLuxe</span>\
-             <span class=\"text-[10px] uppercase tracking-[0.28em] text-muted-foreground\">Culebra · Puerto Rico</span>\
-           </button>\
-           <nav class=\"flex flex-wrap items-center gap-1\" aria-label=\"Site\">{links}</nav>\
-         </header>"
+        "<header class=\"fixed inset-x-0 top-0 z-50 border-b border-brand-gold/15 bg-brand-navy py-6\">\
+           <div class=\"mx-auto flex max-w-[1600px] items-center justify-between px-6 md:px-12\">\
+             <a href=\"/\" aria-label=\"CulebraLuxe home\" class=\"flex h-7 w-[250px] flex-none items-center\">\
+               <img src=\"/images/culebraluxe-header-logo-test.png\" alt=\"CulebraLuxe\" width=\"2050\" \
+                 height=\"300\" class=\"h-9 max-h-9 w-auto max-w-full flex-none object-contain\" />\
+             </a>\
+             <nav class=\"hidden items-center gap-1 lg:flex\" aria-label=\"Primary\">{desktop}\
+               <a href=\"/portal/dashboard\" class=\"{CAPSULE}\">Portal</a>\
+             </nav>\
+             <details class=\"lg:hidden\">\
+               <summary class=\"flex cursor-pointer list-none flex-col items-end gap-1.5 text-brand-ivory\" \
+                 aria-label=\"Menu\">\
+                 <span class=\"block h-px w-6 bg-current\"></span>\
+                 <span class=\"block h-px w-6 bg-current\"></span>\
+                 <span class=\"block h-px w-6 bg-current\"></span>\
+               </summary>\
+               <nav class=\"mt-4 flex flex-col gap-2 border-t border-brand-gold/25 pt-4\" aria-label=\"Mobile\">\
+                 {mobile}<a href=\"/portal/dashboard\" class=\"{MOBILE_CAPSULE}\">Portal</a>\
+               </nav>\
+             </details>\
+           </div>\
+         </header>\
+         <div class=\"h-[76px] lg:h-[92px]\" aria-hidden=\"true\"></div>"
     )
 }
 
@@ -1623,10 +1657,17 @@ fn catch_up_panel() -> String {
 
 /// The body: a screen's own markup when it has any, else a header and rows.
 fn body(model: &Model) -> String {
+    // THE SITE HAS NO SCREEN HEADER. On the portal, a title and its route help you know where you are; on the public
+    // site they were the first two things a visitor read — "Home" then "Replaces /" — the UI talking about itself over
+    // the top of the page. Site chrome is the navy header and the footer; the page itself says what it is.
+    let header = if model.screen.surface == Surface::Site {
+        String::new()
+    } else {
+        screen_header(model)
+    };
     if let Some(custom) = custom_body(model) {
-        return format!("{}{}", screen_header(model), custom);
+        return format!("{header}{custom}");
     }
-    let header = screen_header(model);
     if model.screen.is_deferred() {
         return format!("{header}{}", deferred_notice(model));
     }
@@ -1764,21 +1805,21 @@ mod tests {
     /// unlisted or record screen. That last part is the invariant worth having: "the code stays, the links go" is a
     /// decision recorded in the registry, and a port that quietly re-lists a retired screen undoes it.
     #[test]
-    fn the_nav_shows_its_surface_and_never_a_retired_screen() {
-        for &screen in SCREENS {
+    fn the_portal_nav_lists_each_of_its_screens_once_and_never_a_retired_one() {
+        // Scoped to the PORTAL nav, because the site header is no longer built from the registry at all (below). This is
+        // the invariant the table can still guarantee: a listed screen of the current surface appears exactly once, and
+        // a retired one never appears.
+        for &screen in SCREENS.iter().filter(|s| s.surface != Surface::Site) {
             let html = render(&Model {
                 screen,
                 ..Model::default()
             });
-            for candidate in SCREENS {
-                // COUNTED WITHIN THE MENU, not the whole document. The site header links home from its brand as well,
-                // and that is a header doing its job rather than a screen listed twice — the invariant this test
-                // protects is that no screen gets two MENU entries, so the count is scoped to the menu.
-                let menu = html
-                    .split("aria-label=\"Site\"")
-                    .nth(1)
-                    .and_then(|rest| rest.split("</nav>").next())
-                    .unwrap_or(html.as_str());
+            let menu = html
+                .split("aria-label=\"Portal\"")
+                .nth(1)
+                .and_then(|rest| rest.split("</nav>").next())
+                .unwrap_or(html.as_str());
+            for candidate in SCREENS.iter().filter(|c| c.surface != Surface::Site) {
                 let count = menu
                     .matches(&format!("data-nav=\"{}\"", candidate.key))
                     .count();
@@ -1800,6 +1841,50 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The user's report, pinned. The first version of the header listed registry titles — twelve of them, "Home" first,
+    /// Portal nowhere — and the report was: the logo is missing, the bar should be navy, "Home" should not be there,
+    /// Portal is missing. This is the design's menu, and the registry's bookkeeping does not leak into it.
+    #[test]
+    fn the_site_header_is_the_designs_menu_and_not_the_registry() {
+        let html = render(&Model {
+            screen: target("site-home"),
+            ..Model::default()
+        });
+        let menu = html
+            .split("aria-label=\"Primary\"")
+            .nth(1)
+            .and_then(|rest| rest.split("</nav>").next())
+            .expect("the site header has a primary nav");
+        for label in [
+            "Buyers",
+            "Sellers",
+            "Services",
+            "Guide",
+            "About",
+            "FAQ",
+            "Contact",
+            "Portal",
+        ] {
+            assert!(
+                menu.contains(&format!(">{label}</a>")),
+                "{label} missing from the site header"
+            );
+        }
+        assert!(
+            !menu.contains(">Home<"),
+            "the logo is home; Home is not a menu item"
+        );
+        // EXACTLY THE DESIGN'S EIGHT ENTRIES, and nothing else. A title-matching check cannot work here: the registry's
+        // own screens are called "FAQ" and "Portal", and the design's header links to both. Counting is the honest
+        // invariant — it catches a registry entry leaking in and a label going missing, which is what the first version
+        // of this header got wrong in both directions.
+        assert_eq!(
+            menu.matches("top-nav-capsule top-nav-capsule--tight").count(),
+            8,
+            "the site menu is the design's eight entries: seven links and Portal"
+        );
     }
 
     /// A listing row opens its record; a row on a screen with no detail view must not pretend it can.
@@ -1892,7 +1977,7 @@ mod tests {
     #[test]
     fn a_detail_screen_names_the_record_it_is_about() {
         let model = Model {
-            screen: target("site-property-detail"),
+            screen: target("client-record"),
             scope: Some("villa-del-mar".into()),
             ..Model::default()
         };
@@ -1900,7 +1985,7 @@ mod tests {
 
         // The slug arrives from a URL, so it is data like any other and gets escaped like any other.
         let hostile = Model {
-            screen: target("site-property-detail"),
+            screen: target("client-record"),
             scope: Some("<b>x</b>".into()),
             ..Model::default()
         };
