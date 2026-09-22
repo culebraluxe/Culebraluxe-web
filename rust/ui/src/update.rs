@@ -36,6 +36,7 @@ pub fn is_ported_portal_screen(key: &str) -> bool {
             | "accounting-expenses"
             | "accounting-receivables"
             | "accounting-pnl"
+            | "accounting-receipt-scanner"
             | "seller-strategy"
     )
 }
@@ -354,6 +355,47 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
     } else {
         Vec::new()
     }
+}
+
+/// The demonstration receipts, in the order the live component cycled them.
+///
+/// FIVE FIELDS EACH: vendor, amount, category, memo, and a date used only if the book's day is somehow unknown. The amounts
+/// are the digits the seed carries, formatted the way the live component displayed them — `412.5`, `89`, `1200`, `235.75` —
+/// and they go through Rust's validation like any other amount an operator types.
+const SCANNER_SEEDS: [(&str, &str, &str, &str, &str); 4] = [
+    (
+        "Metro Maintenance Co.",
+        "412.5",
+        "Property / Deal Expense",
+        "Walkthrough cleanup — demo receipt",
+        "2026-01-01",
+    ),
+    (
+        "Wells Fargo Merchant Services",
+        "89",
+        "Merchant / Bank Fees",
+        "Monthly processing — demo receipt",
+        "2026-01-01",
+    ),
+    (
+        "State Insurance Group",
+        "1200",
+        "Insurance",
+        "E&O premium — demo receipt",
+        "2026-01-01",
+    ),
+    (
+        "Luxe Signage & Print",
+        "235.75",
+        "Marketing & Advertising",
+        "Listing collateral — demo receipt",
+        "2026-01-01",
+    ),
+];
+
+/// The nth demonstration receipt. The cycle is the point: pressing Scan again shows the next one, as the live component did.
+fn scanner_seed(index: usize) -> (&'static str, &'static str, &'static str, &'static str, &'static str) {
+    SCANNER_SEEDS[index % SCANNER_SEEDS.len()]
 }
 
 /// The database's idea of today, as the payload carries it.
@@ -887,6 +929,79 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 generation: model.generation,
                 from: model.accounting.pnl_from.clone(),
                 to: model.accounting.pnl_to.clone(),
+            }]
+        }
+
+        // ---- accounting: the receipt scanner's demonstration -----------------------------------------------------
+        Msg::ScannerDragging(dragging) => {
+            if model.screen.key == "accounting-receipt-scanner" {
+                model.accounting.scanner.dragging = dragging;
+            }
+            Vec::new()
+        }
+        Msg::ScannerFileChosen(name) => {
+            if model.screen.key == "accounting-receipt-scanner" {
+                model.accounting.scanner.file_name = name;
+            }
+            Vec::new()
+        }
+        Msg::ScannerScanned => {
+            if model.screen.key != "accounting-receipt-scanner" {
+                return Vec::new();
+            }
+            // THE DEMONSTRATION'S EXTRACTION, deterministic and cyclical: this is the same seed sequence the live component
+            // cycled, and it is deliberately not OCR. The date is the book's, like every other date on these screens.
+            let seed = scanner_seed(model.accounting.scanner.demo_index);
+            let today = accounting_today(model);
+            model.accounting.scanner.demo_index += 1;
+            if model.accounting.scanner.file_name.is_empty() {
+                model.accounting.scanner.file_name = "demo-receipt.jpg".to_owned();
+            }
+            model.accounting.scanner.draft = Some(crate::model::ScannerDraft {
+                vendor: seed.0.to_owned(),
+                amount: seed.1.to_owned(),
+                category: seed.2.to_owned(),
+                memo: seed.3.to_owned(),
+                expense_on: if today.is_empty() {
+                    seed.4.to_owned()
+                } else {
+                    today
+                },
+            });
+            Vec::new()
+        }
+        Msg::ScannerCategoryChanged(value) => {
+            if model.screen.key == "accounting-receipt-scanner" {
+                if let Some(draft) = model.accounting.scanner.draft.as_mut() {
+                    draft.category = value;
+                }
+                model.accounting.notice = None;
+            }
+            Vec::new()
+        }
+        Msg::ScannerSubmitted => {
+            if model.screen.key != "accounting-receipt-scanner" || model.accounting.submitting {
+                return Vec::new();
+            }
+            let Some(draft) = model.accounting.scanner.draft.clone() else {
+                // Nothing reviewed, nothing to save: the button is not rendered without a draft, and a message that
+                // arrived anyway must not record an expense made of empty strings.
+                return Vec::new();
+            };
+            model.accounting.submitting = true;
+            model.accounting.notice = None;
+            model.error = None;
+            vec![Effect::AccountingCommand {
+                screen: "accounting-receipt-scanner",
+                generation: model.generation,
+                body: serde_json::json!({
+                    "action": "createExpense",
+                    "screen": "accounting-receipt-scanner",
+                    "vendor": draft.vendor,
+                    "category": draft.category,
+                    "amount": draft.amount,
+                    "expenseOn": draft.expense_on,
+                }),
             }]
         }
 
@@ -2286,14 +2401,11 @@ mod tests {
     #[test]
     fn the_deferred_screen_navigates_without_fetching() {
         let mut model = Model::default();
-        // The receipt scanner is the screen that is a placeholder BY DESIGN (its own header calls it FAKE V1), so it is
-        // the honest example now that Projects is wired.
-        assert!(update(
-            &mut model,
-            Msg::Navigate(target("accounting-receipt-scanner"))
-        )
-        .is_empty());
-        assert_eq!(model.screen, target("accounting-receipt-scanner"));
+        // Media Test is the screen that is a placeholder BY DESIGN: a manual harness with no read model, so it asks for
+        // nothing and says why. (The receipt scanner was this example until it became a real screen; every Accounting screen
+        // is ported now.)
+        assert!(update(&mut model, Msg::Navigate(target("media-test"))).is_empty());
+        assert_eq!(model.screen, target("media-test"));
         assert!(
             !model.loading,
             "a placeholder must not show a spinner for data it never asks for"
@@ -2879,6 +2991,129 @@ mod tests {
         };
         assert_eq!(from, "2026-02-01");
         assert_eq!(to, "2026-02-28");
+    }
+
+    // ---- accounting: the receipt scanner's demonstration ------------------------------------------------------------
+
+    fn scanner_screen(today: &str) -> Model {
+        let mut model = Model {
+            screen: target("accounting-receipt-scanner"),
+            ..Model::default()
+        };
+        let payload = format!(r#"{{"accounting":{{"today":"{today}"}}}}"#);
+        update(
+            &mut model,
+            Msg::portal_loaded_json("accounting-receipt-scanner", 0, &payload),
+        );
+        model
+    }
+
+    #[test]
+    fn scanning_cycles_the_demonstrations_receipts() {
+        let mut model = scanner_screen("2026-03-04");
+
+        update(&mut model, Msg::ScannerScanned);
+        let first = model.accounting.scanner.draft.clone().unwrap();
+        assert_eq!(first.vendor, "Metro Maintenance Co.");
+        assert_eq!(first.amount, "412.5");
+        assert_eq!(first.category, "Property / Deal Expense");
+        // The file name the live screen defaulted to when nothing was attached.
+        assert_eq!(model.accounting.scanner.file_name, "demo-receipt.jpg");
+
+        update(&mut model, Msg::ScannerScanned);
+        let second = model.accounting.scanner.draft.clone().unwrap();
+        assert_eq!(second.vendor, "Wells Fargo Merchant Services");
+        // The cycle wraps rather than running out.
+        update(&mut model, Msg::ScannerScanned);
+        update(&mut model, Msg::ScannerScanned);
+        update(&mut model, Msg::ScannerScanned);
+        assert_eq!(
+            model.accounting.scanner.draft.clone().unwrap().vendor,
+            "Metro Maintenance Co."
+        );
+    }
+
+    #[test]
+    fn the_reviewed_draft_is_dated_by_the_book_and_not_by_the_browser() {
+        let mut model = scanner_screen("2026-03-04");
+        update(&mut model, Msg::ScannerScanned);
+        assert_eq!(
+            model.accounting.scanner.draft.clone().unwrap().expense_on,
+            "2026-03-04"
+        );
+    }
+
+    #[test]
+    fn an_attached_file_is_named_by_the_reader_not_by_the_drop() {
+        let mut model = scanner_screen("2026-03-04");
+        update(
+            &mut model,
+            Msg::ScannerFileChosen("IMG_4821.HEIC".into()),
+        );
+        assert_eq!(model.accounting.scanner.file_name, "IMG_4821.HEIC");
+        // Scanning does not rename an attachment that is already there.
+        update(&mut model, Msg::ScannerScanned);
+        assert_eq!(model.accounting.scanner.file_name, "IMG_4821.HEIC");
+    }
+
+    #[test]
+    fn saving_the_draft_records_the_expense_through_rust() {
+        let mut model = scanner_screen("2026-03-04");
+        update(&mut model, Msg::ScannerScanned);
+        // The reviewer corrects the extraction: the one field the live select appeared to offer but could not change.
+        update(
+            &mut model,
+            Msg::ScannerCategoryChanged("Office".into()),
+        );
+
+        let effects = update(&mut model, Msg::ScannerSubmitted);
+        let Effect::AccountingCommand { screen, body, .. } = &effects[0] else {
+            panic!("saving a reviewed receipt must ask for an Accounting command");
+        };
+        assert_eq!(*screen, "accounting-receipt-scanner");
+        assert_eq!(body["action"], "createExpense");
+        assert_eq!(body["vendor"], "Metro Maintenance Co.");
+        assert_eq!(body["category"], "Office");
+        assert_eq!(body["amount"], "412.5");
+        assert_eq!(body["expenseOn"], "2026-03-04");
+        // THE MEMO IS NOT SENT, and that is the live behaviour preserved rather than a decision made here: the live form
+        // showed the memo as text beside the button and never submitted it, so the recorded expense has no memo. Sending it
+        // would quietly change what is stored, which a migration must not do without saying so.
+        assert!(body.get("memo").is_none());
+    }
+
+    #[test]
+    fn there_is_nothing_to_save_before_a_receipt_is_scanned() {
+        let mut model = scanner_screen("2026-03-04");
+        let effects = update(&mut model, Msg::ScannerSubmitted);
+        assert!(
+            effects.is_empty(),
+            "an expense must not be recorded out of an empty draft"
+        );
+    }
+
+    #[test]
+    fn a_save_that_rust_refuses_says_so_and_keeps_the_draft() {
+        let mut model = scanner_screen("2026-03-04");
+        update(&mut model, Msg::ScannerScanned);
+        update(&mut model, Msg::ScannerSubmitted);
+        update(
+            &mut model,
+            Msg::EffectFailed {
+                screen: "accounting-receipt-scanner".into(),
+                generation: 0,
+                message: "Amount must be a non-negative number.".into(),
+            },
+        );
+        assert!(!model.accounting.submitting);
+        assert_eq!(
+            model.accounting.notice,
+            Some(crate::model::CommandNotice::failure(
+                "Amount must be a non-negative number."
+            ))
+        );
+        // The reviewed draft survives, so the reviewer can look again rather than start over.
+        assert!(model.accounting.scanner.draft.is_some());
     }
 }
 

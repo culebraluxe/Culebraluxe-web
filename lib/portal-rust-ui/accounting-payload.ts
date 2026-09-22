@@ -152,8 +152,10 @@ export async function accountingPayload(
       return { accounting: { pnl: result.value } }
     }
     case 'accounting-receipt-scanner': {
-      // No read: the scanner demonstrates the extraction workflow with its own deterministic receipts.
-      return { accounting: {} }
+      // No read — the demonstration's receipts are its own — but the BOOK'S DATE does travel, because the reviewed draft is
+      // dated by it. The live component used `new Date()` in the browser; that is the one date on these screens that should
+      // not come from the machine the operator happens to be sitting at.
+      return { accounting: { today: todayISO() } }
     }
   }
 }

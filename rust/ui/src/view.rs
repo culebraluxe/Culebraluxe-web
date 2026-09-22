@@ -4499,13 +4499,13 @@ mod tests {
 
     #[test]
     fn a_screen_with_no_data_says_why_in_its_own_words() {
-        // The reason travels with the screen rather than being one hardcoded sentence. Projects is wired now, so the
-        // example is the screen that is a placeholder by design.
+        // The reason travels with the screen rather than being one hardcoded sentence. Media Test is a manual harness with
+        // no read model, which is what deferred means.
         let placeholder = render(&Model {
-            screen: target("accounting-receipt-scanner"),
+            screen: target("media-test"),
             ..Model::default()
         });
-        assert!(placeholder.contains("FAKE V1"));
+        assert!(placeholder.contains("manual harness for the media pipeline"));
         assert!(placeholder.contains("(no data yet)"));
     }
 

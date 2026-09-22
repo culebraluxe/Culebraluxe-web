@@ -173,7 +173,11 @@ pub const SCREENS: &[Screen] = &[
     // The page's own header says it: "Receipt Scanner (FAKE V1). Polished visual placeholder for the future OCR
     // workflow. Deterministic demo extraction only — real OCR is deferred to a separate story." A placeholder BY
     // DESIGN is a different thing from a screen nobody wired, and it says which one it is.
-    Screen { key: "accounting-receipt-scanner", title: "Receipt Scanner", path: "/portal/accounting/receipt-scanner", surface: Surface::Accounting, nav: Nav::Listed, detail_of: None, deferred: Some("This screen is a demo placeholder by design: its own header calls it FAKE V1, with deterministic demo extraction and no OCR vendor. Real OCR is deferred to a separate story, so there is nothing to read yet — the polish is the deliverable.") },
+    // The scanner is a REAL screen now — `portal_accounting_receipt_scanner.rs` renders the workflow, the drop surface, the
+    // reviewed draft and the prototype notice itself — so the registry no longer calls it deferred. That note used to be the
+    // screen's whole body under the string renderer, and it also put "(no data yet)" beside the rail entry, which would now
+    // be wrong: this screen reads nothing, and it says so in its own words where the reader can see them.
+    Screen { key: "accounting-receipt-scanner", title: "Receipt Scanner", path: "/portal/accounting/receipt-scanner", surface: Surface::Accounting, nav: Nav::Listed, deferred: None, detail_of: None },
 
     // ---- MARKETING ----
     Screen { key: "marketing", title: "Dashboard", path: "/portal/marketing", surface: Surface::Marketing, nav: Nav::Listed, deferred: None, detail_of: None },
@@ -1417,6 +1421,8 @@ pub struct AccountingState {
     /// the bridge defaults the first request to the current month, which is what the live page projected.
     pub pnl_from: String,
     pub pnl_to: String,
+    /// The receipt scanner's demonstration.
+    pub scanner: ScannerState,
     /// A command is in flight: the form is disabled and the button says so.
     pub submitting: bool,
     /// What the last command said, if it has said anything. Cleared when a new one starts.
@@ -1428,6 +1434,35 @@ pub struct AccountingState {
 pub struct CommandNotice {
     pub ok: bool,
     pub message: String,
+}
+
+/// The receipt scanner's state, all of it reducer-owned.
+///
+/// IT IS A DEMONSTRATION, AND THE STATE SAYS SO. There is no OCR here and none is implied: pressing Scan cycles four fixed
+/// receipts, the operator reviews one, and saving it records an expense exactly as the form does. The point of this screen in
+/// V1 is the WORKFLOW — attach, extract, review, save — and a demonstration of a workflow is still a workflow worth having
+/// the state of.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ScannerState {
+    /// The name of the receipt the operator attached, or the demonstration's own once one has been scanned.
+    pub file_name: String,
+    /// Whether a file is being dragged over the surface, which is what highlights it.
+    pub dragging: bool,
+    /// How many receipts have been scanned, so the next one is the next seed — the cycle the live component ran.
+    pub demo_index: usize,
+    /// The extracted draft under review, or nothing before the first scan.
+    pub draft: Option<ScannerDraft>,
+}
+
+/// One reviewed receipt: what the demonstration "extracted", editable where a human would correct it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ScannerDraft {
+    pub vendor: String,
+    /// The digits as the seed carries them, on their way to Rust's validation like any other amount.
+    pub amount: String,
+    pub category: String,
+    pub memo: String,
+    pub expense_on: String,
 }
 
 impl CommandNotice {
@@ -1721,6 +1756,17 @@ pub enum Msg {
     /// The operator applied the period. The request is for exactly what the two fields hold: a filter that is quietly
     /// widened or dropped is the defect this screen exists to avoid.
     PnlApplied,
+
+    // ---- accounting: the receipt scanner's demonstration ----------------------------------------------------
+    /// A file is being dragged over the drop surface (or has left it).
+    ScannerDragging(bool),
+    /// The operator attached a file.
+    ScannerFileChosen(String),
+    /// The operator pressed Scan Receipt: the demonstration extracts its next seed.
+    ScannerScanned,
+    ScannerCategoryChanged(String),
+    /// The operator saved the reviewed draft as an expense. The command is the same one the Expenses form issues.
+    ScannerSubmitted,
 
     /// Cockpit task command. The Rust engine owns application-task completion.
     CockpitTaskCompleteRequested {

@@ -1,16 +1,13 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import { PortalYewApp } from '@/components/rust-ui/portal-yew-app'
 
 // ---------------------------------------------------------------------------
-// CONVERTED TO RUST (screen: accounting-receipt-scanner) — a screen with no read model, which says so.
+// /portal/accounting/receipt-scanner — YEW OWNS THIS SCREEN NOW.
 //
-// The Rust table marks this screen deferred with its reason, so the screen states why it has no rows instead of
-// showing a blank list, and it asks the host for nothing. The route is the Rust host like every other converted one.
+// The screen is `rust/ui/src/yew_views/portal_accounting_receipt_scanner.rs`. It keeps the FAKE V1 demonstration exactly:
+// four deterministic seeds, a review step, and saving through the same Rust expense command the Expenses form uses. No OCR
+// is called, here or anywhere else on this path — the Apple Vision tool stays where it is.
 // ---------------------------------------------------------------------------
 
 export default function Page() {
-  return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="accounting-receipt-scanner" />
-    </div>
-  )
+  return <PortalYewApp screen="accounting-receipt-scanner" />
 }
