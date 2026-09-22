@@ -602,7 +602,16 @@ pub enum Msg {
     /// screen. A screen with no record treats it as a selection instead, so the same click is never ambiguous.
     RecordOpened(String),
     /// The host reports a failed request. The model keeps what it had; the message is the record.
-    EffectFailed(String),
+    /// A request failed — and it says WHOSE failure it was, for the same reason a successful answer does.
+    ///
+    /// A FAILURE CAN BE STALE TOO, and an unowned one is worse than an unowned payload: a rejected request for a screen
+    /// the visitor has left would put its error message on the screen they are on now, and clear its loading state while
+    /// its own request is still in flight. `update::owns` refuses it on the same rule as `PageLoaded` and `RowsLoaded`.
+    EffectFailed {
+        screen: String,
+        generation: u64,
+        message: String,
+    },
 
     /// A public page's content arrived: the blocks an editorial page is built from.
     ///
@@ -649,7 +658,14 @@ impl Msg {
                 generation,
                 rows,
             },
-            Err(error) => Msg::EffectFailed(format!("could not read the screen payload: {error}")),
+            // A payload that will not parse is a failure, and it knows whose it is: the screen and the generation the
+            // request was made under travel with the parse, so a malformed answer to a question nobody is asking any
+            // more is discarded rather than shown.
+            Err(error) => Msg::EffectFailed {
+                screen: screen.to_string(),
+                generation,
+                message: format!("could not read the screen payload: {error}"),
+            },
         }
     }
 
@@ -662,7 +678,11 @@ impl Msg {
                 generation,
                 page,
             },
-            Err(error) => Msg::EffectFailed(format!("could not read the page payload: {error}")),
+            Err(error) => Msg::EffectFailed {
+                screen: screen.to_string(),
+                generation,
+                message: format!("could not read the page payload: {error}"),
+            },
         }
     }
 }

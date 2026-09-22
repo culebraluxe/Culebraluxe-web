@@ -154,7 +154,17 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             }
             Vec::new()
         }
-        Msg::EffectFailed(message) => {
+        Msg::EffectFailed {
+            screen,
+            generation,
+            message,
+        } => {
+            // THE SAME RULE AS A PAYLOAD, and it matters more here. A failure that arrived for a screen the visitor has
+            // left would put an error message on the page they are on now and — worse — clear its loading state while
+            // its own request is still in flight, which reads as "loaded, nothing to show".
+            if !owns(model, &screen, generation) {
+                return Vec::new();
+            }
             model.loading = false;
             model.error = Some(message);
             Vec::new()
@@ -258,6 +268,17 @@ mod tests {
             screen: model.screen.key.to_string(),
             generation: model.generation,
             rows,
+        }
+    }
+
+    /// A failure that OWNS ITSELF, exactly as `yew_effects` builds one and as the payload parsers build theirs: the
+    /// screen the request was for and the mount that asked. A test that built one by hand with the wrong owner would be
+    /// testing the refusal path by accident.
+    fn failure_for(model: &Model, message: &str) -> Msg {
+        Msg::EffectFailed {
+            screen: model.screen.key.to_string(),
+            generation: model.generation,
+            message: message.to_string(),
         }
     }
 
@@ -378,7 +399,7 @@ mod tests {
     fn a_broken_payload_is_an_error_not_a_panic() {
         assert!(matches!(
             Msg::rows_loaded_json("clients", 0, "nope"),
-            Msg::EffectFailed(_)
+            Msg::EffectFailed { .. }
         ));
     }
 
@@ -391,9 +412,56 @@ mod tests {
         let rows = rows_for(&model, vec![row("a")]);
         update(&mut model, rows);
         model.loading = true;
-        update(&mut model, Msg::EffectFailed("network".into()));
+        let failure = failure_for(&model, "network");
+        update(&mut model, failure);
         assert_eq!(model.error.as_deref(), Some("network"));
         assert_eq!(model.rows.len(), 1);
+    }
+
+    /// A FAILURE IS OWNED TOO, and an unowned one is the worse half of the problem the payload owner solves: a rejected
+    /// request for a screen the visitor has left must not put its message on the screen they are on now, nor clear a
+    /// loading state that belongs to a request still in flight.
+    #[test]
+    fn a_failure_for_another_screen_or_another_mount_is_discarded() {
+        let mut model = Model::default();
+        update(
+            &mut model,
+            Msg::Mount {
+                screen: target("site-home"),
+                generation: 7,
+            },
+        );
+        model.loading = true;
+
+        // A failure from the previous mount of this screen: same screen, superseded run.
+        let stale_mount = Msg::EffectFailed {
+            screen: "site-home".into(),
+            generation: 6,
+            message: "the previous run's request failed".into(),
+        };
+        update(&mut model, stale_mount);
+        assert_eq!(model.error, None, "a superseded run's failure is not this one's");
+        assert!(model.loading, "and it must not clear the loading state of a live request");
+
+        // A failure for a screen the visitor has left.
+        let other_screen = Msg::EffectFailed {
+            screen: "site-buyers".into(),
+            generation: 7,
+            message: "Buyers could not be loaded".into(),
+        };
+        update(&mut model, other_screen);
+        assert_eq!(model.error, None);
+        assert!(model.loading);
+
+        // And the current screen's OWN failure is recorded: the rule refuses the stale, not the real.
+        let current = Msg::EffectFailed {
+            screen: "site-home".into(),
+            generation: 7,
+            message: "Home could not be loaded".into(),
+        };
+        update(&mut model, current);
+        assert_eq!(model.error.as_deref(), Some("Home could not be loaded"));
+        assert!(!model.loading, "a failed request is finished, not loading");
     }
 
     // ---- controls ----------------------------------------------------------------------------------------------

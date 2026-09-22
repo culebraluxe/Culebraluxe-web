@@ -41,20 +41,28 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
     let dispatch = dispatch.clone();
     spawn_local(async move {
         let answer = Request::get(&url).send().await;
+        // A FAILURE CARRIES ITS OWNER TOO. The message names the screen and the generation the request was made under,
+        // so the reducer can refuse a failure that belongs to a screen the visitor has already left — otherwise a
+        // rejected request for one page would put its error on another.
+        let fail = |message: String| Msg::EffectFailed {
+            screen: screen.to_string(),
+            generation,
+            message,
+        };
         let msg = match answer {
             Ok(response) if response.ok() => match response.text().await {
                 // The payload carries the screen and the generation it was fetched for, so the reducer can refuse an
                 // answer whose owner has moved on. Order of arrival is not ownership.
                 Ok(body) if is_page => Msg::page_loaded_json(screen, generation, &body),
                 Ok(body) => Msg::rows_loaded_json(screen, generation, &body),
-                Err(error) => Msg::EffectFailed(format!("the answer could not be read: {error}")),
+                Err(error) => fail(format!("the answer could not be read: {error}")),
             },
-            Ok(response) => Msg::EffectFailed(format!(
+            Ok(response) => fail(format!(
                 "the {} request failed with {}",
                 if is_page { "page" } else { "rows" },
                 response.status()
             )),
-            Err(error) => Msg::EffectFailed(format!("the request could not be sent: {error}")),
+            Err(error) => fail(format!("the request could not be sent: {error}")),
         };
         dispatch.emit(msg);
     });
