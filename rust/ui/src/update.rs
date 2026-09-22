@@ -1001,6 +1001,12 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                     "category": draft.category,
                     "amount": draft.amount,
                     "expenseOn": draft.expense_on,
+                    // THE MEMO IS THE RECEIPT'S NOTE, AND IT IS SAVED. The live form displayed the seed's memo beside the
+                    // button and never submitted it, so the recorded expense had none — the one field the review step shows
+                    // and the one thing the row could not explain later. It is the note about the receipt, and the review
+                    // step is where it is confirmed, so it travels with the rest of the draft. Nothing else about the
+                    // demonstration changes: the seeds, the cycle and the extraction are as they were.
+                    "memo": draft.memo,
                 }),
             }]
         }
@@ -3076,10 +3082,9 @@ mod tests {
         assert_eq!(body["category"], "Office");
         assert_eq!(body["amount"], "412.5");
         assert_eq!(body["expenseOn"], "2026-03-04");
-        // THE MEMO IS NOT SENT, and that is the live behaviour preserved rather than a decision made here: the live form
-        // showed the memo as text beside the button and never submitted it, so the recorded expense has no memo. Sending it
-        // would quietly change what is stored, which a migration must not do without saying so.
-        assert!(body.get("memo").is_none());
+        // THE MEMO TRAVELS, which it did not before: the live form showed the seed's note and never submitted it, so the
+        // recorded expense could not explain itself later. It is the receipt's note, and this is where it is confirmed.
+        assert_eq!(body["memo"], "Walkthrough cleanup — demo receipt");
     }
 
     #[test]

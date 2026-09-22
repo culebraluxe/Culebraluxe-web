@@ -187,6 +187,12 @@ impl Scanner {
     /// operator's to retype, it is theirs to accept or to correct at the source. The category is editable, which the live
     /// select was not — its `onChange` did nothing, so a control that looked like a choice was a decoration. A review step
     /// whose point is "confirm the extraction" has to let the one field a reviewer most often changes be changed.
+    ///
+    /// THE NOTE BESIDE THE BUTTON IS SAVED. It is the receipt's memo, shown here as the context the reviewer is confirming,
+    /// and it travels with the vendor, amount, date and category when the expense is recorded — so the row in the book can
+    /// say what the receipt was for. Making it editable is a smaller step than it looks (a message and an input) and worth
+    /// doing if the workflow strip's "add context" is meant literally; it is not done here because the review step's job in
+    /// V1 is to confirm what was read, and the notes in the seeds are already the context.
     fn draft(&self, model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
         let Some(draft) = model.accounting.scanner.draft.clone() else {
             return Html::default();
