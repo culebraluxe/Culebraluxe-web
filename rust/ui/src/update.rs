@@ -153,6 +153,17 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             model.controls.page = 0;
             Vec::new()
         }
+        Msg::FilterSelected { key, value } => {
+            // An empty value is the "no filter" option, so it REMOVES the entry: "unset" is one state and not two, and
+            // the view asks the same question of either.
+            if value.is_empty() {
+                model.controls.named.remove(&key);
+            } else {
+                model.controls.named.insert(key, value);
+            }
+            model.controls.page = 0;
+            Vec::new()
+        }
         Msg::Toggled(on) => {
             model.controls.toggled = on;
             Vec::new()
@@ -375,6 +386,10 @@ mod tests {
         for msg in [
             Msg::QueryChanged("x".into()),
             Msg::FilterChanged("open".into()),
+            Msg::FilterSelected {
+                key: "price".into(),
+                value: "2000000".into(),
+            },
             Msg::TabSelected("all".into()),
             Msg::Toggled(true),
             Msg::PageChanged(1),

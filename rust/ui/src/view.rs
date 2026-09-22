@@ -4,6 +4,8 @@
 //! cannot point at a screen that does not exist. Every interpolated value is escaped — this crate renders data from a
 //! database and from third-party sources, and a Rust renderer that formats HTML owns that risk.
 
+use std::cmp::Ordering;
+
 use crate::model::{home, screen, Block, Listing, Model, Row, Surface, PAGE_SIZE, SCREENS};
 
 /// Escape text for HTML text and attribute positions. Quotes matter because the same helper fills `data-` attributes,
@@ -1999,11 +2001,9 @@ fn buyer_inventory_card(listing: &crate::model::Listing) -> String {
     } else {
         ""
     };
-    // `isLand()` in the component: the property's type says land, whatever else it says.
-    let is_land = listing
-        .kind
-        .as_deref()
-        .is_some_and(|kind| kind.to_ascii_lowercase().contains("land"));
+    // `isLand()` in the component: the property's type says land, whatever else it says. One rule, one function, so the
+    // badge and the category tab cannot disagree about what land is.
+    let is_land = listing_is_land(listing);
     let land = if is_land {
         "<span class=\"absolute bottom-4 left-4 z-20 bg-foreground/80 px-3 py-1.5 text-[10px] font-light uppercase \
          tracking-[0.18em] text-background backdrop-blur-sm\">Land</span>"
@@ -2076,50 +2076,77 @@ fn listing_image(listing: &crate::model::Listing, class: &str, _full_bleed: bool
     }
 }
 
-/// The three category tabs with their underline. Static: the tab that is current is `all`, and the behaviour is state.
-fn buyer_tabs() -> String {
-    [("all", "All", true), ("homes", "Homes & Villas", false), ("land", "Land", false)]
+/// The three category tabs. REAL BUTTONS NOW, and that is the whole of what changed: `data-tab` is an intent the shell
+/// already turns into `Msg::TabSelected`, the model holds which tab is current, and the underline is a function of it.
+/// They were spans while the filter bar was static — a tab that looks current and cannot be clicked is a picture of a
+/// tab, and now that the page has state, leaving them as spans would be the page lying about itself.
+fn buyer_tabs(model: &Model) -> String {
+    let current = model.controls.tab.as_deref().unwrap_or("all");
+    [("all", "All"), ("homes", "Homes & Villas"), ("land", "Land")]
         .iter()
-        .map(|(_, label, current)| {
+        .map(|(key, label)| {
+            let is_current = *key == current;
             format!(
-                "<span class=\"relative -mb-px pb-4 text-xs font-light uppercase tracking-[0.2em] {colour}\">{label}\
-                   <span class=\"absolute inset-x-0 bottom-0 h-px {rule}\"></span></span>",
-                colour = if *current {
+                "<button type=\"button\" data-tab=\"{key}\" aria-pressed=\"{pressed}\" \
+                   class=\"relative -mb-px cursor-pointer pb-4 text-xs font-light uppercase tracking-[0.2em] \
+                   transition-colors {colour}\">{label}\
+                   <span class=\"absolute inset-x-0 bottom-0 h-px {rule}\"></span></button>",
+                key = escape(key),
+                pressed = is_current,
+                colour = if is_current {
                     "text-foreground"
                 } else {
-                    "text-muted-foreground"
+                    "text-muted-foreground hover:text-foreground"
                 },
-                rule = if *current { "bg-foreground" } else { "bg-transparent" },
+                rule = if is_current { "bg-foreground" } else { "bg-transparent" },
                 label = escape(label),
             )
         })
         .collect::<String>()
 }
 
-/// The filter bar: the real controls, with the real options, in the real grid.
+/// The filter bar: the real controls, with the real options, in the real grid — AND WIRED.
 ///
-/// THEY DO NOT FILTER YET, and that is stated rather than hidden. Rendering them keeps the page's shape and its labels;
-/// making them narrow the list is Rust state, which is the next slice. A buyers page missing its filter bar reads as a
-/// broken page, which is why it is here before it is wired.
-fn buyer_filters() -> String {
-    let select = |label: &str, options: &str, span: &str, disabled: bool| {
+/// Each control carries the intent the shell already knows: the search field is `data-field="query"` (which the shell
+/// turns into `Msg::QueryChanged`, and whose focus survives the repaint because the shell captures and restores it),
+/// and the three dropdowns are `data-select="price|beds|sort"` (`Msg::FilterSelected`). Every control renders the
+/// model's value rather than the DOM's, so the bar cannot show one thing while the grid shows another.
+///
+/// THE VIEW CONTROL IS DISABLED, AND THE REASON IS IN THE COMMENT RATHER THAN IN A TOOLTIP. The live bar offered a
+/// vocabulary of views read from the properties themselves; this payload carries no `views`, so the control has exactly
+/// one option and nothing it could filter. Rendering it enabled with "Any View" alone is a control that does nothing,
+/// which is the thing this page has been careful not to ship.
+///
+/// The bedroom floor is disabled on the Land tab, which is the live behaviour and also the contract's: land has no
+/// bedrooms, so the filter is not merely useless there, it EXCLUDES every listing on the tab.
+fn buyer_filters(model: &Model) -> String {
+    let controls = &model.controls;
+    let current = |key: &str| controls.named.get(key).map(String::as_str).unwrap_or("");
+    let is_land = controls.tab.as_deref() == Some("land");
+    let select = |name: &str, label: &str, options: &str, span: &str, disabled: bool| {
         format!(
-            "<select aria-label=\"{label}\" class=\"h-12 border border-border bg-background px-4 text-xs font-light \
-             uppercase tracking-[0.12em] text-foreground outline-none {span} {dim}\">{options}</select>",
+            "<select data-select=\"{name}\" aria-label=\"{label}\" class=\"h-12 border border-border bg-background \
+             px-4 text-xs font-light uppercase tracking-[0.12em] text-foreground outline-none cursor-pointer {span} \
+             {dim}\" {off}>{options}</select>",
+            name = escape(name),
             label = escape(label),
             span = span,
             dim = if disabled { "opacity-40" } else { "" },
+            off = if disabled { "disabled" } else { "" },
             options = options,
         )
     };
-    let options = |pairs: &[(&str, &str)]| {
+    // An option is `selected` when it is the model's value, which is what makes the bar a view of the state rather than
+    // a second place the state lives.
+    let options = |pairs: &[(&str, &str)], chosen: &str| {
         pairs
             .iter()
             .map(|(value, label)| {
                 format!(
-                    "<option value=\"{value}\">{label}</option>",
+                    "<option value=\"{value}\"{selected}>{label}</option>",
                     value = escape(value),
-                    label = escape(label)
+                    selected = if *value == chosen { " selected" } else { "" },
+                    label = escape(label),
                 )
             })
             .collect::<String>()
@@ -2132,7 +2159,7 @@ fn buyer_filters() -> String {
              <label class=\"relative md:col-span-4\">\
                <span class=\"sr-only\">Search properties</span>\
                {search_icon}\
-               <input placeholder=\"Property, neighborhood, view...\" \
+               <input data-field=\"query\" value=\"{query}\" placeholder=\"Property, neighborhood, view...\" \
                  class=\"h-12 w-full border border-border bg-transparent pl-11 pr-4 text-sm font-light text-foreground \
                  outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground\" />\
              </label>\
@@ -2140,40 +2167,58 @@ fn buyer_filters() -> String {
            </div>\
          </div>",
         search_icon = search_icon,
+        query = escape(&controls.query),
         price = select(
+            "price",
             "Any Price",
-            &options(&[
-                ("", "Any Price"),
-                ("1000000", "Up to $1M"),
-                ("2000000", "Up to $2M"),
-                ("3000000", "Up to $3M"),
-                ("5000000", "Up to $5M"),
-                ("10000000", "Up to $10M"),
-            ]),
+            &options(
+                &[
+                    ("", "Any Price"),
+                    ("1000000", "Up to $1M"),
+                    ("2000000", "Up to $2M"),
+                    ("3000000", "Up to $3M"),
+                    ("5000000", "Up to $5M"),
+                    ("10000000", "Up to $10M"),
+                ],
+                current("price"),
+            ),
             "md:col-span-2",
             false,
         ),
         beds = select(
+            "beds",
             "Any Beds",
-            &options(&[
-                ("", "Any Beds"),
-                ("2", "2+ Beds"),
-                ("3", "3+ Beds"),
-                ("4", "4+ Beds"),
-                ("5", "5+ Beds"),
-            ]),
+            &options(
+                &[
+                    ("", "Any Beds"),
+                    ("2", "2+ Beds"),
+                    ("3", "3+ Beds"),
+                    ("4", "4+ Beds"),
+                    ("5", "5+ Beds"),
+                ],
+                current("beds"),
+            ),
             "md:col-span-2",
-            false,
+            is_land,
         ),
-        view = select("Any View", &options(&[("", "Any View")]), "md:col-span-2", false),
+        view = select("view", "Any View", &options(&[("", "Any View")], ""), "md:col-span-2", true),
         sort = select(
+            "sort",
             "Sort",
-            &options(&[
-                ("featured", "Featured"),
-                ("price-high", "Price High"),
-                ("price-low", "Price Low"),
-                ("name", "Name"),
-            ]),
+            &options(
+                &[
+                    ("featured", "Featured"),
+                    ("price-high", "Price High"),
+                    ("price-low", "Price Low"),
+                    ("name", "Name"),
+                ],
+                // The default the contract sorts by when nothing is chosen, rendered as chosen.
+                if current("sort").is_empty() {
+                    "featured"
+                } else {
+                    current("sort")
+                },
+            ),
             "md:col-span-2",
             false,
         ),
@@ -2641,8 +2686,9 @@ fn site_buyers(model: &Model) -> String {
             "A modern luxury villa overlooking the Culebra coastline",
         ),
         // The showroom, which is the bulk of this page: the featured strip, the tabs, the filter bar and the inventory
-        // cards. Replacing it with a plain grid is what left the page with major sections missing.
-        inventory = buyer_showroom(listings),
+        // cards. Replacing it with a plain grid is what left the page with major sections missing. It takes the model
+        // now, because the tabs, the bar and the grid are a function of what the visitor has chosen.
+        inventory = buyer_showroom(model, listings),
     )
 }
 
@@ -2792,17 +2838,137 @@ fn site_property_detail(model: &Model) -> String {
     )
 }
 
+/// Whether a listing is land — the same rule the card's Land badge uses, so the badge and the tabs cannot disagree.
+fn listing_is_land(listing: &Listing) -> bool {
+    listing
+        .kind
+        .as_deref()
+        .is_some_and(|kind| kind.to_ascii_lowercase().contains("land"))
+}
+
+/// A listing's price as a number, from the formatted string the payload carries.
 ///
+/// THE PAYLOAD CARRIES THE PRICE FOR DISPLAY, and filtering has to compare it. `formatPrice` renders a price as `$`
+/// followed by the number with thousands separators, and renders "Price Upon Request" when the price is absent or not
+/// positive — so the digits in the string ARE the number, exactly rather than approximately, and a string with no
+/// digits is a listing with no price. That is a narrower contract than a numeric field would be, and it is the one the
+/// payload offers; the day it carries `listPrice`, this function goes.
+fn listing_price(listing: &Listing) -> Option<f64> {
+    let digits: String = listing
+        .price
+        .as_deref()?
+        .chars()
+        .filter(|character| character.is_ascii_digit())
+        .collect();
+    digits.parse().ok()
+}
+
+/// The Buyers inventory, narrowed and ordered: `applySearchFilters` from `lib/search-contract.ts`, in Rust.
+///
+/// THE CONTRACT IS THE SPECIFICATION, NOT MY READING OF THE SCREEN. Category, free text, a price ceiling, a bedroom
+/// floor and four orderings are the canonical search surface (PX-23/PX-24) — the same rules the server applies in SQL
+/// and the same ones the saved-search matcher counts alerts with. Written from that file so the three cannot drift:
+///
+///   - `land` keeps only land, and `homes` keeps only what is not land;
+///   - a price ceiling excludes a listing with no price at all, because "unknown" is not "cheap";
+///   - a bedroom floor excludes LAND whatever it says, because bedrooms on a parcel are a question with no answer —
+///     the contract's own rule, and the reason the bar disables that control on the Land tab;
+///   - free text matches the name, the location and the property type, case-insensitively.
+///
+/// WHAT IT CANNOT DO, STATED RATHER THAN HIDDEN: the live bar's view filter reads a property's `views`, and this payload
+/// carries none — so that control renders with no options and nothing to honour. It is not a filter that silently
+/// matches everything; it is a filter with no vocabulary, which is why it is disabled and labelled in the view.
+///
+/// It takes the model rather than a filter set so the list on screen cannot be narrowed by something no control
+/// explains: what is rendered is always a function of what the model holds.
+fn buyers_visible<'a>(listings: &'a [Listing], model: &Model) -> Vec<&'a Listing> {
+    let controls = &model.controls;
+    let category = controls.tab.as_deref().unwrap_or("all");
+    let query = controls.query.trim().to_ascii_lowercase();
+    let named = |key: &str| controls.named.get(key).map(String::as_str).unwrap_or("");
+    let max_price = named("price").parse::<f64>().ok();
+    let beds = named("beds").parse::<f64>().ok();
+    let sort = named("sort");
+
+    let mut visible: Vec<&Listing> = listings
+        .iter()
+        .filter(|listing| {
+            let is_land = listing_is_land(listing);
+            if category == "land" && !is_land {
+                return false;
+            }
+            if category == "homes" && is_land {
+                return false;
+            }
+            if let Some(ceiling) = max_price {
+                if listing_price(listing).map_or(true, |price| price > ceiling) {
+                    return false;
+                }
+            }
+            if let Some(floor) = beds {
+                if is_land || listing.beds.map_or(true, |beds| beds < floor) {
+                    return false;
+                }
+            }
+            if !query.is_empty() {
+                let haystack = [
+                    listing.name.to_ascii_lowercase(),
+                    listing.location.as_deref().unwrap_or("").to_ascii_lowercase(),
+                    listing.kind.as_deref().unwrap_or("").to_ascii_lowercase(),
+                ]
+                .join(" ");
+                if !haystack.contains(&query) {
+                    return false;
+                }
+            }
+            true
+        })
+        .collect();
+
+    // No price sorts last under every ordering, which is what the contract's `?? -1` and `?? MAX_SAFE_INTEGER` say.
+    let for_high = |listing: &&Listing| listing_price(listing).unwrap_or(-1.0);
+    visible.sort_by(|a, b| match sort {
+        "price-high" => for_high(b)
+            .partial_cmp(&for_high(a))
+            .unwrap_or(Ordering::Equal),
+        "price-low" => {
+            let for_low = |listing: &&Listing| listing_price(listing).unwrap_or(f64::MAX);
+            for_low(a).partial_cmp(&for_low(b)).unwrap_or(Ordering::Equal)
+        }
+        // Case-insensitive: the contract compares with `localeCompare`, and comparing raw bytes would file every
+        // capitalised name under a different letter than a lowercase one. Accents order by codepoint rather than by
+        // collation, which is the one place this can disagree with the live order.
+        "name" => a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()),
+        // `featured` is the default: featured first, then price high to low.
+        _ => {
+            if a.featured != b.featured {
+                return if a.featured {
+                    Ordering::Less
+                } else {
+                    Ordering::Greater
+                };
+            }
+            for_high(b)
+                .partial_cmp(&for_high(a))
+                .unwrap_or(Ordering::Equal)
+        }
+    });
+    visible
+}
+
 /// THE PART THE PAGE IS MADE OF. `components/buyers-property-showroom.tsx` is 470 lines and it is the bulk of `/buyers`:
 /// a featured carousel, category tabs, a sticky filter bar, saved searches, and the inventory grid of cards with their
 /// Featured and Land badges. Writing the page without it produced a page with major sections missing — the markup was
 /// right around a hole where the showroom should be.
 ///
-/// WHAT IS STATIC HERE, STATED PLAINLY: the filter controls render with the real options and the real styling, but they
-/// are `<select>`s and an input that do not yet narrow the list — that is Rust state, and it is the next slice. The
-/// carousel is a scrolling strip of the same cards rather than the timed carousel with arrows, because a carousel is
-/// behaviour and a strip is honest markup.
-fn buyer_showroom(listings: &[crate::model::Listing]) -> String {
+/// WHAT IS LIVE AND WHAT IS NOT, STATED PLAINLY. The category tabs, the search field, the price ceiling, the bedroom
+/// floor and the sort are WIRED: each is a `data-` attribute the shell already knows how to turn into a message, the
+/// model holds the answer, and the grid and its count are a function of it. The view control is not wired and cannot be:
+/// it needs a property's `views`, and this payload does not carry them, so it renders disabled with no options rather
+/// than offering a choice nothing can honour. The carousel is a scrolling strip of the same cards rather than the timed
+/// carousel with arrows, because a carousel is behaviour and a strip is honest markup — and it shows the same
+/// unfiltered selection the live page showed, since the filters narrow the inventory and not the featured strip.
+fn buyer_showroom(model: &Model, listings: &[Listing]) -> String {
     if listings.is_empty() {
         // The component's own empty state, verbatim: an island with nothing published says so.
         return "<section class=\"px-6 py-24 md:px-12 md:py-32\"><div class=\"mx-auto max-w-[1600px]\">\
@@ -2834,10 +3000,20 @@ fn buyer_showroom(listings: &[crate::model::Listing]) -> String {
             )
         })
         .collect::<String>();
-    let cards = listings
+    // WHAT THE CONTROLS SAY, not what the payload holds. Computed once and used for both the cards and the count, so a
+    // count that disagrees with the grid below it is not a state this can be in.
+    let visible = buyers_visible(listings, model);
+    let cards = visible
         .iter()
+        .copied()
         .map(buyer_inventory_card)
         .collect::<String>();
+    // The count is the FILTERED count, and it is inflected: "1 properties" is the sort of detail that tells a visitor
+    // the number was generated rather than meant. The live page inflected it too.
+    let count = match visible.len() {
+        1 => "1 property".to_string(),
+        total => format!("{total} properties"),
+    };
     format!(
         "<section class=\"px-6 pb-12 pt-12 md:px-12 md:pb-16 md:pt-16\">\
            <div class=\"mx-auto max-w-[1600px]\">\
@@ -2861,7 +3037,7 @@ fn buyer_showroom(listings: &[crate::model::Listing]) -> String {
                  <h2 class=\"font-serif text-4xl font-light leading-none text-foreground md:text-5xl\">\
                    Available properties.</h2>\
                  <div class=\"flex items-center gap-5\">\
-                   <p class=\"text-xs font-light uppercase tracking-[0.18em] text-muted-foreground\">{count} properties</p>\
+                   <p class=\"text-xs font-light uppercase tracking-[0.18em] text-muted-foreground\">{count}</p>\
                    <a href=\"/favorites\" class=\"text-xs font-light uppercase tracking-[0.18em] text-accent \
                      transition-colors hover:text-foreground\">Saved</a>\
                  </div>\
@@ -2873,9 +3049,9 @@ fn buyer_showroom(listings: &[crate::model::Listing]) -> String {
            </div>\
          </section>",
         slides = slides,
-        count = listings.len(),
-        tabs = buyer_tabs(),
-        filters = buyer_filters(),
+        count = count,
+        tabs = buyer_tabs(model),
+        filters = buyer_filters(model),
         cards = cards,
     )
 }

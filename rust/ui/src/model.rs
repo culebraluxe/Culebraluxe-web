@@ -12,6 +12,8 @@
 //! single source of truth for "what navigation belongs under this surface", and it documents four routes as RETIRED
 //! FROM THE NAV with the code left in place. Those are ported like everything else and simply not listed.
 
+use std::collections::BTreeMap;
+
 /// Which operating surface a screen belongs to. The first six mirror `lib/navigation/registry.ts`; `Site` is the
 /// public site, which the registry does not cover because it is not part of the portal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -508,6 +510,18 @@ pub struct Controls {
     pub tab: Option<String>,
     /// A switch or checkbox the user has set.
     pub toggled: bool,
+    /// THE NAMED DROPDOWNS, by the name the control carries — the Buyers bar's `price`, `beds` and `sort`.
+    ///
+    /// A map rather than a field per control. The portal screens have one dropdown and it is `filter` above; the Buyers
+    /// inventory bar has three, and giving the model a `price`, a `beds` and a `sort` field would put one screen's
+    /// vocabulary into state every screen shares — and make every future screen that wants its own named control edit
+    /// the model, the reducer and the shell. The name is the one the markup already carries (`data-select="price"`), so
+    /// there is a single vocabulary rather than one in the DOM and another here.
+    ///
+    /// It lives in `Controls` because it has the same lifecycle: navigation clears it (`update::open`), so a price
+    /// range chosen on Buyers cannot follow the visitor to another screen and silently narrow a list they never
+    /// filtered.
+    pub named: BTreeMap<String, String>,
     /// Which page of rows the user is on, 0-based. Clamped by the reducer; see `Msg::PageChanged`.
     pub page: usize,
 }
@@ -581,6 +595,16 @@ pub enum Msg {
     QueryChanged(String),
     /// The user chose a dropdown option, by value.
     FilterChanged(String),
+    /// The user chose one of the screen's NAMED dropdowns: `key` is the name the control carries (`price`, `beds`,
+    /// `sort` on the Buyers bar) and `value` is the chosen option.
+    ///
+    /// A pair rather than one message per control, for the same reason `Controls::named` is a map: the model should not
+    /// have to learn a screen's vocabulary to hold a screen's input. An empty value is the "no filter" option and
+    /// REMOVES the entry rather than storing an empty string, so "unset" is one state and not two.
+    FilterSelected {
+        key: String,
+        value: String,
+    },
     /// The user picked a tab, by key.
     TabSelected(String),
     /// The user set a switch or checkbox.

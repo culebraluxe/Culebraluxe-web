@@ -190,6 +190,13 @@ fn msg_for_change(element: &Element) -> Option<Msg> {
     let select = element.clone().dyn_into::<HtmlSelectElement>().ok()?;
     match name.as_str() {
         "filter" => Some(Msg::FilterChanged(select.value())),
+        // THE NAMED DROPDOWNS. Listed one by one rather than passed through, for the same reason the fields are: an
+        // unknown `data-select` is ignored instead of dispatching a name the model has no use for and cannot validate.
+        // These three are the Buyers inventory bar's.
+        "price" | "beds" | "sort" => Some(Msg::FilterSelected {
+            key: name,
+            value: select.value(),
+        }),
         _ => None,
     }
 }
