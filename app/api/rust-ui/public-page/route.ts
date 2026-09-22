@@ -1,7 +1,14 @@
 import { NextResponse, type NextRequest } from 'next/server'
 
+import { getGuideItems } from '@/legacy/db/guide'
 import { getMarketingContent } from '@/legacy/db/marketing-content'
-import { buildHomeContent } from '@/lib/marketing-content'
+import {
+  blockById,
+  buildContactPageContent,
+  buildFaqPageContent,
+  buildHomeContent,
+  MARKETING_SLOTS,
+} from '@/lib/marketing-content'
 import { formatArea, formatPrice, propertyLocation } from '@/lib/property'
 import { getProperties } from '@/lib/property-reads'
 import type { PropertySummary } from '@/legacy/services/property'
@@ -110,14 +117,75 @@ async function GETHandler(req: NextRequest): Promise<Response> {
       const home = result.ok ? buildHomeContent(result.data) : undefined
       return NextResponse.json({ sellers: block(home?.sellers) })
     }
+    case 'site-buyers': {
+      const result = await getMarketingContent()
+      const home = result.ok ? buildHomeContent(result.data) : undefined
+      // The Buyers page is the buyers block in full — the same slot Services renders as its first section, and the same
+      // one the homepage summarises.
+      return NextResponse.json({ buyers: block(home?.buyers) })
+    }
     case 'site-about': {
       const result = await getMarketingContent()
       const home = result.ok ? buildHomeContent(result.data) : undefined
       return NextResponse.json({ about: block(home?.about) })
     }
-    default:
-      // An empty payload rather than an error: a screen with no page content is a state Rust already renders.
-      return NextResponse.json({})
+    case 'site-faq': {
+      const result = await getMarketingContent()
+      const blocks = result.ok ? result.data : []
+      const faq = buildFaqPageContent(blocks)
+      return NextResponse.json({
+        hero: block(faq.hero),
+        // The accordion is served as the `faq.list` block itself, whose items are the question/answer pairs keyed `faq` —
+        // the same list `faqEntries()` reads from. Served whole, so the renderer can see the CTA carried on the block
+        // (`ctaHeading`, `ctaLabel`, `ctaHref`) without a second selector and a second shape.
+        faq: block(blockById(blocks, MARKETING_SLOTS.faqList)),
+      })
+    }
+    case 'site-contact': {
+      const result = await getMarketingContent()
+      const blocks = result.ok ? result.data : []
+      // The contact page's own two slots, exactly the shape `ContactPageContent` documents.
+      const contact = buildContactPageContent(blocks)
+      return NextResponse.json({ hero: block(contact.hero), contact: block(contact.contact) })
+    }
+    case 'site-guide': {
+      // THE GUIDE IS THE ONE PAGE WHOSE CONTENT IS NOT EDITORIAL COPY. It is a catalogue of places read from
+      // `guide_item`, with its `card` image and its section ordering. It is served here rather than through the rows
+      // route because a guide entry is a card with a photograph, not a line in a table — and serving it as rows is what
+      // the rows route does today, which is why the guide page had nothing to draw.
+      //
+      // Served as `guide` rather than as a `Block`: a place has a photograph, a section and a description, and forcing
+      // that into `cells` is the abstraction this whole route exists to avoid. `PageContent` ignores the field until the
+      // Rust type grows one, which is the renderer's commit.
+      const items = await getGuideItems()
+      return NextResponse.json({
+        guide: items.map((item) => ({
+          slug: item.slug,
+          section: item.section,
+          name: item.name,
+          eyebrow: item.eyebrow,
+          subtitle: item.subtitle,
+          area: item.area,
+          description: item.description,
+          note: item.note,
+          address: item.address,
+          phone: item.phone,
+          websiteUrl: item.websiteUrl,
+          imagePath: item.imageUrl,
+          imageAlt: item.imageAlt,
+        })),
+      })
+    }
+    default: {
+      // NO SILENT EMPTY PAGE. Every screen that asks this route for a page is an editorial screen — asking is what
+      // makes it one — so a screen with no case here is a wiring mistake, not a page that happens to have no content.
+      // Returning `{}` with a 200 turned that mistake into a white page indistinguishable from a dozen other causes,
+      // which is how a day went into chasing a blank Services page. It fails loudly instead, and names the screen.
+      return NextResponse.json(
+        { error: `no page content source for screen '${screen}'` },
+        { status: 400 },
+      )
+    }
   }
 }
 
