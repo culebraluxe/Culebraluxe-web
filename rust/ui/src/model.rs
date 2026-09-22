@@ -339,8 +339,11 @@ pub struct Listing {
     pub kind: Option<String>,
     pub image_path: Option<String>,
     pub image_alt: Option<String>,
-    pub beds: Option<i64>,
-    pub baths: Option<i64>,
+    /// Bedrooms and bathrooms are NOT integers. Half-baths are ordinary, so `7.5` is a real value in this data — and
+    /// declaring these as `i64` made the whole page payload fail to deserialize the first time a listing had one, which
+    /// presents as a page with no hero and no sections rather than as a bad number.
+    pub beds: Option<f64>,
+    pub baths: Option<f64>,
     pub area: Option<String>,
     /// Whether the estate is in the featured set, which is what draws the badge on its card.
     pub featured: bool,

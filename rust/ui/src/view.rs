@@ -723,14 +723,22 @@ fn featured_properties(items: &[Listing]) -> String {
 }
 
 /// The one-line facts under an estate's name: beds and baths, or the lot size for land, joined the way the TypeScript
-/// `propertyFacts` joined them. Missing numbers are omitted rather than printed as zero.
+/// `propertyFacts` joined them. Missing numbers are omitted rather than printed as zero, and a whole number prints
+/// without a decimal point — "8 Bed", not "8.0 Bed" — while a half-bath keeps its half.
 fn listing_facts(listing: &Listing) -> String {
+    let count = |value: f64| -> String {
+        if value.fract() == 0.0 {
+            format!("{}", value as i64)
+        } else {
+            format!("{value}")
+        }
+    };
     let mut parts: Vec<String> = Vec::new();
     if let Some(beds) = listing.beds {
-        parts.push(format!("{beds} Bed"));
+        parts.push(format!("{} Bed", count(beds)));
     }
     if let Some(baths) = listing.baths {
-        parts.push(format!("{baths} Bath"));
+        parts.push(format!("{} Bath", count(baths)));
     }
     if let Some(area) = listing.area.as_deref().filter(|value| !value.is_empty()) {
         parts.push(area.to_string());
