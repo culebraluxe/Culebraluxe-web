@@ -19,6 +19,7 @@ pub mod signature;
 pub mod task;
 pub mod vault;
 pub mod wbs;
+pub mod workflow_portal;
 
 pub use client::*;
 pub use cockpit::*;
@@ -103,3 +104,5 @@ pub use signature::{
 
 
 pub use task::TaskCompletion;
+
+pub use workflow_portal::*;
