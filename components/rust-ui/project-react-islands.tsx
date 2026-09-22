@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
 import type { LucideIcon } from 'lucide-react'
 import {
   Banknote,
@@ -707,99 +707,14 @@ type DocumentsPayload = {
   }>
 }
 
-type IslandState = {
-  navigatorTarget: Element | null
-  navigator: NavigatorPayload | null
-  timelineTarget: Element | null
-  timeline: TimelinePayload | null
-  calendarTarget: Element | null
-  calendar: CalendarPayload | null
-  documentsTarget: Element | null
-  documents: DocumentsPayload | null
+type MountedIsland = {
+  target: Element
+  root: Root
+  payloadRaw: string
 }
 
-const EMPTY: IslandState = {
-  navigatorTarget: null,
-  navigator: null,
-  timelineTarget: null,
-  timeline: null,
-  calendarTarget: null,
-  calendar: null,
-  documentsTarget: null,
-  documents: null,
-}
-
-function readPayload<T>(element: Element | null): T | null {
-  const raw = element?.getAttribute('data-project-widget')
-  if (!raw) return null
-  try {
-    return JSON.parse(raw) as T
-  } catch {
-    return null
-  }
-}
-
-function sameIslandState(left: IslandState, right: IslandState): boolean {
-  return (
-    left.navigatorTarget === right.navigatorTarget &&
-    left.timelineTarget === right.timelineTarget &&
-    left.calendarTarget === right.calendarTarget &&
-    left.documentsTarget === right.documentsTarget &&
-    JSON.stringify(left.navigator) === JSON.stringify(right.navigator) &&
-    JSON.stringify(left.timeline) === JSON.stringify(right.timeline) &&
-    JSON.stringify(left.calendar) === JSON.stringify(right.calendar) &&
-    JSON.stringify(left.documents) === JSON.stringify(right.documents)
-  )
-}
-
-/**
- * Rendering adapter only.
- *
- * Yew owns the page, project selection, tabs, and commands. This component
- * observes Yew's React-island slots and portals the existing mature widgets
- * into them. Yew remains the application-state owner; only navigator intents
- * cross back through the reducer bridge.
- */
-export function ProjectReactIslands() {
-  const [state, setState] = useState<IslandState>(EMPTY)
-
-  useEffect(() => {
-    const root = document.getElementById('rust-ui')
-    if (!root) return
-
-    const scan = () => {
-      const navigatorTarget = root.querySelector('#project-navigator-island')
-      const timelineTarget = root.querySelector('#project-timeline-island')
-      const calendarTarget = root.querySelector('#project-calendar-island')
-      const documentsTarget = root.querySelector('#project-documents-island')
-      const next: IslandState = {
-        navigatorTarget,
-        navigator: readPayload<NavigatorPayload>(navigatorTarget),
-        timelineTarget,
-        timeline: readPayload<TimelinePayload>(timelineTarget),
-        calendarTarget,
-        calendar: readPayload<CalendarPayload>(calendarTarget),
-        documentsTarget,
-        documents: readPayload<DocumentsPayload>(documentsTarget),
-      }
-      setState((current) => (sameIslandState(current, next) ? current : next))
-    }
-
-    scan()
-    const observer = new MutationObserver(scan)
-    observer.observe(root, {
-      subtree: true,
-      childList: true,
-      attributes: true,
-      attributeFilter: ['data-project-widget'],
-    })
-    return () => observer.disconnect()
-  }, [])
-
+function ProjectTimelineIsland({ payload }: { payload: TimelinePayload }) {
   const timeline = useMemo(() => {
-    const payload = state.timeline
-    if (!payload) return { tasks: [] as ITask[], links: [] as ILink[], synthetic: false }
-
     const byParent = (parentId: string | null): ProjectWorkNode[] =>
       payload.items
         .filter((item) => (item.parentId ?? null) === parentId)
@@ -846,61 +761,192 @@ export function ProjectReactIslands() {
       workNodes: byParent(null),
     }
     return mapProjectToTimeline(plan)
-  }, [state.timeline])
+  }, [payload])
 
-
-  const documentFiles = useMemo<ProjectAssetBrowserItem[]>(() => {
-    return (state.documents?.files ?? []).map((file) => ({
-      id: file.id,
-      assetId: file.assetId,
-      kind: file.kind,
-      name: file.name,
-      source: file.source,
-      ...(file.href ? { href: file.href } : {}),
-      ...(file.state ? { state: file.state } : {}),
-      ...(file.caption !== undefined ? { caption: file.caption } : {}),
-      ...(file.altText !== undefined ? { altText: file.altText } : {}),
-      ...(file.mimeType !== undefined ? { mimeType: file.mimeType } : {}),
-      ...(file.size !== undefined ? { size: file.size } : {}),
-      ...(file.date ? { date: new Date(file.date) } : {}),
-    }))
-  }, [state.documents])
+  if (timeline.tasks.length === 0) {
+    return (
+      <div className="flex h-full min-h-64 items-center justify-center px-8 text-center text-sm font-light text-black/45">
+        No WBS work exists for this project yet.
+      </div>
+    )
+  }
 
   return (
-    <>
-      {state.navigatorTarget && state.navigator
-        ? createPortal(<ProjectNavigatorIsland payload={state.navigator} />, state.navigatorTarget)
-        : null}
-      {state.timelineTarget && state.timeline
-        ? createPortal(
-            timeline.tasks.length === 0 ? (
-              <div className="flex h-full min-h-64 items-center justify-center px-8 text-center text-sm font-light text-black/45">
-                No WBS work exists for this project yet.
-              </div>
-            ) : (
-              <div className="flex h-full min-h-0 flex-col gap-2">
-                <div className="min-h-0 flex-1">
-                  <ProjectTimeline tasks={timeline.tasks} links={timeline.links} />
-                </div>
-                {timeline.synthetic ? (
-                  <p className="shrink-0 text-[11px] font-light text-black/45">
-                    Sample schedule — bars use placeholder dates because these work items have no due dates yet.
-                  </p>
-                ) : null}
-              </div>
-            ),
-            state.timelineTarget,
-          )
-        : null}
-      {state.calendarTarget && state.calendar
-        ? createPortal(
-            <FullCalendarCandidate events={state.calendar.events ?? []} heading={null} />,
-            state.calendarTarget,
-          )
-        : null}
-      {state.documentsTarget && state.documents
-        ? createPortal(<ProjectFilemanager files={documentFiles} />, state.documentsTarget)
-        : null}
-    </>
+    <div className="flex h-full min-h-0 flex-col gap-2">
+      <div className="min-h-0 flex-1">
+        <ProjectTimeline tasks={timeline.tasks} links={timeline.links} />
+      </div>
+      {timeline.synthetic ? (
+        <p className="shrink-0 text-[11px] font-light text-black/45">
+          Sample schedule — bars use placeholder dates because these work items have no due dates yet.
+        </p>
+      ) : null}
+    </div>
   )
+}
+
+function ProjectDocumentsIsland({ payload }: { payload: DocumentsPayload }) {
+  const files = useMemo<ProjectAssetBrowserItem[]>(
+    () =>
+      payload.files.map((file) => ({
+        id: file.id,
+        assetId: file.assetId,
+        kind: file.kind,
+        name: file.name,
+        source: file.source,
+        ...(file.href ? { href: file.href } : {}),
+        ...(file.state ? { state: file.state } : {}),
+        ...(file.caption !== undefined ? { caption: file.caption } : {}),
+        ...(file.altText !== undefined ? { altText: file.altText } : {}),
+        ...(file.mimeType !== undefined ? { mimeType: file.mimeType } : {}),
+        ...(file.size !== undefined ? { size: file.size } : {}),
+        ...(file.date ? { date: new Date(file.date) } : {}),
+      })),
+    [payload],
+  )
+
+  return <ProjectFilemanager files={files} />
+}
+
+function IslandBoundary({
+  name,
+  children,
+}: {
+  name: string
+  children: ReactNode
+}) {
+  return (
+    <div data-project-react-island={name} className="h-full min-h-0">
+      {children}
+    </div>
+  )
+}
+
+function safeUnmount(root: Root) {
+  try {
+    root.unmount()
+  } catch {
+    // The Yew side may already have removed the old slot. A detached React root
+    // is obsolete either way; the replacement slot gets a fresh root below.
+  }
+}
+
+function syncIsland<T>(
+  host: Element,
+  mounted: Map<string, MountedIsland>,
+  id: string,
+  render: (payload: T) => ReactNode,
+) {
+  const target = host.querySelector('#' + id)
+  const current = mounted.get(id)
+
+  if (!target) {
+    if (current) {
+      safeUnmount(current.root)
+      mounted.delete(id)
+    }
+    return
+  }
+
+  const payloadRaw = target.getAttribute('data-project-widget')
+  if (!payloadRaw) return
+
+  let payload: T
+  try {
+    payload = JSON.parse(payloadRaw) as T
+  } catch (error) {
+    console.error('[projects-island] invalid payload for ' + id, error)
+    return
+  }
+
+  const marker = target.querySelector('[data-project-react-island="' + id + '"]')
+
+  if (current && current.target === target && marker) {
+    if (current.payloadRaw !== payloadRaw) {
+      current.payloadRaw = payloadRaw
+      current.root.render(
+        <IslandBoundary name={id}>
+          {render(payload)}
+        </IslandBoundary>,
+      )
+    }
+    return
+  }
+
+  if (current) {
+    safeUnmount(current.root)
+    mounted.delete(id)
+  }
+
+  // Yew owns the slot element; React owns everything inside it. Clearing the
+  // loading placeholder is the ownership handoff. Yew deliberately renders no
+  // children into these slots after this migration, so it has nothing inside
+  // the container to reconcile against or overwrite later.
+  target.replaceChildren()
+  const root = createRoot(target)
+  mounted.set(id, { target, root, payloadRaw })
+  root.render(
+    <IslandBoundary name={id}>
+      {render(payload)}
+    </IslandBoundary>,
+  )
+}
+
+/**
+ * React-island host for the Projects Yew screen.
+ *
+ * This intentionally mirrors the proven pre-Yew Rust host: every third-party
+ * surface gets its own React root inside a Rust/Yew-owned slot. Do not combine
+ * these into one portal tree. A navigator/rendering failure must not take
+ * Timeline, Calendar, or Documents down with it, and Yew must never own DOM
+ * inside a slot after React has taken it over.
+ */
+export function ProjectReactIslands() {
+  const mountedRef = useRef(new Map<string, MountedIsland>())
+
+  useEffect(() => {
+    const host = document.getElementById('rust-ui')
+    if (!host) return
+
+    let frame = 0
+    const scan = () => {
+      frame = 0
+      const mounted = mountedRef.current
+      syncIsland<NavigatorPayload>(host, mounted, 'project-navigator-island', (payload) => (
+        <ProjectNavigatorIsland payload={payload} />
+      ))
+      syncIsland<TimelinePayload>(host, mounted, 'project-timeline-island', (payload) => (
+        <ProjectTimelineIsland payload={payload} />
+      ))
+      syncIsland<CalendarPayload>(host, mounted, 'project-calendar-island', (payload) => (
+        <FullCalendarCandidate events={payload.events ?? []} heading={null} />
+      ))
+      syncIsland<DocumentsPayload>(host, mounted, 'project-documents-island', (payload) => (
+        <ProjectDocumentsIsland payload={payload} />
+      ))
+    }
+
+    const scheduleScan = () => {
+      if (frame) return
+      frame = window.requestAnimationFrame(scan)
+    }
+
+    scan()
+    const observer = new MutationObserver(scheduleScan)
+    observer.observe(host, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['data-project-widget'],
+    })
+
+    return () => {
+      observer.disconnect()
+      if (frame) window.cancelAnimationFrame(frame)
+      for (const island of mountedRef.current.values()) safeUnmount(island.root)
+      mountedRef.current.clear()
+    }
+  }, [])
+
+  return null
 }
