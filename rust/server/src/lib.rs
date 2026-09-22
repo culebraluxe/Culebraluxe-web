@@ -4,6 +4,7 @@
 //! remains in the existing TypeScript application.
 
 pub mod api;
+pub mod accounting;
 pub mod calendar;
 pub mod clients;
 pub mod cockpit;

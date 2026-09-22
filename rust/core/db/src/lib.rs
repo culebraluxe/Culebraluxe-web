@@ -21,6 +21,7 @@ mod pool;
 mod project;
 mod property;
 // Public because the `retrying_read!` macro expands inside other crates and has to name these helpers there.
+pub mod accounting;
 pub mod metrics;
 pub mod retry;
 mod security;
@@ -35,6 +36,7 @@ mod vault;
 mod wbs;
 mod workflow_portal;
 
+pub use accounting::AccountingDao;
 pub use calendar::CalendarDao;
 pub use capture::{has_sink, on_failure};
 pub use client::ClientDao;

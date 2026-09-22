@@ -17,9 +17,10 @@ use crate::signature::SignatureService;
 use crate::task::TaskService;
 use crate::vault::{VaultArtifactPort, VaultService};
 use crate::wbs::WbsService;
+use crate::accounting::AccountingService;
 use crate::workflow_portal::WorkflowPortalService;
 use db::{
-    CalendarDao, ClientDao, CockpitDao, CommsDao, ContractDao, Database, DealPortalDao, FirmDao, FormDao, MediaDao, PersonDao,
+    AccountingDao, CalendarDao, ClientDao, CockpitDao, CommsDao, ContractDao, Database, DealPortalDao, FirmDao, FormDao, MediaDao, PersonDao,
     ProjectDao, PropertyDao, SecurityDao, ShowingDao, SignatureDao, TaskDao, VaultDao, WbsDao, WorkflowPortalDao,
 };
 use service::{ServiceInfrastructure, SignatureProvider};
@@ -160,6 +161,13 @@ impl CoreServices {
     pub fn project(&self) -> ProjectService<ProjectDao> {
         ProjectService::new(
             ProjectDao::new(self.db.clone()),
+            self.infrastructure.clone(),
+        )
+    }
+
+    pub fn accounting(&self) -> AccountingService<AccountingDao> {
+        AccountingService::new(
+            AccountingDao::new(self.db.clone()),
             self.infrastructure.clone(),
         )
     }

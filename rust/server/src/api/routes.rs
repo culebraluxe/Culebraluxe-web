@@ -108,6 +108,62 @@ struct ActivityQuery {
     limit: Option<i64>,
 }
 
+/// The P&L's period. Both ends are required: see the handler for why there is no default.
+#[derive(Debug, Deserialize)]
+struct AccountingPnlQuery {
+    from: String,
+    to: String,
+}
+
+/// The expense a caller is recording. The optional associations are `Option` because the form sends them only when the
+/// expense belongs to something.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateExpenseBody {
+    vendor: String,
+    category: String,
+    /// A decimal as a STRING, so the digits the operator typed reach Postgres unchanged. A JSON number here would have
+    /// become a float and lost the cent.
+    amount: String,
+    expense_on: String,
+    #[serde(default)]
+    memo: Option<String>,
+    #[serde(default)]
+    deal_id: Option<String>,
+    #[serde(default)]
+    property_id: Option<String>,
+    #[serde(default)]
+    person_id: Option<String>,
+}
+
+/// The receivable a caller is recording.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateReceivableBody {
+    #[serde(default)]
+    reference: Option<String>,
+    description: String,
+    #[serde(default)]
+    category: String,
+    amount: String,
+    issued_on: String,
+    #[serde(default)]
+    due_on: Option<String>,
+    #[serde(default)]
+    deal_id: Option<String>,
+    #[serde(default)]
+    property_id: Option<String>,
+    #[serde(default)]
+    person_id: Option<String>,
+}
+
+/// The date a receivable was paid.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MarkReceivablePaidBody {
+    paid_on: String,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CreateFormBody {
@@ -360,6 +416,23 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/comms/{person_id}/panel", get(comms_panel))
         .route("/v1/comms/{person_id}/timeline", get(comms_timeline))
         .route("/v1/activity", get(activity))
+        // Accounting V1: the two canonical tables, read as lists and as the projections over them, plus the three
+        // commands. The P&L takes its period from the query string — the range is the caller's, and a route that invented
+        // one would be the reason a filter could not be honoured.
+        .route("/v1/accounting/dashboard", get(accounting_dashboard))
+        .route(
+            "/v1/accounting/receivables",
+            get(accounting_receivables).post(create_receivable),
+        )
+        .route(
+            "/v1/accounting/receivables/{id}/paid",
+            post(mark_receivable_paid),
+        )
+        .route(
+            "/v1/accounting/expenses",
+            get(accounting_expenses).post(create_expense),
+        )
+        .route("/v1/accounting/pnl", get(accounting_pnl))
         .route("/v1/calendar", get(calendar).post(create_apple_calendar_event))
         .route("/v1/vault/documents", get(vault_documents))
         .route("/v1/vault/documents/{id}", get(vault_document))
@@ -1255,6 +1328,148 @@ async fn activity(
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(value, &resolved))
+}
+
+/// The Accounting dashboard: every figure a projection over the two canonical tables.
+async fn accounting_dashboard(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<domain::AccountingDashboard>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().accounting();
+    let value = service
+        .dashboard(&resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn accounting_receivables(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<Vec<domain::Receivable>>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().accounting();
+    let value = service
+        .receivables(&resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn accounting_expenses(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<Vec<domain::Expense>>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().accounting();
+    let value = service
+        .expenses(&resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+/// The P&L for the period the caller asked for.
+///
+/// BOTH DATES ARE REQUIRED. Defaulting them here would mean a screen that lost its range silently reported a different
+/// period's numbers, which is worse than an error: the figures would look right and be about another quarter.
+async fn accounting_pnl(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Query(query): Query<AccountingPnlQuery>,
+) -> Result<Json<ApiSuccess<domain::PnlStatement>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().accounting();
+    let request = domain::PnlRequest {
+        from: query.from,
+        to: query.to,
+    };
+    let value = service
+        .pnl(&request, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+/// Record an expense.
+async fn create_expense(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<CreateExpenseBody>,
+) -> Result<Json<ApiSuccess<AccountingId>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().accounting();
+    let command = domain::CreateExpenseCommand {
+        vendor: body.vendor,
+        category: body.category,
+        amount: body.amount,
+        expense_on: body.expense_on,
+        memo: body.memo,
+        deal_id: body.deal_id,
+        property_id: body.property_id,
+        person_id: body.person_id,
+    };
+    let id = service
+        .create_expense(&command, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(AccountingId { id }, &resolved))
+}
+
+/// Record a receivable.
+async fn create_receivable(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<CreateReceivableBody>,
+) -> Result<Json<ApiSuccess<AccountingId>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().accounting();
+    let command = domain::CreateReceivableCommand {
+        reference: body.reference,
+        description: body.description,
+        category: body.category,
+        amount: body.amount,
+        issued_on: body.issued_on,
+        due_on: body.due_on,
+        deal_id: body.deal_id,
+        property_id: body.property_id,
+        person_id: body.person_id,
+    };
+    let id = service
+        .create_receivable(&command, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(AccountingId { id }, &resolved))
+}
+
+/// Mark a receivable paid.
+///
+/// THE ID IS IN THE PATH AND THE DATE IS IN THE BODY, so the transition names the thing it transitions and the date it
+/// transitions it on. Both are required; neither has a default, because "today" is a decision the operator makes.
+async fn mark_receivable_paid(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<MarkReceivablePaidBody>,
+) -> Result<Json<ApiSuccess<domain::MarkReceivablePaidOutcome>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().accounting();
+    let command = domain::MarkReceivablePaidCommand {
+        receivable_id: id,
+        paid_on: body.paid_on,
+    };
+    let value = service
+        .mark_receivable_paid(&command, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+/// The id a create command produced, so a caller can point at what it made.
+#[derive(Debug, serde::Serialize)]
+struct AccountingId {
+    id: String,
 }
 
 async fn route_project_work(

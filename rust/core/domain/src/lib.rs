@@ -3,6 +3,7 @@
 //! This crate must not depend on database, HTTP, process, or provider adapters.
 
 pub mod calendar;
+pub mod accounting;
 pub mod cockpit;
 pub mod deal_portal;
 pub mod client;
@@ -22,6 +23,7 @@ pub mod vault;
 pub mod wbs;
 pub mod workflow_portal;
 
+pub use accounting::*;
 pub use client::*;
 pub use cockpit::*;
 pub use firm::{FieldPatch, Firm, UpsertFirmRequest};
