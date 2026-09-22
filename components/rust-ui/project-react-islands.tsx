@@ -30,6 +30,8 @@ import { ProjectFilemanager } from '@/components/portal/project-filemanager'
 import { ProjectTimeline } from '@/components/portal/project-timeline'
 import type { CatchUpCalendarEvent } from '@/lib/catchup/calendar-adapter'
 import type { ProjectAssetBrowserItem } from '@/ui/projects/documents-projection'
+import { mapProjectToTimeline } from '@/ui/projects/timeline-projection'
+import type { ProjectPlan, ProjectWorkNode, ProjectWorkStatus } from '@/ui/projects/model'
 
 
 type ProjectDomainKey =
@@ -664,18 +666,24 @@ function ProjectNavigatorIsland({ payload }: { payload: NavigatorPayload }) {
 }
 
 type TimelinePayload = {
-  tasks: Array<{
-    id: number
-    text: string
-    type?: string
-    parent?: number
-    open?: boolean
-    progress?: number
-    start?: string
-    duration?: number
-    details?: string
+  project: {
+    id: string
+    name: string
+    status: string
+    projectType?: string | null
+  }
+  items: Array<{
+    id: string
+    title: string
+    notes: string
+    category: string
+    status: string
+    parentId?: string | null
+    dueAt?: string | null
+    owner?: string | null
+    order?: number | null
   }>
-  links: ILink[]
+  progress: number
 }
 
 type CalendarPayload = {
@@ -787,18 +795,58 @@ export function ProjectReactIslands() {
     return () => observer.disconnect()
   }, [])
 
-  const timelineTasks = useMemo<ITask[]>(() => {
-    return (state.timeline?.tasks ?? []).map((task) => ({
-      ...task,
-      ...(task.start
-        ? {
-            // Due dates are calendar dates. Local noon avoids a UTC-midnight
-            // shift to the prior day in Puerto Rico.
-            start: new Date(`${task.start}T12:00:00`),
+  const timeline = useMemo(() => {
+    const payload = state.timeline
+    if (!payload) return { tasks: [] as ITask[], links: [] as ILink[], synthetic: false }
+
+    const byParent = (parentId: string | null): ProjectWorkNode[] =>
+      payload.items
+        .filter((item) => (item.parentId ?? null) === parentId)
+        .sort((left, right) => {
+          const order = (left.order ?? Number.MAX_SAFE_INTEGER) - (right.order ?? Number.MAX_SAFE_INTEGER)
+          if (order !== 0) return order
+          return (left.dueAt ?? '9999').localeCompare(right.dueAt ?? '9999') || left.id.localeCompare(right.id)
+        })
+        .map((item) => {
+          const status: ProjectWorkStatus =
+            item.status === 'done'
+              ? 'complete'
+              : item.status === 'doing'
+                ? 'in-progress'
+                : item.status === 'dismissed'
+                  ? 'dismissed'
+                  : 'not-started'
+          return {
+            id: item.id,
+            title: item.title,
+            type: workType(item.category) as ProjectWorkNode['type'],
+            status,
+            ...(item.dueAt ? { dueAt: item.dueAt } : {}),
+            ...(item.owner ? { owner: item.owner } : {}),
+            ...(item.notes ? { note: item.notes } : {}),
+            children: byParent(item.id),
           }
-        : {}),
-    })) as ITask[]
+        })
+
+    const plan: ProjectPlan = {
+      id: payload.project.id,
+      title: payload.project.name,
+      kind: String(payload.project.projectType ?? 'WORK').toUpperCase(),
+      status:
+        payload.project.status === 'doing'
+          ? 'active'
+          : payload.project.status === 'done'
+            ? 'complete'
+            : payload.project.status === 'archived'
+              ? 'archived'
+              : 'planning',
+      progress: payload.progress,
+      phaseLabel: payload.project.status,
+      workNodes: byParent(null),
+    }
+    return mapProjectToTimeline(plan)
   }, [state.timeline])
+
 
   const documentFiles = useMemo<ProjectAssetBrowserItem[]>(() => {
     return (state.documents?.files ?? []).map((file) => ({
@@ -824,7 +872,22 @@ export function ProjectReactIslands() {
         : null}
       {state.timelineTarget && state.timeline
         ? createPortal(
-            <ProjectTimeline tasks={timelineTasks} links={state.timeline.links ?? []} />,
+            timeline.tasks.length === 0 ? (
+              <div className="flex h-full min-h-64 items-center justify-center px-8 text-center text-sm font-light text-black/45">
+                No WBS work exists for this project yet.
+              </div>
+            ) : (
+              <div className="flex h-full min-h-0 flex-col gap-2">
+                <div className="min-h-0 flex-1">
+                  <ProjectTimeline tasks={timeline.tasks} links={timeline.links} />
+                </div>
+                {timeline.synthetic ? (
+                  <p className="shrink-0 text-[11px] font-light text-black/45">
+                    Sample schedule — bars use placeholder dates because these work items have no due dates yet.
+                  </p>
+                ) : null}
+              </div>
+            ),
             state.timelineTarget,
           )
         : null}
