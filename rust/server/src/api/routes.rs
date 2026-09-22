@@ -316,6 +316,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/healthz", get(health))
         .route("/readyz", get(ready))
         .route("/v1/whoami", get(whoami))
+        .route("/v1/cockpit", get(cockpit))
         .route("/v1/projects", get(projects))
         .route("/v1/projects/{id}", get(project).patch(update_project))
         .route("/v1/wbs/project-items", get(wbs_project_items))
@@ -419,6 +420,19 @@ async fn whoami(
         },
         &resolved,
     ))
+}
+
+async fn cockpit(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<domain::CockpitSnapshot>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().cockpit();
+    let value = service
+        .snapshot(&resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
 }
 
 async fn projects(
