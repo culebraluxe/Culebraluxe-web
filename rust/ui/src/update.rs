@@ -4,7 +4,8 @@
 //! restored session all arrive as `Navigate` and produce the same state.
 
 use crate::model::{
-    record_for, Controls, DealCreateState, Effect, Model, Msg, Screen, PAGE_SIZE,
+    record_for, Controls, DealCreateState, DealWorkspaceState, Effect, Model, Msg,
+    PortalDealCommand, Screen, PAGE_SIZE,
 };
 
 /// THE PORTAL SCREENS THAT HAVE A REAL COMPONENT, which is the other half of the coupling `is_editorial` warns about.
@@ -189,6 +190,64 @@ fn first_node_for_project(
         .map(|item| item.id.clone())
 }
 
+fn deal_workspace_command(
+    model: &mut Model,
+    busy_action: impl Into<String>,
+    command: PortalDealCommand,
+) -> Vec<Effect> {
+    if model.screen.key != "deal-record" || model.deal_workspace.busy_action.is_some() {
+        return Vec::new();
+    }
+    let Some(deal_id) = model.scope.clone() else {
+        model.error = Some("This workspace is missing its deal identifier.".into());
+        return Vec::new();
+    };
+    model.deal_workspace.busy_action = Some(busy_action.into());
+    model.error = None;
+    vec![Effect::RunDealWorkspaceCommand {
+        screen: model.screen.key,
+        generation: model.generation,
+        deal_id,
+        command,
+    }]
+}
+
+fn deal_workspace_people_search(
+    model: &mut Model,
+    purpose: &str,
+    query: String,
+) -> Vec<Effect> {
+    if model.screen.key != "deal-record" {
+        return Vec::new();
+    }
+    let query = query.trim().to_string();
+    match purpose {
+        "participant" => {
+            model.deal_workspace.participant_people.clear();
+            if query.len() < 2 {
+                model.deal_workspace.participant_searching = false;
+                return Vec::new();
+            }
+            model.deal_workspace.participant_searching = true;
+        }
+        "structural" => {
+            model.deal_workspace.structural_people.clear();
+            if query.len() < 2 {
+                model.deal_workspace.structural_searching = false;
+                return Vec::new();
+            }
+            model.deal_workspace.structural_searching = true;
+        }
+        _ => return Vec::new(),
+    }
+    vec![Effect::SearchDealWorkspacePeople {
+        screen: model.screen.key,
+        generation: model.generation,
+        purpose: purpose.to_string(),
+        query,
+    }]
+}
+
 /// Move to a screen and ask for its rows. The single place a screen change happens, so navigation and record-opening
 /// cannot drift apart.
 fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect> {
@@ -208,6 +267,7 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
     // to Deals and silently narrow a list they never filtered.
     model.controls = Controls::default();
     model.deal_create = DealCreateState::default();
+    model.deal_workspace = DealWorkspaceState::default();
 
     // Seller Strategy is a local deterministic calculator. Opening it resets the
     // same state the former React component created on mount and performs no fetch.
