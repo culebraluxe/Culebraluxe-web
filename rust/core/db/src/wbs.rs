@@ -207,11 +207,11 @@ impl WbsDao {
     ) -> DbResult<AppleReminderCommandReceipt> {
         let command_id = Uuid::new_v4().to_string();
         let payload = json!({
-            "wbsId": request.wbs_id,
-            "title": request.title,
-            "dueAt": request.due_at,
+            "wbsId": request.wbs_id.clone(),
+            "title": request.title.clone(),
+            "dueAt": request.due_at.clone(),
             "completed": request.completed,
-            "notes": request.notes,
+            "notes": request.notes.clone(),
             "alert": request.alert,
         });
         sqlx::query(
