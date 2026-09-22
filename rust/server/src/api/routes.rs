@@ -147,6 +147,11 @@ struct UpdateWbsBody {
     owner: Option<Option<String>>,
 }
 
+#[derive(Debug, Deserialize)]
+struct AppleReminderBody {
+    alert: Option<bool>,
+}
+
 struct UnavailableVaultArtifactPort;
 
 #[async_trait]
@@ -300,6 +305,10 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/projects/{id}", get(project).patch(update_project))
         .route("/v1/wbs/project-items", get(wbs_project_items))
         .route("/v1/wbs/{id}", get(wbs_item).patch(update_wbs_item))
+        .route(
+            "/v1/wbs/{id}/apple-reminder",
+            post(queue_apple_reminder),
+        )
         .route("/v1/clients", get(clients))
         .route("/v1/clients/agents", get(client_agents))
         .route("/v1/clients/{person_id}/history", get(client_history))
@@ -328,7 +337,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/comms/{person_id}/panel", get(comms_panel))
         .route("/v1/comms/{person_id}/timeline", get(comms_timeline))
         .route("/v1/activity", get(activity))
-        .route("/v1/calendar", get(calendar))
+        .route("/v1/calendar", get(calendar).post(create_apple_calendar_event))
         .route("/v1/vault/documents", get(vault_documents))
         .route("/v1/vault/documents/{id}", get(vault_document))
         // The workflow engine, served. Same verbs the re-workflow CLI accepted, now behind the internal key and the
@@ -1101,6 +1110,35 @@ async fn activity(
     let mut service = state.services().comms();
     let value = service
         .activity(query.limit.unwrap_or(200), &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn queue_apple_reminder(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<AppleReminderBody>,
+) -> Result<Json<ApiSuccess<domain::AppleReminderCommandReceipt>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().wbs();
+    let value = service
+        .queue_apple_reminder(&id, body.alert.unwrap_or(false), &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn create_apple_calendar_event(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(request): Json<domain::CreateAppleCalendarEventRequest>,
+) -> Result<Json<ApiSuccess<domain::CalendarCommandReceipt>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().calendar();
+    let value = service
+        .create_apple_event(&request, &resolved.service)
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(value, &resolved))
