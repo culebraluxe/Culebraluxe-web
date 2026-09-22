@@ -3,6 +3,7 @@
 //! This crate must not depend on database, HTTP, process, or provider adapters.
 
 pub mod calendar;
+pub mod cockpit;
 pub mod client;
 pub mod comms;
 pub mod contract;
@@ -19,6 +20,7 @@ pub mod vault;
 pub mod wbs;
 
 pub use client::*;
+pub use cockpit::*;
 pub use firm::{FieldPatch, Firm, UpsertFirmRequest};
 pub use person::{
     AttachPersonIdentityRequest, Person, PersonIdentity, PersonIdentityKind, PersonSearchResult,
