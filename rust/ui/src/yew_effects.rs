@@ -99,6 +99,34 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
                 dispatch,
             );
         }
+        Effect::SearchDealWorkspacePeople {
+            screen,
+            generation,
+            purpose,
+            query,
+        } => {
+            run_deal_workspace_people_search(
+                screen,
+                generation,
+                purpose,
+                query,
+                dispatch,
+            );
+        }
+        Effect::RunDealWorkspaceCommand {
+            screen,
+            generation,
+            deal_id,
+            command,
+        } => {
+            run_deal_workspace_command(
+                screen,
+                generation,
+                deal_id,
+                command,
+                dispatch,
+            );
+        }
         Effect::SaveForm {
             screen,
             generation,
@@ -395,6 +423,130 @@ fn run_deal_create(
     });
 }
 
+fn run_deal_workspace_people_search(
+    screen: &'static str,
+    generation: u64,
+    purpose: String,
+    query_value: String,
+    dispatch: &Callback<Msg>,
+) {
+    let dispatch = dispatch.clone();
+    spawn_local(async move {
+        let url = format!(
+            "{DEALS_PATH}?peopleSearch={}",
+            encode_component(&query_value)
+        );
+        let answer = Request::get(&url).send().await;
+        let msg = match answer {
+            Ok(response) if response.ok() => match response.text().await {
+                Ok(body) => match serde_json::from_str::<PortalDealPeopleSearch>(&body) {
+                    Ok(payload) => Msg::DealWorkspacePeopleLoaded {
+                        screen: screen.to_string(),
+                        generation,
+                        purpose,
+                        query: query_value,
+                        people: payload.people,
+                    },
+                    Err(error) => Msg::EffectFailed {
+                        screen: screen.to_string(),
+                        generation,
+                        message: format!("the workspace people answer could not be read: {error}"),
+                    },
+                },
+                Err(error) => Msg::EffectFailed {
+                    screen: screen.to_string(),
+                    generation,
+                    message: format!("the workspace people answer could not be read: {error}"),
+                },
+            },
+            Ok(response) => Msg::EffectFailed {
+                screen: screen.to_string(),
+                generation,
+                message: format!("the workspace people search failed with {}", response.status()),
+            },
+            Err(error) => Msg::EffectFailed {
+                screen: screen.to_string(),
+                generation,
+                message: format!("the workspace people search could not be sent: {error}"),
+            },
+        };
+        dispatch.emit(msg);
+    });
+}
+
+fn run_deal_workspace_command(
+    screen: &'static str,
+    generation: u64,
+    deal_id: String,
+    command: crate::model::PortalDealCommand,
+    dispatch: &Callback<Msg>,
+) {
+    let dispatch = dispatch.clone();
+    spawn_local(async move {
+        let body = match serde_json::to_string(&command) {
+            Ok(body) => body,
+            Err(error) => {
+                dispatch.emit(Msg::EffectFailed {
+                    screen: screen.to_string(),
+                    generation,
+                    message: format!("the workspace command could not be encoded: {error}"),
+                });
+                return;
+            }
+        };
+        let url = format!("{DEALS_PATH}?scope={}", encode_component(&deal_id));
+        let request = match Request::post(&url)
+            .header("content-type", "application/json")
+            .body(body)
+        {
+            Ok(request) => request,
+            Err(error) => {
+                dispatch.emit(Msg::EffectFailed {
+                    screen: screen.to_string(),
+                    generation,
+                    message: format!("the workspace command could not be built: {error}"),
+                });
+                return;
+            }
+        };
+        let msg = match request.send().await {
+            Ok(response) if response.ok() => match response.text().await {
+                Ok(body) => match serde_json::from_str::<serde_json::Value>(&body)
+                    .ok()
+                    .and_then(|value| value.get("id").and_then(serde_json::Value::as_str).map(str::to_owned))
+                {
+                    Some(id) => Msg::DealWorkspaceCommandCompleted {
+                        screen: screen.to_string(),
+                        generation,
+                        id,
+                    },
+                    None => Msg::EffectFailed {
+                        screen: screen.to_string(),
+                        generation,
+                        message: "the workspace command answer did not contain id".into(),
+                    },
+                },
+                Err(error) => Msg::EffectFailed {
+                    screen: screen.to_string(),
+                    generation,
+                    message: format!("the workspace command answer could not be read: {error}"),
+                },
+            },
+            Ok(response) => Msg::EffectFailed {
+                screen: screen.to_string(),
+                generation,
+                message: format!("the workspace command failed with {}", response.status()),
+            },
+            Err(error) => Msg::EffectFailed {
+                screen: screen.to_string(),
+                generation,
+                message: format!("the workspace command could not be sent: {error}"),
+            },
+        };
+        dispatch.emit(msg);
+    });
+}
+
 fn run_projects_command(
     screen: &'static str,
     generation: u64,
@@ -529,6 +681,8 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
         | Effect::CreateForm { .. }
         | Effect::SearchDealPeople { .. }
         | Effect::CreateDeal { .. }
+        | Effect::SearchDealWorkspacePeople { .. }
+        | Effect::RunDealWorkspaceCommand { .. }
         | Effect::UpdateProjectStatus { .. }
         | Effect::SaveProjectWork { .. }
         | Effect::BrowserNavigate { .. } => return,
