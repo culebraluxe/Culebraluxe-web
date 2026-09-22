@@ -1413,6 +1413,10 @@ pub struct AccountingState {
     /// book's `today`, so the map holds edits rather than copies of a default, and a row that arrives later needs no
     /// seeding.
     pub paid_on: std::collections::BTreeMap<String, String>,
+    /// The P&L's period, as the operator has set it. Empty until the screen's first payload tells it what was projected —
+    /// the bridge defaults the first request to the current month, which is what the live page projected.
+    pub pnl_from: String,
+    pub pnl_to: String,
     /// A command is in flight: the form is disabled and the button says so.
     pub submitting: bool,
     /// What the last command said, if it has said anything. Cleared when a new one starts.
@@ -1711,6 +1715,13 @@ pub enum Msg {
     /// The operator marked a receivable paid. The transition itself is Rust's and the database's: this asks for it.
     ReceivablePaidSubmitted { id: String },
 
+    // ---- accounting: the P&L's period ---------------------------------------------------------------------
+    PnlFromChanged(String),
+    PnlToChanged(String),
+    /// The operator applied the period. The request is for exactly what the two fields hold: a filter that is quietly
+    /// widened or dropped is the defect this screen exists to avoid.
+    PnlApplied,
+
     /// Cockpit task command. The Rust engine owns application-task completion.
     CockpitTaskCompleteRequested {
         task_id: String,
@@ -1883,6 +1894,17 @@ pub enum Effect {
         screen: &'static str,
         generation: u64,
         body: serde_json::Value,
+    },
+    /// The P&L for a period the visitor chose.
+    ///
+    /// ITS OWN EFFECT because it is the one Accounting read that carries a request parameter: the range is what the screen
+    /// is asking about, and an effect that dropped it would answer a question nobody asked. The two ends travel as the
+    /// strings the date inputs hold, and the service validates them — a backwards period is a refusal, not an empty report.
+    FetchAccountingPnl {
+        screen: &'static str,
+        generation: u64,
+        from: String,
+        to: String,
     },
     /// CORE Clients uses server-side search and paging, plus one selected person's detail bundle.
     FetchClients {

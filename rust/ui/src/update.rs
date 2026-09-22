@@ -35,6 +35,7 @@ pub fn is_ported_portal_screen(key: &str) -> bool {
             | "accounting"
             | "accounting-expenses"
             | "accounting-receivables"
+            | "accounting-pnl"
             | "seller-strategy"
     )
 }
@@ -322,6 +323,15 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
                 screen: screen.key,
                 generation: model.generation,
             }]
+        } else if screen.key == "accounting-pnl" {
+            // The P&L is asked for a PERIOD, so its effect carries one: the draft the reducer holds, or empty on a first
+            // open, which the bridge reads as "the current month" — the period the live page projected.
+            vec![Effect::FetchAccountingPnl {
+                screen: screen.key,
+                generation: model.generation,
+                from: model.accounting.pnl_from.clone(),
+                to: model.accounting.pnl_to.clone(),
+            }]
         } else if is_ported_portal_screen(screen.key) {
             vec![Effect::FetchPortal {
                 screen: screen.key,
@@ -507,6 +517,22 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 }
                 if model.accounting.receivable_category.is_empty() {
                     model.accounting.receivable_category = "COMMISSION".to_owned();
+                }
+            }
+            if model.screen.key == "accounting-pnl" {
+                // The P&L's fields take the period that was projected: the screen shows what it asked for, and an operator
+                // who then edits one end of it edits a range they can see rather than a blank pair of inputs.
+                if let Some(pnl) = page
+                    .accounting
+                    .as_ref()
+                    .and_then(|accounting| accounting.pnl.as_ref())
+                {
+                    if model.accounting.pnl_from.is_empty() {
+                        model.accounting.pnl_from = pnl.from.clone();
+                    }
+                    if model.accounting.pnl_to.is_empty() {
+                        model.accounting.pnl_to = pnl.to.clone();
+                    }
                 }
             }
             if matches!(model.screen.key, "clients" | "client-record") {
@@ -830,6 +856,37 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                     "receivableId": id,
                     "paidOn": paid_on,
                 }),
+            }]
+        }
+
+        // ---- accounting: the P&L's period ------------------------------------------------------------------------
+        Msg::PnlFromChanged(value) => {
+            if model.screen.key == "accounting-pnl" {
+                model.accounting.pnl_from = value;
+                model.error = None;
+            }
+            Vec::new()
+        }
+        Msg::PnlToChanged(value) => {
+            if model.screen.key == "accounting-pnl" {
+                model.accounting.pnl_to = value;
+                model.error = None;
+            }
+            Vec::new()
+        }
+        Msg::PnlApplied => {
+            if model.screen.key != "accounting-pnl" {
+                return Vec::new();
+            }
+            // The screen is loading again, and the range is whatever the two fields hold — the same strings the operator
+            // can see. Whether they are a valid period is Rust's answer to give.
+            model.loading = true;
+            model.error = None;
+            vec![Effect::FetchAccountingPnl {
+                screen: "accounting-pnl",
+                generation: model.generation,
+                from: model.accounting.pnl_from.clone(),
+                to: model.accounting.pnl_to.clone(),
             }]
         }
 
@@ -2715,5 +2772,113 @@ mod tests {
                 "Receivable not found or voided."
             ))
         );
+
+    }
+
+    // ---- accounting: the P&L's period ------------------------------------------------------------------------------
+    // ---- accounting: the P&L's period ------------------------------------------------------------------------------
+
+    #[test]
+    fn applying_a_period_asks_for_exactly_that_period() {
+        let mut model = Model {
+            screen: target("accounting-pnl"),
+            ..Model::default()
+        };
+        update(&mut model, Msg::PnlFromChanged("2026-03-01".into()));
+        update(&mut model, Msg::PnlToChanged("2026-03-31".into()));
+
+        let effects = update(&mut model, Msg::PnlApplied);
+
+        let Effect::FetchAccountingPnl {
+            screen, from, to, ..
+        } = &effects[0]
+        else {
+            panic!("applying a period must ask for the P&L of that period");
+        };
+        assert_eq!(*screen, "accounting-pnl");
+        assert_eq!(from, "2026-03-01");
+        assert_eq!(to, "2026-03-31");
+        assert!(model.loading, "the screen is loading the period it asked for");
+    }
+
+    #[test]
+    fn the_period_fields_take_the_period_that_was_projected() {
+        let mut model = Model {
+            screen: target("accounting-pnl"),
+            ..Model::default()
+        };
+        // The bridge's answer for a first visit: the current month, echoed back.
+        let payload = r#"{"accounting":{"pnl":{"from":"2026-03-01","to":"2026-03-31","income":[],
+            "totalIncome":"0","expenses":[],"totalExpenses":"0","netIncome":"0"}}}"#;
+        update(&mut model, Msg::portal_loaded_json("accounting-pnl", 0, payload));
+
+        assert_eq!(model.accounting.pnl_from, "2026-03-01");
+        assert_eq!(model.accounting.pnl_to, "2026-03-31");
+
+        // A second payload for a period the operator chose does not overwrite what they typed: the fields are theirs once
+        // they hold anything.
+        update(&mut model, Msg::PnlFromChanged("2026-01-01".into()));
+        update(&mut model, Msg::portal_loaded_json("accounting-pnl", 0, payload));
+        assert_eq!(model.accounting.pnl_from, "2026-01-01");
+    }
+
+    #[test]
+    fn a_backwards_period_is_the_service_s_refusal_and_the_fields_survive_it() {
+        let mut model = Model {
+            screen: target("accounting-pnl"),
+            ..Model::default()
+        };
+        update(&mut model, Msg::PnlFromChanged("2026-04-01".into()));
+        update(&mut model, Msg::PnlToChanged("2026-03-31".into()));
+        update(&mut model, Msg::PnlApplied);
+
+        update(
+            &mut model,
+            Msg::EffectFailed {
+                screen: "accounting-pnl".into(),
+                generation: 0,
+                message: "The period starts after it ends: 2026-04-01 to 2026-03-31.".into(),
+            },
+        );
+
+        assert!(!model.loading);
+        assert_eq!(
+            model.error,
+            Some("The period starts after it ends: 2026-04-01 to 2026-03-31.".to_string())
+        );
+        // Both ends are still there to be corrected, which is the point of the fields being the reducer's.
+        assert_eq!(model.accounting.pnl_from, "2026-04-01");
+        assert_eq!(model.accounting.pnl_to, "2026-03-31");
+    }
+
+    #[test]
+    fn opening_the_pnl_carries_the_period_the_screen_is_showing() {
+        // A screen that already holds a period asks for that one; a screen opened fresh asks with two empty ends, which the
+        // bridge reads as the current month.
+        let mut fresh = Model {
+            screen: target("accounting"),
+            ..Model::default()
+        };
+        let fresh = update(&mut fresh, Msg::Navigate(target("accounting-pnl")));
+        let Effect::FetchAccountingPnl { from, to, .. } = &fresh[0] else {
+            panic!("opening the P&L must ask for a period");
+        };
+        assert!(from.is_empty() && to.is_empty());
+
+        let mut held = Model {
+            screen: target("accounting-pnl"),
+            ..Model::default()
+        };
+        held.accounting.pnl_from = "2026-02-01".into();
+        held.accounting.pnl_to = "2026-02-28".into();
+        let effects = update(&mut held, Msg::Navigate(target("accounting")));
+        assert_eq!(effects.len(), 1);
+        let effects = update(&mut held, Msg::Navigate(target("accounting-pnl")));
+        let Effect::FetchAccountingPnl { from, to, .. } = &effects[0] else {
+            panic!("returning to the P&L must ask for its period again");
+        };
+        assert_eq!(from, "2026-02-01");
+        assert_eq!(to, "2026-02-28");
     }
 }
+

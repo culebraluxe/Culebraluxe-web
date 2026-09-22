@@ -55,7 +55,7 @@ impl Default for LabModel {
     }
 }
 
-enum LabMsg {
+pub enum LabMsg {
     TabSelected(LabTab),
     QueryChanged(String),
     DensityChanged(&'static str),

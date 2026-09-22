@@ -12,6 +12,7 @@ pub mod faq;
 pub mod guide;
 pub mod portal_accounting_dashboard;
 pub mod portal_accounting_expenses;
+pub mod portal_accounting_pnl;
 pub mod portal_accounting_receivables;
 pub mod portal_accounting_shell;
 pub mod home;

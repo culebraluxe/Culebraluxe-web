@@ -632,6 +632,17 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
             generation,
             Kind::Page,
         ),
+        Effect::FetchAccountingPnl {
+            screen,
+            generation,
+            from,
+            to,
+        } => (
+            pnl_query(screen, &from, &to),
+            screen,
+            generation,
+            Kind::Portal,
+        ),
         Effect::FetchPortal {
             screen,
             scope,
@@ -740,6 +751,20 @@ enum Kind {
     Page,
     Portal,
     Rows,
+}
+
+/// The P&L's request: the screen, and the period it is asking about.
+///
+/// THE RANGE IS ALWAYS ON THE REQUEST, even when both ends are empty. An empty pair means "the period the screen has not
+/// chosen yet", which the bridge answers with the current month — so "nothing chosen" and "the current month" stay one thing
+/// rather than two.
+fn pnl_query(screen: &str, from: &str, to: &str) -> String {
+    format!(
+        "{PORTAL_PATH}?screen={}&from={}&to={}",
+        encode_component(screen),
+        encode_component(from),
+        encode_component(to)
+    )
 }
 
 fn query(path: &str, screen: &str, scope: Option<&str>) -> String {

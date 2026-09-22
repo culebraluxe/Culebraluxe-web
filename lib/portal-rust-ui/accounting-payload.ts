@@ -1,6 +1,6 @@
 import 'server-only'
 
-import { todayISO } from '@/lib/accounting/format'
+import { endOfMonthISO, startOfMonthISO, todayISO } from '@/lib/accounting/format'
 import { rustApiRead } from '@/lib/rust-api/client'
 
 // ---------------------------------------------------------------------------
@@ -141,13 +141,11 @@ export async function accountingPayload(
       }
     }
     case 'accounting-pnl': {
-      // THE PERIOD IS THE CALLER'S, AND IT IS REQUIRED. The route refuses without both ends rather than defaulting them:
-      // a screen that lost its range would otherwise report another quarter's numbers that look entirely plausible.
-      const from = range.from?.trim()
-      const to = range.to?.trim()
-      if (!from || !to) {
-        throw new Error('The P&L needs both ends of its period.')
-      }
+      // THE PERIOD IS THE CALLER'S. A range that arrives is bound and validated in Rust; a range that does NOT arrive gets
+      // the current month, which is the period the live page projected for an un-filtered visit. What never happens is a
+      // silent substitution: the statement echoes back the period it covers, and the screen shows it.
+      const from = range.from?.trim() || startOfMonthISO()
+      const to = range.to?.trim() || endOfMonthISO()
       const result = await rustApiRead<AccountingPnl>(
         (`/v1/accounting/pnl?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`) as `/v1/${string}`,
       )
