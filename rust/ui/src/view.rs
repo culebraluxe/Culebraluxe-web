@@ -1134,30 +1134,6 @@ fn privacy_view() -> String {
 /// hand-copied paragraph is a paragraph that can quietly differ. `kind` is the tag it had, so the render below can put
 /// it back in the same shape.
 
-/// `app/services/page.tsx` — the Services page, which is `components/services.tsx`.
-///
-/// THE BODY ALREADY EXISTED, and reusing it is the point: `services()` above renders exactly these two blocks, ported
-/// from the same component for the homepage, so the page and the homepage's summary of it are one renderer and cannot
-/// drift apart. The homepage shows the buyers and sellers blocks as a band between the listings and the culture section;
-/// this page is where they are the page.
-///
-/// WHAT WAS HERE INSTEAD was a hardcoded article of hand-typed paragraphs, on the stated theory that "a static page is
-/// content, and content does not belong in a database query". That is the opposite of how this site is built: the copy
-/// is managed content in Neon, addressed by slot, and the live page read it from there. Retyping it into Rust would have
-/// created a second copy that silently diverges from the one the client edits — and the deleted text had already drifted
-/// from the slot it claimed to reproduce.
-fn site_services(model: &Model) -> String {
-    let Some(page) = model.page.as_ref() else {
-        // The chrome and the loading line are already on screen; an empty body is honest here and invented copy is not.
-        return String::new();
-    };
-    format!(
-        "{}{}",
-        services(&page.buyers, &page.sellers),
-        site_footer()
-    )
-}
-
 /// `app/about/page.tsx` — the About page, which is `components/about.tsx`.
 ///
 /// The same shape as the Services page above, for the same reason: `about_section()` is the renderer the homepage already
@@ -1431,7 +1407,6 @@ fn custom_body(model: &Model) -> Option<String> {
         "portal-auth-proof" => Some(portal_auth_proof_view()),
         "auth-error" => Some(auth_error_view()),
         "login-unauthorized" => Some(login_unauthorized_view()),
-        "site-services" => Some(site_services(model)),
         "site-about" => Some(site_about(model)),
         "site-privacy" => Some(privacy_view()),
         "site-whatsapp" => Some(whatsapp_view()),
