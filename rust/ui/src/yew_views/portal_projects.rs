@@ -1,7 +1,7 @@
 //! CORE / Project Management — Rust/Yew shell and MVI workspace.
 //!
-//! The only React retained here is rendering for the two vendor widgets. Their containers receive
-//! serialized read-only props; all application state remains in Model -> update().
+//! React is retained only for the original vendor widgets (Arborist, SVAR Gantt, FullCalendar).
+//! Their containers receive serialized read-only props; all application state remains in Model -> update().
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -72,9 +72,52 @@ fn workspace(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
 
     html! {
         <div class="grid min-h-0 gap-3 lg:h-[calc(100dvh-8.5rem)] lg:grid-cols-[390px_minmax(0,1fr)]">
+            { island_bridge(on_msg) }
             { navigator(model, projects, on_msg) }
             { center_panel(model, projects, on_msg) }
         </div>
+    }
+}
+
+fn island_bridge(on_msg: &Callback<Msg>) -> Html {
+    let dispatch = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |event: MouseEvent| {
+            let target = event.target_unchecked_into::<web_sys::HtmlElement>();
+            let Some(raw) = target.get_attribute("data-intent") else {
+                return;
+            };
+            let Ok(intent) = serde_json::from_str::<serde_json::Value>(&raw) else {
+                return;
+            };
+            match intent.get("kind").and_then(|value| value.as_str()) {
+                Some("project") => {
+                    if let Some(project_id) = intent.get("projectId").and_then(|value| value.as_str()) {
+                        on_msg.emit(Msg::ProjectSelected(project_id.to_string()));
+                    }
+                }
+                Some("work") => {
+                    let project_id = intent.get("projectId").and_then(|value| value.as_str());
+                    let node_id = intent.get("nodeId").and_then(|value| value.as_str());
+                    if let (Some(project_id), Some(node_id)) = (project_id, node_id) {
+                        on_msg.emit(Msg::ProjectSelected(project_id.to_string()));
+                        on_msg.emit(Msg::ProjectNodeSelected(Some(node_id.to_string())));
+                    }
+                }
+                _ => {}
+            }
+        })
+    };
+    html! {
+        <button
+            id="project-island-bridge"
+            type="button"
+            class="hidden"
+            data-intent=""
+            tabindex="-1"
+            aria-hidden="true"
+            onclick={dispatch}
+        />
     }
 }
 
@@ -170,11 +213,49 @@ fn navigator(
                     } else if visible.is_empty() {
                         <p class="px-3 py-8 text-sm font-light text-white/45">{"No matching projects in this perspective."}</p>
                     } else {
-                        { for visible.into_iter().map(|project| project_tree_row(projects, project, on_msg)) }
+                        { navigator_island(projects, &visible, &query) }
                     }
                 </div>
             </div>
         </aside>
+    }
+}
+
+fn navigator_island(
+    projects: &PortalProjectsPage,
+    visible: &[&PortalProject],
+    query: &str,
+) -> Html {
+    let visible_ids = visible
+        .iter()
+        .map(|project| project.id.as_str())
+        .collect::<BTreeSet<_>>();
+    let items = projects
+        .items
+        .iter()
+        .filter(|item| {
+            item.project_id
+                .as_deref()
+                .is_some_and(|project_id| visible_ids.contains(project_id))
+        })
+        .collect::<Vec<_>>();
+    let widget = json!({
+        "projects": visible,
+        "items": items,
+        "selectedProjectId": projects.selected_project_id.clone(),
+        "selectedNodeId": projects.selected_node_id.clone(),
+        "query": query,
+    });
+    html! {
+        <div
+            id="project-navigator-island"
+            data-project-widget={widget.to_string()}
+            class="h-full min-h-[16rem] overflow-hidden"
+        >
+            <div class="flex h-full items-center justify-center px-3 text-sm font-light text-white/40">
+                {"Loading project tree…"}
+            </div>
+        </div>
     }
 }
 
@@ -593,12 +674,23 @@ fn selected_work_editor(
 ) -> Html {
     let Some(item) = item else {
         return html! {
-            <div class="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/30 px-4 py-3 text-sm font-light text-black/40">
-                {"Select a work item to inspect or edit it."}
-            </div>
+            <section class="shrink-0 overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-[var(--portal-soft-bg)] shadow-sm">
+                <div class="flex min-h-10 w-full items-center gap-3 px-3 py-2 text-left">
+                    <span class="shrink-0 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--portal-gold-muted)]">
+                        {"Selected work"}
+                    </span>
+                    <span class="min-w-0 flex-1 truncate text-[13px] font-light text-black/45">
+                        {"Select a work item to edit it."}
+                    </span>
+                </div>
+            </section>
         };
     };
 
+    let toggle = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::ProjectWorkCollapsedToggled))
+    };
     let title_change = input_msg(on_msg, MsgKind::Title);
     let owner_change = input_msg(on_msg, MsgKind::Owner);
     let due_change = input_msg(on_msg, MsgKind::Due);
@@ -608,48 +700,79 @@ fn selected_work_editor(
         let on_msg = on_msg.clone();
         Callback::from(move |_: MouseEvent| on_msg.emit(Msg::ProjectWorkSaveRequested))
     };
+    let summary = format!(
+        "{} · {}",
+        status_label(&item.status),
+        due_label(item.due_at.as_deref())
+    );
 
     html! {
-        <div class="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/45 p-3">
-            <div class="mb-2 flex items-center justify-between gap-3">
-                <div>
-                    <div class="text-[9px] font-medium uppercase tracking-[0.14em] text-black/35">{"Selected work"}</div>
-                    <div class="font-serif text-base font-bold text-[var(--portal-navy)]">{ item.title.clone() }</div>
+        <section class="shrink-0 overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-[var(--portal-soft-bg)] shadow-sm">
+            <button
+                type="button"
+                onclick={toggle}
+                aria-expanded={(!projects.work_collapsed).to_string()}
+                class="flex min-h-10 w-full items-center gap-3 px-3 py-2 text-left"
+            >
+                <span class="shrink-0 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--portal-gold-muted)]">
+                    {"Selected work"}
+                </span>
+                <span class="min-w-0 flex-1 truncate text-[15px] font-medium text-[var(--portal-navy)]">
+                    { item.title.clone() }
+                </span>
+                <span class="hidden shrink-0 text-[12px] font-light text-[var(--portal-blue-gray)] sm:inline">
+                    { summary }
+                </span>
+                <span class="flex shrink-0 items-center gap-1 text-[11px] font-medium text-[var(--portal-blue-gray)]">
+                    { if projects.work_collapsed { "Expand" } else { "Collapse" } }
+                    <span class="text-base leading-none" aria-hidden="true">
+                        { if projects.work_collapsed { "⌄" } else { "⌃" } }
+                    </span>
+                </span>
+            </button>
+            if !projects.work_collapsed {
+                <div class="grid grid-cols-2 gap-2 border-t border-[var(--portal-panel-border)] px-3 pb-3 pt-2 md:grid-cols-3 xl:grid-cols-[minmax(180px,1.2fr)_130px_135px_150px_minmax(220px,1.35fr)_auto] xl:items-end">
+                    <label class="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
+                        {"Title"}
+                        <input value={item.title.clone()} oninput={title_change} class={work_input_class()} />
+                    </label>
+                    <label class="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
+                        {"Status"}
+                        <select value={item.status.clone()} onchange={status_change} class={work_input_class()}>
+                            <option value="open">{"Not started"}</option>
+                            <option value="doing">{"In progress"}</option>
+                            <option value="done">{"Complete"}</option>
+                            <option value="dismissed">{"Dismissed"}</option>
+                        </select>
+                    </label>
+                    <label class="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
+                        {"Due"}
+                        <input type="date" value={date_value(item.due_at.as_deref())} oninput={due_change} class={work_input_class()} />
+                    </label>
+                    <label class="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
+                        {"Owner"}
+                        <input value={item.owner.clone().unwrap_or_default()} oninput={owner_change} class={work_input_class()} />
+                    </label>
+                    <label class="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
+                        {"Notes"}
+                        <textarea
+                            value={item.notes.clone()}
+                            oninput={notes_change}
+                            rows="2"
+                            class="mt-1 min-h-[3.5rem] w-full resize-y rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 px-2.5 py-2 text-[12px] font-light leading-snug text-black/70 outline-none"
+                        />
+                    </label>
+                    <button
+                        type="button"
+                        onclick={save}
+                        disabled={!projects.work_dirty || projects.saving}
+                        class="h-9 rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-4 text-[12px] font-medium text-white shadow-sm transition hover:opacity-90 disabled:opacity-35"
+                    >
+                        { if projects.saving { "Saving…" } else { "Save" } }
+                    </button>
                 </div>
-                <button type="button" onclick={save} disabled={!projects.work_dirty || projects.saving}
-                    class="rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-3 py-2 text-[10px] font-medium uppercase tracking-[0.12em] text-white disabled:opacity-35">
-                    { if projects.saving { "Saving…" } else { "Save" } }
-                </button>
-            </div>
-            <div class="grid gap-2 lg:grid-cols-[1.5fr_1fr_150px_150px]">
-                <label>
-                    <span class="text-[8px] uppercase tracking-[0.12em] text-black/35">{"Title"}</span>
-                    <input value={item.title.clone()} oninput={title_change} class={work_input_class()} />
-                </label>
-                <label>
-                    <span class="text-[8px] uppercase tracking-[0.12em] text-black/35">{"Owner"}</span>
-                    <input value={item.owner.clone().unwrap_or_default()} oninput={owner_change} class={work_input_class()} />
-                </label>
-                <label>
-                    <span class="text-[8px] uppercase tracking-[0.12em] text-black/35">{"Due"}</span>
-                    <input type="date" value={date_value(item.due_at.as_deref())} oninput={due_change} class={work_input_class()} />
-                </label>
-                <label>
-                    <span class="text-[8px] uppercase tracking-[0.12em] text-black/35">{"Status"}</span>
-                    <select value={item.status.clone()} onchange={status_change} class={work_input_class()}>
-                        <option value="open">{"Open"}</option>
-                        <option value="doing">{"In progress"}</option>
-                        <option value="done">{"Complete"}</option>
-                        <option value="dismissed">{"Dismissed"}</option>
-                    </select>
-                </label>
-            </div>
-            <label class="mt-2 block">
-                <span class="text-[8px] uppercase tracking-[0.12em] text-black/35">{"Notes"}</span>
-                <textarea value={item.notes.clone()} oninput={notes_change}
-                    class="mt-1 min-h-16 w-full resize-y rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 px-2.5 py-2 text-[12px] font-light text-black/70 outline-none" />
-            </label>
-        </div>
+            }
+        </section>
     }
 }
 
