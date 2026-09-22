@@ -777,6 +777,67 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             projects.work_dirty = false;
             Vec::new()
         }
+        Msg::ProjectCatchUpItemSelected { project_id, node_id } => {
+            let Some(projects) = model
+                .page
+                .as_mut()
+                .and_then(|page| page.portal.as_mut())
+                .and_then(|portal| portal.projects.as_mut())
+            else {
+                return Vec::new();
+            };
+            let valid = projects.items.iter().any(|item| {
+                item.id == node_id && item.project_id.as_deref() == Some(project_id.as_str())
+            });
+            if !valid {
+                return Vec::new();
+            }
+            projects.selected_project_id = Some(project_id);
+            projects.selected_node_id = Some(node_id);
+            projects.catch_up = true;
+            projects.work_collapsed = false;
+            projects.work_dirty = false;
+            Vec::new()
+        }
+        Msg::ProjectCatchUpItemCompleteRequested { project_id, node_id } => {
+            let Some(projects) = model
+                .page
+                .as_mut()
+                .and_then(|page| page.portal.as_mut())
+                .and_then(|portal| portal.projects.as_mut())
+            else {
+                return Vec::new();
+            };
+            if projects.saving {
+                return Vec::new();
+            }
+            let Some(item) = projects.items.iter().find(|item| {
+                item.id == node_id && item.project_id.as_deref() == Some(project_id.as_str())
+            }) else {
+                return Vec::new();
+            };
+            if matches!(item.status.as_str(), "done" | "dismissed") {
+                return Vec::new();
+            }
+            let effect = Effect::SaveProjectWork {
+                screen: model.screen.key,
+                generation: model.generation,
+                item_id: item.id.clone(),
+                title: item.title.clone(),
+                notes: item.notes.clone(),
+                status: "done".into(),
+                due_at: item.due_at.clone(),
+                owner: item.owner.clone(),
+            };
+            projects.selected_project_id = Some(project_id);
+            projects.selected_node_id = Some(node_id);
+            projects.catch_up = true;
+            projects.work_collapsed = false;
+            projects.work_dirty = false;
+            projects.saving = true;
+            model.error = None;
+            vec![effect]
+        }
         Msg::ProjectStatusRequested(status) => {
             let Some(projects) = model
                 .page
