@@ -2281,7 +2281,7 @@ fn buyer_filters(model: &Model) -> String {
 }
 
 // The four steps of "A considered path from first look to ownership".
-const BUYER_STEPS: [(&str, &str, &str); 4] = [
+pub(crate) const BUYER_STEPS: [(&str, &str, &str); 4] = [
     ("01", "A quiet conversation", "We begin by understanding what you are truly seeking — the light, the outlook, the rhythm of days. No pressure, no listings sheet. Just a considered discussion of possibility."),
     ("02", "Private viewings", "Many of the finest homes on Culebra never reach a public listing. We arrange discreet, unhurried viewings — including off-market residences held within our private network."),
     ("03", "Diligence & title", "We coordinate title research, survey review, and legal counsel, translating the particulars of Puerto Rico property law into clear, unhurried guidance."),
@@ -2289,7 +2289,7 @@ const BUYER_STEPS: [(&str, &str, &str); 4] = [
 ];
 
 // The six supporting services, listed as one ruled column.
-const BUYER_SERVICES: [&str; 6] = [
+pub(crate) const BUYER_SERVICES: [&str; 6] = [
     "Private, unlisted viewings",
     "Legal, title & closing guidance",
     "Architecture & renovation introductions",
@@ -2894,7 +2894,7 @@ fn site_property_detail(model: &Model) -> String {
 }
 
 /// Whether a listing is land — the same rule the card's Land badge uses, so the badge and the tabs cannot disagree.
-fn listing_is_land(listing: &Listing) -> bool {
+pub(crate) fn listing_is_land(listing: &Listing) -> bool {
     listing
         .kind
         .as_deref()
@@ -2936,7 +2936,7 @@ fn listing_price(listing: &Listing) -> Option<f64> {
 ///
 /// It takes the model rather than a filter set so the list on screen cannot be narrowed by something no control
 /// explains: what is rendered is always a function of what the model holds.
-fn buyers_visible<'a>(listings: &'a [Listing], model: &Model) -> Vec<&'a Listing> {
+pub(crate) fn buyers_visible<'a>(listings: &'a [Listing], model: &Model) -> Vec<&'a Listing> {
     let controls = &model.controls;
     let category = controls.tab.as_deref().unwrap_or("all");
     let query = controls.query.trim().to_ascii_lowercase();

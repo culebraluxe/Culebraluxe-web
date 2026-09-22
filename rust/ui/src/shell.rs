@@ -324,11 +324,16 @@ pub fn island_event_name() -> String {
 /// Mount the program into `element_id`, opening `start` — a screen key such as `site-home` or `dashboard` — and return
 /// the effects the host must run, as a JSON array.
 ///
+/// `generation` IS A `u32` ON PURPOSE, and it is the reason every screen using this path died at once. wasm-bindgen maps
+/// `u64` to a JavaScript **BigInt**, and the host passes a plain number, so a `u64` parameter fails at the boundary with
+/// "Invalid argument type in ToBigInt operation" — before `mount` runs, which is why nothing rendered and nothing said
+/// why. A counter of mounts never needs more than four billion.
+///
 /// The starting screen comes from the host because the host owns the URL. An unknown key is refused rather than
 /// quietly opening the first screen: a page that renders the wrong screen without saying so is a bug that gets
 /// debugged twice.
 #[wasm_bindgen]
-pub fn mount(element_id: &str, start: &str, generation: u64) -> Result<String, JsValue> {
+pub fn mount(element_id: &str, start: &str, generation: u32) -> Result<String, JsValue> {
     console_error_panic_hook::set_once();
     let start = screen(start)
         .ok_or_else(|| JsValue::from_str(&format!("ui: '{start}' is not a known screen")))?;
@@ -345,7 +350,7 @@ pub fn mount(element_id: &str, start: &str, generation: u64) -> Result<String, J
             &program,
             Msg::Mount {
                 screen: start,
-                generation,
+                generation: generation as u64,
             },
         ));
     }
@@ -456,7 +461,7 @@ pub fn mount(element_id: &str, start: &str, generation: u64) -> Result<String, J
         &program,
         Msg::Mount {
             screen: start,
-            generation,
+            generation: generation as u64,
         },
     ))
 }
@@ -470,13 +475,13 @@ pub fn mount(element_id: &str, start: &str, generation: u64) -> Result<String, J
 /// The host owns the network on purpose. It holds the session; this module holds no credential, so a compromised view
 /// layer cannot be talked into fetching somewhere else.
 #[wasm_bindgen]
-pub fn rows_loaded(screen: &str, generation: u64, payload: &str) -> Result<(), JsValue> {
+pub fn rows_loaded(screen: &str, generation: u32, payload: &str) -> Result<(), JsValue> {
     PROGRAM.with(|slot| {
         let program = slot.borrow().clone();
         match program {
             Some(program) => {
                 let root = current_root()?;
-                dispatch(&root, &program, Msg::rows_loaded_json(screen, generation, payload));
+                dispatch(&root, &program, Msg::rows_loaded_json(screen, generation as u64, payload));
                 Ok(())
             }
             None => Err(JsValue::from_str(
@@ -489,13 +494,13 @@ pub fn rows_loaded(screen: &str, generation: u64, payload: &str) -> Result<(), J
 /// The same bridge for a page: the host fetched its blocks from an application route, and it names the screen and the
 /// mount they were fetched for so the reducer can refuse an answer whose screen has moved on.
 #[wasm_bindgen]
-pub fn page_loaded(screen: &str, generation: u64, payload: &str) -> Result<(), JsValue> {
+pub fn page_loaded(screen: &str, generation: u32, payload: &str) -> Result<(), JsValue> {
     PROGRAM.with(|slot| {
         let program = slot.borrow().clone();
         match program {
             Some(program) => {
                 let root = current_root()?;
-                dispatch(&root, &program, Msg::page_loaded_json(screen, generation, payload));
+                dispatch(&root, &program, Msg::page_loaded_json(screen, generation as u64, payload));
                 Ok(())
             }
             None => Err(JsValue::from_str(

@@ -28,6 +28,18 @@ pub mod view;
 #[cfg(feature = "wasm")]
 pub mod shell;
 
+/// The Yew application, which is replacing `shell` for the public routes. Everything it needs of the MVI core
+/// (`model`, `update`, `view`) is shared with the string renderers, so both runtimes agree on state and on the search
+/// contract while the port completes.
+#[cfg(all(feature = "wasm", feature = "yew"))]
+pub mod yew_app;
+#[cfg(all(feature = "wasm", feature = "yew"))]
+pub mod yew_effects;
+#[cfg(all(feature = "wasm", feature = "yew-router"))]
+pub mod yew_router;
+#[cfg(all(feature = "wasm", feature = "yew"))]
+pub mod yew_views;
+
 pub mod icons;
 pub use document::{document, ASSETS_ROOT, STYLESHEET_URL};
 pub use model::{
