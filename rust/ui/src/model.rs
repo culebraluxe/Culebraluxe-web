@@ -802,6 +802,8 @@ pub struct PortalProjectsPage {
     pub selected_node_id: Option<String>,
     pub active_view: String,
     pub catch_up: bool,
+    /// The bottom selected-work pane is collapsible, matching the mature Projects workspace.
+    pub work_collapsed: bool,
     pub work_dirty: bool,
     pub saving: bool,
 }
@@ -1126,6 +1128,7 @@ pub enum Msg {
     ProjectWorkOwnerChanged(String),
     ProjectWorkDueChanged(String),
     ProjectWorkStatusChanged(String),
+    ProjectWorkCollapsedToggled,
     ProjectWorkSaveRequested,
 }
 
