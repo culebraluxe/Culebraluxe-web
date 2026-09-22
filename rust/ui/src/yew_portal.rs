@@ -8,6 +8,7 @@ use yew::prelude::*;
 use crate::model::{Msg, Screen};
 use crate::yew_views::portal_activity::Activity;
 use crate::yew_views::portal_clients::{ClientRecord, Clients};
+use crate::yew_views::portal_cockpit::Cockpit;
 use crate::yew_views::portal_forms::{FormRecord, Forms};
 use crate::yew_views::portal_projects::Projects;
 use crate::yew_views::portal_workflow_record::WorkflowRecord;
@@ -59,6 +60,7 @@ impl Component for PortalApp {
     fn view(&self, ctx: &Context<Self>) -> Html {
         let on_msg = ctx.link().callback(AppMsg::Ui);
         match self.model.screen.key {
+            "dashboard" => html! { <Cockpit model={self.model.clone()} on_msg={on_msg} /> },
             "activity" => html! { <Activity model={self.model.clone()} on_msg={on_msg} /> },
             "clients" => html! { <Clients model={self.model.clone()} on_msg={on_msg} /> },
             "client-record" => {
