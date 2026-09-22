@@ -129,7 +129,7 @@ async function GETHandler(req: NextRequest): Promise<Response> {
     })
   }
 
-  const dealId = req.nextUrl.searchParams.get('id')?.trim()
+  const dealId = (req.nextUrl.searchParams.get('scope') ?? req.nextUrl.searchParams.get('id'))?.trim()
   if (dealId) {
     const result = await rustApiRead<unknown>(
       (`/v1/deals/${encodeURIComponent(dealId)}`) as `/v1/${string}`,
@@ -157,7 +157,7 @@ async function POSTHandler(req: NextRequest): Promise<Response> {
     return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 })
   }
 
-  const dealId = req.nextUrl.searchParams.get('id')?.trim()
+  const dealId = (req.nextUrl.searchParams.get('scope') ?? req.nextUrl.searchParams.get('id'))?.trim()
   if (dealId) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
       return NextResponse.json({ error: 'Invalid command body.' }, { status: 400 })
