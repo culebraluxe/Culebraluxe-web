@@ -1627,6 +1627,110 @@ fn about_cta() -> String {
      </section>"
         .to_string()
 }
+/// `app/faq/page.tsx` — the questions, and a quiet way to ask the ones that are not here.
+///
+/// THE ACCORDION IS A `<details>` ELEMENT, AND THAT IS THE PORT RATHER THAN A COMPROMISE. The live page's
+/// `components/faq-accordion.tsx` is a client component holding `useState<number | null>(0)`: the open question is React
+/// state, the panel animates between `grid-rows-[0fr]` and `grid-rows-[1fr]`, and the plus becomes a minus by fading
+/// the vertical stroke. A `<details>` gives the same behaviour with no island — it opens on the first question (which
+/// is what the component initialised to), it toggles without JavaScript, and the plus/minus is the same two strokes
+/// with the vertical one faded while the element is open. What it does not reproduce is the height transition: an
+/// answer appears at once instead of growing. That is the same deliberate simplification the site header's mobile menu
+/// makes, and for the same reason — an element that needs no island cannot break when one fails to arrive.
+///
+/// THE QUESTIONS ARE THE CONTENT STORE'S, NOT THIS FILE'S. They are the items of the `faq.list` block keyed `faq`
+/// (label = question, value = answer) — the same filter `faqEntries()` applies on the TypeScript side — and the closing
+/// call to action is that same block's `subtitle`, `ctaLabel` and `ctaHref`. Serving the block whole is what lets the
+/// renderer see the CTA without a second selector and a second shape.
+fn site_faq(model: &Model) -> String {
+    // No page, no page furniture. An accordion with no questions under a hero with no words is not the FAQ page; it is
+    // a page that has not arrived, and rendering nothing says so more honestly than inventing questions would.
+    let Some(page) = model.page.as_ref() else {
+        return String::new();
+    };
+    let intro = page.hero.body.as_str();
+    let hero = page_hero(
+        &page.hero.eyebrow,
+        &page.hero.title,
+        // Absent intro renders nothing rather than an empty line, which is the rule the shared hero already keeps.
+        (!intro.is_empty()).then_some(intro),
+        page
+            .hero
+            .image_path
+            .as_deref()
+            .unwrap_or("/images/hero-villa.png"),
+        page.hero
+            .image_alt
+            .as_deref()
+            .unwrap_or("A luxury villa overlooking the Culebra coastline"),
+    );
+    // A QUESTION IS A PAIR. An item carrying a question and no answer — or an answer and no question — is not a
+    // question, and defaulting the missing half to an empty string would render a heading with nothing under it. Both
+    // halves or the item is skipped, which is the same rule `faqEntries()` applies.
+    let questions = page
+        .faq
+        .items
+        .iter()
+        .filter(|item| item.key == "faq")
+        .filter_map(|item| Some((item.label.as_deref()?, item.value.as_deref()?)))
+        .enumerate()
+        .map(|(index, (question, answer))| {
+            format!(
+                "<li class=\"border-b border-border\">\
+                   <details class=\"group\"{open}>\
+                     <summary class=\"flex w-full cursor-pointer list-none items-start justify-between gap-8 py-7 \
+                       text-left [&::-webkit-details-marker]:hidden\">\
+                       <span class=\"font-serif text-lg font-light leading-snug text-foreground md:text-xl\">{question}</span>\
+                       <span class=\"relative mt-2 inline-block h-4 w-4 shrink-0\" aria-hidden=\"true\">\
+                         <span class=\"absolute left-0 top-1/2 h-px w-4 -translate-y-1/2 bg-accent\"></span>\
+                         <span class=\"absolute left-1/2 top-0 h-4 w-px -translate-x-1/2 bg-accent transition-opacity \
+                           duration-300 group-open:opacity-0\"></span>\
+                       </span>\
+                     </summary>\
+                     <p class=\"max-w-2xl pb-7 text-sm font-light leading-relaxed text-muted-foreground\">{answer}</p>\
+                   </details>\
+                 </li>",
+                // The first question loads open, because that is what the live component initialised to.
+                open = if index == 0 { " open" } else { "" },
+                question = escape(question),
+                answer = escape(answer),
+            )
+        })
+        .collect::<String>();
+    // An empty list is not a section. Nothing to ask is a content-store state, not a layout, and a bordered list with
+    // no rows in it is the page talking about itself.
+    let accordion = if questions.is_empty() {
+        String::new()
+    } else {
+        format!("<ul class=\"mx-auto max-w-3xl\">{questions}</ul>")
+    };
+    let cta_heading = page.faq.subtitle.trim();
+    let cta = rule_cta(&page.faq, "/contact", "bg-accent");
+    // The closing band is both halves of one idea — the line and the link under it — so it appears when either half is
+    // there and each half renders only if it has words. A rule over nothing is worse than no rule.
+    let closing = if cta_heading.is_empty() && cta.is_empty() {
+        String::new()
+    } else {
+        let heading = if cta_heading.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "<p class=\"text-pretty font-serif text-2xl font-light leading-snug text-foreground\">{}</p>",
+                escape(cta_heading)
+            )
+        };
+        format!(
+            "<div class=\"mx-auto mt-20 flex max-w-3xl flex-col items-start gap-6 border-t border-border pt-12\">\
+               {heading}{cta}\
+             </div>"
+        )
+    };
+    format!(
+        "{hero}<section class=\"px-6 py-24 md:px-12 md:py-32\">{accordion}{closing}</section>"
+    )
+}
+
+
 
 // The guide's nine sections, in the order the page presents them: id, number, title, headline, description.
 const GUIDE_SECTIONS: [(&str, &str, &str, &str, &str); 9] = [
@@ -3014,6 +3118,7 @@ fn custom_body(model: &Model) -> Option<String> {
         "site-buyers" => Some(site_buyers(model)),
         "site-property-detail" => Some(site_property_detail(model)),
         "site-guide" => Some(site_guide(model)),
+        "site-faq" => Some(site_faq(model)),
         "site-sellers" => Some(site_sellers(model)),
         "site-about" => Some(site_about(model)),
         "site-privacy" => Some(privacy_view()),

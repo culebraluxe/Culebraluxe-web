@@ -454,6 +454,14 @@ pub struct PageContent {
     pub culture: Block,
     pub about: Block,
     pub contact: Block,
+    /// The FAQ page's accordion source (screen `site-faq`).
+    ///
+    /// Served as the `faq.list` block whole rather than as a list of questions, because the block carries more than its
+    /// items: its `subtitle` is the heading over the closing call to action and its `ctaLabel`/`ctaHref` are the link
+    /// itself. Splitting the questions out would have meant a second field for each of those and a second shape to keep
+    /// in step with the content store. The questions are its items keyed `faq` — a label and a value, question and
+    /// answer — which is the same filter `faqEntries()` applies in TypeScript.
+    pub faq: Block,
     pub featured: Vec<Listing>,
     pub listings: Vec<Listing>,
     /// The Island Guide's catalogue (screen `site-guide`). Empty for every other page, which is what `default` is for.
