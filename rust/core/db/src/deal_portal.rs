@@ -667,12 +667,11 @@ impl DealPortalDao {
                           where deal_id=$1::uuid
                             and role='other'
                             and active=true
-                            and lower(role_label)=lower($3)
+                            and lower(role_label)=lower($2)
                         )
                         "#,
                     )
                     .bind(deal_id)
-                    .bind(person_id)
                     .bind(role_label)
                     .fetch_one(tx.connection())
                     .await
