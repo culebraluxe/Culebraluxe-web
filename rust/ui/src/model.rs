@@ -468,6 +468,92 @@ pub struct PortalPage {
     pub forms: Option<PortalFormsPage>,
     /// CORE Projects — authoritative Rust Project/WBS data plus reducer-owned workspace selection.
     pub projects: Option<PortalProjectsPage>,
+    /// CORE Contracts — canonical Deal portfolio plus form-created Contract artifacts.
+    pub deals: Option<PortalDealsPage>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalDealsPage {
+    pub deals: Vec<PortalDeal>,
+    pub contracts: Vec<PortalDealContract>,
+    pub properties: Vec<PortalDealableProperty>,
+    pub users: Vec<PortalDealOwnerCandidate>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalDeal {
+    pub id: String,
+    pub property_id: String,
+    pub property_name: String,
+    pub property_location: String,
+    pub property_descriptor: Option<String>,
+    pub hero_media_id: Option<String>,
+    pub client_id: String,
+    pub client_name: String,
+    pub stage: String,
+    pub list_price: Option<f64>,
+    pub offer_price: Option<f64>,
+    pub owner: String,
+    pub closing_date: Option<String>,
+    pub next_milestone: Option<String>,
+    pub next_milestone_at: Option<String>,
+    pub last_activity: Option<String>,
+    pub last_activity_at: Option<String>,
+    pub showing_count: i64,
+    pub offer_count: i64,
+    pub participant_count: i64,
+    pub latest_offer_amount: Option<f64>,
+    pub latest_offer_status: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalDealContract {
+    pub id: String,
+    pub form_template_id: String,
+    pub contract_type: String,
+    pub property_id: String,
+    pub property_label: Option<String>,
+    pub status: String,
+    pub process_instance_id: Option<String>,
+    pub executed_at: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalDealableProperty {
+    pub id: String,
+    pub name: String,
+    pub location: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalDealOwnerCandidate {
+    pub id: String,
+    pub display_name: String,
+    pub email: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalDealPersonCandidate {
+    pub id: String,
+    pub display_name: String,
+    pub role: String,
+    pub status: String,
+    pub location: Option<String>,
+    pub email: Option<String>,
+    pub phone: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalDealPeopleSearch {
+    pub people: Vec<PortalDealPersonCandidate>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -1101,6 +1187,21 @@ pub struct Controls {
     pub page: usize,
 }
 
+/// Reducer-owned state for the Contracts create panel. The DOM never owns a second copy of these values.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DealCreateState {
+    pub open: bool,
+    pub property_id: String,
+    pub client_person_id: String,
+    pub client_label: String,
+    pub client_query: String,
+    pub owner_user_id: String,
+    pub notes: String,
+    pub people: Vec<PortalDealPersonCandidate>,
+    pub searching: bool,
+    pub submitting: bool,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Model {
     pub screen: Screen,
@@ -1123,6 +1224,8 @@ pub struct Model {
     pub page: Option<PageContent>,
     /// Seller Strategy is deterministic local application state: no fetch and no parallel React model.
     pub seller_strategy: crate::seller_strategy::SellerStrategyState,
+    /// Contracts create/search state is reducer-owned just like every other interactive portal surface.
+    pub deal_create: DealCreateState,
     /// WHICH MOUNT THIS STATE BELONGS TO.
     ///
     /// A host run has a generation, the shell stamps it on the program and on every effect it asks for, and every
@@ -1147,6 +1250,7 @@ impl Default for Model {
             controls: Controls::default(),
             page: None,
             seller_strategy: crate::seller_strategy::SellerStrategyState::default(),
+            deal_create: DealCreateState::default(),
             // Generation zero is "no host has said", which is what a program built by a test or an example holds.
             generation: 0,
         }
@@ -1220,6 +1324,29 @@ pub enum Msg {
         screen: String,
         generation: u64,
         page: PortalPage,
+    },
+
+    // ---- Contracts / Deal workspace -----------------------------------------------------------------------------
+    DealCreateToggled,
+    DealCreatePropertyChanged(String),
+    DealCreateClientQueryChanged(String),
+    DealCreateClientSelected {
+        id: String,
+        label: String,
+    },
+    DealCreateOwnerChanged(String),
+    DealCreateNotesChanged(String),
+    DealPeopleLoaded {
+        screen: String,
+        generation: u64,
+        query: String,
+        people: Vec<PortalDealPersonCandidate>,
+    },
+    DealCreateRequested,
+    DealCreated {
+        screen: String,
+        generation: u64,
+        id: String,
     },
 
     // ---- controls: the screen's own input, one message per act --------------------------------------------------
@@ -1438,6 +1565,27 @@ pub enum Effect {
         deal_id: Option<String>,
         person_id: Option<String>,
         property_id: Option<String>,
+    },
+    /// CORE Contracts reads the canonical Deal portfolio and its Contract artifacts from Rust.
+    FetchDeals {
+        screen: &'static str,
+        scope: Option<String>,
+        generation: u64,
+    },
+    /// Search canonical people for the Contracts create panel.
+    SearchDealPeople {
+        screen: &'static str,
+        generation: u64,
+        query: String,
+    },
+    /// Create one canonical Deal through the reviewed Rust command bridge.
+    CreateDeal {
+        screen: &'static str,
+        generation: u64,
+        property_id: String,
+        client_person_id: String,
+        owner_user_id: Option<String>,
+        notes: Option<String>,
     },
     /// CORE Project Management reads only from Rust Project/WBS/Vault APIs.
     FetchProjects {
