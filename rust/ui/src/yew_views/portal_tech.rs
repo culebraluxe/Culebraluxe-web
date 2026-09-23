@@ -500,7 +500,8 @@ fn selected_story(model: &crate::model::Model, tech: &PortalTechPage, on_msg: &C
                         <div class="flex flex-wrap gap-1.5">
                             { for [("scout", "Scout"), ("architect", "Architect"), ("lead", "Lead")].into_iter().map(|(key, label)| {
                                 let action = scoped(key);
-                                let active = model.tech.busy_action.as_deref() == Some(&format!("scoped:{key}"));
+                                let busy_key = format!("scoped:{key}");
+                                let active = model.tech.busy_action.as_deref() == Some(busy_key.as_str());
                                 html! {
                                     <button
                                         type="button"
@@ -744,7 +745,7 @@ fn history_card(item: &PortalTechHistory) -> Html {
 
 fn command_notice(model: &crate::model::Model) -> Html {
     let Some(notice) = model.tech.notice.as_ref() else {
-        return Html::default();
+        return html! {};
     };
     html! {
         <div class={classes!(
