@@ -40,6 +40,8 @@ pub fn is_ported_portal_screen(key: &str) -> bool {
             | "accounting-receivables"
             | "accounting-pnl"
             | "accounting-receipt-scanner"
+            | "property-admin"
+            | "property-media"
             | "seller-strategy"
     )
 }
@@ -97,6 +99,26 @@ fn client_effect(model: &Model) -> Effect {
     Effect::FetchClients {
         screen: model.screen.key,
         scope: model.scope.clone(),
+        selected: model.selected_row_id.clone(),
+        search: model.controls.query.clone(),
+        page: model.controls.page,
+        generation: model.generation,
+    }
+}
+
+fn records_effect(model: &Model) -> Effect {
+    Effect::FetchRecords {
+        screen: model.screen.key,
+        selected: model.selected_row_id.clone(),
+        search: model.controls.query.clone(),
+        page: model.controls.page,
+        generation: model.generation,
+    }
+}
+
+fn listing_media_effect(model: &Model) -> Effect {
+    Effect::FetchListingMedia {
+        screen: model.screen.key,
         selected: model.selected_row_id.clone(),
         search: model.controls.query.clone(),
         page: model.controls.page,
@@ -280,6 +302,7 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
     model.deal_create = DealCreateState::default();
     model.flight_recorder = crate::model::FlightRecorderState::default();
     model.tech = crate::model::TechCockpitState::default();
+    model.listing_media = crate::model::ListingMediaState::default();
     model.deal_workspace = DealWorkspaceState::default();
 
     // Local screens own deterministic browser-only state and do not ask the server for a payload.
@@ -347,6 +370,10 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
                 screen: screen.key,
                 generation: model.generation,
             }]
+        } else if screen.key == "property-admin" {
+            vec![records_effect(model)]
+        } else if screen.key == "property-media" {
+            vec![listing_media_effect(model)]
         } else if screen.key == "accounting-pnl" {
             // The P&L is asked for a PERIOD, so its effect carries one: the draft the reducer holds, or empty on a first
             // open, which the bridge reads as "the current month" — the period the live page projected.
@@ -730,6 +757,36 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             }]
         }
         Msg::RowSelected(id) => {
+            if model.screen.key == "property-admin" {
+                let valid = model
+                    .page
+                    .as_ref()
+                    .and_then(|page| page.portal.as_ref())
+                    .and_then(|portal| portal.records.as_ref())
+                    .is_some_and(|records| records.rows.iter().any(|row| row.id == id));
+                if valid {
+                    model.selected_row_id = Some(id);
+                    model.loading = true;
+                    model.error = None;
+                    return vec![records_effect(model)];
+                }
+                return Vec::new();
+            }
+            if model.screen.key == "property-media" {
+                let valid = model
+                    .page
+                    .as_ref()
+                    .and_then(|page| page.portal.as_ref())
+                    .and_then(|portal| portal.listing_media.as_ref())
+                    .is_some_and(|media| media.properties.iter().any(|row| row.id == id));
+                if valid {
+                    model.selected_row_id = Some(id);
+                    model.loading = true;
+                    model.error = None;
+                    return vec![listing_media_effect(model)];
+                }
+                return Vec::new();
+            }
             if model.screen.key == "clients" {
                 let valid = model
                     .page
@@ -817,6 +874,19 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                     .as_ref()
                     .and_then(|tech| tech.selected_story.as_ref())
                     .map(|story| story.id.clone());
+            }
+            if model.screen.key == "property-admin" {
+                model.selected_row_id = page
+                    .records
+                    .as_ref()
+                    .and_then(|records| records.selected_id.clone());
+            }
+            if model.screen.key == "property-media" {
+                model.selected_row_id = page
+                    .listing_media
+                    .as_ref()
+                    .and_then(|media| media.selected_id.clone());
+                model.listing_media.uploading = false;
             }
             if matches!(model.screen.key, "clients" | "client-record") {
                 model.selected_row_id = page
@@ -926,6 +996,9 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                     projects.saving = false;
                 }
             }
+            if model.listing_media.uploading {
+                model.listing_media.uploading = false;
+            }
             if model.tech.busy_action.is_some() {
                 model.tech.busy_action = None;
                 model.tech.notice =
@@ -961,6 +1034,92 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             model.error = None;
             model.page = Some(page);
             Vec::new()
+        }
+
+        // ---- OPPS / Records + Listing Media -------------------------------------------------------------------------
+        Msg::RecordArchiveRequested => {
+            if model.screen.key != "property-admin" || model.loading {
+                return Vec::new();
+            }
+            let Some(property) = model
+                .page
+                .as_ref()
+                .and_then(|page| page.portal.as_ref())
+                .and_then(|portal| portal.records.as_ref())
+                .and_then(|records| records.selected.as_ref())
+            else {
+                return Vec::new();
+            };
+            model.loading = true;
+            model.error = None;
+            vec![Effect::RecordArchive {
+                screen: model.screen.key,
+                property_id: property.id.clone(),
+                archived: property.archived,
+                search: model.controls.query.clone(),
+                page: model.controls.page,
+                generation: model.generation,
+            }]
+        }
+        Msg::ListingMediaRoleChanged(value) => {
+            if model.screen.key == "property-media" && matches!(value.as_str(), "hero" | "gallery") {
+                model.listing_media.role = value;
+                model.error = None;
+            }
+            Vec::new()
+        }
+        Msg::ListingMediaAltChanged(value) => {
+            if model.screen.key == "property-media" {
+                model.listing_media.alt = value;
+                model.error = None;
+            }
+            Vec::new()
+        }
+        Msg::ListingMediaFileChosen(name) => {
+            if model.screen.key == "property-media" {
+                model.listing_media.file_name = (!name.trim().is_empty()).then_some(name);
+                model.error = None;
+            }
+            Vec::new()
+        }
+        Msg::ListingMediaUploadRequested => {
+            if model.screen.key != "property-media" || model.loading || model.listing_media.uploading {
+                return Vec::new();
+            }
+            let Some(property_id) = model
+                .page
+                .as_ref()
+                .and_then(|page| page.portal.as_ref())
+                .and_then(|portal| portal.listing_media.as_ref())
+                .and_then(|media| media.selected.as_ref())
+                .map(|property| property.id.clone())
+            else {
+                return Vec::new();
+            };
+            if model.listing_media.file_name.is_none() {
+                model.error = Some("Choose an image before uploading.".into());
+                return Vec::new();
+            }
+            model.listing_media.uploading = true;
+            model.error = None;
+            vec![Effect::UploadListingMedia {
+                screen: model.screen.key,
+                property_id,
+                role: model.listing_media.role.clone(),
+                alt: model.listing_media.alt.clone(),
+                generation: model.generation,
+            }]
+        }
+        Msg::ListingMediaUploadCompleted { screen, generation } => {
+            if !owns(model, &screen, generation) {
+                return Vec::new();
+            }
+            model.listing_media.uploading = false;
+            model.listing_media.alt.clear();
+            model.listing_media.file_name = None;
+            model.loading = true;
+            model.error = None;
+            vec![listing_media_effect(model)]
         }
 
         // ---- Contracts / Deal workspace -------------------------------------------------------------------------
@@ -1804,6 +1963,18 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 model.error = None;
                 return vec![client_effect(model)];
             }
+            if model.screen.key == "property-admin" {
+                model.selected_row_id = None;
+                model.loading = true;
+                model.error = None;
+                return vec![records_effect(model)];
+            }
+            if model.screen.key == "property-media" {
+                model.selected_row_id = None;
+                model.loading = true;
+                model.error = None;
+                return vec![listing_media_effect(model)];
+            }
             Vec::new()
         }
         Msg::FilterChanged(filter) => {
@@ -1851,6 +2022,47 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 model.loading = true;
                 model.error = None;
                 return vec![client_effect(model)];
+            }
+
+            if model.screen.key == "property-admin" {
+                let pages = model
+                    .page
+                    .as_ref()
+                    .and_then(|page| page.portal.as_ref())
+                    .and_then(|portal| portal.records.as_ref())
+                    .map(|records| {
+                        let size = records.page_size.max(1);
+                        ((records.total + size - 1) / size).max(1)
+                    })
+                    .unwrap_or(1);
+                let next = (model.controls.page as i64)
+                    .saturating_add(delta)
+                    .clamp(0, pages - 1);
+                model.controls.page = next as usize;
+                model.selected_row_id = None;
+                model.loading = true;
+                model.error = None;
+                return vec![records_effect(model)];
+            }
+            if model.screen.key == "property-media" {
+                let pages = model
+                    .page
+                    .as_ref()
+                    .and_then(|page| page.portal.as_ref())
+                    .and_then(|portal| portal.listing_media.as_ref())
+                    .map(|media| {
+                        let size = media.page_size.max(1);
+                        ((media.total + size - 1) / size).max(1)
+                    })
+                    .unwrap_or(1);
+                let next = (model.controls.page as i64)
+                    .saturating_add(delta)
+                    .clamp(0, pages - 1);
+                model.controls.page = next as usize;
+                model.selected_row_id = None;
+                model.loading = true;
+                model.error = None;
+                return vec![listing_media_effect(model)];
             }
 
             // The bounds live here rather than in the buttons, so a list that shrank while the user was reading it
