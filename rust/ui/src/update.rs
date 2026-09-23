@@ -658,15 +658,16 @@ fn property_media_total(model: &Model) -> usize {
     let Some(record) = model.page.as_ref().and_then(|page| page.property.as_ref()) else {
         return 0;
     };
-    let Some(hero) = record.hero_url.as_deref() else {
-        return record.gallery.len();
-    };
-    let duplicated = record
+    let gallery = record
         .gallery
         .iter()
         .filter_map(|item| item.src())
-        .any(|src| src == hero);
-    1 + record.gallery.len().saturating_sub(usize::from(duplicated))
+        .collect::<Vec<_>>();
+    let Some(hero) = record.hero_url.as_deref() else {
+        return gallery.len();
+    };
+    let duplicated = gallery.iter().any(|src| src == hero);
+    1 + gallery.len().saturating_sub(usize::from(duplicated))
 }
 
 /// Apply one intent. Returns the effects the host must run.
