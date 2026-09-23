@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 
 import { withApiHandler } from '@/lib/error-capture-seam'
+import { guardPortalRoute } from '@/lib/auth/portal-session'
 import { getPropertyAdmin, type PropertyAdminRow } from '@/legacy/db/property-admin'
 
 const PAGE_SIZE = 50
@@ -16,6 +17,10 @@ function mapRow(row: PropertyAdminRow) {
 }
 
 async function GETHandler(req: NextRequest): Promise<Response> {
+  const guard = await guardPortalRoute('portal.read')
+  if (!guard.ok) {
+    return NextResponse.json({ error: guard.error }, { status: guard.status })
+  }
   const rows = await getPropertyAdmin()
   const search = req.nextUrl.searchParams.get('search')?.trim().toLowerCase() ?? ''
   const pageIndex = Math.max(0, Number.parseInt(req.nextUrl.searchParams.get('page') ?? '0', 10) || 0)
