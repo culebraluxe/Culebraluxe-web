@@ -127,7 +127,32 @@ async function main(): Promise<number> {
     }
   }
 
-  // 4. The sha assertion, only when the caller asks for it (the deploy path does).
+  // 4. The Rust cutover proof. This goes through the public frontend, which then calls the
+  // private service binding. A 200 therefore proves the frontend has RUST_API_BASE_URL, the Rust
+  // container is running, and that container can ping the database it selected. Production must
+  // report "prod" — a live container pointed at DEV is a failed release, not a partial success.
+  try {
+    const { status, body } = await fetchText(`${base}/api/rust-ready`)
+    const parsed = JSON.parse(body) as { ok?: boolean; databaseTarget?: string | null; error?: string }
+    const ready = status === 200 && parsed.ok === true && parsed.databaseTarget === 'prod'
+    checks.push({
+      name: 'Rust API is ready on PROD database',
+      url: `${base}/api/rust-ready`,
+      ok: ready,
+      detail: ready
+        ? 'frontend binding -> Rust container -> PROD Neon'
+        : `status ${status}, target ${parsed.databaseTarget ?? '<none>'}, ${parsed.error ?? 'not ready'}`,
+    })
+  } catch (error) {
+    checks.push({
+      name: 'Rust API is ready on PROD database',
+      url: `${base}/api/rust-ready`,
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error),
+    })
+  }
+
+  // 5. The sha assertion, only when the caller asks for it (the deploy path does).
   const wanted = expectedSha || (expectHead && head ? head.short : '')
   if (wanted) {
     // THE TWO SIDES ARE NOT THE SAME WIDTH, BY DESIGN. `/api/build-info` serves `cockpitBuildLabel()`, the
