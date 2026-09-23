@@ -45,6 +45,15 @@ pub fn is_ported_portal_screen(key: &str) -> bool {
     )
 }
 
+/// Screens with a native Yew portal component.
+///
+/// This is deliberately broader than `is_ported_portal_screen`: Story Board has a bespoke Yew component over the
+/// existing row contract, so it is Yew-owned without asking for a typed PortalPage DTO. Keeping these concepts separate
+/// prevents a runtime mount guard from forcing a screen onto the wrong data contract.
+pub fn has_yew_portal_component(key: &str) -> bool {
+    is_ported_portal_screen(key) || key == "storyboard"
+}
+
 /// Whether a screen renders from a page payload rather than a list of rows.
 ///
 /// This is the distinction the whole conversion turns on. A list screen answers "what rows are there" and renders them.
