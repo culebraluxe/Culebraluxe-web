@@ -215,9 +215,15 @@ fs.writeFileSync(outputPath, JSON.stringify({
   comment: 'Effective frontend-to-Rust bridge key',
 }), { mode: 0o600 })
 NODE
+# The bridge secret is one contract shared by BOTH projects. Write the exact same value
+# to the frontend project first (for the upcoming frontend deployment) and to Rust (for the
+# server deployment that happens next). The previous version only updated Rust, so the direct
+# preflight passed while the newly deployed frontend still used its older project key.
+vc api "/v10/projects/${FRONTEND_PROJECT_ID}/env?upsert=true&teamId=${TEAM_ID}" \
+  -X POST --input "$TMP_DIR/bridge-key.json" >/dev/null
 vc api "/v10/projects/${RUST_PROJECT_ID}/env?upsert=true&teamId=${TEAM_ID}" \
   -X POST --input "$TMP_DIR/bridge-key.json" >/dev/null
-printf '  Rust bridge key synchronized to frontend effective key\n'
+printf '  shared bridge key synchronized to frontend + Rust projects\n'
 
 # Production pool settings are operational configuration, not secrets. Pin them here so an
 # older value on the source frontend project cannot silently override the Rust service defaults.
