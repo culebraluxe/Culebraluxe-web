@@ -1,22 +1,15 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import { PortalYewApp } from '@/components/rust-ui/portal-yew-app'
 
 // ---------------------------------------------------------------------------
-// FLIPPED TO RUST (screen: security, surface Support).
+// /portal/settings — YEW OWNS THIS SCREEN NOW.
 //
-// The route is unchanged; the screen is not. It was a TypeScript page fetching its own data for a TypeScript
-// component. It is now the Rust host: the same read models arrive through the portal rows route and
-// rust/ui/src/view.rs paints the screen.
+// The Security landing screen: `rust/ui/src/yew_views/portal_support_security.rs`. It reads the same two server-side
+// projections the pre-cutover page read (security counts and break-glass readiness) and shows the three navigation cards to
+// Users, Roles and Authorities. Read-only, and no credential — no secret, no hash, no root id — crosses the boundary.
 //
-// It qualified because its TypeScript body has no interaction to lose - no state, form, dialog, filter or paging
-// control - so there is nothing the Rust body can fail to reproduce. Screens whose TypeScript carries behaviour stay
-// in TypeScript until the Rust body has its own controls. scripts/ui-flip-readiness.mjs prints the split at any time.
+// The three child routes are untouched and still render their own screens.
 // ---------------------------------------------------------------------------
 
 export default function Page() {
-
-  return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="security" />
-    </div>
-  )
+  return <PortalYewApp screen="security" />
 }

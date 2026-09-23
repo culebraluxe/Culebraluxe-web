@@ -32,6 +32,7 @@ pub mod portal_seller_strategy;
 pub mod portal_storyboard;
 pub mod portal_shell;
 pub mod portal_support_db_test;
+pub mod portal_support_security;
 pub mod portal_ui_lab;
 pub mod portal_tech;
 pub mod sellers;

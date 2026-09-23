@@ -43,6 +43,7 @@ pub fn is_ported_portal_screen(key: &str) -> bool {
             // SUPPORT — the four diagnostic screens, ported one at a time from their pre-cutover TypeScript, not from the
             // generic rows output that replaced them.
             | "db-test"
+            | "security"
             | "property-admin"
             | "property-media"
             | "seller-strategy"

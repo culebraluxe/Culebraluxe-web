@@ -12,6 +12,7 @@ use crate::yew_views::portal_accounting_pnl::Pnl as AccountingPnl;
 use crate::yew_views::portal_accounting_receipt_scanner::Scanner as AccountingReceiptScanner;
 use crate::yew_views::portal_accounting_receivables::Receivables as AccountingReceivables;
 use crate::yew_views::portal_support_db_test::DbTest as SupportDbTest;
+use crate::yew_views::portal_support_security::Security as SupportSecurity;
 use crate::yew_views::portal_activity::Activity;
 use crate::yew_views::portal_cabinet::Cabinet;
 use crate::yew_views::portal_clients::{ClientRecord, Clients};
@@ -99,6 +100,7 @@ impl Component for PortalApp {
             }
             // SUPPORT — a bespoke component per screen, never the generic renderer.
             "db-test" => html! { <SupportDbTest model={self.model.clone()} on_msg={on_msg} /> },
+            "security" => html! { <SupportSecurity model={self.model.clone()} on_msg={on_msg} /> },
             "property-admin" => html! { <Records model={self.model.clone()} on_msg={on_msg} /> },
             "property-media" => html! { <ListingMedia model={self.model.clone()} on_msg={on_msg} /> },
             "clients" => html! { <Clients model={self.model.clone()} on_msg={on_msg} /> },

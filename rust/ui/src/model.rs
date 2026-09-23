@@ -2489,6 +2489,47 @@ pub enum Effect {
 pub struct PortalSupportPage {
     /// `/portal/db-test` — the database/client diagnostic the pre-cutover screen showed.
     pub db_test: Option<PortalDbTest>,
+    /// `/portal/settings` — the Security landing screen: its counts and the break-glass posture.
+    pub security: Option<PortalSecurity>,
+}
+
+/// The Security screen: operational counts, and break-glass posture.
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalSecurity {
+    pub status: PortalSecurityStatus,
+    pub break_glass: PortalBreakGlassReadiness,
+}
+
+/// The nine counts, each named for what it counts. Counts of things, not values of anything.
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalSecurityStatus {
+    pub active_internal_users: i64,
+    pub external_users: i64,
+    pub users_with_no_role: i64,
+    pub users_with_multiple_roles: i64,
+    pub mapped_auth_identities: i64,
+    pub unmapped_app_users: i64,
+    pub owner_role_assignments: i64,
+    pub inactive_users_with_active_role_mappings: i64,
+    pub account_type_mismatch_count: i64,
+}
+
+/// Break-glass posture as six booleans — and nothing else, ever.
+///
+/// THIS TYPE MUST NOT GROW. The configuration behind it holds the root user's id and secret hash; what crosses is whether
+/// each condition holds. A field added here is a field that could carry a secret to a browser, so the type is deliberately
+/// six booleans and the payload module builds it field by field.
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalBreakGlassReadiness {
+    pub configured: bool,
+    pub enabled: bool,
+    pub root_resolvable: bool,
+    pub root_active: bool,
+    pub owner_role_present: bool,
+    pub audit_table_available: bool,
 }
 
 /// The DB Test screen's read: whether the database answered, how many clients it holds, and the identity columns of each.

@@ -1,5 +1,7 @@
 import 'server-only'
 
+import { getBreakGlassReadiness } from '@/lib/auth/break-glass-readiness'
+import { getSecurityStatus } from '@/legacy/db/auth-status'
 import { getClients } from '@/legacy/db/clients'
 
 // ---------------------------------------------------------------------------
@@ -53,6 +55,44 @@ export type SupportDbTest = {
 }
 
 /**
+ * The security screen's operational counts — the same nine the pre-cutover panel printed, each one named for what it
+ * counts. Nothing here is a credential: these are counts of things, not values of anything.
+ */
+export type SupportSecurityStatus = {
+  activeInternalUsers: number
+  externalUsers: number
+  usersWithNoRole: number
+  usersWithMultipleRoles: number
+  mappedAuthIdentities: number
+  unmappedAppUsers: number
+  ownerRoleAssignments: number
+  inactiveUsersWithActiveRoleMappings: number
+  accountTypeMismatchCount: number
+}
+
+/**
+ * Break-glass posture as six booleans.
+ *
+ * THIS IS THE TYPE THAT MUST NOT GROW. The screen it feeds sits one field away from the most dangerous secret in the
+ * application: the root user's id and secret hash live in the same configuration this reads. What crosses is whether each
+ * condition holds — configured, enabled, resolvable, active, holds the owner role, has an audit table. Never the user id,
+ * never the hash, never the secret, never a token.
+ */
+export type SupportBreakGlassReadiness = {
+  configured: boolean
+  enabled: boolean
+  rootResolvable: boolean
+  rootActive: boolean
+  ownerRolePresent: boolean
+  auditTableAvailable: boolean
+}
+
+export type SupportSecurity = {
+  status: SupportSecurityStatus
+  breakGlass: SupportBreakGlassReadiness
+}
+
+/**
  * The payload one SUPPORT screen needs, read from the projections that already define it.
  *
  * A screen is served what it renders and nothing else, and a read that fails throws: the bridge's error handling turns that
@@ -83,11 +123,25 @@ export async function supportPayload(
       }
       return { support: { dbTest } }
     }
-    case 'system-health':
-    case 'whatsapp-meta':
     case 'security': {
+      // THE PRE-CUTOVER SCREEN'S TWO READS, unchanged and unmoved. `getSecurityStatus()` counts actors, roles and mappings;
+      // `getBreakGlassReadiness()` reports posture. Neither is re-derived here — they ARE the projection, and this screen
+      // shows what they return.
+      //
+      // BOTH ARE PLAIN `SELECT`s AND A CONFIG PROBE: no writes, no side effects, nothing to trigger. That matters more here
+      // than anywhere else on the portal, because the configuration being probed is the one that guards emergency root
+      // access.
+      const [status, breakGlass] = await Promise.all([
+        getSecurityStatus(),
+        getBreakGlassReadiness(),
+      ])
+      const security: SupportSecurity = { status, breakGlass }
+      return { support: { security } }
+    }
+    case 'system-health':
+    case 'whatsapp-meta': {
       // NOT YET PORTED. An explicit refusal rather than an empty object: a screen whose payload is silently empty renders as
-      // a screen with nothing to show, which reads as "the database is empty" rather than "this is not built yet".
+      // a screen with nothing to show, which reads as "nothing to report" rather than "this is not built yet".
       throw new Error(`The '${screen}' payload is not wired yet.`)
     }
   }
