@@ -180,7 +180,7 @@ vc project protection disable "$RUST_PROJECT_NAME" --sso >/dev/null 2>&1 || true
 vc project protection disable "$RUST_PROJECT_NAME" --password >/dev/null 2>&1 || true
 
 printf 'Configuring standalone Rust project with the Vercel Container preset...\n'
-vc project update "$RUST_PROJECT_NAME" --framework container >/dev/null
+vc project update "$RUST_PROJECT_NAME" --framework container --scope "$TEAM_SLUG" >/dev/null
 
 printf 'Validating Vercel sees rust/Dockerfile.vercel as a container deployment...\n'
 set +e
