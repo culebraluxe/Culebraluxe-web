@@ -90,6 +90,24 @@ test('eventTypeToKind maps the engine vocabulary onto console kinds', () => {
   assert.equal(eventTypeToKind('SOME_FUTURE_EVENT'), 'Unknown')
 })
 
+test('eventTypeToKind maps Rust process-event vocabulary onto console kinds', () => {
+  assert.equal(eventTypeToKind('process.started'), 'Workflow')
+  assert.equal(eventTypeToKind('token.moved'), 'Workflow')
+  assert.equal(eventTypeToKind('task.created'), 'Task')
+  assert.equal(eventTypeToKind('timer.scheduled'), 'Task')
+  assert.equal(eventTypeToKind('job.completed'), 'Task')
+  assert.equal(eventTypeToKind('command.requested'), 'Command')
+})
+
+test('outcomeToStatus understands Rust process-event lifecycle names', () => {
+  assert.equal(outcomeToStatus(null, 'process.started'), 'Pending')
+  assert.equal(outcomeToStatus(null, 'task.created'), 'Pending')
+  assert.equal(outcomeToStatus(null, 'task.completed'), 'Success')
+  assert.equal(outcomeToStatus(null, 'process.completed'), 'Success')
+  assert.equal(outcomeToStatus(null, 'process.failed'), 'Failed')
+  assert.equal(outcomeToStatus(null, 'process.cancelled'), 'Failed')
+})
+
 test('systemToSystemId maps real engine producers and stays Unknown for unknown evidence', () => {
   assert.equal(systemToSystemId('command', 'Command'), 'API Gateway')
   assert.equal(systemToSystemId('domain', 'DomainEvent'), 'Domain Model')
