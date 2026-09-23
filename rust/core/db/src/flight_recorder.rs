@@ -113,10 +113,25 @@ impl FlightRecorderDao {
             events.extend(bundle.events);
         }
 
-        let (property, client) = match deal_id.as_deref() {
-            Some(id) if Uuid::parse_str(id).is_ok() => {
-                tokio::try_join!(self.property_label(id), self.client_label(id))?
-            }
+        let (property, client) = match primary.subject_type.as_deref() {
+            Some("deal") => match deal_id.as_deref() {
+                Some(id) if Uuid::parse_str(id).is_ok() => {
+                    tokio::try_join!(self.property_label(id), self.client_label(id))?
+                }
+                _ => (None, None),
+            },
+            Some("property") => match primary.subject_id.as_deref() {
+                Some(id) if Uuid::parse_str(id).is_ok() => {
+                    (self.property_label_by_id(id).await?, None)
+                }
+                _ => (primary.subject_id.clone(), None),
+            },
+            Some("person") => match primary.subject_id.as_deref() {
+                Some(id) if Uuid::parse_str(id).is_ok() => {
+                    (None, self.person_label(id).await?)
+                }
+                _ => (None, primary.subject_id.clone()),
+            },
             _ => (None, None),
         };
 
@@ -286,7 +301,7 @@ impl FlightRecorderDao {
         crate::retrying_read!(async {
             sqlx::query_scalar::<_, Option<String>>(
                 r#"
-                select p.name
+                select coalesce(p.name, d.property_id::text)
                 from deal d
                 left join property p on p.id = d.property_id
                 where d.id = $1::uuid
@@ -298,6 +313,42 @@ impl FlightRecorderDao {
             .await
             .map(|value| value.flatten())
             .map_err(|error| DbFailure::from_sqlx("flight_recorder.property", &error))
+        })
+    }
+
+    async fn property_label_by_id(&self, property_id: &str) -> DbResult<Option<String>> {
+        crate::retrying_read!(async {
+            sqlx::query_scalar::<_, Option<String>>(
+                r#"
+                select coalesce(name, id::text)
+                from property
+                where id = $1::uuid
+                limit 1
+                "#,
+            )
+            .bind(property_id)
+            .fetch_optional(self.db.pool())
+            .await
+            .map(|value| value.flatten().or_else(|| Some(property_id.to_owned())))
+            .map_err(|error| DbFailure::from_sqlx("flight_recorder.property_subject", &error))
+        })
+    }
+
+    async fn person_label(&self, person_id: &str) -> DbResult<Option<String>> {
+        crate::retrying_read!(async {
+            sqlx::query_scalar::<_, Option<String>>(
+                r#"
+                select coalesce(display_name, id::text)
+                from person
+                where id = $1::uuid
+                limit 1
+                "#,
+            )
+            .bind(person_id)
+            .fetch_optional(self.db.pool())
+            .await
+            .map(|value| value.flatten().or_else(|| Some(person_id.to_owned())))
+            .map_err(|error| DbFailure::from_sqlx("flight_recorder.person_subject", &error))
         })
     }
 
@@ -363,7 +414,11 @@ fn event_dto(row: &TraceRow, graph: &Value) -> FlightRecorderEvent {
 fn mapped_node(graph: &Value, id: &str) -> Option<FlightRecorderMappedNode> {
     let node = graph.get("nodes")?.get(id)?;
     Some(FlightRecorderMappedNode {
-        id: id.to_owned(),
+        id: node
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or(id)
+            .to_owned(),
         name: node.get("name").and_then(Value::as_str).map(str::to_owned),
         node_type: node.get("type").and_then(Value::as_str).map(str::to_owned),
         description: node
