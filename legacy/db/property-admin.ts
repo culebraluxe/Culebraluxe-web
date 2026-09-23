@@ -40,9 +40,9 @@ export type PropertyAdminRow = {
 
 type PropertyAdminBaseRaw = {
   id: string
-  name: string
+  name: string | null
   slug: string | null
-  status: string
+  status: string | null
   featured: boolean
   list_price: string | null
   location: string | null
@@ -62,6 +62,18 @@ type PropertyAdminBaseRaw = {
 
 function toNumber(value: string | null) {
   return value === null ? null : Number(value)
+}
+
+export function normalizePropertyAdminRequiredFields(row: {
+  name: string | null | undefined
+  status: string | null | undefined
+}) {
+  const name = row.name?.trim()
+  const status = row.status?.trim()
+  return {
+    name: name || 'Unnamed property',
+    status: status || 'prospect',
+  }
 }
 
 export async function getPropertyAdmin(): Promise<PropertyAdminRow[]> {
@@ -103,6 +115,7 @@ export async function getPropertyAdmin(): Promise<PropertyAdminRow[]> {
 
   return (baseRows as PropertyAdminBaseRaw[]).map((row) => {
     const coverage = coverageByProperty.get(row.id)
+    const required = normalizePropertyAdminRequiredFields(row)
     const totalMedia =
       (coverage?.imageCount ?? 0) +
       (coverage?.videoCount ?? 0) +
@@ -133,9 +146,9 @@ export async function getPropertyAdmin(): Promise<PropertyAdminRow[]> {
 
     return {
       id: row.id,
-      name: row.name,
+      name: required.name,
       slug: row.slug ?? null,
-      status: row.status,
+      status: required.status,
       featured: row.featured,
       listPrice: toNumber(row.list_price),
       location: row.location ?? null,
