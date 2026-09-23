@@ -16,7 +16,7 @@
 use yew::prelude::*;
 
 use crate::format::format_money;
-use crate::model::{Msg, ScannerDraft};
+use crate::model::Msg;
 use crate::yew_views::portal_accounting_shell::{AccountingShell, GlassPanel};
 use crate::yew_views::portal_shell::PortalShell;
 
