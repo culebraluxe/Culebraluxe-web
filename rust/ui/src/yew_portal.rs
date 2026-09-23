@@ -23,6 +23,7 @@ use crate::yew_views::portal_flight_recorder::FlightRecorder;
 use crate::yew_views::portal_flight_recorder_list::FlightRecorderList;
 use crate::yew_views::portal_projects::Projects;
 use crate::yew_views::portal_seller_strategy::SellerStrategy;
+use crate::yew_views::portal_storyboard::Storyboard;
 use crate::yew_views::portal_ui_lab::UiLab;
 use crate::yew_views::portal_tech::TechCockpit;
 use crate::yew_views::portal_workflow_record::WorkflowRecord;
@@ -103,6 +104,7 @@ impl Component for PortalApp {
             }
             "deals" => html! { <Deals model={self.model.clone()} on_msg={on_msg} /> },
             "design-lab" => html! { <UiLab model={self.model.clone()} on_msg={on_msg} /> },
+            "storyboard" => html! { <Storyboard model={self.model.clone()} on_msg={on_msg} /> },
             "deal-record" => {
                 html! { <DealRecord model={self.model.clone()} on_msg={on_msg} /> }
             }
