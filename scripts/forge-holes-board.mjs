@@ -24,7 +24,7 @@
 //   node --import tsx --env-file=.env.local --env-file=.env.local scripts/forge-holes-board.mjs --apply    # write
 // ---------------------------------------------------------------------------
 
-import { forgeDb, forgeDbTargetForUrl } from './scripts/legacy/db/forge-db.ts'
+import { forgeDb, forgeDbTargetForUrl } from '../legacy/db/forge-db.ts'
 
 const APPLY = process.argv.includes('--apply')
 const WO = 'docs/agent/packets/FORGE-HOLES-WORKORDER.md'

@@ -2,7 +2,7 @@
 // Authorized control-plane update:
 //   1) ARCH-HANDOFF: dated superseding note for the Workflow/Forms nav decision.
 //   2) REL-INTEL-07: record the browser-verification blocker (stays Partial/90).
-import { forgeDb, forgeDbTargetForUrl } from './scripts/legacy/db/forge-db.ts'
+import { forgeDb, forgeDbTargetForUrl } from '../legacy/db/forge-db.ts'
 const pool = forgeDb.forTarget(forgeDbTargetForUrl(process.env.DATABASE_URL_PROD))
 
 const SUPERSEDE =

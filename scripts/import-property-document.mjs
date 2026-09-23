@@ -3,7 +3,7 @@
 import { readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 
-import { forgeDb, forgeDbTargetForUrl } from './scripts/legacy/db/forge-db.ts'
+import { forgeDb, forgeDbTargetForUrl } from '../legacy/db/forge-db.ts'
 
 const CASA_LUAR_PROPERTY_ID = '40000000-0000-4000-8000-000000000001'
 const CASA_LUAR_SLUG = 'casa-luar'

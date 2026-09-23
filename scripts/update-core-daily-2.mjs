@@ -1,6 +1,6 @@
 // CORE-DAILY — truthful Production Story Board update (session 2).
 // Run: node --import tsx --env-file=.env.local --env-file=.env.local scripts/update-core-daily-2.mjs
-import { forgeDb, forgeDbTargetForUrl } from './scripts/legacy/db/forge-db.ts'
+import { forgeDb, forgeDbTargetForUrl } from '../legacy/db/forge-db.ts'
 const pool = forgeDb.forTarget(forgeDbTargetForUrl(process.env.DATABASE_URL_PROD))
 
 const SHA = '81f0dd0' // filled after commit

@@ -14,7 +14,7 @@
 // ---------------------------------------------------------------------------
 import { readFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
-import { forgeDb, forgeDbTargetForUrl } from './scripts/legacy/db/forge-db.ts'
+import { forgeDb, forgeDbTargetForUrl } from '../legacy/db/forge-db.ts'
 
 const BASELINE_NOTE =
   '2026-09-10 baseline: DEV and PROD verified identical across tables, columns, indexes and FKs (pnpm db:parity). Pre-baseline application history is unknown and intentionally not claimed.'

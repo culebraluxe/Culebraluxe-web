@@ -2,7 +2,7 @@
 // Authorized by the REL-INTEL completion work order. Updates the 12 existing
 // REL-INTEL-01..12 rows (never duplicates the family). Run:
 //   node --import tsx --env-file=.env.local --env-file=.env.local scripts/update-rel-intel-stories.mjs
-import { forgeDb, forgeDbTargetForUrl } from './scripts/legacy/db/forge-db.ts'
+import { forgeDb, forgeDbTargetForUrl } from '../legacy/db/forge-db.ts'
 const pool = forgeDb.forTarget(forgeDbTargetForUrl(process.env.DATABASE_URL_PROD))
 
 const STATUS_COMPLETION = {

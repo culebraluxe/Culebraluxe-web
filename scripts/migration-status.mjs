@@ -8,7 +8,7 @@
 // the 2026-09-10 baseline forward. Files that predate it show up there by design.
 // ---------------------------------------------------------------------------
 import { readdir } from 'node:fs/promises'
-import { forgeDb, forgeDbTargetForUrl } from './scripts/legacy/db/forge-db.ts'
+import { forgeDb, forgeDbTargetForUrl } from '../legacy/db/forge-db.ts'
 
 const dev = forgeDb.forTarget(forgeDbTargetForUrl(process.env.DATABASE_URL_DEV))
 const prod = forgeDb.forTarget(forgeDbTargetForUrl(process.env.DATABASE_URL_PROD))

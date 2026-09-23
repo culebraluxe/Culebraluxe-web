@@ -16,7 +16,7 @@
 // machine result. Prints the resulting story state.
 // ---------------------------------------------------------------------------
 
-import { forgeDb, forgeDbTargetForUrl } from './scripts/legacy/db/forge-db.ts'
+import { forgeDb, forgeDbTargetForUrl } from '../legacy/db/forge-db.ts'
 
 const argv = process.argv.slice(2)
 const arg = (name) => {

@@ -16,7 +16,7 @@
 // parent routes rows to the right partition, so copying both would duplicate).
 // Tables are deleted child-first and inserted parent-first so FKs stay valid.
 // ---------------------------------------------------------------------------
-import { forgeDb, forgeDbTargetForUrl } from './scripts/legacy/db/forge-db.ts'
+import { forgeDb, forgeDbTargetForUrl } from '../legacy/db/forge-db.ts'
 
 const APPLY = process.argv.includes('--apply')
 const dev = forgeDb.forTarget(forgeDbTargetForUrl(process.env.DATABASE_URL_DEV))

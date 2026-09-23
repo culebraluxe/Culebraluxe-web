@@ -3,7 +3,7 @@
 import { readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
 
-import { forgeDb, forgeDbTargetForUrl } from './scripts/legacy/db/forge-db.ts'
+import { forgeDb, forgeDbTargetForUrl } from '../legacy/db/forge-db.ts'
 
 const SUPPORTED_IMAGE_TYPES = new Map([
   ['.jpg', 'image/jpeg'],

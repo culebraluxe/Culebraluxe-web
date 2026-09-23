@@ -18,7 +18,7 @@
 // to act unless PROD is declared — the same rule as every other Forge ops tool.
 // `list` is always safe and is allowed anywhere.
 // ---------------------------------------------------------------------------
-import { forgeDbPool } from './scripts/legacy/db/forge-db.ts'
+import { forgeDbPool } from '../legacy/db/forge-db.ts'
 
 const args = process.argv.slice(2)
 const flag = (name) => {

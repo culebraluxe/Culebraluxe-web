@@ -10,7 +10,7 @@
 //
 // Output: db/seeds/dev-projects-workspace.sql (idempotent: on conflict do nothing)
 // ---------------------------------------------------------------------------
-import { forgeDb, forgeDbTargetForUrl } from './scripts/legacy/db/forge-db.ts'
+import { forgeDb, forgeDbTargetForUrl } from '../legacy/db/forge-db.ts'
 import { mkdir, writeFile } from 'node:fs/promises'
 
 const dev = forgeDb.forTarget(forgeDbTargetForUrl(process.env.DATABASE_URL_DEV))

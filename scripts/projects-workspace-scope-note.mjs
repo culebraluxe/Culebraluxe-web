@@ -8,7 +8,7 @@
 //
 // Idempotent: marker-guarded. Dry-run unless --apply.
 
-import { forgeDb, forgeDbTargetForUrl } from './scripts/legacy/db/forge-db.ts'
+import { forgeDb, forgeDbTargetForUrl } from '../legacy/db/forge-db.ts'
 
 const APPLY = process.argv.includes('--apply')
 const NOTE =

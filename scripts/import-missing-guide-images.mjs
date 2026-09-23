@@ -1,6 +1,6 @@
 import { readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
-import { forgeDb, forgeDbTargetForUrl } from './scripts/legacy/db/forge-db.ts'
+import { forgeDb, forgeDbTargetForUrl } from '../legacy/db/forge-db.ts'
 
 const FILE_TO_SLUG = new Map([
   ['caracoles_restaurant.jpg', 'caracoles'],

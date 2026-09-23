@@ -13,10 +13,10 @@
 //   node --import tsx --env-file=.env.local --env-file=.env.local scripts/forge-batch-release.mjs --batch 1     # one slice
 // ---------------------------------------------------------------------------
 
-import { forgeDb, forgeDbTargetForUrl } from './scripts/legacy/db/forge-db.ts'
-import { recordForgeBatchReleaseReceipt } from './scripts/legacy/db/forge-workflow-evidence.ts'
-import { sliceForBatch, sliceOf } from './scripts/legacy/workflow_app/forge/forge-batch-slice.ts'
-import { requireBatchReleaseReceipt } from './scripts/legacy/workflow_app/forge/forge-release-receipt.ts'
+import { forgeDb, forgeDbTargetForUrl } from '../legacy/db/forge-db.ts'
+import { recordForgeBatchReleaseReceipt } from '../legacy/db/forge-workflow-evidence.ts'
+import { sliceForBatch, sliceOf } from '../legacy/workflow_app/forge/forge-batch-slice.ts'
+import { requireBatchReleaseReceipt } from '../legacy/workflow_app/forge/forge-release-receipt.ts'
 
 const argv = process.argv.slice(2)
 const only = argv.includes('--batch') ? Number(argv[argv.indexOf('--batch') + 1]) : null

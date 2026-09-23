@@ -24,9 +24,9 @@
 // Only --decision is required. Re-running with more flags fills the same row in
 // (one row per task/node/attempt; a retry writes a NEW attempt).
 // ---------------------------------------------------------------------------
-import { forgeDbPool } from './scripts/legacy/db/forge-db.ts'
-import { decideAssignmentWrite, decideContractWrite } from './scripts/legacy/db/forge-role-assignment-write.ts'
-import { decideFindingWrite } from './scripts/legacy/db/forge-role-finding.ts'
+import { forgeDbPool } from '../legacy/db/forge-db.ts'
+import { decideAssignmentWrite, decideContractWrite } from '../legacy/db/forge-role-assignment-write.ts'
+import { decideFindingWrite } from '../legacy/db/forge-role-finding.ts'
 
 const args = process.argv.slice(2)
 const arg = (name) => {
@@ -60,7 +60,7 @@ const commands = (name) => values(name).map((s) => s.trim()).filter(Boolean)
 // Postgres and surfacing as a database error that sends the reader hunting the wrong fault. Nothing is
 // inferred and nothing is defaulted: a decision with a default is a decision nobody made.
 import { ARCHITECT_HINT, ARCHITECT_REQUIRED, LEAD_DECISION, LEAD_SIZE, VERIFY_CANDIDATE, describeRefusal, mediateField } from '../lib/field-mediator'
-import { acceptanceClauses } from './scripts/legacy/workflow_app/forge/agents/qa/types'
+import { acceptanceClauses } from '../legacy/workflow_app/forge/agents/qa/types'
 import { validateLeadDecisionWrite } from '../lib/lead-decision-write'
 
 /**
