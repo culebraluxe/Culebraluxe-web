@@ -662,6 +662,59 @@ pub struct PortalListingMediaPage {
 
 #[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", default)]
+pub struct PortalStoryboardStory {
+    pub id: String,
+    pub title: String,
+    pub priority: String,
+    pub status: String,
+    pub completion: f64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalStoryboardGroup {
+    pub group: String,
+    pub stories: Vec<PortalStoryboardStory>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalStoryboardPanel {
+    pub bucket: String,
+    pub count: i64,
+    pub groups: Vec<PortalStoryboardGroup>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalStoryboardKpis {
+    pub total: i64,
+    pub open: i64,
+    pub backlog: i64,
+    pub blocked_hold: i64,
+    pub complete: i64,
+    pub next_version: i64,
+    pub completion_percent: f64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalStoryboardPanels {
+    pub open: PortalStoryboardPanel,
+    pub backlog: PortalStoryboardPanel,
+    pub closed: PortalStoryboardPanel,
+    pub next_version: PortalStoryboardPanel,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalStoryboardPage {
+    pub kpis: PortalStoryboardKpis,
+    pub panels: PortalStoryboardPanels,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct PortalPage {
     /// TECH / Engineering Cockpit — story supply, Flight staging, Forge execution and recent history.
     pub tech: Option<PortalTechPage>,
@@ -690,6 +743,8 @@ pub struct PortalPage {
     pub records: Option<PortalRecordsPage>,
     /// OPPS Listing Media — bounded listing/property projection for media attachment.
     pub listing_media: Option<PortalListingMediaPage>,
+    /// TECH Story Board — canonical legacy cockpit projection rendered natively by Yew.
+    pub storyboard: Option<PortalStoryboardPage>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
