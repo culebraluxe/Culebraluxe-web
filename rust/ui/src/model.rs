@@ -453,9 +453,172 @@ pub struct PropertyRecord {
 /// Activity feed renders a channel, a direction, a person, a summary and the property or deal a line belongs to, and
 /// `cells` keeps none of those as fields. So a screen that is really ported gets a DTO of its own here — the read
 /// model's fields, not a column list it has to decode.
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalTechPage {
+    pub ready: bool,
+    pub total_stories: i64,
+    pub open_count: i64,
+    pub backlog_count: i64,
+    pub closed_count: i64,
+    pub completion_percent: f64,
+    pub active_work: Vec<PortalTechStory>,
+    pub selected_story: Option<PortalTechStory>,
+    pub selected_runs: Vec<PortalTechRun>,
+    pub recorder_instance_id: Option<String>,
+    pub hold: Option<PortalTechHold>,
+    pub sorter_cards: Vec<PortalTechSorterCard>,
+    pub sorter_columns: Vec<PortalTechSorterColumn>,
+    pub engine_runs: Vec<PortalTechEngineRun>,
+    pub queued_cards: Vec<PortalTechQueuedCard>,
+    pub engine_read_ok: bool,
+    pub queue_read_ok: bool,
+    pub ledger: Option<PortalTechLedger>,
+    pub staging_flight: Option<PortalTechFlight>,
+    pub recent_flights: Vec<PortalTechFlight>,
+    pub recent_history: Vec<PortalTechHistory>,
+    pub freshness: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalTechStory {
+    pub id: String,
+    pub workstream: String,
+    pub operating_surface: Option<String>,
+    pub title: String,
+    pub priority: String,
+    pub status: String,
+    pub notes: Option<String>,
+    pub batch: Option<i64>,
+    pub goal: Option<String>,
+    pub scope: Option<String>,
+    pub dependencies: Option<String>,
+    pub preconditions: Option<String>,
+    pub architect_brief: Option<String>,
+    pub context_refs: Option<String>,
+    pub acceptance_criteria: Option<String>,
+    pub postconditions: Option<String>,
+    pub completion: f64,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalTechRun {
+    pub id: String,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    pub result_status: Option<String>,
+    pub run_type: Option<String>,
+    pub agent_runtime: Option<String>,
+    pub completion: Option<f64>,
+    pub notes: Option<String>,
+    pub commit_hash: Option<String>,
+    pub tests_summary: Option<String>,
+    pub execution_environment: Option<String>,
+    pub run_phase: Option<String>,
+    pub lead_decision: Option<String>,
+    pub model_used: Option<String>,
+    pub cost_widgets: Option<f64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalTechHold {
+    pub reason: Option<String>,
+    pub originating_node: Option<String>,
+    pub failure_class: Option<String>,
+    pub resume_target: Option<String>,
+    pub since: Option<String>,
+    pub process_instance_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalTechSorterCard {
+    pub id: String,
+    pub column: String,
+    pub title: String,
+    pub status: String,
+    pub priority: String,
+    pub completion: f64,
+    pub kind: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalTechSorterColumn {
+    pub id: String,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalTechEngineRun {
+    pub story_id: String,
+    pub title: String,
+    pub instance_id: String,
+    pub last_node: Option<String>,
+    pub status: String,
+    pub attempts: i64,
+    pub at: Option<String>,
+    pub stale: bool,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalTechQueuedCard {
+    pub story_id: String,
+    pub title: String,
+    pub state: String,
+    pub since: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalTechLedger {
+    pub total_attempts: i64,
+    pub stories: i64,
+    pub completed: i64,
+    pub failed: i64,
+    pub interrupted: i64,
+    pub worst_story_id: Option<String>,
+    pub worst_attempts: Option<i64>,
+    pub as_of: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalTechFlight {
+    pub id: String,
+    pub label: Option<String>,
+    pub status: String,
+    pub scheduled_for: Option<String>,
+    pub fired_at: Option<String>,
+    pub created_at: String,
+    pub model_policy: String,
+    pub story_count: i64,
+    pub queued_count: i64,
+    pub skipped_count: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalTechHistory {
+    pub id: String,
+    pub title: String,
+    pub latest_run_at: Option<String>,
+    pub latest_run_result: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PortalPage {
+    /// TECH / Engineering Cockpit — story supply, Flight staging, Forge execution and recent history.
+    pub tech: Option<PortalTechPage>,
     /// CORE Cockpit — the situational-awareness landing page.
     pub cockpit: Option<PortalCockpitPage>,
     /// CORE Cabinet — canonical immutable issued-document repository.
@@ -1636,6 +1799,10 @@ pub enum Msg {
         page: PortalPage,
     },
 
+    // ---- TECH / Engineering Cockpit -----------------------------------------------------------------------------
+    TechStorySelected(String),
+    TechRefreshRequested,
+
     // ---- Contracts / Deal workspace -----------------------------------------------------------------------------
     DealCreateToggled,
     DealCreatePropertyChanged(String),
@@ -1902,6 +2069,12 @@ pub enum Effect {
         screen: &'static str,
         scope: Option<String>,
         /// Which mount asked. The host puts it on the request and presents it back with the answer.
+        generation: u64,
+    },
+    /// Fetch the TECH Engineering Cockpit assembly-line projection.
+    FetchTech {
+        screen: &'static str,
+        selected: Option<String>,
         generation: u64,
     },
     /// Fetch the CORE Cabinet from the authoritative Rust Vault service.
