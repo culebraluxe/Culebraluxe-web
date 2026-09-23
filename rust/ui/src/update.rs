@@ -3068,7 +3068,10 @@ mod tests {
 
     #[test]
     fn navigating_to_dashboard_fetches_the_typed_cockpit() {
-        let mut model = Model::default();
+        let mut model = Model {
+            screen: target("clients"),
+            ..Model::default()
+        };
         let effects = update(&mut model, Msg::Navigate(target("dashboard")));
         assert_eq!(model.screen, target("dashboard"));
         assert!(model.loading);
