@@ -40,6 +40,7 @@ test('UI-01: representative routes map to the correct operating surface', () => 
   assert.equal(surfaceForPathname('/portal/storyboard'), 'TECH')
   assert.equal(surfaceForPathname('/portal/tech'), 'TECH')
   assert.equal(surfaceForPathname('/portal/tech/framer-ui-lab'), 'TECH')
+  assert.equal(surfaceForPathname('/portal/media-test'), 'TECH')
   // NEXUS — transaction-oriented workflow instances (the rule: workflow FOR an
   // active real-estate transaction → NEXUS).
   assert.equal(surfaceForPathname('/portal/workflows'), 'NEXUS')
@@ -131,7 +132,7 @@ test('UI-01: selecting NEXUS/OPS/TECH/SUPPORT produces correct contextual naviga
       'Dashboard',
       'Syndication',
     ],
-    TECH: ['Cockpit', 'Story Board', 'UI Lab', 'Framer UI Lab', 'Media Test'],
+    TECH: ['Cockpit', 'Story Board', 'UI Lab'],
     SUPPORT: ['System Health', 'DB Test', 'WhatsApp Diagnostic', 'Security'],
   }
   assert.deepEqual(
