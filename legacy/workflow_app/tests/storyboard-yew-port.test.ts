@@ -19,9 +19,8 @@ test('STORYBOARD YEW: snapshot is native Yew with no React island or write contr
   assert.match(view, /Authoritative backlog/)
   assert.match(view, /Completion/)
   assert.match(view, /\/portal\/storyboard\//)
-  assert.ok(!view.includes('Create'), 'snapshot does not create stories')
-  assert.ok(!view.includes('Save'), 'snapshot does not edit stories')
-  assert.ok(!view.includes('dispatch Forge'), 'snapshot does not dispatch Forge')
+  assert.ok(!view.includes('<button'), 'snapshot has no command buttons')
+  assert.ok(!view.includes('onclick='), 'snapshot has no write/control click handlers')
 
   assert.ok(
     !host.includes("screen === 'storyboard' ?"),
