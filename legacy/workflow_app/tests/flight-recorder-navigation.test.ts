@@ -72,3 +72,9 @@ test('FLIGHT-RECORDER-NAV 7: the console uses a single canonical Flight Recorder
   assert.match(shell, /\/api\/portal\/flight-recorder\/\$\{instanceId\}/)
   assert.ok(!shell.includes('/api/portal/runtime-inspector'), 'no Runtime Inspector API in the primary console path')
 })
+
+test('FLIGHT-RECORDER-NAV 9: the Yew island preserves Next App Router context', async () => {
+  const island = await read('../../../components/rust-ui/flight-recorder-react-island.tsx')
+  assert.ok(island.includes("createPortal"), 'the console must stay in the parent React/Next context')
+  assert.ok(!island.includes("createRoot("), 'a detached React root loses the Next App Router provider')
+})
