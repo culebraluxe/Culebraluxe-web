@@ -4499,14 +4499,24 @@ mod tests {
 
     #[test]
     fn a_screen_with_no_data_says_why_in_its_own_words() {
-        // The reason travels with the screen rather than being one hardcoded sentence. Media Test is a manual harness with
-        // no read model, which is what deferred means.
+        // The reason travels with the screen rather than being one hardcoded sentence, and a deferred screen renders it as
+        // its body. Media Test is a manual harness with no read model, which is what deferred means.
         let placeholder = render(&Model {
             screen: target("media-test"),
             ..Model::default()
         });
         assert!(placeholder.contains("manual harness for the media pipeline"));
-        assert!(placeholder.contains("(no data yet)"));
+
+        // The nav marks a deferred entry with "(no data yet)", which is computed from `is_deferred` — so that is what this
+        // asserts. It deliberately does NOT assert the rendered suffix: every deferred screen left in the registry is
+        // unlisted or retired, so no rail contains one, and an assertion about a string that cannot appear would be an
+        // assertion about nothing. (The Accounting screens' own test found this the hard way: it used to name the receipt
+        // scanner, which was listed AND deferred, and the suffix disappeared from every rail the day that screen was ported.)
+        assert!(screen("media-test").expect("registry").is_deferred());
+        assert!(
+            !screen("db-test").expect("registry").is_deferred(),
+            "a screen with a component reads its payload and must not be marked as having no data"
+        );
     }
 
     #[test]

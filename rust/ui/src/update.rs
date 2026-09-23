@@ -40,6 +40,9 @@ pub fn is_ported_portal_screen(key: &str) -> bool {
             | "accounting-receivables"
             | "accounting-pnl"
             | "accounting-receipt-scanner"
+            // SUPPORT — the four diagnostic screens, ported one at a time from their pre-cutover TypeScript, not from the
+            // generic rows output that replaced them.
+            | "db-test"
             | "property-admin"
             | "property-media"
             | "seller-strategy"
@@ -3585,6 +3588,91 @@ mod tests {
         );
         // The reviewed draft survives, so the reviewer can look again rather than start over.
         assert!(model.accounting.scanner.draft.is_some());
+    }
+
+    // ---- SUPPORT: db-test, the whole chain from route to component --------------------------------------------------
+
+    /// ROUTE → TYPED EFFECT → PAYLOAD → COMPONENT, for the DB Test screen.
+    ///
+    /// The chain is the point of the test: a screen can be ported at one end and not the other, and the failure is silent.
+    /// The route asks for the portal payload (not rows), the payload arrives as a typed DTO the component reads, and the
+    /// screen is in the ported list so a mount cannot fall back to the generic renderer.
+    #[test]
+    fn the_db_test_screen_reads_its_own_typed_payload() {
+        assert!(
+            is_ported_portal_screen("db-test"),
+            "a SUPPORT screen with a component must be in the ported list, or the mount refuses it and the generic host \
+             renders it instead"
+        );
+
+        let mut model = Model {
+            screen: target("system-health"),
+            ..Model::default()
+        };
+        let effects = update(&mut model, Msg::Navigate(target("db-test")));
+        let Effect::FetchPortal {
+            screen, generation, ..
+        } = &effects[0]
+        else {
+            panic!("opening DB Test must ask for its portal payload, not for rows");
+        };
+        assert_eq!(*screen, "db-test");
+        assert_eq!(*generation, 0);
+
+        // What the bridge answers with: the database answered, two clients, their identity columns.
+        let payload = r#"{"support":{"dbTest":{"connected":true,"clientCount":2,"clients":[
+            {"id":"c1","displayName":"Harbour Holdings","role":"buyer","status":"active",
+             "email":"ops@harbour.example","phone":null},
+            {"id":"c2","displayName":"Elm Street Trust","role":"seller","status":"active",
+             "email":null,"phone":"+17875550100"}]}}}"#;
+        update(&mut model, Msg::portal_loaded_json("db-test", 0, payload));
+
+        // Exactly what the component reads.
+        let read = model
+            .page
+            .as_ref()
+            .and_then(|page| page.portal.as_ref())
+            .and_then(|portal| portal.support.as_ref())
+            .and_then(|support| support.db_test.as_ref())
+            .expect("the payload must land where the component looks for it");
+        assert!(read.connected);
+        assert_eq!(read.client_count, 2);
+        assert_eq!(read.clients.len(), 2);
+        assert_eq!(read.clients[0].display_name, "Harbour Holdings");
+        // An absent email and an absent phone are absent, not empty strings: the screen prints a dash for each, and it can
+        // only do that if the two states are distinguishable.
+        assert_eq!(read.clients[1].email, None);
+        assert_eq!(read.clients[1].phone.as_deref(), Some("+17875550100"));
+    }
+
+    #[test]
+    fn a_failed_db_test_read_does_not_render_as_a_healthy_database() {
+        let mut model = Model {
+            screen: target("db-test"),
+            ..Model::default()
+        };
+        update(
+            &mut model,
+            Msg::EffectFailed {
+                screen: "db-test".into(),
+                generation: 0,
+                message: "the client read could not be answered".into(),
+            },
+        );
+
+        // No payload, and the failure is on the model for the shell to show. A screen that rendered "Connected" with no data
+        // would be a diagnostic lying about the thing it exists to check.
+        let read = model
+            .page
+            .as_ref()
+            .and_then(|page| page.portal.as_ref())
+            .and_then(|portal| portal.support.as_ref())
+            .and_then(|support| support.db_test.as_ref());
+        assert!(read.is_none());
+        assert_eq!(
+            model.error,
+            Some("the client read could not be answered".to_string())
+        );
     }
 }
 

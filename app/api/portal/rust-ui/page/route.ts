@@ -4,6 +4,7 @@ import { getActivityFeed } from '@/legacy/db/activity-feed'
 import { getPortalActingUser } from '@/lib/auth/portal-session'
 import { withApiHandler } from '@/lib/error-capture-seam'
 import { accountingPayload, isAccountingScreen } from '@/lib/portal-rust-ui/accounting-payload'
+import { isSupportScreen, supportPayload } from '@/lib/portal-rust-ui/support-payload'
 import { rustApiRead } from '@/lib/rust-api/client'
 import { listStoryboardStories } from '@/lib/storyboard-reads'
 import { buildStoryBoardCockpit, buildStoryBoardModel } from '@/lib/storyboard-data'
@@ -22,6 +23,10 @@ async function GETHandler(req: NextRequest): Promise<Response> {
         to: req.nextUrl.searchParams.get('to'),
       }),
     )
+  }
+  // SUPPORT, the same way: four diagnostic screens, answered from the projections that already define them.
+  if (isSupportScreen(screen)) {
+    return NextResponse.json(await supportPayload(screen))
   }
   switch (screen) {
     case 'storyboard': {

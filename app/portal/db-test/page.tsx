@@ -1,22 +1,13 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import { PortalYewApp } from '@/components/rust-ui/portal-yew-app'
 
 // ---------------------------------------------------------------------------
-// FLIPPED TO RUST (screen: db-test, surface Support).
+// /portal/db-test — YEW OWNS THIS SCREEN NOW.
 //
-// The route is unchanged; the screen is not. It was a TypeScript page fetching its own data for a TypeScript
-// component. It is now the Rust host: the same read models arrive through the portal rows route and
-// rust/ui/src/view.rs paints the screen.
-//
-// It qualified because its TypeScript body has no interaction to lose - no state, form, dialog, filter or paging
-// control - so there is nothing the Rust body can fail to reproduce. Screens whose TypeScript carries behaviour stay
-// in TypeScript until the Rust body has its own controls. scripts/ui-flip-readiness.mjs prints the split at any time.
+// The screen is `rust/ui/src/yew_views/portal_support_db_test.rs`. It answers what the pre-cutover page answered — is the
+// database reachable, how many clients, and who they are — from the same server-side client read, presented instead of
+// dumped as JSON. Read-only: no controls, no writes.
 // ---------------------------------------------------------------------------
 
 export default function Page() {
-
-  return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="db-test" />
-    </div>
-  )
+  return <PortalYewApp screen="db-test" />
 }

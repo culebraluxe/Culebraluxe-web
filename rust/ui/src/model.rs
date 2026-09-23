@@ -739,6 +739,8 @@ pub struct PortalPage {
     /// Accounting V1 — the dashboard's projections, the two lists, and the P&L for a requested period. One word per
     /// screen, in the same shape the other surfaces use, so a screen reads `portal.accounting.<what it renders>`.
     pub accounting: Option<PortalAccountingPage>,
+    /// SUPPORT — the four diagnostic screens. One word per screen, as above.
+    pub support: Option<PortalSupportPage>,
     /// OPPS Records — bounded property administration projection.
     pub records: Option<PortalRecordsPage>,
     /// OPPS Listing Media — bounded listing/property projection for media attachment.
@@ -2481,6 +2483,37 @@ pub enum Effect {
 // These mirror `domain::accounting` field for field. The UI crate does not depend on the domain crate — the browser only
 // ever sees JSON — so the two are kept in step by the payload being the contract.
 // ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalSupportPage {
+    /// `/portal/db-test` — the database/client diagnostic the pre-cutover screen showed.
+    pub db_test: Option<PortalDbTest>,
+}
+
+/// The DB Test screen's read: whether the database answered, how many clients it holds, and the identity columns of each.
+///
+/// SMALLER THAN THE READ BEHIND IT, deliberately. `getClients()` returns a client's budget, preferences, priorities and
+/// interests; a diagnostic screen printed the whole record as JSON and had no business carrying any of it.
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalDbTest {
+    /// True when the read answered at all — see the payload: the flag is the absence of a failure, not a hopeful constant.
+    pub connected: bool,
+    pub client_count: i64,
+    pub clients: Vec<PortalDbTestClient>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalDbTestClient {
+    pub id: String,
+    pub display_name: String,
+    pub role: String,
+    pub status: String,
+    pub email: Option<String>,
+    pub phone: Option<String>,
+}
 
 #[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", default)]
