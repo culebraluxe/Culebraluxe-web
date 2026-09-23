@@ -116,6 +116,7 @@ export const OPERATING_SURFACES: Record<
     minSecurityLevel: 'ROOT',
     accessAuthority: 'tech.access',
     home: '/portal/tech',
+    ownedRoutes: ['/portal/tech/framer-ui-lab', '/portal/media-test'],
     items: [
       {
         label: 'Cockpit',
@@ -160,10 +161,15 @@ export const OPERATING_SURFACES: Record<
 export function surfaceForPathname(pathname: string): OperatingSurface {
   let best: { surface: OperatingSurface; href: string } | null = null
   for (const surface of OPERATING_SURFACE_ORDER) {
-    for (const item of OPERATING_SURFACES[surface].items) {
-      if (pathname === item.href || pathname.startsWith(`${item.href}/`)) {
-        if (!best || item.href.length > best.href.length) {
-          best = { surface, href: item.href }
+    const definition = OPERATING_SURFACES[surface]
+    const owned = [
+      ...definition.items.map((item) => item.href),
+      ...(definition.ownedRoutes ?? []),
+    ]
+    for (const href of owned) {
+      if (pathname === href || pathname.startsWith(`${href}/`)) {
+        if (!best || href.length > best.href.length) {
+          best = { surface, href }
         }
       }
     }
