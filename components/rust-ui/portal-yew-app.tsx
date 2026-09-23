@@ -6,6 +6,7 @@ import { ProjectReactIslands } from '@/components/rust-ui/project-react-islands'
 import { TechCockpitReactIslands } from '@/components/rust-ui/tech-cockpit-react-islands'
 import { FlightRecorderReactIsland } from '@/components/rust-ui/flight-recorder-react-island'
 import { UiLabReactIslands } from '@/components/rust-ui/ui-lab-react-islands'
+import { OpsVideoReactIsland } from '@/components/rust-ui/opps-video-island'
 
 // ---------------------------------------------------------------------------
 // THE PORTAL APP'S MOUNT POINT.
@@ -64,6 +65,7 @@ export function PortalYewApp({
       {screen === 'tech' ? <TechCockpitReactIslands /> : null}
       {screen === 'trace-record' ? <FlightRecorderReactIsland /> : null}
       {screen === 'design-lab' ? <UiLabReactIslands /> : null}
+      {screen === 'property-admin' ? <OpsVideoReactIsland /> : null}
       {error ? (
         <p className="p-6 text-sm text-destructive" role="alert">
           The portal could not start: {error}
