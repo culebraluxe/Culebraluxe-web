@@ -89,7 +89,7 @@ while IFS= read -r ENV_ID; do
     continue
   fi
 
-  node --env-file-if-exists="$ROOT_DIR/.env.local" - \
+  if ! node --env-file-if-exists="$ROOT_DIR/.env.local" - \
     "$TMP_DIR/env-value.json" "$TMP_DIR/env-upsert.json" "$COPIED_KEYS" <<'NODE'
 const fs = require('fs')
 const inputPath = process.argv[2]
@@ -110,6 +110,9 @@ fs.writeFileSync(outputPath, JSON.stringify({
 }))
 fs.appendFileSync(copiedPath, entry.key + '\n')
 NODE
+  then
+    continue
+  fi
 
   vc api "/v10/projects/${RUST_PROJECT_ID}/env?upsert=true&teamId=${TEAM_ID}" \
     -X POST --input "$TMP_DIR/env-upsert.json" >/dev/null
@@ -210,13 +213,13 @@ node - "$RUST_DEPLOY_URL" "$TMP_DIR/frontend-rust-url.json" <<'NODE'
 const fs = require('fs')
 const value = process.argv[2]
 const outputPath = process.argv[3]
-fs.writeFileSync(outputPath, JSON.stringify([{
+fs.writeFileSync(outputPath, JSON.stringify({
   key: 'RUST_API_BASE_URL',
   value,
   type: 'plain',
   target: ['production'],
   comment: 'Standalone Rust API production deployment',
-}]))
+}))
 NODE
 vc api "/v10/projects/${FRONTEND_PROJECT_ID}/env?upsert=true&teamId=${TEAM_ID}" -X POST --input "$TMP_DIR/frontend-rust-url.json" >/dev/null
 
