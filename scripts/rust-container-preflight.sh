@@ -22,7 +22,7 @@ if ! grep -q '^CULEBRA_INTERNAL_API_KEY=' "$ENV_FILE" && ! grep -q '^AUTH_SECRET
 fi
 
 IMAGE="culebraluxe-rust-api:cutover"
-CONTAINER="culebraluxe-rust-cutover-$"
+CONTAINER="culebraluxe-rust-cutover-preflight"
 HOST_PORT="${RUST_PREFLIGHT_PORT:-18080}"
 NORMALIZED_ENV="$(mktemp -t culebraluxe-rust-env.XXXXXX)"
 export DOCKER_DEFAULT_PLATFORM="${DOCKER_DEFAULT_PLATFORM:-linux/amd64}"
@@ -86,6 +86,7 @@ fs.writeFileSync(output, lines.join('\n') + '\n', { mode: 0o600 })
 NODE
 
 printf '\nStarting the container against DEV...\n'
+docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 docker run -d \
   --name "$CONTAINER" \
   --platform "$DOCKER_DEFAULT_PLATFORM" \
