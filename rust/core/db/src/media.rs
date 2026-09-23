@@ -1,6 +1,9 @@
 use crate::{Database, DbFailure, DbResult};
 use chrono::{DateTime, Utc};
-use domain::{MediaAsset, UploadPropertyMediaRequest, UploadPropertyMediaResult};
+use domain::{
+    AttachPropertyVideoRequest, AttachPropertyVideoResult, MediaAsset, UploadPropertyMediaRequest,
+    UploadPropertyMediaResult,
+};
 use sqlx::FromRow;
 
 #[derive(Debug, FromRow)]
@@ -16,6 +19,11 @@ struct MediaRow {
     alt_text: Option<String>,
     caption: Option<String>,
     created_at: Option<DateTime<Utc>>,
+    mux_asset_id: Option<String>,
+    mux_playback_id: Option<String>,
+    duration_seconds: Option<bigdecimal::BigDecimal>,
+    aspect_ratio: Option<String>,
+    source_url: Option<String>,
 }
 
 #[derive(Clone)]
@@ -41,7 +49,12 @@ impl MediaDao {
                    m.file_size,
                    m.alt_text,
                    m.caption,
-                   pm.created_at
+                   pm.created_at,
+                   m.mux_asset_id,
+                   m.mux_playback_id,
+                   m.duration_seconds,
+                   m.aspect_ratio,
+                   m.source_url
             from property_media pm
             join media m on m.id = pm.media_id
             where pm.property_id = $1::uuid
@@ -67,9 +80,100 @@ impl MediaDao {
                 alt_text: row.alt_text,
                 caption: row.caption,
                 created_at: row.created_at.map(|value| value.to_rfc3339()),
+                mux_asset_id: row.mux_asset_id,
+                mux_playback_id: row.mux_playback_id,
+                duration_seconds: row.duration_seconds.map(|value| value.to_string()),
+                aspect_ratio: row.aspect_ratio,
+                source_url: row.source_url,
                 url: format!("/api/media/{}", row.media_id),
             })
             .collect())
+    }
+
+    pub async fn attach_property_video(
+        &self,
+        request: &AttachPropertyVideoRequest,
+    ) -> DbResult<AttachPropertyVideoResult> {
+        let mut tx = self.db.begin("media.attach_property_video").await?;
+
+        let media_id = sqlx::query_scalar::<_, String>(
+            r#"
+            insert into media (
+                file_data,
+                filename,
+                mime_type,
+                file_size,
+                alt_text,
+                caption,
+                media_type,
+                mux_asset_id,
+                mux_playback_id,
+                duration_seconds,
+                aspect_ratio,
+                source_url
+            )
+            values (
+                null,
+                null,
+                null,
+                null,
+                null,
+                $1,
+                'video',
+                $2,
+                $3,
+                $4::numeric,
+                $5,
+                null
+            )
+            returning id::text
+            "#,
+        )
+        .bind(&request.caption)
+        .bind(&request.mux_asset_id)
+        .bind(&request.mux_playback_id)
+        .bind(&request.duration_seconds)
+        .bind(&request.aspect_ratio)
+        .fetch_one(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("media.video.insert_media", &error))?;
+
+        sqlx::query(
+            r#"
+            insert into property_media (property_id, media_id, role, sort_order)
+            values (
+                $1::uuid,
+                $2::uuid,
+                $3,
+                coalesce(
+                    (
+                        select max(sort_order) + 1
+                        from property_media
+                        where property_id = $1::uuid
+                          and role in ('video', 'short')
+                    ),
+                    0
+                )
+            )
+            "#,
+        )
+        .bind(&request.property_id)
+        .bind(&media_id)
+        .bind(&request.role)
+        .execute(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("media.video.attach_property", &error))?;
+
+        tx.commit().await?;
+
+        Ok(AttachPropertyVideoResult {
+            ok: true,
+            media_id,
+            property_id: request.property_id.clone(),
+            role: request.role.clone(),
+            mux_asset_id: request.mux_asset_id.clone(),
+            mux_playback_id: request.mux_playback_id.clone(),
+        })
     }
 
     pub async fn upload_property_media(
