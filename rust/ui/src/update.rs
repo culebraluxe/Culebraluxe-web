@@ -3690,6 +3690,95 @@ mod tests {
         );
     }
 
+    fn property_carousel_model() -> Model {
+        let mut model = Model {
+            screen: target("site-property-detail"),
+            scope: Some("casa-luar".into()),
+            ..Model::default()
+        };
+        model.page = Some(crate::model::PageContent {
+            property: Some(crate::model::PropertyRecord {
+                slug: "casa-luar".into(),
+                title: "Casa Luar".into(),
+                hero_url: Some("/api/media/hero".into()),
+                gallery: vec![
+                    // The real payload includes the hero in the gallery too; canonical media removes it once.
+                    crate::model::MediaItem {
+                        url: Some("/api/media/hero".into()),
+                        ..Default::default()
+                    },
+                    crate::model::MediaItem {
+                        url: Some("/api/media/two".into()),
+                        ..Default::default()
+                    },
+                    crate::model::MediaItem {
+                        url: Some("/api/media/three".into()),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        model
+    }
+
+    #[test]
+    fn property_thumbnail_selection_changes_the_large_photo_selection() {
+        let mut model = property_carousel_model();
+        assert!(update(&mut model, Msg::PropertyMediaSelected(2)).is_empty());
+        assert_eq!(model.property_media.active_index, 2);
+    }
+
+    #[test]
+    fn property_carousel_arrows_wrap_the_canonical_photo_order() {
+        let mut model = property_carousel_model();
+
+        update(&mut model, Msg::PropertyMediaPrevious);
+        assert_eq!(model.property_media.active_index, 2, "previous from hero wraps to last photo");
+
+        update(&mut model, Msg::PropertyMediaNext);
+        assert_eq!(model.property_media.active_index, 0, "next from last wraps to hero");
+    }
+
+    #[test]
+    fn property_lightbox_has_its_own_selection_and_wraps() {
+        let mut model = property_carousel_model();
+        update(&mut model, Msg::PropertyMediaSelected(1));
+        update(&mut model, Msg::PropertyLightboxOpened(2));
+
+        assert!(model.property_media.lightbox_open);
+        assert_eq!(model.property_media.lightbox_index, 2);
+        assert_eq!(
+            model.property_media.active_index, 1,
+            "opening the lightbox must not silently rewrite the cockpit selection"
+        );
+
+        update(&mut model, Msg::PropertyLightboxMoved(1));
+        assert_eq!(model.property_media.lightbox_index, 0);
+
+        update(&mut model, Msg::PropertyLightboxClosed);
+        assert!(!model.property_media.lightbox_open);
+    }
+
+    #[test]
+    fn property_carousel_ignores_gallery_rows_without_an_image_url() {
+        let mut model = property_carousel_model();
+        model
+            .page
+            .as_mut()
+            .and_then(|page| page.property.as_mut())
+            .unwrap()
+            .gallery
+            .push(crate::model::MediaItem::default());
+
+        update(&mut model, Msg::PropertyMediaPrevious);
+        assert_eq!(
+            model.property_media.active_index, 2,
+            "non-renderable media must not change the reducer's photo count"
+        );
+    }
+
     #[test]
     fn opening_a_row_where_there_is_no_detail_view_selects_it() {
         // Activity is a feed: a row of it is history, not a record to open.
