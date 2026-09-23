@@ -186,7 +186,7 @@ pub const SCREENS: &[Screen] = &[
     // ---- OPPS (the registry's own spelling) ----
     Screen { key: "issues", title: "Issue Queue", path: "/portal/issues", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "needs-review", title: "Needs Review", path: "/portal/needs-review", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
-    Screen { key: "property-admin", title: "Property Admin", path: "/portal/property-admin", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "property-admin", title: "Data Workbench", path: "/portal/property-admin", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "media-admin", title: "Media Audit", path: "/portal/media-admin", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "property-media", title: "Property Media", path: "/portal/property-media", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "identity-quality", title: "Identity Quality", path: "/portal/identity-quality", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
