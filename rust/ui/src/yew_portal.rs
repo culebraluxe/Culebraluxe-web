@@ -135,7 +135,7 @@ pub fn portal_mount(
     let screen = crate::model::screen(screen_key).ok_or_else(|| {
         wasm_bindgen::JsValue::from_str(&format!("ui: '{screen_key}' is not a known screen"))
     })?;
-    if !crate::update::is_ported_portal_screen(screen.key) {
+    if !crate::update::has_yew_portal_component(screen.key) {
         return Err(wasm_bindgen::JsValue::from_str(&format!(
             "ui: '{screen_key}' has no Yew component yet"
         )));
