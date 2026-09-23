@@ -29,6 +29,7 @@ pub mod portal_projects;
 pub mod portal_records;
 pub mod portal_listing_media;
 pub mod portal_seller_strategy;
+pub mod portal_storyboard;
 pub mod portal_shell;
 pub mod portal_ui_lab;
 pub mod portal_tech;
