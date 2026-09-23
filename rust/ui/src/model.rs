@@ -1644,6 +1644,17 @@ impl CommandNotice {
     }
 }
 
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TechCockpitState {
+    /// Browser-local value from the `datetime-local` Flight scheduler.
+    pub schedule_at: String,
+    /// The command whose write is currently in flight. One command at a time keeps double-clicks from duplicating work.
+    pub busy_action: Option<String>,
+    /// The last operator command result. Reads do not erase it; a new command does.
+    pub notice: Option<CommandNotice>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct DealWorkspaceState {
     pub task_title: String,
@@ -1695,6 +1706,8 @@ pub struct Model {
     /// Accounting V1's forms and their command state: the expense form, the receivable form, the P&L period and the
     /// receipt scanner's demonstration.
     pub accounting: AccountingState,
+    /// TECH Cockpit operator controls and command state.
+    pub tech: TechCockpitState,
     /// One Deal workspace's forms and transient command state.
     pub deal_workspace: DealWorkspaceState,
     /// WHICH MOUNT THIS STATE BELONGS TO.
@@ -1723,6 +1736,7 @@ impl Default for Model {
             seller_strategy: crate::seller_strategy::SellerStrategyState::default(),
             deal_create: DealCreateState::default(),
             accounting: AccountingState::default(),
+            tech: TechCockpitState::default(),
             deal_workspace: DealWorkspaceState::default(),
             // Generation zero is "no host has said", which is what a program built by a test or an example holds.
             generation: 0,
@@ -1802,6 +1816,20 @@ pub enum Msg {
     // ---- TECH / Engineering Cockpit -----------------------------------------------------------------------------
     TechStorySelected(String),
     TechRefreshRequested,
+    TechScheduleChanged(String),
+    TechClearWorkbenchRequested,
+    TechGoodToGoRequested,
+    TechScopedRunRequested(String),
+    TechMoveWorkbenchRequested(String),
+    TechLaunchFlightRequested,
+    TechScheduleFlightRequested { scheduled_for: String },
+    TechCancelFlightRequested(String),
+    TechCommandCompleted {
+        screen: String,
+        generation: u64,
+        ok: bool,
+        message: String,
+    },
 
     // ---- Contracts / Deal workspace -----------------------------------------------------------------------------
     DealCreateToggled,
@@ -2076,6 +2104,12 @@ pub enum Effect {
         screen: &'static str,
         selected: Option<String>,
         generation: u64,
+    },
+    /// Run one TECH Cockpit operator command. The reducer owns the intent; the browser runner only transports it.
+    TechCommand {
+        screen: &'static str,
+        generation: u64,
+        body: serde_json::Value,
     },
     /// Fetch the CORE Cabinet from the authoritative Rust Vault service.
     FetchCabinet {
