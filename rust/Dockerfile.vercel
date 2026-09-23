@@ -1,8 +1,8 @@
-FROM rust:1.90-bookworm AS builder
+FROM rust:1.94-bookworm AS builder
 
 WORKDIR /build
 COPY . .
-RUN cargo build --release -p server --bin http
+RUN cargo build --locked --release -p server --bin http
 
 FROM debian:bookworm-slim AS runtime
 
