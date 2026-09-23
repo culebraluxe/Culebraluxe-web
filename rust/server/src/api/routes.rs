@@ -190,7 +190,92 @@ struct UpdateFormBody {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct UpdateProjectBody {
+    name: Option<String>,
+    owner: Option<String>,
     status: Option<String>,
+    description: Option<String>,
+    areas: Option<Vec<String>>,
+    project_type: Option<String>,
+    playbook_id: Option<String>,
+    playbook_version: Option<i32>,
+    person_id: Option<String>,
+    property_id: Option<String>,
+    contract_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PropertyAdminQuery {
+    #[serde(default)]
+    search: String,
+    page: Option<i64>,
+    page_size: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreatePropertyAdminBody {
+    name: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SavePropertyAdminBody {
+    name: String,
+    slug: Option<String>,
+    status: String,
+    featured: bool,
+    is_active_listing: bool,
+    is_published: bool,
+    property_type: Option<String>,
+    list_price: Option<String>,
+    location: Option<String>,
+    address_line1: Option<String>,
+    street_number: Option<String>,
+    street_name: Option<String>,
+    unit_number: Option<String>,
+    city: Option<String>,
+    state_or_province: Option<String>,
+    neighborhood: Option<String>,
+    postal_code: Option<String>,
+    country: Option<String>,
+    iso_country_code: Option<String>,
+    latitude: Option<String>,
+    longitude: Option<String>,
+    bedrooms: Option<String>,
+    bathrooms: Option<String>,
+    bathrooms_full: Option<String>,
+    bathrooms_half: Option<String>,
+    square_feet: Option<String>,
+    lot_size: Option<String>,
+    lot_size_units: Option<String>,
+    year_built: Option<String>,
+    stories: Option<String>,
+    parking_spaces: Option<String>,
+    short_description: Option<String>,
+    editorial_description: Option<String>,
+    public_remarks: Option<String>,
+    listing_agent_name: Option<String>,
+    listing_agent_email: Option<String>,
+    listing_agent_phone: Option<String>,
+    listing_office: Option<String>,
+    legal_owner_name: Option<String>,
+    listing_identifier: Option<String>,
+    registry_entry: Option<String>,
+    finca_number: Option<String>,
+    registry_section: Option<String>,
+    seller_person_id: Option<String>,
+    archived: bool,
+    #[serde(default)]
+    stellar: domain::PropertyStellarDetails,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdatePersonAdminBody {
+    display_name: String,
+    status: String,
+    company: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -391,8 +476,10 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/clients/{person_id}/history", get(client_history))
         .route("/v1/clients/{person_id}", get(client_detail))
         .route("/v1/people/search", get(search_people))
-        .route("/v1/people/{id}", get(person))
+        .route("/v1/people/{id}", get(person).patch(update_person_admin))
         .route("/v1/people/{id}/properties", get(properties_for_person))
+        .route("/v1/properties/admin", get(property_admin_page).post(create_property_admin))
+        .route("/v1/properties/{id}/admin", get(property_admin_detail).patch(save_property_admin))
         .route("/v1/properties/{id}", get(property))
         .route(
             "/v1/properties/{id}/media",
@@ -643,19 +730,36 @@ async fn update_project(
         .update(
             &domain::UpdateProjectRequest {
                 id,
-                name: None,
-                owner: None,
+                name: body.name,
+                owner: body.owner,
                 status,
-                description: None,
-                areas: None,
+                description: body.description,
+                areas: match body.areas {
+                    Some(values) => {
+                        let mut parsed = Vec::with_capacity(values.len());
+                        for value in values {
+                            parsed.push(domain::WbsCategory::try_from(value.as_str()).map_err(|error| {
+                                correlate(
+                                    ApiError::from(CoreServiceError::business(
+                                        "PROJECT_AREA_INVALID",
+                                        error.to_string(),
+                                    )),
+                                    &resolved,
+                                )
+                            })?);
+                        }
+                        Some(parsed)
+                    }
+                    None => None,
+                },
                 starts_at: None,
                 ends_at: None,
-                project_type: None,
-                playbook_id: None,
-                playbook_version: None,
-                person_id: None,
-                property_id: None,
-                contract_id: None,
+                project_type: body.project_type,
+                playbook_id: body.playbook_id,
+                playbook_version: body.playbook_version,
+                person_id: body.person_id,
+                property_id: body.property_id,
+                contract_id: body.contract_id,
             },
             &resolved.service,
         )
@@ -916,6 +1020,30 @@ async fn person(
     Ok(success(value, &resolved))
 }
 
+
+async fn update_person_admin(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<UpdatePersonAdminBody>,
+) -> Result<Json<ApiSuccess<domain::Person>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().person();
+    let value = service
+        .update_admin(
+            &domain::UpdatePersonAdminRequest {
+                person_id: id,
+                display_name: body.display_name,
+                status: body.status,
+                company: body.company,
+            },
+            &resolved.service,
+        )
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
 async fn properties_for_person(
     State(state): State<ApiState>,
     headers: HeaderMap,
@@ -925,6 +1053,131 @@ async fn properties_for_person(
     let mut service = state.services().property();
     let value = service
         .for_person(&id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+
+async fn property_admin_page(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Query(query): Query<PropertyAdminQuery>,
+) -> Result<Json<ApiSuccess<domain::PropertyAdminPage>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().property();
+    let value = service
+        .admin_page(
+            &domain::PropertyAdminPageRequest {
+                search: query.search,
+                page: query.page.unwrap_or(1).max(1),
+                page_size: query.page_size.unwrap_or(50).clamp(1, 100),
+            },
+            &resolved.service,
+        )
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn create_property_admin(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<CreatePropertyAdminBody>,
+) -> Result<Json<ApiSuccess<domain::PropertyAdminRecord>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().property();
+    let value = service
+        .admin_create(
+            &domain::CreatePropertyAdminRequest { name: body.name },
+            &resolved.service,
+        )
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn property_admin_detail(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<ApiSuccess<domain::PropertyAdminRecord>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().property();
+    let value = service
+        .admin_get(&id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?
+        .ok_or_else(|| {
+            correlate(
+                ApiError::not_found("PROPERTY_NOT_FOUND", format!("Property not found: {id}")),
+                &resolved,
+            )
+        })?;
+    Ok(success(value, &resolved))
+}
+
+async fn save_property_admin(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<SavePropertyAdminBody>,
+) -> Result<Json<ApiSuccess<domain::PropertyAdminRecord>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().property();
+    let value = service
+        .admin_save(
+            &domain::SavePropertyAdminRequest {
+                property_id: id,
+                name: body.name,
+                slug: body.slug,
+                status: body.status,
+                featured: body.featured,
+                is_active_listing: body.is_active_listing,
+                is_published: body.is_published,
+                property_type: body.property_type,
+                list_price: body.list_price,
+                location: body.location,
+                address_line1: body.address_line1,
+                street_number: body.street_number,
+                street_name: body.street_name,
+                unit_number: body.unit_number,
+                city: body.city,
+                state_or_province: body.state_or_province,
+                neighborhood: body.neighborhood,
+                postal_code: body.postal_code,
+                country: body.country,
+                iso_country_code: body.iso_country_code,
+                latitude: body.latitude,
+                longitude: body.longitude,
+                bedrooms: body.bedrooms,
+                bathrooms: body.bathrooms,
+                bathrooms_full: body.bathrooms_full,
+                bathrooms_half: body.bathrooms_half,
+                square_feet: body.square_feet,
+                lot_size: body.lot_size,
+                lot_size_units: body.lot_size_units,
+                year_built: body.year_built,
+                stories: body.stories,
+                parking_spaces: body.parking_spaces,
+                short_description: body.short_description,
+                editorial_description: body.editorial_description,
+                public_remarks: body.public_remarks,
+                listing_agent_name: body.listing_agent_name,
+                listing_agent_email: body.listing_agent_email,
+                listing_agent_phone: body.listing_agent_phone,
+                listing_office: body.listing_office,
+                legal_owner_name: body.legal_owner_name,
+                listing_identifier: body.listing_identifier,
+                registry_entry: body.registry_entry,
+                finca_number: body.finca_number,
+                registry_section: body.registry_section,
+                seller_person_id: body.seller_person_id,
+                archived: body.archived,
+                stellar: body.stellar,
+            },
+            &resolved.service,
+        )
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(value, &resolved))
