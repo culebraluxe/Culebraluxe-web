@@ -150,6 +150,18 @@ fn ops_default_section(entity: &str) -> String {
     }
 }
 
+fn reset_ops_aux(model: &mut Model) {
+    model.ops.person_query.clear();
+    model.ops.person_people.clear();
+    model.ops.person_searching = false;
+    model.ops.selected_person = None;
+    model.ops.media_index = 0;
+    model.ops.media_alt.clear();
+    model.ops.media_file_name = None;
+    model.ops.media_uploading = false;
+    model.ops.media_uploader_open = false;
+}
+
 fn put(form: &mut std::collections::BTreeMap<String, String>, key: &str, value: Option<&str>) {
     form.insert(key.to_string(), value.unwrap_or_default().to_string());
 }
@@ -923,6 +935,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                     .is_some_and(|ops| ops.rows.iter().any(|row| row.id == id));
                 if valid {
                     model.selected_row_id = Some(id);
+                    reset_ops_aux(model);
                     model.loading = true;
                     model.error = None;
                     return vec![ops_effect(model)];
@@ -1083,6 +1096,12 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                     model.ops.form = ops_form(ops);
                     model.ops.dirty = false;
                     model.ops.saving = false;
+                    model.ops.person_query.clear();
+                    model.ops.person_people.clear();
+                    model.ops.person_searching = false;
+                    model.ops.selected_person = None;
+                    model.ops.media_index = 0;
+                    model.ops.media_uploading = false;
                     if model.ops.creating {
                         model.ops.creating = false;
                         model.ops.new_name.clear();
@@ -1195,6 +1214,8 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             if model.screen.key == "property-admin" {
                 model.ops.saving = false;
                 model.ops.creating = false;
+                model.ops.person_searching = false;
+                model.ops.media_uploading = false;
             }
             if let Some(portal) = model
                 .page
@@ -1276,6 +1297,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             model.ops.form.clear();
             model.ops.creating = false;
             model.ops.new_name.clear();
+            reset_ops_aux(model);
             model.selected_row_id = None;
             model.controls.query.clear();
             model.controls.page = 0;
@@ -1292,7 +1314,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 "project" => matches!(section.as_str(), "project" | "links"),
                 _ => matches!(
                     section.as_str(),
-                    "property" | "website" | "mls" | "media" | "relations"
+                    "property" | "website" | "mls" | "media" | "person"
                 ),
             };
             if valid {
@@ -1347,6 +1369,10 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             {
                 model.ops.form = ops_form(ops);
                 model.ops.dirty = false;
+                model.ops.person_query.clear();
+                model.ops.person_people.clear();
+                model.ops.person_searching = false;
+                model.ops.selected_person = None;
                 model.error = None;
             }
             Vec::new()
@@ -1397,6 +1423,176 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 name,
                 generation: model.generation,
             }]
+        }
+
+        Msg::OpsPersonQueryChanged(value) => {
+            if model.screen.key != "property-admin" || model.ops.entity != "property" {
+                return Vec::new();
+            }
+            model.ops.person_query = value.clone();
+            model.ops.person_people.clear();
+            model.ops.selected_person = None;
+            model.error = None;
+
+            if value.trim().len() < 2 {
+                model.ops.person_searching = false;
+                return Vec::new();
+            }
+
+            model.ops.person_searching = true;
+            vec![Effect::SearchOpsPeople {
+                screen: model.screen.key,
+                query: value,
+                generation: model.generation,
+            }]
+        }
+        Msg::OpsPeopleLoaded {
+            screen,
+            generation,
+            query,
+            people,
+        } => {
+            if !owns(model, &screen, generation)
+                || model.screen.key != "property-admin"
+                || model.ops.entity != "property"
+                || model.ops.person_query != query
+            {
+                return Vec::new();
+            }
+            model.ops.person_people = people;
+            model.ops.person_searching = false;
+            model.error = None;
+            Vec::new()
+        }
+        Msg::OpsPersonSelected(id) => {
+            if model.screen.key != "property-admin"
+                || model.ops.entity != "property"
+                || model.selected_row_id.is_none()
+            {
+                return Vec::new();
+            }
+
+            if id.is_empty() {
+                model.ops.form.insert("sellerPersonId".into(), String::new());
+                model.ops.selected_person = None;
+                model.ops.person_query.clear();
+            } else {
+                let Some(person) = model
+                    .ops
+                    .person_people
+                    .iter()
+                    .find(|person| person.id == id)
+                    .cloned()
+                else {
+                    return Vec::new();
+                };
+                model.ops.form.insert("sellerPersonId".into(), person.id.clone());
+                model.ops.person_query = person.display_name.clone();
+                model.ops.selected_person = Some(person);
+            }
+            model.ops.person_people.clear();
+            model.ops.person_searching = false;
+            model.ops.dirty = true;
+            model.error = None;
+            Vec::new()
+        }
+        Msg::OpsMediaSelected(index) => {
+            if model.screen.key != "property-admin"
+                || model.ops.entity != "property"
+                || model.ops.section != "media"
+            {
+                return Vec::new();
+            }
+            let image_count = model
+                .page
+                .as_ref()
+                .and_then(|page| page.portal.as_ref())
+                .and_then(|portal| portal.ops.as_ref())
+                .map(|ops| {
+                    ops.media
+                        .iter()
+                        .filter(|media| media.media_type == "image")
+                        .count()
+                })
+                .unwrap_or(0);
+            if index < image_count {
+                model.ops.media_index = index;
+            }
+            Vec::new()
+        }
+        Msg::OpsMediaUploaderToggled => {
+            if model.screen.key == "property-admin"
+                && model.ops.entity == "property"
+                && model.ops.section == "media"
+                && !model.ops.media_uploading
+            {
+                model.ops.media_uploader_open = !model.ops.media_uploader_open;
+                model.error = None;
+            }
+            Vec::new()
+        }
+        Msg::OpsMediaRoleChanged(value) => {
+            if model.screen.key == "property-admin"
+                && model.ops.entity == "property"
+                && matches!(value.as_str(), "hero" | "gallery")
+            {
+                model.ops.media_role = value;
+                model.error = None;
+            }
+            Vec::new()
+        }
+        Msg::OpsMediaAltChanged(value) => {
+            if model.screen.key == "property-admin" && model.ops.entity == "property" {
+                model.ops.media_alt = value;
+                model.error = None;
+            }
+            Vec::new()
+        }
+        Msg::OpsMediaFileChosen(name) => {
+            if model.screen.key == "property-admin" && model.ops.entity == "property" {
+                model.ops.media_file_name = (!name.trim().is_empty()).then_some(name);
+                model.error = None;
+            }
+            Vec::new()
+        }
+        Msg::OpsMediaUploadRequested => {
+            if model.screen.key != "property-admin"
+                || model.ops.entity != "property"
+                || model.ops.media_uploading
+            {
+                return Vec::new();
+            }
+            let Some(property_id) = model.selected_row_id.clone() else {
+                model.error = Some("Select a Property before uploading.".into());
+                return Vec::new();
+            };
+            if model.ops.media_file_name.is_none() {
+                model.error = Some("Choose an image before uploading.".into());
+                return Vec::new();
+            }
+
+            model.ops.media_uploading = true;
+            model.error = None;
+            vec![Effect::UploadOpsMedia {
+                screen: model.screen.key,
+                property_id,
+                role: model.ops.media_role.clone(),
+                alt: model.ops.media_alt.clone(),
+                generation: model.generation,
+            }]
+        }
+        Msg::OpsMediaUploadCompleted { screen, generation } => {
+            if !owns(model, &screen, generation) {
+                return Vec::new();
+            }
+            model.ops.media_uploading = false;
+            model.ops.media_alt.clear();
+            model.ops.media_file_name = None;
+            model.ops.media_uploader_open = false;
+            model.ops.media_index = 0;
+            model.loading = true;
+            model.error = None;
+            vec![ops_effect(model)]
         }
 
         // ---- OPPS / legacy Records + Listing Media ---------------------------------------------------------------
