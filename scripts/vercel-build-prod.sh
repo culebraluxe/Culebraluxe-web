@@ -82,6 +82,14 @@ fi
 printf '\nClearing the previous build output (.next)...\n'
 rm -rf .next
 
+# These are generated build outputs that are tracked in the repository. The build is allowed to
+# rewrite them, but only if they were clean when we started; otherwise cleanup could erase real work.
+GENERATED_TRACKED_FILES=(lib/rust-ui/ui.js next-env.d.ts public/rust-ui/ui_bg.wasm)
+for generated in "${GENERATED_TRACKED_FILES[@]}"; do
+  git diff --quiet -- "$generated" || fail "$generated has local changes before the build; refusing to overwrite them."
+  git diff --cached --quiet -- "$generated" || fail "$generated has staged changes before the build; refusing to overwrite them."
+done
+
 printf '\nBuilding production artifact locally...\n'
 # STAMP THE ARTIFACT WITH ITS OWN SOURCE. A local prebuilt deploy may have no Vercel git variables at
 # all, and the Cockpit's corner plus /api/build-info are how a deploy is verified - so the commit and
@@ -147,6 +155,10 @@ if [[ -n "$PRIVATE_PATH_MATCH" ]]; then
 fi
 
 git rev-parse HEAD > .vercel/culebraluxe-prod-build-sha
+
+# Return tracked generated outputs to HEAD after the artifact is complete. The deployable bytes live in
+# .vercel/output; restoring these source-tree copies does not alter the finished artifact.
+git restore -- "${GENERATED_TRACKED_FILES[@]}"
 
 # TIDY THE INTERMEDIATE TREE. `vercel build` leaves macOS copy-on-conflict duplicates behind — measured
 # 2026-09-16: 740 files named "cache-life.d 2.ts", "routes.d 2.ts" and so on, produced DURING the build even
