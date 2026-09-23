@@ -276,6 +276,7 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
     // to Deals and silently narrow a list they never filtered.
     model.controls = Controls::default();
     model.deal_create = DealCreateState::default();
+    model.tech = crate::model::TechCockpitState::default();
     model.deal_workspace = DealWorkspaceState::default();
 
     // Local screens own deterministic browser-only state and do not ask the server for a payload.
@@ -527,6 +528,156 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 generation: model.generation,
             }]
         }
+        Msg::TechScheduleChanged(value) => {
+            if model.screen.key == "tech" {
+                model.tech.schedule_at = value;
+                model.tech.notice = None;
+            }
+            Vec::new()
+        }
+        Msg::TechClearWorkbenchRequested => {
+            if model.screen.key != "tech" || model.tech.busy_action.is_some() {
+                return Vec::new();
+            }
+            model.tech.busy_action = Some("clearWorkbench".into());
+            model.tech.notice = None;
+            model.error = None;
+            vec![Effect::TechCommand {
+                screen: model.screen.key,
+                generation: model.generation,
+                body: serde_json::json!({ "action": "clearWorkbench" }),
+            }]
+        }
+        Msg::TechGoodToGoRequested => {
+            if model.screen.key != "tech" || model.tech.busy_action.is_some() {
+                return Vec::new();
+            }
+            let Some(story_id) = model.selected_row_id.clone() else {
+                return Vec::new();
+            };
+            model.tech.busy_action = Some("goodToGo".into());
+            model.tech.notice = None;
+            model.error = None;
+            vec![Effect::TechCommand {
+                screen: model.screen.key,
+                generation: model.generation,
+                body: serde_json::json!({ "action": "goodToGo", "storyId": story_id }),
+            }]
+        }
+        Msg::TechScopedRunRequested(stop_after) => {
+            if model.screen.key != "tech" || model.tech.busy_action.is_some() {
+                return Vec::new();
+            }
+            if !matches!(stop_after.as_str(), "scout" | "architect" | "lead") {
+                return Vec::new();
+            }
+            let Some(story_id) = model.selected_row_id.clone() else {
+                return Vec::new();
+            };
+            model.tech.busy_action = Some(format!("scoped:{stop_after}"));
+            model.tech.notice = None;
+            model.error = None;
+            vec![Effect::TechCommand {
+                screen: model.screen.key,
+                generation: model.generation,
+                body: serde_json::json!({
+                    "action": "scopedRun",
+                    "storyId": story_id,
+                    "stopAfter": stop_after,
+                }),
+            }]
+        }
+        Msg::TechMoveWorkbenchRequested(target) => {
+            if model.screen.key != "tech" || model.tech.busy_action.is_some() {
+                return Vec::new();
+            }
+            if !matches!(target.as_str(), "backlog" | "closed" | "next") {
+                return Vec::new();
+            }
+            let Some(story_id) = model.selected_row_id.clone() else {
+                return Vec::new();
+            };
+            model.tech.busy_action = Some(format!("move:{target}"));
+            model.tech.notice = None;
+            model.error = None;
+            vec![Effect::TechCommand {
+                screen: model.screen.key,
+                generation: model.generation,
+                body: serde_json::json!({
+                    "action": "moveWorkbench",
+                    "storyId": story_id,
+                    "target": target,
+                }),
+            }]
+        }
+        Msg::TechLaunchFlightRequested => {
+            if model.screen.key != "tech" || model.tech.busy_action.is_some() {
+                return Vec::new();
+            }
+            model.tech.busy_action = Some("launchFlight".into());
+            model.tech.notice = None;
+            model.error = None;
+            vec![Effect::TechCommand {
+                screen: model.screen.key,
+                generation: model.generation,
+                body: serde_json::json!({ "action": "launchFlight" }),
+            }]
+        }
+        Msg::TechScheduleFlightRequested { scheduled_for } => {
+            if model.screen.key != "tech" || model.tech.busy_action.is_some() || scheduled_for.trim().is_empty() {
+                return Vec::new();
+            }
+            model.tech.busy_action = Some("scheduleFlight".into());
+            model.tech.notice = None;
+            model.error = None;
+            vec![Effect::TechCommand {
+                screen: model.screen.key,
+                generation: model.generation,
+                body: serde_json::json!({
+                    "action": "scheduleFlight",
+                    "scheduledFor": scheduled_for,
+                }),
+            }]
+        }
+        Msg::TechCancelFlightRequested(batch_id) => {
+            if model.screen.key != "tech" || model.tech.busy_action.is_some() || batch_id.trim().is_empty() {
+                return Vec::new();
+            }
+            model.tech.busy_action = Some("cancelFlight".into());
+            model.tech.notice = None;
+            model.error = None;
+            vec![Effect::TechCommand {
+                screen: model.screen.key,
+                generation: model.generation,
+                body: serde_json::json!({
+                    "action": "cancelFlight",
+                    "batchId": batch_id,
+                }),
+            }]
+        }
+        Msg::TechCommandCompleted {
+            screen,
+            generation,
+            ok,
+            message,
+        } => {
+            if !owns(model, &screen, generation) {
+                return Vec::new();
+            }
+            model.tech.busy_action = None;
+            model.tech.notice = Some(if ok {
+                crate::model::CommandNotice::success(message)
+            } else {
+                crate::model::CommandNotice::failure(message)
+            });
+            model.error = None;
+            model.loading = true;
+            vec![Effect::FetchTech {
+                screen: model.screen.key,
+                selected: model.selected_row_id.clone(),
+                generation: model.generation,
+            }]
+        }
         Msg::RowSelected(id) => {
             if model.screen.key == "clients" {
                 let valid = model
@@ -723,6 +874,11 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 if let Some(projects) = portal.projects.as_mut() {
                     projects.saving = false;
                 }
+            }
+            if model.tech.busy_action.is_some() {
+                model.tech.busy_action = None;
+                model.tech.notice =
+                    Some(crate::model::CommandNotice::failure(message.clone()));
             }
             model.deal_create.searching = false;
             model.deal_create.submitting = false;
