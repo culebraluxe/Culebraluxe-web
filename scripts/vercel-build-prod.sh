@@ -13,6 +13,8 @@ fail() {
 command -v git >/dev/null 2>&1 || fail "git is required"
 command -v node >/dev/null 2>&1 || fail "Node.js is required"
 command -v vercel >/dev/null 2>&1 || fail "Vercel CLI is required. Install it with: npm install --global vercel@latest"
+command -v docker >/dev/null 2>&1 || fail "Docker is required for the Rust container service"
+docker info >/dev/null 2>&1 || fail "Docker is installed but not running. Start Docker Desktop before the production build."
 
 ROOT_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || fail "Run this inside the CulebraLuxe git repository"
 cd "$ROOT_DIR"
@@ -35,6 +37,13 @@ vercel whoami >/dev/null 2>&1 || fail "Vercel CLI is not authenticated. Run: ver
 printf 'Pulling Vercel production settings...\n'
 vercel pull --yes --environment=production
 
+ENV_FILE=".vercel/.env.production.local"
+[[ -f "$ENV_FILE" ]] || fail "Vercel production env file was not pulled: $ENV_FILE"
+grep -q '^DATABASE_URL_PROD=' "$ENV_FILE" || fail "DATABASE_URL_PROD is missing from Vercel production environment"
+if ! grep -q '^CULEBRA_INTERNAL_API_KEY=' "$ENV_FILE" && ! grep -q '^AUTH_SECRET=' "$ENV_FILE"; then
+  fail "Rust bridge auth is missing: set CULEBRA_INTERNAL_API_KEY or AUTH_SECRET in Vercel production"
+fi
+
 printf '\nClearing previous prebuilt output...\n'
 rm -rf .vercel/output
 
@@ -42,8 +51,12 @@ rm -rf .vercel/output
 # drifted manifest, a hand-edited vendor block, or a packet citing a path that no longer exists should stop
 # the build rather than ship. Deliberately not a commit hook: the repo has none, and this is the moment the
 # checks are worth the wait. `set -e` above means a harness failure aborts the release here.
-printf '\nRunning the harness gates (packet lint, manifests, vendor blocks)...\n'
-pnpm forge:harness
+if [[ "${RELEASE_FORGE_HARNESS:-check}" == "skip" ]]; then
+  printf '\nFORGE HARNESS SKIPPED by RELEASE_FORGE_HARNESS=skip — this is an explicit release decision, not a pass.\n'
+else
+  printf '\nRunning the harness gates (packet lint, manifests, vendor blocks)...\n'
+  pnpm forge:harness
+fi
 
 # START THE BUILD FROM A CLEAN .next. `vercel build` builds ON TOP of whatever tree is already there, and
 # repeated release builds had left 2,035 duplicate generated files (`cache-life.d 3.ts` and friends - the
@@ -63,6 +76,40 @@ printf '  stamped: %s at %s\n' "$NEXT_PUBLIC_COCKPIT_SHA" "$NEXT_PUBLIC_COCKPIT_
 vercel build --prod
 
 [[ -f .vercel/output/config.json ]] || fail "Build completed without .vercel/output/config.json"
+
+printf '\nVerifying multi-service build output...\n'
+node <<'NODE'
+const fs = require('node:fs')
+const config = JSON.parse(fs.readFileSync('.vercel/output/config.json', 'utf8'))
+const raw = config.services
+const services = Array.isArray(raw)
+  ? raw
+  : raw && typeof raw === 'object'
+    ? Object.entries(raw).map(([name, value]) => ({ name, ...(value || {}) }))
+    : []
+const names = new Set(services.map((service) => service && service.name).filter(Boolean))
+for (const required of ['frontend', 'rust_api']) {
+  if (!names.has(required)) {
+    console.error(`ERROR: prebuilt output is missing required service "${required}". Found: ${[...names].join(', ') || '<none>'}`)
+    process.exit(1)
+  }
+}
+const frontend = services.find((service) => service && service.name === 'frontend')
+const bindings = Array.isArray(frontend?.bindings) ? frontend.bindings : []
+const rustBinding = bindings.some(
+  (binding) =>
+    binding &&
+    binding.type === 'service' &&
+    binding.service === 'rust_api' &&
+    binding.env === 'RUST_API_BASE_URL',
+)
+if (!rustBinding) {
+  console.error('ERROR: frontend prebuilt output is missing the rust_api -> RUST_API_BASE_URL service binding.')
+  process.exit(1)
+}
+console.log('  services: frontend + rust_api')
+console.log('  binding:  rust_api -> RUST_API_BASE_URL')
+NODE
 
 printf '\nRunning artifact safety checks...\n'
 if grep -R -I -l -F '[SENSITIVE]' .vercel/output >/dev/null 2>&1; then
