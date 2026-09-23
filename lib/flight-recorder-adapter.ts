@@ -22,7 +22,7 @@ import type {
   FlightRecorderTransaction,
   FlightRecorderEvent,
   FlightRecorderWorkflow,
-} from '@/legacy/workflow_app/flight-recorder-read'
+} from '@/lib/flight-recorder-contract'
 
 // ---------------------------------------------------------------------------
 // Console read-model (the contract the Flight Recorder console renders).
