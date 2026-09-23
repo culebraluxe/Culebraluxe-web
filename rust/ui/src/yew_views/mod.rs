@@ -24,6 +24,7 @@ pub mod portal_cockpit;
 pub mod portal_deals;
 pub mod portal_forms;
 pub mod portal_flight_recorder;
+pub mod portal_flight_recorder_list;
 pub mod portal_projects;
 pub mod portal_seller_strategy;
 pub mod portal_shell;
