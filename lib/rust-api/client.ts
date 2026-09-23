@@ -462,6 +462,19 @@ export async function rustApiUpdatePropertyAdmin<T>(
   )
 }
 
+export async function rustApiAttachPropertyVideo<T>(
+  propertyId: string,
+  body: Record<string, unknown>,
+  options: RustApiJsonWriteOptions = {},
+): Promise<RustApiSuccess<T>> {
+  return rustApiJsonWrite<T>(
+    (`/v1/properties/${encodeURIComponent(propertyId)}/video`) as `/v1/${string}`,
+    'POST',
+    body,
+    options,
+  )
+}
+
 export async function rustApiUpdatePersonAdmin<T>(
   personId: string,
   body: {
