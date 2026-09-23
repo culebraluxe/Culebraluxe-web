@@ -7,7 +7,7 @@ use wasm_bindgen::JsCast;
 use yew::platform::spawn_local;
 use yew::Callback;
 
-use crate::model::{Effect, Msg, PortalDealPeopleSearch};
+use crate::model::{Effect, Msg, PortalDealPeopleSearch, PropertyRecent};
 
 const PAGE_PATH: &str = "/api/rust-ui/public-page";
 const ROWS_PATH: &str = "/api/rust-ui/public-rows";
@@ -28,6 +28,12 @@ const LISTING_MEDIA_UPLOAD_PATH: &str = "/api/property-media/upload";
 
 pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
     match effect {
+        Effect::PropertyBrowserRead { id, slug, title, valid_slugs } => {
+            read_property_browser(id, slug, title, valid_slugs, dispatch);
+        }
+        Effect::PropertyFavoriteWrite { id, slug, title, saved } => {
+            write_property_favorite(id, slug, title, saved, dispatch);
+        }
         Effect::FetchFlightRecorder {
             screen,
             instance_id,
@@ -1034,12 +1040,73 @@ fn run_projects_command(
     });
 }
 
+const FAVORITES_KEY: &str = "culebraluxe:saved-properties";
+const RECENT_KEY: &str = "culebraluxe:recently-viewed";
+
+fn browser_storage() -> Option<web_sys::Storage> {
+    web_sys::window()?.local_storage().ok().flatten()
+}
+
+fn favorite_entries(storage: &web_sys::Storage) -> Vec<serde_json::Value> {
+    storage.get_item(FAVORITES_KEY).ok().flatten()
+        .and_then(|raw| serde_json::from_str::<Vec<serde_json::Value>>(&raw).ok())
+        .unwrap_or_default()
+}
+
+fn favorite_id(entry: &serde_json::Value) -> Option<&str> {
+    entry.as_str().or_else(|| entry.get("id").and_then(serde_json::Value::as_str))
+}
+
+fn read_property_browser(id: String, slug: String, title: String, valid_slugs: Vec<String>, dispatch: &Callback<Msg>) {
+    let Some(storage) = browser_storage() else {
+        dispatch.emit(Msg::PropertyBrowserLoaded { id, saved: false, recent: Vec::new() });
+        return;
+    };
+    let saved = favorite_entries(&storage).iter().any(|entry| favorite_id(entry) == Some(id.as_str()));
+    let existing = storage.get_item(RECENT_KEY).ok().flatten()
+        .and_then(|raw| serde_json::from_str::<Vec<PropertyRecent>>(&raw).ok())
+        .unwrap_or_default();
+    let mut recorded = vec![PropertyRecent { slug: slug.clone(), id: id.clone(), name: title, at: js_sys::Date::now() as i64 }];
+    recorded.extend(existing.into_iter().filter(|entry| entry.id != id));
+    recorded.truncate(6);
+    recorded.retain(|entry| entry.slug == slug || valid_slugs.contains(&entry.slug));
+    if let Ok(serialized) = serde_json::to_string(&recorded) {
+        let _ = storage.set_item(RECENT_KEY, &serialized);
+    }
+    let recent = recorded.into_iter().filter(|entry| entry.slug != slug).collect();
+    dispatch.emit(Msg::PropertyBrowserLoaded { id, saved, recent });
+}
+
+fn write_property_favorite(id: String, slug: String, title: String, saved: bool, dispatch: &Callback<Msg>) {
+    let Some(storage) = browser_storage() else {
+        dispatch.emit(Msg::PropertyFavoriteStored { id, saved: false });
+        return;
+    };
+    let mut entries = favorite_entries(&storage);
+    entries.retain(|entry| favorite_id(entry) != Some(id.as_str()));
+    if saved { entries.push(serde_json::json!({ "id": id.clone(), "slug": slug, "name": title })); }
+    if let Ok(serialized) = serde_json::to_string(&entries) {
+        if storage.set_item(FAVORITES_KEY, &serialized).is_ok() {
+            if let Some(window) = web_sys::window() {
+                if let Ok(event) = web_sys::CustomEvent::new("culebraluxe:favorites-changed") {
+                    let _ = window.dispatch_event(&event);
+                }
+            }
+        }
+    }
+    let actual = favorite_entries(&storage).iter().any(|entry| favorite_id(entry) == Some(id.as_str()));
+    dispatch.emit(Msg::PropertyFavoriteStored { id, saved: actual });
+}
+
 fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
     let (url, screen, generation, kind) = match effect {
         // A COMMAND IS NOT A READ and cannot arrive here: every command effect has its own runner, matched in `run`
         // before its catch-all passes anything unhandled to this function. The arm is here because the match must be
         // exhaustive — and a command falling through to a read would be a request to the wrong route with the wrong verb,
         // which is exactly the kind of silence this file exists to avoid.
+        Effect::PropertyBrowserRead { .. } | Effect::PropertyFavoriteWrite { .. } => {
+            unreachable!("Property browser effects are run before network reads")
+        }
         Effect::SaveOps { .. } | Effect::CreateOpsProperty { .. } => {
             unreachable!("OPPS workbench commands are run by `run_ops_command`")
         }
@@ -1205,6 +1272,8 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
             Kind::Rows,
         ),
         Effect::CompleteCockpitTask { .. }
+        | Effect::PropertyBrowserRead { .. }
+        | Effect::PropertyFavoriteWrite { .. }
         | Effect::SaveForm { .. }
         | Effect::CreateForm { .. }
         | Effect::SearchDealPeople { .. }
@@ -1573,4 +1642,3 @@ fn bridge_error_message(body: &str, status: u16) -> String {
         .filter(|message| !message.trim().is_empty())
         .unwrap_or_else(|| format!("the Accounting command failed with {status}"))
 }
-

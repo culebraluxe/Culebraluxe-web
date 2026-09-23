@@ -1295,6 +1295,14 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             model.page = Some(page);
             if model.screen.key == "site-property-detail" {
                 model.property_media = crate::model::PropertyMediaState::default();
+                if let Some(record) = model.page.as_ref().and_then(|page| page.property.as_ref()) {
+                    if !record.id.is_empty() {
+                        return vec![Effect::PropertyBrowserRead {
+                            id: record.id.clone(), slug: record.slug.clone(), title: record.title.clone(),
+                            valid_slugs: record.public_slugs.clone(),
+                        }];
+                    }
+                }
             }
             Vec::new()
         }
@@ -1347,6 +1355,37 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 let total = total as i64;
                 model.property_media.lightbox_index =
                     (current + delta as i64).rem_euclid(total) as usize;
+            }
+            Vec::new()
+        }
+        Msg::PropertyTabSelected(tab) => {
+            if model.screen.key == "site-property-detail" {
+                model.property_media.tab = tab;
+            }
+            Vec::new()
+        }
+        Msg::PropertyBrowserLoaded { id, saved, recent } => {
+            if model.screen.key == "site-property-detail"
+                && model.page.as_ref().and_then(|page| page.property.as_ref()).is_some_and(|property| property.id == id)
+            {
+                model.property_media.saved = saved;
+                model.property_media.recent = recent;
+            }
+            Vec::new()
+        }
+        Msg::PropertyFavoriteToggled => {
+            let Some(record) = model.page.as_ref().and_then(|page| page.property.as_ref()) else { return Vec::new(); };
+            if model.screen.key != "site-property-detail" { return Vec::new(); }
+            vec![Effect::PropertyFavoriteWrite {
+                id: record.id.clone(), slug: record.slug.clone(), title: record.title.clone(),
+                saved: !model.property_media.saved,
+            }]
+        }
+        Msg::PropertyFavoriteStored { id, saved } => {
+            if model.screen.key == "site-property-detail"
+                && model.page.as_ref().and_then(|page| page.property.as_ref()).is_some_and(|property| property.id == id)
+            {
+                model.property_media.saved = saved;
             }
             Vec::new()
         }
@@ -3731,6 +3770,22 @@ mod tests {
     }
 
     #[test]
+    fn property_tabs_and_browser_receipts_belong_to_the_open_record() {
+        let mut model = property_carousel_model();
+        model.page.as_mut().unwrap().property.as_mut().unwrap().id = "casa-id".into();
+        update(&mut model, Msg::PropertyTabSelected(crate::model::PropertyTab::Details));
+        assert_eq!(model.property_media.tab, crate::model::PropertyTab::Details);
+
+        update(&mut model, Msg::PropertyFavoriteStored { id: "other-id".into(), saved: true });
+        assert!(!model.property_media.saved);
+        update(&mut model, Msg::PropertyFavoriteStored { id: "casa-id".into(), saved: true });
+        assert!(model.property_media.saved);
+        assert_eq!(update(&mut model, Msg::PropertyFavoriteToggled), vec![Effect::PropertyFavoriteWrite {
+            id: "casa-id".into(), slug: "casa-luar".into(), title: "Casa Luar".into(), saved: false,
+        }]);
+    }
+
+    #[test]
     fn property_carousel_arrows_wrap_the_canonical_photo_order() {
         let mut model = property_carousel_model();
 
@@ -4762,4 +4817,3 @@ mod tests {
         assert_eq!(model.workflow, WorkflowDiagnosticsState::default());
     }
 }
-

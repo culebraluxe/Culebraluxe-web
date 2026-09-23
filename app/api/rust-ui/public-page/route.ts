@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 
 import { getGuideItems } from '@/legacy/db/guide'
 import { getMarketingContent } from '@/legacy/db/marketing-content'
-import { getPropertyBySlug } from '@/lib/property-reads'
+import { getPropertyBySlug, getPublicPropertySlugs, getSimilarProperties } from '@/lib/property-reads'
 import {
   blockById,
   buildContactPageContent,
@@ -202,16 +202,26 @@ async function GETHandler(req: NextRequest): Promise<Response> {
         return NextResponse.json({ error: `no property with the slug '${slug}'` }, { status: 404 })
       }
       const { property, heroUrl, galleryImages, videos, documents } = result.data
+      const [similarResult, slugsResult] = await Promise.all([
+        getSimilarProperties(property._id, {
+          propertyType: property.propertyType ?? null,
+          city: property.city ?? null,
+          neighborhood: property.neighborhood ?? null,
+          listPrice: property.listPrice ?? null,
+        }),
+        getPublicPropertySlugs(),
+      ])
       // THE FIELD NAMES ARE THE READ MODEL'S, NOT GUESSED — which is the lesson this route already carries in its header
       // and which I ignored once: `slug`, `name`, `bedrooms`, `bathrooms` and `lotSize` do not exist on a PropertyDetail.
       // It carries `_id`, `title`, `bedroomsTotal`, `bathroomsTotal`, `lotSizeArea` and `livingArea`, and the compiler
       // caught every one of my inventions.
-      const city = [property.city, property.stateOrProvince].filter(Boolean).join(', ')
+      const location = [property.neighborhood, property.city, property.stateOrProvince].filter(Boolean).join(', ')
       // PageContent owns ONE `property: PropertyRecord`. Media belongs inside that record.
       // Returning hero/gallery/video/documents beside `property` silently discarded them during Rust
       // deserialization, which is why Casa Luar rendered its facts but the hero fell back to the gray placeholder.
       return NextResponse.json({
         property: {
+          id: property._id,
           // The slug is the key the page was asked for; the record itself carries only its id.
           slug,
           title: property.title ?? slug,
@@ -220,14 +230,39 @@ async function GETHandler(req: NextRequest): Promise<Response> {
           beds: property.bedroomsTotal ?? null,
           baths: property.bathroomsTotal ?? null,
           area: property.livingArea == null ? null : `${property.livingArea} sq ft`,
-          location: city || property.neighborhood || null,
-          description: property.shortDescription ?? property.editorialDescription ?? null,
+          location: location || null,
+          description: property.editorialDescription ?? property.shortDescription ?? null,
+          shortDescription: property.shortDescription ?? null,
           yearBuilt: property.yearBuilt ?? null,
           architecture: property.architecture ?? null,
+          status: property.standardStatus ?? null,
+          neighborhood: property.neighborhood ?? null,
+          city: property.city ?? null,
+          stateOrProvince: property.stateOrProvince ?? null,
+          lotSize: formatArea(property.lotSizeArea, property.lotSizeUnits),
+          livingArea: property.livingArea ?? null,
+          bathroomsFull: property.bathroomsFull ?? null,
+          bathroomsHalf: property.bathroomsHalf ?? null,
+          stories: property.stories ?? null,
+          parkingSpaces: property.parkingSpaces ?? null,
+          waterAccess: property.waterAccess ?? false,
+          beachAccess: property.beachAccess ?? false,
+          amenities: property.amenities ?? [],
+          viewType: property.viewType ?? [],
+          lifestyleTags: property.lifestyleTags ?? [],
+          listingAgentName: property.listingAgentName ?? null,
+          listingAgentPhone: property.listingAgentPhone ?? null,
+          listingAgentEmail: property.listingAgentEmail ?? null,
+          listingOffice: property.listingOffice ?? null,
+          listingId: property.listingId ?? null,
+          latitude: property.latitude ?? null,
+          longitude: property.longitude ?? null,
           heroUrl: heroUrl ?? null,
           gallery: galleryImages ?? [],
           videos: videos ?? [],
           documents: documents ?? [],
+          similar: similarResult.ok ? similarResult.data.map(listing) : [],
+          publicSlugs: slugsResult.ok ? slugsResult.data : [],
         },
       })
     }

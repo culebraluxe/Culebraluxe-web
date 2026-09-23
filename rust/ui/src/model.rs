@@ -400,6 +400,11 @@ pub struct MediaItem {
     pub name: Option<String>,
     pub label: Option<String>,
     pub caption: Option<String>,
+    pub playback_id: Option<String>,
+    pub role: Option<String>,
+    pub filename: Option<String>,
+    pub mime_type: Option<String>,
+    pub file_size: Option<i64>,
 }
 
 impl MediaItem {
@@ -429,6 +434,7 @@ impl MediaItem {
 #[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PropertyRecord {
+    pub id: String,
     pub slug: String,
     pub title: String,
     pub kind: Option<String>,
@@ -440,10 +446,35 @@ pub struct PropertyRecord {
     pub description: Option<String>,
     pub year_built: Option<i64>,
     pub architecture: Option<String>,
+    pub status: Option<String>,
+    pub neighborhood: Option<String>,
+    pub city: Option<String>,
+    pub state_or_province: Option<String>,
+    pub lot_size: Option<String>,
+    pub living_area: Option<f64>,
+    pub bathrooms_full: Option<f64>,
+    pub bathrooms_half: Option<f64>,
+    pub stories: Option<f64>,
+    pub parking_spaces: Option<f64>,
+    pub water_access: bool,
+    pub beach_access: bool,
+    pub amenities: Vec<String>,
+    pub view_type: Vec<String>,
+    pub lifestyle_tags: Vec<String>,
+    pub short_description: Option<String>,
+    pub listing_agent_name: Option<String>,
+    pub listing_agent_phone: Option<String>,
+    pub listing_agent_email: Option<String>,
+    pub listing_office: Option<String>,
+    pub listing_id: Option<String>,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
     pub hero_url: Option<String>,
     pub gallery: Vec<MediaItem>,
     pub videos: Vec<MediaItem>,
     pub documents: Vec<MediaItem>,
+    pub similar: Vec<Listing>,
+    pub public_slugs: Vec<String>,
 }
 
 /// The portal's own page payload: what one portal screen renders, in the screen's real shape.
@@ -2034,8 +2065,29 @@ pub struct DealWorkspaceState {
 /// arrows moved through the canonical photo order, and "View all photos" opened a lightbox.
 /// That state belongs here rather than in a Yew hook so the property page obeys the same MVI
 /// invariant as the rest of the application.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PropertyTab {
+    #[default]
+    Overview,
+    Details,
+    Video,
+    Documents,
+    Map,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub struct PropertyRecent {
+    pub slug: String,
+    pub id: String,
+    pub name: String,
+    pub at: i64,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PropertyMediaState {
+    pub tab: PropertyTab,
+    pub saved: bool,
+    pub recent: Vec<PropertyRecent>,
     pub active_index: usize,
     pub lightbox_open: bool,
     pub lightbox_index: usize,
@@ -2204,6 +2256,10 @@ pub enum Msg {
     PropertyLightboxClosed,
     /// Move the lightbox by -1 or +1, wrapping at both ends.
     PropertyLightboxMoved(i8),
+    PropertyTabSelected(PropertyTab),
+    PropertyBrowserLoaded { id: String, saved: bool, recent: Vec<PropertyRecent> },
+    PropertyFavoriteToggled,
+    PropertyFavoriteStored { id: String, saved: bool },
 
     // ---- Flight Recorder -----------------------------------------------------------------------------------------
     FlightRecorderRefreshRequested,
@@ -2540,6 +2596,8 @@ impl Msg {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(tag = "effect")]
 pub enum Effect {
+    PropertyBrowserRead { id: String, slug: String, title: String, valid_slugs: Vec<String> },
+    PropertyFavoriteWrite { id: String, slug: String, title: String, saved: bool },
     /// Fetch rows for this screen, optionally about one record.
     ///
     /// The screen travels with the effect rather than being scraped back out of the DOM, and `scope` is the record key
@@ -3279,4 +3337,3 @@ pub struct PortalAccountingPnl {
     pub total_expenses: String,
     pub net_income: String,
 }
-

@@ -24,6 +24,13 @@ jobs:
       - name: Rust workspace compile (all targets)
         working-directory: rust
         run: cargo check --workspace --all-targets
+      # Yew's browser module is feature-gated. The host workspace check above never
+      # compiled it, which let the production WASM build fail after the Rust API was live.
+      - name: Rust UI browser compile
+        working-directory: rust
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo check -p ui --features wasm --target wasm32-unknown-unknown
       # THE WHOLE WORKSPACE'S TESTS, not a hand-picked list. `-p domain -p db -p server` was the only test step and
       # it is exactly how a failing WhatsApp normalisation test stayed invisible: those three packages never ran it.
       # The check step above already compiled everything, so this run is cheap in CI.
