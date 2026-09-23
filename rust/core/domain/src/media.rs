@@ -14,6 +14,11 @@ pub struct MediaAsset {
     pub alt_text: Option<String>,
     pub caption: Option<String>,
     pub created_at: Option<String>,
+    pub mux_asset_id: Option<String>,
+    pub mux_playback_id: Option<String>,
+    pub duration_seconds: Option<String>,
+    pub aspect_ratio: Option<String>,
+    pub source_url: Option<String>,
     pub url: String,
 }
 
@@ -36,6 +41,29 @@ pub struct UploadPropertyMediaResult {
     pub media_id: String,
     pub property_id: String,
     pub role: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachPropertyVideoRequest {
+    pub property_id: String,
+    pub role: String,
+    pub mux_asset_id: String,
+    pub mux_playback_id: String,
+    pub duration_seconds: Option<String>,
+    pub aspect_ratio: Option<String>,
+    pub caption: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachPropertyVideoResult {
+    pub ok: bool,
+    pub media_id: String,
+    pub property_id: String,
+    pub role: String,
+    pub mux_asset_id: String,
+    pub mux_playback_id: String,
 }
 
 pub fn sanitize_media_filename(name: &str) -> String {
