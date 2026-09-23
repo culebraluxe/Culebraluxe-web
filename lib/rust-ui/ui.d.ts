@@ -71,10 +71,10 @@ export interface InitOutput {
     readonly rows_loaded: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly yew_mount: (a: number, b: number) => [number, number];
     readonly wasm_bindgen_4d678d08ce442f14___convert__closures_____invoke___wasm_bindgen_4d678d08ce442f14___JsValue__core_ed718c3d60ebd546___result__Result_____wasm_bindgen_4d678d08ce442f14___JsError___true_: (a: number, b: number, c: any) => [number, number];
-    readonly wasm_bindgen_4d678d08ce442f14___convert__closures________invoke___web_sys_aa02f1f3172a77c1___features__gen_Event__Event______true_: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen_4d678d08ce442f14___convert__closures________invoke___web_sys_aa02f1f3172a77c1___features__gen_Event__Event______true__1_: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen_4d678d08ce442f14___convert__closures_____invoke___web_sys_aa02f1f3172a77c1___features__gen_CloseEvent__CloseEvent______true_: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen_4d678d08ce442f14___convert__closures_____invoke___web_sys_aa02f1f3172a77c1___features__gen_MouseEvent__MouseEvent______true_: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_4d678d08ce442f14___convert__closures________invoke___web_sys_13a8c5d0ec4e83e8___features__gen_Event__Event______true_: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_4d678d08ce442f14___convert__closures________invoke___web_sys_13a8c5d0ec4e83e8___features__gen_Event__Event______true__1_: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_4d678d08ce442f14___convert__closures_____invoke___web_sys_13a8c5d0ec4e83e8___features__gen_CloseEvent__CloseEvent______true_: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_4d678d08ce442f14___convert__closures_____invoke___web_sys_13a8c5d0ec4e83e8___features__gen_MouseEvent__MouseEvent______true_: (a: number, b: number, c: any) => void;
     readonly wasm_bindgen_4d678d08ce442f14___convert__closures_____invoke_______true_: (a: number, b: number) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;

@@ -1844,6 +1844,13 @@ pub struct Model {
     /// Accounting V1's forms and their command state: the expense form, the receivable form, the P&L period and the
     /// receipt scanner's demonstration.
     pub accounting: AccountingState,
+    /// System Health's Workflow Diagnostics: which instance row is open, its detail, and what the read said.
+    ///
+    /// THIS IS THE STATE THE EARLIER CONVERSION LOST. The pre-cutover component held it in React (`selectedId`, `detail`,
+    /// `loadingId`, `error`) and fetched the detail when a row was clicked; the rows cutover dropped the interaction and the
+    /// screen became a static list. It lives on the model for the same reason every other screen's input does: so the click
+    /// is a message, the read is an effect, and `update` decides what the answer means.
+    pub workflow: WorkflowDiagnosticsState,
     /// Flight Recorder route/read ownership. The React console is only a renderer over this state.
     pub flight_recorder: FlightRecorderState,
     /// TECH Cockpit operator controls and command state.
@@ -1878,6 +1885,7 @@ impl Default for Model {
             seller_strategy: crate::seller_strategy::SellerStrategyState::default(),
             deal_create: DealCreateState::default(),
             accounting: AccountingState::default(),
+            workflow: WorkflowDiagnosticsState::default(),
             flight_recorder: FlightRecorderState::default(),
             tech: TechCockpitState::default(),
             listing_media: ListingMediaState::default(),
@@ -2126,6 +2134,16 @@ pub enum Msg {
     ScannerCategoryChanged(String),
     /// The operator saved the reviewed draft as an expense. The command is the same one the Expenses form issues.
     ScannerSubmitted,
+
+    // ---- system-health: the workflow diagnostics instance list ----------------------------------------------
+    /// The operator opened or closed the row for one instance.
+    ///
+    /// ONE MESSAGE FOR BOTH DIRECTIONS, exactly as `toggleInstance` was one function: whether this is an open or a close is
+    /// decided in `update` against what the model already holds, so the view never has to know which it is asking for and two
+    /// rows can never both be open.
+    WorkflowInstanceToggled {
+        instance_id: String,
+    },
 
     /// Cockpit task command. The Rust engine owns application-task completion.
     CockpitTaskCompleteRequested {
@@ -2731,6 +2749,25 @@ pub struct PortalWorkflowCommand {
     pub outcome: String,
     pub message: Option<String>,
     pub receipt_outcome: Option<String>,
+}
+
+/// Which workflow instance is open on System Health, and what happened when we asked for it.
+///
+/// THE INTERACTION THE EARLIER CONVERSION DROPPED. Pre-cutover this was React state — `selectedId`, `loadingId`, `detail`,
+/// `error` — mutated by `toggleInstance`. It is here because it is state: the same click that expands a row is a message, the
+/// read it triggers is an effect, and what comes back is decided in `update` rather than in the component that drew it.
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WorkflowDiagnosticsState {
+    /// The instance whose row is open, if any. NOT the same as `loading_instance`: a row can be open with nothing to show yet.
+    pub selected_instance: Option<String>,
+    /// The instance we have asked for and not yet heard about — what the loading line is keyed on.
+    pub loading_instance: Option<String>,
+    /// What the read said, when it said something bad. A missing instance is the ordinary case: the row was open, the id no
+    /// longer resolves, and the operator is told so in the row rather than in a panel that steals the page.
+    pub error: Option<String>,
+    /// The open instance's detail, once it has arrived. Held here and not in the payload so the screen reads one place.
+    pub detail: Option<PortalWorkflowInstanceDetail>,
 }
 
 /// The WhatsApp diagnostic: the four outcomes the pre-cutover screen distinguished, and the phone fields it printed.

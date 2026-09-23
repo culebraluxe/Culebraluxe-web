@@ -26,7 +26,9 @@ async function GETHandler(req: NextRequest): Promise<Response> {
   }
   // SUPPORT, the same way: four diagnostic screens, answered from the projections that already define them.
   if (isSupportScreen(screen)) {
-    return NextResponse.json(await supportPayload(screen))
+    return NextResponse.json(
+      await supportPayload(screen, req.nextUrl.searchParams.get('scope')),
+    )
   }
   switch (screen) {
     case 'storyboard': {

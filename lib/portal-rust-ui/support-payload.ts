@@ -5,7 +5,10 @@ import { getEnvironmentReadiness } from '@/lib/environment-readiness'
 import { getSecurityStatus } from '@/legacy/db/auth-status'
 import { getClients } from '@/legacy/db/clients'
 import { getSystemHealth } from '@/legacy/db/system-health'
-import { getWorkflowDiagnosticsSnapshot } from '@/legacy/workflow_app/diagnostics'
+import {
+  getWorkflowDiagnosticsSnapshot,
+  inspectInstance,
+} from '@/legacy/workflow_app/diagnostics'
 
 // ---------------------------------------------------------------------------
 // SUPPORT PAYLOADS — the four diagnostic screens' reads, in one place.
@@ -223,6 +226,7 @@ async function getMetaPhones(): Promise<SupportWhatsAppMeta> {
  */
 export async function supportPayload(
   screen: SupportScreen,
+  scope?: string | null,
 ): Promise<Record<string, unknown>> {
   switch (screen) {
     case 'db-test': {
@@ -282,10 +286,14 @@ export async function supportPayload(
         getSystemHealth(),
         getWorkflowDiagnosticsSnapshot(),
       ])
+      // ONE INSTANCE'S DETAIL, WHEN A ROW WAS OPENED. `scope` is the instance id the operator clicked, which is what the
+      // pre-cutover component loaded on demand through `loadWorkflowInstanceDetail`. Absent on a plain load, and the list
+      // above is still the list — which is what lets the screen re-render the row it opened without a second request.
+      const detail = scope?.trim() ? await inspectInstance(scope.trim()) : null
       const systemHealth: SupportSystemHealth = {
         health,
         environment: getEnvironmentReadiness(),
-        diagnostics,
+        diagnostics: { ...diagnostics, detail },
       }
       return { support: { systemHealth } }
     }

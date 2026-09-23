@@ -5,7 +5,7 @@
 
 use crate::model::{
     record_for, Controls, DealCreateState, DealWorkspaceState, Effect, Model, Msg,
-    PortalDealCommand, Screen, PAGE_SIZE,
+    PortalDealCommand, Screen, WorkflowDiagnosticsState, PAGE_SIZE,
 };
 
 /// THE PORTAL SCREENS THAT ASK FOR A TYPED PORTAL DTO.
@@ -45,6 +45,7 @@ pub fn is_ported_portal_screen(key: &str) -> bool {
             | "db-test"
             | "security"
             | "whatsapp-meta"
+            | "system-health"
             | "property-admin"
             | "property-media"
             | "seller-strategy"
@@ -395,6 +396,16 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
                 generation: model.generation,
                 from: model.accounting.pnl_from.clone(),
                 to: model.accounting.pnl_to.clone(),
+            }]
+        } else if screen.key == "system-health" {
+            // SYSTEM HEALTH IS ABOUT NO SINGLE RECORD UNTIL A ROW IS OPENED, so its fetch carries no scope and opening it
+            // clears what the last visit left open: an expanded instance from a previous look is not part of this one, and
+            // the detail it held would be a stale answer to a question the operator has not asked yet.
+            model.workflow = WorkflowDiagnosticsState::default();
+            vec![Effect::FetchPortal {
+                screen: screen.key,
+                scope: None,
+                generation: model.generation,
             }]
         } else if is_ported_portal_screen(screen.key) {
             vec![Effect::FetchPortal {
@@ -881,6 +892,34 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                     }
                 }
             }
+            if model.screen.key == "system-health" {
+                // AN INSTANCE'S DETAIL IS THE ANSWER TO A CLICK, and it is taken only when it answers the click that is
+                // open. A payload carrying a detail for some other instance — one row opened, closed, another opened while
+                // the first read was still in flight — is a stale answer to a question nobody is asking, and showing it
+                // under the second row would be a row that names one instance and describes another.
+                let wanted = model.workflow.loading_instance.take();
+                if let Some(wanted) = wanted {
+                    let detail = page
+                        .support
+                        .as_mut()
+                        .and_then(|support| support.system_health.as_mut())
+                        .and_then(|health| health.diagnostics.detail.take());
+                    match detail {
+                        Some(detail) if detail.instance_id == wanted => {
+                            model.workflow.detail = Some(detail);
+                            model.workflow.error = None;
+                        }
+                        // THE INSTANCE IS NOT THERE. That is not a screen-level failure: the list came back and it is on
+                        // screen, so the operator is told inside the row they opened — which is what the live component's
+                        // `error` did, and why a missing instance never replaced the page.
+                        _ => {
+                            model.workflow.detail = None;
+                            model.workflow.error =
+                                Some(format!("No detail found for instance {wanted}."));
+                        }
+                    }
+                }
+            }
             if model.screen.key == "tech" {
                 model.selected_row_id = page
                     .tech
@@ -1029,6 +1068,14 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             model.deal_workspace.participant_searching = false;
             model.deal_workspace.structural_searching = false;
             model.deal_workspace.busy_action = None;
+            // A FAILED INSTANCE DETAIL IS REPORTED IN ITS ROW, NOT OVER THE PAGE. The screen's own payload loaded fine; what
+            // failed is the read one open row asked for, and putting it in `model.error` would blank a page of counts the
+            // operator can still use — the difference between a row that failed and a screen that failed.
+            if model.screen.key == "system-health" && model.workflow.loading_instance.take().is_some() {
+                model.workflow.detail = None;
+                model.workflow.error = Some(message);
+                return Vec::new();
+            }
             model.error = Some(message);
             Vec::new()
         }
@@ -1426,6 +1473,35 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                     // demonstration changes: the seeds, the cycle and the extraction are as they were.
                     "memo": draft.memo,
                 }),
+            }]
+        }
+
+        // ---- system-health: the workflow diagnostics instance list -----------------------------------------------
+        Msg::WorkflowInstanceToggled { instance_id } => {
+            if model.screen.key != "system-health" {
+                return Vec::new();
+            }
+            // ONE ROW AT A TIME, and the click that closes the open row fetches nothing. This is `toggleInstance`'s
+            // behaviour, which the earlier conversion dropped along with the state it depended on: the interaction is a
+            // question the row asks, and every branch of the answer — the detail, the loading line, the error — is decided
+            // here rather than by the component that drew the row.
+            if model.workflow.selected_instance.as_deref() == Some(instance_id.as_str()) {
+                model.workflow = WorkflowDiagnosticsState::default();
+                return Vec::new();
+            }
+            // THE DETAIL IS ASKED FOR AGAIN ON EVERY OPEN, even for a row that was open a moment ago: the engine moves,
+            // and a detail cached from the last time the operator looked is a stale answer to a live question.
+            model.workflow.selected_instance = Some(instance_id.clone());
+            model.workflow.loading_instance = Some(instance_id.clone());
+            model.workflow.detail = None;
+            model.workflow.error = None;
+            model.error = None;
+            // The instance id travels as the fetch's `scope`, which is what the effect runner already puts on the query
+            // string: this screen's scope is the row that is open, not a record the whole screen is about.
+            vec![Effect::FetchPortal {
+                screen: "system-health",
+                scope: Some(instance_id),
+                generation: model.generation,
             }]
         }
 
@@ -3675,6 +3751,221 @@ mod tests {
             model.error,
             Some("the client read could not be answered".to_string())
         );
+    }
+
+    // ---- SUPPORT: system-health, the instance row the earlier conversion could not open --------------------------
+
+    /// A payload with an instance list and one instance's detail, as the bridge answers when a row is opened.
+    fn system_health_payload(instance_id: &str, detail_instance: &str) -> String {
+        format!(
+            r#"{{"support":{{"systemHealth":{{
+                "health":{{}},
+                "environment":{{}},
+                "diagnostics":{{"configured":true,
+                    "summary":{{"instanceTotal":1,"anomalyCount":1}},
+                    "definitions":[{{"key":"deal-close","version":2,"name":"Deal Close"}}],
+                    "instances":[{{"instanceId":"{instance_id}","definitionKey":"deal-close",
+                        "definitionVersion":2,"status":"active","activeTokenCount":1,
+                        "startedAt":"2026-03-04T09:00:00Z"}}],
+                    "anomalies":[{{"kind":"stuck_receipt","severity":"critical",
+                        "message":"A command receipt has been pending.","instanceId":"{instance_id}"}}],
+                    "detail":{{"instanceId":"{detail_instance}","definitionKey":"deal-close",
+                        "definitionVersion":2,"status":"active","activeTokenCount":1,
+                        "startedAt":"2026-03-04T09:00:00Z","taskCount":1,"eventCount":1,
+                        "variables":{{"offerId":"of-1"}},
+                        "nodeLabels":{{"n1":"Await signature"}},
+                        "tokens":[{{"id":"t1","nodeId":"n1","status":"active","required":true}}],
+                        "tasks":[{{"id":"tk1","name":"Collect signature","status":"ready",
+                            "candidates":["ops"]}}],
+                        "events":[],"correlations":[],"jobs":[],"commands":[]}}}}}}}}}}"#
+        )
+    }
+
+    /// CLICK → MESSAGE → EFFECT → PAYLOAD → MODEL, and the row is still the only thing that changed.
+    ///
+    /// THIS IS THE BEHAVIOUR THE EARLIER CONVERSION DROPPED. It held `selectedId`/`detail`/`loadingId` in React and fetched
+    /// the detail on click; the rows cutover sent the screen through the generic renderer and the list lost its interaction.
+    /// Three things are asserted here that a rendering test could not: the fetch carries the clicked id as its scope, the
+    /// answer lands on the model where the view reads it, and the detail is matched to the row that asked for it.
+    #[test]
+    fn opening_a_workflow_instance_asks_for_that_instance_and_holds_its_detail() {
+        assert!(
+            is_ported_portal_screen("system-health"),
+            "system-health has a bespoke component and must not fall back to the generic renderer"
+        );
+
+        let mut model = Model {
+            screen: target("db-test"),
+            ..Model::default()
+        };
+        // Opening the screen asks for the payload with no scope: this screen is about no record until a row is opened.
+        let effects = update(&mut model, Msg::Navigate(target("system-health")));
+        let Effect::FetchPortal { screen, scope, .. } = &effects[0] else {
+            panic!("opening System Health must ask for its portal payload");
+        };
+        assert_eq!(*screen, "system-health");
+        assert_eq!(*scope, None);
+
+        let payload = system_health_payload("i-1", "i-1");
+        update(&mut model, Msg::portal_loaded_json("system-health", 0, &payload));
+        assert_eq!(model.workflow.selected_instance, None);
+
+        // The click.
+        let effects = update(
+            &mut model,
+            Msg::WorkflowInstanceToggled {
+                instance_id: "i-1".into(),
+            },
+        );
+        let Effect::FetchPortal { screen, scope, .. } = &effects[0] else {
+            panic!("a row that opens must ask for its own detail");
+        };
+        assert_eq!(*screen, "system-health");
+        assert_eq!(
+            scope.as_deref(),
+            Some("i-1"),
+            "the id the operator clicked is what the fetch is about"
+        );
+        assert_eq!(model.workflow.selected_instance.as_deref(), Some("i-1"));
+        assert_eq!(model.workflow.loading_instance.as_deref(), Some("i-1"));
+
+        // The answer.
+        update(&mut model, Msg::portal_loaded_json("system-health", 0, &payload));
+        let detail = model
+            .workflow
+            .detail
+            .as_ref()
+            .expect("the detail must land where the view reads it");
+        assert_eq!(detail.instance_id, "i-1");
+        assert_eq!(detail.tasks.len(), 1);
+        assert_eq!(detail.tokens.len(), 1);
+        assert_eq!(
+            detail.node_labels.get("n1").map(String::as_str),
+            Some("Await signature"),
+            "the node labels are what name a token rather than address it"
+        );
+        assert_eq!(model.workflow.loading_instance, None);
+        assert_eq!(model.workflow.error, None);
+    }
+
+    /// A DETAIL FOR ANOTHER INSTANCE IS REFUSED: the row names one instance and must not describe a different one.
+    ///
+    /// The race is ordinary — open one row, close it, open another while the first read is still in flight — and the wrong
+    /// detail under the wrong row is worse than no detail, because it is a diagnosis of a run that is not the one on screen.
+    #[test]
+    fn a_detail_for_another_instance_is_not_shown_under_the_open_row() {
+        let mut model = Model {
+            screen: target("system-health"),
+            ..Model::default()
+        };
+        update(
+            &mut model,
+            Msg::WorkflowInstanceToggled {
+                instance_id: "i-2".into(),
+            },
+        );
+        let payload = system_health_payload("i-2", "i-1");
+        update(&mut model, Msg::portal_loaded_json("system-health", 0, &payload));
+
+        assert!(model.workflow.detail.is_none());
+        assert_eq!(
+            model.workflow.error.as_deref(),
+            Some("No detail found for instance i-2."),
+            "the operator is told in the row they opened, not in a panel over the page"
+        );
+        assert_eq!(
+            model.error, None,
+            "a row that found nothing is not a screen that failed"
+        );
+    }
+
+    /// CLOSING A ROW FETCHES NOTHING, and one row at a time stays open — `toggleInstance`'s behaviour.
+    #[test]
+    fn closing_an_open_instance_clears_it_without_a_read() {
+        let mut model = Model {
+            screen: target("system-health"),
+            ..Model::default()
+        };
+        update(
+            &mut model,
+            Msg::WorkflowInstanceToggled {
+                instance_id: "i-1".into(),
+            },
+        );
+        let effects = update(
+            &mut model,
+            Msg::WorkflowInstanceToggled {
+                instance_id: "i-1".into(),
+            },
+        );
+
+        assert!(
+            effects.is_empty(),
+            "a close is not a question, so it is not a fetch"
+        );
+        assert_eq!(model.workflow, WorkflowDiagnosticsState::default());
+    }
+
+    /// A FAILED DETAIL READ STAYS IN THE ROW: the page's own counts are still worth reading.
+    #[test]
+    fn a_failed_detail_read_does_not_blank_the_screen() {
+        let mut model = Model {
+            screen: target("system-health"),
+            ..Model::default()
+        };
+        let payload = system_health_payload("i-1", "i-1");
+        update(&mut model, Msg::portal_loaded_json("system-health", 0, &payload));
+        update(
+            &mut model,
+            Msg::WorkflowInstanceToggled {
+                instance_id: "i-1".into(),
+            },
+        );
+        update(
+            &mut model,
+            Msg::EffectFailed {
+                screen: "system-health".into(),
+                generation: 0,
+                message: "the engine answered with a 500".into(),
+            },
+        );
+
+        assert_eq!(
+            model.workflow.error.as_deref(),
+            Some("the engine answered with a 500")
+        );
+        assert!(model.workflow.loading_instance.is_none());
+        assert_eq!(
+            model.error, None,
+            "the snapshot loaded and is still on screen; only the open row failed"
+        );
+        // The list is still there: the difference between a row that failed and a screen that failed.
+        assert!(model
+            .page
+            .as_ref()
+            .and_then(|page| page.portal.as_ref())
+            .and_then(|portal| portal.support.as_ref())
+            .and_then(|support| support.system_health.as_ref())
+            .is_some());
+    }
+
+    /// A ROW-TOGGLE ON ANOTHER SCREEN DOES NOTHING: the message belongs to a screen, and a stray one cannot mutate state the
+    /// operator is not looking at.
+    #[test]
+    fn a_workflow_row_toggle_is_ignored_on_another_screen() {
+        let mut model = Model {
+            screen: target("db-test"),
+            ..Model::default()
+        };
+        let effects = update(
+            &mut model,
+            Msg::WorkflowInstanceToggled {
+                instance_id: "i-1".into(),
+            },
+        );
+
+        assert!(effects.is_empty());
+        assert_eq!(model.workflow, WorkflowDiagnosticsState::default());
     }
 }
 

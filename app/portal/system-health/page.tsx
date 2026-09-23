@@ -1,22 +1,19 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import { PortalYewApp } from '@/components/rust-ui/portal-yew-app'
 
 // ---------------------------------------------------------------------------
-// CONVERTED TO RUST (screen: system-health, surface Support).
+// /portal/system-health — YEW OWNS THIS SCREEN NOW.
 //
-// The route is unchanged; the screen is not. It rendered a TypeScript component with its own state
-// (6 interactive hooks); it now renders the Rust screen, fed by the portal rows route.
+// The screen is `rust/ui/src/yew_views/portal_support_system_health.rs`, over the same three reads the pre-cutover page made
+// together: the operational health snapshot, the environment readiness posture, and the workflow diagnostics.
 //
-// HONEST NOTE ON PARITY: this crossed over before the Rust body had those controls, on instruction
-// that the conversion comes first and the gaps are worked afterwards. What is missing is named at
-// docs/layers/UI.md rather than implied by silence - the rows are here, the behaviour is the
-// follow-up. Scripts: scripts/ui-flip-readiness.mjs for the count.
+// WHAT THIS FIXES: the earlier conversion sent this screen through the generic rows renderer and dropped the Workflow
+// Diagnostics interaction with it — the instance list was a list, and a row could not be opened. The detail a row asks for is
+// now `Msg::WorkflowInstanceToggled` → an effect → the payload with that instance's detail, with Rust owning the DTOs, the
+// reducer and the rendering.
+//
+// Read-only: no workflow reset, repair or mutation control is on this screen, and none is added.
 // ---------------------------------------------------------------------------
 
 export default function Page() {
-
-  return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="system-health" />
-    </div>
-  )
+  return <PortalYewApp screen="system-health" />
 }

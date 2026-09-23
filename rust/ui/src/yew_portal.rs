@@ -13,6 +13,7 @@ use crate::yew_views::portal_accounting_receipt_scanner::Scanner as AccountingRe
 use crate::yew_views::portal_accounting_receivables::Receivables as AccountingReceivables;
 use crate::yew_views::portal_support_db_test::DbTest as SupportDbTest;
 use crate::yew_views::portal_support_security::Security as SupportSecurity;
+use crate::yew_views::portal_support_system_health::SystemHealth as SupportSystemHealth;
 use crate::yew_views::portal_support_whatsapp_meta::WhatsAppMeta as SupportWhatsAppMeta;
 use crate::yew_views::portal_activity::Activity;
 use crate::yew_views::portal_cabinet::Cabinet;
@@ -104,6 +105,9 @@ impl Component for PortalApp {
             "security" => html! { <SupportSecurity model={self.model.clone()} on_msg={on_msg} /> },
             "whatsapp-meta" => {
                 html! { <SupportWhatsAppMeta model={self.model.clone()} on_msg={on_msg} /> }
+            }
+            "system-health" => {
+                html! { <SupportSystemHealth model={self.model.clone()} on_msg={on_msg} /> }
             }
             "property-admin" => html! { <Records model={self.model.clone()} on_msg={on_msg} /> },
             "property-media" => html! { <ListingMedia model={self.model.clone()} on_msg={on_msg} /> },
