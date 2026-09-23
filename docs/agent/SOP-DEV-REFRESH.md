@@ -68,14 +68,39 @@ keeps its own endpoint. That is why **`DATABASE_URL_DEV` does not change** and n
 `.env.local` edit is needed. The `create … --parent` + repoint sequence is the older
 shape; do not use it — it leaves you maintaining a connection string.
 
-Expected output:
+**BUT THAT COMMAND FAILS IF YOU FOLLOWED §2.2.** A backup branch made with
+`--parent dev` is a CHILD of dev, and Neon refuses to reset a branch that has
+children:
+
+```
+INFO: Restoring branch br-… to the branch br-… head
+ERROR: Branch has children, preserve_under_name is required
+```
+
+That is the *documented* procedure failing on the *documented* command — measured
+2026-09-23. The fix is one flag, and it is strictly better than the manual backup
+because Neon itself keeps the old state:
+
+```sh
+neonctl branches restore dev production \
+  --preserve-under-name dev-pre-restore-$(date +%Y-%m-%d) \
+  --project-id snowy-salad-48970537
+```
+
+`--preserve-under-name <name>` preserves the pre-restore state under that name *and*
+gives the child branches a valid ancestor. After it, `neonctl branches list` shows the
+reset branch, your §2.2 backup, and the preserved copy — delete the surplus once the
+portal smoke-tests, and note that **two copies of DEV is two copies of the data**, so
+it is a temporary state, not a tidy one.
+
+Expected output (with `--preserve-under-name`):
 
 ```
 INFO: Restoring branch br-solitary-star-axgusezm to the branch br-snowy-fog-axg3jae2 head
 Restored branch
 Id             br-solitary-star-axgusezm
 Name           dev
-Last Reset At  2026-09-12T19:09:13Z
+Last Reset At  2026-09-23T09:02:48Z
 ```
 
 ## 4. Post-flight verification (do this, do not assume it)
@@ -123,3 +148,30 @@ PROD; it does not make PROD's schema correct, and it does not prove migrations w
 applied anywhere. That is `pnpm db:migrations` (the ledger) and `pnpm db:parity` (the
 five axes: tables, columns, indexes, FKs, check constraints) — run both after your
 next schema story, not after your next refresh.
+
+### 6.1 A refresh can DELETE schema, not just data — and the ledger is not enough
+
+Measured 2026-09-23. Before that refresh, DEV was 8 migrations ahead of PROD
+(201–208, applied 2026-09-19 and recorded in the ledger) **and their .sql files existed
+nowhere**: not in `legacy/db/migrations` (which stopped at 200), not in git on any
+branch, not in PROD. A reset would have destroyed them in the only place they existed.
+They were recovered by generating the DDL from DEV's live catalog and shipped to PROD as
+`209_recover_dev_only_schema_to_prod.sql`, which is why the refresh could proceed.
+
+The lesson is not "be careful". It is that **the ledger records that something was
+applied, never what it did** — so a row there is not a backup:
+
+1. **Before a refresh, prove DEV has no migration PROD lacks:**
+   `pnpm db:migrations` — `dev recorded` must not exceed `prod recorded` by files that
+   are missing from disk *and* from git. Any such file is DEV-only work about to be lost.
+2. **A file that is recorded but absent from the repository is unreproducible.** Recover
+   it from the catalog (the definitions are exact: `pg_attribute`/`format_type`,
+   `pg_indexes`, `pg_constraint`, `information_schema.views`) and land it as a NEW
+   migration, because `apply-migration.mjs` refuses a filename whose checksum differs
+   from the recorded one — the original filenames are permanently unusable.
+3. **`db:parity` does not cover views or materialized views.** The five axes are tables,
+   columns, indexes, FKs and check constraints. A DEV-only view is invisible to the gate,
+   so compare them separately if a refresh matters to one:
+   `select table_name from information_schema.views where table_schema='public'` on both,
+   and `pg_matviews` for materialized ones.
+
