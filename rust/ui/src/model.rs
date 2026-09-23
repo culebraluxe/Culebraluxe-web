@@ -614,6 +614,52 @@ pub struct PortalTechHistory {
     pub latest_run_result: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalRecordProperty {
+    pub id: String,
+    pub name: String,
+    pub status: String,
+    pub location: String,
+    pub list_price: Option<String>,
+    pub slug: Option<String>,
+    pub archived: bool,
+    pub image_count: i64,
+    pub video_count: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalRecordsPage {
+    pub rows: Vec<PortalRecordProperty>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub selected_id: Option<String>,
+    pub selected: Option<PortalRecordProperty>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalListingProperty {
+    pub id: String,
+    pub name: String,
+    pub status: String,
+    pub slug: Option<String>,
+    pub image_count: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalListingMediaPage {
+    pub properties: Vec<PortalListingProperty>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub selected_id: Option<String>,
+    pub selected: Option<PortalListingProperty>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PortalPage {
@@ -640,6 +686,10 @@ pub struct PortalPage {
     /// Accounting V1 — the dashboard's projections, the two lists, and the P&L for a requested period. One word per
     /// screen, in the same shape the other surfaces use, so a screen reads `portal.accounting.<what it renders>`.
     pub accounting: Option<PortalAccountingPage>,
+    /// OPPS Records — bounded property administration projection.
+    pub records: Option<PortalRecordsPage>,
+    /// OPPS Listing Media — bounded listing/property projection for media attachment.
+    pub listing_media: Option<PortalListingMediaPage>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -1657,6 +1707,25 @@ pub struct FlightRecorderState {
     pub transaction: Option<serde_json::Value>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListingMediaState {
+    pub role: String,
+    pub alt: String,
+    pub file_name: Option<String>,
+    pub uploading: bool,
+}
+
+impl Default for ListingMediaState {
+    fn default() -> Self {
+        Self {
+            role: "gallery".into(),
+            alt: String::new(),
+            file_name: None,
+            uploading: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TechCockpitState {
     /// Browser-local value from the `datetime-local` Flight scheduler.
@@ -1722,6 +1791,8 @@ pub struct Model {
     pub flight_recorder: FlightRecorderState,
     /// TECH Cockpit operator controls and command state.
     pub tech: TechCockpitState,
+    /// OPPS Listing Media upload controls. The file bytes stay in the browser input; only metadata lives here.
+    pub listing_media: ListingMediaState,
     /// One Deal workspace's forms and transient command state.
     pub deal_workspace: DealWorkspaceState,
     /// WHICH MOUNT THIS STATE BELONGS TO.
@@ -1752,6 +1823,7 @@ impl Default for Model {
             accounting: AccountingState::default(),
             flight_recorder: FlightRecorderState::default(),
             tech: TechCockpitState::default(),
+            listing_media: ListingMediaState::default(),
             deal_workspace: DealWorkspaceState::default(),
             // Generation zero is "no host has said", which is what a program built by a test or an example holds.
             generation: 0,
@@ -1853,6 +1925,17 @@ pub enum Msg {
         generation: u64,
         ok: bool,
         message: String,
+    },
+
+    // ---- OPPS / Records + Listing Media --------------------------------------------------------------------------
+    RecordArchiveRequested,
+    ListingMediaRoleChanged(String),
+    ListingMediaAltChanged(String),
+    ListingMediaFileChosen(String),
+    ListingMediaUploadRequested,
+    ListingMediaUploadCompleted {
+        screen: String,
+        generation: u64,
     },
 
     // ---- Contracts / Deal workspace -----------------------------------------------------------------------------
@@ -2156,6 +2239,39 @@ pub enum Effect {
         screen: &'static str,
         generation: u64,
         task_id: String,
+    },
+    /// OPPS Records read with server-side search, paging and selected property.
+    FetchRecords {
+        screen: &'static str,
+        selected: Option<String>,
+        search: String,
+        page: usize,
+        generation: u64,
+    },
+    /// OPPS Listing Media read with server-side search, paging and selected property.
+    FetchListingMedia {
+        screen: &'static str,
+        selected: Option<String>,
+        search: String,
+        page: usize,
+        generation: u64,
+    },
+    /// Archive or restore the selected property and return the refreshed Records payload.
+    RecordArchive {
+        screen: &'static str,
+        property_id: String,
+        archived: bool,
+        search: String,
+        page: usize,
+        generation: u64,
+    },
+    /// Upload the browser-selected listing photo; bytes are read from the DOM by the effect runner.
+    UploadListingMedia {
+        screen: &'static str,
+        property_id: String,
+        role: String,
+        alt: String,
+        generation: u64,
     },
     /// Fetch a portal screen's payload.
     ///
