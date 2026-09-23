@@ -13,6 +13,7 @@ import {
   createProperty,
   restoreProperty,
 } from '@/legacy/db/property-admin-writes'
+import { normalizePropertyAdminRequiredFields } from '@/legacy/db/property-admin'
 import type { TxRunner } from '@/legacy/db/tx'
 import type { QueryExecutor } from '@/legacy/db/query-executor'
 
@@ -256,6 +257,17 @@ test('property status vocabularies match the property schema', () => {
     'sold',
     'archived',
   ])
+})
+
+test('property admin read boundary normalizes legacy null required fields', () => {
+  assert.deepEqual(
+    normalizePropertyAdminRequiredFields({ name: null, status: null }),
+    { name: 'Unnamed property', status: 'prospect' },
+  )
+  assert.deepEqual(
+    normalizePropertyAdminRequiredFields({ name: '  Casa Luar  ', status: '  active  ' }),
+    { name: 'Casa Luar', status: 'active' },
+  )
 })
 
 // ---------------------------------------------------------------------------
