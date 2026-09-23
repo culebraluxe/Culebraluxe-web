@@ -17,8 +17,8 @@ pub struct MuxConfig {
 
 impl MuxConfig {
     pub fn from_env() -> Result<Self, String> {
-        let token_id = required_env("MUX_TOKEN_ID")?;
-        let token_secret = required_env("MUX_TOKEN_SECRET")?;
+        let token_id = required_mux_env("MUX_TOKEN_ID")?;
+        let token_secret = required_mux_env("MUX_TOKEN_SECRET")?;
         let base_url = std::env::var("MUX_BASE_URL")
             .ok()
             .map(|value| value.trim().trim_end_matches('/').to_owned())
@@ -39,13 +39,49 @@ impl MuxConfig {
     }
 }
 
-fn required_env(key: &str) -> Result<String, String> {
-    let value = std::env::var(key).unwrap_or_default();
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return Err(format!("Mux config is incomplete; set required env key {key}."));
+fn required_mux_env(key: &str) -> Result<String, String> {
+    if let Some(value) = env_value(key) {
+        return Ok(value);
     }
-    Ok(trimmed.to_owned())
+
+    let suffix = environment_suffix(
+        std::env::var("VERCEL_ENV").ok().as_deref(),
+        std::env::var("APP_ENV").ok().as_deref(),
+    );
+    if let Some(suffix) = suffix {
+        let scoped = format!("{key}_{suffix}");
+        if let Some(value) = env_value(&scoped) {
+            return Ok(value);
+        }
+        return Err(format!(
+            "Mux config is incomplete; set {key} or environment-specific {scoped}."
+        ));
+    }
+
+    Err(format!(
+        "Mux config is incomplete; set {key}, or declare VERCEL_ENV/APP_ENV so the _DEV/_PROD key can be selected."
+    ))
+}
+
+fn env_value(key: &str) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+}
+
+fn environment_suffix(vercel_env: Option<&str>, app_env: Option<&str>) -> Option<&'static str> {
+    match vercel_env.unwrap_or_default().trim().to_ascii_lowercase().as_str() {
+        "production" => return Some("PROD"),
+        "preview" | "development" => return Some("DEV"),
+        _ => {}
+    }
+
+    match app_env.unwrap_or_default().trim().to_ascii_lowercase().as_str() {
+        "production" | "prod" => Some("PROD"),
+        "preview" | "development" | "dev" | "test" | "testing" => Some("DEV"),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -273,6 +309,15 @@ fn http_error(status: StatusCode, body: &str) -> MuxClientError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn selects_mux_environment_suffix() {
+        assert_eq!(environment_suffix(Some("production"), Some("dev")), Some("PROD"));
+        assert_eq!(environment_suffix(Some("preview"), Some("prod")), Some("DEV"));
+        assert_eq!(environment_suffix(None, Some("prod")), Some("PROD"));
+        assert_eq!(environment_suffix(None, Some("development")), Some("DEV"));
+        assert_eq!(environment_suffix(None, None), None);
+    }
 
     #[test]
     fn parses_ready_asset_with_public_playback() {
