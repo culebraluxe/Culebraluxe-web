@@ -2,8 +2,8 @@ use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
 use db::{DbResult, MediaDao};
 use domain::{
-    sanitize_media_filename, MediaAsset, UploadPropertyMediaRequest, UploadPropertyMediaResult,
-    MAX_MEDIA_UPLOAD_BYTES,
+    sanitize_media_filename, AttachPropertyVideoRequest, AttachPropertyVideoResult, MediaAsset,
+    UploadPropertyMediaRequest, UploadPropertyMediaResult, MAX_MEDIA_UPLOAD_BYTES,
 };
 use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
 
@@ -14,6 +14,10 @@ pub trait MediaRepository: Send {
         &mut self,
         request: &UploadPropertyMediaRequest,
     ) -> DbResult<UploadPropertyMediaResult>;
+    async fn attach_property_video(
+        &mut self,
+        request: &AttachPropertyVideoRequest,
+    ) -> DbResult<AttachPropertyVideoResult>;
 }
 
 #[async_trait]
@@ -27,6 +31,13 @@ impl MediaRepository for MediaDao {
         request: &UploadPropertyMediaRequest,
     ) -> DbResult<UploadPropertyMediaResult> {
         MediaDao::upload_property_media(self, request).await
+    }
+
+    async fn attach_property_video(
+        &mut self,
+        request: &AttachPropertyVideoRequest,
+    ) -> DbResult<AttachPropertyVideoResult> {
+        MediaDao::attach_property_video(self, request).await
     }
 }
 
@@ -63,6 +74,73 @@ impl<R: MediaRepository> MediaService<R> {
             .for_property(property_id)
             .await
             .map_err(Into::into);
+        audit_result(&self.runtime, "media", OP, context, decision, &result).await?;
+        result
+    }
+
+    pub async fn attach_property_video(
+        &mut self,
+        mut request: AttachPropertyVideoRequest,
+        context: &ServiceContext,
+    ) -> Result<AttachPropertyVideoResult, CoreServiceError> {
+        const OP: &str = "media.attachPropertyVideo";
+        let decision = authorize(
+            &self.runtime,
+            "media",
+            "property.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+
+        let result = async {
+            request.property_id = request.property_id.trim().to_owned();
+            request.role = request.role.trim().to_owned();
+            request.mux_asset_id = request.mux_asset_id.trim().to_owned();
+            request.mux_playback_id = request.mux_playback_id.trim().to_owned();
+            request.duration_seconds = request
+                .duration_seconds
+                .take()
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty());
+            request.aspect_ratio = request
+                .aspect_ratio
+                .take()
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty());
+            request.caption = request
+                .caption
+                .take()
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty());
+
+            if request.property_id.is_empty() {
+                return Err(CoreServiceError::business(
+                    "PROPERTY_REQUIRED",
+                    "Property is required.",
+                ));
+            }
+            if !matches!(request.role.as_str(), "video" | "short") {
+                return Err(CoreServiceError::business(
+                    "MEDIA_ROLE_INVALID",
+                    "Video role must be video or short.",
+                ));
+            }
+            if request.mux_asset_id.is_empty() || request.mux_playback_id.is_empty() {
+                return Err(CoreServiceError::business(
+                    "MUX_ID_REQUIRED",
+                    "Mux asset and playback IDs are required.",
+                ));
+            }
+
+            self.repository
+                .attach_property_video(&request)
+                .await
+                .map_err(Into::into)
+        }
+        .await;
+
         audit_result(&self.runtime, "media", OP, context, decision, &result).await?;
         result
     }
