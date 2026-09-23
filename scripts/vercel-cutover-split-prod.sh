@@ -44,7 +44,7 @@ else
   cat >"$TMP_DIR/create-project.json" <<JSON
 {
   "name": "${RUST_PROJECT_NAME}",
-  "framework": null,
+  "framework": "container",
   "skipGitConnectDuringLink": true
 }
 JSON
@@ -179,23 +179,33 @@ vc api "/v9/projects/${RUST_PROJECT_ID}?teamId=${TEAM_ID}" -X PATCH --input "$TM
 vc project protection disable "$RUST_PROJECT_NAME" --sso >/dev/null 2>&1 || true
 vc project protection disable "$RUST_PROJECT_NAME" --password >/dev/null 2>&1 || true
 
-printf 'Deploying the already-built Rust image as a normal Vercel container project...\n'
+printf 'Configuring standalone Rust project with the Vercel Container preset...\n'
+vc project update "$RUST_PROJECT_NAME" --framework container >/dev/null
+
+printf 'Validating Vercel sees rust/Dockerfile.vercel as a container deployment...\n'
 set +e
+RUST_DRY_RUN="$(
+  cd "$ROOT_DIR/rust"
+  VERCEL_ORG_ID="$TEAM_ID" VERCEL_PROJECT_ID="$RUST_PROJECT_ID" vc deploy --dry 2>&1
+)"
+RUST_DRY_STATUS=$?
+set -e
+printf '%s\n' "$RUST_DRY_RUN"
+[[ "$RUST_DRY_STATUS" -eq 0 ]] || fail "Vercel dry-run failed for the Rust container project."
+if ! printf '%s\n' "$RUST_DRY_RUN" | grep -Eiq 'container|Dockerfile\.vercel'; then
+  fail "Vercel dry-run did not identify the Rust project as a container/Dockerfile deployment."
+fi
+
+printf 'Deploying Rust API from rust/Dockerfile.vercel...\n'
 RUST_DEPLOY_OUTPUT="$(
-  cd "$ROOT_DIR/deploy/rust-api"
+  cd "$ROOT_DIR/rust"
   VERCEL_ORG_ID="$TEAM_ID" VERCEL_PROJECT_ID="$RUST_PROJECT_ID" vc deploy --prod --yes 2>&1
 )"
-RUST_DEPLOY_STATUS=$?
-set -e
-if [[ "$RUST_DEPLOY_STATUS" -ne 0 ]]; then
-  printf '%s\n' "$RUST_DEPLOY_OUTPUT"
-  printf 'Registry-image reuse was rejected; deploying the Rust source project directly instead...\n'
-  RUST_DEPLOY_OUTPUT="$(
-    cd "$ROOT_DIR/rust"
-    VERCEL_ORG_ID="$TEAM_ID" VERCEL_PROJECT_ID="$RUST_PROJECT_ID" vc deploy --prod --yes 2>&1
-  )"
-fi
 printf '%s\n' "$RUST_DEPLOY_OUTPUT"
+
+if ! printf '%s\n' "$RUST_DEPLOY_OUTPUT" | grep -Eiq 'Dockerfile\.vercel|container|Building image'; then
+  printf '\nWARNING: Vercel deploy output did not explicitly mention Dockerfile/container detection.\n' >&2
+fi
 
 RUST_DEPLOY_URL="$(printf '%s\n' "$RUST_DEPLOY_OUTPUT" | grep -Eo 'https://[A-Za-z0-9._-]+\.vercel\.app' | head -1 || true)"
 [[ -n "$RUST_DEPLOY_URL" ]] || fail "Rust deployment completed without a deployment URL."
