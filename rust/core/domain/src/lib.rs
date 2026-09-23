@@ -30,7 +30,7 @@ pub use cockpit::*;
 pub use firm::{FieldPatch, Firm, UpsertFirmRequest};
 pub use person::{
     AttachPersonIdentityRequest, Person, PersonIdentity, PersonIdentityKind, PersonSearchResult,
-    SearchPeopleRequest, SetPersonDisplayNameRequest,
+    SearchPeopleRequest, SetPersonDisplayNameRequest, UpdatePersonAdminRequest,
 };
 pub use project::{
     CompleteProjectRequest, CreateProjectRequest, Project, ProjectStatus, UpdateProjectRequest,
