@@ -339,7 +339,9 @@ export function OpsVideoReactIsland() {
         if (current) {
           try {
             current.root.unmount()
-          } catch {}
+          } catch {
+            // Yew may already have detached the island node during a repaint.
+          }
           mountedRef.current = null
         }
         return
@@ -367,7 +369,9 @@ export function OpsVideoReactIsland() {
       if (current) {
         try {
           current.root.unmount()
-        } catch {}
+        } catch {
+          // Yew may already have detached the island node during a repaint.
+        }
       }
       const root = createRoot(target)
       mountedRef.current = { target, root, payloadRaw }
@@ -397,7 +401,9 @@ export function OpsVideoReactIsland() {
         queueMicrotask(() => {
           try {
             current.root.unmount()
-          } catch {}
+          } catch {
+            // Yew may already have detached the island node during a repaint.
+          }
         })
       }
     }
