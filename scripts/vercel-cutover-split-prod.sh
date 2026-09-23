@@ -58,7 +58,7 @@ printf '  Rust project: %s (%s)\n' "$RUST_PROJECT_NAME" "$RUST_PROJECT_ID"
 printf 'Cloning production environment to Rust project without printing secret values...\n'
 vc api "/v10/projects/${FRONTEND_PROJECT_ID}/env?decrypt=true&source=vercel-cli:pull&teamId=${TEAM_ID}" >"$TMP_DIR/frontend-env.json"
 
-node "$TMP_DIR/frontend-env.json" "$TMP_DIR/rust-env.json" <<'NODE'
+node --env-file-if-exists="$ROOT_DIR/.env.local" - "$TMP_DIR/frontend-env.json" "$TMP_DIR/rust-env.json" <<'NODE'
 const fs = require('fs')
 const inputPath = process.argv[2]
 const outputPath = process.argv[3]
@@ -85,12 +85,19 @@ for (const entry of production) {
   })
 }
 const byKey = new Map(cloned.map((entry) => [entry.key, entry]))
+for (const key of ['DATABASE_URL_PROD', 'CULEBRA_INTERNAL_API_KEY', 'AUTH_SECRET', 'MUX_TOKEN_ID', 'MUX_TOKEN_SECRET', 'MUX_TOKEN_ID_PROD', 'MUX_TOKEN_SECRET_PROD']) {
+  if (!byKey.has(key) && typeof process.env[key] === 'string' && process.env[key].trim()) {
+    const entry = { key, value: process.env[key], type: 'encrypted', target: ['production'] }
+    cloned.push(entry)
+    byKey.set(key, entry)
+  }
+}
 if (!byKey.has('DATABASE_URL_PROD')) {
-  console.error('DATABASE_URL_PROD could not be decrypted from the existing production project.')
+  console.error('DATABASE_URL_PROD is unavailable from both Vercel and .env.local.')
   process.exit(10)
 }
 if (!byKey.has('CULEBRA_INTERNAL_API_KEY') && !byKey.has('AUTH_SECRET')) {
-  console.error('Neither CULEBRA_INTERNAL_API_KEY nor AUTH_SECRET could be decrypted from the existing production project.')
+  console.error('Neither CULEBRA_INTERNAL_API_KEY nor AUTH_SECRET is available from Vercel or .env.local.')
   process.exit(11)
 }
 fs.writeFileSync(outputPath, JSON.stringify(cloned))
@@ -108,10 +115,21 @@ JSON
 vc api "/v9/projects/${RUST_PROJECT_ID}?teamId=${TEAM_ID}" -X PATCH --input "$TMP_DIR/rust-project-public.json" >/dev/null
 
 printf 'Deploying the already-built Rust image as a normal Vercel container project...\n'
+set +e
 RUST_DEPLOY_OUTPUT="$(
   cd "$ROOT_DIR/deploy/rust-api"
-  VERCEL_ORG_ID="$TEAM_ID" VERCEL_PROJECT_ID="$RUST_PROJECT_ID"     vc deploy --prod --yes 2>&1
+  VERCEL_ORG_ID="$TEAM_ID" VERCEL_PROJECT_ID="$RUST_PROJECT_ID" vc deploy --prod --yes 2>&1
 )"
+RUST_DEPLOY_STATUS=$?
+set -e
+if [[ "$RUST_DEPLOY_STATUS" -ne 0 ]]; then
+  printf '%s\n' "$RUST_DEPLOY_OUTPUT"
+  printf 'Registry-image reuse was rejected; deploying the Rust source project directly instead...\n'
+  RUST_DEPLOY_OUTPUT="$(
+    cd "$ROOT_DIR/rust"
+    VERCEL_ORG_ID="$TEAM_ID" VERCEL_PROJECT_ID="$RUST_PROJECT_ID" vc deploy --prod --yes 2>&1
+  )"
+fi
 printf '%s\n' "$RUST_DEPLOY_OUTPUT"
 
 RUST_DEPLOY_URL="$(printf '%s\n' "$RUST_DEPLOY_OUTPUT" | grep -Eo 'https://[A-Za-z0-9._-]+\.vercel\.app' | tail -1 || true)"
