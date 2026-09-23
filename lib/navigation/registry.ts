@@ -93,45 +93,19 @@ export const OPERATING_SURFACES: Record<
     surface: 'OPS',
     label: 'OPPS',
     description:
-      'Office and business administration — users, property/deal admin, intake resolution, content, data correction and configuration.',
-    home: '/portal/needs-review',
+      'Office tools — Records for bounded property edits, Listing Media for listing photos.',
+    home: '/portal/property-admin',
     items: [
       {
-        label: 'Issue Queue',
-        href: '/portal/issues',
-        authority: 'portal.read',
-      },
-      {
-        label: 'Needs Review',
-        href: '/portal/needs-review',
-        authority: 'portal.read',
-      },
-      {
-        label: 'Property Admin',
+        label: 'Records',
         href: '/portal/property-admin',
         authority: 'portal.read',
       },
       {
-        label: 'Media Audit',
-        href: '/portal/media-admin',
-        authority: 'portal.read',
-      },
-      {
-        label: 'Property Media',
+        label: 'Listing Media',
         href: '/portal/property-media',
         authority: 'portal.read',
       },
-      {
-        label: 'Identity Quality',
-        href: '/portal/identity-quality',
-        authority: 'portal.read',
-      },
-      {
-        label: 'Client Administration',
-        href: '/portal/client-admin',
-        authority: 'portal.read',
-      },
-      { label: 'Reporting', href: '/portal/reporting', authority: 'portal.read' },
     ],
   },
   TECH: {
@@ -152,16 +126,6 @@ export const OPERATING_SURFACES: Record<
       { label: 'UI Lab', href: '/portal/design-lab', authority: 'tech.access' },
       { label: 'Framer UI Lab', href: '/portal/tech/framer-ui-lab', authority: 'tech.access' },
       { label: 'Media Test', href: '/portal/media-test', authority: 'tech.access' },
-      // RETIRED FROM THE NAV (2026-09-13, captain's call) — the code stays, the links go.
-      //
-      // Command Center, Command Console, GROK and the Flight Recorder LIST were each an
-      // attempt at this problem that never got used, and their names were close enough to
-      // "the cockpit" that a conversation about one screen could mean five. The TECH root
-      // (EngineeringQueuesPage) is the single screen now, and the Flight Recorder is reached
-      // from the SELECTED STORY's own detail pane — for the instance that actually ran it —
-      // which is the only place it has data to show.
-      //
-      // Routes are intentionally left in place: individual widgets may be worth harvesting.
     ],
   },
   SUPPORT: {
