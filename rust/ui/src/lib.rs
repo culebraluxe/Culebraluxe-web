@@ -311,9 +311,8 @@ mod tests {
         assert_eq!(program.model().screen, target("dashboard"));
         assert_eq!(
             effects,
-            vec![Effect::FetchRows {
+            vec![Effect::FetchCockpit {
                 screen: "dashboard",
-                scope: None,
                 generation: 0
             }]
         );
