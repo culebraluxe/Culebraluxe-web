@@ -36,3 +36,17 @@ test('STORYBOARD YEW: row contract includes stored completion', async () => {
   assert.match(body, /story\.completion/)
   assert.match(body, /badge: story\.status/)
 })
+
+
+test('STORYBOARD YEW: runtime mount guard accepts row-backed Yew screens', async () => {
+  const update = await read('../../../rust/ui/src/update.rs')
+  const portal = await read('../../../rust/ui/src/yew_portal.rs')
+
+  assert.match(update, /pub fn has_yew_portal_component/)
+  assert.match(update, /is_ported_portal_screen\(key\) \|\| key == "storyboard"/)
+  assert.match(portal, /has_yew_portal_component\(screen\.key\)/)
+  assert.ok(
+    !portal.includes('if !crate::update::is_ported_portal_screen(screen.key)'),
+    'mountability must not be coupled to typed PortalPage DTO usage',
+  )
+})
