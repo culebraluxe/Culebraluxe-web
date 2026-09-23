@@ -1,0 +1,6 @@
+target
+**/target
+.git
+.gitignore
+.DS_Store
+*.log
