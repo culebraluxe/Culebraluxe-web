@@ -74,6 +74,21 @@ export function withApiHandler<A extends unknown[]>(
       return await handler(...args)
     } catch (err) {
       const level = levelOf(err)
+      // ALWAYS emit the primary failure before attempting durable capture. During an outage the
+      // app_error database write can fail too; without this line the runtime log contains only the
+      // secondary capture failure and hides the exception that actually broke the request.
+      console.error('[api] request failed', {
+        label: opts.label,
+        route: opts.route ?? null,
+        kind: err instanceof Error ? err.name || 'Error' : typeof err,
+        message: messageOf(err, opts.label),
+        ...(err && typeof err === 'object' && 'code' in err
+          ? { code: String((err as { code?: unknown }).code ?? '') }
+          : {}),
+        ...(err && typeof err === 'object' && 'status' in err
+          ? { status: Number((err as { status?: unknown }).status ?? 0) }
+          : {}),
+      })
       captureError({
         kind: err instanceof Error ? err.name || 'Error' : 'Error',
         operation: opts.label,
