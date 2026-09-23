@@ -33,6 +33,7 @@ pub mod portal_storyboard;
 pub mod portal_shell;
 pub mod portal_support_db_test;
 pub mod portal_support_security;
+pub mod portal_support_system_health;
 pub mod portal_support_whatsapp_meta;
 pub mod portal_ui_lab;
 pub mod portal_tech;

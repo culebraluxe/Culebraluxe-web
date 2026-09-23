@@ -1,8 +1,11 @@
 import 'server-only'
 
 import { getBreakGlassReadiness } from '@/lib/auth/break-glass-readiness'
+import { getEnvironmentReadiness } from '@/lib/environment-readiness'
 import { getSecurityStatus } from '@/legacy/db/auth-status'
 import { getClients } from '@/legacy/db/clients'
+import { getSystemHealth } from '@/legacy/db/system-health'
+import { getWorkflowDiagnosticsSnapshot } from '@/legacy/workflow_app/diagnostics'
 
 // ---------------------------------------------------------------------------
 // SUPPORT PAYLOADS — the four diagnostic screens' reads, in one place.
@@ -90,6 +93,24 @@ export type SupportBreakGlassReadiness = {
 export type SupportSecurity = {
   status: SupportSecurityStatus
   breakGlass: SupportBreakGlassReadiness
+}
+
+/**
+ * The system-health screen's three reads, carried through unchanged.
+ *
+ * PASS-THROUGH, NOT RE-DERIVATION. Each one is a projection with thirty or a dozen fields that already mean something
+ * specific — a count of unresolved intake submissions, whether the DEV and PROD databases are separated. Re-declaring them
+ * field by field here would be a place for a typo to become a wrong number on the screen; the Rust DTO is where the shape is
+ * pinned, because that is what the component reads.
+ *
+ * ENVIRONMENT READINESS IS POSTURE ONLY. Every field is a boolean about whether something is configured — never a value, a
+ * URL, a key or a token. That holds for the whole of this payload and is not negotiable for this screen: it is the one that
+ * talks about secrets.
+ */
+export type SupportSystemHealth = {
+  health: Record<string, unknown>
+  environment: Record<string, unknown>
+  diagnostics: Record<string, unknown>
 }
 
 /**
@@ -249,9 +270,24 @@ export async function supportPayload(
       return { support: { whatsAppMeta: await getMetaPhones() } }
     }
     case 'system-health': {
-      // NOT YET PORTED. An explicit refusal rather than an empty object: a screen whose payload is silently empty renders as
-      // a screen with nothing to show, which reads as "nothing to report" rather than "this is not built yet".
-      throw new Error(`The '${screen}' payload is not wired yet.`)
+      // THE PRE-CUTOVER PAGE'S THREE READS, in the same `Promise.all`: the operational health snapshot, the workflow
+      // diagnostics snapshot, and the environment readiness posture. Read-only, and all three are plain `SELECT`s plus one
+      // configuration probe.
+      //
+      // The workflow diagnostics snapshot carries the instance LIST; the instance DETAIL is a separate read made when a row is
+      // opened, because the pre-cutover component fetched it on demand and a screen that pulled every instance's tokens,
+      // tasks, jobs, events, correlations and commands up front would move the whole engine's history to the browser to
+      // answer a question about one row.
+      const [health, diagnostics] = await Promise.all([
+        getSystemHealth(),
+        getWorkflowDiagnosticsSnapshot(),
+      ])
+      const systemHealth: SupportSystemHealth = {
+        health,
+        environment: getEnvironmentReadiness(),
+        diagnostics,
+      }
+      return { support: { systemHealth } }
     }
   }
 }
