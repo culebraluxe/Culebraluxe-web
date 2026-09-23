@@ -209,12 +209,19 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
             }
         }
 
-        let sid = if task.story_id.is_empty() {
+        let story_id = if task.story_id.is_empty() {
             task.process_instance_id.as_str()
         } else {
             task.story_id.as_str()
         };
-        let _ = record_forge_observer(sid, node_id, "role.completed", &format!("node={node_id}"));
+        let _ = record_forge_observer(
+            &task.process_instance_id,
+            story_id,
+            &task.task_id,
+            node_id,
+            "role.completed",
+            &format!("node={node_id}"),
+        );
 
         if let Some(reason) = evidence.deliverable_rejection.clone() {
             if let Some(writer) = self.writer {
