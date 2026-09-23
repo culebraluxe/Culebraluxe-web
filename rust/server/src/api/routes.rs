@@ -17,6 +17,7 @@ use domain::{
     MAX_MEDIA_UPLOAD_BYTES,
 };
 use integrations::boldsign::{BoldSignConfig, BoldSignSignatureProvider};
+use integrations::mux::{MuxClient, MuxConfig};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use service::SignatureProvider;
@@ -284,6 +285,19 @@ struct AttachPropertyVideoBody {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct CreatePropertyVideoUploadBody {
+    cors_origin: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FinalizePropertyVideoUploadBody {
+    role: String,
+    caption: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct UpdatePersonAdminBody {
     display_name: String,
     status: String,
@@ -345,6 +359,15 @@ impl VaultArtifactPort for UnavailableVaultArtifactPort {
 /// The provider is built from the environment per request, like every other integration edge here. A host with no
 /// BoldSign configuration answers with a business failure instead of refusing to boot, because this transport also
 /// runs in environments that never sign a document.
+fn mux_video() -> Result<MuxClient, ApiError> {
+    let config = MuxConfig::from_env().map_err(|message| {
+        ApiError::from(CoreServiceError::business("MUX_NOT_CONFIGURED", message))
+    })?;
+    MuxClient::new(config).map_err(|error| {
+        ApiError::from(CoreServiceError::business("MUX_NOT_CONFIGURED", error.message))
+    })
+}
+
 fn bold_sign(state: &ApiState) -> Result<Arc<dyn SignatureProvider>, ApiError> {
     let config = BoldSignConfig::from_env().map_err(|message| {
         ApiError::from(CoreServiceError::business(
@@ -500,6 +523,14 @@ pub fn router(state: ApiState) -> Router {
                 .layer(DefaultBodyLimit::max(MAX_MEDIA_UPLOAD_BYTES + 1024 * 1024)),
         )
         .route("/v1/properties/{id}/video", post(attach_property_video))
+        .route(
+            "/v1/properties/{id}/video-uploads",
+            post(create_property_video_upload),
+        )
+        .route(
+            "/v1/properties/{id}/video-uploads/{upload_id}/finalize",
+            post(finalize_property_video_upload),
+        )
         .route("/v1/deals", get(deals).post(create_deal))
         .route("/v1/deals/{id}", get(deal_workspace))
         .route("/v1/deals/{id}/commands", post(deal_workspace_command))
@@ -1225,6 +1256,45 @@ async fn property_media(
     let mut service = state.services().media();
     let value = service
         .for_property(&id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn create_property_video_upload(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(_property_id): Path<String>,
+    Json(body): Json<CreatePropertyVideoUploadBody>,
+) -> Result<Json<ApiSuccess<crate::media::PropertyVideoUploadSession>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mux = mux_video()?;
+    let mut service = state.services().media();
+    let value = service
+        .create_property_video_upload(&mux, &body.cors_origin, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn finalize_property_video_upload(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path((property_id, upload_id)): Path<(String, String)>,
+    Json(body): Json<FinalizePropertyVideoUploadBody>,
+) -> Result<Json<ApiSuccess<crate::media::PropertyVideoFinalizeResult>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mux = mux_video()?;
+    let mut service = state.services().media();
+    let value = service
+        .finalize_property_video_upload(
+            &mux,
+            &property_id,
+            &upload_id,
+            &body.role,
+            body.caption,
+            &resolved.service,
+        )
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(value, &resolved))
