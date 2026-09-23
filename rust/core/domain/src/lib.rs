@@ -38,8 +38,10 @@ pub use project::{
 };
 
 pub use property::{
-    FindPropertyByAddressRequest, PersonPropertyContext, PersonPropertyRelation, Property,
-    PropertyAddress, PropertyAddressPatch, PropertyForPerson, SetPropertyDisplayNameRequest,
+    CreatePropertyAdminRequest, FindPropertyByAddressRequest, PersonPropertyContext,
+    PersonPropertyRelation, Property, PropertyAddress, PropertyAddressPatch, PropertyAdminPage,
+    PropertyAdminPageRequest, PropertyAdminRecord, PropertyAdminSummary, PropertyForPerson,
+    PropertyStellarDetails, SavePropertyAdminRequest, SetPropertyDisplayNameRequest,
     SetPropertyStatusRequest, UpsertPropertyForPersonRequest,
 };
 
