@@ -1,5 +1,6 @@
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
+use chrono::NaiveDate;
 use db::{DbResult, PropertyDao};
 use domain::{
     CreatePropertyAdminRequest, FindPropertyByAddressRequest, PersonPropertyContext, Property,
@@ -486,14 +487,8 @@ fn parse_range(
     Ok(())
 }
 
-fn valid_iso_date(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    bytes.len() == 10
-        && bytes[4] == b'-'
-        && bytes[7] == b'-'
-        && value[0..4].parse::<u16>().is_ok()
-        && value[5..7].parse::<u8>().is_ok()
-        && value[8..10].parse::<u8>().is_ok()
+fn parse_iso_date(value: &str) -> Option<NaiveDate> {
+    NaiveDate::parse_from_str(value, "%Y-%m-%d").ok()
 }
 
 fn validate_admin_save(
@@ -579,18 +574,26 @@ fn validate_admin_save(
         }
     }
 
-    let contract = compact_text(request.stellar.listing_contract_date.as_deref());
-    let expiration = compact_text(request.stellar.expiration_date.as_deref());
-    for (value, label) in [(contract, "Listing contract date"), (expiration, "Expiration date")] {
-        if let Some(value) = value {
-            if !valid_iso_date(value) {
-                return Err(CoreServiceError::business(
-                    "PROPERTY_DATE_INVALID",
-                    format!("{label} must use YYYY-MM-DD."),
-                ));
-            }
-        }
-    }
+    let contract_raw = compact_text(request.stellar.listing_contract_date.as_deref());
+    let expiration_raw = compact_text(request.stellar.expiration_date.as_deref());
+    let contract = match contract_raw {
+        Some(value) => Some(parse_iso_date(value).ok_or_else(|| {
+            CoreServiceError::business(
+                "PROPERTY_DATE_INVALID",
+                "Listing contract date must use YYYY-MM-DD.",
+            )
+        })?),
+        None => None,
+    };
+    let expiration = match expiration_raw {
+        Some(value) => Some(parse_iso_date(value).ok_or_else(|| {
+            CoreServiceError::business(
+                "PROPERTY_DATE_INVALID",
+                "Expiration date must use YYYY-MM-DD.",
+            )
+        })?),
+        None => None,
+    };
     if let (Some(contract), Some(expiration)) = (contract, expiration) {
         if expiration < contract {
             return Err(CoreServiceError::business(
