@@ -37,6 +37,7 @@ web-sys = { version = "0.3", optional = true, features = [
     "HtmlSelectElement",
     "HtmlTextAreaElement",
     "MouseEvent",
+    "KeyboardEvent",
     "Location",
     "NodeList",
     "Window",
