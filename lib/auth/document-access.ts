@@ -13,6 +13,8 @@ export type DocumentAccessFacts = {
   isDocument: boolean
   /** True only when the request carries a valid authenticated portal session. */
   hasPortalSession: boolean
+  /** True only for a listing document linked exclusively to live public properties, never to a transaction. */
+  isPublicListingDocument?: boolean
 }
 
 export type DocumentAccessDecision =
@@ -27,6 +29,8 @@ export function decideDocumentAccess(
   if (!facts.isDocument) return { allow: false, reason: 'not_found' }
   // An executed contract is not served to whoever holds its id: a document with
   // no portal session returns 401 rather than a 404 that hides the rule.
-  if (!facts.hasPortalSession) return { allow: false, reason: 'unauthenticated' }
+  if (!facts.hasPortalSession && !facts.isPublicListingDocument) {
+    return { allow: false, reason: 'unauthenticated' }
+  }
   return { allow: true }
 }

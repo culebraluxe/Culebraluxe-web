@@ -40,6 +40,12 @@ test('SEC-MEDIA-DOC-01: a document with no portal session denies unauthenticated
   )
 })
 
+test('SEC-MEDIA-DOC-01: only public listing documents bypass the portal session', () => {
+  assert.deepEqual(decideDocumentAccess({ isDocument: true, hasPortalSession: false, isPublicListingDocument: true }), { allow: true })
+  assert.deepEqual(decideDocumentAccess({ isDocument: false, hasPortalSession: false, isPublicListingDocument: true }), { allow: false, reason: 'not_found' })
+  assert.deepEqual(decideDocumentAccess({ isDocument: true, hasPortalSession: false, isPublicListingDocument: false }), { allow: false, reason: 'unauthenticated' })
+})
+
 test('SEC-MEDIA-DOC-01: a document with a portal session allows', () => {
   assert.deepEqual(decideDocumentAccess({ isDocument: true, hasPortalSession: true }), {
     allow: true,
@@ -75,7 +81,7 @@ test('SEC-MEDIA-DOC-01: the route serves bytes only through the named decision',
     'the route imports decideDocumentAccess from the decision module',
   )
   assert.ok(
-    source.includes('decideDocumentAccess({ isDocument, hasPortalSession })'),
+    source.includes('decideDocumentAccess({') && source.includes('isPublicListingDocument: row?.is_public_listing_document === true'),
     'the route calls the decision with the session facts',
   )
   assert.ok(
@@ -84,4 +90,13 @@ test('SEC-MEDIA-DOC-01: the route serves bytes only through the named decision',
   )
   assert.ok(source.includes('status: 401'), 'no session maps to 401')
   assert.ok(source.includes('status: 404'), 'not_found maps to 404')
+})
+
+test('SEC-MEDIA-DOC-01: anonymous listing access requires public ownership and excludes deal documents', async () => {
+  const source = await read(ROUTE)
+  assert.ok(source.includes("pm.role = 'document'"))
+  assert.ok(source.includes('p.is_published IS DISTINCT FROM true'))
+  assert.ok(source.includes('p.is_active_listing IS DISTINCT FROM true'))
+  assert.ok(source.includes('p.archived_at IS NOT NULL'))
+  assert.ok(source.includes('td.media_id = m.id OR td.signed_media_id = m.id'))
 })

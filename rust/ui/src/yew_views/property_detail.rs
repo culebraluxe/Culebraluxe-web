@@ -144,13 +144,14 @@ fn breadcrumb(record: &PropertyRecord) -> Html {
 fn cockpit(record: &PropertyRecord, model: &Model, on_msg: &Callback<Msg>) -> Html {
     let land = record.kind.as_deref().is_some_and(|kind| kind.eq_ignore_ascii_case("land"));
     let facts = [
-        if land { None } else { record.beds.map(|value| ("Beds", format_number(value, ""))) },
-        if land { None } else { record.baths.map(|value| ("Baths", format_number(value, ""))) },
-        if land { None } else { record.area.clone().map(|value| ("Interior", value)) },
-        if land { record.lot_size.clone().map(|value| ("Lot", value)) } else { None },
-        record.year_built.map(|value| ("Built", value.to_string())),
-        record.parking_spaces.map(|value| ("Parking", format_number(value, ""))),
-        record.stories.map(|value| ("Stories", format_number(value, ""))),
+        if land { None } else { record.beds.map(|value| ("bed-double", "Beds", format_number(value, ""))) },
+        if land { None } else { record.baths.map(|value| ("bath", "Baths", bathrooms_display(record, value))) },
+        if land { None } else { record.area.clone().map(|value| ("maximize", "Interior", value)) },
+        if land { record.lot_size.clone().map(|value| ("trees", "Lot", value)) } else { None },
+        record.year_built.map(|value| ("calendar-days", "Built", value.to_string())),
+        record.parking_spaces.map(|value| ("car", "Parking", format_number(value, ""))),
+        record.stories.map(|value| ("layers-3", "Stories", format_number(value, "")))
+            .or_else(|| record.water_access.then(|| ("waves", "Water Access", "Yes".into()))),
     ].into_iter().flatten().collect::<Vec<_>>();
     let viewing = format!("/contact?propertyId={}&requestType=private_viewing#contact", record.id);
     let saved = model.property_media.saved;
@@ -184,14 +185,19 @@ fn cockpit(record: &PropertyRecord, model: &Model, on_msg: &Callback<Msg>) -> Ht
                     </div>
                 </div>
 
-                <div class="flex flex-1 items-center px-5 py-3 lg:px-6">
-                    <div class="w-full">
+                <div class="flex flex-1 items-center">
+                    <div class="w-full px-5 py-3 lg:px-6">
                         <p class="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-brand-navy/75">{"Key Facts"}</p>
                         <dl class="grid grid-cols-2 gap-2 xl:grid-cols-3">
-                        { for facts.into_iter().map(|(label, value)| html! {
-                            <div class="flex min-h-12 flex-col justify-center border border-brand-navy/35 bg-brand-navy/[0.04] px-2 py-1.5">
-                                <dt class="text-[9px] font-semibold uppercase tracking-[0.12em] text-brand-navy/70">{label}</dt>
-                                <dd class="truncate text-sm font-medium text-brand-navy">{value.trim().to_string()}</dd>
+                        { for facts.into_iter().map(|(icon, label, value)| html! {
+                            <div class="flex min-h-12 items-center gap-2 border border-brand-navy/35 bg-brand-navy/[0.04] px-2 py-1.5">
+                                <span class="flex h-6 w-6 flex-none items-center justify-center border border-brand-gold/35 bg-brand-gold/[0.09] text-brand-gold">
+                                    { icon_html(icon, "h-3.5 w-3.5", "2").unwrap_or_default() }
+                                </span>
+                                <div class="min-w-0">
+                                    <dt class="text-[9px] font-semibold uppercase tracking-[0.12em] text-brand-navy/70">{label}</dt>
+                                    <dd class="truncate text-sm font-medium leading-tight text-brand-navy">{value}</dd>
+                                </div>
                             </div>
                         }) }
                         </dl>
@@ -204,11 +210,12 @@ fn cockpit(record: &PropertyRecord, model: &Model, on_msg: &Callback<Msg>) -> Ht
                         }) }
                     </div>
                     <div class="flex items-stretch gap-2">
-                        <a href={viewing} class="inline-flex min-h-11 flex-1 items-center justify-center bg-brand-navy px-4 py-2.5 text-center text-[10px] font-medium uppercase tracking-[0.17em] text-brand-ivory">
+                        <a href={viewing} class="inline-flex min-h-11 flex-1 items-center justify-center bg-brand-navy px-4 py-2.5 text-center text-[10px] font-medium uppercase tracking-[0.17em] text-brand-ivory shadow-sm transition-colors duration-500 hover:bg-brand-navy/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold">
                             {"Book a Private Viewing"}
                         </a>
                         <button type="button" onclick={save} aria-pressed={saved.to_string()}
-                            class="min-h-11 flex-none border border-brand-navy/25 px-4 py-2.5 text-[10px] font-medium uppercase tracking-[0.14em] text-brand-navy">
+                            class="inline-flex min-h-11 flex-none items-center justify-center gap-2 border border-brand-navy/25 px-4 py-2.5 text-[10px] font-medium uppercase tracking-[0.14em] text-brand-navy transition-colors hover:border-brand-navy/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold">
+                            { icon_html("heart", if saved { "h-4 w-4 fill-brand-gold text-brand-gold" } else { "h-4 w-4" }, "2").unwrap_or_default() }
                             { if saved { "Saved" } else { "Save Property" } }
                         </button>
                     </div>
@@ -451,10 +458,11 @@ fn detail_sections(record: &PropertyRecord, model: &Model, on_msg: &Callback<Msg
                     html! {
                         <button type="button" {onclick} aria-current={selected.then_some("page")}
                             class={format!(
-                                "relative flex min-h-12 min-w-[116px] flex-none self-stretch items-center justify-center border-r border-brand-gold px-6 font-serif text-sm tracking-[0.04em] sm:min-w-[132px] sm:px-8 sm:text-[15px] {}",
+                                "relative flex min-h-12 min-w-[116px] flex-none self-stretch items-center justify-center border-r border-brand-gold px-6 font-serif text-sm tracking-[0.04em] transition-colors duration-300 sm:min-w-[132px] sm:px-8 sm:text-[15px] {}",
                                 if selected { "bg-brand-navy font-semibold text-brand-gold" } else { "bg-brand-navy font-medium text-brand-ivory/85 hover:text-brand-ivory" }
                             )}>
                             {label}
+                            <span class={if selected { "absolute inset-x-0 bottom-0 h-0.5 bg-brand-gold transition-colors duration-300" } else { "absolute inset-x-0 bottom-0 h-0.5 bg-transparent transition-colors duration-300" }}></span>
                         </button>
                     }
                 }) }
@@ -472,6 +480,16 @@ fn definition(label: &str, value: Option<String>) -> Html {
         <div class="min-w-0 border-t border-brand-navy/40 bg-card/60 px-3 py-4 ring-1 ring-inset ring-brand-navy/25">
             <dt class="text-[10px] font-semibold uppercase tracking-[0.17em] text-brand-navy/70">{label.to_string()}</dt>
             <dd class="mt-1.5 break-words text-[15px] font-medium leading-snug text-brand-navy">{value}</dd>
+        </div>
+    }
+}
+
+fn editorial_fact(label: &str, value: Option<String>) -> Html {
+    let Some(value) = value.filter(|value| !value.trim().is_empty()) else { return Html::default() };
+    html! {
+        <div class="flex items-baseline justify-between gap-5 border-b border-brand-navy/20 py-2 last:border-0">
+            <dt class="text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-navy/70">{label.to_string()}</dt>
+            <dd class="min-w-0 break-words text-right text-sm font-medium text-brand-navy">{value}</dd>
         </div>
     }
 }
@@ -538,21 +556,21 @@ fn overview(record: &PropertyRecord) -> Html {
                     if record.lot_size.is_some() || record.neighborhood.is_some() {
                         <section class="border-t border-brand-navy/40 bg-brand-navy/[0.05] px-5 py-5 ring-1 ring-inset ring-brand-navy/20">
                             <p class="mb-4 text-xs font-medium uppercase tracking-[0.24em] text-brand-gold">{"Key Facts"}</p>
-                            <dl class="grid grid-cols-2 gap-4">
-                                { definition("Lot Size", record.lot_size.clone()) }
-                                { definition("Neighborhood", record.neighborhood.clone()) }
+                            <dl>
+                                { editorial_fact("Lot Size", record.lot_size.clone()) }
+                                { editorial_fact("Neighborhood", record.neighborhood.clone()) }
                             </dl>
                         </section>
                     }
                     if record.listing_agent_name.is_some() || record.listing_id.is_some() {
                         <section class="border-t border-brand-navy/40 bg-card/50 px-5 py-5 ring-1 ring-inset ring-brand-navy/20">
                             <p class="mb-3 text-xs font-medium uppercase tracking-[0.2em] text-brand-gold">{"Listing Information"}</p>
-                            <dl class="grid grid-cols-2 gap-2">
-                                { definition("Listing Agent", record.listing_agent_name.clone()) }
-                                { definition("Office", record.listing_office.clone()) }
-                                { definition("Phone", record.listing_agent_phone.clone()) }
-                                { definition("Email", record.listing_agent_email.clone()) }
-                                { definition("MLS / Listing ID", record.listing_id.clone()) }
+                            <dl>
+                                { editorial_fact("Listing Agent", record.listing_agent_name.clone()) }
+                                { editorial_fact("Office", record.listing_office.clone()) }
+                                { editorial_fact("Phone", record.listing_agent_phone.clone()) }
+                                { editorial_fact("Email", record.listing_agent_email.clone()) }
+                                { editorial_fact("MLS / Listing ID", record.listing_id.clone()) }
                             </dl>
                         </section>
                     }
@@ -623,10 +641,10 @@ fn location(record: &PropertyRecord) -> Html {
                     <p class="text-xs font-medium uppercase tracking-[0.24em] text-brand-gold">{"Location"}</p>
                     <h2 class="mt-4 font-serif text-2xl font-semibold text-brand-navy">{record.neighborhood.clone().or_else(|| record.city.clone()).unwrap_or_default()}</h2>
                     <p class="mt-5 border-t border-brand-navy/30 pt-5 text-sm text-brand-navy/90">{format!("This property is located in {context}.")}</p>
-                    <dl class="mt-6 space-y-3">
-                        { definition("Neighborhood", record.neighborhood.clone()) }
-                        { definition("Municipality", record.city.clone()) }
-                        { definition("Region", record.state_or_province.clone()) }
+                    <dl class="mt-6">
+                        { editorial_fact("Neighborhood", record.neighborhood.clone()) }
+                        { editorial_fact("Municipality", record.city.clone()) }
+                        { editorial_fact("Region", record.state_or_province.clone()) }
                     </dl>
                 </aside>
             }
@@ -664,14 +682,23 @@ fn documents(record: &PropertyRecord) -> Html {
                 let route = format!("/api/media/documents/{id}");
                 let label = document.title.as_deref().unwrap_or("Property Document").to_string();
                 Some(html! {
-                    <li class="flex flex-col gap-4 border border-brand-navy/30 bg-card/70 p-4 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                            <h3 class="font-serif text-base font-semibold text-brand-navy">{label.clone()}</h3>
-                            <p class="mt-1 text-[11px] uppercase tracking-[0.14em] text-brand-navy/65">{document.mime_type.clone().unwrap_or_default()}</p>
+                    <li class="flex flex-col gap-4 border border-brand-navy/30 bg-card/70 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+                        <div class="flex min-w-0 items-center gap-3.5">
+                            <span class="flex h-10 w-10 flex-none items-center justify-center border border-brand-gold/55 bg-brand-gold/10 text-brand-gold">
+                                { icon_html("file-text", "h-5 w-5", "2").unwrap_or_default() }
+                            </span>
+                            <div class="min-w-0">
+                                <h3 class="font-serif text-base font-semibold leading-snug text-brand-navy">{label.clone()}</h3>
+                                <p class="mt-1 text-[11px] font-medium uppercase tracking-[0.14em] text-brand-navy/65">{document.mime_type.clone().unwrap_or_default()}</p>
+                            </div>
                         </div>
-                        <div class="flex gap-2">
-                            <a href={route.clone()} target="_blank" rel="noopener noreferrer" class="inline-flex min-h-11 items-center border border-brand-navy/35 px-4 text-xs font-semibold uppercase text-brand-navy">{"View"}</a>
-                            <a href={format!("{route}?download=1")} class="inline-flex min-h-11 items-center bg-brand-navy px-4 text-xs font-semibold uppercase text-brand-ivory">{"Download"}</a>
+                        <div class="flex flex-none items-center gap-2 sm:justify-end">
+                            <a href={route.clone()} target="_blank" rel="noopener noreferrer" aria-label={format!("View {label}")} class="inline-flex min-h-11 items-center justify-center gap-2 border border-brand-navy/35 px-4 text-xs font-semibold uppercase tracking-[0.1em] text-brand-navy transition-colors hover:bg-brand-navy/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold">
+                                {"View"}{ icon_html("external-link", "h-3.5 w-3.5", "2").unwrap_or_default() }
+                            </a>
+                            <a href={format!("{route}?download=1")} aria-label={format!("Download {label}")} class="inline-flex min-h-11 items-center justify-center gap-2 bg-brand-navy px-4 text-xs font-semibold uppercase tracking-[0.1em] text-brand-ivory transition-colors hover:bg-brand-navy/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold">
+                                {"Download"}{ icon_html("download", "h-3.5 w-3.5", "2").unwrap_or_default() }
+                            </a>
                         </div>
                     </li>
                 })
@@ -731,4 +758,11 @@ fn format_number(value: f64, label: &str) -> String {
         value.to_string()
     };
     if label.is_empty() { number } else { format!("{number} {label}") }
+}
+
+fn bathrooms_display(record: &PropertyRecord, total: f64) -> String {
+    let mut parts = Vec::new();
+    if let Some(full) = record.bathrooms_full { parts.push(format!("{} Full", format_number(full, ""))); }
+    if let Some(half) = record.bathrooms_half { parts.push(format!("{} Half", format_number(half, ""))); }
+    if parts.is_empty() { format_number(total, "") } else { format!("{} ({})", format_number(total, ""), parts.join(", ")) }
 }

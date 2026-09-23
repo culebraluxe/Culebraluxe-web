@@ -41,9 +41,24 @@ async function GETHandler(
   let result: Array<Record<string, unknown>>
   try {
     result = await sql`
-      SELECT file_data, filename, mime_type, file_size, media_type
-      FROM media
-      WHERE id = ${id}
+      SELECT m.file_data, m.filename, m.mime_type, m.file_size, m.media_type,
+        EXISTS (
+          SELECT 1 FROM property_media pm
+          WHERE pm.media_id = m.id AND pm.role = 'document'
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM property_media pm
+          LEFT JOIN property p ON p.id = pm.property_id
+          WHERE pm.media_id = m.id
+            AND (pm.role <> 'document' OR p.id IS NULL OR p.is_published IS DISTINCT FROM true
+              OR p.is_active_listing IS DISTINCT FROM true OR p.archived_at IS NOT NULL)
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM transaction_document td
+          WHERE td.media_id = m.id OR td.signed_media_id = m.id
+        ) AS is_public_listing_document
+      FROM media m
+      WHERE m.id = ${id}
       LIMIT 1
     `
   } catch (err) {
@@ -63,6 +78,7 @@ async function GETHandler(
         mime_type: string | null
         file_size: string | number | null
         media_type: string | null
+        is_public_listing_document: boolean
       }
     | undefined
 
@@ -70,7 +86,11 @@ async function GETHandler(
     row != null && row.media_type === 'document' && row.file_data != null
 
   // ONE rule, ONE place: the access decision is decideDocumentAccess.
-  const decision = decideDocumentAccess({ isDocument, hasPortalSession })
+  const decision = decideDocumentAccess({
+    isDocument,
+    hasPortalSession,
+    isPublicListingDocument: row?.is_public_listing_document === true,
+  })
   if (!decision.allow) {
     return decision.reason === 'unauthenticated'
       ? new Response('Unauthorized', { status: 401 })
