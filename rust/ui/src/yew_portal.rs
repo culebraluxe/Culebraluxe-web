@@ -20,6 +20,7 @@ use crate::yew_views::portal_forms::{FormRecord, Forms};
 use crate::yew_views::portal_projects::Projects;
 use crate::yew_views::portal_seller_strategy::SellerStrategy;
 use crate::yew_views::portal_ui_lab::UiLab;
+use crate::yew_views::portal_tech::TechCockpit;
 use crate::yew_views::portal_workflow_record::WorkflowRecord;
 use crate::yew_views::portal_workflows::Workflows;
 
@@ -69,7 +70,8 @@ impl Component for PortalApp {
     fn view(&self, ctx: &Context<Self>) -> Html {
         let on_msg = ctx.link().callback(AppMsg::Ui);
         match self.model.screen.key {
-            "dashboard" => html! { <Cockpit model={self.model.clone()} on_msg={on_msg} /> },
+            "dashboard" => html! { <Cockpit model={self.model.clone()} on_msg={on_msg.clone()} /> },
+            "tech" => html! { <TechCockpit model={self.model.clone()} on_msg={on_msg} /> },
             "cabinet" => html! { <Cabinet model={self.model.clone()} on_msg={on_msg} /> },
             "activity" => html! { <Activity model={self.model.clone()} on_msg={on_msg} /> },
             // Accounting V1 — the dashboard first; the remaining four screens are added here as they are written.
