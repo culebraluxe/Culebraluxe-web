@@ -53,6 +53,15 @@ pub struct SetPersonDisplayNameRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdatePersonAdminRequest {
+    pub person_id: String,
+    pub display_name: String,
+    pub status: String,
+    pub company: Option<String>,
+}
+
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttachPersonIdentityRequest {
     pub person_id: String,
     pub identity: PersonIdentity,
