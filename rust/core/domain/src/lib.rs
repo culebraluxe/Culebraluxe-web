@@ -11,6 +11,7 @@ pub mod comms;
 pub mod contract;
 pub mod firm;
 pub mod forms;
+pub mod flight_recorder;
 pub mod media;
 pub mod person;
 pub mod project;
@@ -69,6 +70,8 @@ pub use comms::{
     RelationshipEvidenceRecord, RelationshipSummary, COMMS_MAX_PAGE_SIZE, COMMS_MOMENT_LIMIT,
     COMMS_PAGE_SIZE, COMMS_SOURCE_SLOT_COUNT,
 };
+
+pub use flight_recorder::*;
 
 pub use forms::{
     BindFormInstanceToDirectContextRequest, BindFormInstanceToShowingRequest,
