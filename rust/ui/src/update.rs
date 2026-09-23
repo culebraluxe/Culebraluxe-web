@@ -2901,7 +2901,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Row, Screen};
+    use crate::model::{PortalOpsWorkbenchPage, PortalPage, Row, Screen};
 
     /// Screens are addressed by KEY in these tests: the table is the source of truth, so a test that named a variant
     /// would be asserting a name that only exists in a previous version of this file.
@@ -2939,6 +2939,116 @@ mod tests {
             generation: model.generation,
             message: message.to_string(),
         }
+    }
+
+
+    #[test]
+    fn data_workbench_opens_on_property_through_the_universal_transport() {
+        let mut model = Model::default();
+        let effects = update(&mut model, Msg::Navigate(target("property-admin")));
+        assert_eq!(model.screen, target("property-admin"));
+        assert_eq!(model.ops.entity, "property");
+        assert!(model.loading);
+        assert_eq!(
+            effects,
+            vec![Effect::FetchOps {
+                screen: "property-admin",
+                entity: "property".into(),
+                selected: None,
+                search: String::new(),
+                page: 0,
+                generation: 0,
+            }]
+        );
+    }
+
+    #[test]
+    fn data_workbench_entity_switch_is_one_screen_not_navigation() {
+        let mut model = Model {
+            screen: target("property-admin"),
+            ..Model::default()
+        };
+        let effects = update(&mut model, Msg::OpsEntitySelected("person".into()));
+        assert_eq!(model.screen, target("property-admin"));
+        assert_eq!(model.ops.entity, "person");
+        assert_eq!(model.ops.section, "identity");
+        assert_eq!(
+            effects,
+            vec![Effect::FetchOps {
+                screen: "property-admin",
+                entity: "person".into(),
+                selected: None,
+                search: String::new(),
+                page: 0,
+                generation: 0,
+            }]
+        );
+    }
+
+    #[test]
+    fn data_workbench_refuses_to_abandon_a_dirty_draft() {
+        let mut model = Model {
+            screen: target("property-admin"),
+            ..Model::default()
+        };
+        model.ops.dirty = true;
+        let effects = update(&mut model, Msg::OpsEntitySelected("project".into()));
+        assert!(effects.is_empty());
+        assert_eq!(model.ops.entity, "property");
+        assert_eq!(
+            model.error.as_deref(),
+            Some("Save or Revert changes before switching data types.")
+        );
+    }
+
+    #[test]
+    fn property_create_releases_the_old_selection_before_the_command() {
+        let mut model = Model {
+            screen: target("property-admin"),
+            selected_row_id: Some("old-property".into()),
+            ..Model::default()
+        };
+        model.ops.creating = true;
+        model.ops.new_name = "New Listing".into();
+
+        let effects = update(&mut model, Msg::OpsCreateRequested);
+        assert_eq!(model.selected_row_id, None);
+        assert!(model.loading);
+        assert_eq!(
+            effects,
+            vec![Effect::CreateOpsProperty {
+                screen: "property-admin",
+                name: "New Listing".into(),
+                generation: 0,
+            }]
+        );
+    }
+
+    #[test]
+    fn stale_workbench_entity_payload_cannot_overwrite_the_newer_entity() {
+        let mut model = Model {
+            screen: target("property-admin"),
+            generation: 9,
+            loading: true,
+            ..Model::default()
+        };
+        model.ops.entity = "project".into();
+
+        let msg = Msg::PortalLoaded {
+            screen: "property-admin".into(),
+            generation: 9,
+            page: PortalPage {
+                ops: Some(PortalOpsWorkbenchPage {
+                    entity: "person".into(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        };
+
+        assert!(update(&mut model, msg).is_empty());
+        assert_eq!(model.ops.entity, "project");
+        assert!(model.loading, "a stale answer must not finish the current request");
     }
 
     #[test]
