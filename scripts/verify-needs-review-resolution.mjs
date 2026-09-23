@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
-const { resolveIntake } = await import('./scripts/legacy/db/needs-review-resolution.ts')
+const { resolveIntake } = await import('../legacy/db/needs-review-resolution.ts')
 const { PortalWriteError } = await import('../lib/portal-write-error.ts')
 
 // ---------------------------------------------------------------------------
