@@ -156,6 +156,7 @@ const MLS_FIELDS: &[FieldSpec] = &[
 
 const PROPERTY_RELATIONS: &[FieldSpec] = &[
     FieldSpec { key: "sellerPersonId", label: "Seller Person ID", kind: FieldKind::Text, wide: true, hint: Some("Canonical Person UUID. This typed field can later be rendered as a picker without changing the save contract.") },
+    FieldSpec { key: "archived", label: "Archived record", kind: FieldKind::Toggle, wide: false, hint: Some("Archives the record without rewriting transaction-owned listing status.") },
 ];
 
 const PERSON_FIELDS: &[FieldSpec] = &[
