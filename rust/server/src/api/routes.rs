@@ -11,7 +11,8 @@ use axum::{
 };
 use domain::{
     ClientAdminPageRequest, ClientDirectoryPageRequest, ClientHistoryRequest, GetCommsPanelRequest,
-    GetCommsTimelineRequest, SearchPeopleRequest, UploadPropertyMediaRequest, VaultActorScope,
+    AttachPropertyVideoRequest, GetCommsTimelineRequest, SearchPeopleRequest,
+    UploadPropertyMediaRequest, VaultActorScope,
     VaultArtifactFailure, VaultCommandOutcome, VaultRenderRequest, VaultRenderedArtifact,
     MAX_MEDIA_UPLOAD_BYTES,
 };
@@ -272,6 +273,17 @@ struct SavePropertyAdminBody {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct AttachPropertyVideoBody {
+    role: String,
+    mux_asset_id: String,
+    mux_playback_id: String,
+    duration_seconds: Option<String>,
+    aspect_ratio: Option<String>,
+    caption: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct UpdatePersonAdminBody {
     display_name: String,
     status: String,
@@ -487,6 +499,7 @@ pub fn router(state: ApiState) -> Router {
                 .post(upload_property_media)
                 .layer(DefaultBodyLimit::max(MAX_MEDIA_UPLOAD_BYTES + 1024 * 1024)),
         )
+        .route("/v1/properties/{id}/video", post(attach_property_video))
         .route("/v1/deals", get(deals).post(create_deal))
         .route("/v1/deals/{id}", get(deal_workspace))
         .route("/v1/deals/{id}/commands", post(deal_workspace_command))
@@ -1212,6 +1225,32 @@ async fn property_media(
     let mut service = state.services().media();
     let value = service
         .for_property(&id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn attach_property_video(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(property_id): Path<String>,
+    Json(body): Json<AttachPropertyVideoBody>,
+) -> Result<Json<ApiSuccess<domain::AttachPropertyVideoResult>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().media();
+    let value = service
+        .attach_property_video(
+            AttachPropertyVideoRequest {
+                property_id,
+                role: body.role,
+                mux_asset_id: body.mux_asset_id,
+                mux_playback_id: body.mux_playback_id,
+                duration_seconds: body.duration_seconds,
+                aspect_ratio: body.aspect_ratio,
+                caption: body.caption,
+            },
+            &resolved.service,
+        )
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(value, &resolved))
