@@ -43,6 +43,8 @@ printf 'Pulling Vercel production settings...\n'
 vercel pull --yes --environment=production
 
 ENV_FILE=".vercel/.env.production.local"
+rm -f "$ENV_FILE"
+vercel env pull "$ENV_FILE" --environment=production
 [[ -f "$ENV_FILE" ]] || fail "Vercel production env file was not pulled: $ENV_FILE"
 grep -q '^DATABASE_URL_PROD=' "$ENV_FILE" || fail "DATABASE_URL_PROD is missing from Vercel production environment"
 if ! grep -q '^CULEBRA_INTERNAL_API_KEY=' "$ENV_FILE" && ! grep -q '^AUTH_SECRET=' "$ENV_FILE"; then
