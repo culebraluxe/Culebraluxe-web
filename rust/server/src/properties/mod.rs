@@ -555,9 +555,22 @@ fn validate_admin_save(
         (request.parking_spaces.as_deref(), "Parking spaces"),
         (request.stellar.tax_year.as_deref(), "Tax year"),
         (request.stellar.annual_tax.as_deref(), "Annual tax"),
-        (request.stellar.total_area_sqft.as_deref(), "Total area"),
     ] {
         parse_non_negative(value, label)?;
+    }
+    if let Some(raw) = compact_text(request.stellar.total_area_sqft.as_deref()) {
+        let total_area = raw.parse::<f64>().map_err(|_| {
+            CoreServiceError::business(
+                "PROPERTY_NUMBER_INVALID",
+                "Total area must be a number.",
+            )
+        })?;
+        if !total_area.is_finite() || total_area <= 0.0 {
+            return Err(CoreServiceError::business(
+                "PROPERTY_NUMBER_INVALID",
+                "Total area must be greater than zero.",
+            ));
+        }
     }
     parse_range(request.latitude.as_deref(), "Latitude", -90.0, 90.0)?;
     parse_range(request.longitude.as_deref(), "Longitude", -180.0, 180.0)?;
