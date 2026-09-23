@@ -18,6 +18,7 @@ pub fn is_ported_portal_screen(key: &str) -> bool {
     matches!(
         key,
         "dashboard"
+            | "tech"
             | "cabinet"
             | "activity"
             | "workflows"
@@ -295,7 +296,13 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
         // `Model::generation`: without it, a request issued for one screen can land while another is mounted.
         // A screen that has a real component asks for its DTO; every other portal screen still asks for rows, so the two
         // live side by side while the port goes screen by screen. See `is_ported_portal_screen`.
-        if screen.key == "dashboard" {
+        if screen.key == "tech" {
+            vec![Effect::FetchTech {
+                screen: screen.key,
+                selected: model.selected_row_id.clone(),
+                generation: model.generation,
+            }]
+        } else if screen.key == "dashboard" {
             vec![Effect::FetchCockpit {
                 screen: screen.key,
                 generation: model.generation,
@@ -495,6 +502,31 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             model.rows = rows;
             Vec::new()
         }
+        Msg::TechStorySelected(id) => {
+            if model.screen.key != "tech" {
+                return Vec::new();
+            }
+            model.selected_row_id = Some(id.clone());
+            model.loading = true;
+            model.error = None;
+            vec![Effect::FetchTech {
+                screen: model.screen.key,
+                selected: Some(id),
+                generation: model.generation,
+            }]
+        }
+        Msg::TechRefreshRequested => {
+            if model.screen.key != "tech" {
+                return Vec::new();
+            }
+            model.loading = true;
+            model.error = None;
+            vec![Effect::FetchTech {
+                screen: model.screen.key,
+                selected: model.selected_row_id.clone(),
+                generation: model.generation,
+            }]
+        }
         Msg::RowSelected(id) => {
             if model.screen.key == "clients" {
                 let valid = model
@@ -576,6 +608,13 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                         model.accounting.pnl_to = pnl.to.clone();
                     }
                 }
+            }
+            if model.screen.key == "tech" {
+                model.selected_row_id = page
+                    .tech
+                    .as_ref()
+                    .and_then(|tech| tech.selected_story.as_ref())
+                    .map(|story| story.id.clone());
             }
             if matches!(model.screen.key, "clients" | "client-record") {
                 model.selected_row_id = page
