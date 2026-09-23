@@ -2234,6 +2234,7 @@ pub enum Msg {
         screen: String,
         generation: u64,
     },
+    OpsVideoRefreshRequested,
 
     // ---- OPPS / legacy Records + Listing Media -------------------------------------------------------------------
     RecordArchiveRequested,
