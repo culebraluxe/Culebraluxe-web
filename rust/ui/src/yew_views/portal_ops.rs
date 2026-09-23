@@ -1,0 +1,996 @@
+//! OPPS Data Workbench: one selector/editor shell over typed Rust domain adapters.
+//! The renderer is generic; each entity supplies field and section definitions.
+
+use yew::prelude::*;
+
+use crate::model::{
+    Msg, PortalOpsPerson, PortalOpsProject, PortalOpsProperty, PortalOpsWorkbenchPage,
+};
+use crate::yew_views::portal_shell::PortalShell;
+
+#[derive(Properties, PartialEq)]
+pub struct OpsProps {
+    pub model: crate::model::Model,
+    pub on_msg: Callback<Msg>,
+}
+
+pub struct OpsWorkbench;
+
+impl Component for OpsWorkbench {
+    type Message = ();
+    type Properties = OpsProps;
+
+    fn create(_ctx: &Context<Self>) -> Self {
+        Self
+    }
+
+    fn view(&self, ctx: &Context<Self>) -> Html {
+        let props = ctx.props();
+        let screen = crate::model::screen("property-admin").expect("OPPS workbench screen exists");
+        html! {
+            <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
+                { workbench(&props.model, &props.on_msg) }
+            </PortalShell>
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum FieldKind {
+    Text,
+    Number,
+    Date,
+    Textarea(u32),
+    Toggle,
+    Select(&'static [(&'static str, &'static str)]),
+}
+
+#[derive(Clone, Copy)]
+struct FieldSpec {
+    key: &'static str,
+    label: &'static str,
+    kind: FieldKind,
+    wide: bool,
+    hint: Option<&'static str>,
+}
+
+const PROPERTY_STATUS: &[(&str, &str)] = &[
+    ("prospect", "Prospect"),
+    ("coming_soon", "Coming soon"),
+    ("active", "Active"),
+    ("off_market", "Off market"),
+    ("under_contract", "Under contract - workflow owned"),
+    ("sold", "Sold - workflow owned"),
+    ("archived", "Archived"),
+];
+
+const PERSON_STATUS: &[(&str, &str)] = &[
+    ("new", "New"),
+    ("warm", "Warm"),
+    ("active", "Active"),
+    ("referral", "Referral"),
+];
+
+const PROJECT_STATUS: &[(&str, &str)] = &[
+    ("open", "Open"),
+    ("doing", "In progress"),
+    ("done", "Done"),
+    ("archived", "Archived"),
+];
+
+const PROPERTY_CORE: &[FieldSpec] = &[
+    FieldSpec { key: "name", label: "Property name", kind: FieldKind::Text, wide: true, hint: Some("Canonical property name.") },
+    FieldSpec { key: "status", label: "Status", kind: FieldKind::Select(PROPERTY_STATUS), wide: false, hint: None },
+    FieldSpec { key: "propertyType", label: "Property type", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "listPrice", label: "List price", kind: FieldKind::Number, wide: false, hint: None },
+    FieldSpec { key: "location", label: "Location label", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "bedrooms", label: "Bedrooms", kind: FieldKind::Number, wide: false, hint: None },
+    FieldSpec { key: "bathrooms", label: "Bathrooms", kind: FieldKind::Number, wide: false, hint: None },
+    FieldSpec { key: "bathroomsFull", label: "Full baths", kind: FieldKind::Number, wide: false, hint: None },
+    FieldSpec { key: "bathroomsHalf", label: "Half baths", kind: FieldKind::Number, wide: false, hint: None },
+    FieldSpec { key: "squareFeet", label: "Interior sqft", kind: FieldKind::Number, wide: false, hint: None },
+    FieldSpec { key: "lotSize", label: "Lot size", kind: FieldKind::Number, wide: false, hint: None },
+    FieldSpec { key: "lotSizeUnits", label: "Lot units", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "yearBuilt", label: "Year built", kind: FieldKind::Number, wide: false, hint: None },
+    FieldSpec { key: "stories", label: "Stories", kind: FieldKind::Number, wide: false, hint: None },
+    FieldSpec { key: "parkingSpaces", label: "Parking spaces", kind: FieldKind::Number, wide: false, hint: None },
+];
+
+const PROPERTY_ADDRESS: &[FieldSpec] = &[
+    FieldSpec { key: "addressLine1", label: "Address line", kind: FieldKind::Text, wide: true, hint: None },
+    FieldSpec { key: "streetNumber", label: "Street number", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "streetName", label: "Street name", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "unitNumber", label: "Unit", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "neighborhood", label: "Neighborhood", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "city", label: "Municipality / city", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "stateOrProvince", label: "State / province", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "postalCode", label: "Postal code", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "country", label: "Country", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "isoCountryCode", label: "ISO country", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "latitude", label: "Latitude", kind: FieldKind::Number, wide: false, hint: None },
+    FieldSpec { key: "longitude", label: "Longitude", kind: FieldKind::Number, wide: false, hint: None },
+];
+
+const PROPERTY_LEGAL: &[FieldSpec] = &[
+    FieldSpec { key: "legalOwnerName", label: "Legal owner", kind: FieldKind::Text, wide: true, hint: None },
+    FieldSpec { key: "listingIdentifier", label: "Catastro / listing identifier", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "registryEntry", label: "Registry entry", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "fincaNumber", label: "Finca number", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "registrySection", label: "Registry section", kind: FieldKind::Text, wide: false, hint: None },
+];
+
+const PROPERTY_AGENT: &[FieldSpec] = &[
+    FieldSpec { key: "listingAgentName", label: "Listing agent", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "listingAgentEmail", label: "Agent email", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "listingAgentPhone", label: "Agent phone", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "listingOffice", label: "Listing office", kind: FieldKind::Text, wide: false, hint: None },
+];
+
+const WEBSITE_FIELDS: &[FieldSpec] = &[
+    FieldSpec { key: "slug", label: "Public slug", kind: FieldKind::Text, wide: true, hint: Some("Lowercase letters, numbers and single hyphens.") },
+    FieldSpec { key: "featured", label: "Featured", kind: FieldKind::Toggle, wide: false, hint: None },
+    FieldSpec { key: "isActiveListing", label: "Active listing", kind: FieldKind::Toggle, wide: false, hint: None },
+    FieldSpec { key: "isPublished", label: "Published", kind: FieldKind::Toggle, wide: false, hint: None },
+    FieldSpec { key: "shortDescription", label: "Short description", kind: FieldKind::Textarea(3), wide: true, hint: None },
+    FieldSpec { key: "editorialDescription", label: "Editorial description", kind: FieldKind::Textarea(6), wide: true, hint: None },
+    FieldSpec { key: "publicRemarks", label: "Public remarks", kind: FieldKind::Textarea(6), wide: true, hint: Some("Canonical remarks reused by downstream publication preparation.") },
+];
+
+const MLS_FIELDS: &[FieldSpec] = &[
+    FieldSpec { key: "listingContractDate", label: "Listing contract date", kind: FieldKind::Date, wide: false, hint: None },
+    FieldSpec { key: "expirationDate", label: "Expiration date", kind: FieldKind::Date, wide: false, hint: None },
+    FieldSpec { key: "listingType", label: "Listing type", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "agentMlsId", label: "Agent MLS ID", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "taxId", label: "Tax ID", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "taxYear", label: "Tax year", kind: FieldKind::Number, wide: false, hint: None },
+    FieldSpec { key: "annualTax", label: "Annual tax", kind: FieldKind::Number, wide: false, hint: None },
+    FieldSpec { key: "zoning", label: "Zoning", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "totalAreaSqft", label: "Total area sqft", kind: FieldKind::Number, wide: false, hint: None },
+    FieldSpec { key: "heatedAreaSource", label: "Heated area source", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "ownershipType", label: "Ownership type", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "occupantType", label: "Occupant type", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "legalDescription", label: "Legal description", kind: FieldKind::Textarea(4), wide: true, hint: None },
+    FieldSpec { key: "hoaDetails", label: "HOA details", kind: FieldKind::Textarea(4), wide: true, hint: None },
+    FieldSpec { key: "showingInstructions", label: "Showing instructions", kind: FieldKind::Textarea(4), wide: true, hint: None },
+];
+
+const PROPERTY_RELATIONS: &[FieldSpec] = &[
+    FieldSpec { key: "sellerPersonId", label: "Seller Person ID", kind: FieldKind::Text, wide: true, hint: Some("Canonical Person UUID. This typed field can later be rendered as a picker without changing the save contract.") },
+];
+
+const PERSON_FIELDS: &[FieldSpec] = &[
+    FieldSpec { key: "displayName", label: "Display name", kind: FieldKind::Text, wide: true, hint: None },
+    FieldSpec { key: "status", label: "Status", kind: FieldKind::Select(PERSON_STATUS), wide: false, hint: None },
+    FieldSpec { key: "company", label: "Company", kind: FieldKind::Text, wide: false, hint: None },
+];
+
+const PROJECT_FIELDS: &[FieldSpec] = &[
+    FieldSpec { key: "name", label: "Project name", kind: FieldKind::Text, wide: true, hint: None },
+    FieldSpec { key: "status", label: "Status", kind: FieldKind::Select(PROJECT_STATUS), wide: false, hint: None },
+    FieldSpec { key: "owner", label: "Owner", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "projectType", label: "Project type", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "areas", label: "Areas", kind: FieldKind::Text, wide: true, hint: Some("Comma-separated project domains.") },
+    FieldSpec { key: "description", label: "Description", kind: FieldKind::Textarea(6), wide: true, hint: None },
+];
+
+const PROJECT_LINKS: &[FieldSpec] = &[
+    FieldSpec { key: "playbookId", label: "Playbook ID", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "playbookVersion", label: "Playbook version", kind: FieldKind::Number, wide: false, hint: None },
+    FieldSpec { key: "personId", label: "Person ID", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "propertyId", label: "Property ID", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "contractId", label: "Contract ID", kind: FieldKind::Text, wide: false, hint: None },
+];
+
+fn payload(model: &crate::model::Model) -> Option<&PortalOpsWorkbenchPage> {
+    model
+        .page
+        .as_ref()
+        .and_then(|page| page.portal.as_ref())
+        .and_then(|portal| portal.ops.as_ref())
+}
+
+fn value(model: &crate::model::Model, key: &str) -> String {
+    model.ops.form.get(key).cloned().unwrap_or_default()
+}
+
+fn workbench(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
+    let data = payload(model);
+    let total = data.map(|data| data.total).unwrap_or(0);
+    let current = data.map(|data| data.page).unwrap_or(1);
+    let page_size = data.map(|data| data.page_size.max(1)).unwrap_or(50);
+    let pages = ((total + page_size - 1) / page_size).max(1);
+    let rail_class = if model.ops.rail_collapsed {
+        "grid min-h-0 gap-3 md:h-[calc(100dvh-8.5rem)] md:grid-cols-[56px_minmax(0,1fr)]"
+    } else {
+        "grid min-h-0 gap-4 md:h-[calc(100dvh-8.5rem)] md:grid-cols-[240px_minmax(0,1fr)]"
+    };
+
+    html! {
+        <div class="space-y-3">
+            { entity_switcher(model, on_msg) }
+            <div class={rail_class}>
+                { selector_rail(model, on_msg, total, current, pages) }
+                <main class="min-h-0 overflow-hidden">
+                    { editor(model, on_msg) }
+                </main>
+            </div>
+        </div>
+    }
+}
+
+fn entity_switcher(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
+    html! {
+        <div class="portal-glass-panel flex flex-wrap items-center justify-between gap-3 rounded-[var(--portal-panel-radius)] px-3 py-2">
+            <div class="flex min-w-0 items-center gap-3">
+                <div class="hidden sm:block">
+                    <div class="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--portal-gold-muted)]">{"OPPS"}</div>
+                    <div class="font-serif text-lg font-light text-[var(--portal-navy)]">{"Data Workbench"}</div>
+                </div>
+                <div class="flex rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/35 p-1">
+                    { entity_button(model, on_msg, "property", "⌂", "Property") }
+                    { entity_button(model, on_msg, "person", "♙", "Person") }
+                    { entity_button(model, on_msg, "project", "◇", "Project") }
+                </div>
+            </div>
+            <div class="text-right">
+                <div class="text-[10px] uppercase tracking-[0.14em] text-black/35">{"Canonical data"}</div>
+                <div class="text-[12px] font-light text-black/55">{"Edit once · project downstream"}</div>
+            </div>
+        </div>
+    }
+}
+
+fn entity_button(
+    model: &crate::model::Model,
+    on_msg: &Callback<Msg>,
+    key: &'static str,
+    icon: &'static str,
+    label: &'static str,
+) -> Html {
+    let active = model.ops.entity == key;
+    let onclick = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::OpsEntitySelected(key.into())))
+    };
+    html! {
+        <button
+            type="button"
+            {onclick}
+            aria-pressed={active.to_string()}
+            class={classes!(
+                "inline-flex","h-9","items-center","gap-1.5","rounded-[calc(var(--portal-tab-radius)-2px)]","px-3","text-[12px]","font-medium","transition",
+                if active { "bg-[var(--portal-navy)] text-white shadow-sm" } else { "text-[var(--portal-navy)] hover:bg-white/60" }
+            )}
+        >
+            <span class="text-[15px] leading-none" aria-hidden="true">{icon}</span>
+            <span>{label}</span>
+        </button>
+    }
+}
+
+fn selector_rail(
+    model: &crate::model::Model,
+    on_msg: &Callback<Msg>,
+    total: i64,
+    current: i64,
+    pages: i64,
+) -> Html {
+    let data = payload(model);
+    let rows = data.map(|data| data.rows.as_slice()).unwrap_or(&[]);
+    let collapsed = model.ops.rail_collapsed;
+
+    let search = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |event: InputEvent| {
+            let value = event.target_unchecked_into::<web_sys::HtmlInputElement>().value();
+            on_msg.emit(Msg::QueryChanged(value));
+        })
+    };
+    let toggle = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::OpsRailToggled))
+    };
+    let previous = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::PageChanged(-1)))
+    };
+    let next = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::PageChanged(1)))
+    };
+    let create = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::OpsCreateToggled))
+    };
+
+    html! {
+        <aside class="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
+            <div class="shrink-0 border-b border-[var(--portal-panel-border)] p-2">
+                <div class="flex items-center justify-between gap-2">
+                    if !collapsed {
+                        <div class="truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-black/40">
+                            { format!("{} · {total}", entity_plural(&model.ops.entity)) }
+                        </div>
+                    }
+                    <button
+                        type="button"
+                        onclick={toggle}
+                        title={if collapsed { "Expand selector" } else { "Collapse selector" }}
+                        class="ml-auto grid h-8 w-8 shrink-0 place-items-center rounded-full border border-[var(--portal-panel-border)] bg-white/45 text-[var(--portal-navy)] transition hover:bg-white/75"
+                    >
+                        { if collapsed { "›" } else { "‹" } }
+                    </button>
+                </div>
+                if !collapsed {
+                    <input
+                        type="search"
+                        oninput={search}
+                        value={model.controls.query.clone()}
+                        disabled={model.ops.dirty}
+                        placeholder={format!("Search {}…", entity_plural(&model.ops.entity).to_lowercase())}
+                        class="mt-2 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/45 px-2.5 py-2 text-[13px] font-light outline-none placeholder:text-black/35 focus:border-[var(--portal-navy)] disabled:opacity-45"
+                    />
+                    if model.ops.entity == "property" {
+                        <button
+                            type="button"
+                            onclick={create}
+                            disabled={model.ops.dirty}
+                            class="mt-2 flex h-8 w-full items-center justify-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/35 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--portal-navy)] hover:bg-white/60 disabled:opacity-35"
+                        >
+                            { if model.ops.creating { "Cancel new property" } else { "+ New property" } }
+                        </button>
+                        if model.ops.creating {
+                            { create_property(model, on_msg) }
+                        }
+                    }
+                }
+            </div>
+
+            <div class="min-h-0 flex-1 overflow-y-auto">
+                if rows.is_empty() {
+                    <p class={if collapsed { "px-2 py-6 text-center text-xs text-black/35" } else { "px-3 py-6 text-sm font-light text-black/40" }}>
+                        { if model.loading { "…" } else if collapsed { "—" } else { "No matching records." } }
+                    </p>
+                } else {
+                    { for rows.iter().map(|row| {
+                        let selected = data.and_then(|data| data.selected_id.as_deref()) == Some(row.id.as_str());
+                        let id = row.id.clone();
+                        let onclick = {
+                            let on_msg = on_msg.clone();
+                            Callback::from(move |_: MouseEvent| on_msg.emit(Msg::RowSelected(id.clone())))
+                        };
+                        html! {
+                            <button
+                                type="button"
+                                {onclick}
+                                title={if collapsed { row.title.clone() } else { String::new() }}
+                                class={classes!(
+                                    "w-full","border-b","border-[var(--portal-panel-border)]","text-left","transition",
+                                    if collapsed { "grid h-11 place-items-center px-1" } else { "flex items-start gap-2 px-2.5 py-2.5" },
+                                    if selected { "border-l-2 border-l-[var(--portal-gold)] bg-white/45" } else { "border-l-2 border-l-transparent hover:bg-white/25" }
+                                )}
+                            >
+                                if collapsed {
+                                    <span class={format!("h-2 w-2 rounded-full {}", status_dot(&row.status))}></span>
+                                } else {
+                                    <span class={format!("mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full {}", status_dot(&row.status))}></span>
+                                    <span class="min-w-0 flex-1">
+                                        <span class="block truncate text-[13px] font-medium text-[var(--portal-navy)]">{ row.title.clone() }</span>
+                                        <span class="mt-0.5 block truncate text-[11px] font-light text-black/45">
+                                            { compact_meta(row.subtitle.as_deref(), row.meta.as_deref(), &row.status) }
+                                        </span>
+                                    </span>
+                                }
+                            </button>
+                        }
+                    }) }
+                }
+            </div>
+
+            if !collapsed {
+                <div class="flex shrink-0 items-center justify-between gap-2 border-t border-[var(--portal-panel-border)] px-2 py-1.5">
+                    <button type="button" onclick={previous} disabled={current <= 1 || model.ops.dirty}
+                        class="text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] disabled:opacity-30">
+                        {"← Prev"}
+                    </button>
+                    <span class="text-[10px] font-light text-black/40">{ format!("{current} / {pages}") }</span>
+                    <button type="button" onclick={next} disabled={current >= pages || model.ops.dirty}
+                        class="text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] disabled:opacity-30">
+                        {"Next →"}
+                    </button>
+                </div>
+            }
+        </aside>
+    }
+}
+
+fn create_property(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
+    let change = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |event: InputEvent| {
+            let value = event.target_unchecked_into::<web_sys::HtmlInputElement>().value();
+            on_msg.emit(Msg::OpsCreateNameChanged(value));
+        })
+    };
+    let create = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::OpsCreateRequested))
+    };
+    html! {
+        <div class="mt-2 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/30 p-2">
+            <input
+                value={model.ops.new_name.clone()}
+                oninput={change}
+                placeholder="Property name"
+                class="h-8 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/65 px-2 text-[12px] outline-none"
+            />
+            <button
+                type="button"
+                onclick={create}
+                disabled={model.loading}
+                class="mt-2 h-8 w-full rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] text-[10px] font-semibold uppercase tracking-[0.12em] text-white disabled:opacity-40"
+            >
+                { if model.loading { "Creating…" } else { "Create & open" } }
+            </button>
+        </div>
+    }
+}
+
+fn editor(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
+    let Some(data) = payload(model) else {
+        return empty_editor(model.loading);
+    };
+    if data.selected_id.is_none() {
+        return empty_editor(model.loading);
+    }
+
+    html! {
+        <div class="flex h-full min-h-0 flex-col gap-3">
+            { editor_header(model, data, on_msg) }
+            { section_tabs(model, on_msg) }
+            <section class="portal-glass-panel min-h-0 flex-1 overflow-y-auto rounded-[var(--portal-panel-radius)]">
+                <div class="p-4 md:p-5">
+                    {
+                        match data.entity.as_str() {
+                            "person" => person_editor(model, data.person.as_ref(), on_msg),
+                            "project" => project_editor(model, data.project.as_ref(), on_msg),
+                            _ => property_editor(model, data.property.as_ref(), on_msg),
+                        }
+                    }
+                </div>
+            </section>
+        </div>
+    }
+}
+
+fn editor_header(
+    model: &crate::model::Model,
+    data: &PortalOpsWorkbenchPage,
+    on_msg: &Callback<Msg>,
+) -> Html {
+    let (title, subtitle, status) = match data.entity.as_str() {
+        "person" => data.person.as_ref().map(|record| (
+            record.display_name.clone(),
+            record.company.clone().or_else(|| record.email.clone()).unwrap_or_else(|| "Person".into()),
+            record.status.clone(),
+        )),
+        "project" => data.project.as_ref().map(|record| (
+            record.name.clone(),
+            record.project_type.clone().unwrap_or_else(|| "Project".into()),
+            record.status.clone(),
+        )),
+        _ => data.property.as_ref().map(|record| (
+            record.name.clone(),
+            record.location.clone().unwrap_or_else(|| "Property".into()),
+            if record.archived { "archived".into() } else { record.status.clone() },
+        )),
+    }.unwrap_or_else(|| ("Record".into(), String::new(), String::new()));
+
+    let save = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::OpsSaveRequested))
+    };
+    let revert = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::OpsRevertRequested))
+    };
+
+    html! {
+        <section class="portal-glass-panel rounded-[var(--portal-panel-radius)] px-4 py-3">
+            <div class="flex flex-wrap items-center gap-3">
+                <div class="min-w-0 flex-1">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <h1 class="truncate font-serif text-2xl font-light text-[var(--portal-navy)]">{title}</h1>
+                        <span class="rounded-full border border-[var(--portal-panel-border)] bg-white/45 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-navy)]">
+                            {status.replace('_', " ")}
+                        </span>
+                        if model.ops.dirty {
+                            <span class="rounded-full bg-[var(--portal-gold)]/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-gold-muted)]">
+                                {"Unsaved"}
+                            </span>
+                        }
+                    </div>
+                    <p class="mt-1 truncate text-[12px] font-light text-black/50">{subtitle}</p>
+                </div>
+                { header_metrics(data) }
+                <div class="flex shrink-0 gap-2">
+                    <button
+                        type="button"
+                        onclick={revert}
+                        disabled={!model.ops.dirty || model.ops.saving}
+                        class="h-9 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/40 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--portal-navy)] disabled:opacity-30"
+                    >
+                        {"Revert"}
+                    </button>
+                    <button
+                        type="button"
+                        onclick={save}
+                        disabled={!model.ops.dirty || model.ops.saving}
+                        class="h-9 rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-4 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-sm disabled:opacity-35"
+                    >
+                        {if model.ops.saving { "Saving…" } else { "Save" }}
+                    </button>
+                </div>
+            </div>
+        </section>
+    }
+}
+
+fn header_metrics(data: &PortalOpsWorkbenchPage) -> Html {
+    if data.entity != "property" {
+        return html! {};
+    }
+    let Some(property) = data.property.as_ref() else {
+        return html! {};
+    };
+    let stellar_fields = [
+        property.stellar.listing_contract_date.as_deref(),
+        property.stellar.expiration_date.as_deref(),
+        property.stellar.listing_type.as_deref(),
+        property.stellar.agent_mls_id.as_deref(),
+        property.stellar.tax_id.as_deref(),
+        property.stellar.tax_year.as_deref(),
+        property.stellar.annual_tax.as_deref(),
+        property.stellar.legal_description.as_deref(),
+        property.stellar.zoning.as_deref(),
+        property.stellar.total_area_sqft.as_deref(),
+        property.stellar.heated_area_source.as_deref(),
+        property.stellar.ownership_type.as_deref(),
+        property.stellar.hoa_details.as_deref(),
+        property.stellar.showing_instructions.as_deref(),
+        property.stellar.occupant_type.as_deref(),
+    ];
+    let filled = stellar_fields
+        .into_iter()
+        .flatten()
+        .filter(|value| !value.trim().is_empty())
+        .count();
+
+    html! {
+        <div class="hidden shrink-0 gap-5 xl:flex">
+            { metric("Media", &format!("{} images", property.image_count)) }
+            { metric("MLS details", &format!("{filled}/15 filled")) }
+        </div>
+    }
+}
+
+fn metric(label: &str, value: &str) -> Html {
+    html! {
+        <div class="text-right">
+            <div class="text-[9px] uppercase tracking-[0.14em] text-black/35">{label}</div>
+            <div class="text-[12px] font-medium text-[var(--portal-navy)]">{value}</div>
+        </div>
+    }
+}
+
+fn section_tabs(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
+    let tabs: &[(&str, &str)] = match model.ops.entity.as_str() {
+        "person" => &[("identity", "Identity"), ("contact", "Contact"), ("relations", "Relations")],
+        "project" => &[("project", "Project"), ("links", "Links")],
+        _ => &[
+            ("property", "Property"),
+            ("website", "Website"),
+            ("mls", "MLS"),
+            ("media", "Media"),
+            ("relations", "Relations"),
+        ],
+    };
+
+    html! {
+        <div class="portal-glass-panel flex gap-1 overflow-x-auto rounded-[var(--portal-panel-radius)] p-1.5">
+            {for tabs.iter().map(|(key, label)| {
+                let active = model.ops.section == *key;
+                let selected_key = (*key).to_string();
+                let onclick = {
+                    let on_msg = on_msg.clone();
+                    Callback::from(move |_: MouseEvent| on_msg.emit(Msg::OpsSectionSelected(selected_key.clone())))
+                };
+                html! {
+                    <button
+                        type="button"
+                        {onclick}
+                        class={classes!(
+                            "h-8","shrink-0","rounded-[var(--portal-tab-radius)]","px-3","text-[11px]","font-medium","transition",
+                            if active { "bg-[var(--portal-navy)] text-white" } else { "text-[var(--portal-navy)] hover:bg-white/50" }
+                        )}
+                    >
+                        {*label}
+                    </button>
+                }
+            })}
+        </div>
+    }
+}
+
+fn property_editor(
+    model: &crate::model::Model,
+    property: Option<&PortalOpsProperty>,
+    on_msg: &Callback<Msg>,
+) -> Html {
+    let Some(property) = property else {
+        return empty_record("Property");
+    };
+
+    match model.ops.section.as_str() {
+        "website" => html! {
+            <div class="space-y-4">
+                {section_intro("Website", "Presentation and publication controls over the canonical Property record.")}
+                {field_panel(model, on_msg, "Publication", WEBSITE_FIELDS)}
+            </div>
+        },
+        "mls" => html! {
+            <div class="space-y-4">
+                {section_intro("Stellar MLS preparation", "Canonical Property values stay inherited; this section collects only MLS-specific extension fields.")}
+                <div class="grid gap-3 md:grid-cols-4">
+                    {inherited("Property", value(model, "name"))}
+                    {inherited("List price", value(model, "listPrice"))}
+                    {inherited("Address", value(model, "addressLine1"))}
+                    {inherited("Beds / baths", format!("{} / {}", value(model, "bedrooms"), value(model, "bathrooms")))}
+                </div>
+                {field_panel(model, on_msg, "MLS-specific fields", MLS_FIELDS)}
+            </div>
+        },
+        "media" => html! {
+            <div class="space-y-4">
+                {section_intro("Media", "Media stays attached to the same canonical Property. The existing media manager remains the specialized upload surface.")}
+                <div class="grid gap-3 sm:grid-cols-3">
+                    {count_card("Images", property.image_count)}
+                    {count_card("Videos", property.video_count)}
+                    {count_card("Documents", property.document_count)}
+                </div>
+                <a href="/portal/property-media"
+                    class="inline-flex h-10 items-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-4 text-[11px] font-semibold uppercase tracking-[0.12em] text-white">
+                    {"Open Property Media →"}
+                </a>
+            </div>
+        },
+        "relations" => html! {
+            <div class="space-y-4">
+                {section_intro("Relations", "Connect this Property to canonical people and the transaction/workflow surfaces that use it.")}
+                <div class="grid gap-4 lg:grid-cols-2">
+                    <div class="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/35 p-4">
+                        <div class="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--portal-gold-muted)]">{"Seller"}</div>
+                        <div class="mt-2 font-serif text-lg text-[var(--portal-navy)]">
+                            {property.seller_name.clone().unwrap_or_else(|| "No seller linked".into())}
+                        </div>
+                        <div class="mt-3">{field_grid(model, on_msg, PROPERTY_RELATIONS)}</div>
+                    </div>
+                    <div class="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/35 p-4">
+                        <div class="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--portal-gold-muted)]">{"Record"}</div>
+                        {read_line("Property ID", &property.id)}
+                        {read_line("Created", property.created_at.as_deref().unwrap_or("—"))}
+                        {read_line("Updated", property.updated_at.as_deref().unwrap_or("—"))}
+                    </div>
+                </div>
+            </div>
+        },
+        _ => html! {
+            <div class="space-y-4">
+                {section_intro("Property truth", "Enter operational facts once. Website, MLS preparation, media and transaction surfaces consume this record.")}
+                {field_panel(model, on_msg, "Core", PROPERTY_CORE)}
+                {field_panel(model, on_msg, "Address", PROPERTY_ADDRESS)}
+                {field_panel(model, on_msg, "Legal / registry", PROPERTY_LEGAL)}
+                {field_panel(model, on_msg, "Listing representation", PROPERTY_AGENT)}
+            </div>
+        },
+    }
+}
+
+fn person_editor(
+    model: &crate::model::Model,
+    person: Option<&PortalOpsPerson>,
+    on_msg: &Callback<Msg>,
+) -> Html {
+    let Some(person) = person else {
+        return empty_record("Person");
+    };
+
+    match model.ops.section.as_str() {
+        "contact" => html! {
+            <div class="space-y-4">
+                {section_intro("Contact", "Person identities stay canonical. This slice shows existing email and phone values without inventing a second identity writer.")}
+                <div class="grid gap-3 lg:grid-cols-2">
+                    {readonly_card("Email", person.email.as_deref().unwrap_or("—"))}
+                    {readonly_card("Phone", person.phone.as_deref().unwrap_or("—"))}
+                    {readonly_card("Location", person.location.as_deref().unwrap_or("—"))}
+                    {readonly_card("Role", &person.role)}
+                </div>
+            </div>
+        },
+        "relations" => html! {
+            <div class="space-y-4">
+                {section_intro("Relations", "Open the relationship workspace for communication history, properties, deals and operational context.")}
+                <a href={format!("/portal/clients/{}", person.id)}
+                    class="inline-flex h-10 items-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-4 text-[11px] font-semibold uppercase tracking-[0.12em] text-white">
+                    {"Open Client Relationship →"}
+                </a>
+            </div>
+        },
+        _ => html! {
+            <div class="space-y-4">
+                {section_intro("Person identity", "The same workbench shell, backed by the canonical Person service.")}
+                {field_panel(model, on_msg, "Canonical person", PERSON_FIELDS)}
+                <div class="grid gap-3 lg:grid-cols-2">
+                    {readonly_card("Role", &person.role)}
+                    {readonly_card("Canonical ID", &person.id)}
+                </div>
+            </div>
+        },
+    }
+}
+
+fn project_editor(
+    model: &crate::model::Model,
+    project: Option<&PortalOpsProject>,
+    on_msg: &Callback<Msg>,
+) -> Html {
+    let Some(project) = project else {
+        return empty_record("Project");
+    };
+
+    match model.ops.section.as_str() {
+        "links" => html! {
+            <div class="space-y-4">
+                {section_intro("Project links", "Typed links connect a Project to its playbook and canonical Person, Property or Contract context.")}
+                {field_panel(model, on_msg, "Bindings", PROJECT_LINKS)}
+                <div class="grid gap-3 lg:grid-cols-2">
+                    {readonly_card("Starts", project.starts_at.as_deref().unwrap_or("—"))}
+                    {readonly_card("Ends", project.ends_at.as_deref().unwrap_or("—"))}
+                </div>
+            </div>
+        },
+        _ => html! {
+            <div class="space-y-4">
+                {section_intro("Project", "Edit the Project record without leaving OPPS. The full Project workspace remains the execution surface.")}
+                {field_panel(model, on_msg, "Project facts", PROJECT_FIELDS)}
+                <a href="/portal/projects"
+                    class="inline-flex h-10 items-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/40 px-4 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--portal-navy)]">
+                    {"Open Project Workspace →"}
+                </a>
+            </div>
+        },
+    }
+}
+
+fn field_panel(
+    model: &crate::model::Model,
+    on_msg: &Callback<Msg>,
+    title: &str,
+    fields: &[FieldSpec],
+) -> Html {
+    html! {
+        <section class="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/30 p-4">
+            <div class="mb-3 text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--portal-gold-muted)]">{title}</div>
+            {field_grid(model, on_msg, fields)}
+        </section>
+    }
+}
+
+fn field_grid(
+    model: &crate::model::Model,
+    on_msg: &Callback<Msg>,
+    fields: &[FieldSpec],
+) -> Html {
+    html! {
+        <div class="grid gap-4 lg:grid-cols-2">
+            {for fields.iter().map(|field| editor_field(model, on_msg, field))}
+        </div>
+    }
+}
+
+fn editor_field(
+    model: &crate::model::Model,
+    on_msg: &Callback<Msg>,
+    field: &FieldSpec,
+) -> Html {
+    let field_value = value(model, field.key);
+    let wrapper = if field.wide { "lg:col-span-2" } else { "" };
+    let disabled = model.ops.saving;
+
+    let control = match field.kind {
+        FieldKind::Textarea(rows) => {
+            let key = field.key.to_string();
+            let on_msg = on_msg.clone();
+            html! {
+                <textarea
+                    value={field_value}
+                    rows={rows.to_string()}
+                    disabled={disabled}
+                    oninput={Callback::from(move |event: InputEvent| {
+                        let value = event.target_unchecked_into::<web_sys::HtmlTextAreaElement>().value();
+                        on_msg.emit(Msg::OpsFieldChanged { key: key.clone(), value });
+                    })}
+                    class="mt-1.5 w-full resize-y rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 px-3 py-2 text-[13px] font-light leading-relaxed text-black/75 outline-none focus:border-[var(--portal-navy)] disabled:opacity-50"
+                />
+            }
+        }
+        FieldKind::Toggle => {
+            let key = field.key.to_string();
+            let on_msg = on_msg.clone();
+            html! {
+                <div class="mt-2 flex h-10 items-center">
+                    <input
+                        type="checkbox"
+                        checked={field_value == "true"}
+                        disabled={disabled}
+                        onchange={Callback::from(move |event: Event| {
+                            let checked = event.target_unchecked_into::<web_sys::HtmlInputElement>().checked();
+                            on_msg.emit(Msg::OpsFieldChanged { key: key.clone(), value: checked.to_string() });
+                        })}
+                        class="h-4 w-4 rounded border-[var(--portal-panel-border)]"
+                    />
+                </div>
+            }
+        }
+        FieldKind::Select(options) => {
+            let key = field.key.to_string();
+            let on_msg = on_msg.clone();
+            html! {
+                <select
+                    value={field_value}
+                    disabled={disabled}
+                    onchange={Callback::from(move |event: Event| {
+                        let value = event.target_unchecked_into::<web_sys::HtmlSelectElement>().value();
+                        on_msg.emit(Msg::OpsFieldChanged { key: key.clone(), value });
+                    })}
+                    class="mt-1.5 h-10 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 px-3 text-[13px] font-light text-black/75 outline-none focus:border-[var(--portal-navy)] disabled:opacity-50"
+                >
+                    {for options.iter().map(|(value, label)| html! { <option value={*value}>{*label}</option> })}
+                </select>
+            }
+        }
+        FieldKind::Date | FieldKind::Number | FieldKind::Text => {
+            let input_type = match field.kind {
+                FieldKind::Date => "date",
+                FieldKind::Number => "number",
+                _ => "text",
+            };
+            let step = if matches!(field.kind, FieldKind::Number) { "any" } else { "" };
+            let key = field.key.to_string();
+            let on_msg = on_msg.clone();
+            html! {
+                <input
+                    type={input_type}
+                    step={step}
+                    value={field_value}
+                    disabled={disabled}
+                    oninput={Callback::from(move |event: InputEvent| {
+                        let value = event.target_unchecked_into::<web_sys::HtmlInputElement>().value();
+                        on_msg.emit(Msg::OpsFieldChanged { key: key.clone(), value });
+                    })}
+                    class="mt-1.5 h-10 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 px-3 text-[13px] font-light text-black/75 outline-none focus:border-[var(--portal-navy)] disabled:opacity-50"
+                />
+            }
+        }
+    };
+
+    html! {
+        <div class={wrapper}>
+            <label class="block text-[10px] font-semibold uppercase tracking-[0.11em] text-[var(--portal-blue-gray)]">
+                {field.label}
+                {control}
+            </label>
+            if let Some(hint) = field.hint {
+                <p class="mt-1 text-[10px] font-light leading-snug text-black/40">{hint}</p>
+            }
+        </div>
+    }
+}
+
+fn section_intro(title: &str, body: &str) -> Html {
+    html! {
+        <div>
+            <div class="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--portal-gold-muted)]">{title}</div>
+            <p class="mt-1 max-w-4xl text-[13px] font-light leading-relaxed text-black/55">{body}</p>
+        </div>
+    }
+}
+
+fn inherited(label: &str, value: String) -> Html {
+    html! {
+        <div class="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-[var(--portal-soft-bg)] p-3">
+            <div class="text-[9px] font-semibold uppercase tracking-[0.13em] text-black/35">{label}</div>
+            <div class="mt-1 truncate text-[12px] font-medium text-[var(--portal-navy)]">
+                {if value.trim().is_empty() { "—".into() } else { value }}
+            </div>
+            <div class="mt-1 text-[9px] uppercase tracking-[0.1em] text-black/30">{"Inherited from Property"}</div>
+        </div>
+    }
+}
+
+fn count_card(label: &str, count: i64) -> Html {
+    html! {
+        <div class="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/35 p-4">
+            <div class="font-serif text-3xl font-light text-[var(--portal-navy)]">{count}</div>
+            <div class="mt-1 text-[10px] font-semibold uppercase tracking-[0.13em] text-black/40">{label}</div>
+        </div>
+    }
+}
+
+fn readonly_card(label: &str, value: &str) -> Html {
+    html! {
+        <div class="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/35 p-4">
+            <div class="text-[9px] font-semibold uppercase tracking-[0.13em] text-black/35">{label}</div>
+            <div class="mt-1 break-words text-[13px] font-light text-[var(--portal-navy)]">{value}</div>
+        </div>
+    }
+}
+
+fn read_line(label: &str, value: &str) -> Html {
+    html! {
+        <div class="mt-2 flex gap-3 text-[12px]">
+            <span class="w-20 shrink-0 text-black/35">{label}</span>
+            <span class="min-w-0 break-all font-light text-[var(--portal-navy)]">{value}</span>
+        </div>
+    }
+}
+
+fn empty_editor(loading: bool) -> Html {
+    html! {
+        <section class="portal-glass-panel grid h-full min-h-64 place-items-center rounded-[var(--portal-panel-radius)] p-8 text-center">
+            <div>
+                <div class="font-serif text-xl font-light text-[var(--portal-navy)]">
+                    {if loading { "Loading workbench…" } else { "Select a record" }}
+                </div>
+                <p class="mt-2 text-[12px] font-light text-black/45">
+                    {"The same workspace edits every major entity."}
+                </p>
+            </div>
+        </section>
+    }
+}
+
+fn empty_record(label: &str) -> Html {
+    html! {
+        <div class="py-12 text-center text-sm font-light text-black/45">
+            {format!("No {label} record is loaded.")}
+        </div>
+    }
+}
+
+fn entity_plural(entity: &str) -> &'static str {
+    match entity {
+        "person" => "People",
+        "project" => "Projects",
+        _ => "Properties",
+    }
+}
+
+fn status_dot(status: &str) -> &'static str {
+    match status {
+        "active" | "doing" | "open" => "bg-[var(--portal-success)]",
+        "archived" | "done" | "sold" => "bg-black/30",
+        "coming_soon" | "warm" => "bg-[var(--portal-gold)]",
+        _ => "bg-[var(--portal-blue-gray)]",
+    }
+}
+
+fn compact_meta(subtitle: Option<&str>, meta: Option<&str>, status: &str) -> String {
+    [Some(status), subtitle, meta]
+        .into_iter()
+        .flatten()
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| value.replace('_', " "))
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
