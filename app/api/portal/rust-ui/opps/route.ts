@@ -187,6 +187,11 @@ type MediaAsset = {
   altText: string | null
   caption: string | null
   createdAt: string | null
+  muxAssetId: string | null
+  muxPlaybackId: string | null
+  durationSeconds: string | null
+  aspectRatio: string | null
+  sourceUrl: string | null
   url: string
 }
 
