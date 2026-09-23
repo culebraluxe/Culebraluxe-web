@@ -97,34 +97,81 @@ async function main(): Promise<number> {
     })
   }
 
-  // 2 + 3. The pages a buyer actually loads.
-  const pages: Array<{ url: string; name: string; marker: string }> = [
-    { url: `${base}/`, name: 'home page renders', marker: 'CulebraLuxe' },
-    { url: `${base}/buyers`, name: 'buyers inventory renders', marker: 'Selected Properties' },
-  ]
-  for (const page of pages) {
-    try {
-      const { status, body } = await fetchText(page.url)
-      const hasMarker = body.includes(page.marker)
-      checks.push({
-        name: page.name,
-        url: page.url,
-        ok: status === 200 && hasMarker,
-        detail:
-          status !== 200
-            ? `status ${status}`
-            : hasMarker
-              ? `200, ${Math.round(body.length / 1024)}KB, marker "${page.marker}" present`
-              : `200 but the marker "${page.marker}" is missing — the page answered without its content`,
-      })
-    } catch (error) {
-      checks.push({
-        name: page.name,
-        url: page.url,
-        ok: false,
-        detail: error instanceof Error ? error.message : String(error),
-      })
-    }
+  // 2. The public homepage is server-rendered enough that its brand marker is present in the response.
+  try {
+    const { status, body } = await fetchText(`${base}/`)
+    const hasMarker = body.includes('CulebraLuxe')
+    checks.push({
+      name: 'home page renders',
+      url: `${base}/`,
+      ok: status === 200 && hasMarker,
+      detail:
+        status !== 200
+          ? `status ${status}`
+          : hasMarker
+            ? `200, ${Math.round(body.length / 1024)}KB, marker "CulebraLuxe" present`
+            : '200 but the CulebraLuxe marker is missing',
+    })
+  } catch (error) {
+    checks.push({
+      name: 'home page renders',
+      url: `${base}/`,
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error),
+    })
+  }
+
+  // 3. /buyers is Yew-owned and therefore CLIENT rendered. Its HTTP document intentionally contains only
+  // the Rust mount point; "Selected Properties" is emitted by WASM after boot and can never be a reliable
+  // curl/fetch smoke marker. Prove both halves instead:
+  //   a) the deployed page contains the Rust/Yew mount;
+  //   b) the production page-data endpoint returns at least one public listing.
+  try {
+    const { status, body } = await fetchText(`${base}/buyers`)
+    const hasMount = body.includes('id="rust-ui"')
+    checks.push({
+      name: 'buyers Yew shell renders',
+      url: `${base}/buyers`,
+      ok: status === 200 && hasMount,
+      detail:
+        status !== 200
+          ? `status ${status}`
+          : hasMount
+            ? '200, Rust/Yew mount present'
+            : '200 but the #rust-ui mount is missing',
+    })
+  } catch (error) {
+    checks.push({
+      name: 'buyers Yew shell renders',
+      url: `${base}/buyers`,
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error),
+    })
+  }
+
+  try {
+    const url = `${base}/api/rust-ui/public-page?screen=site-buyers`
+    const { status, body } = await fetchText(url)
+    const parsed = JSON.parse(body) as { listings?: unknown[] }
+    const count = Array.isArray(parsed.listings) ? parsed.listings.length : 0
+    checks.push({
+      name: 'buyers production inventory loads',
+      url,
+      ok: status === 200 && count > 0,
+      detail:
+        status !== 200
+          ? `status ${status}`
+          : count > 0
+            ? `200, ${count} public listing(s)`
+            : '200 but production returned zero public listings',
+    })
+  } catch (error) {
+    checks.push({
+      name: 'buyers production inventory loads',
+      url: `${base}/api/rust-ui/public-page?screen=site-buyers`,
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error),
+    })
   }
 
   // 4. The Rust cutover proof. This goes through the public frontend, which then calls the
