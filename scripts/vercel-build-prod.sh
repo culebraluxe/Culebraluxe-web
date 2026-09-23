@@ -13,9 +13,6 @@ fail() {
 command -v git >/dev/null 2>&1 || fail "git is required"
 command -v node >/dev/null 2>&1 || fail "Node.js is required"
 command -v vercel >/dev/null 2>&1 || fail "Vercel CLI is required. Install it with: npm install --global vercel@latest"
-command -v docker >/dev/null 2>&1 || fail "Docker is required for the Rust container service"
-docker info >/dev/null 2>&1 || fail "Docker is installed but not running. Start Docker Desktop before the production build."
-
 ROOT_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || fail "Run this inside the CulebraLuxe git repository"
 cd "$ROOT_DIR"
 
@@ -26,25 +23,9 @@ fi
 
 export VERCEL_ORG_ID
 export VERCEL_PROJECT_ID
-# Apple Silicon is the normal CulebraLuxe development host. Pin the container build target so the
-# first production image is a Linux amd64 artifact rather than whatever architecture Docker Desktop
-# happens to inherit from the host.
-export DOCKER_DEFAULT_PLATFORM="${DOCKER_DEFAULT_PLATFORM:-linux/amd64}"
-
-printf '\nChecking Rust production lockfile before the expensive frontend/container build...\n'
-if ! docker run --rm \
-  --platform "$DOCKER_DEFAULT_PLATFORM" \
-  -v "$ROOT_DIR/rust:/work:ro" \
-  -w /work \
-  rust:1.94-bookworm \
-  cargo metadata --locked --format-version 1 >/dev/null 2>&1; then
-  fail "rust/Cargo.lock is stale. Restore/regenerate it with Rust 1.94, commit it, then rerun."
-fi
-
 printf '\nCulebraLuxe local production build\n'
 printf '  commit:  %s\n' "$(git rev-parse --short HEAD)"
 printf '  node:    %s\n' "$(node --version)"
-printf '  docker:  %s\n' "$DOCKER_DEFAULT_PLATFORM"
 printf '  project: %s\n\n' "$VERCEL_PROJECT_ID"
 
 vercel whoami >/dev/null 2>&1 || fail "Vercel CLI is not authenticated. Run: vercel login"
@@ -56,11 +37,6 @@ ENV_FILE=".vercel/.env.production.local"
 rm -f "$ENV_FILE"
 vercel env pull "$ENV_FILE" --environment=production
 [[ -f "$ENV_FILE" ]] || fail "Vercel production env file was not pulled: $ENV_FILE"
-grep -q '^DATABASE_URL_PROD=' "$ENV_FILE" || fail "DATABASE_URL_PROD is missing from Vercel production environment"
-if ! grep -q '^CULEBRA_INTERNAL_API_KEY=' "$ENV_FILE" && ! grep -q '^AUTH_SECRET=' "$ENV_FILE"; then
-  fail "Rust bridge auth is missing: set CULEBRA_INTERNAL_API_KEY or AUTH_SECRET in Vercel production"
-fi
-
 printf '\nClearing previous prebuilt output...\n'
 rm -rf .vercel/output
 
@@ -102,39 +78,21 @@ vercel build --prod
 
 [[ -f .vercel/output/config.json ]] || fail "Build completed without .vercel/output/config.json"
 
-printf '\nVerifying multi-service build output...\n'
+printf '\nVerifying standard frontend build output...\n'
 node <<'NODE'
 const fs = require('node:fs')
 const config = JSON.parse(fs.readFileSync('.vercel/output/config.json', 'utf8'))
-const raw = config.services
-const services = Array.isArray(raw)
-  ? raw
-  : raw && typeof raw === 'object'
-    ? Object.entries(raw).map(([name, value]) => ({ name, ...(value || {}) }))
-    : []
-const names = new Set(services.map((service) => service && service.name).filter(Boolean))
-for (const required of ['frontend', 'rust_api']) {
-  if (!names.has(required)) {
-    console.error(`ERROR: prebuilt output is missing required service "${required}". Found: ${[...names].join(', ') || '<none>'}`)
-    process.exit(1)
-  }
-}
-const frontend = services.find((service) => service && service.name === 'frontend')
-const bindings = Array.isArray(frontend?.bindings) ? frontend.bindings : []
-const rustBinding = bindings.some(
-  (binding) =>
-    binding &&
-    binding.type === 'service' &&
-    binding.service === 'rust_api' &&
-    binding.env === 'RUST_API_BASE_URL',
-)
-if (!rustBinding) {
-  console.error('ERROR: frontend prebuilt output is missing the rust_api -> RUST_API_BASE_URL service binding.')
+if (Array.isArray(config.services) && config.services.length > 0) {
+  console.error('ERROR: frontend artifact unexpectedly contains Vercel Services output.')
   process.exit(1)
 }
-console.log('  services: frontend + rust_api')
-console.log('  binding:  rust_api -> RUST_API_BASE_URL')
+if (config.experimentalServicesV2) {
+  console.error('ERROR: frontend artifact unexpectedly contains experimentalServicesV2.')
+  process.exit(1)
+}
+console.log('  standard Next frontend artifact')
 NODE
+
 
 printf '\nRunning artifact safety checks...\n'
 if grep -R -I -l -F '[SENSITIVE]' .vercel/output >/dev/null 2>&1; then
