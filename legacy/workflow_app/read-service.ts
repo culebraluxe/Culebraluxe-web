@@ -1,5 +1,6 @@
 import { sql } from '@/legacy/db/client'
 import { engineConfigured, engineSql, isMissingRelation } from '@/legacy/workflow_app/engine-client'
+import { portalJoinableIds } from '@/legacy/workflow_app/join-ids'
 import { resolveResponsibility } from '@/legacy/workflow_app/responsibility'
 import { deadlineLabelFor } from '@/legacy/workflow_app/deadlines'
 import {
@@ -186,9 +187,12 @@ export async function getWorkflowSummaries(): Promise<WorkflowSummary[]> {
     jobCount.set(j.process_instance_id, (jobCount.get(j.process_instance_id) ?? 0) + 1)
   }
 
-  const dealIds = (instanceRows as EngineInstanceRow[])
-    .map((r) => r.subject_id)
-    .filter((id): id is string => id !== null)
+  // ONLY IDS THAT CAN BE UUIDS GO INTO THE CAST — the same rule, and the same row, that broke the diagnostics snapshot:
+  // `subject_id` is the engine's text column, `deal.id` is a uuid, and one non-uuid element fails the whole statement (22P02),
+  // which took this read down and with it the Workflows screen and the Command Center. See `join-ids.ts`.
+  const dealIds = portalJoinableIds(
+    (instanceRows as EngineInstanceRow[]).map((r) => r.subject_id),
+  )
 
   const dealRows = dealIds.length
     ? await sql`

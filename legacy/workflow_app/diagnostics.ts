@@ -1,6 +1,7 @@
 import { sql } from '@/legacy/db/client'
 import { isMissingRelation } from '@/legacy/workflow_app/engine-client'
 import { collectAnomalies, type WorkflowAnomaly } from '@/legacy/workflow_app/anomaly-core'
+import { portalJoinableIds } from '@/legacy/workflow_app/join-ids'
 
 // ---------------------------------------------------------------------------
 // Workflow diagnostics foundation (CRM-14M — IT support).
@@ -365,9 +366,12 @@ async function buildWorkflowDiagnosticsSnapshot(): Promise<WorkflowDiagnosticsSn
     listInstances(),
   ])
 
-  const dealSubjectIds = instances
-    .filter((i) => i.subjectType === 'deal' && i.subjectId)
-    .map((i) => i.subjectId as string)
+  // ONLY IDS THAT CAN BE UUIDS GO INTO THE CAST. `subject_id` is the engine's TEXT column and `deal.id` is a uuid, so one
+  // non-uuid subject fails the whole statement (22P02) — which is how a single engine instance took this snapshot down and,
+  // with it, the system-health payload that reads it. See `join-ids.ts` for why dropping them loses nothing.
+  const dealSubjectIds = portalJoinableIds(
+    instances.filter((i) => i.subjectType === 'deal').map((i) => i.subjectId),
+  )
 
   const propertyBySubject = new Map<string, string | null>()
   if (dealSubjectIds.length > 0) {
