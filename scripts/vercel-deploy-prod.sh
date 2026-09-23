@@ -3,6 +3,11 @@ set -euo pipefail
 
 VERCEL_ORG_ID="team_xk8vFaeSyY6CuSkS3OK55tTc"
 VERCEL_PROJECT_ID="prj_RHzXYauXOgIh2abiEsMiQJ1V3jlV"
+VERCEL_CLI_VERSION="59.25.4"
+
+vc() {
+  npx --yes "vercel@${VERCEL_CLI_VERSION}" "$@"
+}
 
 fail() {
   printf '\nERROR: %s\n' "$1" >&2
@@ -10,7 +15,7 @@ fail() {
 }
 
 command -v git >/dev/null 2>&1 || fail "git is required"
-command -v vercel >/dev/null 2>&1 || fail "Vercel CLI is required. Install it with: npm install --global vercel@latest"
+command -v npx >/dev/null 2>&1 || fail "npx is required for the pinned Vercel CLI."
 
 ROOT_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || fail "Run this inside the CulebraLuxe git repository"
 cd "$ROOT_DIR"
@@ -26,9 +31,9 @@ git diff --cached --quiet --ignore-submodules -- || fail "Staged files are waiti
 [[ -f .vercel/output/config.json ]] || fail "No prebuilt artifact found. Run: bash scripts/vercel-build-prod.sh"
 [[ -f .vercel/culebraluxe-prod-build-sha ]] || fail "No build provenance stamp found. Rebuild with: bash scripts/vercel-build-prod.sh"
 
-# THE ARTIFACT'S OWN BUILD MUST NOT BE DISTURBED. `vercel deploy --prebuilt` uploads `.vercel/output` AND
+# THE ARTIFACT'S OWN BUILD MUST NOT BE DISTURBED. `vc deploy --prebuilt` uploads `.vercel/output` AND
 # reads `.next/required-server-files.json`, which only a Vercel-compatible build writes. Running a plain
-# `next build` (or `pnpm exec next build`) after `vercel build` overwrites `.next` and removes that file:
+# `next build` (or `pnpm exec next build`) after `vc build` overwrites `.next` and removes that file:
 # the deploy then fails with Vercel's cryptic `Error: File does not exist:
 # ".next/required-server-files.json"` (measured 2026-09-14, after a verification build - the artifact had
 # been valid minutes earlier). Failing here says what happened and what to do about it.
@@ -41,13 +46,13 @@ BUILT_SHA="$(cat .vercel/culebraluxe-prod-build-sha)"
 export VERCEL_ORG_ID
 export VERCEL_PROJECT_ID
 
-vercel whoami >/dev/null 2>&1 || fail "Vercel CLI is not authenticated. Run: vercel login"
+vc whoami >/dev/null 2>&1 || fail "Vercel CLI is not authenticated. Run: vercel login"
 
 printf '\nCulebraLuxe production deploy\n'
 printf '  commit:  %s\n' "$CURRENT_SHA"
 printf '  project: %s\n\n' "$VERCEL_PROJECT_ID"
 
-DEPLOYMENT_URL="$(vercel deploy --prebuilt --prod)"
+DEPLOYMENT_URL="$(vc deploy --prebuilt --prod)"
 
 # VERIFY WHAT WENT LIVE. The artifact stamps its own commit (`NEXT_PUBLIC_COCKPIT_SHA`, set by the build
 # script and compiled in by next.config) and serves it from /api/build-info. Comparing that against HEAD
