@@ -2,7 +2,7 @@ use crate::{Database, DbFailure, DbResult};
 use chrono::{DateTime, Utc};
 use domain::{
     AttachPersonIdentityRequest, Person, PersonIdentity, PersonIdentityKind, PersonSearchResult,
-    SearchPeopleRequest, SetPersonDisplayNameRequest,
+    SearchPeopleRequest, SetPersonDisplayNameRequest, UpdatePersonAdminRequest,
 };
 use sqlx::FromRow;
 
@@ -156,6 +156,34 @@ impl PersonDao {
         .fetch_optional(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("person.set_display_name", &error))?;
+
+        Ok(row.map(map_person))
+    }
+
+
+    pub async fn update_admin(
+        &self,
+        request: &UpdatePersonAdminRequest,
+    ) -> DbResult<Option<Person>> {
+        let row = sqlx::query_as::<_, PersonRow>(
+            r#"
+            update person
+            set
+                display_name = $2,
+                status = $3,
+                company = nullif($4::text, ''),
+                updated_at = now()
+            where id = $1::uuid and archived_at is null
+            returning id::text as id, display_name, status, archived_at, company
+            "#,
+        )
+        .bind(&request.person_id)
+        .bind(request.display_name.trim())
+        .bind(request.status.trim())
+        .bind(request.company.as_deref())
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("person.update_admin", &error))?;
 
         Ok(row.map(map_person))
     }
