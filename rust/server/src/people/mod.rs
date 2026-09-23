@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use db::{DbResult, PersonDao};
 use domain::{
     AttachPersonIdentityRequest, Person, PersonIdentity, PersonSearchResult, SearchPeopleRequest,
-    SetPersonDisplayNameRequest,
+    SetPersonDisplayNameRequest, UpdatePersonAdminRequest,
 };
 use serde_json::json;
 use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
@@ -21,6 +21,7 @@ pub trait PersonRepository: Send {
         &mut self,
         request: &AttachPersonIdentityRequest,
     ) -> DbResult<PersonIdentity>;
+    async fn update_admin(&mut self, request: &UpdatePersonAdminRequest) -> DbResult<Option<Person>>;
     async fn search(&mut self, request: &SearchPeopleRequest) -> DbResult<Vec<PersonSearchResult>>;
 }
 
@@ -46,6 +47,10 @@ impl PersonRepository for PersonDao {
         request: &AttachPersonIdentityRequest,
     ) -> DbResult<PersonIdentity> {
         PersonDao::attach_identity(self, request).await
+    }
+
+    async fn update_admin(&mut self, request: &UpdatePersonAdminRequest) -> DbResult<Option<Person>> {
+        PersonDao::update_admin(self, request).await
     }
 
     async fn search(&mut self, request: &SearchPeopleRequest) -> DbResult<Vec<PersonSearchResult>> {
@@ -157,6 +162,71 @@ impl<R: PersonRepository> PersonService<R> {
                 )
                 .await?;
 
+            Ok(person)
+        }
+        .await;
+
+        audit_result(&self.runtime, "person", OP, context, decision, &result).await?;
+        result
+    }
+
+
+    pub async fn update_admin(
+        &mut self,
+        request: &UpdatePersonAdminRequest,
+        context: &ServiceContext,
+    ) -> Result<Person, CoreServiceError> {
+        const OP: &str = "person.updateAdmin";
+        let decision = authorize(
+            &self.runtime,
+            "person",
+            "person.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+
+        let result = async {
+            if request.display_name.trim().is_empty() {
+                return Err(CoreServiceError::business(
+                    "PERSON_NAME_REQUIRED",
+                    "Person display name is required.",
+                ));
+            }
+            const STATUSES: &[&str] = &[
+                "new", "warm", "active", "referral", "inactive", "archived"
+            ];
+            if !STATUSES.contains(&request.status.trim()) {
+                return Err(CoreServiceError::business(
+                    "PERSON_STATUS_INVALID",
+                    "Person status is invalid.",
+                ));
+            }
+
+            let person = self
+                .repository
+                .update_admin(request)
+                .await?
+                .ok_or_else(|| {
+                    CoreServiceError::business(
+                        "PERSON_NOT_FOUND",
+                        format!("Person not found: {}", request.person_id),
+                    )
+                })?;
+
+            self.runtime
+                .emit(
+                    "person.admin_updated",
+                    Some(person.id.clone()),
+                    BTreeMap::from([
+                        ("personId".into(), json!(person.id.clone())),
+                        ("displayName".into(), json!(person.display_name.clone())),
+                        ("status".into(), json!(person.status.clone())),
+                    ]),
+                    context,
+                )
+                .await?;
             Ok(person)
         }
         .await;
