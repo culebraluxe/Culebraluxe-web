@@ -1645,6 +1645,18 @@ impl CommandNotice {
 }
 
 
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct FlightRecorderState {
+    /// The exact process instance from the route. A story id never belongs here.
+    pub instance_id: String,
+    /// Canonical Flight Recorder transaction returned by the authenticated trace API.
+    ///
+    /// The specialized console renderer adapts this immutable snapshot for SVG/virtualized presentation, but does not
+    /// own fetching or application state.
+    pub transaction: Option<serde_json::Value>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TechCockpitState {
     /// Browser-local value from the `datetime-local` Flight scheduler.
@@ -1706,6 +1718,8 @@ pub struct Model {
     /// Accounting V1's forms and their command state: the expense form, the receivable form, the P&L period and the
     /// receipt scanner's demonstration.
     pub accounting: AccountingState,
+    /// Flight Recorder route/read ownership. The React console is only a renderer over this state.
+    pub flight_recorder: FlightRecorderState,
     /// TECH Cockpit operator controls and command state.
     pub tech: TechCockpitState,
     /// One Deal workspace's forms and transient command state.
@@ -1736,6 +1750,7 @@ impl Default for Model {
             seller_strategy: crate::seller_strategy::SellerStrategyState::default(),
             deal_create: DealCreateState::default(),
             accounting: AccountingState::default(),
+            flight_recorder: FlightRecorderState::default(),
             tech: TechCockpitState::default(),
             deal_workspace: DealWorkspaceState::default(),
             // Generation zero is "no host has said", which is what a program built by a test or an example holds.
@@ -1811,6 +1826,15 @@ pub enum Msg {
         screen: String,
         generation: u64,
         page: PortalPage,
+    },
+
+    // ---- Flight Recorder -----------------------------------------------------------------------------------------
+    FlightRecorderRefreshRequested,
+    FlightRecorderLoaded {
+        screen: String,
+        generation: u64,
+        instance_id: String,
+        transaction: serde_json::Value,
     },
 
     // ---- TECH / Engineering Cockpit -----------------------------------------------------------------------------
@@ -2097,6 +2121,12 @@ pub enum Effect {
         screen: &'static str,
         scope: Option<String>,
         /// Which mount asked. The host puts it on the request and presents it back with the answer.
+        generation: u64,
+    },
+    /// Fetch one canonical Flight Recorder transaction by process-instance UUID.
+    FetchFlightRecorder {
+        screen: &'static str,
+        instance_id: String,
         generation: u64,
     },
     /// Fetch the TECH Engineering Cockpit assembly-line projection.
