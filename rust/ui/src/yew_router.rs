@@ -18,11 +18,12 @@ use crate::yew_views::contact::Contact;
 use crate::yew_views::faq::Faq;
 use crate::yew_views::guide::Guide;
 use crate::yew_views::home::Home;
+use crate::yew_views::property_detail::PropertyDetail;
 use crate::yew_views::sellers::Sellers;
 use crate::yew_views::services::Services;
 
 /// The public paths this app owns.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Routable)]
+#[derive(Debug, Clone, PartialEq, Eq, Routable)]
 pub enum Route {
     #[at("/")]
     Home,
@@ -40,6 +41,8 @@ pub enum Route {
     Faq,
     #[at("/contact")]
     Contact,
+    #[at("/properties/:slug")]
+    Property { slug: String },
     /// A URL this app does not serve. It renders a message rather than a blank page, and the reader is offered the way
     /// back to the home page — the honest answer to a path that has no screen here.
     #[not_found]
@@ -49,7 +52,7 @@ pub enum Route {
 
 impl Route {
     /// The screen this URL serves, from the registry the model and the payload routes already share.
-    pub fn screen(self) -> Option<Screen> {
+    pub fn screen(&self) -> Option<Screen> {
         match self {
             Route::Home => screen("site-home"),
             Route::Buyers => screen("site-buyers"),
@@ -59,7 +62,16 @@ impl Route {
             Route::Guide => screen("site-guide"),
             Route::Faq => screen("site-faq"),
             Route::Contact => screen("site-contact"),
+            Route::Property { .. } => screen("site-property-detail"),
             Route::NotFound => None,
+        }
+    }
+
+    /// The record key carried by a dynamic public route.
+    pub fn scope(&self) -> Option<String> {
+        match self {
+            Route::Property { slug } => Some(slug.clone()),
+            _ => None,
         }
     }
 }
@@ -100,6 +112,9 @@ impl Component for Shell {
                         Route::Guide => html! { <Guide model={model.clone()} on_msg={on_msg.clone()} /> },
                         Route::Faq => html! { <Faq model={model.clone()} on_msg={on_msg.clone()} /> },
                         Route::Contact => html! { <Contact model={model.clone()} on_msg={on_msg.clone()} /> },
+                        Route::Property { .. } => html! {
+                            <PropertyDetail model={model.clone()} on_msg={on_msg.clone()} />
+                        },
                         Route::NotFound => html! { <NotFound /> },
                     })} />
                 </main>
