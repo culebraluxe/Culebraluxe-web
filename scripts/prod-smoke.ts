@@ -149,11 +149,13 @@ async function main(): Promise<number> {
     })
   }
 
+  let firstPublicPropertySlug = ''
   try {
     const url = `${base}/api/rust-ui/public-page?screen=site-buyers`
     const { status, body } = await fetchText(url)
-    const parsed = JSON.parse(body) as { listings?: unknown[] }
+    const parsed = JSON.parse(body) as { listings?: Array<{ slug?: string }> }
     const count = Array.isArray(parsed.listings) ? parsed.listings.length : 0
+    firstPublicPropertySlug = parsed.listings?.[0]?.slug ?? ''
     checks.push({
       name: 'buyers production inventory loads',
       url,
@@ -174,7 +176,44 @@ async function main(): Promise<number> {
     })
   }
 
-  // 4. The Rust cutover proof. This goes through the public frontend, which then calls the
+  // 4. Property detail media must live INSIDE the Rust PropertyRecord. A top-level heroUrl is
+  // ignored by PageContent deserialization and produces a gray 16:9 placeholder while the facts still render.
+  if (firstPublicPropertySlug) {
+    const url = `${base}/api/rust-ui/public-page?screen=site-property-detail&scope=${encodeURIComponent(firstPublicPropertySlug)}`
+    try {
+      const { status, body } = await fetchText(url)
+      const parsed = JSON.parse(body) as {
+        property?: { heroUrl?: string | null; gallery?: unknown[] }
+      }
+      const hero = parsed.property?.heroUrl ?? ''
+      const galleryCount = Array.isArray(parsed.property?.gallery) ? parsed.property.gallery.length : 0
+      const shaped = status === 200 && hero.startsWith('/api/media/') && galleryCount > 0
+      checks.push({
+        name: 'property detail media contract is renderable by Rust',
+        url,
+        ok: shaped,
+        detail: shaped
+          ? `200, hero nested in property record, ${galleryCount} gallery image(s)`
+          : `status ${status}, nested hero ${hero ? 'present but unexpected' : 'missing'}, gallery ${galleryCount}`,
+      })
+    } catch (error) {
+      checks.push({
+        name: 'property detail media contract is renderable by Rust',
+        url,
+        ok: false,
+        detail: error instanceof Error ? error.message : String(error),
+      })
+    }
+  } else {
+    checks.push({
+      name: 'property detail media contract is renderable by Rust',
+      url: `${base}/api/rust-ui/public-page?screen=site-property-detail`,
+      ok: false,
+      detail: 'no public property slug was available to verify the detail page',
+    })
+  }
+
+  // 5. The Rust cutover proof. This goes through the public frontend, which then calls the
   // private service binding. A 200 therefore proves the frontend has RUST_API_BASE_URL, the Rust
   // container is running, and that container can ping the database it selected. Production must
   // report "prod" — a live container pointed at DEV is a failed release, not a partial success.
@@ -199,7 +238,7 @@ async function main(): Promise<number> {
     })
   }
 
-  // 5. The sha assertion, only when the caller asks for it (the deploy path does).
+  // 6. The sha assertion, only when the caller asks for it (the deploy path does).
   const wanted = expectedSha || (expectHead && head ? head.short : '')
   if (wanted) {
     // THE TWO SIDES ARE NOT THE SAME WIDTH, BY DESIGN. `/api/build-info` serves `cockpitBuildLabel()`, the
