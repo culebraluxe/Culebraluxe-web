@@ -130,6 +130,134 @@ fn records_effect(model: &Model) -> Effect {
     }
 }
 
+
+fn ops_effect(model: &Model) -> Effect {
+    Effect::FetchOps {
+        screen: model.screen.key,
+        entity: model.ops.entity.clone(),
+        selected: model.selected_row_id.clone(),
+        search: model.controls.query.clone(),
+        page: model.controls.page,
+        generation: model.generation,
+    }
+}
+
+fn ops_default_section(entity: &str) -> String {
+    match entity {
+        "person" => "identity".into(),
+        "project" => "project".into(),
+        _ => "property".into(),
+    }
+}
+
+fn put(form: &mut std::collections::BTreeMap<String, String>, key: &str, value: Option<&str>) {
+    form.insert(key.to_string(), value.unwrap_or_default().to_string());
+}
+
+fn ops_form(page: &crate::model::PortalOpsWorkbenchPage) -> std::collections::BTreeMap<String, String> {
+    let mut form = std::collections::BTreeMap::new();
+    match page.entity.as_str() {
+        "person" => {
+            if let Some(person) = page.person.as_ref() {
+                put(&mut form, "displayName", Some(&person.display_name));
+                put(&mut form, "status", Some(&person.status));
+                put(&mut form, "company", person.company.as_deref());
+                put(&mut form, "role", Some(&person.role));
+                put(&mut form, "location", person.location.as_deref());
+                put(&mut form, "email", person.email.as_deref());
+                put(&mut form, "phone", person.phone.as_deref());
+            }
+        }
+        "project" => {
+            if let Some(project) = page.project.as_ref() {
+                put(&mut form, "name", Some(&project.name));
+                put(&mut form, "owner", project.owner.as_deref());
+                put(&mut form, "status", Some(&project.status));
+                put(&mut form, "description", Some(&project.description));
+                form.insert("areas".into(), project.areas.join(", "));
+                put(&mut form, "projectType", project.project_type.as_deref());
+                put(&mut form, "playbookId", project.playbook_id.as_deref());
+                form.insert(
+                    "playbookVersion".into(),
+                    project.playbook_version.map(|value| value.to_string()).unwrap_or_default(),
+                );
+                put(&mut form, "personId", project.person_id.as_deref());
+                put(&mut form, "propertyId", project.property_id.as_deref());
+                put(&mut form, "contractId", project.contract_id.as_deref());
+                put(&mut form, "startsAt", project.starts_at.as_deref());
+                put(&mut form, "endsAt", project.ends_at.as_deref());
+            }
+        }
+        _ => {
+            if let Some(property) = page.property.as_ref() {
+                put(&mut form, "name", Some(&property.name));
+                put(&mut form, "slug", property.slug.as_deref());
+                put(&mut form, "status", Some(&property.status));
+                form.insert("featured".into(), property.featured.to_string());
+                form.insert("isActiveListing".into(), property.is_active_listing.to_string());
+                form.insert("isPublished".into(), property.is_published.to_string());
+                put(&mut form, "propertyType", property.property_type.as_deref());
+                put(&mut form, "listPrice", property.list_price.as_deref());
+                put(&mut form, "location", property.location.as_deref());
+                put(&mut form, "addressLine1", property.address_line1.as_deref());
+                put(&mut form, "streetNumber", property.street_number.as_deref());
+                put(&mut form, "streetName", property.street_name.as_deref());
+                put(&mut form, "unitNumber", property.unit_number.as_deref());
+                put(&mut form, "city", property.city.as_deref());
+                put(&mut form, "stateOrProvince", property.state_or_province.as_deref());
+                put(&mut form, "neighborhood", property.neighborhood.as_deref());
+                put(&mut form, "postalCode", property.postal_code.as_deref());
+                put(&mut form, "country", property.country.as_deref());
+                put(&mut form, "isoCountryCode", property.iso_country_code.as_deref());
+                put(&mut form, "latitude", property.latitude.as_deref());
+                put(&mut form, "longitude", property.longitude.as_deref());
+                put(&mut form, "bedrooms", property.bedrooms.as_deref());
+                put(&mut form, "bathrooms", property.bathrooms.as_deref());
+                put(&mut form, "bathroomsFull", property.bathrooms_full.as_deref());
+                put(&mut form, "bathroomsHalf", property.bathrooms_half.as_deref());
+                put(&mut form, "squareFeet", property.square_feet.as_deref());
+                put(&mut form, "lotSize", property.lot_size.as_deref());
+                put(&mut form, "lotSizeUnits", property.lot_size_units.as_deref());
+                put(&mut form, "yearBuilt", property.year_built.as_deref());
+                put(&mut form, "stories", property.stories.as_deref());
+                put(&mut form, "parkingSpaces", property.parking_spaces.as_deref());
+                put(&mut form, "shortDescription", property.short_description.as_deref());
+                put(&mut form, "editorialDescription", property.editorial_description.as_deref());
+                put(&mut form, "publicRemarks", property.public_remarks.as_deref());
+                put(&mut form, "listingAgentName", property.listing_agent_name.as_deref());
+                put(&mut form, "listingAgentEmail", property.listing_agent_email.as_deref());
+                put(&mut form, "listingAgentPhone", property.listing_agent_phone.as_deref());
+                put(&mut form, "listingOffice", property.listing_office.as_deref());
+                put(&mut form, "legalOwnerName", property.legal_owner_name.as_deref());
+                put(&mut form, "listingIdentifier", property.listing_identifier.as_deref());
+                put(&mut form, "registryEntry", property.registry_entry.as_deref());
+                put(&mut form, "fincaNumber", property.finca_number.as_deref());
+                put(&mut form, "registrySection", property.registry_section.as_deref());
+                put(&mut form, "sellerPersonId", property.seller_person_id.as_deref());
+                form.insert("archived".into(), property.archived.to_string());
+
+                let stellar = &property.stellar;
+                put(&mut form, "listingContractDate", stellar.listing_contract_date.as_deref());
+                put(&mut form, "expirationDate", stellar.expiration_date.as_deref());
+                put(&mut form, "listingType", stellar.listing_type.as_deref());
+                put(&mut form, "agentMlsId", stellar.agent_mls_id.as_deref());
+                put(&mut form, "taxId", stellar.tax_id.as_deref());
+                put(&mut form, "taxYear", stellar.tax_year.as_deref());
+                put(&mut form, "annualTax", stellar.annual_tax.as_deref());
+                put(&mut form, "legalDescription", stellar.legal_description.as_deref());
+                put(&mut form, "zoning", stellar.zoning.as_deref());
+                put(&mut form, "totalAreaSqft", stellar.total_area_sqft.as_deref());
+                put(&mut form, "heatedAreaSource", stellar.heated_area_source.as_deref());
+                put(&mut form, "ownershipType", stellar.ownership_type.as_deref());
+                put(&mut form, "hoaDetails", stellar.hoa_details.as_deref());
+                put(&mut form, "showingInstructions", stellar.showing_instructions.as_deref());
+                put(&mut form, "occupantType", stellar.occupant_type.as_deref());
+            }
+        }
+    }
+    form
+}
+
 fn listing_media_effect(model: &Model) -> Effect {
     Effect::FetchListingMedia {
         screen: model.screen.key,
@@ -316,6 +444,7 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
     model.deal_create = DealCreateState::default();
     model.flight_recorder = crate::model::FlightRecorderState::default();
     model.tech = crate::model::TechCockpitState::default();
+    model.ops = crate::model::OpsWorkbenchState::default();
     model.listing_media = crate::model::ListingMediaState::default();
     model.deal_workspace = DealWorkspaceState::default();
 
@@ -385,7 +514,7 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
                 generation: model.generation,
             }]
         } else if screen.key == "property-admin" {
-            vec![records_effect(model)]
+            vec![ops_effect(model)]
         } else if screen.key == "property-media" {
             vec![listing_media_effect(model)]
         } else if screen.key == "accounting-pnl" {
@@ -782,17 +911,21 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
         }
         Msg::RowSelected(id) => {
             if model.screen.key == "property-admin" {
+                if model.ops.dirty {
+                    model.error = Some("Save or Revert changes before switching records.".into());
+                    return Vec::new();
+                }
                 let valid = model
                     .page
                     .as_ref()
                     .and_then(|page| page.portal.as_ref())
-                    .and_then(|portal| portal.records.as_ref())
-                    .is_some_and(|records| records.rows.iter().any(|row| row.id == id));
+                    .and_then(|portal| portal.ops.as_ref())
+                    .is_some_and(|ops| ops.rows.iter().any(|row| row.id == id));
                 if valid {
                     model.selected_row_id = Some(id);
                     model.loading = true;
                     model.error = None;
-                    return vec![records_effect(model)];
+                    return vec![ops_effect(model)];
                 }
                 return Vec::new();
             }
@@ -928,10 +1061,17 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                     .map(|story| story.id.clone());
             }
             if model.screen.key == "property-admin" {
-                model.selected_row_id = page
-                    .records
-                    .as_ref()
-                    .and_then(|records| records.selected_id.clone());
+                if let Some(ops) = page.ops.as_ref() {
+                    model.ops.entity = ops.entity.clone();
+                    model.selected_row_id = ops.selected_id.clone();
+                    model.ops.form = ops_form(ops);
+                    model.ops.dirty = false;
+                    model.ops.saving = false;
+                    if model.ops.creating {
+                        model.ops.creating = false;
+                        model.ops.new_name.clear();
+                    }
+                }
             }
             if model.screen.key == "property-media" {
                 model.selected_row_id = page
@@ -1036,6 +1176,10 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 return Vec::new();
             }
             model.loading = false;
+            if model.screen.key == "property-admin" {
+                model.ops.saving = false;
+                model.ops.creating = false;
+            }
             if let Some(portal) = model
                 .page
                 .as_mut()
@@ -1096,7 +1240,147 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             Vec::new()
         }
 
-        // ---- OPPS / Records + Listing Media -------------------------------------------------------------------------
+
+        // ---- OPPS / universal Data Workbench ---------------------------------------------------------------------
+        Msg::OpsEntitySelected(entity) => {
+            if model.screen.key != "property-admin"
+                || !matches!(entity.as_str(), "property" | "person" | "project")
+            {
+                return Vec::new();
+            }
+            if model.ops.dirty {
+                model.error = Some("Save or Revert changes before switching data types.".into());
+                return Vec::new();
+            }
+            if model.ops.entity == entity {
+                return Vec::new();
+            }
+            model.ops.entity = entity.clone();
+            model.ops.section = ops_default_section(&entity);
+            model.ops.form.clear();
+            model.ops.creating = false;
+            model.ops.new_name.clear();
+            model.selected_row_id = None;
+            model.controls.query.clear();
+            model.controls.page = 0;
+            model.loading = true;
+            model.error = None;
+            vec![ops_effect(model)]
+        }
+        Msg::OpsSectionSelected(section) => {
+            if model.screen.key != "property-admin" {
+                return Vec::new();
+            }
+            let valid = match model.ops.entity.as_str() {
+                "person" => matches!(section.as_str(), "identity" | "contact" | "relations"),
+                "project" => matches!(section.as_str(), "project" | "links"),
+                _ => matches!(
+                    section.as_str(),
+                    "property" | "website" | "mls" | "media" | "relations"
+                ),
+            };
+            if valid {
+                model.ops.section = section;
+                model.error = None;
+            }
+            Vec::new()
+        }
+        Msg::OpsRailToggled => {
+            if model.screen.key == "property-admin" {
+                model.ops.rail_collapsed = !model.ops.rail_collapsed;
+            }
+            Vec::new()
+        }
+        Msg::OpsFieldChanged { key, value } => {
+            if model.screen.key == "property-admin" && model.selected_row_id.is_some() {
+                model.ops.form.insert(key, value);
+                model.ops.dirty = true;
+                model.error = None;
+            }
+            Vec::new()
+        }
+        Msg::OpsSaveRequested => {
+            if model.screen.key != "property-admin" || model.ops.saving || !model.ops.dirty {
+                return Vec::new();
+            }
+            let Some(id) = model.selected_row_id.clone() else {
+                model.error = Some("Select a record before saving.".into());
+                return Vec::new();
+            };
+            model.ops.saving = true;
+            model.error = None;
+            vec![Effect::SaveOps {
+                screen: model.screen.key,
+                entity: model.ops.entity.clone(),
+                id,
+                fields: model.ops.form.clone(),
+                search: model.controls.query.clone(),
+                page: model.controls.page,
+                generation: model.generation,
+            }]
+        }
+        Msg::OpsRevertRequested => {
+            if model.screen.key != "property-admin" {
+                return Vec::new();
+            }
+            if let Some(ops) = model
+                .page
+                .as_ref()
+                .and_then(|page| page.portal.as_ref())
+                .and_then(|portal| portal.ops.as_ref())
+            {
+                model.ops.form = ops_form(ops);
+                model.ops.dirty = false;
+                model.error = None;
+            }
+            Vec::new()
+        }
+        Msg::OpsCreateToggled => {
+            if model.screen.key != "property-admin" || model.ops.entity != "property" {
+                return Vec::new();
+            }
+            if model.ops.dirty {
+                model.error = Some("Save or Revert changes before creating another property.".into());
+                return Vec::new();
+            }
+            model.ops.creating = !model.ops.creating;
+            if !model.ops.creating {
+                model.ops.new_name.clear();
+            }
+            model.error = None;
+            Vec::new()
+        }
+        Msg::OpsCreateNameChanged(value) => {
+            if model.screen.key == "property-admin" && model.ops.entity == "property" {
+                model.ops.new_name = value;
+                model.error = None;
+            }
+            Vec::new()
+        }
+        Msg::OpsCreateRequested => {
+            if model.screen.key != "property-admin"
+                || model.ops.entity != "property"
+                || !model.ops.creating
+            {
+                return Vec::new();
+            }
+            let name = model.ops.new_name.trim().to_string();
+            if name.is_empty() {
+                model.error = Some("Property name is required.".into());
+                return Vec::new();
+            }
+            model.controls.query.clear();
+            model.controls.page = 0;
+            model.loading = true;
+            model.error = None;
+            vec![Effect::CreateOpsProperty {
+                screen: model.screen.key,
+                name,
+                generation: model.generation,
+            }]
+        }
+
+        // ---- OPPS / legacy Records + Listing Media ---------------------------------------------------------------
         Msg::RecordArchiveRequested => {
             if model.screen.key != "property-admin" || model.loading {
                 return Vec::new();
@@ -2053,10 +2337,14 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 return vec![client_effect(model)];
             }
             if model.screen.key == "property-admin" {
+                if model.ops.dirty {
+                    model.error = Some("Save or Revert changes before searching.".into());
+                    return Vec::new();
+                }
                 model.selected_row_id = None;
                 model.loading = true;
                 model.error = None;
-                return vec![records_effect(model)];
+                return vec![ops_effect(model)];
             }
             if model.screen.key == "property-media" {
                 model.selected_row_id = None;
@@ -2114,14 +2402,18 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             }
 
             if model.screen.key == "property-admin" {
+                if model.ops.dirty {
+                    model.error = Some("Save or Revert changes before changing pages.".into());
+                    return Vec::new();
+                }
                 let pages = model
                     .page
                     .as_ref()
                     .and_then(|page| page.portal.as_ref())
-                    .and_then(|portal| portal.records.as_ref())
-                    .map(|records| {
-                        let size = records.page_size.max(1);
-                        ((records.total + size - 1) / size).max(1)
+                    .and_then(|portal| portal.ops.as_ref())
+                    .map(|ops| {
+                        let size = ops.page_size.max(1);
+                        ((ops.total + size - 1) / size).max(1)
                     })
                     .unwrap_or(1);
                 let next = (model.controls.page as i64)
@@ -2131,7 +2423,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 model.selected_row_id = None;
                 model.loading = true;
                 model.error = None;
-                return vec![records_effect(model)];
+                return vec![ops_effect(model)];
             }
             if model.screen.key == "property-media" {
                 let pages = model
