@@ -58,7 +58,34 @@ impl Component for FlightRecorder {
                     onclick={bridge}
                 />
 
-                if let Some(error) = model.error.as_deref() {
+                if let Some(transaction) = recorder.transaction.as_ref() {
+                    <script id="flight-recorder-payload" type="application/json">
+                        { transaction.to_string() }
+                    </script>
+                    <div
+                        id="flight-recorder-island"
+                        class="h-[calc(100vh-6.5rem)] min-h-[44rem] w-full overflow-hidden"
+                        data-instance-id={recorder.instance_id.clone()}
+                        aria-label="Flight Recorder console"
+                    />
+                    if model.loading {
+                        <div class="pointer-events-none absolute right-4 top-4 z-[80] rounded-full border border-[#c6a15b]/30 bg-[#0b1220]/90 px-2.5 py-1 text-[9px] font-medium uppercase tracking-[0.12em] text-[#e0c489] shadow-lg">
+                            {"Refreshing"}
+                        </div>
+                    }
+                    if let Some(error) = model.error.as_deref() {
+                        <div class="absolute inset-x-4 top-16 z-[80] flex items-center justify-between gap-3 rounded-md border border-amber-400/25 bg-[#111827]/95 px-3 py-2 text-[10px] text-amber-100 shadow-xl">
+                            <span>{ format!("Refresh failed — showing the last good trace. {error}") }</span>
+                            <button
+                                type="button"
+                                onclick={refresh.clone()}
+                                class="shrink-0 rounded border border-amber-300/25 px-2 py-1 uppercase tracking-[0.1em] text-amber-200 hover:border-amber-300/50"
+                            >
+                                {"Retry"}
+                            </button>
+                        </div>
+                    }
+                } else if let Some(error) = model.error.as_deref() {
                     <div class="grid min-h-[42rem] place-items-center bg-[#0b1220] p-6 text-slate-300">
                         <div class="max-w-xl rounded-lg border border-rose-400/25 bg-rose-400/[0.05] px-6 py-5">
                             <p class="text-[10px] font-semibold uppercase tracking-[0.16em] text-rose-300">
@@ -74,21 +101,6 @@ impl Component for FlightRecorder {
                             </button>
                         </div>
                     </div>
-                } else if let Some(transaction) = recorder.transaction.as_ref() {
-                    <script id="flight-recorder-payload" type="application/json">
-                        { transaction.to_string() }
-                    </script>
-                    <div
-                        id="flight-recorder-island"
-                        class="h-[calc(100vh-6.5rem)] min-h-[44rem] w-full overflow-hidden"
-                        data-instance-id={recorder.instance_id.clone()}
-                        aria-label="Flight Recorder console"
-                    />
-                    if model.loading {
-                        <div class="pointer-events-none absolute right-4 top-4 z-[80] rounded-full border border-[#c6a15b]/30 bg-[#0b1220]/90 px-2.5 py-1 text-[9px] font-medium uppercase tracking-[0.12em] text-[#e0c489] shadow-lg">
-                            {"Refreshing"}
-                        </div>
-                    }
                 } else {
                     <div class="grid min-h-[42rem] place-items-center bg-[#0b1220] text-sm text-slate-400">
                         <div class="text-center">
