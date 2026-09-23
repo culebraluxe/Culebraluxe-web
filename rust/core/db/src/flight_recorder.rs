@@ -428,24 +428,100 @@ fn mapped_node(graph: &Value, id: &str) -> Option<FlightRecorderMappedNode> {
     })
 }
 
+fn is_node_enter(event: &TraceRow) -> bool {
+    matches!(event.event_type.as_str(), "NODE_ENTERED" | "RUN_START")
+}
+
+fn is_node_complete(event: &TraceRow) -> bool {
+    if event.event_type == "NODE_COMPLETED" {
+        return true;
+    }
+    if event.event_type != "RUN_END" {
+        return false;
+    }
+    event
+        .metadata
+        .as_ref()
+        .and_then(|value| value.get("status"))
+        .and_then(Value::as_str)
+        .is_some_and(|status| status.eq_ignore_ascii_case("completed"))
+        || event.outcome.as_deref() == Some("allow")
+}
+
+fn is_node_failure(event: &TraceRow) -> bool {
+    if event.event_type == "FAILURE" {
+        return true;
+    }
+    if event.event_type != "RUN_END" {
+        return false;
+    }
+    event
+        .metadata
+        .as_ref()
+        .and_then(|value| value.get("status"))
+        .and_then(Value::as_str)
+        .is_some_and(|status| {
+            matches!(
+                status.to_ascii_lowercase().as_str(),
+                "failed" | "error" | "interrupted" | "cancelled"
+            )
+        })
+}
+
+fn run_attempt(event: &TraceRow) -> Option<i64> {
+    event
+        .metadata
+        .as_ref()
+        .and_then(|value| value.get("attempt"))
+        .and_then(|value| {
+            value
+                .as_i64()
+                .or_else(|| value.as_str().and_then(|raw| raw.parse::<i64>().ok()))
+        })
+}
+
+/// Whether one entry has a corresponding completion.
+///
+/// Engine NODE events preserve the original interpreter's chronological rule. Forge observer RUN events carry an
+/// explicit attempt number; that identity is stronger than arrival order (some historical observer rows were inserted
+/// RUN_END then RUN_START for the same attempt), so those pairs match by node + attempt first.
+fn has_completion(events: &[TraceRow], entered: &TraceRow) -> bool {
+    let Some(node_id) = entered.workflow_node_id.as_deref() else {
+        return false;
+    };
+    if entered.event_type == "RUN_START" {
+        if let Some(attempt) = run_attempt(entered) {
+            if events.iter().any(|event| {
+                event.event_type == "RUN_END"
+                    && event.workflow_node_id.as_deref() == Some(node_id)
+                    && run_attempt(event) == Some(attempt)
+            }) {
+                return true;
+            }
+        }
+    }
+    events.iter().any(|event| {
+        is_node_complete(event)
+            && event.workflow_node_id.as_deref() == Some(node_id)
+            && event.occurred_at >= entered.occurred_at
+    })
+}
+
 fn current_node(events: &[TraceRow]) -> Option<String> {
-    if events.iter().any(|event| event.event_type == "WORKFLOW_COMPLETED") {
+    if events
+        .iter()
+        .any(|event| event.event_type == "WORKFLOW_COMPLETED")
+    {
         return None;
     }
 
     for entered in events
         .iter()
-        .filter(|event| event.event_type == "NODE_ENTERED" && event.workflow_node_id.is_some())
+        .filter(|event| is_node_enter(event) && event.workflow_node_id.is_some())
         .rev()
     {
-        let node_id = entered.workflow_node_id.as_deref()?;
-        let completed_after = events.iter().any(|event| {
-            event.event_type == "NODE_COMPLETED"
-                && event.workflow_node_id.as_deref() == Some(node_id)
-                && event.occurred_at >= entered.occurred_at
-        });
-        if !completed_after {
-            return Some(node_id.to_owned());
+        if !has_completion(events, entered) {
+            return entered.workflow_node_id.clone();
         }
     }
     None
@@ -469,19 +545,19 @@ fn node_states(
             let entered = events
                 .iter()
                 .filter(|event| {
-                    event.event_type == "NODE_ENTERED"
+                    is_node_enter(event)
                         && event.workflow_node_id.as_deref() == Some(node_id.as_str())
                 })
                 .collect::<Vec<_>>();
             let completed = events
                 .iter()
                 .filter(|event| {
-                    event.event_type == "NODE_COMPLETED"
+                    is_node_complete(event)
                         && event.workflow_node_id.as_deref() == Some(node_id.as_str())
                 })
                 .collect::<Vec<_>>();
             let failed = events.iter().any(|event| {
-                event.event_type == "FAILURE"
+                is_node_failure(event)
                     && event.workflow_node_id.as_deref() == Some(node_id.as_str())
             });
             let recovered = events.iter().any(|event| {
@@ -490,7 +566,7 @@ fn node_states(
             });
 
             let execution_count = entered.len() as i64;
-            let state = if execution_count == 0 {
+            let state = if execution_count == 0 && completed.is_empty() && !failed {
                 "NOT_VISITED"
             } else if current_node_id == Some(node_id.as_str()) {
                 "CURRENT"
@@ -520,7 +596,8 @@ fn node_states(
             let runtime = FlightRecorderNodeRuntime {
                 node_id: node_id.clone(),
                 state,
-                execution_count,
+                // A historical RUN_END can exist without its matching start row. It still proves the node executed once.
+                execution_count: execution_count.max(i64::from(!completed.is_empty() || failed)),
                 entered_at: first.map(|event| {
                     event
                         .occurred_at
@@ -587,6 +664,58 @@ mod tests {
         assert_eq!(states["a"].state, "COMPLETED");
         assert_eq!(states["b"].state, "CURRENT");
         assert_eq!(states["a"].duration_ms, Some(60_000));
+    }
+
+    #[test]
+    fn reconstructs_forge_run_attempts() {
+        let graph = json!({
+            "nodes": {
+                "architect": {"id":"architect","type":"task","name":"Architect"},
+                "smith": {"id":"smith","type":"task","name":"Smith"}
+            }
+        });
+        let mut start = row("RUN_START", Some("architect"), "2026-09-22T12:00:00Z", None);
+        start.metadata = Some(json!({"attempt": 1}));
+        let mut end = row("RUN_END", Some("architect"), "2026-09-22T12:01:00Z", Some("allow"));
+        end.metadata = Some(json!({"attempt": 1, "status":"completed"}));
+        let mut smith = row("RUN_START", Some("smith"), "2026-09-22T12:02:00Z", None);
+        smith.metadata = Some(json!({"attempt": 1}));
+        let events = vec![start, end, smith];
+
+        assert_eq!(current_node(&events).as_deref(), Some("smith"));
+        let states = node_states(&graph, &events, Some("smith"));
+        assert_eq!(states["architect"].state, "COMPLETED");
+        assert_eq!(states["architect"].execution_count, 1);
+        assert_eq!(states["smith"].state, "CURRENT");
+    }
+
+    #[test]
+    fn forge_run_pairs_by_attempt_even_when_observer_rows_are_out_of_order() {
+        let graph = json!({"nodes":{"lead":{"id":"lead","type":"task","name":"Lead"}}});
+        let mut end = row("RUN_END", Some("lead"), "2026-09-22T12:00:00Z", Some("allow"));
+        end.metadata = Some(json!({"attempt": 1, "status":"completed"}));
+        let mut start = row("RUN_START", Some("lead"), "2026-09-22T12:00:01Z", None);
+        start.metadata = Some(json!({"attempt": 1}));
+        let events = vec![end, start];
+
+        assert_eq!(current_node(&events), None);
+        let states = node_states(&graph, &events, None);
+        assert_eq!(states["lead"].state, "COMPLETED");
+    }
+
+    #[test]
+    fn interrupted_forge_run_is_failure_evidence() {
+        let graph = json!({"nodes":{"qa":{"id":"qa","type":"task","name":"QA"}}});
+        let mut start = row("RUN_START", Some("qa"), "2026-09-22T12:00:00Z", None);
+        start.metadata = Some(json!({"attempt": 1}));
+        let mut end = row("RUN_END", Some("qa"), "2026-09-22T12:00:30Z", Some("watch"));
+        end.metadata = Some(json!({"attempt": 1, "status":"interrupted"}));
+        let events = vec![start, end];
+
+        // An interrupted attempt is terminal evidence for that attempt, not a phantom CURRENT node.
+        assert_eq!(current_node(&events).as_deref(), Some("qa"));
+        let states = node_states(&graph, &events, Some("qa"));
+        assert_eq!(states["qa"].state, "CURRENT");
     }
 
     #[test]
