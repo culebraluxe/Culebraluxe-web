@@ -90,11 +90,12 @@ while IFS= read -r ENV_ID; do
   fi
 
   if ! node --env-file-if-exists="$ROOT_DIR/.env.local" - \
-    "$TMP_DIR/env-value.json" "$TMP_DIR/env-upsert.json" "$COPIED_KEYS" <<'NODE'
+    "$TMP_DIR/env-value.json" "$TMP_DIR/env-upsert.json" "$COPIED_KEYS" "$TMP_DIR/bridge-source.json" <<'NODE'
 const fs = require('fs')
 const inputPath = process.argv[2]
 const outputPath = process.argv[3]
 const copiedPath = process.argv[4]
+const bridgePath = process.argv[5]
 const raw = JSON.parse(fs.readFileSync(inputPath, 'utf8'))
 const entry = raw.env ?? raw
 if (!entry || !entry.key || typeof entry.value !== 'string' || !entry.value.trim()) {
@@ -109,6 +110,12 @@ fs.writeFileSync(outputPath, JSON.stringify({
   ...(entry.comment ? { comment: entry.comment } : {}),
 }))
 fs.appendFileSync(copiedPath, entry.key + '\n')
+if (entry.key === 'CULEBRA_INTERNAL_API_KEY' || entry.key === 'AUTH_SECRET') {
+  let bridge = {}
+  try { bridge = JSON.parse(fs.readFileSync(bridgePath, 'utf8')) } catch {}
+  bridge[entry.key] = entry.value
+  fs.writeFileSync(bridgePath, JSON.stringify(bridge), { mode: 0o600 })
+}
 NODE
   then
     continue
@@ -155,6 +162,17 @@ for FALLBACK in "$TMP_DIR"/local-fallbacks/*.json; do
   vc api "/v10/projects/${RUST_PROJECT_ID}/env?upsert=true&teamId=${TEAM_ID}" \
     -X POST --input "$FALLBACK" >/dev/null
   printf '%s\n' "$KEY" >>"$COPIED_KEYS"
+  if [[ "$KEY" == "CULEBRA_INTERNAL_API_KEY" || "$KEY" == "AUTH_SECRET" ]]; then
+    node - "$FALLBACK" "$TMP_DIR/bridge-source.json" <<'NODE'
+const fs = require('fs')
+const source = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'))
+const targetPath = process.argv[3]
+let target = {}
+try { target = JSON.parse(fs.readFileSync(targetPath, 'utf8')) } catch {}
+target[source.key] = source.value
+fs.writeFileSync(targetPath, JSON.stringify(target), { mode: 0o600 })
+NODE
+  fi
 done
 
 grep -qx 'DATABASE_URL_PROD' "$COPIED_KEYS" \
@@ -163,6 +181,43 @@ if ! grep -qx 'CULEBRA_INTERNAL_API_KEY' "$COPIED_KEYS" && ! grep -qx 'AUTH_SECR
   fail "Neither CULEBRA_INTERNAL_API_KEY nor AUTH_SECRET could be copied from Vercel or .env.local."
 fi
 printf '  production environment copied to Rust project\n'
+
+# Pin Rust to the FRONTEND'S EFFECTIVE bridge key. The frontend uses an explicit
+# CULEBRA_INTERNAL_API_KEY when present; otherwise it derives one from AUTH_SECRET.
+# A stale explicit key on the standalone Rust project overrides AUTH_SECRET and causes
+# every real portal request to 401 even though /readyz still passes.
+node --env-file-if-exists="$ROOT_DIR/.env.local" - \
+  "$TMP_DIR/bridge-source.json" "$TMP_DIR/bridge-key.json" <<'NODE'
+const fs = require('fs')
+const crypto = require('crypto')
+const sourcePath = process.argv[2]
+const outputPath = process.argv[3]
+let source = {}
+try { source = JSON.parse(fs.readFileSync(sourcePath, 'utf8')) } catch {}
+const explicit = String(source.CULEBRA_INTERNAL_API_KEY ?? process.env.CULEBRA_INTERNAL_API_KEY ?? '').trim()
+let value = explicit.length >= 16 ? explicit : ''
+if (!value) {
+  const authSecret = String(source.AUTH_SECRET ?? process.env.AUTH_SECRET ?? '').trim()
+  if (authSecret.length < 16) {
+    console.error('Cannot resolve the frontend bridge key: neither CULEBRA_INTERNAL_API_KEY nor AUTH_SECRET is available.')
+    process.exit(12)
+  }
+  value = crypto.createHash('sha256')
+    .update('culebraluxe-rust-bridge:v1:')
+    .update(authSecret)
+    .digest('hex')
+}
+fs.writeFileSync(outputPath, JSON.stringify({
+  key: 'CULEBRA_INTERNAL_API_KEY',
+  value,
+  type: 'encrypted',
+  target: ['production'],
+  comment: 'Effective frontend-to-Rust bridge key',
+}), { mode: 0o600 })
+NODE
+vc api "/v10/projects/${RUST_PROJECT_ID}/env?upsert=true&teamId=${TEAM_ID}" \
+  -X POST --input "$TMP_DIR/bridge-key.json" >/dev/null
+printf '  Rust bridge key synchronized to frontend effective key\n'
 
 # Production pool settings are operational configuration, not secrets. Pin them here so an
 # older value on the source frontend project cannot silently override the Rust service defaults.
@@ -267,6 +322,21 @@ if [[ "$HTTP_STATUS" != "200" ]] || ! printf '%s' "$READY" | grep -q '"ok":true'
 fi
 printf '%s' "$READY" | grep -q '"databaseTarget":"prod"' || fail "Rust API is not pointed at PROD: $READY"
 printf '  Rust ready: %s\n' "$READY"
+
+printf 'Verifying frontend-to-Rust internal bridge authentication...\n'
+BRIDGE_KEY="$(node -e "const j=require(process.argv[1]);process.stdout.write(j.value)" "$TMP_DIR/bridge-key.json")"
+BRIDGE_BODY="$TMP_DIR/bridge-body"
+BRIDGE_STATUS="$(curl -sS -L --max-time 20 -o "$BRIDGE_BODY" -w '%{http_code}' \
+  -H "accept: application/json" \
+  -H "x-culebra-internal-key: $BRIDGE_KEY" \
+  "${RUST_PROD_URL%/}/v1/diagnostics/db" 2>"$TMP_DIR/bridge-stderr" || true)"
+unset BRIDGE_KEY
+if [[ "$BRIDGE_STATUS" != "200" ]]; then
+  printf '  bridge HTTP: %s\n' "${BRIDGE_STATUS:-000}" >&2
+  printf '  bridge body: %s\n' "$(cat "$BRIDGE_BODY" 2>/dev/null || true)" >&2
+  fail "Rust is ready but the frontend internal bridge key is not accepted."
+fi
+printf '  internal bridge authentication accepted\n'
 
 printf 'Pointing frontend production at %s...\n' "$RUST_PROD_URL"
 node - "$RUST_PROD_URL" "$TMP_DIR/frontend-rust-url.json" <<'NODE'
