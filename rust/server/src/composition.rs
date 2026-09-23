@@ -5,6 +5,7 @@ use crate::communications::CommsService;
 use crate::contracts::ContractService;
 use crate::deals::DealPortalService;
 use crate::firms::FirmService;
+use crate::flight_recorder::FlightRecorderService;
 use crate::forms::FormService;
 use crate::lookup::ServiceDirectory;
 use crate::media::MediaService;
@@ -20,7 +21,7 @@ use crate::wbs::WbsService;
 use crate::accounting::AccountingService;
 use crate::workflow_portal::WorkflowPortalService;
 use db::{
-    AccountingDao, CalendarDao, ClientDao, CockpitDao, CommsDao, ContractDao, Database, DealPortalDao, FirmDao, FormDao, MediaDao, PersonDao,
+    AccountingDao, CalendarDao, ClientDao, CockpitDao, CommsDao, ContractDao, Database, DealPortalDao, FirmDao, FlightRecorderDao, FormDao, MediaDao, PersonDao,
     ProjectDao, PropertyDao, SecurityDao, ShowingDao, SignatureDao, TaskDao, VaultDao, WbsDao, WorkflowPortalDao,
 };
 use service::{ServiceInfrastructure, SignatureProvider};
@@ -154,6 +155,13 @@ impl CoreServices {
     pub fn workflow_portal(&self) -> WorkflowPortalService<WorkflowPortalDao> {
         WorkflowPortalService::new(
             WorkflowPortalDao::new(self.db.clone()),
+            self.infrastructure.clone(),
+        )
+    }
+
+    pub fn flight_recorder(&self) -> FlightRecorderService<FlightRecorderDao> {
+        FlightRecorderService::new(
+            FlightRecorderDao::new(self.db.clone()),
             self.infrastructure.clone(),
         )
     }
