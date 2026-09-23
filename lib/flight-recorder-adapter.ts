@@ -233,11 +233,25 @@ export const SYSTEM_CHIP: Record<SystemId, string> = {
 /** Map an engine eventType onto the console's EventKind vocabulary. */
 export function eventTypeToKind(eventType: string): EventKind {
   const u = eventType.toUpperCase()
-  if (u.startsWith('COMMAND_')) return 'Command'
+  if (u.startsWith('COMMAND_') || u.startsWith('COMMAND.')) return 'Command'
   if (u.startsWith('DOMAIN_EVENT')) return 'DomainEvent'
-  if (u.startsWith('WORKFLOW_') || u.startsWith('NODE_') || u.startsWith('TRANSITION_'))
+  if (
+    u.startsWith('WORKFLOW_') ||
+    u.startsWith('NODE_') ||
+    u.startsWith('TRANSITION_') ||
+    u.startsWith('PROCESS.') ||
+    u.startsWith('TOKEN.')
+  )
     return 'Workflow'
-  if (u.startsWith('TASK_') || u.startsWith('TIMER_') || u.startsWith('JOB_')) return 'Task'
+  if (
+    u.startsWith('TASK_') ||
+    u.startsWith('TIMER_') ||
+    u.startsWith('JOB_') ||
+    u.startsWith('TASK.') ||
+    u.startsWith('TIMER.') ||
+    u.startsWith('JOB.')
+  )
+    return 'Task'
   if (u.startsWith('SIGNATURE_')) return 'Integration'
   if (u.startsWith('DOCUMENT_') || u.startsWith('PERSISTENCE_')) return 'Persistence'
   // Truthful fallback: an unrecognized event is NOT forced into a known domain.
@@ -280,19 +294,37 @@ export function outcomeToStatus(
   // Entry / await states read as pending when no explicit outcome was recorded.
   if (
     u.endsWith('_STARTED') ||
+    u.endsWith('.STARTED') ||
     u === 'NODE_ENTERED' ||
     u === 'WORKFLOW_STARTED' ||
+    u === 'PROCESS.STARTED' ||
     u === 'COMMAND_RECEIVED' ||
     u === 'COMMAND_REPLAYED' ||
+    u === 'COMMAND.REQUESTED' ||
     u === 'TASK_CREATED' ||
     u === 'TASK_ASSIGNED' ||
+    u === 'TASK.CREATED' ||
+    u === 'TASK.CLAIMED' ||
     u === 'TIMER_SCHEDULED' ||
+    u === 'TIMER.SCHEDULED' ||
     u === 'JOB_STARTED' ||
     u === 'SIGNATURE_REQUEST_CREATED' ||
     u === 'SIGNATURE_SENT' ||
     u === 'DOCUMENT_CREATED'
   )
     return 'Pending'
+  if (
+    u.endsWith('_COMPLETED') ||
+    u.endsWith('.COMPLETED') ||
+    u === 'TOKEN.JOINED'
+  )
+    return 'Success'
+  if (
+    u.endsWith('_FAILED') ||
+    u.endsWith('.FAILED') ||
+    u.endsWith('.CANCELLED')
+  )
+    return 'Failed'
   // Absence of failure is NOT proof of success.
   return 'Unknown'
 }
