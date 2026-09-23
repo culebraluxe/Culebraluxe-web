@@ -462,6 +462,33 @@ export async function rustApiUpdatePropertyAdmin<T>(
   )
 }
 
+export async function rustApiCreatePropertyVideoUpload<T>(
+  propertyId: string,
+  body: { corsOrigin: string },
+  options: RustApiJsonWriteOptions = {},
+): Promise<RustApiSuccess<T>> {
+  return rustApiJsonWrite<T>(
+    (`/v1/properties/${encodeURIComponent(propertyId)}/video-uploads`) as `/v1/${string}`,
+    'POST',
+    body,
+    options,
+  )
+}
+
+export async function rustApiFinalizePropertyVideoUpload<T>(
+  propertyId: string,
+  uploadId: string,
+  body: { role: 'video' | 'short'; caption?: string | null },
+  options: RustApiJsonWriteOptions = {},
+): Promise<RustApiSuccess<T>> {
+  return rustApiJsonWrite<T>(
+    (`/v1/properties/${encodeURIComponent(propertyId)}/video-uploads/${encodeURIComponent(uploadId)}/finalize`) as `/v1/${string}`,
+    'POST',
+    body,
+    options,
+  )
+}
+
 export async function rustApiAttachPropertyVideo<T>(
   propertyId: string,
   body: Record<string, unknown>,
