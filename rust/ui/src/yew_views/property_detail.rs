@@ -1,8 +1,7 @@
 //! /properties/:slug — the public property record, on Yew.
 //!
-//! This is the port of the LAST TypeScript PropertyMediaPanel before the Rust cutover,
-//! not the simplified string renderer that replaced it. Carousel selection and lightbox
-//! state stay in Model/Msg/update; this component is a pure projection plus callbacks.
+//! Port of the TypeScript property detail page. Its carousel, tabs and saved state
+//! stay in Model/Msg/update; this component is a projection plus callbacks.
 
 use yew::prelude::*;
 
@@ -451,8 +450,8 @@ fn detail_sections(record: &PropertyRecord, model: &Model, on_msg: &Callback<Msg
                     let onclick = Callback::from(move |_: MouseEvent| on_msg.emit(Msg::PropertyTabSelected(tab)));
                     html! {
                         <button type="button" {onclick} aria-current={selected.then_some("page")}
-                            class={classes!(
-                                "relative flex min-h-12 min-w-[116px] flex-none self-stretch items-center justify-center border-r border-brand-gold px-6 font-serif text-sm tracking-[0.04em] sm:min-w-[132px] sm:px-8 sm:text-[15px]",
+                            class={format!(
+                                "relative flex min-h-12 min-w-[116px] flex-none self-stretch items-center justify-center border-r border-brand-gold px-6 font-serif text-sm tracking-[0.04em] sm:min-w-[132px] sm:px-8 sm:text-[15px] {}",
                                 if selected { "bg-brand-navy font-semibold text-brand-gold" } else { "bg-brand-navy font-medium text-brand-ivory/85 hover:text-brand-ivory" }
                             )}>
                             {label}

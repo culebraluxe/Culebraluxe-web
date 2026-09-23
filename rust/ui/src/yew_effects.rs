@@ -1272,8 +1272,6 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
             Kind::Rows,
         ),
         Effect::CompleteCockpitTask { .. }
-        | Effect::PropertyBrowserRead { .. }
-        | Effect::PropertyFavoriteWrite { .. }
         | Effect::SaveForm { .. }
         | Effect::CreateForm { .. }
         | Effect::SearchDealPeople { .. }
