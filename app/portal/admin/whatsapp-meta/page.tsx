@@ -1,22 +1,15 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import { PortalYewApp } from '@/components/rust-ui/portal-yew-app'
 
 // ---------------------------------------------------------------------------
-// FLIPPED TO RUST (screen: whatsapp-meta, surface Support).
+// /portal/admin/whatsapp-meta — YEW OWNS THIS SCREEN NOW.
 //
-// The route is unchanged; the screen is not. It was a TypeScript page fetching its own data for a TypeScript
-// component. It is now the Rust host: the same read models arrive through the portal rows route and
-// rust/ui/src/view.rs paints the screen.
+// The screen is `rust/ui/src/yew_views/portal_support_whatsapp_meta.rs`. The Meta query still happens SERVER-SIDE, in the
+// bridge, with the same endpoint, the same version and the same no-store behaviour as the pre-cutover page; the access token
+// is read and used there and is not a field of the payload, so it cannot reach this bundle.
 //
-// It qualified because its TypeScript body has no interaction to lose - no state, form, dialog, filter or paging
-// control - so there is nothing the Rust body can fail to reproduce. Screens whose TypeScript carries behaviour stay
-// in TypeScript until the Rust body has its own controls. scripts/ui-flip-readiness.mjs prints the split at any time.
+// Read-only diagnosis. Nothing on this path sends a WhatsApp message.
 // ---------------------------------------------------------------------------
 
 export default function Page() {
-
-  return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="whatsapp-meta" />
-    </div>
-  )
+  return <PortalYewApp screen="whatsapp-meta" />
 }

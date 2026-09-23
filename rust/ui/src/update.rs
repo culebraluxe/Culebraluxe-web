@@ -44,6 +44,7 @@ pub fn is_ported_portal_screen(key: &str) -> bool {
             // generic rows output that replaced them.
             | "db-test"
             | "security"
+            | "whatsapp-meta"
             | "property-admin"
             | "property-media"
             | "seller-strategy"

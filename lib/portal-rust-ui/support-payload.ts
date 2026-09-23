@@ -93,6 +93,108 @@ export type SupportSecurity = {
 }
 
 /**
+ * The Meta phone-number diagnostic: one read per screen load, exactly as the pre-cutover page made it.
+ *
+ * COPIED, NOT REINVENTED. This is the pre-cutover `getMetaPhones()` verbatim in behaviour — same endpoint, same version, same
+ * `no-store`, same four outcomes: no token configured, Meta answered with an error, Meta answered with no numbers, Meta
+ * answered with numbers. It is a diagnosis of the WhatsApp integration, and a diagnosis that behaves differently from the
+ * thing it diagnoses is not a diagnosis.
+ *
+ * THE TOKEN NEVER LEAVES THIS PROCESS. It is read from the server environment, used in an `Authorization` header, and is not
+ * a field of the return value — so it cannot reach the payload, the WASM module or the browser even by accident. What
+ * crosses is the WABA id, whether a token is configured at all, an error message if Meta gave one, and the phone fields the
+ * pre-cutover screen printed.
+ *
+ * THE OPTIONAL ID OVERRIDE: `getCommandContext` is not used here and no account is resolved — this screen reads Meta's
+ * answer about this deployment's own number, which is a configuration fact rather than a person's data.
+ */
+export type SupportWhatsAppPhone = {
+  id: string | null
+  displayPhoneNumber: string | null
+  verifiedName: string | null
+  qualityRating: string | null
+  codeVerificationStatus: string | null
+}
+
+export type SupportWhatsAppMeta = {
+  wabaId: string
+  tokenConfigured: boolean
+  error: string | null
+  phones: SupportWhatsAppPhone[]
+}
+
+const DEFAULT_WABA_ID = '1605543247626812'
+const GRAPH_VERSION = 'v23.0'
+
+type MetaPhoneNumber = {
+  id?: string
+  display_phone_number?: string
+  verified_name?: string
+  quality_rating?: string
+  code_verification_status?: string
+}
+
+type MetaPhoneResponse = {
+  data?: MetaPhoneNumber[]
+  error?: { message?: string; type?: string; code?: number }
+}
+
+async function getMetaPhones(): Promise<SupportWhatsAppMeta> {
+  const wabaId = process.env.WHATSAPP_WABA_ID?.trim() || DEFAULT_WABA_ID
+  const token = process.env.WHATSAPP_ACCESS_TOKEN?.trim()
+
+  if (!token) {
+    return {
+      wabaId,
+      phones: [],
+      error: 'WHATSAPP_ACCESS_TOKEN is not configured in Vercel Production.',
+      tokenConfigured: false,
+    }
+  }
+
+  try {
+    const response = await fetch(
+      `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(wabaId)}/phone_numbers`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        // No cache: this is a diagnostic, and a cached answer to "is it working now" is the one answer that is no use.
+        cache: 'no-store',
+      },
+    )
+    const payload = (await response.json()) as MetaPhoneResponse
+
+    if (!response.ok) {
+      return {
+        wabaId,
+        phones: [],
+        error: payload.error?.message || `Meta returned HTTP ${response.status}.`,
+        tokenConfigured: true,
+      }
+    }
+
+    return {
+      wabaId,
+      phones: (payload.data ?? []).map((phone) => ({
+        id: phone.id ?? null,
+        displayPhoneNumber: phone.display_phone_number ?? null,
+        verifiedName: phone.verified_name ?? null,
+        qualityRating: phone.quality_rating ?? null,
+        codeVerificationStatus: phone.code_verification_status ?? null,
+      })),
+      error: null,
+      tokenConfigured: true,
+    }
+  } catch (error) {
+    return {
+      wabaId,
+      phones: [],
+      error: error instanceof Error ? error.message : 'Unable to query Meta.',
+      tokenConfigured: true,
+    }
+  }
+}
+
+/**
  * The payload one SUPPORT screen needs, read from the projections that already define it.
  *
  * A screen is served what it renders and nothing else, and a read that fails throws: the bridge's error handling turns that
@@ -138,8 +240,15 @@ export async function supportPayload(
       const security: SupportSecurity = { status, breakGlass }
       return { support: { security } }
     }
-    case 'system-health':
     case 'whatsapp-meta': {
+      // EVERY LOAD MAKES THE CALL, as the pre-cutover page did. There is no cached snapshot and no button to press: this
+      // screen exists to answer "what does Meta say about this number right now", and an answer that was cached yesterday
+      // answers a different question.
+      //
+      // The token is read and used entirely inside `getMetaPhones`. Nothing about it is returned.
+      return { support: { whatsAppMeta: await getMetaPhones() } }
+    }
+    case 'system-health': {
       // NOT YET PORTED. An explicit refusal rather than an empty object: a screen whose payload is silently empty renders as
       // a screen with nothing to show, which reads as "nothing to report" rather than "this is not built yet".
       throw new Error(`The '${screen}' payload is not wired yet.`)

@@ -2491,6 +2491,33 @@ pub struct PortalSupportPage {
     pub db_test: Option<PortalDbTest>,
     /// `/portal/settings` — the Security landing screen: its counts and the break-glass posture.
     pub security: Option<PortalSecurity>,
+    /// `/portal/admin/whatsapp-meta` — what Meta says about this deployment's WhatsApp number.
+    pub whats_app_meta: Option<PortalWhatsAppMeta>,
+}
+
+/// The WhatsApp diagnostic: the four outcomes the pre-cutover screen distinguished, and the phone fields it printed.
+///
+/// THERE IS NO TOKEN FIELD HERE, and there must never be one. The access token is used inside the bridge and is not part of
+/// this shape, so it cannot be serialised into a payload even by a mistake elsewhere.
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalWhatsAppMeta {
+    pub waba_id: String,
+    /// Whether a token exists at all — a yes/no about configuration, which is all a diagnostic needs to say.
+    pub token_configured: bool,
+    /// Meta's own words when it refused, or the absent-token notice, or nothing when the call succeeded.
+    pub error: Option<String>,
+    pub phones: Vec<PortalWhatsAppPhone>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalWhatsAppPhone {
+    pub id: Option<String>,
+    pub display_phone_number: Option<String>,
+    pub verified_name: Option<String>,
+    pub quality_rating: Option<String>,
+    pub code_verification_status: Option<String>,
 }
 
 /// The Security screen: operational counts, and break-glass posture.
