@@ -261,7 +261,7 @@ impl<R: MediaRepository> MediaService<R> {
                         .filter(|value| !value.is_empty()),
                 })
                 .await
-                .map_err(Into::into)?;
+                .map_err(CoreServiceError::from)?;
 
             Ok(PropertyVideoFinalizeResult {
                 status: "ready".into(),
