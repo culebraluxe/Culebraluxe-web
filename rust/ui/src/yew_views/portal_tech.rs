@@ -73,8 +73,9 @@ fn cockpit(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
             { island_bridge(on_msg) }
             { header(tech, model, on_msg) }
             { kpis(tech) }
+            { command_notice(model) }
             { sorter(tech) }
-            { flight_strip(tech) }
+            { flight_strip(model, tech, on_msg) }
             { workbench(model, tech, on_msg) }
             { engine_line(tech) }
             { recent_history(tech) }
@@ -197,41 +198,101 @@ fn sorter(tech: &PortalTechPage) -> Html {
     }
 }
 
-fn flight_strip(tech: &PortalTechPage) -> Html {
+fn flight_strip(model: &crate::model::Model, tech: &PortalTechPage, on_msg: &Callback<Msg>) -> Html {
+    let busy = model.tech.busy_action.is_some();
+    let flight_count = tech.staging_flight.as_ref().map(|flight| flight.story_count).unwrap_or(0);
+    let launch = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::TechLaunchFlightRequested))
+    };
+    let schedule_change = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |event: Event| {
+            let value = event
+                .target_unchecked_into::<web_sys::HtmlInputElement>()
+                .value();
+            on_msg.emit(Msg::TechScheduleChanged(value));
+        })
+    };
+    let schedule_local = model.tech.schedule_at.clone();
+    let schedule = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| {
+            if let Some(scheduled_for) = local_datetime_to_iso(&schedule_local) {
+                on_msg.emit(Msg::TechScheduleFlightRequested { scheduled_for });
+            }
+        })
+    };
+
     html! {
         <section class="mb-4 grid gap-3 lg:grid-cols-[1.15fr_1.85fr]">
             <article class="rounded-lg border border-[#c6a15b]/25 bg-[#c6a15b]/[0.06] p-4">
-                <p class="text-[9px] font-semibold uppercase tracking-[0.16em] text-[#c6a15b]">{"NEXT FLIGHT"}</p>
-                if let Some(flight) = tech.staging_flight.as_ref() {
-                    <div class="mt-1 flex items-end justify-between gap-3">
-                        <div>
-                            <p class="font-serif text-2xl font-light text-white">{ format!("{} stories", flight.story_count) }</p>
+                <div class="flex items-start justify-between gap-3">
+                    <div>
+                        <p class="text-[9px] font-semibold uppercase tracking-[0.16em] text-[#c6a15b]">{"NEXT FLIGHT"}</p>
+                        if let Some(flight) = tech.staging_flight.as_ref() {
+                            <p class="mt-1 font-serif text-2xl font-light text-white">{ format!("{} stories", flight.story_count) }</p>
                             <p class="mt-1 text-[10px] text-slate-400">
                                 { format!("policy {} · staged only", flight.model_policy) }
                             </p>
-                        </div>
+                        } else {
+                            <p class="mt-2 text-sm font-light text-slate-400">{"No Flight is staged yet. Drag stories into FLIGHT STAGING."}</p>
+                        }
+                    </div>
+                    if let Some(flight) = tech.staging_flight.as_ref() {
                         <span class="rounded-full border border-[#c6a15b]/30 px-2 py-1 text-[9px] uppercase tracking-[0.12em] text-[#e0c489]">
                             { flight.status.clone() }
                         </span>
-                    </div>
-                } else {
-                    <p class="mt-2 text-sm font-light text-slate-400">{"No Flight is staged yet. Drag stories into FLIGHT STAGING."}</p>
-                }
-                <p class="mt-3 text-[10px] leading-4 text-slate-500">
-                    {"Launch-now and schedule-tonight controls move in Pass 2; this pass keeps the persisted Flight membership visible."}
+                    }
+                </div>
+                <div class="mt-4 flex flex-wrap items-center gap-2">
+                    <button
+                        type="button"
+                        onclick={launch}
+                        disabled={busy || flight_count == 0}
+                        title="Dispatch every persisted story in this Flight to Forge now."
+                        class="rounded border border-[#c6a15b]/50 bg-[#c6a15b]/15 px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-[#e0c489] transition hover:bg-[#c6a15b]/25 disabled:cursor-not-allowed disabled:opacity-35"
+                    >
+                        { if model.tech.busy_action.as_deref() == Some("launchFlight") { "Launching…" } else { "Launch Flight →" } }
+                    </button>
+                    <input
+                        type="datetime-local"
+                        value={model.tech.schedule_at.clone()}
+                        onchange={schedule_change}
+                        disabled={busy || flight_count == 0}
+                        aria-label="Schedule Flight"
+                        class="rounded border border-white/15 bg-[#0b1220] px-2 py-1.5 text-[10px] text-slate-300 disabled:opacity-35"
+                    />
+                    <button
+                        type="button"
+                        onclick={schedule}
+                        disabled={busy || flight_count == 0 || model.tech.schedule_at.trim().is_empty()}
+                        title="Persist this same Flight for the chosen browser-local time. Nothing dispatches now."
+                        class="rounded border border-white/20 px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-slate-300 transition hover:border-[#c6a15b]/50 hover:text-[#e0c489] disabled:cursor-not-allowed disabled:opacity-35"
+                    >
+                        { if model.tech.busy_action.as_deref() == Some("scheduleFlight") { "Scheduling…" } else { "Schedule" } }
+                    </button>
+                </div>
+                <p class="mt-2 text-[9px] leading-4 text-slate-500">
+                    {"Launch dispatches now. Schedule writes only a time on this Flight; the unattended worker fires it later."}
                 </p>
             </article>
             <article class="rounded-lg border border-white/10 bg-white/[0.025] p-4">
                 <p class="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-500">{"RECENT FLIGHTS"}</p>
                 <div class="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                    { for tech.recent_flights.iter().map(flight_card) }
+                    { for tech.recent_flights.iter().map(|flight| flight_card(flight, busy, on_msg)) }
                 </div>
             </article>
         </section>
     }
 }
 
-fn flight_card(flight: &PortalTechFlight) -> Html {
+fn flight_card(flight: &PortalTechFlight, busy: bool, on_msg: &Callback<Msg>) -> Html {
+    let batch_id = flight.id.clone();
+    let cancel = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::TechCancelFlightRequested(batch_id.clone())))
+    };
     html! {
         <div class="rounded-md border border-white/10 bg-white/[0.03] p-2.5">
             <div class="flex items-center justify-between gap-2">
@@ -242,15 +303,47 @@ fn flight_card(flight: &PortalTechFlight) -> Html {
             <p class="mt-1 text-[9px] text-slate-500">
                 { format!("{} queued · {} skipped", flight.queued_count, flight.skipped_count) }
             </p>
+            if flight.status == "Scheduled" {
+                <div class="mt-2 flex items-center justify-between gap-2">
+                    <span class="truncate text-[9px] text-[#e0c489]">
+                        { flight.scheduled_for.as_deref().map(short_time).unwrap_or_else(|| "time not recorded".into()) }
+                    </span>
+                    <button
+                        type="button"
+                        onclick={cancel}
+                        disabled={busy}
+                        class="text-[9px] uppercase tracking-[0.1em] text-slate-400 underline decoration-dotted underline-offset-2 hover:text-white disabled:opacity-35"
+                    >
+                        {"Cancel"}
+                    </button>
+                </div>
+            }
         </div>
     }
 }
 
 fn workbench(model: &crate::model::Model, tech: &PortalTechPage, on_msg: &Callback<Msg>) -> Html {
     let open = !model.controls.toggled;
+    let busy = model.tech.busy_action.is_some();
     let toggle = {
         let on_msg = on_msg.clone();
         Callback::from(move |_: MouseEvent| on_msg.emit(Msg::Toggled(open)))
+    };
+    let clear_count = tech.active_work.len();
+    let clear = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| {
+            let prompt = format!(
+                "Take all {} stories off the Workbench?\n\nThis clears today's list only. Story status and run history stay exactly as they are.",
+                clear_count
+            );
+            let confirmed = web_sys::window()
+                .and_then(|window| window.confirm_with_message(&prompt).ok())
+                .unwrap_or(false);
+            if confirmed {
+                on_msg.emit(Msg::TechClearWorkbenchRequested);
+            }
+        })
     };
     html! {
         <section class="mb-4 overflow-hidden rounded-lg border border-white/10 bg-white/[0.02]">
@@ -263,15 +356,27 @@ fn workbench(model: &crate::model::Model, tech: &PortalTechPage, on_msg: &Callba
                     <span class="text-[10px] font-normal text-slate-400">{"today's inspection tray"}</span>
                     <span class="text-[10px] text-slate-500">{ if open { "▲" } else { "▼" } }</span>
                 </button>
-                <p class="text-[10px] text-slate-500">
-                    {"Orthogonal to story status · inspect it here before committing it to a Flight"}
-                </p>
+                <div class="flex flex-wrap items-center gap-3">
+                    <p class="text-[10px] text-slate-500">
+                        {"Orthogonal to status · scoped investigation returns here for review"}
+                    </p>
+                    if !tech.active_work.is_empty() {
+                        <button
+                            type="button"
+                            onclick={clear}
+                            disabled={busy}
+                            class="rounded border border-white/15 px-2 py-1 text-[9px] uppercase tracking-[0.1em] text-slate-400 transition hover:border-[#c6a15b]/40 hover:text-[#e0c489] disabled:opacity-35"
+                        >
+                            { if model.tech.busy_action.as_deref() == Some("clearWorkbench") { "Clearing…" } else { "Clear Workbench" } }
+                        </button>
+                    }
+                </div>
             </div>
             if open {
                 <div class="grid gap-3 p-3 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)]">
                     { workbench_queue(tech, on_msg) }
                     <div class="space-y-3">
-                        { selected_story(tech) }
+                        { selected_story(model, tech, on_msg) }
                         { selected_runs(tech) }
                     </div>
                 </div>
@@ -324,7 +429,7 @@ fn workbench_row(story: &PortalTechStory, tech: &PortalTechPage, on_msg: &Callba
     }
 }
 
-fn selected_story(tech: &PortalTechPage) -> Html {
+fn selected_story(model: &crate::model::Model, tech: &PortalTechPage, on_msg: &Callback<Msg>) -> Html {
     let Some(story) = tech.selected_story.as_ref() else {
         return html! {
             <article class="rounded-md border border-white/10 bg-white/[0.025] p-5 text-sm text-slate-500">
@@ -332,6 +437,24 @@ fn selected_story(tech: &PortalTechPage) -> Html {
             </article>
         };
     };
+    let on_bench = tech.active_work.iter().any(|candidate| candidate.id == story.id);
+    let engine_owned = selected_engine_owned(tech, &story.id);
+    let engine_live = selected_engine_live(tech, &story.id);
+    let busy = model.tech.busy_action.is_some();
+
+    let scoped = |target: &'static str| {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::TechScopedRunRequested(target.to_string())))
+    };
+    let move_to = |target: &'static str| {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::TechMoveWorkbenchRequested(target.to_string())))
+    };
+    let good_to_go = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::TechGoodToGoRequested))
+    };
+
     let specs = [
         ("Goal", story.goal.as_deref()),
         ("Architecture Brief", story.architect_brief.as_deref()),
@@ -367,6 +490,54 @@ fn selected_story(tech: &PortalTechPage) -> Html {
                     <span>{ format!("{:.0}% complete", story.completion) }</span>
                     <span>{ story.workstream.clone() }</span>
                 </div>
+
+                <div class="mt-3 rounded-md border border-[#c6a15b]/25 bg-[#c6a15b]/[0.045] p-2.5">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                            <p class="text-[9px] font-semibold uppercase tracking-[0.14em] text-[#e0c489]">{"INVESTIGATE"}</p>
+                            <p class="mt-0.5 text-[9px] text-slate-500">{"Run only far enough to answer the question; keep the story on the Workbench."}</p>
+                        </div>
+                        <div class="flex flex-wrap gap-1.5">
+                            { for [("scout", "Scout"), ("architect", "Architect"), ("lead", "Lead")].into_iter().map(|(key, label)| {
+                                let action = scoped(key);
+                                let active = model.tech.busy_action.as_deref() == Some(&format!("scoped:{key}"));
+                                html! {
+                                    <button
+                                        type="button"
+                                        onclick={action}
+                                        disabled={busy || !on_bench || engine_live}
+                                        class="rounded border border-white/15 px-2.5 py-1 text-[9px] font-medium uppercase tracking-[0.1em] text-slate-300 transition hover:border-[#c6a15b]/40 hover:text-[#e0c489] disabled:cursor-not-allowed disabled:opacity-35"
+                                    >
+                                        { if active { "Queueing…" } else { label } }
+                                    </button>
+                                }
+                            }) }
+                        </div>
+                    </div>
+                    <div class="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-white/10 pt-2">
+                        <div class="flex flex-wrap items-center gap-1.5">
+                            <span class="mr-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500">{"MOVE TO"}</span>
+                            <button type="button" onclick={move_to("backlog")} disabled={busy || !on_bench} class="rounded border border-white/10 px-2 py-0.5 text-[9px] text-slate-400 hover:border-[#c6a15b]/30 hover:text-white disabled:opacity-35">{"Backlog"}</button>
+                            <button type="button" onclick={move_to("closed")} disabled={busy || !on_bench} class="rounded border border-white/10 px-2 py-0.5 text-[9px] text-slate-400 hover:border-[#c6a15b]/30 hover:text-white disabled:opacity-35">{"Closed"}</button>
+                            <button type="button" onclick={move_to("next")} disabled={busy || !on_bench} class="rounded border border-white/10 px-2 py-0.5 text-[9px] text-slate-400 hover:border-[#c6a15b]/30 hover:text-white disabled:opacity-35">{"Next Version"}</button>
+                        </div>
+                        <button
+                            type="button"
+                            onclick={good_to_go}
+                            disabled={busy || !on_bench || engine_owned}
+                            title="Remove from the Workbench and hand the full story to Forge. Ready queues real work."
+                            class="rounded border border-[#c6a15b]/50 bg-[#c6a15b]/15 px-3 py-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-[#e0c489] transition hover:bg-[#c6a15b]/25 disabled:cursor-not-allowed disabled:opacity-35"
+                        >
+                            { if engine_owned { "Already with Forge" } else if model.tech.busy_action.as_deref() == Some("goodToGo") { "Queueing…" } else { "Good to Go →" } }
+                        </button>
+                    </div>
+                    if !on_bench {
+                        <p class="mt-2 text-[9px] text-slate-600">{"Inspection only — add this story to the Workbench before using operator controls."}</p>
+                    } else if engine_live {
+                        <p class="mt-2 text-[9px] text-amber-300/70">{"Forge is already executing this story. Scoped controls cannot rewrite a live run."}</p>
+                    }
+                </div>
+
                 if let Some(hold) = tech.hold.as_ref() {
                     <div class="mt-3 rounded-md border border-amber-400/30 bg-amber-400/[0.07] px-3 py-2">
                         <p class="text-[9px] font-semibold uppercase tracking-[0.12em] text-amber-300">{"Forge HOLD"}</p>
@@ -383,9 +554,6 @@ fn selected_story(tech: &PortalTechPage) -> Html {
                         </p>
                     </details>
                 }) }
-            </div>
-            <div class="border-t border-white/10 px-4 py-2 text-[9px] text-slate-500">
-                {"Scout / Architect / Lead scoped analysis returns in Pass 2; the Workbench stays the place those investigations belong."}
             </div>
         </article>
     }
@@ -572,6 +740,53 @@ fn history_card(item: &PortalTechHistory) -> Html {
             </p>
         </article>
     }
+}
+
+fn command_notice(model: &crate::model::Model) -> Html {
+    let Some(notice) = model.tech.notice.as_ref() else {
+        return Html::default();
+    };
+    html! {
+        <div class={classes!(
+            "mb-4","rounded-md","border","px-3","py-2","text-[10px]",
+            if notice.ok {
+                "border-emerald-400/25 bg-emerald-400/[0.05] text-emerald-200"
+            } else {
+                "border-rose-400/30 bg-rose-400/[0.06] text-rose-200"
+            }
+        )}>
+            { notice.message.clone() }
+        </div>
+    }
+}
+
+fn local_datetime_to_iso(raw: &str) -> Option<String> {
+    if raw.trim().is_empty() {
+        return None;
+    }
+    let date = js_sys::Date::new(&wasm_bindgen::JsValue::from_str(raw));
+    if date.get_time().is_nan() {
+        return None;
+    }
+    let value: wasm_bindgen::JsValue = date.to_iso_string().into();
+    value.as_string()
+}
+
+fn selected_engine_owned(tech: &PortalTechPage, story_id: &str) -> bool {
+    tech.queued_cards.iter().any(|item| item.story_id == story_id)
+        || tech.engine_runs.iter().any(|run| {
+            run.story_id == story_id
+                && !run.stale
+                && matches!(run.status.as_str(), "running" | "claimed" | "queued")
+        })
+}
+
+fn selected_engine_live(tech: &PortalTechPage, story_id: &str) -> bool {
+    tech.engine_runs.iter().any(|run| {
+        run.story_id == story_id
+            && !run.stale
+            && matches!(run.status.as_str(), "running" | "claimed")
+    })
 }
 
 fn running_runs(tech: &PortalTechPage) -> Vec<&PortalTechEngineRun> {
