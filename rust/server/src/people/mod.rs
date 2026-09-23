@@ -194,9 +194,7 @@ impl<R: PersonRepository> PersonService<R> {
                     "Person display name is required.",
                 ));
             }
-            const STATUSES: &[&str] = &[
-                "new", "warm", "active", "referral", "inactive", "archived"
-            ];
+            const STATUSES: &[&str] = &["new", "warm", "active", "referral"];
             if !STATUSES.contains(&request.status.trim()) {
                 return Err(CoreServiceError::business(
                     "PERSON_STATUS_INVALID",
