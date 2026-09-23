@@ -1,23 +1,24 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import { redirect } from 'next/navigation'
 
-// ---------------------------------------------------------------------------
-// CONVERTED TO RUST (screen: trace-record, surface Tech).
-//
-// The route is unchanged; the screen is not. It rendered a TypeScript component with its own state
-// (3 interactive hooks); it now renders the Rust screen, fed by the portal rows route.
-//
-// HONEST NOTE ON PARITY: this crossed over before the Rust body had those controls, on instruction
-// that the conversion comes first and the gaps are worked afterwards. What is missing is named at
-// docs/layers/UI.md rather than implied by silence - the rows are here, the behaviour is the
-// follow-up. Scripts: scripts/ui-flip-readiness.mjs for the count.
-// ---------------------------------------------------------------------------
+import { PortalYewApp } from '@/components/rust-ui/portal-yew-app'
+import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
+import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 
-export default async function Page({ params }: { params: Promise<Record<'instanceId', string>> }) {
-  const { instanceId } = await params
+export const dynamic = 'force-dynamic'
 
-  return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="trace-record" scope={instanceId} />
-    </div>
+// Flight Recorder application ownership is Yew/MVI. The mature React console remains a bounded renderer for
+// virtualization, SVG graphs, swimlanes and event inspection; it performs no network request of its own.
+export default async function Page({
+  params,
+}: {
+  params: Promise<Record<'instanceId', string>>
+}) {
+  const access = await resolvePortalAccess(
+    createAuthJsSessionAdapter(),
+    'tech.access',
   )
+  if (!access.ok) redirect(access.redirectTo)
+
+  const { instanceId } = await params
+  return <PortalYewApp screen="trace-record" scope={instanceId} />
 }
