@@ -2028,6 +2028,19 @@ pub struct DealWorkspaceState {
     pub busy_action: Option<String>,
 }
 
+/// Reducer-owned state for the public property photo viewer.
+///
+/// The pre-Rust PropertyMediaPanel was interactive: selecting a thumbnail changed the hero,
+/// arrows moved through the canonical photo order, and "View all photos" opened a lightbox.
+/// That state belongs here rather than in a Yew hook so the property page obeys the same MVI
+/// invariant as the rest of the application.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PropertyMediaState {
+    pub active_index: usize,
+    pub lightbox_open: bool,
+    pub lightbox_index: usize,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Model {
     pub screen: Screen,
@@ -2048,6 +2061,8 @@ pub struct Model {
     /// `None` is a real state and not an error: a list screen has no page payload, and a page that has not loaded yet
     /// shows the chrome and its loading line exactly as a list does.
     pub page: Option<PageContent>,
+    /// Public property gallery selection/lightbox state.
+    pub property_media: PropertyMediaState,
     /// Seller Strategy is deterministic local application state: no fetch and no parallel React model.
     pub seller_strategy: crate::seller_strategy::SellerStrategyState,
     /// Contracts create/search state is reducer-owned just like every other interactive portal surface.
@@ -2095,6 +2110,7 @@ impl Default for Model {
             scope: None,
             controls: Controls::default(),
             page: None,
+            property_media: PropertyMediaState::default(),
             seller_strategy: crate::seller_strategy::SellerStrategyState::default(),
             deal_create: DealCreateState::default(),
             accounting: AccountingState::default(),
@@ -2178,6 +2194,16 @@ pub enum Msg {
         generation: u64,
         page: PortalPage,
     },
+
+    // ---- Public property media -----------------------------------------------------------------------------------
+    /// Select one image in the canonical hero + gallery order.
+    PropertyMediaSelected(usize),
+    PropertyMediaPrevious,
+    PropertyMediaNext,
+    PropertyLightboxOpened(usize),
+    PropertyLightboxClosed,
+    /// Move the lightbox by -1 or +1, wrapping at both ends.
+    PropertyLightboxMoved(i8),
 
     // ---- Flight Recorder -----------------------------------------------------------------------------------------
     FlightRecorderRefreshRequested,
