@@ -23,7 +23,7 @@
 //
 // It never kills unrelated Node applications.
 //
-//   pnpm dev            → this launcher (Webpack)
+//   pnpm dev            → loads .env.local, starts fresh Rust API, then this launcher (Webpack)
 //   pnpm dev:raw        → direct `next dev` (Next default / Turbopack)
 // ---------------------------------------------------------------------------
 import { execSync, spawn } from 'node:child_process'
@@ -85,6 +85,16 @@ function listenersOn(port) {
     .split('\n')
     .map((s) => s.trim())
     .filter(Boolean)
+}
+
+function pidExists(pid) {
+  if (!pid) return false
+  try {
+    process.kill(Number(pid), 0)
+    return true
+  } catch {
+    return false
+  }
 }
 
 /** Next dev / next-server processes, flagged when they belong to this repo. */
@@ -244,6 +254,8 @@ out('  ✓ Cleared .next')
 // FRESH for every dev session. An already-listening instance is stopped and restarted rather than reused, because a
 // stale build of that binary behaves exactly like a bug in the screen that called it.
 const RUST_API_PORT = Number(process.env.RUST_API_PORT ?? 8080)
+const LOCAL_APP_ENV =
+  process.env.APP_ENV?.trim() || process.env.VERCEL_ENV?.trim() ? undefined : 'dev'
 let rustApi = null
 
 const RUST_API_RE = /culebraluxe rust api|--bin http|\/http\b|target\/[^/]+\/http\b/
@@ -266,19 +278,48 @@ if (listenersOn(RUST_API_PORT).length > 0) {
 
 {
   const cargoTarget = process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'rust/target')
+  const rustEnv = {
+    ...process.env,
+    ...(LOCAL_APP_ENV ? { APP_ENV: LOCAL_APP_ENV } : {}),
+    CARGO_TARGET_DIR: cargoTarget,
+    RUST_API_BIND: `127.0.0.1:${RUST_API_PORT}`,
+  }
+
+  if (LOCAL_APP_ENV) {
+    out('  ✓ No APP_ENV/VERCEL_ENV declared; local Rust API will use APP_ENV=dev')
+  }
+
   rustApi = spawn('cargo', ['run', '--quiet', '-p', 'server', '--bin', 'http'], {
     cwd: resolve(ROOT, 'rust'),
-    env: {
-      ...process.env,
-      CARGO_TARGET_DIR: cargoTarget,
-      RUST_API_BIND: `127.0.0.1:${RUST_API_PORT}`,
-    },
+    env: rustEnv,
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   rustApi.stdout?.on('data', (chunk) => process.stdout.write(`  [rust-api] ${chunk}`))
   rustApi.stderr?.on('data', (chunk) => process.stderr.write(`  [rust-api] ${chunk}`))
   rustApi.on('error', (error) => err('  ✗ Failed to start the Rust API:', error.message))
   out(`  → Starting Rust API on ${RUST_API_PORT} (fresh; first run compiles)`)
+
+  // Do not start Next against a dead bridge. The old launcher spawned Rust and immediately continued, so a missing
+  // APP_ENV could kill the API while localhost:3000 still looked healthy. Flight Recorder then surfaced only "fetch
+  // failed", which falsely looked like a screen/data defect. Wait for the listener and fail the entire DEV launch if
+  // the Rust child exits first.
+  const deadline = Date.now() + 90_000
+  while (Date.now() < deadline) {
+    if (listenersOn(RUST_API_PORT).length > 0) break
+    if (!pidExists(rustApi.pid)) {
+      err('  ✗ Rust API exited before opening its port. DEV startup aborted.')
+      err('    Read the [rust-api] error above; Next was intentionally not started.')
+      process.exit(1)
+    }
+    sleepMs(250)
+  }
+
+  if (listenersOn(RUST_API_PORT).length === 0) {
+    err(`  ✗ Rust API did not open port ${RUST_API_PORT} within the startup window.`)
+    stopRustApi()
+    process.exit(1)
+  }
+  out(`  ✓ Rust API listening on ${RUST_API_PORT}`)
 }
 
 function stopRustApi() {
@@ -290,11 +331,22 @@ function stopRustApi() {
     }
   }
 }
+
+let shuttingDown = false
+rustApi?.on('exit', (code, signal) => {
+  if (shuttingDown) return
+  err(`  ✗ Rust API stopped while DEV was running (code=${code ?? 'null'}, signal=${signal ?? 'none'}).`)
+  err('    Stopping DEV rather than serving a half-alive application.')
+  process.exit(code ?? 1)
+})
+
 process.on('SIGINT', () => {
+  shuttingDown = true
   stopRustApi()
   process.exit(0)
 })
 process.on('SIGTERM', () => {
+  shuttingDown = true
   stopRustApi()
   process.exit(0)
 })
