@@ -614,6 +614,141 @@ pub struct PortalTechHistory {
     pub latest_run_result: Option<String>,
 }
 
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalOpsRow {
+    pub id: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub status: String,
+    pub meta: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalOpsStellar {
+    pub listing_contract_date: Option<String>,
+    pub expiration_date: Option<String>,
+    pub listing_type: Option<String>,
+    pub agent_mls_id: Option<String>,
+    pub tax_id: Option<String>,
+    pub tax_year: Option<String>,
+    pub annual_tax: Option<String>,
+    pub legal_description: Option<String>,
+    pub zoning: Option<String>,
+    pub total_area_sqft: Option<String>,
+    pub heated_area_source: Option<String>,
+    pub ownership_type: Option<String>,
+    pub hoa_details: Option<String>,
+    pub showing_instructions: Option<String>,
+    pub occupant_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalOpsProperty {
+    pub id: String,
+    pub name: String,
+    pub slug: Option<String>,
+    pub status: String,
+    pub featured: bool,
+    pub is_active_listing: bool,
+    pub is_published: bool,
+    pub property_type: Option<String>,
+    pub list_price: Option<String>,
+    pub location: Option<String>,
+    pub address_line1: Option<String>,
+    pub street_number: Option<String>,
+    pub street_name: Option<String>,
+    pub unit_number: Option<String>,
+    pub city: Option<String>,
+    pub state_or_province: Option<String>,
+    pub neighborhood: Option<String>,
+    pub postal_code: Option<String>,
+    pub country: Option<String>,
+    pub iso_country_code: Option<String>,
+    pub latitude: Option<String>,
+    pub longitude: Option<String>,
+    pub bedrooms: Option<String>,
+    pub bathrooms: Option<String>,
+    pub bathrooms_full: Option<String>,
+    pub bathrooms_half: Option<String>,
+    pub square_feet: Option<String>,
+    pub lot_size: Option<String>,
+    pub lot_size_units: Option<String>,
+    pub year_built: Option<String>,
+    pub stories: Option<String>,
+    pub parking_spaces: Option<String>,
+    pub short_description: Option<String>,
+    pub editorial_description: Option<String>,
+    pub public_remarks: Option<String>,
+    pub listing_agent_name: Option<String>,
+    pub listing_agent_email: Option<String>,
+    pub listing_agent_phone: Option<String>,
+    pub listing_office: Option<String>,
+    pub legal_owner_name: Option<String>,
+    pub listing_identifier: Option<String>,
+    pub registry_entry: Option<String>,
+    pub finca_number: Option<String>,
+    pub registry_section: Option<String>,
+    pub seller_person_id: Option<String>,
+    pub seller_name: Option<String>,
+    pub archived: bool,
+    pub image_count: i64,
+    pub video_count: i64,
+    pub document_count: i64,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub stellar: PortalOpsStellar,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalOpsPerson {
+    pub id: String,
+    pub display_name: String,
+    pub role: String,
+    pub status: String,
+    pub company: Option<String>,
+    pub location: Option<String>,
+    pub email: Option<String>,
+    pub phone: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalOpsProject {
+    pub id: String,
+    pub name: String,
+    pub owner: Option<String>,
+    pub status: String,
+    pub description: String,
+    pub areas: Vec<String>,
+    pub project_type: Option<String>,
+    pub playbook_id: Option<String>,
+    pub playbook_version: Option<i32>,
+    pub person_id: Option<String>,
+    pub property_id: Option<String>,
+    pub contract_id: Option<String>,
+    pub starts_at: Option<String>,
+    pub ends_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalOpsWorkbenchPage {
+    pub entity: String,
+    pub rows: Vec<PortalOpsRow>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub selected_id: Option<String>,
+    pub property: Option<PortalOpsProperty>,
+    pub person: Option<PortalOpsPerson>,
+    pub project: Option<PortalOpsProject>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PortalRecordProperty {
@@ -741,7 +876,9 @@ pub struct PortalPage {
     pub accounting: Option<PortalAccountingPage>,
     /// SUPPORT — the four diagnostic screens. One word per screen, as above.
     pub support: Option<PortalSupportPage>,
-    /// OPPS Records — bounded property administration projection.
+    /// OPPS universal Data Workbench — one selector/editor shell over typed domain adapters.
+    pub ops: Option<PortalOpsWorkbenchPage>,
+    /// OPPS Records — legacy bounded property projection retained while routes outside the workbench converge.
     pub records: Option<PortalRecordsPage>,
     /// OPPS Listing Media — bounded listing/property projection for media attachment.
     pub listing_media: Option<PortalListingMediaPage>,
@@ -1764,6 +1901,34 @@ pub struct FlightRecorderState {
     pub transaction: Option<serde_json::Value>,
 }
 
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct OpsWorkbenchState {
+    pub entity: String,
+    pub section: String,
+    pub rail_collapsed: bool,
+    pub dirty: bool,
+    pub saving: bool,
+    pub creating: bool,
+    pub new_name: String,
+    pub form: BTreeMap<String, String>,
+}
+
+impl Default for OpsWorkbenchState {
+    fn default() -> Self {
+        Self {
+            entity: "property".into(),
+            section: "property".into(),
+            rail_collapsed: false,
+            dirty: false,
+            saving: false,
+            creating: false,
+            new_name: String::new(),
+            form: BTreeMap::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListingMediaState {
     pub role: String,
@@ -1855,6 +2020,8 @@ pub struct Model {
     pub flight_recorder: FlightRecorderState,
     /// TECH Cockpit operator controls and command state.
     pub tech: TechCockpitState,
+    /// OPPS universal Data Workbench state. Field values are reducer-owned; the DOM never keeps a second draft.
+    pub ops: OpsWorkbenchState,
     /// OPPS Listing Media upload controls. The file bytes stay in the browser input; only metadata lives here.
     pub listing_media: ListingMediaState,
     /// One Deal workspace's forms and transient command state.
@@ -1888,6 +2055,7 @@ impl Default for Model {
             workflow: WorkflowDiagnosticsState::default(),
             flight_recorder: FlightRecorderState::default(),
             tech: TechCockpitState::default(),
+            ops: OpsWorkbenchState::default(),
             listing_media: ListingMediaState::default(),
             deal_workspace: DealWorkspaceState::default(),
             // Generation zero is "no host has said", which is what a program built by a test or an example holds.
@@ -1992,7 +2160,18 @@ pub enum Msg {
         message: String,
     },
 
-    // ---- OPPS / Records + Listing Media --------------------------------------------------------------------------
+    // ---- OPPS / universal Data Workbench -------------------------------------------------------------------------
+    OpsEntitySelected(String),
+    OpsSectionSelected(String),
+    OpsRailToggled,
+    OpsFieldChanged { key: String, value: String },
+    OpsSaveRequested,
+    OpsRevertRequested,
+    OpsCreateToggled,
+    OpsCreateNameChanged(String),
+    OpsCreateRequested,
+
+    // ---- OPPS / legacy Records + Listing Media -------------------------------------------------------------------
     RecordArchiveRequested,
     ListingMediaRoleChanged(String),
     ListingMediaAltChanged(String),
@@ -2314,6 +2493,30 @@ pub enum Effect {
         screen: &'static str,
         generation: u64,
         task_id: String,
+    },
+
+    /// OPPS universal workbench read. The active entity is part of the request rather than a new screen.
+    FetchOps {
+        screen: &'static str,
+        entity: String,
+        selected: Option<String>,
+        search: String,
+        page: usize,
+        generation: u64,
+    },
+    /// Persist whichever typed entity is active through the reviewed workbench bridge.
+    SaveOps {
+        screen: &'static str,
+        entity: String,
+        id: String,
+        fields: BTreeMap<String, String>,
+        generation: u64,
+    },
+    /// Property is the first entity with create enabled in the universal shell.
+    CreateOpsProperty {
+        screen: &'static str,
+        name: String,
+        generation: u64,
     },
     /// OPPS Records read with server-side search, paging and selected property.
     FetchRecords {
