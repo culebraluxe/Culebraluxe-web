@@ -21,7 +21,7 @@ struct MediaRow {
     created_at: Option<DateTime<Utc>>,
     mux_asset_id: Option<String>,
     mux_playback_id: Option<String>,
-    duration_seconds: Option<bigdecimal::BigDecimal>,
+    duration_seconds: Option<String>,
     aspect_ratio: Option<String>,
     source_url: Option<String>,
 }
@@ -52,7 +52,7 @@ impl MediaDao {
                    pm.created_at,
                    m.mux_asset_id,
                    m.mux_playback_id,
-                   m.duration_seconds,
+                   m.duration_seconds::text as duration_seconds,
                    m.aspect_ratio,
                    m.source_url
             from property_media pm
@@ -82,7 +82,7 @@ impl MediaDao {
                 created_at: row.created_at.map(|value| value.to_rfc3339()),
                 mux_asset_id: row.mux_asset_id,
                 mux_playback_id: row.mux_playback_id,
-                duration_seconds: row.duration_seconds.map(|value| value.to_string()),
+                duration_seconds: row.duration_seconds,
                 aspect_ratio: row.aspect_ratio,
                 source_url: row.source_url,
                 url: format!("/api/media/{}", row.media_id),
