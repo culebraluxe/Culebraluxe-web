@@ -155,6 +155,10 @@ const MLS_FIELDS: &[FieldSpec] = &[
     FieldSpec { key: "showingInstructions", label: "Showing instructions", kind: FieldKind::Textarea(4), wide: true, hint: None },
 ];
 
+const PROPERTY_ADMIN_FIELDS: &[FieldSpec] = &[
+    FieldSpec { key: "archived", label: "Archived record", kind: FieldKind::Toggle, wide: false, hint: Some("Archives the record without rewriting transaction-owned listing status.") },
+];
+
 const PERSON_FIELDS: &[FieldSpec] = &[
     FieldSpec { key: "displayName", label: "Display name", kind: FieldKind::Text, wide: true, hint: None },
     FieldSpec { key: "status", label: "Status", kind: FieldKind::Select(PERSON_STATUS), wide: false, hint: None },
@@ -657,6 +661,7 @@ fn property_editor(
                 {field_panel(model, on_msg, "Address", PROPERTY_ADDRESS)}
                 {field_panel(model, on_msg, "Legal / registry", PROPERTY_LEGAL)}
                 {field_panel(model, on_msg, "Listing representation", PROPERTY_AGENT)}
+                {field_panel(model, on_msg, "Administration", PROPERTY_ADMIN_FIELDS)}
             </div>
         },
     }
