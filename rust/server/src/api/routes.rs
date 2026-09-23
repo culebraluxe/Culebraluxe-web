@@ -560,9 +560,11 @@ async fn flight_recorder(
     let resolved = resolve_request_context(&state, &headers).await?;
     if uuid::Uuid::parse_str(&id).is_err() {
         return Err(correlate(
-            ApiError::bad_request(
+            ApiError::new(
+                StatusCode::BAD_REQUEST,
                 "FLIGHT_RECORDER_INSTANCE_INVALID",
                 "Flight Recorder requires a process-instance UUID.",
+                false,
             ),
             &resolved,
         ));
