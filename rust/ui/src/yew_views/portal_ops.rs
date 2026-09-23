@@ -592,7 +592,8 @@ fn section_tabs(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
             ("property", "Property"),
             ("website", "Website"),
             ("mls", "MLS"),
-            ("media", "Media"),
+            ("photos", "Photos"),
+            ("video", "Video"),
             ("person", "Person"),
         ],
     };
@@ -652,7 +653,8 @@ fn property_editor(
                 {field_panel(model, on_msg, "MLS-specific fields", MLS_FIELDS)}
             </div>
         },
-        "media" => media_editor(model, property, media, on_msg),
+        "photos" => media_editor(model, property, media, on_msg),
+        "video" => video_editor(property, media, on_msg),
         "person" => property_person_editor(model, property, on_msg),
         _ => html! {
             <div class="space-y-4">
@@ -803,6 +805,61 @@ fn property_person_editor(
     }
 }
 
+fn video_editor(
+    property: &PortalOpsProperty,
+    media: &[PortalOpsMediaAsset],
+    on_msg: &Callback<Msg>,
+) -> Html {
+    let videos = media
+        .iter()
+        .filter(|item| item.media_type == "video" && item.mux_playback_id.is_some())
+        .collect::<Vec<_>>();
+    let films = videos.iter().filter(|item| item.role == "video").count() as i64;
+    let shorts = videos.iter().filter(|item| item.role == "short").count() as i64;
+    let payload = serde_json::json!({
+        "propertyId": property.id,
+        "propertyName": property.name,
+        "videos": videos.iter().map(|item| {
+            serde_json::json!({
+                "id": item.id,
+                "role": item.role,
+                "caption": item.caption,
+                "muxAssetId": item.mux_asset_id,
+                "playbackId": item.mux_playback_id,
+                "durationSeconds": item.duration_seconds,
+                "aspectRatio": item.aspect_ratio,
+            })
+        }).collect::<Vec<_>>(),
+    })
+    .to_string();
+    let refresh = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::OpsVideoRefreshRequested))
+    };
+
+    html! {
+        <div class="space-y-4">
+            {section_intro(
+                "Video",
+                "Property films stream from Mux. The playback identity stays canonical in Media while the large source file lives at Mux.",
+            )}
+            <div class="grid gap-3 sm:grid-cols-3">
+                {count_card("Videos", property.video_count)}
+                {count_card("Property films", films)}
+                {count_card("Short films", shorts)}
+            </div>
+            <div
+                id="opps-video-island"
+                data-video-widget={payload}
+                class="min-h-[360px] overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/30"
+            />
+            <button id="opps-video-refresh" type="button" onclick={refresh} class="hidden" aria-hidden="true">
+                {"Refresh video"}
+            </button>
+        </div>
+    }
+}
+
 fn media_editor(
     model: &crate::model::Model,
     property: &PortalOpsProperty,
@@ -848,13 +905,13 @@ fn media_editor(
     html! {
         <div class="space-y-4">
             {section_intro(
-                "Media",
-                "Review the Property photos in-place, then add the next photo without leaving the canonical record.",
+                "Photos",
+                "Review the Property photography in-place, then add the next photo without leaving the canonical record.",
             )}
 
             <div class="grid gap-3 sm:grid-cols-3">
-                {count_card("Images", property.image_count)}
-                {count_card("Videos", property.video_count)}
+                {count_card("Photos", property.image_count)}
+                {count_card("Hero", images.iter().filter(|image| image.role == "hero").count() as i64)}
                 {count_card("Documents", property.document_count)}
             </div>
 
