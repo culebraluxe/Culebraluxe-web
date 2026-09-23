@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
-import { createRoot, type Root } from 'react-dom/client'
+import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 import { FlightRecorderPage } from '@/components/portal/tech/flight-recorder-console/FlightRecorderPage'
 import {
@@ -12,20 +12,8 @@ import type { FlightRecorderTransaction } from '@/lib/flight-recorder-contract'
 
 type Mounted = {
   target: Element
-  root: Root
   payload: string
-}
-
-function safeUnmount(root: Root) {
-  try {
-    root.unmount()
-  } catch {
-    // Yew may already have removed the slot during route teardown.
-  }
-}
-
-function deferUnmount(root: Root) {
-  queueMicrotask(() => safeUnmount(root))
+  trace: FlightRecorderTrace
 }
 
 function requestRefresh() {
@@ -52,11 +40,12 @@ function readTrace(host: Element): { raw: string; trace: FlightRecorderTrace } |
 /**
  * Rendering-only adapter for the recorder's specialized React console.
  *
- * Yew owns instance identity, loading, errors and refresh. This adapter only converts the canonical transaction snapshot
- * into the existing console projection and mounts the mature virtualization/SVG renderer into Yew's slot.
+ * Yew owns instance identity, loading, errors and refresh. The console is rendered with a React portal rather than a
+ * second React root: the DOM still lands in Yew's slot, but the component remains inside Next's React tree and therefore
+ * retains App Router context for useRouter/usePathname/useSearchParams.
  */
 export function FlightRecorderReactIsland() {
-  const mountedRef = useRef<Mounted | null>(null)
+  const [mounted, setMounted] = useState<Mounted | null>(null)
 
   useEffect(() => {
     const host = document.getElementById('rust-ui')
@@ -67,41 +56,21 @@ export function FlightRecorderReactIsland() {
     const scan = () => {
       frame = 0
       const target = host.querySelector('#flight-recorder-island')
-      const current = mountedRef.current
-
       if (!target) {
-        if (current) {
-          deferUnmount(current.root)
-          mountedRef.current = null
-        }
+        setMounted((current) => (current === null ? current : null))
         return
       }
 
       const loaded = readTrace(host)
-      if (!loaded) return
-
-      if (current && current.target === target) {
-        if (current.payload !== loaded.raw) {
-          current.payload = loaded.raw
-          current.root.render(
-            <FlightRecorderPage
-              trace={loaded.trace}
-              defaultEventId={loaded.trace.events[0]?.id}
-            />,
-          )
-        }
+      if (!loaded) {
+        setMounted((current) => (current === null ? current : null))
         return
       }
 
-      if (current) deferUnmount(current.root)
-      const root = createRoot(target)
-      mountedRef.current = { target, root, payload: loaded.raw }
-      root.render(
-        <FlightRecorderPage
-          trace={loaded.trace}
-          defaultEventId={loaded.trace.events[0]?.id}
-        />,
-      )
+      setMounted((current) => {
+        if (current?.target === target && current.payload === loaded.raw) return current
+        return { target, payload: loaded.raw, trace: loaded.trace }
+      })
     }
 
     const scheduleScan = () => {
@@ -117,7 +86,7 @@ export function FlightRecorderReactIsland() {
       characterData: true,
     })
 
-    // The console has always said "Auto Refresh · On". Yew now owns a real canonical refresh behind that promise.
+    // The console has always said "Auto Refresh · On". Yew owns the canonical refresh behind that promise.
     const refresh = window.setInterval(() => {
       if (host.querySelector('#flight-recorder-island')) requestRefresh()
     }, 30_000)
@@ -126,11 +95,16 @@ export function FlightRecorderReactIsland() {
       observer.disconnect()
       window.clearInterval(refresh)
       if (frame) window.cancelAnimationFrame(frame)
-      const current = mountedRef.current
-      mountedRef.current = null
-      if (current) deferUnmount(current.root)
     }
   }, [])
 
-  return null
+  if (!mounted) return null
+
+  return createPortal(
+    <FlightRecorderPage
+      trace={mounted.trace}
+      defaultEventId={mounted.trace.events[0]?.id}
+    />,
+    mounted.target,
+  )
 }
