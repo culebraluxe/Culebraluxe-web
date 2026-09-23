@@ -28,7 +28,11 @@ import {
   scheduleStagingBatch,
 } from '@/legacy/db/forge-batch'
 import { latestOpenForgeHold } from '@/legacy/db/forge-hold'
-import { setAgentWorkDispatchOptions, withdrawQueuedAgentWork } from '@/legacy/db/agent-work'
+import {
+  listAgentWorkForStory,
+  setAgentWorkDispatchOptions,
+  withdrawQueuedAgentWork,
+} from '@/legacy/db/agent-work'
 import { buildStoryBoardCockpit, buildStoryBoardModel } from '@/lib/storyboard-data'
 import { buildSorterCards, SORTER_COLUMNS } from '@/lib/sorter-board'
 import { ENGINE_DISPATCH_STATUS, STATUS_BY_BUCKET } from '@/lib/story-moves'
@@ -291,6 +295,16 @@ async function POSTHandler(req: NextRequest): Promise<Response> {
 
     case 'goodToGo': {
       if (!storyId) return badCommand('Missing story id.')
+      const active = (await listAgentWorkForStory(storyId)).filter((item) =>
+        ['Ready', 'Claimed', 'Running', 'Paused'].includes(item.state),
+      )
+      if (active.length > 0) {
+        return badCommand(
+          storyId + ' is already with Forge (' + active[0].state + ').',
+          409,
+        )
+      }
+
       // Same handoff as the proven sorter move: once the human gives the story to Forge, it is no longer daily intent.
       await setActiveWork(storyId, false, actorId)
       await setStoryboardStatus(storyId, ENGINE_DISPATCH_STATUS)
@@ -314,9 +328,23 @@ async function POSTHandler(req: NextRequest): Promise<Response> {
         return badCommand('Unsupported scoped stop: ' + stopAfter)
       }
 
+      const active = (await listAgentWorkForStory(storyId)).filter((item) =>
+        ['Ready', 'Claimed', 'Running', 'Paused'].includes(item.state),
+      )
+      const live = active.find((item) => ['Claimed', 'Running', 'Paused'].includes(item.state))
+      if (live) {
+        return badCommand(
+          storyId + ' is already executing (' + live.state + '); a live run cannot be re-scoped.',
+          409,
+        )
+      }
+
       // Deliberately DO NOT clear storyboard_active_work. A scoped investigation belongs to the Workbench:
       // Forge goes only as far as requested, then the operator reads the findings before deciding what happens next.
-      await setStoryboardStatus(storyId, ENGINE_DISPATCH_STATUS)
+      // A Ready item may be re-scoped before it is claimed; otherwise Ready creates the one queue item first.
+      if (!active.some((item) => item.state === 'Ready')) {
+        await setStoryboardStatus(storyId, ENGINE_DISPATCH_STATUS)
+      }
       const updated = await setAgentWorkDispatchOptions(storyId, {
         stopAfter,
         launchIntent: null,
