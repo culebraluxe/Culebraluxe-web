@@ -22,6 +22,13 @@ const ACCOUNTING_PATH: &str = "/api/portal/rust-ui/accounting";
 
 pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
     match effect {
+        Effect::TechCommand {
+            screen,
+            generation,
+            body,
+        } => {
+            run_tech_command(screen, generation, body, dispatch);
+        }
         Effect::CompleteCockpitTask {
             screen,
             generation,
@@ -260,6 +267,76 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
         }
         effect => run_read(effect, dispatch),
     }
+}
+
+fn run_tech_command(
+    screen: &'static str,
+    generation: u64,
+    body: serde_json::Value,
+    dispatch: &Callback<Msg>,
+) {
+    let dispatch = dispatch.clone();
+    spawn_local(async move {
+        let request = match Request::post(TECH_PATH)
+            .header("content-type", "application/json")
+            .body(body.to_string())
+        {
+            Ok(request) => request,
+            Err(error) => {
+                dispatch.emit(Msg::EffectFailed {
+                    screen: screen.to_string(),
+                    generation,
+                    message: format!("the TECH command could not be built: {error}"),
+                });
+                return;
+            }
+        };
+
+        let msg = match request.send().await {
+            Ok(response) => {
+                let status = response.status();
+                let text = response.text().await.unwrap_or_default();
+                let value = serde_json::from_str::<serde_json::Value>(&text).ok();
+                if status >= 200 && status < 300 {
+                    let ok = value
+                        .as_ref()
+                        .and_then(|item| item.get("ok"))
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(true);
+                    let message = value
+                        .as_ref()
+                        .and_then(|item| item.get("message"))
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("TECH command completed.")
+                        .to_string();
+                    Msg::TechCommandCompleted {
+                        screen: screen.to_string(),
+                        generation,
+                        ok,
+                        message,
+                    }
+                } else {
+                    let message = value
+                        .as_ref()
+                        .and_then(|item| item.get("error").or_else(|| item.get("message")))
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| format!("the TECH command failed with {status}"));
+                    Msg::EffectFailed {
+                        screen: screen.to_string(),
+                        generation,
+                        message,
+                    }
+                }
+            }
+            Err(error) => Msg::EffectFailed {
+                screen: screen.to_string(),
+                generation,
+                message: format!("the TECH command could not be sent: {error}"),
+            },
+        };
+        dispatch.emit(msg);
+    });
 }
 
 fn run_cockpit_command(
@@ -610,6 +687,9 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
         // which is exactly the kind of silence this file exists to avoid.
         Effect::AccountingCommand { .. } => {
             unreachable!("Accounting commands are run by `run_accounting_command`")
+        }
+        Effect::TechCommand { .. } => {
+            unreachable!("TECH commands are run by `run_tech_command`")
         }
         Effect::FetchTech {
             screen,
