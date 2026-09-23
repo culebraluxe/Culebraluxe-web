@@ -20,6 +20,7 @@ pub fn is_ported_portal_screen(key: &str) -> bool {
         "dashboard"
             | "tech"
             | "trace-record"
+            | "tech-flight-recorder"
             | "cabinet"
             | "activity"
             | "workflows"
