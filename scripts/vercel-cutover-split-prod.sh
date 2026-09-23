@@ -168,10 +168,16 @@ printf '  production environment copied to Rust project\n'
 # Production needs to be reachable from the Next frontend without Vercel login interposition.
 cat >"$TMP_DIR/rust-project-public.json" <<'JSON'
 {
-  "ssoProtection": null
+  "ssoProtection": null,
+  "passwordProtection": null,
+  "trustedIps": null
 }
 JSON
 vc api "/v9/projects/${RUST_PROJECT_ID}?teamId=${TEAM_ID}" -X PATCH --input "$TMP_DIR/rust-project-public.json" >/dev/null
+# Belt-and-suspenders: use the current CLI protection command too. Ignore individual
+# toggles that are already disabled or unavailable on the current plan.
+vc project protection disable "$RUST_PROJECT_NAME" --sso >/dev/null 2>&1 || true
+vc project protection disable "$RUST_PROJECT_NAME" --password >/dev/null 2>&1 || true
 
 printf 'Deploying the already-built Rust image as a normal Vercel container project...\n'
 set +e
@@ -191,25 +197,42 @@ if [[ "$RUST_DEPLOY_STATUS" -ne 0 ]]; then
 fi
 printf '%s\n' "$RUST_DEPLOY_OUTPUT"
 
-RUST_DEPLOY_URL="$(printf '%s\n' "$RUST_DEPLOY_OUTPUT" | grep -Eo 'https://[A-Za-z0-9._-]+\.vercel\.app' | tail -1 || true)"
+RUST_DEPLOY_URL="$(printf '%s\n' "$RUST_DEPLOY_OUTPUT" | grep -Eo 'https://[A-Za-z0-9._-]+\.vercel\.app' | head -1 || true)"
 [[ -n "$RUST_DEPLOY_URL" ]] || fail "Rust deployment completed without a deployment URL."
 
-printf 'Waiting for Rust readiness on PROD Neon...\n'
+# Use the PROJECT'S STABLE PRODUCTION ALIAS for the application contract. Deployment-specific
+# URLs can be protected independently and change on every deploy; the stable alias does neither.
+RUST_PROD_URL="https://${RUST_PROJECT_NAME}.vercel.app"
+
+printf 'Waiting for Rust readiness on PROD Neon at %s...\n' "$RUST_PROD_URL"
 READY=""
-for attempt in $(seq 1 18); do
-  READY="$(curl -fsS -L --max-time 15 "${RUST_DEPLOY_URL%/}/readyz" 2>/dev/null || true)"
-  if printf '%s' "$READY" | grep -q '"ok":true' && printf '%s' "$READY" | grep -q '"databaseTarget":"prod"'; then
+HTTP_STATUS=""
+for attempt in $(seq 1 12); do
+  BODY_FILE="$TMP_DIR/ready-body"
+  HTTP_STATUS="$(curl -sS -L --max-time 20 -o "$BODY_FILE" -w '%{http_code}' "${RUST_PROD_URL%/}/readyz" 2>"$TMP_DIR/ready-stderr" || true)"
+  READY="$(cat "$BODY_FILE" 2>/dev/null || true)"
+  if [[ "$HTTP_STATUS" == "200" ]] && printf '%s' "$READY" | grep -q '"ok":true' && printf '%s' "$READY" | grep -q '"databaseTarget":"prod"'; then
     break
   fi
-  printf '  waiting for Rust API... (%s/18)\n' "$attempt"
+  printf '  waiting for Rust API... (%s/12, HTTP %s)\n' "$attempt" "${HTTP_STATUS:-000}"
   sleep 5
 done
-printf '%s' "$READY" | grep -q '"ok":true' || fail "Rust API did not become ready: ${READY:-no response}"
+if [[ "$HTTP_STATUS" != "200" ]] || ! printf '%s' "$READY" | grep -q '"ok":true'; then
+  printf '\nRust readiness diagnostics:\n' >&2
+  printf '  URL:    %s/readyz\n' "${RUST_PROD_URL%/}" >&2
+  printf '  HTTP:   %s\n' "${HTTP_STATUS:-000}" >&2
+  printf '  body:   %s\n' "${READY:-<empty>}" >&2
+  printf '  curl:   %s\n' "$(cat "$TMP_DIR/ready-stderr" 2>/dev/null || true)" >&2
+  printf '\nRecent Vercel logs:\n' >&2
+  VERCEL_ORG_ID="$TEAM_ID" VERCEL_PROJECT_ID="$RUST_PROJECT_ID" \
+    vc logs "$RUST_PROD_URL" --since 15m 2>&1 | tail -80 >&2 || true
+  fail "Rust API deployment is Ready in Vercel but its stable production alias is not healthy."
+fi
 printf '%s' "$READY" | grep -q '"databaseTarget":"prod"' || fail "Rust API is not pointed at PROD: $READY"
 printf '  Rust ready: %s\n' "$READY"
 
-printf 'Pointing frontend production at %s...\n' "$RUST_DEPLOY_URL"
-node - "$RUST_DEPLOY_URL" "$TMP_DIR/frontend-rust-url.json" <<'NODE'
+printf 'Pointing frontend production at %s...\n' "$RUST_PROD_URL"
+node - "$RUST_PROD_URL" "$TMP_DIR/frontend-rust-url.json" <<'NODE'
 const fs = require('fs')
 const value = process.argv[2]
 const outputPath = process.argv[3]
