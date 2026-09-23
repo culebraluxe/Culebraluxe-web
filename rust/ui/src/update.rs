@@ -1387,6 +1387,9 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             }
             model.controls.query.clear();
             model.controls.page = 0;
+            // Creation is asking for a new selection. Holding the old id here would make the response ownership guard
+            // correctly reject the newly-created record as an answer to a different selection.
+            model.selected_row_id = None;
             model.loading = true;
             model.error = None;
             vec![Effect::CreateOpsProperty {
