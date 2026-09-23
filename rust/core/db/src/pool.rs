@@ -72,13 +72,20 @@ impl Database {
         // If prepared statements ever do start failing on this endpoint, the symptom will be loud ("prepared statement
         // does not exist", SQLSTATE 26000) and this is the line to revisit. Until then the cache stays on.
 
-        let max_connections = positive_u32("FORGE_DB_POOL_MAX", 5);
+        // Production serves the whole portal through one long-lived Rust service. Several screens issue
+        // independent reads in parallel (Cockpit alone has ten projections), so the old max=5 caused real
+        // requests to queue behind connection creation while readiness still looked healthy on its single
+        // warm connection. Keep DEV conservative, but size PROD for the concurrency the service actually has.
+        let default_max_connections = if target == DbTarget::Prod { 12 } else { 5 };
+        let max_connections = positive_u32("FORGE_DB_POOL_MAX", default_max_connections);
         // KEEP ONE CONNECTION WARM. Without a floor the pool holds nothing when idle, so the next request pays a full
         // connect: measured at 498ms for the handshake plus authentication, against ~72ms for a round trip on a
         // connection that is already open. That is the difference between a page feeling instant and feeling slow, and
         // it hit the engine hardest because engine commands are far apart in time. `FORGE_DB_POOL_MIN=0` restores the
         // old hold-nothing behaviour, which is what tests want.
-        let min_connections = non_negative_u32("FORGE_DB_POOL_MIN", 1);
+        let default_min_connections = if target == DbTarget::Prod { 3 } else { 1 };
+        let min_connections = non_negative_u32("FORGE_DB_POOL_MIN", default_min_connections)
+            .min(max_connections);
         // `idle_timeout` only reclaims connections ABOVE the floor. 10s was aggressive enough that a burst of activity
         // followed by a pause re-established everything; 60s keeps a working set without holding connections forever.
         // The floor is what guarantees warmth, this is only about not churning the rest.
