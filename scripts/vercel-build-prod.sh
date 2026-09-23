@@ -31,6 +31,16 @@ export VERCEL_PROJECT_ID
 # happens to inherit from the host.
 export DOCKER_DEFAULT_PLATFORM="${DOCKER_DEFAULT_PLATFORM:-linux/amd64}"
 
+printf '\nChecking Rust production lockfile before the expensive frontend/container build...\n'
+if ! docker run --rm \
+  --platform "$DOCKER_DEFAULT_PLATFORM" \
+  -v "$ROOT_DIR/rust:/work:ro" \
+  -w /work \
+  rust:1.94-bookworm \
+  cargo metadata --locked --format-version 1 >/dev/null 2>&1; then
+  fail "rust/Cargo.lock is stale. Restore/regenerate it with Rust 1.94, commit it, then rerun."
+fi
+
 printf '\nCulebraLuxe local production build\n'
 printf '  commit:  %s\n' "$(git rev-parse --short HEAD)"
 printf '  node:    %s\n' "$(node --version)"
