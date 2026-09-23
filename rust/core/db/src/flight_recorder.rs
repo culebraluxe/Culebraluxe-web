@@ -215,7 +215,7 @@ impl FlightRecorderDao {
                 select pi.id::text
                 from process_instances pi
                 where pi.subject_type = 'deal'
-                  and pi.subject_id = $1
+                  and pi.subject_id::text = $1
                 order by pi.started_at desc
                 limit $2
                 "#,
@@ -235,7 +235,7 @@ impl FlightRecorderDao {
                 select count(*)::bigint
                 from process_instances
                 where subject_type = 'deal'
-                  and subject_id = $1
+                  and subject_id::text = $1
                 "#,
             )
             .bind(deal_id)
@@ -256,20 +256,20 @@ impl FlightRecorderDao {
                   occurred_at,
                   duration_ms::bigint as duration_ms,
                   outcome,
-                  trace_id,
-                  correlation_id,
-                  causation_id,
-                  workflow_instance_id,
-                  workflow_node_id,
-                  command_id,
-                  domain_event_id,
-                  transaction_document_id,
-                  signature_request_id,
+                  trace_id::text as trace_id,
+                  correlation_id::text as correlation_id,
+                  causation_id::text as causation_id,
+                  workflow_instance_id::text as workflow_instance_id,
+                  workflow_node_id::text as workflow_node_id,
+                  command_id::text as command_id,
+                  domain_event_id::text as domain_event_id,
+                  transaction_document_id::text as transaction_document_id,
+                  signature_request_id::text as signature_request_id,
                   summary,
                   metadata,
-                  source_event_id
+                  source_event_id::text as source_event_id
                 from workflow_execution_trace_event
-                where workflow_instance_id = $1
+                where workflow_instance_id::text = $1
                 order by occurred_at asc
                 limit $2
                 "#,
@@ -294,8 +294,9 @@ impl FlightRecorderDao {
                 "#,
             )
             .bind(deal_id)
-            .fetch_one(self.db.pool())
+            .fetch_optional(self.db.pool())
             .await
+            .map(|value| value.flatten())
             .map_err(|error| DbFailure::from_sqlx("flight_recorder.property", &error))
         })
     }
