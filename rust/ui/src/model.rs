@@ -2510,6 +2510,8 @@ pub enum Effect {
         entity: String,
         id: String,
         fields: BTreeMap<String, String>,
+        search: String,
+        page: usize,
         generation: u64,
     },
     /// Property is the first entity with create enabled in the universal shell.
