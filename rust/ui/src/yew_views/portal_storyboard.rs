@@ -1,14 +1,13 @@
-//! /portal/storyboard — read-only TECH snapshot of the authoritative story backlog.
+//! /portal/storyboard — native Yew rendering of the canonical Story Board cockpit.
 //!
-//! The data contract is deliberately the existing storyboard rows projection. This screen does not edit stories,
-//! dispatch Forge, or reproduce the old TypeScript board controls; those are separate concerns. Yew owns the route,
-//! state and rendering, and each row links to the already-existing story record.
-
-use std::collections::BTreeMap;
+//! Lifecycle classification and subgroup taxonomy are NOT reimplemented here. The authenticated portal read seam
+//! reuses the legacy TypeScript projection that powers PROD and sends this component a small typed display payload.
 
 use yew::prelude::*;
 
-use crate::model::{Msg, Row};
+use crate::model::{
+    Msg, PortalStoryboardPage, PortalStoryboardPanel, PortalStoryboardStory,
+};
 use crate::yew_views::portal_shell::PortalShell;
 
 #[derive(Properties, PartialEq)]
@@ -38,173 +37,243 @@ impl Component for Storyboard {
     }
 }
 
+fn payload(model: &crate::model::Model) -> Option<&PortalStoryboardPage> {
+    model
+        .page
+        .as_ref()
+        .and_then(|page| page.portal.as_ref())
+        .and_then(|portal| portal.storyboard.as_ref())
+}
+
 fn storyboard(model: &crate::model::Model) -> Html {
-    if model.loading && model.rows.is_empty() {
+    let Some(data) = payload(model) else {
         return html! {
-            <section class="portal-glass-panel rounded-[var(--portal-panel-radius)] p-6">
-                <p class="text-sm font-light text-black/45">{"Loading Story Board…"}</p>
+            <section class="portal-glass-panel rounded-[var(--portal-panel-radius)] px-8 py-12 text-center">
+                <h1 class="font-serif text-2xl font-light text-[var(--portal-navy)]">
+                    { if model.loading { "Loading Story Board…" } else { "Story Board storage not ready" } }
+                </h1>
+                if !model.loading {
+                    <p class="mx-auto mt-3 max-w-xl text-sm font-light leading-6 text-black/50">
+                        {"The canonical Story Board projection returned no cockpit payload."}
+                    </p>
+                }
             </section>
         };
-    }
-
-    let counts = status_counts(&model.rows);
-    let complete = count(&counts, "Complete");
-    let active = count(&counts, "In Progress") + count(&counts, "Partial");
-    let ready = count(&counts, "Ready") + count(&counts, "Batched");
-    let attention = count(&counts, "Blocked") + count(&counts, "Failed") + count(&counts, "Hold");
+    };
 
     html! {
         <div class="flex flex-col gap-4">
-            <header class="portal-glass-panel rounded-[var(--portal-panel-radius)] p-5">
-                <p class="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--portal-gold)]">
-                    {"TECH · Authoritative backlog"}
-                </p>
-                <div class="mt-1 flex flex-wrap items-end justify-between gap-3">
-                    <div>
-                        <h1 class="font-serif text-3xl font-light text-[var(--portal-navy)]">{"Story Board"}</h1>
-                        <p class="mt-2 max-w-3xl text-sm font-light leading-6 text-black/55">
-                            {"A read-only snapshot of the stories in the engineering backlog. Status, priority, batch and operating surface come directly from the stored story record."}
-                        </p>
-                    </div>
-                    <span class="rounded-full border border-[var(--portal-gold)]/45 bg-[var(--portal-gold-pale)] px-3 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--portal-gold-muted)]">
-                        { format!("{} stories", model.rows.len()) }
-                    </span>
-                </div>
-            </header>
-
-            { summary(model.rows.len(), complete, active, ready, attention) }
-
-            <section class="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
-                <div class="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--portal-panel-border)] px-5 py-4">
-                    <div>
-                        <h2 class="font-serif text-xl font-light text-[var(--portal-panel-heading)]">{"Stories"}</h2>
-                        <p class="mt-0.5 text-[10px] font-light text-black/40">
-                            {"Open a story for its full execution specification and history."}
-                        </p>
-                    </div>
-                    if model.loading {
-                        <span class="text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--portal-blue-gray)]">
-                            {"Refreshing…"}
-                        </span>
-                    }
-                </div>
-
-                if model.rows.is_empty() {
-                    <div class="px-5 py-10 text-center text-sm font-light text-black/40">
-                        {"No stories are available."}
-                    </div>
-                } else {
-                    <div class="overflow-x-auto">
-                        <table class="w-full min-w-[900px] text-left">
-                            <thead>
-                                <tr class="border-b border-[var(--portal-border)] bg-white/20 text-[9px] font-medium uppercase tracking-[0.14em] text-[var(--portal-blue-gray)]">
-                                    <th class="px-5 py-2.5">{"Story"}</th>
-                                    <th class="px-4 py-2.5">{"Workstream"}</th>
-                                    <th class="px-4 py-2.5">{"Surface"}</th>
-                                    <th class="px-4 py-2.5">{"Priority"}</th>
-                                    <th class="px-4 py-2.5">{"Batch"}</th>
-                                    <th class="px-4 py-2.5 text-right">{"Completion"}</th>
-                                    <th class="px-5 py-2.5 text-right">{"Status"}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                { for model.rows.iter().map(story_row) }
-                            </tbody>
-                        </table>
-                    </div>
-                }
-            </section>
+            { kpis(data) }
+            <div class="grid gap-4 lg:grid-cols-2">
+                { lifecycle_panel(&data.panels.open, "Current work queue", "Open", false, true) }
+                { lifecycle_panel(&data.panels.backlog, "Current-version waiting", "Backlog", false, false) }
+                { lifecycle_panel(&data.panels.closed, "Finished history", "Closed", true, false) }
+                { lifecycle_panel(&data.panels.next_version, "Intentionally future", "Next Version", false, false) }
+            </div>
         </div>
     }
 }
 
-fn summary(total: usize, complete: usize, active: usize, ready: usize, attention: usize) -> Html {
-    let metrics = [
-        ("Total", total, false),
-        ("Complete", complete, false),
-        ("Active", active, false),
-        ("Ready / Batched", ready, false),
-        ("Needs attention", attention, attention > 0),
-    ];
+fn kpis(data: &PortalStoryboardPage) -> Html {
+    html! {
+        <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            { kpi_card("Total stories", data.kpis.total.to_string(), "All canonical board rows", false) }
+            { kpi_card("Open", data.kpis.open.to_string(), "Current work queue", true) }
+            { kpi_card("Backlog", data.kpis.backlog.to_string(), "Current-version planned", false) }
+            { kpi_card("Blocked / Hold", data.kpis.blocked_hold.to_string(), "Attention required", true) }
+            { kpi_card("Complete", data.kpis.complete.to_string(), "Finished history", false) }
+            { kpi_card(
+                "Completion",
+                format!("{:.1}%", data.kpis.completion_percent),
+                "Net-net of the five domains",
+                false,
+            ) }
+        </div>
+    }
+}
+
+fn kpi_card(label: &'static str, value: String, note: &'static str, dark: bool) -> Html {
+    let surface = if dark {
+        "portal-glass-panel-feature"
+    } else {
+        "border border-[var(--portal-panel-border)] bg-white shadow-[var(--portal-panel-shadow)]"
+    };
+    let eyebrow = if dark {
+        "text-[var(--portal-feature-eyebrow)]"
+    } else {
+        "text-[var(--portal-blue-gray)]"
+    };
+    let value_tone = if dark {
+        "text-white"
+    } else {
+        "text-[var(--portal-navy)]"
+    };
+    let note_tone = if dark { "text-white/55" } else { "text-black/40" };
 
     html! {
-        <section class="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
-            <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5">
-                { for metrics.into_iter().map(|(label, value, alert)| html! {
-                    <div class="border-b border-r border-[var(--portal-border)] px-4 py-3 last:border-r-0 xl:border-b-0">
-                        <p class="text-[9px] font-medium uppercase tracking-[0.14em] text-[var(--portal-blue-gray)]">{ label }</p>
-                        <p class={classes!(
-                            "mt-1", "font-serif", "text-2xl", "font-light",
-                            if alert { "text-[var(--portal-archive)]" } else { "text-[var(--portal-navy)]" }
-                        )}>{ value }</p>
+        <section class={classes!("rounded-[var(--portal-panel-radius)]", "p-3", surface)}>
+            <p class={classes!("text-[9px]", "font-light", "uppercase", "tracking-[0.18em]", eyebrow)}>
+                { label }
+            </p>
+            <p class={classes!("mt-1.5", "font-serif", "text-2xl", "font-light", "leading-none", "tabular-nums", value_tone)}>
+                { value }
+            </p>
+            <p class={classes!("mt-1", "text-[10px]", "font-light", "leading-4", note_tone)}>
+                { note }
+            </p>
+        </section>
+    }
+}
+
+fn lifecycle_panel(
+    panel: &PortalStoryboardPanel,
+    eyebrow: &'static str,
+    title: &'static str,
+    subdued: bool,
+    attention: bool,
+) -> Html {
+    let surface = if attention {
+        "portal-glass-panel-attention"
+    } else {
+        "portal-glass-panel"
+    };
+
+    html! {
+        <section class={classes!(
+            "flex", "h-[21rem]", "flex-col", "overflow-hidden",
+            "rounded-[var(--portal-panel-radius)]", surface,
+            subdued.then_some("opacity-80")
+        )}>
+            <header class="flex items-baseline justify-between gap-3 border-b border-[var(--portal-border)] px-4 py-3">
+                <div>
+                    <p class="text-[9px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
+                        { eyebrow }
+                    </p>
+                    <h2 class={classes!(
+                        "mt-0.5", "font-serif", "text-lg", "font-semibold", "leading-none",
+                        if subdued { "text-black/55" } else { "text-[var(--portal-navy)]" }
+                    )}>
+                        { title }
+                    </h2>
+                </div>
+                <span class={classes!(
+                    "rounded-full", "px-2.5", "py-0.5", "font-serif", "text-sm", "font-light", "tabular-nums",
+                    if attention {
+                        "bg-[var(--portal-gold-pale)] text-[var(--portal-gold-muted)]"
+                    } else {
+                        "border border-[var(--portal-border)] text-black/50"
+                    }
+                )}>
+                    { panel.count }
+                </span>
+            </header>
+
+            <div class="min-h-0 flex-1 overflow-y-auto p-2.5">
+                if panel.groups.is_empty() {
+                    <p class="px-3 py-8 text-center text-xs font-light italic text-black/35">
+                        { format!("No {} stories right now.", title.to_lowercase()) }
+                    </p>
+                } else {
+                    <div class="space-y-3">
+                        { for panel.groups.iter().map(|group| html! {
+                            <section>
+                                <h3 class={classes!(
+                                    "mb-1.5", "px-1", "text-[9px]", "font-semibold", "uppercase", "tracking-[0.18em]",
+                                    if subdued { "text-black/30" } else { "text-[var(--portal-navy-soft)]" }
+                                )}>
+                                    { group.group.clone() }
+                                </h3>
+                                <div class="space-y-1.5">
+                                    { for group.stories.iter().map(|story| story_card(story, subdued)) }
+                                </div>
+                            </section>
+                        }) }
                     </div>
-                }) }
+                }
             </div>
         </section>
     }
 }
 
-fn story_row(row: &Row) -> Html {
-    let title = cell(row, 0);
-    let workstream = cell(row, 1);
-    let priority = cell(row, 2);
-    let batch = cell(row, 3);
-    let surface = cell(row, 4);
-    let completion = cell(row, 5);
-    let status = row.badge.as_deref().unwrap_or("Unknown");
-    let href = format!("/portal/storyboard/{}", row.id);
+fn story_card(story: &PortalStoryboardStory, subdued: bool) -> Html {
+    let href = format!("/portal/storyboard/{}", story.id);
+    let completion = story.completion.clamp(0.0, 100.0);
 
     html! {
-        <tr class="border-b border-[var(--portal-border)] last:border-b-0 transition hover:bg-white/25">
-            <td class="px-5 py-3">
-                <a href={href} class="block">
-                    <span class="font-mono text-[11px] text-[var(--portal-navy-soft)]">{ row.id.clone() }</span>
-                    <span class="mt-0.5 block max-w-[520px] text-sm font-medium text-[var(--portal-navy)]">{ title }</span>
-                </a>
-            </td>
-            <td class="px-4 py-3 text-xs font-light text-black/55">{ workstream }</td>
-            <td class="px-4 py-3">
-                <span class="rounded-full border border-[var(--portal-border)] bg-white/35 px-2 py-1 text-[9px] font-medium uppercase tracking-[0.1em] text-[var(--portal-navy-soft)]">
-                    { surface }
+        <a
+            href={href}
+            class={classes!(
+                "group", "block", "rounded-md", "border", "px-2.5", "py-1.5", "transition",
+                if subdued {
+                    "border-black/5 bg-black/[0.02]"
+                } else {
+                    "border-[var(--portal-border)] bg-white/60 hover:border-[var(--portal-gold)]/50"
+                }
+            )}
+        >
+            <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                    <p class={classes!(
+                        "font-mono", "text-[11px]",
+                        if subdued { "text-black/35" } else { "text-[var(--portal-navy)]" }
+                    )}>
+                        { story.id.clone() }
+                    </p>
+                    <p class={classes!(
+                        "mt-0.5", "line-clamp-2", "text-sm", "font-light", "leading-5",
+                        if subdued { "text-black/45" } else { "text-black/70" }
+                    )}>
+                        { story.title.clone() }
+                    </p>
+                </div>
+                { status_badge(&story.status, subdued) }
+            </div>
+            <div class="mt-2 flex items-center justify-between gap-3">
+                <span class={classes!(
+                    "text-[10px]", "font-light", "uppercase", "tracking-[0.12em]",
+                    if subdued { "text-black/30" } else { "text-black/40" }
+                )}>
+                    { story.priority.clone() }
                 </span>
-            </td>
-            <td class="px-4 py-3 text-xs font-light text-black/55">{ priority }</td>
-            <td class="px-4 py-3 text-xs font-light text-black/45">{ batch }</td>
-            <td class="px-4 py-3 text-right font-serif text-base font-light text-[var(--portal-navy)]">{ completion }</td>
-            <td class="px-5 py-3 text-right">{ status_badge(status) }</td>
-        </tr>
+                <div class="flex min-w-24 items-center gap-2">
+                    <div class="h-1 flex-1 overflow-hidden rounded-full bg-black/10">
+                        <div
+                            class={classes!(
+                                "h-full", "rounded-full",
+                                if subdued { "bg-black/25" } else { "bg-[var(--portal-navy)]" }
+                            )}
+                            style={format!("width: {completion:.0}%;")}
+                        />
+                    </div>
+                    <span class={classes!(
+                        "text-[10px]", "font-light", "tabular-nums",
+                        if subdued { "text-black/30" } else { "text-black/50" }
+                    )}>
+                        { format!("{completion:.0}%") }
+                    </span>
+                </div>
+            </div>
+        </a>
     }
 }
 
-fn cell(row: &Row, index: usize) -> String {
-    row.cells.get(index).cloned().unwrap_or_else(|| "—".into())
-}
-
-fn status_counts(rows: &[Row]) -> BTreeMap<String, usize> {
-    let mut counts = BTreeMap::new();
-    for row in rows {
-        let status = row.badge.as_deref().unwrap_or("Unknown").to_string();
-        *counts.entry(status).or_insert(0) += 1;
-    }
-    counts
-}
-
-fn count(counts: &BTreeMap<String, usize>, status: &str) -> usize {
-    counts.get(status).copied().unwrap_or(0)
-}
-
-fn status_badge(status: &str) -> Html {
-    let tone = match status {
-        "Complete" => "bg-[var(--portal-success-pale)] text-[var(--portal-success)]",
-        "In Progress" | "Partial" => "bg-[var(--portal-blue-pale)] text-[var(--portal-navy-soft)]",
-        "Ready" | "Batched" => "bg-[var(--portal-gold-pale)] text-[var(--portal-gold-muted)]",
-        "Blocked" | "Failed" | "Hold" => "bg-[var(--portal-archive-pale)] text-[var(--portal-archive)]",
-        _ => "bg-[var(--portal-neutral-pale)] text-[var(--portal-neutral)]",
+fn status_badge(status: &str, subdued: bool) -> Html {
+    let tone = if subdued {
+        "border border-black/10 text-black/35"
+    } else {
+        match status {
+            "Complete" => "bg-[var(--portal-success-pale)] text-[var(--portal-success)]",
+            "In Progress" | "Partial" => "bg-[var(--portal-blue-pale)] text-[var(--portal-navy-soft)]",
+            "Ready" | "Batched" => "bg-[var(--portal-gold-pale)] text-[var(--portal-gold-muted)]",
+            "Blocked" | "Failed" | "Hold" => "bg-[var(--portal-archive-pale)] text-[var(--portal-archive)]",
+            _ => "bg-[var(--portal-neutral-pale)] text-[var(--portal-neutral)]",
+        }
     };
+
     html! {
         <span class={classes!(
-            "inline-flex", "whitespace-nowrap", "rounded-full", "px-2.5", "py-1",
-            "text-[9px]", "font-medium", "uppercase", "tracking-[0.12em]", tone
+            "inline-block", "shrink-0", "whitespace-nowrap", "rounded-full",
+            "px-2.5", "py-1", "text-[10px]", "font-light", "uppercase", "tracking-[0.14em]", tone
         )}>
             { status }
         </span>
@@ -215,45 +284,9 @@ fn status_badge(status: &str) -> Html {
 mod tests {
     use super::*;
 
-    fn story(id: &str, status: &str) -> Row {
-        Row {
-            id: id.into(),
-            cells: vec![
-                format!("Story {id}"),
-                "HARDEN".into(),
-                "High".into(),
-                "no batch".into(),
-                "TECH".into(),
-                "42%".into(),
-            ],
-            badge: Some(status.into()),
-        }
-    }
-
     #[test]
-    fn snapshot_counts_status_without_inventing_story_state() {
-        let rows = vec![
-            story("A", "Complete"),
-            story("B", "In Progress"),
-            story("C", "Ready"),
-            story("D", "Blocked"),
-        ];
-        let counts = status_counts(&rows);
-        assert_eq!(count(&counts, "Complete"), 1);
-        assert_eq!(count(&counts, "In Progress"), 1);
-        assert_eq!(count(&counts, "Ready"), 1);
-        assert_eq!(count(&counts, "Blocked"), 1);
-        assert_eq!(count(&counts, "Unknown"), 0);
-    }
-
-    #[test]
-    fn missing_optional_cells_render_as_dash() {
-        let row = Row {
-            id: "A".into(),
-            cells: vec!["Title".into()],
-            badge: None,
-        };
-        assert_eq!(cell(&row, 0), "Title");
-        assert_eq!(cell(&row, 4), "—");
+    fn completion_is_clamped_for_progress_bars() {
+        assert_eq!(120.0_f64.clamp(0.0, 100.0), 100.0);
+        assert_eq!((-5.0_f64).clamp(0.0, 100.0), 0.0);
     }
 }
