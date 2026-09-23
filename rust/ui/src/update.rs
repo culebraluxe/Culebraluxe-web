@@ -450,6 +450,7 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
     model.selected_row_id = None;
     // The previous screen's blocks go with its rows: a page that has not loaded must not show the last one's hero.
     model.page = None;
+    model.property_media = crate::model::PropertyMediaState::default();
     // Controls are the screen's own input and live their own life: a filter typed on Clients must not follow the user
     // to Deals and silently narrow a list they never filtered.
     model.controls = Controls::default();
@@ -649,6 +650,23 @@ where
     projects.work_dirty = true;
     model.error = None;
     Vec::new()
+}
+
+/// Number of photos in the same canonical order the property viewer renders:
+/// hero first, followed by gallery entries with the duplicated hero removed once.
+fn property_media_total(model: &Model) -> usize {
+    let Some(record) = model.page.as_ref().and_then(|page| page.property.as_ref()) else {
+        return 0;
+    };
+    let Some(hero) = record.hero_url.as_deref() else {
+        return record.gallery.len();
+    };
+    let duplicated = record
+        .gallery
+        .iter()
+        .filter_map(|item| item.src())
+        .any(|src| src == hero);
+    1 + record.gallery.len().saturating_sub(usize::from(duplicated))
 }
 
 /// Apply one intent. Returns the effects the host must run.
@@ -1274,9 +1292,63 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             model.loading = false;
             model.error = None;
             model.page = Some(page);
+            if model.screen.key == "site-property-detail" {
+                model.property_media = crate::model::PropertyMediaState::default();
+            }
             Vec::new()
         }
 
+        // ---- Public property media --------------------------------------------------------------------------------
+        Msg::PropertyMediaSelected(index) => {
+            let total = property_media_total(model);
+            if model.screen.key == "site-property-detail" && index < total {
+                model.property_media.active_index = index;
+            }
+            Vec::new()
+        }
+        Msg::PropertyMediaPrevious => {
+            let total = property_media_total(model);
+            if model.screen.key == "site-property-detail" && total > 1 {
+                model.property_media.active_index =
+                    (model.property_media.active_index + total - 1) % total;
+            }
+            Vec::new()
+        }
+        Msg::PropertyMediaNext => {
+            let total = property_media_total(model);
+            if model.screen.key == "site-property-detail" && total > 1 {
+                model.property_media.active_index =
+                    (model.property_media.active_index + 1) % total;
+            }
+            Vec::new()
+        }
+        Msg::PropertyLightboxOpened(index) => {
+            let total = property_media_total(model);
+            if model.screen.key == "site-property-detail" && total > 0 {
+                model.property_media.lightbox_index = index % total;
+                model.property_media.lightbox_open = true;
+            }
+            Vec::new()
+        }
+        Msg::PropertyLightboxClosed => {
+            if model.screen.key == "site-property-detail" {
+                model.property_media.lightbox_open = false;
+            }
+            Vec::new()
+        }
+        Msg::PropertyLightboxMoved(delta) => {
+            let total = property_media_total(model);
+            if model.screen.key == "site-property-detail"
+                && model.property_media.lightbox_open
+                && total > 1
+            {
+                let current = model.property_media.lightbox_index as i64;
+                let total = total as i64;
+                model.property_media.lightbox_index =
+                    (current + delta as i64).rem_euclid(total) as usize;
+            }
+            Vec::new()
+        }
 
         // ---- OPPS / universal Data Workbench ---------------------------------------------------------------------
         Msg::OpsEntitySelected(entity) => {
