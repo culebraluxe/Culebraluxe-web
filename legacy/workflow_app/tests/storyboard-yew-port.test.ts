@@ -11,42 +11,57 @@ test('STORYBOARD YEW: route mounts the Portal Yew app directly', async () => {
   assert.ok(!page.includes('RustUiHost'), 'Story Board must not fall back to the legacy generic host')
 })
 
-test('STORYBOARD YEW: snapshot is native Yew with no React island or write controls', async () => {
+test('STORYBOARD YEW: canonical TypeScript cockpit projection is the read seam', async () => {
+  const route = await read('../../../app/api/portal/rust-ui/page/route.ts')
+  assert.match(route, /case 'storyboard'/)
+  assert.match(route, /listStoryboardStories/)
+  assert.match(route, /buildStoryBoardModel/)
+  assert.match(route, /buildStoryBoardCockpit/)
+  assert.match(route, /open: panel\('open'\)/)
+  assert.match(route, /backlog: panel\('backlog'\)/)
+  assert.match(route, /closed: panel\('closed'\)/)
+  assert.match(route, /nextVersion: panel\('next-version'\)/)
+})
+
+test('STORYBOARD YEW: native view renders the six KPIs and four lifecycle panels', async () => {
   const view = await read('../../../rust/ui/src/yew_views/portal_storyboard.rs')
-  const host = await read('../../../components/rust-ui/portal-yew-app.tsx')
-
-  assert.match(view, /PortalShell/)
-  assert.match(view, /Authoritative backlog/)
-  assert.match(view, /Completion/)
+  for (const label of [
+    'Total stories',
+    'Open',
+    'Backlog',
+    'Blocked / Hold',
+    'Complete',
+    'Completion',
+    'Current work queue',
+    'Current-version waiting',
+    'Finished history',
+    'Intentionally future',
+    'Next Version',
+  ]) {
+    assert.ok(view.includes(label), `${label} is rendered by Yew`)
+  }
+  assert.match(view, /PortalStoryboardPage/)
   assert.match(view, /\/portal\/storyboard\//)
-  assert.ok(!view.includes('<button'), 'snapshot has no command buttons')
-  assert.ok(!view.includes('onclick='), 'snapshot has no write/control click handlers')
-
-  assert.ok(
-    !host.includes("screen === 'storyboard' ?"),
-    'Story Board must not require a React rendering island',
-  )
+  assert.ok(!view.includes('<button'), 'read-only cockpit has no command buttons')
+  assert.ok(!view.includes('onclick='), 'read-only cockpit has no write click handlers')
 })
 
-test('STORYBOARD YEW: row contract includes stored completion', async () => {
-  const route = await read('../../../app/api/portal/rust-ui/rows/route.ts')
-  const start = route.indexOf('function storyboardRows')
-  assert.notEqual(start, -1)
-  const body = route.slice(start, start + 900)
-  assert.match(body, /story\.completion/)
-  assert.match(body, /badge: story\.status/)
-})
-
-
-test('STORYBOARD YEW: runtime mount guard accepts row-backed Yew screens', async () => {
+test('STORYBOARD YEW: typed portal fetch and runtime mount admission agree', async () => {
   const update = await read('../../../rust/ui/src/update.rs')
   const portal = await read('../../../rust/ui/src/yew_portal.rs')
+  const model = await read('../../../rust/ui/src/model.rs')
 
+  assert.match(update, /"storyboard"/)
   assert.match(update, /pub fn has_yew_portal_component/)
-  assert.match(update, /is_ported_portal_screen\(key\) \|\| key == "storyboard"/)
   assert.match(portal, /has_yew_portal_component\(screen\.key\)/)
+  assert.match(model, /pub storyboard: Option<PortalStoryboardPage>/)
+  assert.match(model, /pub struct PortalStoryboardPanels/)
+})
+
+test('STORYBOARD YEW: no React rendering island is required', async () => {
+  const host = await read('../../../components/rust-ui/portal-yew-app.tsx')
   assert.ok(
-    !portal.includes('if !crate::update::is_ported_portal_screen(screen.key)'),
-    'mountability must not be coupled to typed PortalPage DTO usage',
+    !host.includes("screen === 'storyboard' ?"),
+    'Story Board is rendered natively by Yew, not a React island',
   )
 })
