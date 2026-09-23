@@ -8,7 +8,7 @@ import {
   adaptFlightRecorderTransaction,
   type FlightRecorderTrace,
 } from '@/lib/flight-recorder-adapter'
-import type { FlightRecorderTransaction } from '@/legacy/workflow_app/flight-recorder-read'
+import type { FlightRecorderTransaction } from '@/lib/flight-recorder-contract'
 
 type Mounted = {
   target: Element
