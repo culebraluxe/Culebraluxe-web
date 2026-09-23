@@ -83,7 +83,7 @@ impl Database {
         // connection that is already open. That is the difference between a page feeling instant and feeling slow, and
         // it hit the engine hardest because engine commands are far apart in time. `FORGE_DB_POOL_MIN=0` restores the
         // old hold-nothing behaviour, which is what tests want.
-        let default_min_connections = if target == DbTarget::Prod { 3 } else { 1 };
+        let default_min_connections = if target == DbTarget::Prod { 5 } else { 1 };
         let min_connections = non_negative_u32("FORGE_DB_POOL_MIN", default_min_connections)
             .min(max_connections);
         // `idle_timeout` only reclaims connections ABOVE the floor. 10s was aggressive enough that a burst of activity
