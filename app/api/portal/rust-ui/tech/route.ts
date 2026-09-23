@@ -4,10 +4,14 @@ import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
 import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 import { withApiHandler } from '@/lib/error-capture-seam'
 import {
+  clearActiveWork,
   listActiveWork,
   listStoryExecutionSummaries,
+  listStoryIdsWithStatus,
   listStoryRuns,
   listStoryboardStories,
+  setActiveWork,
+  setStoryboardStatus,
 } from '@/legacy/db/storyboard'
 import {
   latestForgeInstanceForStory,
@@ -16,13 +20,18 @@ import {
   listEngineRunCards,
 } from '@/legacy/db/forge-engine-task-execution'
 import {
+  cancelForgeBatch,
+  fireStagingBatch,
   getStagingBatch,
   listForgeBatches,
   listStagingBatchItems,
+  scheduleStagingBatch,
 } from '@/legacy/db/forge-batch'
 import { latestOpenForgeHold } from '@/legacy/db/forge-hold'
+import { setAgentWorkDispatchOptions } from '@/legacy/db/agent-work'
 import { buildStoryBoardCockpit, buildStoryBoardModel } from '@/lib/storyboard-data'
 import { buildSorterCards, SORTER_COLUMNS } from '@/lib/sorter-board'
+import { ENGINE_DISPATCH_STATUS, STATUS_BY_BUCKET } from '@/lib/story-moves'
 
 function storyPayload(story: any) {
   return {
@@ -240,4 +249,165 @@ async function GETHandler(req: NextRequest): Promise<Response> {
 export const GET = withApiHandler(
   { label: '/api/portal/rust-ui/tech', route: '/api/portal/rust-ui/tech' },
   GETHandler,
+)
+
+
+type TechCommandBody = {
+  action?: string
+  storyId?: string
+  stopAfter?: string
+  scheduledFor?: string
+  batchId?: string
+  target?: string
+}
+
+function badCommand(message: string, status = 400): Response {
+  return NextResponse.json({ ok: false, error: message }, { status })
+}
+
+async function POSTHandler(req: NextRequest): Promise<Response> {
+  const access = await resolvePortalAccess(createAuthJsSessionAdapter(), 'tech.access')
+  if (!access.ok) {
+    return NextResponse.json(
+      { ok: false, error: 'Operating the Engineering Cockpit requires TECH access.' },
+      { status: 401 },
+    )
+  }
+
+  const body = (await req.json().catch(() => null)) as TechCommandBody | null
+  if (!body?.action) return badCommand('Missing TECH Cockpit command.')
+
+  const actorId = access.actor.appUserId
+  const storyId = String(body.storyId ?? '').trim()
+
+  switch (body.action) {
+    case 'clearWorkbench': {
+      const cleared = await clearActiveWork()
+      return NextResponse.json({
+        ok: true,
+        message: 'Cleared ' + cleared + ' stor' + (cleared === 1 ? 'y' : 'ies') + ' from the Workbench. Story statuses were not changed.',
+      })
+    }
+
+    case 'goodToGo': {
+      if (!storyId) return badCommand('Missing story id.')
+      // Same handoff as the proven sorter move: once the human gives the story to Forge, it is no longer daily intent.
+      await setActiveWork(storyId, false, actorId)
+      await setStoryboardStatus(storyId, ENGINE_DISPATCH_STATUS)
+      return NextResponse.json({
+        ok: true,
+        message: storyId + ' handed to Forge. Ready queued a real work item.',
+      })
+    }
+
+    case 'scopedRun': {
+      if (!storyId) return badCommand('Missing story id.')
+      const stopAfter = String(body.stopAfter ?? '').trim()
+      if (!['scout', 'architect', 'lead'].includes(stopAfter)) {
+        return badCommand('Unsupported scoped stop: ' + stopAfter)
+      }
+
+      // Deliberately DO NOT clear storyboard_active_work. A scoped investigation belongs to the Workbench:
+      // Forge goes only as far as requested, then the operator reads the findings before deciding what happens next.
+      await setStoryboardStatus(storyId, ENGINE_DISPATCH_STATUS)
+      const updated = await setAgentWorkDispatchOptions(storyId, {
+        stopAfter,
+        launchIntent: null,
+      })
+      if (updated === 0) {
+        return badCommand(
+          'No queued work item to scope — this story is already running.',
+          409,
+        )
+      }
+      return NextResponse.json({
+        ok: true,
+        message: storyId + ' queued through ' + stopAfter + '; it remains on the Workbench for review.',
+      })
+    }
+
+    case 'moveWorkbench': {
+      if (!storyId) return badCommand('Missing story id.')
+      const target = String(body.target ?? '').trim()
+      const status =
+        target === 'backlog'
+          ? STATUS_BY_BUCKET.backlog
+          : target === 'closed'
+            ? STATUS_BY_BUCKET.closed
+            : target === 'next'
+              ? STATUS_BY_BUCKET.next
+              : null
+      if (!status) return badCommand('Unsupported Workbench destination: ' + target)
+
+      await setActiveWork(storyId, false, actorId)
+      await setStoryboardStatus(storyId, status)
+      return NextResponse.json({
+        ok: true,
+        message: storyId + ' moved to ' + (target === 'next' ? 'Next Version' : target) + '.',
+      })
+    }
+
+    case 'launchFlight': {
+      const result = await fireStagingBatch()
+      if (!result) {
+        return NextResponse.json({ ok: false, message: 'Nothing is staged in the current Flight.' })
+      }
+      const refused = result.failed.map((failure) => failure.storyId)
+      return NextResponse.json({
+        ok: refused.length === 0,
+        message:
+          refused.length === 0
+            ? 'Flight launched: ' + result.queued + ' stor' + (result.queued === 1 ? 'y' : 'ies') + ' queued for Forge.'
+            : 'Flight launched ' + result.queued + '; refused ' + refused.join(', ') + '.',
+      })
+    }
+
+    case 'scheduleFlight': {
+      const raw = String(body.scheduledFor ?? '').trim()
+      const when = new Date(raw)
+      if (!raw || Number.isNaN(when.getTime())) {
+        return badCommand('The Flight time could not be read.')
+      }
+
+      const staged = await listStoryIdsWithStatus(STATUS_BY_BUCKET.batch ?? 'Batched')
+      if (staged.length === 0) {
+        return badCommand('Nothing is staged in the current Flight.')
+      }
+
+      const batch = await scheduleStagingBatch(
+        when.toISOString(),
+        actorId,
+        'night run ' + when.toISOString().slice(0, 16).replace('T', ' '),
+      )
+      return NextResponse.json({
+        ok: true,
+        message:
+          'Scheduled ' +
+          batch.storyCount +
+          ' stor' +
+          (batch.storyCount === 1 ? 'y' : 'ies') +
+          ' for ' +
+          String(batch.scheduledFor ?? when.toISOString()) +
+          '.',
+      })
+    }
+
+    case 'cancelFlight': {
+      const batchId = String(body.batchId ?? '').trim()
+      if (!batchId) return badCommand('Missing Flight id.')
+      const cancelled = await cancelForgeBatch(batchId)
+      if (cancelled === 0) {
+        return badCommand('That Flight is not waiting to fire.', 409)
+      }
+      return NextResponse.json({ ok: true, message: 'Scheduled Flight cancelled. Nothing was dispatched.' })
+    }
+
+    default:
+      return badCommand('Unknown TECH Cockpit command: ' + body.action)
+  }
+}
+
+export const POST = withApiHandler(
+  { label: '/api/portal/rust-ui/tech.POST', route: '/api/portal/rust-ui/tech' },
+  POSTHandler,
 )
