@@ -210,6 +210,8 @@ type WorkbenchCommand =
       entity: EntityKind
       id: string
       fields: Record<string, string>
+      search?: string
+      page?: number
     }
   | {
       action: 'createProperty'
@@ -538,7 +540,12 @@ async function POSTHandler(req: NextRequest): Promise<Response> {
   }
 
   return NextResponse.json({
-    ops: await workbench(command.entity, '', 0, command.id),
+    ops: await workbench(
+      command.entity,
+      command.search?.trim() ?? '',
+      Math.max(0, command.page ?? 0),
+      command.id,
+    ),
   })
 }
 
