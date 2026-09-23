@@ -252,6 +252,7 @@ function storyboardRows(story: StoryboardStory): RustUiRow {
       story.priority,
       story.batch === null ? 'no batch' : `batch ${story.batch}`,
       story.operatingSurface ?? 'unclassified',
+      `${story.completion}%`,
     ],
     badge: story.status,
   }
