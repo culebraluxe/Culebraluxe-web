@@ -96,8 +96,8 @@ pub use calendar::{
 };
 
 pub use media::{
-    sanitize_media_filename, MediaAsset, UploadPropertyMediaRequest, UploadPropertyMediaResult,
-    MAX_MEDIA_UPLOAD_BYTES,
+    sanitize_media_filename, AttachPropertyVideoRequest, AttachPropertyVideoResult, MediaAsset,
+    UploadPropertyMediaRequest, UploadPropertyMediaResult, MAX_MEDIA_UPLOAD_BYTES,
 };
 
 pub use signature::{
