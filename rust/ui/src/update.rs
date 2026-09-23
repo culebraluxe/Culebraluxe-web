@@ -8,12 +8,11 @@ use crate::model::{
     PortalDealCommand, Screen, PAGE_SIZE,
 };
 
-/// THE PORTAL SCREENS THAT HAVE A REAL COMPONENT, which is the other half of the coupling `is_editorial` warns about.
+/// THE PORTAL SCREENS THAT ASK FOR A TYPED PORTAL DTO.
 ///
-/// A screen named here asks for the portal page DTO and is rendered by its own Yew component; a screen that is not keeps
-/// asking for rows and keeps the generic list. The two lists — this one and the set of screens the portal Yew app can
-/// render — must agree, and the test below pins that: a screen that asks for a payload nobody renders is a screen with
-/// an empty body, which is the failure this project has already paid for once.
+/// A screen named here asks for the portal page DTO. A screen not named here asks for generic rows; most of those still
+/// use the generic renderer, but a deliberately simple list may have a bespoke Yew component over that row contract
+/// (Story Board is one). The invariant is about payload shape: never ask for a portal DTO unless a component reads it.
 pub fn is_ported_portal_screen(key: &str) -> bool {
     matches!(
         key,
