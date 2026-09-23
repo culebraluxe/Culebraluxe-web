@@ -54,4 +54,9 @@ export type OperatingSurfaceDefinition = {
   home: string
   /** Tier-2 contextual navigation (existing routes only). */
   items: SurfaceNavItem[]
+  /**
+   * Existing routes owned by this surface but intentionally omitted from Tier-2 navigation.
+   * Useful for diagnostics, labs and record/detail routes that must retain correct surface ownership.
+   */
+  ownedRoutes?: string[]
 }
