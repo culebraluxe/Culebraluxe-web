@@ -19,6 +19,7 @@ pub fn is_ported_portal_screen(key: &str) -> bool {
         key,
         "dashboard"
             | "tech"
+            | "trace-record"
             | "cabinet"
             | "activity"
             | "workflows"
@@ -276,6 +277,7 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
     // to Deals and silently narrow a list they never filtered.
     model.controls = Controls::default();
     model.deal_create = DealCreateState::default();
+    model.flight_recorder = crate::model::FlightRecorderState::default();
     model.tech = crate::model::TechCockpitState::default();
     model.deal_workspace = DealWorkspaceState::default();
 
@@ -297,7 +299,19 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
         // `Model::generation`: without it, a request issued for one screen can land while another is mounted.
         // A screen that has a real component asks for its DTO; every other portal screen still asks for rows, so the two
         // live side by side while the port goes screen by screen. See `is_ported_portal_screen`.
-        if screen.key == "tech" {
+        if screen.key == "trace-record" {
+            let Some(instance_id) = model.scope.clone().filter(|value| !value.trim().is_empty()) else {
+                model.loading = false;
+                model.error = Some("Flight Recorder requires a process-instance id.".into());
+                return Vec::new();
+            };
+            model.flight_recorder.instance_id = instance_id.clone();
+            vec![Effect::FetchFlightRecorder {
+                screen: screen.key,
+                instance_id,
+                generation: model.generation,
+            }]
+        } else if screen.key == "tech" {
             vec![Effect::FetchTech {
                 screen: screen.key,
                 selected: model.selected_row_id.clone(),
@@ -503,6 +517,42 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             model.rows = rows;
             Vec::new()
         }
+        Msg::FlightRecorderRefreshRequested => {
+            if model.screen.key != "trace-record" || model.loading {
+                return Vec::new();
+            }
+            let Some(instance_id) = model
+                .scope
+                .clone()
+                .filter(|value| !value.trim().is_empty())
+            else {
+                model.error = Some("Flight Recorder requires a process-instance id.".into());
+                return Vec::new();
+            };
+            model.loading = true;
+            model.error = None;
+            vec![Effect::FetchFlightRecorder {
+                screen: model.screen.key,
+                instance_id,
+                generation: model.generation,
+            }]
+        }
+        Msg::FlightRecorderLoaded {
+            screen,
+            generation,
+            instance_id,
+            transaction,
+        } => {
+            if !owns(model, &screen, generation) || model.screen.key != "trace-record" {
+                return Vec::new();
+            }
+            model.loading = false;
+            model.error = None;
+            model.flight_recorder.instance_id = instance_id;
+            model.flight_recorder.transaction = Some(transaction);
+            Vec::new()
+        }
+
         Msg::TechStorySelected(id) => {
             if model.screen.key != "tech" {
                 return Vec::new();
