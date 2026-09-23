@@ -713,9 +713,9 @@ mod tests {
         let events = vec![start, end];
 
         // An interrupted attempt is terminal evidence for that attempt, not a phantom CURRENT node.
-        assert_eq!(current_node(&events).as_deref(), Some("qa"));
-        let states = node_states(&graph, &events, Some("qa"));
-        assert_eq!(states["qa"].state, "CURRENT");
+        assert_eq!(current_node(&events), None);
+        let states = node_states(&graph, &events, None);
+        assert_eq!(states["qa"].state, "FAILED");
     }
 
     #[test]
