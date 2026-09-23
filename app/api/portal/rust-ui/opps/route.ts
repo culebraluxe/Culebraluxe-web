@@ -175,6 +175,27 @@ type WorkbenchPerson = {
   phone: string | null
 }
 
+type MediaAsset = {
+  id: string
+  propertyId: string
+  mediaType: string
+  role: string
+  sortOrder: number
+  filename: string | null
+  mimeType: string | null
+  fileSize: number | null
+  altText: string | null
+  caption: string | null
+  createdAt: string | null
+  url: string
+}
+
+type WorkbenchProperty = PropertyAdminRecord & {
+  sellerEmail: string | null
+  sellerPhone: string | null
+  sellerLocation: string | null
+}
+
 type WorkbenchProject = {
   id: string
   name: string
@@ -199,9 +220,10 @@ type WorkbenchPayload = {
   page: number
   pageSize: number
   selectedId: string | null
-  property: PropertyAdminRecord | null
+  property: WorkbenchProperty | null
   person: WorkbenchPerson | null
   project: WorkbenchProject | null
+  media: MediaAsset[]
 }
 
 type WorkbenchCommand =
@@ -266,11 +288,38 @@ async function propertyWorkbench(
   // A create can land outside page 1 under the operator sort. Keep an explicit selection even when
   // it is not one of this page's rail rows so the record the operator just created opens immediately.
   const selectedId = selected ?? page.value.rows[0]?.id ?? null
-  const detail = selectedId
-    ? await rustApiRead<PropertyAdminRecord>(
-        (`/v1/properties/${encodeURIComponent(selectedId)}/admin`) as `/v1/${string}`,
+
+  let property: WorkbenchProperty | null = null
+  let media: MediaAsset[] = []
+
+  if (selectedId) {
+    const encoded = encodeURIComponent(selectedId)
+    const [detail, mediaResult] = await Promise.all([
+      rustApiRead<PropertyAdminRecord>(
+        (`/v1/properties/${encoded}/admin`) as `/v1/${string}`,
+      ),
+      rustApiRead<MediaAsset[]>(
+        (`/v1/properties/${encoded}/media`) as `/v1/${string}`,
+      ),
+    ])
+
+    let seller: ClientDetail | null = null
+    if (detail.value.sellerPersonId) {
+      const sellerResult = await rustApiRead<ClientDetail | null>(
+        (`/v1/clients/${encodeURIComponent(detail.value.sellerPersonId)}`) as `/v1/${string}`,
       )
-    : null
+      seller = sellerResult.value
+    }
+
+    property = {
+      ...detail.value,
+      sellerName: seller?.displayName ?? detail.value.sellerName,
+      sellerEmail: seller?.email ?? null,
+      sellerPhone: seller?.phone ?? null,
+      sellerLocation: seller?.location ?? null,
+    }
+    media = mediaResult.value
+  }
 
   return {
     entity: 'property',
@@ -285,9 +334,10 @@ async function propertyWorkbench(
     page: page.value.page,
     pageSize: page.value.pageSize,
     selectedId,
-    property: detail?.value ?? null,
+    property,
     person: null,
     project: null,
+    media,
   }
 }
 
@@ -345,6 +395,7 @@ async function personWorkbench(
     property: null,
     person,
     project: null,
+    media: [],
   }
 }
 
@@ -398,6 +449,7 @@ async function projectWorkbench(
     property: null,
     person: null,
     project: selectedProject ? projectPayload(selectedProject) : null,
+    media: [],
   }
 }
 
