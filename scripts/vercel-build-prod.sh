@@ -4,6 +4,11 @@ set -euo pipefail
 EXPECTED_NODE_MAJOR="24"
 VERCEL_ORG_ID="team_xk8vFaeSyY6CuSkS3OK55tTc"
 VERCEL_PROJECT_ID="prj_RHzXYauXOgIh2abiEsMiQJ1V3jlV"
+VERCEL_CLI_VERSION="59.25.4"
+
+vc() {
+  npx --yes "vercel@${VERCEL_CLI_VERSION}" "$@"
+}
 
 fail() {
   printf '\nERROR: %s\n' "$1" >&2
@@ -12,7 +17,7 @@ fail() {
 
 command -v git >/dev/null 2>&1 || fail "git is required"
 command -v node >/dev/null 2>&1 || fail "Node.js is required"
-command -v vercel >/dev/null 2>&1 || fail "Vercel CLI is required. Install it with: npm install --global vercel@latest"
+command -v npx >/dev/null 2>&1 || fail "npx is required for the pinned Vercel CLI."
 ROOT_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || fail "Run this inside the CulebraLuxe git repository"
 cd "$ROOT_DIR"
 
@@ -28,14 +33,14 @@ printf '  commit:  %s\n' "$(git rev-parse --short HEAD)"
 printf '  node:    %s\n' "$(node --version)"
 printf '  project: %s\n\n' "$VERCEL_PROJECT_ID"
 
-vercel whoami >/dev/null 2>&1 || fail "Vercel CLI is not authenticated. Run: vercel login"
+vc whoami >/dev/null 2>&1 || fail "Vercel CLI is not authenticated. Run: vercel login"
 
 printf 'Pulling Vercel production settings...\n'
-vercel pull --yes --environment=production
+vc pull --yes --environment=production
 
 ENV_FILE=".vercel/.env.production.local"
 rm -f "$ENV_FILE"
-vercel env pull "$ENV_FILE" --environment=production
+vc env pull "$ENV_FILE" --environment=production
 [[ -f "$ENV_FILE" ]] || fail "Vercel production env file was not pulled: $ENV_FILE"
 printf '\nClearing previous prebuilt output...\n'
 rm -rf .vercel/output
@@ -51,7 +56,7 @@ else
   pnpm forge:harness
 fi
 
-# START THE BUILD FROM A CLEAN .next. `vercel build` builds ON TOP of whatever tree is already there, and
+# START THE BUILD FROM A CLEAN .next. `vc build` builds ON TOP of whatever tree is already there, and
 # repeated release builds had left 2,035 duplicate generated files (`cache-life.d 3.ts` and friends - the
 # macOS copy-on-conflict rename), which is what broke `tsc` and `next build` until someone pruned by hand.
 # Deleting the tree first is the source fix; pruning the duplicates afterwards is not.
@@ -74,7 +79,7 @@ printf '\nBuilding production artifact locally...\n'
 export NEXT_PUBLIC_COCKPIT_SHA="$(git rev-parse --short HEAD)"
 export NEXT_PUBLIC_COCKPIT_BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 printf '  stamped: %s at %s\n' "$NEXT_PUBLIC_COCKPIT_SHA" "$NEXT_PUBLIC_COCKPIT_BUILT_AT"
-vercel build --prod
+vc build --prod
 
 [[ -f .vercel/output/config.json ]] || fail "Build completed without .vercel/output/config.json"
 
@@ -118,7 +123,7 @@ git rev-parse HEAD > .vercel/culebraluxe-prod-build-sha
 # .vercel/output; restoring these source-tree copies does not alter the finished artifact.
 git restore -- "${GENERATED_TRACKED_FILES[@]}"
 
-# TIDY THE INTERMEDIATE TREE. `vercel build` leaves macOS copy-on-conflict duplicates behind — measured
+# TIDY THE INTERMEDIATE TREE. `vc build` leaves macOS copy-on-conflict duplicates behind — measured
 # 2026-09-16: 740 files named "cache-life.d 2.ts", "routes.d 2.ts" and so on, produced DURING the build even
 # though this script deletes `.next` first, so clearing beforehand does not prevent them. They sit inside
 # `.next/types`, which `tsc` includes, so the next typecheck fails with duplicate-identifier errors until
