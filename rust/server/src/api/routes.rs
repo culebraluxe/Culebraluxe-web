@@ -375,6 +375,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/cockpit", get(cockpit))
         .route("/v1/workflows", get(workflows))
         .route("/v1/workflows/{id}", get(workflow_detail))
+        .route("/v1/flight-recorder/{id}", get(flight_recorder))
         .route("/v1/projects", get(projects))
         .route("/v1/projects/{id}", get(project).patch(update_project))
         .route("/v1/wbs/project-items", get(wbs_project_items))
@@ -543,6 +544,38 @@ async fn workflow_detail(
             correlate(
                 ApiError::not_found(
                     "WORKFLOW_NOT_FOUND",
+                    format!("Workflow instance not found: {id}"),
+                ),
+                &resolved,
+            )
+        })?;
+    Ok(success(value, &resolved))
+}
+
+async fn flight_recorder(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<ApiSuccess<domain::FlightRecorderTransaction>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    if uuid::Uuid::parse_str(&id).is_err() {
+        return Err(correlate(
+            ApiError::bad_request(
+                "FLIGHT_RECORDER_INSTANCE_INVALID",
+                "Flight Recorder requires a process-instance UUID.",
+            ),
+            &resolved,
+        ));
+    }
+    let mut service = state.services().flight_recorder();
+    let value = service
+        .transaction(&id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?
+        .ok_or_else(|| {
+            correlate(
+                ApiError::not_found(
+                    "FLIGHT_RECORDER_NOT_FOUND",
                     format!("Workflow instance not found: {id}"),
                 ),
                 &resolved,
