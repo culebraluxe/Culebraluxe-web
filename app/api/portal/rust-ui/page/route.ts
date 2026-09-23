@@ -5,6 +5,8 @@ import { getPortalActingUser } from '@/lib/auth/portal-session'
 import { withApiHandler } from '@/lib/error-capture-seam'
 import { accountingPayload, isAccountingScreen } from '@/lib/portal-rust-ui/accounting-payload'
 import { rustApiRead } from '@/lib/rust-api/client'
+import { listStoryboardStories } from '@/lib/storyboard-reads'
+import { buildStoryBoardCockpit, buildStoryBoardModel } from '@/lib/storyboard-data'
 
 // A portal screen's payload in the screen's own shape — never flattened generic cells.
 async function GETHandler(req: NextRequest): Promise<Response> {
@@ -22,6 +24,45 @@ async function GETHandler(req: NextRequest): Promise<Response> {
     )
   }
   switch (screen) {
+    case 'storyboard': {
+      const stories = await listStoryboardStories()
+      if (!stories) {
+        return NextResponse.json({ storyboard: null })
+      }
+
+      // Reuse the canonical TypeScript projection that powers the production Story Board. Rust receives only the
+      // display contract, not a second interpretation of lifecycle status or subgroup taxonomy.
+      const cockpit = buildStoryBoardCockpit(buildStoryBoardModel(stories))
+      const panel = (bucket: 'open' | 'backlog' | 'closed' | 'next-version') => {
+        const source = cockpit.panels[bucket]
+        return {
+          bucket: source.bucket,
+          count: source.count,
+          groups: source.groups.map((group) => ({
+            group: group.group,
+            stories: group.stories.map((story) => ({
+              id: story.id,
+              title: story.title,
+              priority: story.priority,
+              status: story.status,
+              completion: story.completion,
+            })),
+          })),
+        }
+      }
+
+      return NextResponse.json({
+        storyboard: {
+          kpis: cockpit.kpis,
+          panels: {
+            open: panel('open'),
+            backlog: panel('backlog'),
+            closed: panel('closed'),
+            nextVersion: panel('next-version'),
+          },
+        },
+      })
+    }
     case 'activity': {
       const entries = await getActivityFeed(50)
       return NextResponse.json({
