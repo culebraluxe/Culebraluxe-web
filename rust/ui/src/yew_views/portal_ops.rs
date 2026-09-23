@@ -4,7 +4,8 @@
 use yew::prelude::*;
 
 use crate::model::{
-    Msg, PortalOpsPerson, PortalOpsProject, PortalOpsProperty, PortalOpsWorkbenchPage,
+    Msg, PortalOpsMediaAsset, PortalOpsPerson, PortalOpsProject, PortalOpsProperty,
+    PortalOpsWorkbenchPage,
 };
 use crate::yew_views::portal_shell::PortalShell;
 
@@ -152,11 +153,6 @@ const MLS_FIELDS: &[FieldSpec] = &[
     FieldSpec { key: "legalDescription", label: "Legal description", kind: FieldKind::Textarea(4), wide: true, hint: None },
     FieldSpec { key: "hoaDetails", label: "HOA details", kind: FieldKind::Textarea(4), wide: true, hint: None },
     FieldSpec { key: "showingInstructions", label: "Showing instructions", kind: FieldKind::Textarea(4), wide: true, hint: None },
-];
-
-const PROPERTY_RELATIONS: &[FieldSpec] = &[
-    FieldSpec { key: "sellerPersonId", label: "Seller Person ID", kind: FieldKind::Text, wide: true, hint: Some("Canonical Person UUID. This typed field can later be rendered as a picker without changing the save contract.") },
-    FieldSpec { key: "archived", label: "Archived record", kind: FieldKind::Toggle, wide: false, hint: Some("Archives the record without rewriting transaction-owned listing status.") },
 ];
 
 const PERSON_FIELDS: &[FieldSpec] = &[
@@ -455,7 +451,7 @@ fn editor(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
                         match data.entity.as_str() {
                             "person" => person_editor(model, data.person.as_ref(), on_msg),
                             "project" => project_editor(model, data.project.as_ref(), on_msg),
-                            _ => property_editor(model, data.property.as_ref(), on_msg),
+                            _ => property_editor(model, data.property.as_ref(), &data.media, on_msg),
                         }
                     }
                 </div>
@@ -593,7 +589,7 @@ fn section_tabs(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
             ("website", "Website"),
             ("mls", "MLS"),
             ("media", "Media"),
-            ("relations", "Relations"),
+            ("person", "Person"),
         ],
     };
 
@@ -626,6 +622,7 @@ fn section_tabs(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
 fn property_editor(
     model: &crate::model::Model,
     property: Option<&PortalOpsProperty>,
+    media: &[PortalOpsMediaAsset],
     on_msg: &Callback<Msg>,
 ) -> Html {
     let Some(property) = property else {
@@ -651,40 +648,8 @@ fn property_editor(
                 {field_panel(model, on_msg, "MLS-specific fields", MLS_FIELDS)}
             </div>
         },
-        "media" => html! {
-            <div class="space-y-4">
-                {section_intro("Media", "Media stays attached to the same canonical Property. The existing media manager remains the specialized upload surface.")}
-                <div class="grid gap-3 sm:grid-cols-3">
-                    {count_card("Images", property.image_count)}
-                    {count_card("Videos", property.video_count)}
-                    {count_card("Documents", property.document_count)}
-                </div>
-                <a href="/portal/property-media"
-                    class="inline-flex h-10 items-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-4 text-[11px] font-semibold uppercase tracking-[0.12em] text-white">
-                    {"Open Property Media →"}
-                </a>
-            </div>
-        },
-        "relations" => html! {
-            <div class="space-y-4">
-                {section_intro("Relations", "Connect this Property to canonical people and the transaction/workflow surfaces that use it.")}
-                <div class="grid gap-4 lg:grid-cols-2">
-                    <div class="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/35 p-4">
-                        <div class="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--portal-gold-muted)]">{"Seller"}</div>
-                        <div class="mt-2 font-serif text-lg text-[var(--portal-navy)]">
-                            {property.seller_name.clone().unwrap_or_else(|| "No seller linked".into())}
-                        </div>
-                        <div class="mt-3">{field_grid(model, on_msg, PROPERTY_RELATIONS)}</div>
-                    </div>
-                    <div class="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/35 p-4">
-                        <div class="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--portal-gold-muted)]">{"Record"}</div>
-                        {read_line("Property ID", &property.id)}
-                        {read_line("Created", property.created_at.as_deref().unwrap_or("—"))}
-                        {read_line("Updated", property.updated_at.as_deref().unwrap_or("—"))}
-                    </div>
-                </div>
-            </div>
-        },
+        "media" => media_editor(model, property, media, on_msg),
+        "person" => property_person_editor(model, property, on_msg),
         _ => html! {
             <div class="space-y-4">
                 {section_intro("Property truth", "Enter operational facts once. Website, MLS preparation, media and transaction surfaces consume this record.")}
@@ -694,6 +659,381 @@ fn property_editor(
                 {field_panel(model, on_msg, "Listing representation", PROPERTY_AGENT)}
             </div>
         },
+    }
+}
+
+fn property_person_editor(
+    model: &crate::model::Model,
+    property: &PortalOpsProperty,
+    on_msg: &Callback<Msg>,
+) -> Html {
+    let selected = model.ops.selected_person.as_ref();
+    let linked_id = value(model, "sellerPersonId");
+    let name = selected
+        .map(|person| person.display_name.as_str())
+        .or(property.seller_name.as_deref())
+        .unwrap_or("No Person linked");
+    let phone = selected
+        .and_then(|person| person.phone.as_deref())
+        .or(property.seller_phone.as_deref())
+        .unwrap_or("—");
+    let email = selected
+        .and_then(|person| person.email.as_deref())
+        .or(property.seller_email.as_deref())
+        .unwrap_or("—");
+    let location = selected
+        .and_then(|person| person.location.as_deref())
+        .or(property.seller_location.as_deref())
+        .unwrap_or("—");
+
+    let on_query = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |event: InputEvent| {
+            let value = event
+                .target_unchecked_into::<web_sys::HtmlInputElement>()
+                .value();
+            on_msg.emit(Msg::OpsPersonQueryChanged(value));
+        })
+    };
+    let clear = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::OpsPersonSelected(String::new())))
+    };
+
+    html! {
+        <div class="space-y-4">
+            {section_intro(
+                "Person",
+                "Link the Property to a canonical Person using the identity humans actually know: name, phone or email. The UUID stays visible for diagnostics, not as the picker.",
+            )}
+            <div class="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+                <section class="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/35 p-4">
+                    <div class="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--portal-gold-muted)]">
+                        {"Linked seller / owner"}
+                    </div>
+                    <div class="mt-2 font-serif text-2xl font-light text-[var(--portal-navy)]">{name}</div>
+                    <div class="mt-4 grid gap-3 sm:grid-cols-2">
+                        {readonly_card("Phone", phone)}
+                        {readonly_card("Email", email)}
+                        {readonly_card("Location", location)}
+                        {readonly_card("Person ID", if linked_id.is_empty() { "—" } else { linked_id.as_str() })}
+                    </div>
+                </section>
+
+                <section class="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/35 p-4">
+                    <div class="flex items-center justify-between gap-3">
+                        <div>
+                            <div class="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--portal-gold-muted)]">
+                                {"Find Person"}
+                            </div>
+                            <p class="mt-1 text-[11px] font-light text-black/45">{"Search name, phone or email."}</p>
+                        </div>
+                        if !linked_id.is_empty() {
+                            <button
+                                type="button"
+                                onclick={clear}
+                                class="text-[10px] font-semibold uppercase tracking-[0.11em] text-black/45 hover:text-[var(--portal-navy)]"
+                            >
+                                {"Clear link"}
+                            </button>
+                        }
+                    </div>
+                    <input
+                        type="search"
+                        value={model.ops.person_query.clone()}
+                        oninput={on_query}
+                        placeholder="Lisa · 787… · lisa@…"
+                        class="mt-3 h-10 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 px-3 text-[13px] font-light outline-none focus:border-[var(--portal-navy)]"
+                    />
+                    if model.ops.person_searching {
+                        <div class="px-1 py-3 text-[11px] font-light text-black/40">{"Searching…"}</div>
+                    } else if !model.ops.person_people.is_empty() {
+                        <div class="mt-2 max-h-64 overflow-y-auto rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/55">
+                            {for model.ops.person_people.iter().map(|person| {
+                                let id = person.id.clone();
+                                let onclick = {
+                                    let on_msg = on_msg.clone();
+                                    Callback::from(move |_: MouseEvent| on_msg.emit(Msg::OpsPersonSelected(id.clone())))
+                                };
+                                let detail = person
+                                    .phone
+                                    .as_deref()
+                                    .or(person.email.as_deref())
+                                    .or(person.location.as_deref())
+                                    .unwrap_or("No contact identity");
+                                html! {
+                                    <button
+                                        type="button"
+                                        {onclick}
+                                        class="flex w-full items-center justify-between gap-3 border-b border-[var(--portal-panel-border)] px-3 py-2.5 text-left last:border-b-0 hover:bg-white/75"
+                                    >
+                                        <span class="min-w-0">
+                                            <span class="block truncate text-[13px] font-medium text-[var(--portal-navy)]">
+                                                {person.display_name.clone()}
+                                            </span>
+                                            <span class="mt-0.5 block truncate text-[11px] font-light text-black/45">{detail}</span>
+                                        </span>
+                                        <span class="shrink-0 text-[9px] uppercase tracking-[0.1em] text-black/35">
+                                            {person.role.clone()}
+                                        </span>
+                                    </button>
+                                }
+                            })}
+                        </div>
+                    } else if model.ops.person_query.trim().len() >= 2 {
+                        <div class="px-1 py-3 text-[11px] font-light text-black/40">{"No matching people."}</div>
+                    }
+                </section>
+            </div>
+
+            <section class="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/25 p-4">
+                <div class="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--portal-gold-muted)]">{"Property record"}</div>
+                <div class="mt-1 grid gap-x-6 sm:grid-cols-3">
+                    {read_line("Property ID", &property.id)}
+                    {read_line("Created", property.created_at.as_deref().unwrap_or("—"))}
+                    {read_line("Updated", property.updated_at.as_deref().unwrap_or("—"))}
+                </div>
+            </section>
+        </div>
+    }
+}
+
+fn media_editor(
+    model: &crate::model::Model,
+    property: &PortalOpsProperty,
+    media: &[PortalOpsMediaAsset],
+    on_msg: &Callback<Msg>,
+) -> Html {
+    let mut images = media
+        .iter()
+        .filter(|item| item.media_type == "image")
+        .collect::<Vec<_>>();
+    images.sort_by_key(|item| if item.role == "hero" { 0 } else { 1 });
+
+    let active_index = if images.is_empty() {
+        0
+    } else {
+        model.ops.media_index.min(images.len() - 1)
+    };
+    let active = images.get(active_index).copied();
+    let previous_index = if images.is_empty() {
+        0
+    } else {
+        (active_index + images.len() - 1) % images.len()
+    };
+    let next_index = if images.is_empty() {
+        0
+    } else {
+        (active_index + 1) % images.len()
+    };
+
+    let previous = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::OpsMediaSelected(previous_index)))
+    };
+    let next = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::OpsMediaSelected(next_index)))
+    };
+    let toggle_uploader = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::OpsMediaUploaderToggled))
+    };
+
+    html! {
+        <div class="space-y-4">
+            {section_intro(
+                "Media",
+                "Review the Property photos in-place, then add the next photo without leaving the canonical record.",
+            )}
+
+            <div class="grid gap-3 sm:grid-cols-3">
+                {count_card("Images", property.image_count)}
+                {count_card("Videos", property.video_count)}
+                {count_card("Documents", property.document_count)}
+            </div>
+
+            <section class="overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-[var(--portal-navy)]">
+                if let Some(image) = active {
+                    <div class="relative h-[300px] sm:h-[390px] xl:h-[460px]">
+                        <img
+                            src={image.url.clone()}
+                            alt={image.alt_text.clone().unwrap_or_else(|| property.name.clone())}
+                            class="h-full w-full object-cover"
+                        />
+                        <div class="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-black/10"></div>
+                        <div class="absolute left-4 top-4 flex gap-2">
+                            if image.role == "hero" {
+                                <span class="rounded-full border border-white/35 bg-black/30 px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.13em] text-white backdrop-blur-sm">
+                                    {"Hero"}
+                                </span>
+                            }
+                            <span class="rounded-full border border-white/30 bg-black/25 px-2.5 py-1 text-[9px] font-medium text-white/90 backdrop-blur-sm">
+                                {format!("{} / {}", active_index + 1, images.len())}
+                            </span>
+                        </div>
+                        if images.len() > 1 {
+                            <button
+                                type="button"
+                                onclick={previous}
+                                aria-label="Previous photo"
+                                class="absolute left-3 top-1/2 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full border border-white/35 bg-black/30 text-xl text-white backdrop-blur-md hover:bg-black/55"
+                            >
+                                {"‹"}
+                            </button>
+                            <button
+                                type="button"
+                                onclick={next}
+                                aria-label="Next photo"
+                                class="absolute right-3 top-1/2 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full border border-white/35 bg-black/30 text-xl text-white backdrop-blur-md hover:bg-black/55"
+                            >
+                                {"›"}
+                            </button>
+                        }
+                        <div class="absolute inset-x-0 bottom-0 p-4 text-white">
+                            <div class="text-[11px] font-medium">{image.filename.clone().unwrap_or_else(|| property.name.clone())}</div>
+                            if let Some(caption) = image.caption.as_deref() {
+                                <div class="mt-1 text-[10px] font-light text-white/70">{caption}</div>
+                            }
+                        </div>
+                    </div>
+
+                    if images.len() > 1 {
+                        <div class="grid grid-cols-4 gap-1 bg-black/30 p-1 sm:grid-cols-6 xl:grid-cols-8">
+                            {for images.iter().enumerate().take(8).map(|(index, image)| {
+                                let onclick = {
+                                    let on_msg = on_msg.clone();
+                                    Callback::from(move |_: MouseEvent| on_msg.emit(Msg::OpsMediaSelected(index)))
+                                };
+                                html! {
+                                    <button
+                                        type="button"
+                                        {onclick}
+                                        aria-current={(index == active_index).to_string()}
+                                        class={classes!(
+                                            "relative","h-16","overflow-hidden","border","transition","sm:h-20",
+                                            if index == active_index { "border-[var(--portal-gold)] opacity-100" } else { "border-transparent opacity-70 hover:opacity-100" }
+                                        )}
+                                    >
+                                        <img src={image.url.clone()} alt="" class="h-full w-full object-cover" />
+                                    </button>
+                                }
+                            })}
+                        </div>
+                    }
+                } else {
+                    <div class="grid h-[300px] place-items-center p-8 text-center sm:h-[390px]">
+                        <div>
+                            <div class="font-serif text-2xl font-light text-white">{"No photos yet"}</div>
+                            <p class="mt-2 text-[12px] font-light text-white/55">{"Add the first Property image below."}</p>
+                        </div>
+                    </div>
+                }
+            </section>
+
+            if model.ops.media_uploader_open {
+                {ops_media_uploader(model, on_msg)}
+            }
+
+            <div class="flex items-center justify-between gap-3 border-t border-[var(--portal-panel-border)] pt-4">
+                <p class="text-[11px] font-light text-black/40">
+                    {"Uploads write through the existing Rust Property → Media mapping."}
+                </p>
+                <button
+                    type="button"
+                    onclick={toggle_uploader}
+                    disabled={model.ops.media_uploading}
+                    class="inline-flex h-10 items-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-4 text-[10px] font-semibold uppercase tracking-[0.12em] text-white disabled:opacity-40"
+                >
+                    {if model.ops.media_uploader_open { "Close uploader" } else { "+ Add new photo" }}
+                </button>
+            </div>
+        </div>
+    }
+}
+
+fn ops_media_uploader(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
+    let role_change = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |event: Event| {
+            let value = event
+                .target_unchecked_into::<web_sys::HtmlSelectElement>()
+                .value();
+            on_msg.emit(Msg::OpsMediaRoleChanged(value));
+        })
+    };
+    let alt_change = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |event: InputEvent| {
+            let value = event
+                .target_unchecked_into::<web_sys::HtmlInputElement>()
+                .value();
+            on_msg.emit(Msg::OpsMediaAltChanged(value));
+        })
+    };
+    let file_change = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |event: Event| {
+            let input = event.target_unchecked_into::<web_sys::HtmlInputElement>();
+            let name = input
+                .files()
+                .and_then(|files| files.get(0))
+                .map(|file| file.name())
+                .unwrap_or_default();
+            on_msg.emit(Msg::OpsMediaFileChosen(name));
+        })
+    };
+    let upload = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::OpsMediaUploadRequested))
+    };
+
+    html! {
+        <section class="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/35 p-4">
+            <div class="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--portal-gold-muted)]">{"Add photo"}</div>
+            <div class="mt-3 grid gap-3 sm:grid-cols-2">
+                <label class="text-[10px] font-semibold uppercase tracking-[0.11em] text-[var(--portal-blue-gray)]">
+                    {"Image role"}
+                    <select
+                        value={model.ops.media_role.clone()}
+                        onchange={role_change}
+                        class="mt-1.5 h-10 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 px-3 text-[13px] font-light"
+                    >
+                        <option value="gallery">{"Gallery"}</option>
+                        <option value="hero">{"Hero"}</option>
+                    </select>
+                </label>
+                <label class="text-[10px] font-semibold uppercase tracking-[0.11em] text-[var(--portal-blue-gray)]">
+                    {"Alt text"}
+                    <input
+                        value={model.ops.media_alt.clone()}
+                        oninput={alt_change}
+                        placeholder="Oceanfront villa overlooking Culebra"
+                        class="mt-1.5 h-10 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 px-3 text-[13px] font-light"
+                    />
+                </label>
+            </div>
+            <input
+                id="ops-media-file"
+                type="file"
+                accept="image/*"
+                onchange={file_change}
+                class="mt-4 block w-full rounded-[var(--portal-tab-radius)] border border-dashed border-[var(--portal-panel-border)] bg-white/45 p-4 text-[12px] font-light text-black/55"
+            />
+            <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
+                <span class="text-[11px] font-light text-black/45">
+                    {model.ops.media_file_name.clone().unwrap_or_else(|| "No file chosen".into())}
+                </span>
+                <button
+                    type="button"
+                    onclick={upload}
+                    disabled={model.ops.media_uploading}
+                    class="inline-flex h-10 items-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-4 text-[10px] font-semibold uppercase tracking-[0.12em] text-white disabled:opacity-40"
+                >
+                    {if model.ops.media_uploading { "Uploading…" } else { "Upload & assign" }}
+                </button>
+            </div>
+        </section>
     }
 }
 
