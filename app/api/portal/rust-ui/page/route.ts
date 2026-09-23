@@ -40,7 +40,8 @@ async function GETHandler(req: NextRequest): Promise<Response> {
         })),
       })
     }
-    case 'workflows': {
+    case 'workflows':
+    case 'tech-flight-recorder': {
       const result = await rustApiRead<Record<string, unknown>>('/v1/workflows')
       return NextResponse.json({ workflows: result.value })
     }
