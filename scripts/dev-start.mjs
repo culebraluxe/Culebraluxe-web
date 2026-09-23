@@ -38,6 +38,23 @@ const NEXT_RE = /next dev|next-server|next[\\/]dist[\\/]bin[\\/]next/
 const out = (...a) => console.log(...a)
 const err = (...a) => console.error(...a)
 
+// DEV owns its own environment. A fresh terminal after reboot must behave exactly like the old shell did; relying on
+// someone having manually sourced .env.local made the Rust API disappear while Next still looked healthy.
+const envLocal = resolve(ROOT, '.env.local')
+if (existsSync(envLocal)) {
+  if (typeof process.loadEnvFile !== 'function') {
+    err('  ✗ This Node runtime cannot load .env.local itself. Upgrade Node, then re-run pnpm dev.')
+    process.exit(1)
+  }
+  try {
+    process.loadEnvFile(envLocal)
+    out('  ✓ Loaded .env.local')
+  } catch (error) {
+    err('  ✗ Could not load .env.local:', error instanceof Error ? error.message : String(error))
+    process.exit(1)
+  }
+}
+
 function sh(cmd) {
   try {
     return execSync(cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
