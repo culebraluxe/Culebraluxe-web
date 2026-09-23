@@ -22,7 +22,7 @@ if ! grep -q '^CULEBRA_INTERNAL_API_KEY=' "$ENV_FILE" && ! grep -q '^AUTH_SECRET
 fi
 
 IMAGE="culebraluxe-rust-api:cutover"
-CONTAINER="culebraluxe-rust-cutover-${BASHPID}"
+CONTAINER="culebraluxe-rust-cutover-$"
 HOST_PORT="${RUST_PREFLIGHT_PORT:-18080}"
 NORMALIZED_ENV="$(mktemp -t culebraluxe-rust-env.XXXXXX)"
 export DOCKER_DEFAULT_PLATFORM="${DOCKER_DEFAULT_PLATFORM:-linux/amd64}"
