@@ -13,6 +13,7 @@ pub mod composition;
 pub mod contracts;
 pub mod deals;
 pub mod firms;
+pub mod flight_recorder;
 pub mod forms;
 pub mod lookup;
 pub mod media;
