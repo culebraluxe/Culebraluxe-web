@@ -12,6 +12,7 @@ const PAGE_PATH: &str = "/api/rust-ui/public-page";
 const ROWS_PATH: &str = "/api/rust-ui/public-rows";
 const PORTAL_PATH: &str = "/api/portal/rust-ui/page";
 const TECH_PATH: &str = "/api/portal/rust-ui/tech";
+const FLIGHT_RECORDER_PATH: &str = "/api/portal/flight-recorder";
 const COCKPIT_PATH: &str = "/api/portal/rust-ui/cockpit";
 const CABINET_PATH: &str = "/api/portal/rust-ui/cabinet";
 const CLIENTS_PATH: &str = "/api/portal/rust-ui/clients";
@@ -22,6 +23,13 @@ const ACCOUNTING_PATH: &str = "/api/portal/rust-ui/accounting";
 
 pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
     match effect {
+        Effect::FetchFlightRecorder {
+            screen,
+            instance_id,
+            generation,
+        } => {
+            run_flight_recorder_read(screen, generation, instance_id, dispatch);
+        }
         Effect::TechCommand {
             screen,
             generation,
@@ -267,6 +275,73 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
         }
         effect => run_read(effect, dispatch),
     }
+}
+
+fn run_flight_recorder_read(
+    screen: &'static str,
+    generation: u64,
+    instance_id: String,
+    dispatch: &Callback<Msg>,
+) {
+    let dispatch = dispatch.clone();
+    spawn_local(async move {
+        let url = format!(
+            "{FLIGHT_RECORDER_PATH}/{}",
+            encode_component(&instance_id)
+        );
+        let answer = Request::get(&url).send().await;
+        let msg = match answer {
+            Ok(response) => {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                if status >= 200 && status < 300 {
+                    match serde_json::from_str::<serde_json::Value>(&body) {
+                        Ok(transaction) => Msg::FlightRecorderLoaded {
+                            screen: screen.to_string(),
+                            generation,
+                            instance_id,
+                            transaction,
+                        },
+                        Err(error) => Msg::EffectFailed {
+                            screen: screen.to_string(),
+                            generation,
+                            message: format!(
+                                "the Flight Recorder answer could not be decoded: {error}"
+                            ),
+                        },
+                    }
+                } else {
+                    let value = serde_json::from_str::<serde_json::Value>(&body).ok();
+                    let message = value
+                        .as_ref()
+                        .and_then(|item| {
+                            item.get("detail")
+                                .or_else(|| item.get("error"))
+                                .and_then(serde_json::Value::as_str)
+                        })
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| {
+                            if status == 404 {
+                                "Trace not found for this process instance.".into()
+                            } else {
+                                format!("the Flight Recorder request failed with {status}")
+                            }
+                        });
+                    Msg::EffectFailed {
+                        screen: screen.to_string(),
+                        generation,
+                        message,
+                    }
+                }
+            }
+            Err(error) => Msg::EffectFailed {
+                screen: screen.to_string(),
+                generation,
+                message: format!("the Flight Recorder request could not be sent: {error}"),
+            },
+        };
+        dispatch.emit(msg);
+    });
 }
 
 fn run_tech_command(
@@ -687,6 +762,9 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
         // which is exactly the kind of silence this file exists to avoid.
         Effect::AccountingCommand { .. } => {
             unreachable!("Accounting commands are run by `run_accounting_command`")
+        }
+        Effect::FetchFlightRecorder { .. } => {
+            unreachable!("Flight Recorder reads are run by `run_flight_recorder_read`")
         }
         Effect::TechCommand { .. } => {
             unreachable!("TECH commands are run by `run_tech_command`")
