@@ -3,6 +3,7 @@
 //! The reducer decides what must happen; this module only performs those effects and returns completion messages.
 
 use gloo_net::http::Request;
+use wasm_bindgen::JsCast;
 use yew::platform::spawn_local;
 use yew::Callback;
 
@@ -20,6 +21,9 @@ const FORMS_PATH: &str = "/api/portal/rust-ui/forms";
 const PROJECTS_PATH: &str = "/api/portal/rust-ui/projects";
 const DEALS_PATH: &str = "/api/portal/rust-ui/deals";
 const ACCOUNTING_PATH: &str = "/api/portal/rust-ui/accounting";
+const RECORDS_PATH: &str = "/api/portal/rust-ui/records";
+const LISTING_MEDIA_PATH: &str = "/api/portal/rust-ui/listing-media";
+const LISTING_MEDIA_UPLOAD_PATH: &str = "/api/property-media/upload";
 
 pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
     match effect {
@@ -50,6 +54,40 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
             body,
         } => {
             run_accounting_command(screen, generation, body, dispatch);
+        }
+        Effect::RecordArchive {
+            screen,
+            property_id,
+            archived,
+            search,
+            page,
+            generation,
+        } => {
+            run_record_archive(
+                screen,
+                generation,
+                property_id,
+                archived,
+                search,
+                page,
+                dispatch,
+            );
+        }
+        Effect::UploadListingMedia {
+            screen,
+            property_id,
+            role,
+            alt,
+            generation,
+        } => {
+            run_listing_media_upload(
+                screen,
+                generation,
+                property_id,
+                role,
+                alt,
+                dispatch,
+            );
         }
         Effect::UpdateProjectStatus {
             screen,
@@ -763,6 +801,12 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
         Effect::AccountingCommand { .. } => {
             unreachable!("Accounting commands are run by `run_accounting_command`")
         }
+        Effect::RecordArchive { .. } => {
+            unreachable!("Records commands are run by `run_record_archive`")
+        }
+        Effect::UploadListingMedia { .. } => {
+            unreachable!("Listing Media uploads are run by `run_listing_media_upload`")
+        }
         Effect::FetchFlightRecorder { .. } => {
             unreachable!("Flight Recorder reads are run by `run_flight_recorder_read`")
         }
@@ -808,6 +852,30 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
             to,
         } => (
             pnl_query(screen, &from, &to),
+            screen,
+            generation,
+            Kind::Portal,
+        ),
+        Effect::FetchRecords {
+            screen,
+            selected,
+            search,
+            page,
+            generation,
+        } => (
+            ops_query(RECORDS_PATH, selected.as_deref(), &search, page),
+            screen,
+            generation,
+            Kind::Portal,
+        ),
+        Effect::FetchListingMedia {
+            screen,
+            selected,
+            search,
+            page,
+            generation,
+        } => (
+            ops_query(LISTING_MEDIA_PATH, selected.as_deref(), &search, page),
             screen,
             generation,
             Kind::Portal,
@@ -880,6 +948,8 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
         | Effect::RunDealWorkspaceCommand { .. }
         | Effect::UpdateProjectStatus { .. }
         | Effect::SaveProjectWork { .. }
+        | Effect::RecordArchive { .. }
+        | Effect::UploadListingMedia { .. }
         | Effect::BrowserNavigate { .. } => return,
     };
 
@@ -954,6 +1024,24 @@ fn query(path: &str, screen: &str, scope: Option<&str>) -> String {
     }
 }
 
+fn ops_query(
+    path: &str,
+    selected: Option<&str>,
+    search: &str,
+    page: usize,
+) -> String {
+    let mut url = format!(
+        "{path}?page={}&search={}",
+        page,
+        encode_component(search)
+    );
+    if let Some(selected) = selected.filter(|value| !value.is_empty()) {
+        url.push_str("&selected=");
+        url.push_str(&encode_component(selected));
+    }
+    url
+}
+
 fn clients_query(
     screen: &str,
     scope: Option<&str>,
@@ -997,6 +1085,149 @@ fn encode_component(value: &str) -> String {
 /// THE ANSWER IS THE REFRESHED SCREEN, so a success is parsed exactly like a read: the payload becomes a `PortalLoaded`
 /// for the screen that asked. On failure the bridge's own message is surfaced — "Vendor is required.", or the conflict for
 /// a voided receivable — because a form that says only "failed" makes the operator guess which of their fields was wrong.
+fn run_record_archive(
+    screen: &'static str,
+    generation: u64,
+    property_id: String,
+    archived: bool,
+    search: String,
+    page: usize,
+    dispatch: &Callback<Msg>,
+) {
+    let dispatch = dispatch.clone();
+    spawn_local(async move {
+        let action = if archived { "restore" } else { "archive" };
+        let url = ops_query(RECORDS_PATH, Some(&property_id), &search, page);
+        let request = match Request::post(&url)
+            .header("content-type", "application/json")
+            .body(
+                serde_json::json!({
+                    "action": action,
+                    "propertyId": property_id,
+                })
+                .to_string(),
+            )
+        {
+            Ok(request) => request,
+            Err(error) => {
+                dispatch.emit(Msg::EffectFailed {
+                    screen: screen.to_string(),
+                    generation,
+                    message: format!("the Records command could not be built: {error}"),
+                });
+                return;
+            }
+        };
+        let msg = match request.send().await {
+            Ok(response) if response.ok() => match response.text().await {
+                Ok(body) => Msg::portal_loaded_json(screen, generation, &body),
+                Err(error) => Msg::EffectFailed {
+                    screen: screen.to_string(),
+                    generation,
+                    message: format!("the Records answer could not be read: {error}"),
+                },
+            },
+            Ok(response) => {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                Msg::EffectFailed {
+                    screen: screen.to_string(),
+                    generation,
+                    message: bridge_error_message(&body, status),
+                }
+            }
+            Err(error) => Msg::EffectFailed {
+                screen: screen.to_string(),
+                generation,
+                message: format!("the Records command could not be sent: {error}"),
+            },
+        };
+        dispatch.emit(msg);
+    });
+}
+
+fn run_listing_media_upload(
+    screen: &'static str,
+    generation: u64,
+    property_id: String,
+    role: String,
+    alt: String,
+    dispatch: &Callback<Msg>,
+) {
+    let dispatch = dispatch.clone();
+    spawn_local(async move {
+        let fail = |message: String| Msg::EffectFailed {
+            screen: screen.to_string(),
+            generation,
+            message,
+        };
+
+        let Some(document) = web_sys::window().and_then(|window| window.document()) else {
+            dispatch.emit(fail("the browser document is unavailable.".into()));
+            return;
+        };
+        let Some(element) = document.get_element_by_id("listing-media-file") else {
+            dispatch.emit(fail("the Listing Media file input is unavailable.".into()));
+            return;
+        };
+        let Ok(input) = element.dyn_into::<web_sys::HtmlInputElement>() else {
+            dispatch.emit(fail("the Listing Media file input has the wrong element type.".into()));
+            return;
+        };
+        let Some(file) = input.files().and_then(|files| files.get(0)) else {
+            dispatch.emit(fail("Choose an image before uploading.".into()));
+            return;
+        };
+
+        let form = match web_sys::FormData::new() {
+            Ok(form) => form,
+            Err(_) => {
+                dispatch.emit(fail("the browser could not create the upload form.".into()));
+                return;
+            }
+        };
+        if form.append_with_str("propertyId", &property_id).is_err()
+            || form.append_with_str("role", &role).is_err()
+            || (!alt.trim().is_empty() && form.append_with_str("altText", alt.trim()).is_err())
+            || form
+                .append_with_blob_and_filename(
+                    "file",
+                    file.unchecked_ref::<web_sys::Blob>(),
+                    &file.name(),
+                )
+                .is_err()
+        {
+            dispatch.emit(fail("the browser could not prepare the selected image.".into()));
+            return;
+        }
+
+        let request = match Request::post(LISTING_MEDIA_UPLOAD_PATH).body(form) {
+            Ok(request) => request,
+            Err(error) => {
+                dispatch.emit(fail(format!("the Listing Media upload could not be built: {error}")));
+                return;
+            }
+        };
+        let msg = match request.send().await {
+            Ok(response) if response.ok() => Msg::ListingMediaUploadCompleted {
+                screen: screen.to_string(),
+                generation,
+            },
+            Ok(response) => {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                Msg::EffectFailed {
+                    screen: screen.to_string(),
+                    generation,
+                    message: bridge_error_message(&body, status),
+                }
+            }
+            Err(error) => fail(format!("the Listing Media upload could not be sent: {error}")),
+        };
+        dispatch.emit(msg);
+    });
+}
+
 fn run_accounting_command(
     screen: &'static str,
     generation: u64,
