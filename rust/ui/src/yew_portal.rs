@@ -14,6 +14,8 @@ use crate::yew_views::portal_accounting_receivables::Receivables as AccountingRe
 use crate::yew_views::portal_activity::Activity;
 use crate::yew_views::portal_cabinet::Cabinet;
 use crate::yew_views::portal_clients::{ClientRecord, Clients};
+use crate::yew_views::portal_listing_media::ListingMedia;
+use crate::yew_views::portal_records::Records;
 use crate::yew_views::portal_cockpit::Cockpit;
 use crate::yew_views::portal_deals::{DealRecord, Deals};
 use crate::yew_views::portal_forms::{FormRecord, Forms};
@@ -78,7 +80,6 @@ impl Component for PortalApp {
             "tech-flight-recorder" => html! { <FlightRecorderList model={self.model.clone()} on_msg={on_msg} /> },
             "cabinet" => html! { <Cabinet model={self.model.clone()} on_msg={on_msg} /> },
             "activity" => html! { <Activity model={self.model.clone()} on_msg={on_msg} /> },
-            // Accounting V1 — the dashboard first; the remaining four screens are added here as they are written.
             "accounting" => {
                 html! { <AccountingDashboard model={self.model.clone()} on_msg={on_msg} /> }
             }
@@ -94,6 +95,8 @@ impl Component for PortalApp {
             "accounting-receipt-scanner" => {
                 html! { <AccountingReceiptScanner model={self.model.clone()} on_msg={on_msg} /> }
             }
+            "property-admin" => html! { <Records model={self.model.clone()} on_msg={on_msg} /> },
+            "property-media" => html! { <ListingMedia model={self.model.clone()} on_msg={on_msg} /> },
             "clients" => html! { <Clients model={self.model.clone()} on_msg={on_msg} /> },
             "client-record" => {
                 html! { <ClientRecord model={self.model.clone()} on_msg={on_msg} /> }
