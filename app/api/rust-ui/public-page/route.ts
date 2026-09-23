@@ -207,6 +207,9 @@ async function GETHandler(req: NextRequest): Promise<Response> {
       // It carries `_id`, `title`, `bedroomsTotal`, `bathroomsTotal`, `lotSizeArea` and `livingArea`, and the compiler
       // caught every one of my inventions.
       const city = [property.city, property.stateOrProvince].filter(Boolean).join(', ')
+      // PageContent owns ONE `property: PropertyRecord`. Media belongs inside that record.
+      // Returning hero/gallery/video/documents beside `property` silently discarded them during Rust
+      // deserialization, which is why Casa Luar rendered its facts but the hero fell back to the gray placeholder.
       return NextResponse.json({
         property: {
           // The slug is the key the page was asked for; the record itself carries only its id.
@@ -221,13 +224,11 @@ async function GETHandler(req: NextRequest): Promise<Response> {
           description: property.shortDescription ?? property.editorialDescription ?? null,
           yearBuilt: property.yearBuilt ?? null,
           architecture: property.architecture ?? null,
+          heroUrl: heroUrl ?? null,
+          gallery: galleryImages ?? [],
+          videos: videos ?? [],
+          documents: documents ?? [],
         },
-        heroUrl: heroUrl ?? null,
-        // Passed through as the read model returns them: `GalleryImage` is `{ url, alt, caption }`, and the Rust side
-        // reads whichever of those fields it finds rather than this route inventing a second shape for them.
-        gallery: galleryImages ?? [],
-        videos: videos ?? [],
-        documents: documents ?? [],
       })
     }
     default: {
