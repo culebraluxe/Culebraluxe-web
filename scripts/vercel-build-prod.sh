@@ -26,10 +26,15 @@ fi
 
 export VERCEL_ORG_ID
 export VERCEL_PROJECT_ID
+# Apple Silicon is the normal CulebraLuxe development host. Pin the container build target so the
+# first production image is a Linux amd64 artifact rather than whatever architecture Docker Desktop
+# happens to inherit from the host.
+export DOCKER_DEFAULT_PLATFORM="${DOCKER_DEFAULT_PLATFORM:-linux/amd64}"
 
 printf '\nCulebraLuxe local production build\n'
 printf '  commit:  %s\n' "$(git rev-parse --short HEAD)"
 printf '  node:    %s\n' "$(node --version)"
+printf '  docker:  %s\n' "$DOCKER_DEFAULT_PLATFORM"
 printf '  project: %s\n\n' "$VERCEL_PROJECT_ID"
 
 vercel whoami >/dev/null 2>&1 || fail "Vercel CLI is not authenticated. Run: vercel login"
