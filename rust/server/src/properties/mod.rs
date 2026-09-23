@@ -2,8 +2,10 @@ use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
 use db::{DbResult, PropertyDao};
 use domain::{
-    FindPropertyByAddressRequest, PersonPropertyContext, Property, PropertyForPerson,
-    SetPropertyDisplayNameRequest, SetPropertyStatusRequest, UpsertPropertyForPersonRequest,
+    CreatePropertyAdminRequest, FindPropertyByAddressRequest, PersonPropertyContext, Property,
+    PropertyAdminPage, PropertyAdminPageRequest, PropertyAdminRecord, PropertyForPerson,
+    SavePropertyAdminRequest, SetPropertyDisplayNameRequest, SetPropertyStatusRequest,
+    UpsertPropertyForPersonRequest,
 };
 use serde_json::json;
 use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
@@ -29,6 +31,10 @@ pub trait PropertyRepository: Send {
         &mut self,
         request: &SetPropertyStatusRequest,
     ) -> DbResult<Option<Property>>;
+    async fn admin_page(&mut self, request: &PropertyAdminPageRequest) -> DbResult<PropertyAdminPage>;
+    async fn admin_get(&mut self, property_id: &str) -> DbResult<Option<PropertyAdminRecord>>;
+    async fn admin_create(&mut self, request: &CreatePropertyAdminRequest) -> DbResult<PropertyAdminRecord>;
+    async fn admin_save(&mut self, request: &SavePropertyAdminRequest) -> DbResult<Option<PropertyAdminRecord>>;
 }
 
 #[async_trait]
@@ -70,6 +76,22 @@ impl PropertyRepository for PropertyDao {
         request: &SetPropertyStatusRequest,
     ) -> DbResult<Option<Property>> {
         PropertyDao::set_status(self, request).await
+    }
+
+    async fn admin_page(&mut self, request: &PropertyAdminPageRequest) -> DbResult<PropertyAdminPage> {
+        db::retrying_read!(PropertyDao::admin_page(self, request))
+    }
+
+    async fn admin_get(&mut self, property_id: &str) -> DbResult<Option<PropertyAdminRecord>> {
+        db::retrying_read!(PropertyDao::admin_get(self, property_id))
+    }
+
+    async fn admin_create(&mut self, request: &CreatePropertyAdminRequest) -> DbResult<PropertyAdminRecord> {
+        PropertyDao::admin_create(self, request).await
+    }
+
+    async fn admin_save(&mut self, request: &SavePropertyAdminRequest) -> DbResult<Option<PropertyAdminRecord>> {
+        PropertyDao::admin_save(self, request).await
     }
 }
 
@@ -241,6 +263,146 @@ impl<R: PropertyRepository> PropertyService<R> {
         result
     }
 
+
+    pub async fn admin_page(
+        &mut self,
+        request: &PropertyAdminPageRequest,
+        context: &ServiceContext,
+    ) -> Result<PropertyAdminPage, CoreServiceError> {
+        const OP: &str = "property.adminPage";
+        let decision = authorize(
+            &self.runtime,
+            "property",
+            "property.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+        let result = self.repository.admin_page(request).await.map_err(Into::into);
+        audit_result(&self.runtime, "property", OP, context, decision, &result).await?;
+        result
+    }
+
+    pub async fn admin_get(
+        &mut self,
+        property_id: &str,
+        context: &ServiceContext,
+    ) -> Result<Option<PropertyAdminRecord>, CoreServiceError> {
+        const OP: &str = "property.adminGet";
+        let decision = authorize(
+            &self.runtime,
+            "property",
+            "property.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+        let result = self.repository.admin_get(property_id).await.map_err(Into::into);
+        audit_result(&self.runtime, "property", OP, context, decision, &result).await?;
+        result
+    }
+
+    pub async fn admin_create(
+        &mut self,
+        request: &CreatePropertyAdminRequest,
+        context: &ServiceContext,
+    ) -> Result<PropertyAdminRecord, CoreServiceError> {
+        const OP: &str = "property.adminCreate";
+        let decision = authorize(
+            &self.runtime,
+            "property",
+            "property.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+        let result = async {
+            if request.name.trim().is_empty() {
+                return Err(CoreServiceError::business(
+                    "PROPERTY_NAME_REQUIRED",
+                    "Property name is required.",
+                ));
+            }
+            let property = self.repository.admin_create(request).await?;
+            self.runtime
+                .emit(
+                    "property.created",
+                    Some(property.id.clone()),
+                    BTreeMap::from([
+                        ("propertyId".into(), json!(property.id.clone())),
+                        ("name".into(), json!(property.name.clone())),
+                    ]),
+                    context,
+                )
+                .await?;
+            Ok(property)
+        }
+        .await;
+        audit_result(&self.runtime, "property", OP, context, decision, &result).await?;
+        result
+    }
+
+    pub async fn admin_save(
+        &mut self,
+        request: &SavePropertyAdminRequest,
+        context: &ServiceContext,
+    ) -> Result<PropertyAdminRecord, CoreServiceError> {
+        const OP: &str = "property.adminSave";
+        let decision = authorize(
+            &self.runtime,
+            "property",
+            "property.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+        let result = async {
+            let current = self
+                .repository
+                .admin_get(&request.property_id)
+                .await?
+                .ok_or_else(|| {
+                    CoreServiceError::business(
+                        "PROPERTY_NOT_FOUND",
+                        format!("Property not found: {}", request.property_id),
+                    )
+                })?;
+            validate_admin_save(&current, request)?;
+            let property = self
+                .repository
+                .admin_save(request)
+                .await?
+                .ok_or_else(|| {
+                    CoreServiceError::business(
+                        "PROPERTY_NOT_FOUND",
+                        format!("Property not found: {}", request.property_id),
+                    )
+                })?;
+            self.runtime
+                .emit(
+                    "property.admin_saved",
+                    Some(property.id.clone()),
+                    BTreeMap::from([
+                        ("propertyId".into(), json!(property.id.clone())),
+                        ("name".into(), json!(property.name.clone())),
+                        ("status".into(), json!(property.status.clone())),
+                        ("published".into(), json!(property.is_published)),
+                        ("activeListing".into(), json!(property.is_active_listing)),
+                    ]),
+                    context,
+                )
+                .await?;
+            Ok(property)
+        }
+        .await;
+        audit_result(&self.runtime, "property", OP, context, decision, &result).await?;
+        result
+    }
+
     pub async fn set_status(
         &mut self,
         request: &SetPropertyStatusRequest,
@@ -280,4 +442,163 @@ impl<R: PropertyRepository> PropertyService<R> {
         audit_result(&self.runtime, "property", OP, context, decision, &result).await?;
         result
     }
+}
+
+
+fn compact_text(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+fn parse_non_negative(value: Option<&str>, label: &'static str) -> Result<(), CoreServiceError> {
+    let Some(raw) = compact_text(value) else {
+        return Ok(());
+    };
+    let parsed = raw.parse::<f64>().map_err(|_| {
+        CoreServiceError::business("PROPERTY_NUMBER_INVALID", format!("{label} must be a number."))
+    })?;
+    if !parsed.is_finite() || parsed < 0.0 {
+        return Err(CoreServiceError::business(
+            "PROPERTY_NUMBER_INVALID",
+            format!("{label} must be zero or greater."),
+        ));
+    }
+    Ok(())
+}
+
+fn parse_range(
+    value: Option<&str>,
+    label: &'static str,
+    min: f64,
+    max: f64,
+) -> Result<(), CoreServiceError> {
+    let Some(raw) = compact_text(value) else {
+        return Ok(());
+    };
+    let parsed = raw.parse::<f64>().map_err(|_| {
+        CoreServiceError::business("PROPERTY_NUMBER_INVALID", format!("{label} must be a number."))
+    })?;
+    if !parsed.is_finite() || parsed < min || parsed > max {
+        return Err(CoreServiceError::business(
+            "PROPERTY_NUMBER_INVALID",
+            format!("{label} must be between {min} and {max}."),
+        ));
+    }
+    Ok(())
+}
+
+fn valid_iso_date(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 10
+        && bytes[4] == b'-'
+        && bytes[7] == b'-'
+        && value[0..4].parse::<u16>().is_ok()
+        && value[5..7].parse::<u8>().is_ok()
+        && value[8..10].parse::<u8>().is_ok()
+}
+
+fn validate_admin_save(
+    current: &PropertyAdminRecord,
+    request: &SavePropertyAdminRequest,
+) -> Result<(), CoreServiceError> {
+    if request.name.trim().is_empty() {
+        return Err(CoreServiceError::business(
+            "PROPERTY_NAME_REQUIRED",
+            "Property name is required.",
+        ));
+    }
+
+    const STATUSES: &[&str] = &[
+        "prospect",
+        "coming_soon",
+        "active",
+        "off_market",
+        "under_contract",
+        "sold",
+        "archived",
+    ];
+    if !STATUSES.contains(&request.status.trim()) {
+        return Err(CoreServiceError::business(
+            "PROPERTY_STATUS_INVALID",
+            "Property status is invalid.",
+        ));
+    }
+    if request.status != current.status
+        && (matches!(current.status.as_str(), "under_contract" | "sold")
+            || matches!(request.status.as_str(), "under_contract" | "sold"))
+    {
+        return Err(CoreServiceError::business(
+            "PROPERTY_STATUS_WORKFLOW_OWNED",
+            "Under-contract and sold status are owned by the transaction workflow.",
+        ));
+    }
+
+    if let Some(slug) = compact_text(request.slug.as_deref()) {
+        let valid = slug
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+            && !slug.starts_with('-')
+            && !slug.ends_with('-')
+            && !slug.contains("--");
+        if !valid {
+            return Err(CoreServiceError::business(
+                "PROPERTY_SLUG_INVALID",
+                "Slug must use lowercase letters, numbers, and single hyphens.",
+            ));
+        }
+    }
+
+    for (value, label) in [
+        (request.list_price.as_deref(), "List price"),
+        (request.bedrooms.as_deref(), "Bedrooms"),
+        (request.bathrooms.as_deref(), "Bathrooms"),
+        (request.bathrooms_full.as_deref(), "Full bathrooms"),
+        (request.bathrooms_half.as_deref(), "Half bathrooms"),
+        (request.square_feet.as_deref(), "Square feet"),
+        (request.lot_size.as_deref(), "Lot size"),
+        (request.year_built.as_deref(), "Year built"),
+        (request.stories.as_deref(), "Stories"),
+        (request.parking_spaces.as_deref(), "Parking spaces"),
+        (request.stellar.tax_year.as_deref(), "Tax year"),
+        (request.stellar.annual_tax.as_deref(), "Annual tax"),
+        (request.stellar.total_area_sqft.as_deref(), "Total area"),
+    ] {
+        parse_non_negative(value, label)?;
+    }
+    parse_range(request.latitude.as_deref(), "Latitude", -90.0, 90.0)?;
+    parse_range(request.longitude.as_deref(), "Longitude", -180.0, 180.0)?;
+
+    if let Some(year) = compact_text(request.stellar.tax_year.as_deref()) {
+        let parsed = year.parse::<i32>().map_err(|_| {
+            CoreServiceError::business("PROPERTY_TAX_YEAR_INVALID", "Tax year must be a whole year.")
+        })?;
+        if !(1800..=2200).contains(&parsed) {
+            return Err(CoreServiceError::business(
+                "PROPERTY_TAX_YEAR_INVALID",
+                "Tax year must be between 1800 and 2200.",
+            ));
+        }
+    }
+
+    let contract = compact_text(request.stellar.listing_contract_date.as_deref());
+    let expiration = compact_text(request.stellar.expiration_date.as_deref());
+    for (value, label) in [(contract, "Listing contract date"), (expiration, "Expiration date")] {
+        if let Some(value) = value {
+            if !valid_iso_date(value) {
+                return Err(CoreServiceError::business(
+                    "PROPERTY_DATE_INVALID",
+                    format!("{label} must use YYYY-MM-DD."),
+                ));
+            }
+        }
+    }
+    if let (Some(contract), Some(expiration)) = (contract, expiration) {
+        if expiration < contract {
+            return Err(CoreServiceError::business(
+                "PROPERTY_DATE_INVALID",
+                "Expiration must be on or after the listing contract date.",
+            ));
+        }
+    }
+
+    Ok(())
 }
