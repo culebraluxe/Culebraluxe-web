@@ -11,6 +11,7 @@ use crate::model::{Effect, Msg, PortalDealPeopleSearch};
 const PAGE_PATH: &str = "/api/rust-ui/public-page";
 const ROWS_PATH: &str = "/api/rust-ui/public-rows";
 const PORTAL_PATH: &str = "/api/portal/rust-ui/page";
+const TECH_PATH: &str = "/api/portal/rust-ui/tech";
 const COCKPIT_PATH: &str = "/api/portal/rust-ui/cockpit";
 const CABINET_PATH: &str = "/api/portal/rust-ui/cabinet";
 const CLIENTS_PATH: &str = "/api/portal/rust-ui/clients";
@@ -610,6 +611,16 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
         Effect::AccountingCommand { .. } => {
             unreachable!("Accounting commands are run by `run_accounting_command`")
         }
+        Effect::FetchTech {
+            screen,
+            selected,
+            generation,
+        } => (
+            tech_query(selected.as_deref()),
+            screen,
+            generation,
+            Kind::Portal,
+        ),
         Effect::FetchCabinet { screen, generation } => (
             CABINET_PATH.to_string(),
             screen,
@@ -758,6 +769,13 @@ enum Kind {
 /// THE RANGE IS ALWAYS ON THE REQUEST, even when both ends are empty. An empty pair means "the period the screen has not
 /// chosen yet", which the bridge answers with the current month — so "nothing chosen" and "the current month" stay one thing
 /// rather than two.
+fn tech_query(selected: Option<&str>) -> String {
+    match selected.filter(|value| !value.is_empty()) {
+        Some(id) => format!("{TECH_PATH}?selected={}", encode_component(id)),
+        None => TECH_PATH.to_string(),
+    }
+}
+
 fn pnl_query(screen: &str, from: &str, to: &str) -> String {
     format!(
         "{PORTAL_PATH}?screen={}&from={}&to={}",
