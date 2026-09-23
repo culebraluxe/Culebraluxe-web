@@ -98,35 +98,48 @@ impl MediaDao {
 
         let media_id = sqlx::query_scalar::<_, String>(
             r#"
-            insert into media (
-                file_data,
-                filename,
-                mime_type,
-                file_size,
-                alt_text,
-                caption,
-                media_type,
-                mux_asset_id,
-                mux_playback_id,
-                duration_seconds,
-                aspect_ratio,
-                source_url
+            with existing as (
+                select id
+                from media
+                where mux_asset_id = $2
+                order by created_at asc
+                limit 1
+            ),
+            inserted as (
+                insert into media (
+                    file_data,
+                    filename,
+                    mime_type,
+                    file_size,
+                    alt_text,
+                    caption,
+                    media_type,
+                    mux_asset_id,
+                    mux_playback_id,
+                    duration_seconds,
+                    aspect_ratio,
+                    source_url
+                )
+                select
+                    null,
+                    'mux-' || $2,
+                    'application/vnd.apple.mpegurl',
+                    null,
+                    null,
+                    $1,
+                    'video',
+                    $2,
+                    $3,
+                    $4::numeric,
+                    $5,
+                    'https://stream.mux.com/' || $3 || '.m3u8'
+                where not exists (select 1 from existing)
+                returning id
             )
-            values (
-                null,
-                null,
-                null,
-                null,
-                null,
-                $1,
-                'video',
-                $2,
-                $3,
-                $4::numeric,
-                $5,
-                null
-            )
-            returning id::text
+            select id::text from existing
+            union all
+            select id::text from inserted
+            limit 1
             "#,
         )
         .bind(&request.caption)
@@ -155,6 +168,8 @@ impl MediaDao {
                     0
                 )
             )
+            on conflict (property_id, media_id)
+            do update set role = excluded.role
             "#,
         )
         .bind(&request.property_id)
