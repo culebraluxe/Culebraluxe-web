@@ -597,7 +597,7 @@ fn node_states(
                 node_id: node_id.clone(),
                 state,
                 // A historical RUN_END can exist without its matching start row. It still proves the node executed once.
-                execution_count: execution_count.max(i64::from(!completed.is_empty() || failed)),
+                execution_count: execution_count.max(if !completed.is_empty() || failed { 1 } else { 0 }),
                 entered_at: first.map(|event| {
                     event
                         .occurred_at
