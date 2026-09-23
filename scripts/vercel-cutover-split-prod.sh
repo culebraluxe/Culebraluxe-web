@@ -164,6 +164,33 @@ if ! grep -qx 'CULEBRA_INTERNAL_API_KEY' "$COPIED_KEYS" && ! grep -qx 'AUTH_SECR
 fi
 printf '  production environment copied to Rust project\n'
 
+# Production pool settings are operational configuration, not secrets. Pin them here so an
+# older value on the source frontend project cannot silently override the Rust service defaults.
+for POOL_SETTING in \
+  'FORGE_DB_POOL_MAX=12' \
+  'FORGE_DB_POOL_MIN=3' \
+  'FORGE_DB_POOL_CONNECT_MS=15000'
+do
+  KEY="${POOL_SETTING%%=*}"
+  VALUE="${POOL_SETTING#*=}"
+  node - "$KEY" "$VALUE" "$TMP_DIR/pool-setting.json" <<'NODE'
+const fs = require('fs')
+const key = process.argv[2]
+const value = process.argv[3]
+const outputPath = process.argv[4]
+fs.writeFileSync(outputPath, JSON.stringify({
+  key,
+  value,
+  type: 'plain',
+  target: ['production'],
+  comment: 'Rust production database pool sizing',
+}))
+NODE
+  vc api "/v10/projects/${RUST_PROJECT_ID}/env?upsert=true&teamId=${TEAM_ID}" \
+    -X POST --input "$TMP_DIR/pool-setting.json" >/dev/null
+done
+printf '  Rust PROD pool pinned: min=3 max=12 connect=15s\n'
+
 # The Rust API has its own internal-key authentication on every application route.
 # Production needs to be reachable from the Next frontend without Vercel login interposition.
 cat >"$TMP_DIR/rust-project-public.json" <<'JSON'
