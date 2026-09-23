@@ -20,8 +20,11 @@ use crate::yew_router::{Route, Shell};
 pub enum AppMsg {
     /// An intent from a control — dispatched into the reducer unchanged.
     Ui(Msg),
-    /// The URL changed and this screen is what it serves: opened under a new generation.
-    RouteEntered(Screen),
+    /// The URL changed and this screen is what it serves. Dynamic record routes carry their scope too.
+    RouteEntered {
+        screen: Screen,
+        scope: Option<String>,
+    },
 }
 
 /// The application. It owns the model, which is the whole of the app's state.
@@ -45,14 +48,15 @@ impl Component for App {
     fn update(&mut self, ctx: &Context<Self>, msg: Self::Message) -> bool {
         let effects = match msg {
             AppMsg::Ui(msg) => crate::update::update(&mut self.model, msg),
-            AppMsg::RouteEntered(screen) => {
+            AppMsg::RouteEntered { screen, scope } => {
                 // A NEW GENERATION PER NAVIGATION, which is what makes a late response harmless: the answer to the
                 // previous screen's question cannot claim this one, however the two requests interleave.
                 self.generation += 1;
                 crate::update::update(
                     &mut self.model,
-                    Msg::Mount {
+                    Msg::MountScoped {
                         screen,
+                        scope,
                         generation: self.generation as u64,
                     },
                 )
@@ -68,7 +72,7 @@ impl Component for App {
         html! {
             <BrowserRouter>
                 <Routed model={self.model.clone()} on_msg={ctx.link().callback(AppMsg::Ui)}
-                    on_route={ctx.link().callback(AppMsg::RouteEntered)} />
+                    on_route={ctx.link().callback(|(screen, scope)| AppMsg::RouteEntered { screen, scope })} />
             </BrowserRouter>
         }
     }
@@ -78,7 +82,7 @@ impl Component for App {
 struct RoutedProps {
     model: crate::model::Model,
     on_msg: Callback<Msg>,
-    on_route: Callback<Screen>,
+    on_route: Callback<(Screen, Option<String>)>,
 }
 
 /// Opens the screen the current URL serves, then renders it.
@@ -92,7 +96,7 @@ fn routed(props: &RoutedProps) -> Html {
         let on_route = props.on_route.clone();
         use_effect_with(route, move |route| {
             if let Some(screen) = route.screen() {
-                on_route.emit(screen);
+                on_route.emit((screen, route.scope()));
             }
             || ()
         });
