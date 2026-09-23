@@ -442,6 +442,43 @@ export async function rustApiUpdateForm<T>(
 }
 
 
+export async function rustApiCreatePropertyAdmin<T>(
+  body: { name: string },
+  options: RustApiJsonWriteOptions = {},
+): Promise<RustApiSuccess<T>> {
+  return rustApiJsonWrite<T>('/v1/properties/admin', 'POST', body, options)
+}
+
+export async function rustApiUpdatePropertyAdmin<T>(
+  propertyId: string,
+  body: Record<string, unknown>,
+  options: RustApiJsonWriteOptions = {},
+): Promise<RustApiSuccess<T>> {
+  return rustApiJsonWrite<T>(
+    (`/v1/properties/${encodeURIComponent(propertyId)}/admin`) as `/v1/${string}`,
+    'PATCH',
+    body,
+    options,
+  )
+}
+
+export async function rustApiUpdatePersonAdmin<T>(
+  personId: string,
+  body: {
+    displayName: string
+    status: string
+    company?: string | null
+  },
+  options: RustApiJsonWriteOptions = {},
+): Promise<RustApiSuccess<T>> {
+  return rustApiJsonWrite<T>(
+    (`/v1/people/${encodeURIComponent(personId)}`) as `/v1/${string}`,
+    'PATCH',
+    body,
+    options,
+  )
+}
+
 export async function rustApiUpdateProject<T>(
   projectId: string,
   body: Record<string, unknown>,
