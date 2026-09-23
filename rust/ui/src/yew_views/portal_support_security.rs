@@ -14,7 +14,7 @@
 
 use yew::prelude::*;
 
-use crate::model::{Msg, PortalBreakGlassReadiness, PortalSecurity, PortalSecurityStatus};
+use crate::model::{Msg, PortalBreakGlassReadiness, PortalSecurityStatus};
 use crate::yew_views::portal_shell::PortalShell;
 
 /// The light surface the portal's read-only pages use.

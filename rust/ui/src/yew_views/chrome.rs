@@ -34,14 +34,15 @@ pub struct NavLinkProps {
 #[function_component(NavLink)]
 pub fn nav_link(props: &NavLinkProps) -> Html {
     let navigator = use_navigator();
-    let to = props.to;
+    let to = props.to.clone();
+    let click_target = to.clone();
     let onclick = Callback::from(move |event: MouseEvent| {
         if event.meta_key() || event.ctrl_key() || event.shift_key() || event.alt_key() {
             return;
         }
         if let Some(navigator) = navigator.clone() {
             event.prevent_default();
-            let _ = navigator.push(&to);
+            let _ = navigator.push(&click_target);
         }
     });
     html! {
@@ -73,7 +74,7 @@ impl Component for Header {
         let current = ctx.link().route::<Route>();
         let item = |route: Route, label: &'static str, class: &'static str| {
             html! {
-                <NavLink to={route} classes={classes!(class)} current={current == Some(route)}>
+                <NavLink to={route.clone()} classes={classes!(class)} current={current == Some(route)}>
                     { label }
                 </NavLink>
             }
