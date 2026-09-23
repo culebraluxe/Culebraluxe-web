@@ -64,25 +64,32 @@ impl CockpitDao {
     }
 
     pub async fn snapshot(&self) -> DbResult<CockpitSnapshot> {
-        // The Cockpit is the landing page: independent read projections run together
-        // instead of paying Neon round-trip latency one after another.
+        // The Cockpit is the landing page, but it must not create more simultaneous database
+        // demand than the pool can absorb. The old implementation launched all ten projections at once
+        // against a pool that historically defaulted to five connections. On a warm DEV database that was
+        // usually invisible; in PROD the first portal load could exhaust acquisition while extra connections
+        // were still opening. Two waves preserve parallel reads without a ten-query stampede.
         let (
             active_client_count,
             live_deal_count,
             upcoming_count,
             under_contract_count,
             workflow_counts,
-            overdue_tasks,
-            tasks_due_soon,
-            recent_interactions,
-            featured_deal,
-            pipeline,
         ) = tokio::try_join!(
             self.active_client_count(),
             self.live_deal_count(),
             self.upcoming_count(),
             self.under_contract_count(),
             self.workflow_counts(),
+        )?;
+
+        let (
+            overdue_tasks,
+            tasks_due_soon,
+            recent_interactions,
+            featured_deal,
+            pipeline,
+        ) = tokio::try_join!(
             self.overdue_tasks(),
             self.tasks_due_soon(),
             self.recent_interactions(),
