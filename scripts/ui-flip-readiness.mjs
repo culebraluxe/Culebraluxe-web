@@ -48,8 +48,14 @@ for (const { key, path } of screens) {
     continue
   }
   const src = readFileSync(page, 'utf8')
-  // A page that already mounts the host is flipped: it has no TypeScript body left to lose.
-  const flipped = src.includes('RustUiHost')
+  // A page that already mounts a Rust root is flipped: it has no TypeScript body left to lose.
+  //
+  // TWO ROOTS COUNT, AND THE SECOND IS THE ONE THAT MATTERS NOW. `RustUiHost` was the first cutover: the generic renderer,
+  // booted with a rows feed and a screen key — which is how the screens got flattened into lists. `PortalYewApp` mounts the
+  // portal for the screen directly, so the page renders the screen's own Yew component over its own typed payload. Counting
+  // only the first made every screen that had been properly converted report as still-to-do, which is the wrong direction
+  // for a file whose whole job is to say what is left.
+  const flipped = src.includes('RustUiHost') || src.includes('PortalYewApp')
   const components = flipped ? [] : [...src.matchAll(/from\s+"(@\/components\/[^"]+)"/g)].map((m) => m[1])
   let markers = 0
   for (const c of components) {
