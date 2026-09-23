@@ -948,8 +948,6 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
         | Effect::RunDealWorkspaceCommand { .. }
         | Effect::UpdateProjectStatus { .. }
         | Effect::SaveProjectWork { .. }
-        | Effect::RecordArchive { .. }
-        | Effect::UploadListingMedia { .. }
         | Effect::BrowserNavigate { .. } => return,
     };
 
