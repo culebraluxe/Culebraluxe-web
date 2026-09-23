@@ -731,40 +731,39 @@ impl UiLab {
 impl UiLab {
     fn react_lab(&self) -> Html {
         html! {
-            <section class="portal-glass-panel rounded-[var(--portal-panel-radius)] p-5">
-                <p class="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--portal-gold)]">{"Preserved reference"}</p>
-                <h2 class="mt-1 font-serif text-2xl font-light text-[var(--portal-navy)]">{"React / TypeScript component gallery"}</h2>
-                <p class="mt-3 max-w-3xl text-sm font-light leading-6 text-black/55">
-                    {"The mature TypeScript gallery stays the reference for PageHeader, panels, fields, dialog, row menus, pagination, timelines and state patterns. It is not being rewritten just to appear here."}
-                </p>
-                <div class="mt-4 rounded-md border border-dashed border-[var(--portal-gold)]/60 bg-white/30 p-4">
-                    <p class="text-xs font-medium text-[var(--portal-navy)]">{"Next adapter"}</p>
-                    <p class="mt-1 text-[11px] font-light text-black/50">
-                        {"Mount the preserved React gallery as one bounded island in this tab. Yew remains the route and application owner."}
+            <div class="space-y-4">
+                <section class="portal-glass-panel rounded-[var(--portal-panel-radius)] p-5">
+                    <p class="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--portal-gold)]">{"Preserved reference"}</p>
+                    <h2 class="mt-1 font-serif text-2xl font-light text-[var(--portal-navy)]">{"React / TypeScript component gallery"}</h2>
+                    <p class="mt-3 max-w-3xl text-sm font-light leading-6 text-black/55">
+                        {"The original portal component gallery is mounted below unchanged as a bounded React island. Yew still owns this route and tab state."}
                     </p>
-                </div>
-            </section>
+                </section>
+                <div
+                    id="ui-lab-react-island"
+                    class="min-h-[20rem]"
+                    aria-label="React and TypeScript UI component gallery"
+                />
+            </div>
         }
     }
 
     fn motion_lab(&self) -> Html {
         html! {
-            <section class="portal-glass-panel rounded-[var(--portal-panel-radius)] p-5">
-                <p class="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--portal-gold)]">{"Interaction reference"}</p>
-                <h2 class="mt-1 font-serif text-2xl font-light text-[var(--portal-navy)]">{"Motion / Framer ideas"}</h2>
-                <p class="mt-3 max-w-3xl text-sm font-light leading-6 text-black/55">
-                    {"Keep the useful experiments — motion profiles, view transitions, image drift, hotspots, tilt and command-palette behavior — without making Framer the owner of the portal."}
-                </p>
-                <div class="mt-4 flex flex-wrap items-center gap-3">
-                    <a
-                        href="/portal/tech/framer-ui-lab"
-                        class="inline-flex min-h-9 items-center rounded-md bg-[var(--portal-navy)] px-3 text-xs font-medium text-white transition hover:bg-[var(--portal-navy-soft)]"
-                    >
-                        {"Open preserved Framer lab"}
-                    </a>
-                    <span class="text-[11px] font-light text-black/45">{"Later this becomes a bounded island in this tab."}</span>
-                </div>
-            </section>
+            <div class="space-y-4">
+                <section class="portal-glass-panel rounded-[var(--portal-panel-radius)] p-5">
+                    <p class="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--portal-gold)]">{"Interaction reference"}</p>
+                    <h2 class="mt-1 font-serif text-2xl font-light text-[var(--portal-navy)]">{"Motion / Framer ideas"}</h2>
+                    <p class="mt-3 max-w-3xl text-sm font-light leading-6 text-black/55">
+                        {"The existing Framer-inspired MVI lab is mounted below as a bounded React island: motion profiles, view transitions, image drift, hotspots, tilt, command palette and reusable core components."}
+                    </p>
+                </section>
+                <div
+                    id="ui-lab-motion-island"
+                    class="min-h-[28rem] overflow-hidden rounded-[var(--portal-panel-radius)]"
+                    aria-label="Motion and Framer interaction gallery"
+                />
+            </div>
         }
     }
 }
