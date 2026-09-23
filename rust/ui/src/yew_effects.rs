@@ -191,6 +191,29 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
             );
         }
 
+        Effect::SearchOpsPeople {
+            screen,
+            query,
+            generation,
+        } => {
+            run_ops_people_search(screen, generation, query, dispatch);
+        }
+        Effect::UploadOpsMedia {
+            screen,
+            property_id,
+            role,
+            alt,
+            generation,
+        } => {
+            run_ops_media_upload(
+                screen,
+                generation,
+                property_id,
+                role,
+                alt,
+                dispatch,
+            );
+        }
         Effect::SaveOps {
             screen,
             entity,
@@ -398,6 +421,137 @@ fn run_ops_command(
                 generation,
                 message: format!("the OPPS workbench command could not be sent: {error}"),
             },
+        };
+        dispatch.emit(msg);
+    });
+}
+
+fn run_ops_people_search(
+    screen: &'static str,
+    generation: u64,
+    query_value: String,
+    dispatch: &Callback<Msg>,
+) {
+    let dispatch = dispatch.clone();
+    spawn_local(async move {
+        let url = format!(
+            "{DEALS_PATH}?peopleSearch={}",
+            encode_component(&query_value)
+        );
+        let answer = Request::get(&url).send().await;
+        let msg = match answer {
+            Ok(response) if response.ok() => match response.text().await {
+                Ok(body) => match serde_json::from_str::<PortalDealPeopleSearch>(&body) {
+                    Ok(payload) => Msg::OpsPeopleLoaded {
+                        screen: screen.to_string(),
+                        generation,
+                        query: query_value,
+                        people: payload.people,
+                    },
+                    Err(error) => Msg::EffectFailed {
+                        screen: screen.to_string(),
+                        generation,
+                        message: format!("the OPPS Person search answer could not be read: {error}"),
+                    },
+                },
+                Err(error) => Msg::EffectFailed {
+                    screen: screen.to_string(),
+                    generation,
+                    message: format!("the OPPS Person search answer could not be read: {error}"),
+                },
+            },
+            Ok(response) => Msg::EffectFailed {
+                screen: screen.to_string(),
+                generation,
+                message: format!("the OPPS Person search failed with {}", response.status()),
+            },
+            Err(error) => Msg::EffectFailed {
+                screen: screen.to_string(),
+                generation,
+                message: format!("the OPPS Person search could not be sent: {error}"),
+            },
+        };
+        dispatch.emit(msg);
+    });
+}
+
+fn run_ops_media_upload(
+    screen: &'static str,
+    generation: u64,
+    property_id: String,
+    role: String,
+    alt: String,
+    dispatch: &Callback<Msg>,
+) {
+    let dispatch = dispatch.clone();
+    spawn_local(async move {
+        let fail = |message: String| Msg::EffectFailed {
+            screen: screen.to_string(),
+            generation,
+            message,
+        };
+
+        let Some(document) = web_sys::window().and_then(|window| window.document()) else {
+            dispatch.emit(fail("the browser document is unavailable.".into()));
+            return;
+        };
+        let Some(element) = document.get_element_by_id("ops-media-file") else {
+            dispatch.emit(fail("the OPPS Media file input is unavailable.".into()));
+            return;
+        };
+        let Ok(input) = element.dyn_into::<web_sys::HtmlInputElement>() else {
+            dispatch.emit(fail("the OPPS Media file input has the wrong element type.".into()));
+            return;
+        };
+        let Some(file) = input.files().and_then(|files| files.get(0)) else {
+            dispatch.emit(fail("Choose an image before uploading.".into()));
+            return;
+        };
+
+        let form = match web_sys::FormData::new() {
+            Ok(form) => form,
+            Err(_) => {
+                dispatch.emit(fail("the browser could not create the upload form.".into()));
+                return;
+            }
+        };
+        if form.append_with_str("propertyId", &property_id).is_err()
+            || form.append_with_str("role", &role).is_err()
+            || (!alt.trim().is_empty() && form.append_with_str("altText", alt.trim()).is_err())
+            || form
+                .append_with_blob_and_filename(
+                    "file",
+                    file.unchecked_ref::<web_sys::Blob>(),
+                    &file.name(),
+                )
+                .is_err()
+        {
+            dispatch.emit(fail("the browser could not prepare the selected image.".into()));
+            return;
+        }
+
+        let request = match Request::post(LISTING_MEDIA_UPLOAD_PATH).body(form) {
+            Ok(request) => request,
+            Err(error) => {
+                dispatch.emit(fail(format!("the OPPS Media upload could not be built: {error}")));
+                return;
+            }
+        };
+        let msg = match request.send().await {
+            Ok(response) if response.ok() => Msg::OpsMediaUploadCompleted {
+                screen: screen.to_string(),
+                generation,
+            },
+            Ok(response) => {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                Msg::EffectFailed {
+                    screen: screen.to_string(),
+                    generation,
+                    message: bridge_error_message(&body, status),
+                }
+            }
+            Err(error) => fail(format!("the OPPS Media upload could not be sent: {error}")),
         };
         dispatch.emit(msg);
     });
@@ -888,6 +1042,12 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
         // which is exactly the kind of silence this file exists to avoid.
         Effect::SaveOps { .. } | Effect::CreateOpsProperty { .. } => {
             unreachable!("OPPS workbench commands are run by `run_ops_command`")
+        }
+        Effect::SearchOpsPeople { .. } => {
+            unreachable!("OPPS Person search is run by `run_ops_people_search`")
+        }
+        Effect::UploadOpsMedia { .. } => {
+            unreachable!("OPPS Media uploads are run by `run_ops_media_upload`")
         }
         Effect::AccountingCommand { .. } => {
             unreachable!("Accounting commands are run by `run_accounting_command`")
