@@ -597,7 +597,7 @@ impl PropertyDao {
         &self,
         request: &PropertyAdminPageRequest,
     ) -> DbResult<PropertyAdminPage> {
-        let search = compact(Some(&request.search)).map(|value| format!("%{value}%"));
+        let search = compact(Some(request.search.as_str())).map(|value| format!("%{value}%"));
         let page = request.page.max(1);
         let page_size = request.page_size.clamp(1, 100);
         let offset = (page - 1) * page_size;
