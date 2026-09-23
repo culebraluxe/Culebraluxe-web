@@ -5,6 +5,7 @@ import {
   restorePropertyAction,
 } from '@/app/portal/actions'
 import { withApiHandler } from '@/lib/error-capture-seam'
+import { guardPortalRoute } from '@/lib/auth/portal-session'
 import { getPropertyAdmin, type PropertyAdminRow } from '@/legacy/db/property-admin'
 
 const PAGE_SIZE = 50
@@ -65,11 +66,19 @@ function pagePayload(req: NextRequest, rows: PropertyAdminRow[]) {
 }
 
 async function GETHandler(req: NextRequest): Promise<Response> {
+  const guard = await guardPortalRoute('portal.read')
+  if (!guard.ok) {
+    return NextResponse.json({ error: guard.error }, { status: guard.status })
+  }
   const rows = await getPropertyAdmin()
   return NextResponse.json(pagePayload(req, rows))
 }
 
 async function POSTHandler(req: NextRequest): Promise<Response> {
+  const guard = await guardPortalRoute('listing.write')
+  if (!guard.ok) {
+    return NextResponse.json({ error: guard.error }, { status: guard.status })
+  }
   const body = (await req.json().catch(() => null)) as {
     action?: string
     propertyId?: string
