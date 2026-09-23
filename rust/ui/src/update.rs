@@ -688,6 +688,22 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             if !owns(model, &screen, generation) {
                 return Vec::new();
             }
+            // OPPS uses one screen for three entity adapters. Screen + generation ownership alone is therefore
+            // insufficient: a slower Person answer must not overwrite a Project the operator selected afterward, and
+            // an older row selection must not win over a newer one in the same entity.
+            if model.screen.key == "property-admin" {
+                let Some(ops) = page.ops.as_ref() else {
+                    return Vec::new();
+                };
+                if ops.entity != model.ops.entity {
+                    return Vec::new();
+                }
+                if model.selected_row_id.is_some()
+                    && ops.selected_id.as_deref() != model.selected_row_id.as_deref()
+                {
+                    return Vec::new();
+                }
+            }
             model.loading = false;
             model.error = None;
             if let Some(id) = model.selected_row_id.as_deref() {
