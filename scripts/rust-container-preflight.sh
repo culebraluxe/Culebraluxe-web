@@ -54,7 +54,7 @@ docker buildx build \
   rust
 
 printf '\nStarting the container against DEV...\n'
-docker run --rm -d \
+docker run -d \
   --name "$CONTAINER" \
   --platform "$DOCKER_DEFAULT_PLATFORM" \
   --env-file "$ENV_FILE" \
@@ -71,9 +71,12 @@ for attempt in $(seq 1 30); do
     break
   fi
   if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
-    printf '\nContainer exited before becoming ready. Logs:\n' >&2
+    printf '\nContainer exited before becoming ready.\n' >&2
+    printf '\nExit state:\n' >&2
+    docker inspect "$CONTAINER" --format 'status={{.State.Status}} exit={{.State.ExitCode}} error={{.State.Error}}' 2>&1 || true
+    printf '\nRust server logs:\n' >&2
     docker logs "$CONTAINER" 2>&1 || true
-    fail "Rust container did not start"
+    fail "Rust container did not start; the server error is printed above"
   fi
   sleep 1
 done
