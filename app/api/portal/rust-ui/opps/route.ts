@@ -263,10 +263,9 @@ async function propertyWorkbench(
   const page = await rustApiRead<PropertyAdminPage>(
     ('/v1/properties/admin?' + params.toString()) as `/v1/${string}`,
   )
-  const selectedId =
-    (selected && page.value.rows.some((row) => row.id === selected) ? selected : null) ??
-    page.value.rows[0]?.id ??
-    null
+  // A create can land outside page 1 under the operator sort. Keep an explicit selection even when
+  // it is not one of this page's rail rows so the record the operator just created opens immediately.
+  const selectedId = selected ?? page.value.rows[0]?.id ?? null
   const detail = selectedId
     ? await rustApiRead<PropertyAdminRecord>(
         (`/v1/properties/${encodeURIComponent(selectedId)}/admin`) as `/v1/${string}`,
