@@ -21,6 +21,7 @@ const FORMS_PATH: &str = "/api/portal/rust-ui/forms";
 const PROJECTS_PATH: &str = "/api/portal/rust-ui/projects";
 const DEALS_PATH: &str = "/api/portal/rust-ui/deals";
 const ACCOUNTING_PATH: &str = "/api/portal/rust-ui/accounting";
+const OPPS_PATH: &str = "/api/portal/rust-ui/opps";
 const RECORDS_PATH: &str = "/api/portal/rust-ui/records";
 const LISTING_MEDIA_PATH: &str = "/api/portal/rust-ui/listing-media";
 const LISTING_MEDIA_UPLOAD_PATH: &str = "/api/property-media/upload";
@@ -189,6 +190,45 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
                 dispatch,
             );
         }
+
+        Effect::SaveOps {
+            screen,
+            entity,
+            id,
+            fields,
+            search,
+            page,
+            generation,
+        } => {
+            run_ops_command(
+                screen,
+                generation,
+                serde_json::json!({
+                    "action": "save",
+                    "entity": entity,
+                    "id": id,
+                    "fields": fields,
+                    "search": search,
+                    "page": page,
+                }),
+                dispatch,
+            );
+        }
+        Effect::CreateOpsProperty {
+            screen,
+            name,
+            generation,
+        } => {
+            run_ops_command(
+                screen,
+                generation,
+                serde_json::json!({
+                    "action": "createProperty",
+                    "name": name,
+                }),
+                dispatch,
+            );
+        }
         Effect::SaveForm {
             screen,
             generation,
@@ -313,6 +353,54 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
         }
         effect => run_read(effect, dispatch),
     }
+}
+
+
+fn run_ops_command(
+    screen: &'static str,
+    generation: u64,
+    body: serde_json::Value,
+    dispatch: &Callback<Msg>,
+) {
+    let dispatch = dispatch.clone();
+    spawn_local(async move {
+        let request = match Request::post(OPPS_PATH)
+            .header("content-type", "application/json")
+            .body(body.to_string())
+        {
+            Ok(request) => request,
+            Err(error) => {
+                dispatch.emit(Msg::EffectFailed {
+                    screen: screen.to_string(),
+                    generation,
+                    message: format!("the OPPS workbench command could not be built: {error}"),
+                });
+                return;
+            }
+        };
+
+        let msg = match request.send().await {
+            Ok(response) => {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                if status >= 200 && status < 300 {
+                    Msg::portal_loaded_json(screen, generation, &body)
+                } else {
+                    Msg::EffectFailed {
+                        screen: screen.to_string(),
+                        generation,
+                        message: bridge_error_message(&body, status),
+                    }
+                }
+            }
+            Err(error) => Msg::EffectFailed {
+                screen: screen.to_string(),
+                generation,
+                message: format!("the OPPS workbench command could not be sent: {error}"),
+            },
+        };
+        dispatch.emit(msg);
+    });
 }
 
 fn run_flight_recorder_read(
@@ -798,6 +886,9 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
         // before its catch-all passes anything unhandled to this function. The arm is here because the match must be
         // exhaustive — and a command falling through to a read would be a request to the wrong route with the wrong verb,
         // which is exactly the kind of silence this file exists to avoid.
+        Effect::SaveOps { .. } | Effect::CreateOpsProperty { .. } => {
+            unreachable!("OPPS workbench commands are run by `run_ops_command`")
+        }
         Effect::AccountingCommand { .. } => {
             unreachable!("Accounting commands are run by `run_accounting_command`")
         }
@@ -852,6 +943,20 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
             to,
         } => (
             pnl_query(screen, &from, &to),
+            screen,
+            generation,
+            Kind::Portal,
+        ),
+
+        Effect::FetchOps {
+            screen,
+            entity,
+            selected,
+            search,
+            page,
+            generation,
+        } => (
+            ops_workbench_query(&entity, selected.as_deref(), &search, page),
             screen,
             generation,
             Kind::Portal,
@@ -1020,6 +1125,26 @@ fn query(path: &str, screen: &str, scope: Option<&str>) -> String {
         ),
         _ => format!("{path}?screen={}", encode_component(screen)),
     }
+}
+
+
+fn ops_workbench_query(
+    entity: &str,
+    selected: Option<&str>,
+    search: &str,
+    page: usize,
+) -> String {
+    let mut url = format!(
+        "{OPPS_PATH}?entity={}&page={}&search={}",
+        encode_component(entity),
+        page,
+        encode_component(search)
+    );
+    if let Some(selected) = selected.filter(|value| !value.is_empty()) {
+        url.push_str("&selected=");
+        url.push_str(&encode_component(selected));
+    }
+    url
 }
 
 fn ops_query(
