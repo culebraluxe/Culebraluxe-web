@@ -56,54 +56,110 @@ RUST_PROJECT_ID="$(node -e "const f=require('fs');const j=JSON.parse(f.readFileS
 printf '  Rust project: %s (%s)\n' "$RUST_PROJECT_NAME" "$RUST_PROJECT_ID"
 
 printf 'Cloning production environment to Rust project without printing secret values...\n'
-vc api "/v10/projects/${FRONTEND_PROJECT_ID}/env?decrypt=true&source=vercel-cli:pull&teamId=${TEAM_ID}" >"$TMP_DIR/frontend-env.json"
+vc api "/v10/projects/${FRONTEND_PROJECT_ID}/env?teamId=${TEAM_ID}" >"$TMP_DIR/frontend-env-list.json"
 
-node --env-file-if-exists="$ROOT_DIR/.env.local" - "$TMP_DIR/frontend-env.json" "$TMP_DIR/rust-env.json" <<'NODE'
+node - "$TMP_DIR/frontend-env-list.json" "$TMP_DIR/frontend-env-ids.txt" <<'NODE'
 const fs = require('fs')
 const inputPath = process.argv[2]
 const outputPath = process.argv[3]
 const body = JSON.parse(fs.readFileSync(inputPath, 'utf8'))
 const envs = Array.isArray(body.envs) ? body.envs : []
-const production = envs.filter((entry) => {
+const ids = []
+for (const entry of envs) {
+  if (!entry || !entry.id || !entry.key) continue
   const targets = Array.isArray(entry.target) ? entry.target : [entry.target]
-  return targets.includes('production')
-})
-const cloned = []
-for (const entry of production) {
-  if (!entry || !entry.key || typeof entry.value !== 'string') continue
-  if (entry.value === '[SENSITIVE]') continue
+  if (!targets.includes('production')) continue
   if (entry.system === true || entry.system === 'true') continue
   if (entry.key.startsWith('VERCEL_')) continue
   if (entry.key === 'RUST_API_BASE_URL') continue
-  const type = ['plain', 'encrypted', 'sensitive'].includes(entry.type) ? entry.type : 'encrypted'
-  cloned.push({
-    key: entry.key,
-    value: entry.value,
-    type,
-    target: ['production'],
-    ...(entry.comment ? { comment: entry.comment } : {}),
-  })
+  ids.push(entry.id)
 }
-const byKey = new Map(cloned.map((entry) => [entry.key, entry]))
-for (const key of ['DATABASE_URL_PROD', 'CULEBRA_INTERNAL_API_KEY', 'AUTH_SECRET', 'MUX_TOKEN_ID', 'MUX_TOKEN_SECRET', 'MUX_TOKEN_ID_PROD', 'MUX_TOKEN_SECRET_PROD']) {
-  if (!byKey.has(key) && typeof process.env[key] === 'string' && process.env[key].trim()) {
-    const entry = { key, value: process.env[key], type: 'encrypted', target: ['production'] }
-    cloned.push(entry)
-    byKey.set(key, entry)
-  }
-}
-if (!byKey.has('DATABASE_URL_PROD')) {
-  console.error('DATABASE_URL_PROD is unavailable from both Vercel and .env.local.')
-  process.exit(10)
-}
-if (!byKey.has('CULEBRA_INTERNAL_API_KEY') && !byKey.has('AUTH_SECRET')) {
-  console.error('Neither CULEBRA_INTERNAL_API_KEY nor AUTH_SECRET is available from Vercel or .env.local.')
-  process.exit(11)
-}
-fs.writeFileSync(outputPath, JSON.stringify(cloned))
+fs.writeFileSync(outputPath, ids.join('\n') + (ids.length ? '\n' : ''))
 NODE
 
-vc api "/v10/projects/${RUST_PROJECT_ID}/env?upsert=true&teamId=${TEAM_ID}" -X POST --input "$TMP_DIR/rust-env.json" >/dev/null
+COPIED_KEYS="$TMP_DIR/copied-keys.txt"
+: >"$COPIED_KEYS"
+
+while IFS= read -r ENV_ID; do
+  [[ -n "$ENV_ID" ]] || continue
+
+  # Vercel deprecated bulk ?decrypt=true. Retrieve each value through the supported
+  # per-variable endpoint instead. Output stays in the mode-700 temp directory.
+  if ! vc api "/v1/projects/${FRONTEND_PROJECT_ID}/env/${ENV_ID}?teamId=${TEAM_ID}" >"$TMP_DIR/env-value.json" 2>/dev/null; then
+    continue
+  fi
+
+  node --env-file-if-exists="$ROOT_DIR/.env.local" - \
+    "$TMP_DIR/env-value.json" "$TMP_DIR/env-upsert.json" "$COPIED_KEYS" <<'NODE'
+const fs = require('fs')
+const inputPath = process.argv[2]
+const outputPath = process.argv[3]
+const copiedPath = process.argv[4]
+const raw = JSON.parse(fs.readFileSync(inputPath, 'utf8'))
+const entry = raw.env ?? raw
+if (!entry || !entry.key || typeof entry.value !== 'string' || !entry.value.trim()) {
+  process.exit(20)
+}
+const type = ['plain', 'encrypted', 'sensitive'].includes(entry.type) ? entry.type : 'encrypted'
+fs.writeFileSync(outputPath, JSON.stringify({
+  key: entry.key,
+  value: entry.value,
+  type,
+  target: ['production'],
+  ...(entry.comment ? { comment: entry.comment } : {}),
+}))
+fs.appendFileSync(copiedPath, entry.key + '\n')
+NODE
+
+  vc api "/v10/projects/${RUST_PROJECT_ID}/env?upsert=true&teamId=${TEAM_ID}" \
+    -X POST --input "$TMP_DIR/env-upsert.json" >/dev/null
+done <"$TMP_DIR/frontend-env-ids.txt"
+
+# A locally-held secret can fill a gap if Vercel marks a production variable sensitive
+# and refuses to return its value through the API. Only the Rust-required keys are eligible.
+node --env-file-if-exists="$ROOT_DIR/.env.local" - "$COPIED_KEYS" "$TMP_DIR/local-fallbacks" <<'NODE'
+const fs = require('fs')
+const copiedPath = process.argv[2]
+const outputDir = process.argv[3]
+fs.mkdirSync(outputDir, { recursive: true, mode: 0o700 })
+const copied = new Set(
+  fs.existsSync(copiedPath)
+    ? fs.readFileSync(copiedPath, 'utf8').split(/\r?\n/).filter(Boolean)
+    : [],
+)
+const eligible = [
+  'DATABASE_URL_PROD',
+  'CULEBRA_INTERNAL_API_KEY',
+  'AUTH_SECRET',
+  'MUX_TOKEN_ID',
+  'MUX_TOKEN_SECRET',
+  'MUX_TOKEN_ID_PROD',
+  'MUX_TOKEN_SECRET_PROD',
+]
+for (const key of eligible) {
+  const value = process.env[key]
+  if (copied.has(key) || typeof value !== 'string' || !value.trim()) continue
+  fs.writeFileSync(
+    `${outputDir}/${key}.json`,
+    JSON.stringify({ key, value, type: 'encrypted', target: ['production'] }),
+  )
+}
+NODE
+
+for FALLBACK in "$TMP_DIR"/local-fallbacks/*.json; do
+  [[ -f "$FALLBACK" ]] || continue
+  KEY="$(node -e "const j=require(process.argv[1]);process.stdout.write(j.key)" "$FALLBACK")"
+  vc api "/v10/projects/${RUST_PROJECT_ID}/env?upsert=true&teamId=${TEAM_ID}" \
+    -X POST --input "$FALLBACK" >/dev/null
+  printf '%s\n' "$KEY" >>"$COPIED_KEYS"
+done
+
+grep -qx 'DATABASE_URL_PROD' "$COPIED_KEYS" \
+  || fail "DATABASE_URL_PROD could not be copied from Vercel or .env.local."
+if ! grep -qx 'CULEBRA_INTERNAL_API_KEY' "$COPIED_KEYS" && ! grep -qx 'AUTH_SECRET' "$COPIED_KEYS"; then
+  fail "Neither CULEBRA_INTERNAL_API_KEY nor AUTH_SECRET could be copied from Vercel or .env.local."
+fi
+printf '  production environment copied to Rust project\n'
 
 # The Rust API has its own internal-key authentication on every application route.
 # Production needs to be reachable from the Next frontend without Vercel login interposition.
