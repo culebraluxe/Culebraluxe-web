@@ -103,6 +103,7 @@ fn storyboard(model: &crate::model::Model) -> Html {
                                     <th class="px-4 py-2.5">{"Surface"}</th>
                                     <th class="px-4 py-2.5">{"Priority"}</th>
                                     <th class="px-4 py-2.5">{"Batch"}</th>
+                                    <th class="px-4 py-2.5 text-right">{"Completion"}</th>
                                     <th class="px-5 py-2.5 text-right">{"Status"}</th>
                                 </tr>
                             </thead>
@@ -149,6 +150,7 @@ fn story_row(row: &Row) -> Html {
     let priority = cell(row, 2);
     let batch = cell(row, 3);
     let surface = cell(row, 4);
+    let completion = cell(row, 5);
     let status = row.badge.as_deref().unwrap_or("Unknown");
     let href = format!("/portal/storyboard/{}", row.id);
 
@@ -168,6 +170,7 @@ fn story_row(row: &Row) -> Html {
             </td>
             <td class="px-4 py-3 text-xs font-light text-black/55">{ priority }</td>
             <td class="px-4 py-3 text-xs font-light text-black/45">{ batch }</td>
+            <td class="px-4 py-3 text-right font-serif text-base font-light text-[var(--portal-navy)]">{ completion }</td>
             <td class="px-5 py-3 text-right">{ status_badge(status) }</td>
         </tr>
     }
@@ -221,6 +224,7 @@ mod tests {
                 "High".into(),
                 "no batch".into(),
                 "TECH".into(),
+                "42%".into(),
             ],
             badge: Some(status.into()),
         }
