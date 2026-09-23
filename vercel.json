@@ -2,32 +2,5 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "git": {
     "deploymentEnabled": false
-  },
-  "services": {
-    "frontend": {
-      "root": ".",
-      "framework": "nextjs",
-      "bindings": [
-        {
-          "type": "service",
-          "service": "rust_api",
-          "format": "url",
-          "env": "RUST_API_BASE_URL"
-        }
-      ]
-    },
-    "rust_api": {
-      "root": "rust/",
-      "runtime": "container",
-      "entrypoint": "Dockerfile.vercel"
-    }
-  },
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": {
-        "service": "frontend"
-      }
-    }
-  ]
+  }
 }
