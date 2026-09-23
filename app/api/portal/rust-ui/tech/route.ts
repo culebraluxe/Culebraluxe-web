@@ -28,7 +28,7 @@ import {
   scheduleStagingBatch,
 } from '@/legacy/db/forge-batch'
 import { latestOpenForgeHold } from '@/legacy/db/forge-hold'
-import { setAgentWorkDispatchOptions } from '@/legacy/db/agent-work'
+import { setAgentWorkDispatchOptions, withdrawQueuedAgentWork } from '@/legacy/db/agent-work'
 import { buildStoryBoardCockpit, buildStoryBoardModel } from '@/lib/storyboard-data'
 import { buildSorterCards, SORTER_COLUMNS } from '@/lib/sorter-board'
 import { ENGINE_DISPATCH_STATUS, STATUS_BY_BUCKET } from '@/lib/story-moves'
@@ -294,9 +294,16 @@ async function POSTHandler(req: NextRequest): Promise<Response> {
       // Same handoff as the proven sorter move: once the human gives the story to Forge, it is no longer daily intent.
       await setActiveWork(storyId, false, actorId)
       await setStoryboardStatus(storyId, ENGINE_DISPATCH_STATUS)
+      const configured = await setAgentWorkDispatchOptions(storyId, {
+        stopAfter: null,
+        launchIntent: null,
+      })
+      if (configured === 0) {
+        return badCommand('No queued work item to hand off — this story is already running.', 409)
+      }
       return NextResponse.json({
         ok: true,
-        message: storyId + ' handed to Forge. Ready queued a real work item.',
+        message: storyId + ' handed to Forge for the full chain. Ready queued a real work item.',
       })
     }
 
@@ -339,11 +346,18 @@ async function POSTHandler(req: NextRequest): Promise<Response> {
               : null
       if (!status) return badCommand('Unsupported Workbench destination: ' + target)
 
+      const { withdrawn, live } = await withdrawQueuedAgentWork(storyId)
       await setActiveWork(storyId, false, actorId)
       await setStoryboardStatus(storyId, status)
+      const note =
+        withdrawn > 0
+          ? ' Withdrew ' + withdrawn + ' queued scoped request' + (withdrawn === 1 ? '.' : 's.')
+          : live > 0
+            ? ' Forge is already running this story; that live run continues.'
+            : ''
       return NextResponse.json({
         ok: true,
-        message: storyId + ' moved to ' + (target === 'next' ? 'Next Version' : target) + '.',
+        message: storyId + ' moved to ' + (target === 'next' ? 'Next Version' : target) + '.' + note,
       })
     }
 
