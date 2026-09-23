@@ -694,6 +694,9 @@ pub struct PortalOpsProperty {
     pub registry_section: Option<String>,
     pub seller_person_id: Option<String>,
     pub seller_name: Option<String>,
+    pub seller_email: Option<String>,
+    pub seller_phone: Option<String>,
+    pub seller_location: Option<String>,
     pub archived: bool,
     pub image_count: i64,
     pub video_count: i64,
@@ -737,6 +740,23 @@ pub struct PortalOpsProject {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", default)]
+pub struct PortalOpsMediaAsset {
+    pub id: String,
+    pub property_id: String,
+    pub media_type: String,
+    pub role: String,
+    pub sort_order: i32,
+    pub filename: Option<String>,
+    pub mime_type: Option<String>,
+    pub file_size: Option<i64>,
+    pub alt_text: Option<String>,
+    pub caption: Option<String>,
+    pub created_at: Option<String>,
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct PortalOpsWorkbenchPage {
     pub entity: String,
     pub rows: Vec<PortalOpsRow>,
@@ -747,6 +767,7 @@ pub struct PortalOpsWorkbenchPage {
     pub property: Option<PortalOpsProperty>,
     pub person: Option<PortalOpsPerson>,
     pub project: Option<PortalOpsProject>,
+    pub media: Vec<PortalOpsMediaAsset>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
@@ -1912,6 +1933,16 @@ pub struct OpsWorkbenchState {
     pub creating: bool,
     pub new_name: String,
     pub form: BTreeMap<String, String>,
+    pub person_query: String,
+    pub person_people: Vec<PortalDealPersonCandidate>,
+    pub person_searching: bool,
+    pub selected_person: Option<PortalDealPersonCandidate>,
+    pub media_index: usize,
+    pub media_role: String,
+    pub media_alt: String,
+    pub media_file_name: Option<String>,
+    pub media_uploading: bool,
+    pub media_uploader_open: bool,
 }
 
 impl Default for OpsWorkbenchState {
@@ -1925,6 +1956,16 @@ impl Default for OpsWorkbenchState {
             creating: false,
             new_name: String::new(),
             form: BTreeMap::new(),
+            person_query: String::new(),
+            person_people: Vec::new(),
+            person_searching: false,
+            selected_person: None,
+            media_index: 0,
+            media_role: "gallery".into(),
+            media_alt: String::new(),
+            media_file_name: None,
+            media_uploading: false,
+            media_uploader_open: false,
         }
     }
 }
@@ -2170,6 +2211,24 @@ pub enum Msg {
     OpsCreateToggled,
     OpsCreateNameChanged(String),
     OpsCreateRequested,
+    OpsPersonQueryChanged(String),
+    OpsPersonSelected(String),
+    OpsPeopleLoaded {
+        screen: String,
+        generation: u64,
+        query: String,
+        people: Vec<PortalDealPersonCandidate>,
+    },
+    OpsMediaSelected(usize),
+    OpsMediaUploaderToggled,
+    OpsMediaRoleChanged(String),
+    OpsMediaAltChanged(String),
+    OpsMediaFileChosen(String),
+    OpsMediaUploadRequested,
+    OpsMediaUploadCompleted {
+        screen: String,
+        generation: u64,
+    },
 
     // ---- OPPS / legacy Records + Listing Media -------------------------------------------------------------------
     RecordArchiveRequested,
@@ -2518,6 +2577,20 @@ pub enum Effect {
     CreateOpsProperty {
         screen: &'static str,
         name: String,
+        generation: u64,
+    },
+    /// Search canonical people by human identity for Property relations.
+    SearchOpsPeople {
+        screen: &'static str,
+        query: String,
+        generation: u64,
+    },
+    /// Upload a Property image from the workbench Media tab.
+    UploadOpsMedia {
+        screen: &'static str,
+        property_id: String,
+        role: String,
+        alt: String,
         generation: u64,
     },
     /// OPPS Records read with server-side search, paging and selected property.
