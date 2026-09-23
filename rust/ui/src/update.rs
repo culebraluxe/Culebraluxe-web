@@ -1314,7 +1314,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 "project" => matches!(section.as_str(), "project" | "links"),
                 _ => matches!(
                     section.as_str(),
-                    "property" | "website" | "mls" | "media" | "person"
+                    "property" | "website" | "mls" | "photos" | "video" | "person"
                 ),
             };
             if valid {
@@ -1499,7 +1499,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
         Msg::OpsMediaSelected(index) => {
             if model.screen.key != "property-admin"
                 || model.ops.entity != "property"
-                || model.ops.section != "media"
+                || model.ops.section != "photos"
             {
                 return Vec::new();
             }
@@ -1590,6 +1590,18 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             model.ops.media_file_name = None;
             model.ops.media_uploader_open = false;
             model.ops.media_index = 0;
+            model.loading = true;
+            model.error = None;
+            vec![ops_effect(model)]
+        }
+
+        Msg::OpsVideoRefreshRequested => {
+            if model.screen.key != "property-admin"
+                || model.ops.entity != "property"
+                || model.ops.section != "video"
+            {
+                return Vec::new();
+            }
             model.loading = true;
             model.error = None;
             vec![ops_effect(model)]
