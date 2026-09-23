@@ -167,7 +167,16 @@ impl FlightRecorderDao {
         let Some(instance) = self.instance(instance_id).await? else {
             return Ok(None);
         };
-        let rows = self.trace_events(instance_id).await?;
+        let trace_rows = self.trace_events(instance_id).await?;
+        // Historical and partially migrated runs can have durable engine history in process_events while the
+        // observer mirror is empty. Flight Recorder is a diagnostic reader, so fall back to the authoritative engine
+        // history rather than rendering an empty timeline. We only fall back when the canonical trace has NO rows:
+        // mixing both sources would double-count events that were mirrored successfully.
+        let rows = if trace_rows.is_empty() {
+            self.process_event_fallback(instance_id).await?
+        } else {
+            trace_rows
+        };
         let graph = instance
             .definition
             .clone()
@@ -294,6 +303,45 @@ impl FlightRecorderDao {
             .fetch_all(self.db.pool())
             .await
             .map_err(|error| DbFailure::from_sqlx("flight_recorder.trace_events", &error))
+        })
+    }
+
+    async fn process_event_fallback(&self, instance_id: &str) -> DbResult<Vec<TraceRow>> {
+        crate::retrying_read!(async {
+            sqlx::query_as::<_, TraceRow>(
+                r#"
+                select
+                  ('process:' || pe.id::text) as id,
+                  pe.event_type,
+                  'workflow'::text as system,
+                  pe.created_at as occurred_at,
+                  null::bigint as duration_ms,
+                  null::text as outcome,
+                  null::text as trace_id,
+                  pi.business_key as correlation_id,
+                  null::text as causation_id,
+                  pe.process_instance_id::text as workflow_instance_id,
+                  coalesce(pe.node_id, task.node_id) as workflow_node_id,
+                  null::text as command_id,
+                  null::text as domain_event_id,
+                  null::text as transaction_document_id,
+                  null::text as signature_request_id,
+                  pe.event_type as summary,
+                  pe.data as metadata,
+                  ('process:' || pe.id::text) as source_event_id
+                from process_events pe
+                join process_instances pi on pi.id = pe.process_instance_id
+                left join tasks task on task.id = pe.task_id
+                where pe.process_instance_id = $1::uuid
+                order by pe.created_at asc, pe.id asc
+                limit $2
+                "#,
+            )
+            .bind(instance_id)
+            .bind(TRACE_LIMIT)
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("flight_recorder.process_events", &error))
         })
     }
 
@@ -429,11 +477,23 @@ fn mapped_node(graph: &Value, id: &str) -> Option<FlightRecorderMappedNode> {
 }
 
 fn is_node_enter(event: &TraceRow) -> bool {
-    matches!(event.event_type.as_str(), "NODE_ENTERED" | "RUN_START")
+    matches!(
+        event.event_type.as_str(),
+        "NODE_ENTERED"
+            | "RUN_START"
+            | "process.started"
+            | "task.created"
+            | "token.moved"
+            | "token.forked"
+            | "token.joined"
+    )
 }
 
 fn is_node_complete(event: &TraceRow) -> bool {
-    if event.event_type == "NODE_COMPLETED" {
+    if matches!(
+        event.event_type.as_str(),
+        "NODE_COMPLETED" | "task.completed" | "token.completed"
+    ) {
         return true;
     }
     if event.event_type != "RUN_END" {
@@ -508,10 +568,12 @@ fn has_completion(events: &[TraceRow], entered: &TraceRow) -> bool {
 }
 
 fn current_node(events: &[TraceRow]) -> Option<String> {
-    if events
-        .iter()
-        .any(|event| event.event_type == "WORKFLOW_COMPLETED")
-    {
+    if events.iter().any(|event| {
+        matches!(
+            event.event_type.as_str(),
+            "WORKFLOW_COMPLETED" | "process.completed"
+        )
+    }) {
         return None;
     }
 
@@ -535,9 +597,12 @@ fn node_states(
     let Some(nodes) = graph.get("nodes").and_then(Value::as_object) else {
         return BTreeMap::new();
     };
-    let workflow_completed = events
-        .iter()
-        .any(|event| event.event_type == "WORKFLOW_COMPLETED");
+    let workflow_completed = events.iter().any(|event| {
+        matches!(
+            event.event_type.as_str(),
+            "WORKFLOW_COMPLETED" | "process.completed"
+        )
+    });
 
     nodes
         .keys()
@@ -723,6 +788,34 @@ mod tests {
         let events = vec![
             row("NODE_ENTERED", Some("end"), "2026-09-22T12:00:00Z", None),
             row("WORKFLOW_COMPLETED", None, "2026-09-22T12:01:00Z", Some("SUCCESS")),
+        ];
+        assert_eq!(current_node(&events), None);
+    }
+
+    #[test]
+    fn rust_engine_event_vocabulary_reconstructs_task_state() {
+        let graph = json!({
+            "nodes": {
+                "start": {"id":"start","type":"start","name":"Start"},
+                "smith": {"id":"smith","type":"task","name":"Smith"}
+            }
+        });
+        let events = vec![
+            row("process.started", Some("start"), "2026-09-22T12:00:00Z", None),
+            row("token.moved", Some("smith"), "2026-09-22T12:00:01Z", None),
+            row("task.created", Some("smith"), "2026-09-22T12:00:01Z", None),
+        ];
+        assert_eq!(current_node(&events).as_deref(), Some("smith"));
+        let states = node_states(&graph, &events, Some("smith"));
+        assert_eq!(states["smith"].state, "CURRENT");
+    }
+
+    #[test]
+    fn rust_engine_process_completion_has_no_current_node() {
+        let events = vec![
+            row("task.created", Some("qa"), "2026-09-22T12:00:00Z", None),
+            row("task.completed", Some("qa"), "2026-09-22T12:01:00Z", None),
+            row("process.completed", None, "2026-09-22T12:01:01Z", None),
         ];
         assert_eq!(current_node(&events), None);
     }
