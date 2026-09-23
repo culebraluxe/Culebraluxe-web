@@ -19,7 +19,7 @@ use crate::yew_views::portal_activity::Activity;
 use crate::yew_views::portal_cabinet::Cabinet;
 use crate::yew_views::portal_clients::{ClientRecord, Clients};
 use crate::yew_views::portal_listing_media::ListingMedia;
-use crate::yew_views::portal_records::Records;
+use crate::yew_views::portal_ops::OpsWorkbench;
 use crate::yew_views::portal_cockpit::Cockpit;
 use crate::yew_views::portal_deals::{DealRecord, Deals};
 use crate::yew_views::portal_forms::{FormRecord, Forms};
@@ -109,7 +109,7 @@ impl Component for PortalApp {
             "system-health" => {
                 html! { <SupportSystemHealth model={self.model.clone()} on_msg={on_msg} /> }
             }
-            "property-admin" => html! { <Records model={self.model.clone()} on_msg={on_msg} /> },
+            "property-admin" => html! { <OpsWorkbench model={self.model.clone()} on_msg={on_msg} /> },
             "property-media" => html! { <ListingMedia model={self.model.clone()} on_msg={on_msg} /> },
             "clients" => html! { <Clients model={self.model.clone()} on_msg={on_msg} /> },
             "client-record" => {
