@@ -35,6 +35,16 @@ printf '  platform: %s\n' "$DOCKER_DEFAULT_PLATFORM"
 printf '  env:      %s (DEV only)\n' "$ENV_FILE"
 printf '  image:    %s\n\n' "$IMAGE"
 
+printf 'Checking that rust/Cargo.lock matches the current manifests...\n'
+if ! docker run --rm \
+  --platform "$DOCKER_DEFAULT_PLATFORM" \
+  -v "$ROOT_DIR/rust:/work:ro" \
+  -w /work \
+  rust:1.94-bookworm \
+  cargo metadata --locked --format-version 1 >/dev/null 2>&1; then
+  fail "rust/Cargo.lock is stale. Restore/regenerate it with Rust 1.94, commit it, then rerun."
+fi
+
 printf 'Building the exact Vercel Rust image...\n'
 docker buildx build \
   --platform "$DOCKER_DEFAULT_PLATFORM" \
