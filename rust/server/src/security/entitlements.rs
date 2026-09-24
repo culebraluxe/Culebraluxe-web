@@ -65,11 +65,14 @@ impl AuthorizationPort for CasbinAuthorizationPort {
         } else if let Some(principal) = request.principal.as_ref() {
             if principal.account_type != "internal" {
                 (false, "account:external")
-            } else if request.action == "security.entitlement.manage" {
+            } else if matches!(
+                request.action,
+                "security.entitlement.manage" | "security.role.manage"
+            ) {
                 if principal.role_codes.iter().any(|role| role == "root") {
-                    (true, "rule:entitlement.manage.root")
+                    (true, "rule:security.manage.root")
                 } else {
-                    (false, "rule:entitlement.manage.root")
+                    (false, "rule:security.manage.root")
                 }
             } else if principal
                 .role_codes
@@ -223,6 +226,23 @@ mod tests {
         );
         req.domain = "security";
         req.operation = "security.setRoleEntitlement";
+        req.principal.as_mut().unwrap().role_codes = vec!["owner".into()];
+        assert!(!auth.authorize(req.clone()).await.unwrap().allowed);
+
+        req.principal.as_mut().unwrap().role_codes = vec!["root".into()];
+        assert!(auth.authorize(req).await.unwrap().allowed);
+    }
+
+    #[tokio::test]
+    async fn only_root_can_manage_user_roles() {
+        let auth = CasbinAuthorizationPort::new().await.unwrap();
+        let mut req = request(
+            "security.role.manage",
+            OperationKind::Command,
+            &["security.role.manage"],
+        );
+        req.domain = "security";
+        req.operation = "security.setUserPrimaryRole";
         req.principal.as_mut().unwrap().role_codes = vec!["owner".into()];
         assert!(!auth.authorize(req.clone()).await.unwrap().allowed);
 
