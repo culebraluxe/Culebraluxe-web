@@ -95,6 +95,7 @@ type PropertyAdminRecord = PropertyAdminSummary & {
   squareFeet: string | null
   lotSize: string | null
   lotSizeUnits: string | null
+  lotSizeAcres: string | null
   lotSizeSqft: string | null
   roadFrontageFeet: string | null
   roadSurfaceType: string | null
@@ -569,6 +570,7 @@ function propertySaveBody(fields: Record<string, string>) {
     squareFeet: clean(fields.squareFeet),
     lotSize: clean(fields.lotSize),
     lotSizeUnits: clean(fields.lotSizeUnits),
+    lotSizeAcres: clean(fields.lotSizeAcres),
     lotSizeSqft: clean(fields.lotSizeSqft),
     roadFrontageFeet: clean(fields.roadFrontageFeet),
     roadSurfaceType: clean(fields.roadSurfaceType),

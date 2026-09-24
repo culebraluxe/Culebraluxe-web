@@ -2,16 +2,16 @@
 
 Source: live DEV `information_schema.columns` on 2026-09-24; actual `FieldSpec` controls and the Person picker in `rust/ui/src/yew_views/portal_ops.rs`.
 
-Production currently has 120 `property` columns and 17 `property_stellar_listing` columns. Its Property table lacks the five columns in migration 214 and the eight in migration 215. This reconciliation targets the DEV schema and cannot run against production until those migrations are promoted with the corresponding Rust deployment.
+Production currently has 120 `property` columns and 17 `property_stellar_listing` columns. Its Property table lacks the five columns in migration 214, eight in 215, and one in 216. This reconciliation targets the DEV schema and cannot run against production until those migrations are promoted with the corresponding Rust deployment.
 
 | Table | Columns | Editable controls | Linked picker | Read-only columns | Unrepresented |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `property` | 133 | 80 | 1 | 52 | 0 |
+| `property` | 134 | 79 | 1 | 54 | 0 |
 | `property_stellar_listing` | 17 | 15 | 0 | 2 | 0 |
 
 The Property count spans Property, Site, Legal, Website, and Sources tabs plus the Person picker. The MLS extension is counted separately. `archived_at` is represented by the Archived control. Read-only fields are displayed individually with their database column names; 42 Regrid keys come directly from the stored `property` row. System and provenance columns are not edited in this form; assignment and import processes own their writes. Empty values are shown as `—`. A missing MLS row has no persisted `property_id` or `updated_at` yet.
 
-## Property (133 columns)
+## Property (134 columns)
 
 | Column | Type | OPS tab / control | Access |
 | --- | --- | --- | --- |
@@ -44,8 +44,8 @@ The Property count spans Property, Site, Legal, Website, and Sources tabs plus t
 | `longitude` | numeric | Property / `longitude` | Editable |
 | `bathrooms_full` | integer | Property / `bathroomsFull` | Editable |
 | `bathrooms_half` | integer | Property / `bathroomsHalf` | Editable |
-| `lot_size` | numeric | Property / `lotSize` | Editable |
-| `lot_size_units` | text | Property / `lotSizeUnits` | Editable |
+| `lot_size` | numeric | Sources / `lot_size` | Read-only (legacy measurement) |
+| `lot_size_units` | text | Sources / `lot_size_units` | Read-only (legacy measurement) |
 | `year_built` | integer | Property / `yearBuilt` | Editable |
 | `stories` | numeric | Property / `stories` | Editable |
 | `parking_spaces` | integer | Property / `parkingSpaces` | Editable |
@@ -148,6 +148,7 @@ The Property count spans Property, Site, Legal, Website, and Sources tabs plus t
 | `utilities_availability` | text | Site / `utilitiesAvailability` | Editable |
 | `hoa_status` | text | Site / `hoaStatus` | Editable |
 | `view_description` | text | Site / `viewDescription` | Editable |
+| `lot_size_acres` | numeric | Property / `lotSizeAcres` | Editable |
 
 ## Stellar listing extension (17 columns)
 

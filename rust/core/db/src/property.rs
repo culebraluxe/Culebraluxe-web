@@ -126,6 +126,7 @@ struct PropertyAdminRecordRow {
     square_feet: Option<String>,
     lot_size: Option<String>,
     lot_size_units: Option<String>,
+    lot_size_acres: Option<String>,
     lot_size_sqft: Option<String>,
     road_frontage_feet: Option<String>,
     road_surface_type: Option<String>,
@@ -253,6 +254,7 @@ fn map_admin_record(row: PropertyAdminRecordRow) -> PropertyAdminRecord {
         square_feet: row.square_feet,
         lot_size: row.lot_size,
         lot_size_units: row.lot_size_units,
+        lot_size_acres: row.lot_size_acres,
         lot_size_sqft: row.lot_size_sqft,
         road_frontage_feet: row.road_frontage_feet,
         road_surface_type: row.road_surface_type,
@@ -760,7 +762,9 @@ impl PropertyDao {
                     'source_listing_key', p.source_listing_key,
                     'source_modified_at', p.source_modified_at,
                     'last_synced_at', p.last_synced_at,
-                    'catastro_source', p.catastro_source
+                    'catastro_source', p.catastro_source,
+                    'lot_size', p.lot_size,
+                    'lot_size_units', p.lot_size_units
                 ) as source_metadata,
                 coalesce((select jsonb_object_agg(key, value)
                     from jsonb_each(to_jsonb(p)) where key like 'regrid_%'), '{}'::jsonb) as regrid_fields,
@@ -810,6 +814,7 @@ impl PropertyDao {
                 p.square_feet::text as square_feet,
                 p.lot_size::text as lot_size,
                 p.lot_size_units,
+                p.lot_size_acres::text as lot_size_acres,
                 p.lot_size_sqft::text as lot_size_sqft,
                 p.road_frontage_feet::text as road_frontage_feet,
                 p.road_surface_type,
@@ -997,7 +1002,8 @@ impl PropertyDao {
                 road_adjacency = nullif($79::text, ''),
                 utilities_availability = nullif($80::text, ''),
                 hoa_status = nullif($81::text, ''),
-                view_description = nullif($82::text, '')
+                view_description = nullif($82::text, ''),
+                lot_size_acres = nullif($83::text, '')::numeric
             where id = $1::uuid
             returning id::text
             "#,
@@ -1084,6 +1090,7 @@ impl PropertyDao {
         .bind(request.utilities_availability.as_deref())
         .bind(request.hoa_status.as_deref())
         .bind(request.view_description.as_deref())
+        .bind(request.lot_size_acres.as_deref())
         .fetch_optional(tx.connection())
         .await
         .map_err(|error| DbFailure::from_sqlx("property.admin.save.property", &error))?;

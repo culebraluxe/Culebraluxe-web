@@ -745,6 +745,7 @@ pub struct PortalOpsProperty {
     pub square_feet: Option<String>,
     pub lot_size: Option<String>,
     pub lot_size_units: Option<String>,
+    pub lot_size_acres: Option<String>,
     pub lot_size_sqft: Option<String>,
     pub road_frontage_feet: Option<String>,
     pub road_surface_type: Option<String>,

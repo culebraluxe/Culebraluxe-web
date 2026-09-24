@@ -281,8 +281,8 @@ export async function getProperties(opts: {
       p.bathrooms,
       p.square_feet,
 
-      p.lot_size,
-      p.lot_size_units,
+      coalesce(p.lot_size_acres, p.lot_size) as lot_size,
+      case when p.lot_size_acres is not null then 'Acres' else p.lot_size_units end as lot_size_units,
 
       p.has_ocean_view,
       p.has_bay_view,
@@ -413,8 +413,8 @@ export async function getFilteredProperties(
       p.bathrooms,
       p.square_feet,
 
-      p.lot_size,
-      p.lot_size_units,
+      coalesce(p.lot_size_acres, p.lot_size) as lot_size,
+      case when p.lot_size_acres is not null then 'Acres' else p.lot_size_units end as lot_size_units,
 
       p.has_ocean_view,
       p.has_bay_view,
@@ -574,8 +574,8 @@ export async function getSimilarProperties(
       p.bathrooms,
       p.square_feet,
 
-      p.lot_size,
-      p.lot_size_units,
+      coalesce(p.lot_size_acres, p.lot_size) as lot_size,
+      case when p.lot_size_acres is not null then 'Acres' else p.lot_size_units end as lot_size_units,
 
       p.has_ocean_view,
       p.has_bay_view,
@@ -691,8 +691,8 @@ export async function getPropertyBySlug(
       p.bathrooms_half,
       p.square_feet,
 
-      p.lot_size,
-      p.lot_size_units,
+      coalesce(p.lot_size_acres, p.lot_size) as lot_size,
+      case when p.lot_size_acres is not null then 'Acres' else p.lot_size_units end as lot_size_units,
       p.lot_size_sqft,
       p.road_frontage_feet,
       p.road_surface_type,

@@ -257,6 +257,7 @@ fn ops_form(page: &crate::model::PortalOpsWorkbenchPage) -> std::collections::BT
                 put(&mut form, "squareFeet", property.square_feet.as_deref());
                 put(&mut form, "lotSize", property.lot_size.as_deref());
                 put(&mut form, "lotSizeUnits", property.lot_size_units.as_deref());
+                put(&mut form, "lotSizeAcres", property.lot_size_acres.as_deref());
                 put(&mut form, "lotSizeSqft", property.lot_size_sqft.as_deref());
                 put(&mut form, "roadFrontageFeet", property.road_frontage_feet.as_deref());
                 put(&mut form, "roadSurfaceType", property.road_surface_type.as_deref());
@@ -3580,8 +3581,7 @@ mod tests {
         for (key, value) in [
             ("name", "Alturas de Zoni"),
             ("propertyType", "Land"),
-            ("lotSize", "0.97"),
-            ("lotSizeUnits", "Acres"),
+            ("lotSizeAcres", "0.97"),
             ("lotSizeSqft", "42243"),
             ("roadFrontageFeet", "130"),
             ("roadSurfaceType", "Asphalt"),
@@ -3602,6 +3602,7 @@ mod tests {
             Effect::SaveOps { entity, fields, .. } => {
                 assert_eq!(entity, "property");
                 assert_eq!(fields.get("catastroNumber").map(String::as_str), Some("473-089-035-06-000"));
+                assert_eq!(fields.get("lotSizeAcres").map(String::as_str), Some("0.97"));
                 assert_eq!(fields.get("lotSizeSqft").map(String::as_str), Some("42243"));
                 assert_eq!(fields.get("hoaStatus").map(String::as_str), Some("No"));
                 assert_eq!(fields.get("propertyType").map(String::as_str), Some("Land"));
@@ -3620,16 +3621,16 @@ mod tests {
         model.ops.form.insert("name".into(), "Alturas de Zoni".into());
         model.ops.form.insert("status".into(), "prospect".into());
         model.ops.form.insert("catastroNumber".into(), "473-089-035-06-000".into());
-        update(&mut model, Msg::OpsFieldChanged { key: "lotSize".into(), value: "0.97".into() });
+        update(&mut model, Msg::OpsFieldChanged { key: "lotSizeAcres".into(), value: "0.97".into() });
         for tab in ["site", "legal", "website", "mls", "sources", "property"] {
             update(&mut model, Msg::OpsSectionSelected(tab.into()));
             assert_eq!(model.ops.section, tab);
-            assert_eq!(model.ops.form.get("lotSize").map(String::as_str), Some("0.97"));
+            assert_eq!(model.ops.form.get("lotSizeAcres").map(String::as_str), Some("0.97"));
         }
         let effects = update(&mut model, Msg::OpsSaveRequested);
         match &effects[0] {
             Effect::SaveOps { fields, .. } => {
-                assert_eq!(fields.get("lotSize").map(String::as_str), Some("0.97"));
+                assert_eq!(fields.get("lotSizeAcres").map(String::as_str), Some("0.97"));
                 assert_eq!(fields.get("catastroNumber").map(String::as_str), Some("473-089-035-06-000"));
                 assert!(!fields.contains_key("roadFrontageFeet"));
             }

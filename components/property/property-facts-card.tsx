@@ -111,18 +111,20 @@ export function PropertyFactsCard({
             },
           ]
         : []),
-      ...(land
-        ? [
-            {
-              icon: Trees,
-              label: 'Lot',
-              value: formatArea(
-                property.lotSizeArea,
-                property.lotSizeUnits,
-              ),
-            },
-          ]
-        : []),
+      {
+        icon: Trees,
+        label: 'Lot Acres',
+        value: property.lotSizeUnits?.toLowerCase().startsWith('acre')
+          ? formatArea(property.lotSizeArea, property.lotSizeUnits)
+          : null,
+      },
+      {
+        icon: Trees,
+        label: 'Lot Sq Ft',
+        value: property.lotSizeSqft != null
+          ? `${property.lotSizeSqft.toLocaleString('en-US')} SF`
+          : null,
+      },
       {
         icon: CalendarDays,
         label: 'Built',
@@ -226,6 +228,13 @@ export function PropertyFactsCard({
             property.lotSizeArea,
             property.lotSizeUnits,
           )}
+        />
+
+        <DefinitionRow
+          label="Lot Square Feet"
+          value={property.lotSizeSqft != null
+            ? `${property.lotSizeSqft.toLocaleString('en-US')} SF`
+            : null}
         />
 
         <DefinitionRow

@@ -550,6 +550,7 @@ fn validate_admin_save(
         (request.bathrooms_half.as_deref(), "Half bathrooms"),
         (request.square_feet.as_deref(), "Square feet"),
         (request.lot_size.as_deref(), "Lot size"),
+        (request.lot_size_acres.as_deref(), "Lot acres"),
         (request.lot_size_sqft.as_deref(), "Lot square feet"),
         (request.road_frontage_feet.as_deref(), "Road frontage"),
         (request.original_list_price.as_deref(), "Original list price"),
