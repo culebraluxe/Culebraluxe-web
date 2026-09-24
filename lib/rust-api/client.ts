@@ -407,6 +407,12 @@ export async function rustApiSetRoleEntitlement<T>(
   return rustApiJsonWrite<T>('/v1/security/role-entitlements', 'PUT', body)
 }
 
+export async function rustApiSetUserPrimaryRole<T>(
+  body: { appUserId: string; roleCode: string },
+): Promise<RustApiSuccess<T>> {
+  return rustApiJsonWrite<T>('/v1/security/users', 'PUT', body)
+}
+
 export async function rustApiCreateDeal<T>(
   body: Record<string, unknown>,
   options: RustApiJsonWriteOptions = {},
