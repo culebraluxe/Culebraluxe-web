@@ -1,5 +1,5 @@
 use crate::{Database, DbFailure, DbResult};
-use domain::{ActingUser, security::RoleEntitlements};
+use domain::{security::RoleEntitlements, ActingUser};
 use sqlx::FromRow;
 
 #[derive(Debug, FromRow)]
@@ -33,7 +33,12 @@ impl SecurityDao {
 
     /// One statement makes the grant change atomic and refuses unknown or inactive
     /// roles/actions. Account type is checked here as well as by the service port.
-    pub async fn set_role_entitlement(&self, role_code: &str, action: &str, granted: bool) -> DbResult<bool> {
+    pub async fn set_role_entitlement(
+        &self,
+        role_code: &str,
+        action: &str,
+        granted: bool,
+    ) -> DbResult<bool> {
         sqlx::query_scalar::<_, bool>(
             r#"
             with target as (
@@ -41,6 +46,7 @@ impl SecurityDao {
                 from security_role r cross join entitlement e
                 where r.code = $1 and r.active = true and r.account_type = 'internal'
                   and e.code = $2 and e.active = true
+                  and (e.code <> 'security.entitlement.manage' or r.code = 'root')
             ), added as (
                 insert into role_entitlement (role_id, entitlement_id)
                 select role_id, entitlement_id from target where $3
@@ -79,11 +85,14 @@ impl SecurityDao {
             .await
             .map_err(|error| DbFailure::from_sqlx("security.list_role_entitlements", &error))
         })?;
-        Ok(rows.into_iter().map(|row| RoleEntitlements {
-            role_code: row.role_code,
-            account_type: row.account_type,
-            entitlement_codes: row.entitlement_codes,
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|row| RoleEntitlements {
+                role_code: row.role_code,
+                account_type: row.account_type,
+                entitlement_codes: row.entitlement_codes,
+            })
+            .collect())
     }
 
     pub async fn resolve_provider_subject(
