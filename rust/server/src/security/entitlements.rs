@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use casbin::{CoreApi, DefaultModel, Enforcer, MgmtApi, MemoryAdapter};
+use casbin::{CoreApi, DefaultModel, Enforcer, MemoryAdapter, MgmtApi};
 use service::{
     AuthorizationDecision, AuthorizationPort, AuthorizationRequest, OperationKind,
     ServiceActorKind, ServicePortError,
@@ -45,8 +45,7 @@ impl AuthorizationPort for CasbinAuthorizationPort {
         &self,
         request: AuthorizationRequest,
     ) -> Result<AuthorizationDecision, ServicePortError> {
-        let system = request.principal.is_none()
-            && request.actor.kind == ServiceActorKind::System;
+        let system = request.principal.is_none() && request.actor.kind == ServiceActorKind::System;
         let bootstrap = system
             && request.actor.id.as_deref() == Some("authjs-edge")
             && request.operation == "security.resolveIdentity"
@@ -66,12 +65,20 @@ impl AuthorizationPort for CasbinAuthorizationPort {
         } else if let Some(principal) = request.principal.as_ref() {
             if principal.account_type != "internal" {
                 (false, "account:external")
-            } else if principal.role_codes.iter().any(|role| role == "root" || role == "owner") {
+            } else if request.action == "security.entitlement.manage" {
+                if principal.role_codes.iter().any(|role| role == "root") {
+                    (true, "rule:entitlement.manage.root")
+                } else {
+                    (false, "rule:entitlement.manage.root")
+                }
+            } else if principal
+                .role_codes
+                .iter()
+                .any(|role| role == "root" || role == "owner")
+            {
                 (true, "role:root")
             } else if request.domain == "tech" || request.action.starts_with("tech.") {
                 (false, "domain:tech")
-            } else if request.action == "security.entitlement.manage" {
-                (false, "rule:entitlement.manage.root")
             } else if request.domain == "contract"
                 && request.operation == "contract.execute"
                 && principal.level != "BUSINESS_POWER_USER"
@@ -84,7 +91,9 @@ impl AuthorizationPort for CasbinAuthorizationPort {
                 };
                 let mut granted = false;
                 for code in &principal.entitlement_codes {
-                    if self.enforcer.enforce((code.as_str(), request.action, kind))
+                    if self
+                        .enforcer
+                        .enforce((code.as_str(), request.action, kind))
                         .map_err(|error| ServicePortError::new(error.to_string()))?
                     {
                         granted = true;
@@ -98,7 +107,12 @@ impl AuthorizationPort for CasbinAuthorizationPort {
         };
         Ok(AuthorizationDecision {
             allowed,
-            reason: if allowed { "allowed" } else { "no matching entitlement" }.into(),
+            reason: if allowed {
+                "allowed"
+            } else {
+                "no matching entitlement"
+            }
+            .into(),
             policy_id: policy_id.into(),
             mode: "enforced",
         })
@@ -116,10 +130,15 @@ mod tests {
             action,
             operation: "person.sample",
             kind,
-            actor: ServiceActor { id: Some("u1".into()), kind: ServiceActorKind::User },
+            actor: ServiceActor {
+                id: Some("u1".into()),
+                kind: ServiceActorKind::User,
+            },
             principal: Some(ServicePrincipal {
-                app_user_id: "u1".into(), level: "USER".into(),
-                role_codes: vec!["user".into()], account_type: "internal".into(),
+                app_user_id: "u1".into(),
+                level: "USER".into(),
+                role_codes: vec!["user".into()],
+                account_type: "internal".into(),
                 entitlement_codes: grants.iter().map(|s| s.to_string()).collect(),
             }),
         }
@@ -128,10 +147,49 @@ mod tests {
     #[tokio::test]
     async fn action_and_kind_must_both_match_a_role_grant() {
         let auth = CasbinAuthorizationPort::new().await.unwrap();
-        assert!(auth.authorize(request("person.read", OperationKind::Query, &["person.read"])).await.unwrap().allowed);
-        assert!(!auth.authorize(request("person.write", OperationKind::Command, &["person.read"])).await.unwrap().allowed);
-        assert!(!auth.authorize(request("person.read", OperationKind::Command, &["person.read"])).await.unwrap().allowed);
-        assert!(!auth.authorize(request("future.read", OperationKind::Query, &["future.read"])).await.unwrap().allowed);
+        assert!(
+            auth.authorize(request(
+                "person.read",
+                OperationKind::Query,
+                &["person.read"]
+            ))
+            .await
+            .unwrap()
+            .allowed
+        );
+        assert!(
+            !auth
+                .authorize(request(
+                    "person.write",
+                    OperationKind::Command,
+                    &["person.read"]
+                ))
+                .await
+                .unwrap()
+                .allowed
+        );
+        assert!(
+            !auth
+                .authorize(request(
+                    "person.read",
+                    OperationKind::Command,
+                    &["person.read"]
+                ))
+                .await
+                .unwrap()
+                .allowed
+        );
+        assert!(
+            !auth
+                .authorize(request(
+                    "future.read",
+                    OperationKind::Query,
+                    &["future.read"]
+                ))
+                .await
+                .unwrap()
+                .allowed
+        );
     }
 
     #[tokio::test]
@@ -139,7 +197,10 @@ mod tests {
         let auth = CasbinAuthorizationPort::new().await.unwrap();
         let mut req = request("security.identity.resolve", OperationKind::Query, &[]);
         req.principal = None;
-        req.actor = ServiceActor { id: Some("authjs-edge".into()), kind: ServiceActorKind::System };
+        req.actor = ServiceActor {
+            id: Some("authjs-edge".into()),
+            kind: ServiceActorKind::System,
+        };
         req.operation = "security.resolveIdentity";
         assert!(auth.authorize(req.clone()).await.unwrap().allowed);
         req.operation = "security.getPrincipal";
@@ -150,6 +211,23 @@ mod tests {
         assert!(auth.authorize(req.clone()).await.unwrap().allowed);
         req.action = "vault.read";
         assert!(!auth.authorize(req).await.unwrap().allowed);
+    }
+
+    #[tokio::test]
+    async fn only_root_can_manage_role_entitlements() {
+        let auth = CasbinAuthorizationPort::new().await.unwrap();
+        let mut req = request(
+            "security.entitlement.manage",
+            OperationKind::Command,
+            &["security.entitlement.manage"],
+        );
+        req.domain = "security";
+        req.operation = "security.setRoleEntitlement";
+        req.principal.as_mut().unwrap().role_codes = vec!["owner".into()];
+        assert!(!auth.authorize(req.clone()).await.unwrap().allowed);
+
+        req.principal.as_mut().unwrap().role_codes = vec!["root".into()];
+        assert!(auth.authorize(req).await.unwrap().allowed);
     }
 
     #[tokio::test]
