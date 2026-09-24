@@ -2111,6 +2111,8 @@ pub struct Model {
     pub entitlements_error: bool,
     pub selected_security_role: Option<String>,
     pub role_grant_busy: bool,
+    pub security_user_role_drafts: BTreeMap<String, String>,
+    pub user_role_busy: Option<String>,
     pub loading: bool,
     pub error: Option<String>,
     pub rows: Vec<Row>,
@@ -2174,6 +2176,8 @@ impl Default for Model {
             entitlements_error: false,
             selected_security_role: None,
             role_grant_busy: false,
+            security_user_role_drafts: BTreeMap::new(),
+            user_role_busy: None,
             loading: false,
             error: None,
             rows: Vec::new(),
@@ -2203,7 +2207,10 @@ impl Model {
         self.entitlements.as_ref().is_some_and(|grants| {
             if grants.account_type != "internal" {
                 false
-            } else if action == "security.entitlement.manage" {
+            } else if matches!(
+                action,
+                "security.entitlement.manage" | "security.role.manage"
+            ) {
                 grants.is_root
             } else {
                 grants.security_level == "ROOT"
@@ -2226,6 +2233,9 @@ pub enum Msg {
     SecurityRoleSelected(String),
     SecurityRoleGrantRequested { role_code: String, action: String, granted: bool },
     SecurityRoleGrantChanged { generation: u64, roles: Vec<PortalRoleEntitlements> },
+    SecurityUserRoleDraftChanged { app_user_id: String, role_code: String },
+    SecurityUserRoleRequested { app_user_id: String, role_code: String },
+    SecurityUserRoleChanged { generation: u64, users: Vec<PortalSecurityUser> },
     /// The screen mounted, or navigation arrived that needs data.
     ScreenOpened(Screen),
     /// A HOST RUN OPENED THIS SCREEN, and this is the generation it belongs to.
@@ -2636,6 +2646,7 @@ impl Msg {
 pub enum Effect {
     FetchEntitlements { generation: u64 },
     SetRoleEntitlement { generation: u64, role_code: String, action: String, granted: bool },
+    SetUserPrimaryRole { generation: u64, app_user_id: String, role_code: String },
     PropertyBrowserRead { id: String, slug: String, title: String, valid_slugs: Vec<String> },
     PropertyFavoriteWrite { id: String, slug: String, title: String, saved: bool },
     /// Fetch rows for this screen, optionally about one record.
@@ -2917,6 +2928,8 @@ pub struct PortalSupportPage {
     pub db_test: Option<PortalDbTest>,
     /// `/portal/settings` — the Security landing screen: its counts and the break-glass posture.
     pub security: Option<PortalSecurity>,
+    /// `/portal/settings/users` — internal application users and effective primary roles.
+    pub security_users: Vec<PortalSecurityUser>,
     /// `/portal/admin/whatsapp-meta` — what Meta says about this deployment's WhatsApp number.
     pub whats_app_meta: Option<PortalWhatsAppMeta>,
     /// `/portal/system-health` — the operational health snapshot, the environment posture, and the workflow diagnostics.
@@ -3218,6 +3231,18 @@ pub struct PortalRoleEntitlements {
     pub role_code: String,
     pub account_type: String,
     pub entitlement_codes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalSecurityUser {
+    pub app_user_id: String,
+    pub display_name: String,
+    pub email: Option<String>,
+    pub account_type: String,
+    pub active: bool,
+    pub role_codes: Vec<String>,
+    pub primary_role_code: Option<String>,
 }
 
 /// The nine counts, each named for what it counts. Counts of things, not values of anything.
