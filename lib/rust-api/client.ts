@@ -55,6 +55,50 @@ export class RustApiError extends Error {
 type RustApiReadOptions = {
   correlationId?: string
   causationId?: string
+  /**
+   * The identity to assert, when the caller already holds one and is NOT asking about its own session.
+   *
+   * The login seam is the case this exists for: Auth.js has proved a Google subject and the session may not
+   * exist yet, so "read as whoever is signed in" is the wrong question. Omitted everywhere else, where the
+   * session identity is the right answer by definition.
+   */
+  identity?: { provider: string; providerSubject: string }
+}
+
+/**
+ * Resolve an ASSERTED provider identity — the login seam's question ("does this Google subject map to an
+ * application user?") as opposed to whoami's ("who am I?").
+ *
+ * THE THREE ANSWERS ARE THE POINT. "unmapped" and "inactive" are different things to say to a person at the login
+ * page, so the security service returns them as data instead of collapsing both into one error. Resolution lives
+ * in ONE place — Rust's SecurityService — and this is the transport to it; no caller re-derives it from tables.
+ */
+export type RustIdentityResolution =
+  | {
+      kind: 'known'
+      actingUser: {
+        appUserId: string
+        displayName: string
+        email: string | null
+        accountType: string
+        roleCodes: string[]
+        authorityCodes: string[]
+        entitlementCodes: string[]
+        personId: string | null
+      }
+      securityLevel: string
+    }
+  | { kind: 'unmapped' }
+  | { kind: 'inactive' }
+
+export async function rustApiResolveIdentity(
+  provider: string,
+  providerSubject: string,
+): Promise<RustIdentityResolution> {
+  const result = await rustApiRead<RustIdentityResolution>('/v1/security/identity', {
+    identity: { provider, providerSubject },
+  })
+  return result.value
 }
 
 function rustApiBaseUrl(): string {
@@ -94,6 +138,7 @@ export async function rustApiRead<T>(
   options: RustApiReadOptions = {},
 ): Promise<RustApiSuccess<T>> {
   const identity =
+    options.identity ??
     (await createAuthJsSessionAdapter().getSession()) ??
     // A bypassed dev session has no provider identity; this presents the real auth_identity for the bypass user so the
     // Rust API resolves the same application user it would for a signed-in caller. Returns null in production, by its

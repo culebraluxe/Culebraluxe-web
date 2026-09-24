@@ -4,7 +4,7 @@ import { SqlContractRepository } from '@/legacy/db/contract-service-repository'
 import { SqlFirmRepository } from '@/legacy/db/firm-service-repository'
 import { SqlPersonRepository } from '@/legacy/db/person-service-repository'
 import { SqlPropertyRepository } from '@/legacy/db/property-service-repository'
-import { SqlSecurityRepository } from '@/legacy/db/security-service-repository'
+import { RustSecurityRepository } from '@/legacy/db/security-service-repository'
 import { SqlShowingRepository } from '@/legacy/db/showing-service-repository'
 import { SqlWbsRepository } from '@/legacy/db/wbs-service-repository'
 import { SqlProjectRepository } from '@/legacy/db/project-service-repository'
@@ -33,7 +33,7 @@ export const applicationSecurityService = composeCoreServices(
     property: new SqlPropertyRepository(),
     contract: new SqlContractRepository(),
     showing: new SqlShowingRepository(),
-    security: new SqlSecurityRepository(),
+    security: new RustSecurityRepository(),
     wbs: new SqlWbsRepository(),
     project: new SqlProjectRepository(),
   },

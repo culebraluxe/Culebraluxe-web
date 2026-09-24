@@ -1,4 +1,7 @@
-use super::context::{resolve_public_guest_context, resolve_request_context, ResolvedRequestContext};
+use super::context::{
+    asserted_identity_context, resolve_public_guest_context, resolve_request_context,
+    ResolvedRequestContext,
+};
 use super::{diagnostics, engine, ApiError, ApiState};
 use crate::service_support::CoreServiceError;
 use crate::vault::VaultArtifactPort;
@@ -510,6 +513,9 @@ pub fn router(state: ApiState) -> Router {
         .route("/healthz", get(health))
         .route("/readyz", get(ready))
         .route("/v1/whoami", get(whoami))
+        // THE LOGIN SEAM'S QUESTION, as opposed to whoami's. Auth.js has proved a Google subject and nobody
+        // knows yet whether it maps to an active application user; this answers known / unmapped / inactive.
+        .route("/v1/security/identity", get(security_identity))
         .route("/v1/security/role-entitlements", get(role_entitlements).put(set_role_entitlement))
         .route("/v1/security/users", get(security_users).put(set_user_primary_role))
         .route("/v1/cockpit", get(cockpit))
@@ -685,6 +691,90 @@ async fn set_user_primary_role(
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(value, &resolved))
+}
+
+/// One identity as the login seam consumes it: the mapped actor, or why there is none.
+///
+/// `kind` is the whole point of the endpoint. "unmapped" and "inactive" are different answers and the login page
+/// says different things about them; collapsing them into a 401 would throw away the distinction the resolver
+/// already computes.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct IdentityResolutionResponse {
+    kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    acting_user: Option<IdentityActingUser>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    security_level: Option<String>,
+}
+
+/// The actor fields the application needs, named as the TypeScript boundary names them.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct IdentityActingUser {
+    app_user_id: String,
+    display_name: String,
+    email: Option<String>,
+    account_type: String,
+    role_codes: Vec<String>,
+    authority_codes: Vec<String>,
+    entitlement_codes: Vec<String>,
+    person_id: Option<String>,
+}
+
+impl From<domain::ActingUser> for IdentityActingUser {
+    fn from(actor: domain::ActingUser) -> Self {
+        Self {
+            app_user_id: actor.app_user_id,
+            display_name: actor.display_name,
+            email: actor.email,
+            account_type: actor.account_type,
+            role_codes: actor.role_codes,
+            authority_codes: actor.authority_codes,
+            entitlement_codes: actor.entitlement_codes,
+            person_id: actor.person_id,
+        }
+    }
+}
+
+/// Resolve an ASSERTED provider identity — the login seam's question, not "who am I".
+///
+/// Auth.js proves the Google subject; this decides the application mapping, in the one place that owns it. The
+/// caller asserts a subject and holds no principal (see `asserted_identity_context`), which is why an unmapped
+/// or inactive answer is a normal 200 response rather than an error: nothing went wrong, the answer is "no".
+async fn security_identity(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<IdentityResolutionResponse>>, ApiError> {
+    let (provider, provider_subject, context) = asserted_identity_context(&state, &headers)?;
+    let resolution = state
+        .services()
+        .security()
+        .resolve_identity(&provider, &provider_subject, &context)
+        .await
+        .map_err(ApiError::from)?;
+
+    let value = match resolution {
+        domain::SecurityIdentityResolution::Known(principal) => IdentityResolutionResponse {
+            kind: "known",
+            acting_user: Some(principal.acting_user.into()),
+            security_level: Some(principal.level.as_str().to_owned()),
+        },
+        domain::SecurityIdentityResolution::Unmapped => IdentityResolutionResponse {
+            kind: "unmapped",
+            acting_user: None,
+            security_level: None,
+        },
+        domain::SecurityIdentityResolution::Inactive => IdentityResolutionResponse {
+            kind: "inactive",
+            acting_user: None,
+            security_level: None,
+        },
+    };
+
+    // A system context has no acting user, so the envelope carries the correlation id rather than a resolved
+    // request context: inventing an actor here would be worse than admitting there is not one.
+    Ok(success_with_correlation(value, &context.correlation_id))
 }
 
 async fn whoami(

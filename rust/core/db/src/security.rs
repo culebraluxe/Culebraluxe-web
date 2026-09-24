@@ -130,21 +130,21 @@ impl SecurityDao {
                     and exists (
                         select 1
                         from app_user_role aur
-                        join security_role current_role
-                          on current_role.id = aur.role_id
-                         and current_role.active = true
-                         and current_role.code = 'root'
+                        join security_role existing_role
+                          on existing_role.id = aur.role_id
+                         and existing_role.active = true
+                         and existing_role.code = 'root'
                         where aur.app_user_id = tu.id
                     )
                 )
             ), removed as (
                 delete from app_user_role aur
-                using security_role current_role, safe_target st
+                using security_role existing_role, safe_target st
                 where aur.app_user_id = st.user_id
-                  and aur.role_id = current_role.id
+                  and aur.role_id = existing_role.id
                   and aur.role_id <> st.role_id
-                  and current_role.account_type = 'internal'
-                  and current_role.code in (
+                  and existing_role.account_type = 'internal'
+                  and existing_role.code in (
                     'internal_guest',
                     'guest',
                     'user',

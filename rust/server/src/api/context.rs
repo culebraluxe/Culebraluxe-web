@@ -179,6 +179,46 @@ fn identity_header_presence(headers: &HeaderMap) -> (bool, bool) {
     )
 }
 
+/// The login seam's context: an ASSERTED provider identity, not "who am I".
+///
+/// `resolve_request_context` answers who is calling, and fails when the identity does not map to an active user.
+/// The login seam has the opposite question — Auth.js has proved a Google subject and *nobody knows yet* whether
+/// it maps, or maps to someone inactive — so this returns the asserted identity plus a context to ask with.
+///
+/// THE ACTOR IS THE RESERVED `authjs-edge` SYSTEM IDENTITY, and that is a policy boundary rather than a label:
+/// the authorization layer admits `security.identity.resolve` for that actor and no principal, which is what
+/// makes "resolve this subject" a different act from "act as this subject". A signed-in principal cannot use
+/// this to enumerate or resolve other people's identities.
+pub fn asserted_identity_context(
+    state: &ApiState,
+    headers: &HeaderMap,
+) -> Result<(String, String, ServiceContext), ApiError> {
+    validate_internal_key(state, headers)?;
+
+    let correlation_id = header(headers, HEADER_CORRELATION_ID)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let provider = required_identity_header(headers, HEADER_PROVIDER, &correlation_id)?;
+    let provider_subject = required_identity_header(headers, HEADER_PROVIDER_SUBJECT, &correlation_id)?;
+
+    let context = ServiceContext {
+        actor: ServiceActor {
+            id: Some(service::AUTHJS_EDGE_ACTOR.to_owned()),
+            kind: ServiceActorKind::System,
+        },
+        correlation_id,
+        causation_id: header(headers, HEADER_CAUSATION_ID).map(str::to_owned),
+        principal: None,
+    };
+
+    Ok((
+        provider.to_owned(),
+        provider_subject.to_owned(),
+        context,
+    ))
+}
+
 fn validate_internal_key(state: &ApiState, headers: &HeaderMap) -> Result<(), ApiError> {
     let supplied = header(headers, HEADER_INTERNAL_KEY);
     if supplied != Some(state.internal_api_key()) {

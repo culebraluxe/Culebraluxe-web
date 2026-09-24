@@ -1,5 +1,12 @@
 use serde::{Deserialize, Serialize};
 
+/// The actor the identity-resolution policy reserves for the Auth.js edge.
+///
+/// NAMED ONCE, because two layers compare it: the bootstrap rule that admits
+/// `security.identity.resolve` and the login seam that asks for it. A typo in either string is a silent
+/// denial at login, and a second literal is how the two get to disagree.
+pub const AUTHJS_EDGE_ACTOR: &str = "authjs-edge";
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ServiceActorKind {

@@ -47,7 +47,7 @@ impl AuthorizationPort for CasbinAuthorizationPort {
     ) -> Result<AuthorizationDecision, ServicePortError> {
         let system = request.principal.is_none() && request.actor.kind == ServiceActorKind::System;
         let bootstrap = system
-            && request.actor.id.as_deref() == Some("authjs-edge")
+            && request.actor.id.as_deref() == Some(service::AUTHJS_EDGE_ACTOR)
             && request.operation == "security.resolveIdentity"
             && request.action == "security.identity.resolve"
             && request.kind == OperationKind::Query;
