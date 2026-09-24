@@ -1719,9 +1719,18 @@ fn media_editor(
         let on_msg = on_msg.clone();
         Callback::from(move |_: MouseEvent| on_msg.emit(Msg::OpsMediaSelected(next_index)))
     };
+    let file_change = media_file_change(on_msg);
+
     let toggle_uploader = {
         let on_msg = on_msg.clone();
-        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::OpsMediaUploaderToggled))
+        Callback::from(move |_: MouseEvent| {
+            on_msg.emit(Msg::OpsMediaUploaderToggled);
+            // AND OPEN THE PICKER IN THE SAME CLICK, because a file input may only be opened from a real user
+            // gesture: this click is the only chance. It turns "open the panel, then find the file" into "pick the
+            // file", which is the whole job — the panel's remaining fields (role, alt) describe a file that already
+            // exists rather than gate the choosing of it.
+            open_file_picker();
+        })
     };
 
     html! {
@@ -1731,11 +1740,20 @@ fn media_editor(
                 "Review the Property photography in-place, then add the next photo without leaving the canonical record.",
             )}
 
-            <div class="grid gap-3 sm:grid-cols-3">
-                {count_card("Photos", property.image_count)}
-                {count_card("Hero", images.iter().filter(|image| image.role == "hero").count() as i64)}
-                {count_card("Documents", property.document_count)}
+            // THE COUNTS ARE A LINE, NOT THREE CARDS. Three panels of numbers sat above the gallery and pushed the
+            // photograph — the thing this tab exists for — down the screen; the numbers are reference, not content.
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-light text-black/45">
+                <span>{format!("{} photos", property.image_count)}</span>
+                <span>{format!("{} hero", images.iter().filter(|image| image.role == "hero").count())}</span>
+                <span>{format!("{} documents", property.document_count)}</span>
             </div>
+
+            // THE UPLOADER SITS ABOVE THE GALLERY, because it is what you opened. It used to render after a 460px
+            // viewer, so clicking "+ Add new photo" put the panel below the fold where it could not be seen or
+            // reached — a live control with an invisible result reads exactly like a broken one.
+            if model.ops.media_uploader_open {
+                {ops_media_uploader(model, on_msg)}
+            }
 
             <section class="overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-[var(--portal-navy)]">
                 if let Some(image) = active {
@@ -1815,9 +1833,17 @@ fn media_editor(
                 }
             </section>
 
-            if model.ops.media_uploader_open {
-                {ops_media_uploader(model, on_msg)}
-            }
+            // THE FILE INPUT LIVES HERE, ALWAYS, HIDDEN — not inside the uploader panel. A file input can only be
+            // opened from a user gesture, so an input that only exists once the panel is open cannot be opened BY
+            // the click that opens that panel: the input would be created after the gesture that needed it. Keeping
+            // it in the tree lets "+ Add new photo" open the picker directly.
+            <input
+                id="ops-media-file"
+                type="file"
+                accept="image/*"
+                onchange={file_change}
+                class="hidden"
+            />
 
             <div class="flex items-center justify-between gap-3 border-t border-[var(--portal-panel-border)] pt-4">
                 <p class="text-[11px] font-light text-black/40">
@@ -1834,6 +1860,48 @@ fn media_editor(
             </div>
         </div>
     }
+}
+
+/// Opens the listing-media file input — the hidden one that lives in the Photos tab at all times.
+///
+/// A file picker may only be opened from a USER GESTURE, so this is called from inside the click handler rather than
+/// from an effect afterwards: by the time an effect runs, the gesture is over and the browser refuses to open it. That
+/// is also why the input is not created by the button — an element created by a click cannot be clicked by the same
+/// click.
+///
+/// If the element is missing this does nothing at all, deliberately: the uploader's own "Choose file" button is the
+/// fallback, so a lookup that fails leaves a usable screen rather than a panic.
+fn open_file_picker() {
+    // `web_sys` re-exports the cast trait, and this file's other casts come from Yew's prelude which does not include
+    // it — so it is brought in here, locally, rather than widening the module's imports for one call.
+    use web_sys::wasm_bindgen::JsCast;
+
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let Some(document) = window.document() else {
+        return;
+    };
+    let Some(element) = document.get_element_by_id("ops-media-file") else {
+        return;
+    };
+    if let Ok(input) = element.dyn_into::<web_sys::HtmlInputElement>() {
+        input.click();
+    }
+}
+
+/// The chosen-file callback, shared by the hidden input and the uploader panel so both write the same message field.
+fn media_file_change(on_msg: &Callback<Msg>) -> Callback<Event> {
+    let on_msg = on_msg.clone();
+    Callback::from(move |event: Event| {
+        let input = event.target_unchecked_into::<web_sys::HtmlInputElement>();
+        let name = input
+            .files()
+            .and_then(|files| files.get(0))
+            .map(|file| file.name())
+            .unwrap_or_default();
+        on_msg.emit(Msg::OpsMediaFileChosen(name));
+    })
 }
 
 fn ops_media_uploader(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
@@ -1855,22 +1923,12 @@ fn ops_media_uploader(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Ht
             on_msg.emit(Msg::OpsMediaAltChanged(value));
         })
     };
-    let file_change = {
-        let on_msg = on_msg.clone();
-        Callback::from(move |event: Event| {
-            let input = event.target_unchecked_into::<web_sys::HtmlInputElement>();
-            let name = input
-                .files()
-                .and_then(|files| files.get(0))
-                .map(|file| file.name())
-                .unwrap_or_default();
-            on_msg.emit(Msg::OpsMediaFileChosen(name));
-        })
-    };
+    let file_change = media_file_change(on_msg);
     let upload = {
         let on_msg = on_msg.clone();
         Callback::from(move |_: MouseEvent| on_msg.emit(Msg::OpsMediaUploadRequested))
     };
+    let choose_again = Callback::from(move |_: MouseEvent| open_file_picker());
 
     html! {
         <section class="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/35 p-4">
@@ -1897,17 +1955,19 @@ fn ops_media_uploader(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Ht
                     />
                 </label>
             </div>
-            <input
-                id="ops-media-file"
-                type="file"
-                accept="image/*"
-                onchange={file_change}
-                class="mt-4 block w-full rounded-[var(--portal-tab-radius)] border border-dashed border-[var(--portal-panel-border)] bg-white/45 p-4 text-[12px] font-light text-black/55"
-            />
             <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
-                <span class="text-[11px] font-light text-black/45">
-                    {model.ops.media_file_name.clone().unwrap_or_else(|| "No file chosen".into())}
-                </span>
+                <div class="flex items-center gap-3">
+                    <button
+                        type="button"
+                        onclick={choose_again}
+                        class="inline-flex h-9 items-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--portal-navy)]"
+                    >
+                        {"Choose file"}
+                    </button>
+                    <span class="text-[11px] font-light text-black/45">
+                        {model.ops.media_file_name.clone().unwrap_or_else(|| "No file chosen".into())}
+                    </span>
+                </div>
                 <button
                     type="button"
                     onclick={upload}
