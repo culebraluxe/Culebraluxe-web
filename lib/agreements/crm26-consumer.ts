@@ -151,8 +151,14 @@ export async function createCrm26Consumer(
   const { startResidentialContractWorkflow } = await import('@/legacy/workflow_app/runtime')
   const { ContractService, CONTRACT_OPERATIONS } = await import('@/legacy/services/contract')
   const { SqlContractRepository } = await import('@/legacy/db/contract-service-repository')
+  // The authorization port is REQUIRED: without one, BaseService refuses every operation with
+  // AUTHORIZATION_UNAVAILABLE — safe, but the consumer would quietly do nothing. Same lazy-import style as its
+  // neighbours, and the same production port the rest of the kernel gets.
+  const { AuthorizationService } = await import('@/legacy/services/entitlement')
 
-  const contractService = new ContractService(new SqlContractRepository())
+  const contractService = new ContractService(new SqlContractRepository(), {
+    authorization: new AuthorizationService(),
+  })
 
   const deps: Crm26ConsumerDeps = {
     loadIssuedDocument: async (documentId) => {

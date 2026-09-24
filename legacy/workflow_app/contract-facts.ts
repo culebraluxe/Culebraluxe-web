@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { sql } from '@/legacy/db/client'
 import { SqlContractRepository } from '@/legacy/db/contract-service-repository'
 import { SqlPropertyRepository } from '@/legacy/db/property-service-repository'
+import { AuthorizationService } from '@/legacy/services/entitlement'
 import { isPnsTbd } from '@/lib/forms/pns-canonical-types'
 import { ContractService, CONTRACT_OPERATIONS, type ContractDto } from '@/legacy/services/contract'
 import { PropertyService, PROPERTY_OPERATIONS } from '@/legacy/services/property'
@@ -23,8 +24,14 @@ import { getDealWorkflowFacts, type DealWorkflowFacts } from '@/legacy/workflow_
 // draft for the broker to fix on a later pass.
 // ---------------------------------------------------------------------------
 
-const contractService = new ContractService(new SqlContractRepository())
-const propertyService = new PropertyService(new SqlPropertyRepository())
+// THE AUTHORIZATION PORT IS REQUIRED, and these two used to be built without one. `BaseService` refuses an operation
+// when no port is configured — "a missing port is a boot-configuration error, never a silent allow" — so every call
+// through these services returned AUTHORIZATION_UNAVAILABLE. That is the SAFE direction to fail, which is exactly why
+// it went unnoticed: no data leaked, the workflow facts just came back empty. The port here is the production one
+// (the Rust security service decides; see AuthorizationService).
+const infrastructure = { authorization: new AuthorizationService() }
+const contractService = new ContractService(new SqlContractRepository(), infrastructure)
+const propertyService = new PropertyService(new SqlPropertyRepository(), infrastructure)
 
 type LegacyDealLinkRow = { deal_id: string | null }
 
