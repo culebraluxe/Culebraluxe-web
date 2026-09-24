@@ -341,7 +341,7 @@ fn slide(listing: &Listing) -> Html {
                 <div class="mt-2 flex items-end justify-between gap-4">
                     <h3 class="font-serif text-2xl font-light text-background">{ listing.name.clone() }</h3>
                     <p class="whitespace-nowrap text-sm font-light text-background/85">
-                        { listing.price.clone().unwrap_or_else(|| "Price on request".to_string()) }
+                        { crate::format::listing_price_label(listing) }
                     </p>
                 </div>
             </div>
@@ -351,15 +351,7 @@ fn slide(listing: &Listing) -> Html {
 
 /// One inventory card: the photograph with its badges, then the place, the price and its facts.
 fn card(listing: &Listing) -> Html {
-    let facts = [
-        listing.beds.map(|beds| format!("{beds} Beds")),
-        listing.baths.map(|baths| format!("{baths} Baths")),
-        listing.area.clone(),
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>()
-    .join("  \u{00b7}  ");
+    let facts = crate::format::listing_facts(listing, crate::format::FactsStyle::Full);
     html! {
         <article class="group relative">
             <div class="relative aspect-[4/3] overflow-hidden bg-muted">
@@ -384,7 +376,7 @@ fn card(listing: &Listing) -> Html {
                 <div class="flex items-start justify-between gap-6">
                     <h3 class="font-serif text-2xl font-light leading-tight text-foreground">{ listing.name.clone() }</h3>
                     <p class="whitespace-nowrap pt-1 text-sm font-light text-foreground">
-                        { listing.price.clone().unwrap_or_else(|| "Price on request".to_string()) }
+                        { crate::format::listing_price_label(listing) }
                     </p>
                 </div>
                 <div class="mt-3 flex items-center justify-between gap-4">

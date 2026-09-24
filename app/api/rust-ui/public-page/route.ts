@@ -65,6 +65,7 @@ function block(source: unknown) {
  */
 function listing(source: PropertySummary) {
   return {
+    id: source.id ?? '',
     slug: source.slug ?? '',
     name: source.name ?? '',
     location: propertyLocation(source) ?? null,
@@ -75,6 +76,11 @@ function listing(source: PropertySummary) {
     beds: source.bedrooms ?? null,
     baths: source.bathrooms ?? null,
     area: formatArea(source.lotSize, source.lotSizeUnits) ?? null,
+    // `area` is the LOT. A house is bought by its interior first, and without this a 6,000 sq ft residence read as "1 Acre"
+    // on its card. Formatted by the same helper, so "6,399 SF" matches the detail page.
+    interiorArea: source.squareFeet ? formatArea(source.squareFeet, 'SF') : null,
+    views: source.views ?? [],
+    beachAccess: source.beachAccess === true,
     featured: source.featured === true,
   }
 }
