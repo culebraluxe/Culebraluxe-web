@@ -862,7 +862,7 @@ fn featured_properties(items: &[Listing]) -> String {
                          <p class=\"mt-8 max-w-xs text-sm font-light leading-relaxed text-foreground/80\">{facts}</p>\
                          <div class=\"mt-8 flex items-center justify-between border-t border-border pt-6\">\
                            <span class=\"text-xs font-light uppercase tracking-[0.2em] text-muted-foreground\">{price}</span>\
-                           <a href=\"#contact\" \
+                           <a href=\"{enquire}\" \
                              class=\"inline-flex items-center gap-2 text-xs font-light uppercase tracking-[0.2em] \
                              text-foreground\">Enquire<span class=\"inline-block h-px w-6 bg-foreground\"></span></a>\
                          </div>\
@@ -881,8 +881,9 @@ fn featured_properties(items: &[Listing]) -> String {
                         ),
                         None => String::new(),
                     },
-                    facts = escape(&listing_facts(listing)),
-                    price = escape(listing.price.as_deref().unwrap_or("Price upon request")),
+                    facts = escape(&listing_facts(listing, crate::format::FactsStyle::Full)),
+                    price = escape(&crate::format::listing_price_label(listing)),
+                    enquire = escape(&crate::format::listing_enquire_href(listing)),
                 )
             })
             .collect::<String>()
@@ -896,28 +897,9 @@ fn featured_properties(items: &[Listing]) -> String {
     )
 }
 
-/// The one-line facts under an estate's name: beds and baths, or the lot size for land, joined the way the TypeScript
-/// `propertyFacts` joined them. Missing numbers are omitted rather than printed as zero, and a whole number prints
-/// without a decimal point — "8 Bed", not "8.0 Bed" — while a half-bath keeps its half.
-fn listing_facts(listing: &Listing) -> String {
-    let count = |value: f64| -> String {
-        if value.fract() == 0.0 {
-            format!("{}", value as i64)
-        } else {
-            format!("{value}")
-        }
-    };
-    let mut parts: Vec<String> = Vec::new();
-    if let Some(beds) = listing.beds {
-        parts.push(format!("{} Bed", count(beds)));
-    }
-    if let Some(baths) = listing.baths {
-        parts.push(format!("{} Bath", count(baths)));
-    }
-    if let Some(area) = listing.area.as_deref().filter(|value| !value.is_empty()) {
-        parts.push(area.to_string());
-    }
-    parts.join("  ·  ")
+/// The one-line facts under an estate's name. One rule for every card, in `format::listing_facts`.
+fn listing_facts(listing: &Listing, style: crate::format::FactsStyle) -> String {
+    crate::format::listing_facts(listing, style)
 }
 
 /// `components/home-properties.tsx` — the dark portfolio band: a heading and a "View All Properties" button, then four
@@ -945,7 +927,7 @@ fn home_properties(block: &Block, items: &[Listing]) -> String {
                 "<article class=\"group flex flex-col\">\
                    <div class=\"relative aspect-[5/4] w-full overflow-hidden bg-background/10\">\
                      <a href=\"/properties/{slug}\" aria-label=\"{name}\">\
-                       <img src=\"{image}\" alt=\"{name}\" \
+                       <img src=\"{image}\" alt=\"{alt}\" \
                          sizes=\"(min-width: 1024px) 22vw, (min-width: 640px) 45vw, 90vw\" \
                          class=\"absolute inset-0 h-full w-full object-cover transition-transform duration-[1400ms] \
                          ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-[1.05]\" />\
@@ -961,9 +943,10 @@ fn home_properties(block: &Block, items: &[Listing]) -> String {
                 slug = escape(&listing.slug),
                 name = escape(&listing.name),
                 image = escape(listing.image_path.as_deref().unwrap_or("/placeholder.svg")),
+                alt = escape(listing.image_alt.as_deref().unwrap_or(&listing.name)),
                 badge = badge,
-                price = escape(listing.price.as_deref().unwrap_or("Price upon request")),
-                facts = escape(&listing_facts(listing)),
+                price = escape(&crate::format::listing_price_label(listing)),
+                facts = escape(&listing_facts(listing, crate::format::FactsStyle::Compact)),
             )
         })
         .collect::<String>();
@@ -992,7 +975,7 @@ fn home_properties(block: &Block, items: &[Listing]) -> String {
                  <h2 class=\"text-balance font-serif text-4xl font-light leading-[1.05] md:text-5xl\">{title}</h2>\
                  <p class=\"mt-5 max-w-md text-pretty text-sm font-light leading-relaxed text-background/70\">{intro}</p>\
                </div>\
-               <a href=\"#properties\" class=\"inline-flex items-center gap-3 self-start border border-background/30 \
+               <a href=\"/properties\" class=\"inline-flex items-center gap-3 self-start border border-background/30 \
                  px-8 py-4 text-xs font-light uppercase tracking-[0.2em] transition-colors duration-500 \
                  hover:border-background md:self-auto\">View All Properties<span aria-hidden=\"true\">&rarr;</span></a>\
              </div>\
@@ -2103,15 +2086,7 @@ fn buyer_inventory_card(listing: &crate::model::Listing) -> String {
         ""
     };
     // The facts line: only the facts the listing actually has, in the component's order.
-    let facts = [
-        listing.beds.map(|beds| format!("{beds} Beds")),
-        listing.baths.map(|baths| format!("{baths} Baths")),
-        listing.area.clone(),
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>()
-    .join("  ·  ");
+    let facts = crate::format::listing_facts(listing, crate::format::FactsStyle::Full);
     let location = listing
         .location
         .as_deref()
@@ -2151,7 +2126,7 @@ fn buyer_inventory_card(listing: &crate::model::Listing) -> String {
         slug = escape(&listing.slug),
         name = escape(&listing.name),
         location = location,
-        price = escape(listing.price.as_deref().unwrap_or("Price on request")),
+        price = escape(&crate::format::listing_price_label(listing)),
         facts = escape(&facts),
         arrow = arrow,
     )
@@ -3008,10 +2983,7 @@ fn site_property_detail(model: &Model) -> String {
 
 /// Whether a listing is land — the same rule the card's Land badge uses, so the badge and the tabs cannot disagree.
 pub(crate) fn listing_is_land(listing: &Listing) -> bool {
-    listing
-        .kind
-        .as_deref()
-        .is_some_and(|kind| kind.to_ascii_lowercase().contains("land"))
+    crate::format::listing_is_land(listing)
 }
 
 /// A listing's price as a number, from the formatted string the payload carries.
@@ -3173,7 +3145,7 @@ fn buyer_showroom(model: &Model, listings: &[Listing]) -> String {
                 image = listing_image(listing, "absolute inset-0 h-full w-full object-cover", true),
                 location = escape(listing.location.as_deref().unwrap_or("")),
                 name = escape(&listing.name),
-                price = escape(listing.price.as_deref().unwrap_or("Price on request")),
+                price = escape(&crate::format::listing_price_label(listing)),
             )
         })
         .collect::<String>();

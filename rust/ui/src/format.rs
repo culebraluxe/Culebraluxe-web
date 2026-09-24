@@ -11,6 +11,8 @@
 //! first place — a large enough total loses its cents and then its dollars to binary rounding. The formatter below rounds
 //! and groups the DIGITS, with integer arithmetic, and never leaves the decimal world.
 
+use crate::model::Listing;
+
 /// The month abbreviations a date label is built from, as the locale the live screen formatted in produced them.
 const MONTH_LABELS: [&str; 12] = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
@@ -119,7 +121,211 @@ pub fn is_zero(amount: &str) -> bool {
         .all(|character| matches!(character, '0' | '.' | '-' | '+'))
 }
 
+// ---- Listing cards ----------------------------------------------------------------------------------------------------
+//
+// ONE PLACE FOR WHAT A CARD SAYS. The homepage, the portfolio band and the buyers inventory each built their own facts
+// line and their own missing-price wording, and they drifted: "8 Bed" beside "8 Beds", "Price upon request" beside
+// "Price on request". These are the single answers, and they are pure so `cargo test -p ui` can pin them.
 
+/// What a card shows when a listing has no price. Matches `formatPrice` in `lib/property.ts` and the detail page.
+pub const PRICE_ON_REQUEST: &str = "Price Upon Request";
+
+/// How much a facts line may say.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FactsStyle {
+    /// The small portfolio card: beds and baths (or the lot, for land), then the leading view. This is the line the
+    /// TypeScript card drew, restored.
+    Compact,
+    /// The full-width cards: beds, baths, interior and lot — or the lot alone, for land.
+    Full,
+}
+
+/// Whether a listing is land, by its type. The card's Land badge, the facts line and the buyers tabs all ask this.
+pub fn listing_is_land(listing: &Listing) -> bool {
+    listing
+        .kind
+        .as_deref()
+        .is_some_and(|kind| kind.to_ascii_lowercase().contains("land"))
+}
+
+/// A count as a person writes it: "8", not "8.0", while a half-bath keeps its half ("7.5").
+fn count(value: f64) -> String {
+    if value.fract() == 0.0 {
+        format!("{}", value as i64)
+    } else {
+        format!("{value}")
+    }
+}
+
+fn present(value: &Option<String>) -> Option<String> {
+    value.as_deref().map(str::trim).filter(|value| !value.is_empty()).map(str::to_string)
+}
+
+/// The one-line facts under a listing's name, joined with a spaced middle dot. Missing numbers are left out, never
+/// printed as zero.
+pub fn listing_facts(listing: &Listing, style: FactsStyle) -> String {
+    listing_fact_parts(listing, style).join("  \u{00b7}  ")
+}
+
+/// The same facts, one per entry, for a view that sets its own separators (HTML collapses the spaced dot to a squeeze).
+pub fn listing_fact_parts(listing: &Listing, style: FactsStyle) -> Vec<String> {
+    let mut parts: Vec<String> = Vec::new();
+    if listing_is_land(listing) {
+        parts.extend(present(&listing.area));
+    } else {
+        if let Some(beds) = listing.beds {
+            parts.push(format!("{} Bed", count(beds)));
+        }
+        if let Some(baths) = listing.baths {
+            parts.push(format!("{} Bath", count(baths)));
+        }
+        if style == FactsStyle::Full {
+            parts.extend(present(&listing.interior_area));
+            parts.extend(present(&listing.area));
+        }
+    }
+    if style == FactsStyle::Compact {
+        if let Some(view) = listing.views.iter().find(|view| !view.trim().is_empty()) {
+            parts.push(format!("{} View", view.trim()));
+        }
+    }
+    parts
+}
+
+/// A listing's price for display, or the request wording when it has none.
+pub fn listing_price_label(listing: &Listing) -> String {
+    present(&listing.price).unwrap_or_else(|| PRICE_ON_REQUEST.to_string())
+}
+
+/// The small line above a listing's name: its type and its place, whichever it has ("Luxury Estate · Zoni, Culebra").
+pub fn listing_eyebrow(listing: &Listing) -> Option<String> {
+    let parts = [present(&listing.kind), present(&listing.location)]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+    (!parts.is_empty()).then(|| parts.join("  \u{00b7}  "))
+}
+
+/// Up to `limit` short highlights for a card, from the listing's own flags: its leading view, then beach access, then
+/// its next view. Nothing here is written for one listing — a property with no views and no access gets no highlights.
+pub fn listing_highlights(listing: &Listing, limit: usize) -> Vec<String> {
+    let mut views = listing
+        .views
+        .iter()
+        .map(|view| view.trim())
+        .filter(|view| !view.is_empty());
+    let mut highlights: Vec<String> = Vec::new();
+    highlights.extend(views.next().map(|view| format!("{view} View")));
+    if listing.beach_access {
+        highlights.push("Beach Access".to_string());
+    }
+    highlights.extend(views.map(|view| format!("{view} View")));
+    highlights.truncate(limit);
+    highlights
+}
+
+/// Where "Enquire" goes: the contact form, told which property and that this is a viewing request — the same link the
+/// detail page's "Request a private viewing" builds. Without an id it is still the contact form, never a dead anchor.
+pub fn listing_enquire_href(listing: &Listing) -> String {
+    if listing.id.trim().is_empty() {
+        "/contact?requestType=private_viewing#contact".to_string()
+    } else {
+        format!(
+            "/contact?propertyId={}&requestType=private_viewing#contact",
+            listing.id.trim()
+        )
+    }
+}
+
+#[cfg(test)]
+mod listing_tests {
+    use super::*;
+
+    fn residence() -> Listing {
+        Listing {
+            id: "p-1".into(),
+            slug: "estate".into(),
+            name: "Estate".into(),
+            location: Some("Zoni, Culebra".into()),
+            price: Some("$2,500,000".into()),
+            kind: Some("Luxury Estate".into()),
+            beds: Some(8.0),
+            baths: Some(7.5),
+            area: Some("1 Acre".into()),
+            interior_area: Some("6,399 SF".into()),
+            views: vec!["Ocean".into(), "Beach".into(), "Island".into()],
+            beach_access: true,
+            ..Listing::default()
+        }
+    }
+
+    #[test]
+    fn a_residence_leads_with_its_interior_and_keeps_its_lot() {
+        assert_eq!(
+            listing_facts(&residence(), FactsStyle::Full),
+            "8 Bed  \u{b7}  7.5 Bath  \u{b7}  6,399 SF  \u{b7}  1 Acre"
+        );
+    }
+
+    #[test]
+    fn the_compact_line_is_the_one_the_typescript_card_drew() {
+        assert_eq!(
+            listing_facts(&residence(), FactsStyle::Compact),
+            "8 Bed  \u{b7}  7.5 Bath  \u{b7}  Ocean View"
+        );
+    }
+
+    #[test]
+    fn land_is_described_by_its_lot_alone() {
+        let land = Listing {
+            kind: Some("Land".into()),
+            beds: Some(0.0),
+            area: Some("2.3 Acres".into()),
+            views: vec![],
+            ..residence()
+        };
+        assert_eq!(listing_facts(&land, FactsStyle::Full), "2.3 Acres");
+        assert_eq!(listing_facts(&land, FactsStyle::Compact), "2.3 Acres");
+    }
+
+    #[test]
+    fn missing_facts_are_left_out_not_printed_as_zero() {
+        let sparse = Listing::default();
+        assert_eq!(listing_facts(&sparse, FactsStyle::Full), "");
+        assert_eq!(listing_eyebrow(&sparse), None);
+    }
+
+    #[test]
+    fn every_card_says_the_same_thing_without_a_price() {
+        let unpriced = Listing { price: Some("  ".into()), ..residence() };
+        assert_eq!(listing_price_label(&unpriced), PRICE_ON_REQUEST);
+        assert_eq!(listing_price_label(&residence()), "$2,500,000");
+    }
+
+    #[test]
+    fn highlights_come_from_the_listing_flags_in_a_fixed_order() {
+        assert_eq!(listing_highlights(&residence(), 2), vec!["Ocean View", "Beach Access"]);
+        let inland = Listing { views: vec![], beach_access: false, ..residence() };
+        assert!(listing_highlights(&inland, 2).is_empty());
+    }
+
+    #[test]
+    fn enquire_goes_to_the_contact_form_never_a_dead_anchor() {
+        assert_eq!(
+            listing_enquire_href(&residence()),
+            "/contact?propertyId=p-1&requestType=private_viewing#contact"
+        );
+        assert!(listing_enquire_href(&Listing::default()).starts_with("/contact?"));
+    }
+
+    #[test]
+    fn the_eyebrow_joins_type_and_place() {
+        assert_eq!(
+            listing_eyebrow(&residence()).as_deref(),
+            Some("Luxury Estate  \u{b7}  Zoni, Culebra")
+        );
+    }
+}
 
 #[cfg(test)]
 mod tests {
