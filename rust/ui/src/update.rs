@@ -2196,9 +2196,16 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             Vec::new()
         }
         Msg::OpsMediaUploaderToggled => {
+            // THE SECTION IS "photos", NOT "media" — and nothing has a section called media, so this guard could
+            // never pass and "+ Add new photo" did NOTHING AT ALL: no panel, no message, no request. The button looked
+            // alive (it is not disabled; only `media_uploading` greys it) which is why it read as an entitlement
+            // problem. It was a typo with the reach of a dead feature.
+            //
+            // The view has always called the property tab "photos" (`section_tabs`), and every neighbouring media arm
+            // in this match guards on photos too.
             if model.screen.key == "property-admin"
                 && model.ops.entity == "property"
-                && model.ops.section == "media"
+                && model.ops.section == "photos"
                 && !model.ops.media_uploading
             {
                 model.ops.media_uploader_open = !model.ops.media_uploader_open;
