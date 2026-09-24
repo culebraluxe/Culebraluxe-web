@@ -599,7 +599,7 @@ export async function rustApiUpdateForm<T>(
 
 
 export async function rustApiCreatePropertyAdmin<T>(
-  body: { name: string },
+  body: { name: string; propertyType?: string | null },
   options: RustApiJsonWriteOptions = {},
 ): Promise<RustApiSuccess<T>> {
   return rustApiJsonWrite<T>('/v1/properties/admin', 'POST', body, options)

@@ -54,8 +54,28 @@ type PropertyStellarDetails = {
 }
 
 type PropertyAdminRecord = PropertyAdminSummary & {
+  sourceMetadata: Record<string, unknown>
+  regridFields: Record<string, unknown>
+  stellarPropertyId: string | null
+  stellarUpdatedAt: string | null
   slug: string | null
   featured: boolean
+  originalListPrice: string | null
+  hasOceanView: boolean
+  hasBayView: boolean
+  hasBeachView: boolean
+  hasHarborView: boolean
+  hasIslandView: boolean
+  hasMountainView: boolean
+  hasSunriseView: boolean
+  hasSunsetView: boolean
+  hasWaterAccess: boolean
+  hasBeachAccess: boolean
+  hasPool: boolean
+  hasGenerator: boolean
+  hasSolar: boolean
+  isFurnished: boolean
+  isGated: boolean
   addressLine1: string | null
   streetNumber: string | null
   streetName: string | null
@@ -75,12 +95,32 @@ type PropertyAdminRecord = PropertyAdminSummary & {
   squareFeet: string | null
   lotSize: string | null
   lotSizeUnits: string | null
+  lotSizeSqft: string | null
+  roadFrontageFeet: string | null
+  roadSurfaceType: string | null
+  lotDescription: string | null
+  utilitiesNotes: string | null
+  catastroNumber: string | null
+  buildability: string | null
+  slopeDescription: string | null
+  poolPotential: string | null
+  roadAdjacency: string | null
+  utilitiesAvailability: string | null
+  hoaStatus: string | null
+  viewDescription: string | null
   yearBuilt: string | null
   stories: string | null
   parkingSpaces: string | null
   shortDescription: string | null
   editorialDescription: string | null
   publicRemarks: string | null
+  seoTitle: string | null
+  seoDescription: string | null
+  heroTitle: string | null
+  tagline: string | null
+  architectureNotes: string | null
+  amenitiesNotes: string | null
+  lifestyleNotes: string | null
   listingAgentName: string | null
   listingAgentEmail: string | null
   listingAgentPhone: string | null
@@ -243,6 +283,7 @@ type WorkbenchCommand =
   | {
       action: 'createProperty'
       name: string
+      propertyType: string
     }
 
 function entityKind(value: string | null): EntityKind {
@@ -326,15 +367,28 @@ async function propertyWorkbench(
     media = mediaResult.value
   }
 
-  return {
-    entity: 'property',
-    rows: page.value.rows.map((row) => ({
+  const rows = page.value.rows.map((row) => ({
       id: row.id,
       title: row.name,
       subtitle: row.location,
       status: row.archived ? 'archived' : row.status,
       meta: row.listPrice,
-    })),
+    }))
+  // A newly created record can sort outside this page. Keep the selected record visible
+  // in the rail so the operator can find it again without knowing its UUID.
+  if (property && !rows.some((row) => row.id === property.id)) {
+    rows.unshift({
+      id: property.id,
+      title: property.name,
+      subtitle: property.location,
+      status: property.archived ? 'archived' : property.status,
+      meta: property.listPrice,
+    })
+  }
+
+  return {
+    entity: 'property',
+    rows,
     total: page.value.total,
     page: page.value.page,
     pageSize: page.value.pageSize,
@@ -478,7 +532,23 @@ function propertySaveBody(fields: Record<string, string>) {
     isActiveListing: bool(fields.isActiveListing),
     isPublished: bool(fields.isPublished),
     propertyType: clean(fields.propertyType),
+    hasOceanView: bool(fields.hasOceanView),
+    hasBayView: bool(fields.hasBayView),
+    hasBeachView: bool(fields.hasBeachView),
+    hasHarborView: bool(fields.hasHarborView),
+    hasIslandView: bool(fields.hasIslandView),
+    hasMountainView: bool(fields.hasMountainView),
+    hasSunriseView: bool(fields.hasSunriseView),
+    hasSunsetView: bool(fields.hasSunsetView),
+    hasWaterAccess: bool(fields.hasWaterAccess),
+    hasBeachAccess: bool(fields.hasBeachAccess),
+    hasPool: bool(fields.hasPool),
+    hasGenerator: bool(fields.hasGenerator),
+    hasSolar: bool(fields.hasSolar),
+    isFurnished: bool(fields.isFurnished),
+    isGated: bool(fields.isGated),
     listPrice: clean(fields.listPrice),
+    originalListPrice: clean(fields.originalListPrice),
     location: clean(fields.location),
     addressLine1: clean(fields.addressLine1),
     streetNumber: clean(fields.streetNumber),
@@ -499,12 +569,32 @@ function propertySaveBody(fields: Record<string, string>) {
     squareFeet: clean(fields.squareFeet),
     lotSize: clean(fields.lotSize),
     lotSizeUnits: clean(fields.lotSizeUnits),
+    lotSizeSqft: clean(fields.lotSizeSqft),
+    roadFrontageFeet: clean(fields.roadFrontageFeet),
+    roadSurfaceType: clean(fields.roadSurfaceType),
+    lotDescription: clean(fields.lotDescription),
+    utilitiesNotes: clean(fields.utilitiesNotes),
+    catastroNumber: clean(fields.catastroNumber),
+    buildability: clean(fields.buildability),
+    slopeDescription: clean(fields.slopeDescription),
+    poolPotential: clean(fields.poolPotential),
+    roadAdjacency: clean(fields.roadAdjacency),
+    utilitiesAvailability: clean(fields.utilitiesAvailability),
+    hoaStatus: clean(fields.hoaStatus),
+    viewDescription: clean(fields.viewDescription),
     yearBuilt: clean(fields.yearBuilt),
     stories: clean(fields.stories),
     parkingSpaces: clean(fields.parkingSpaces),
     shortDescription: clean(fields.shortDescription),
     editorialDescription: clean(fields.editorialDescription),
     publicRemarks: clean(fields.publicRemarks),
+    seoTitle: clean(fields.seoTitle),
+    seoDescription: clean(fields.seoDescription),
+    heroTitle: clean(fields.heroTitle),
+    tagline: clean(fields.tagline),
+    architectureNotes: clean(fields.architectureNotes),
+    amenitiesNotes: clean(fields.amenitiesNotes),
+    lifestyleNotes: clean(fields.lifestyleNotes),
     listingAgentName: clean(fields.listingAgentName),
     listingAgentEmail: clean(fields.listingAgentEmail),
     listingAgentPhone: clean(fields.listingAgentPhone),
@@ -553,9 +643,36 @@ async function POSTHandler(req: NextRequest): Promise<Response> {
   if (command.action === 'createProperty') {
     const created = await rustApiCreatePropertyAdmin<PropertyAdminRecord>({
       name: command.name,
+      propertyType: command.propertyType,
     })
+    const property = created.value
+    // A successful insert must be acknowledged from its own response. A follow-up
+    // list/media read can fail independently and must not turn it into a retryable
+    // "create failed" response (which could create a duplicate property).
     return NextResponse.json({
-      ops: await workbench('property', '', 0, created.value.id),
+      ops: {
+        entity: 'property',
+        rows: [{
+          id: property.id,
+          title: property.name,
+          subtitle: property.location,
+          status: property.status,
+          meta: property.listPrice,
+        }],
+        total: 1,
+        page: 1,
+        pageSize: PAGE_SIZE,
+        selectedId: property.id,
+        property: {
+          ...property,
+          sellerEmail: null,
+          sellerPhone: null,
+          sellerLocation: null,
+        },
+        person: null,
+        project: null,
+        media: [],
+      } satisfies WorkbenchPayload,
     })
   }
 

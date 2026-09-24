@@ -61,6 +61,11 @@ type PropertyRow = {
 
   lot_size: string | null
   lot_size_units: string | null
+  lot_size_sqft: string | null
+  road_frontage_feet: string | null
+  road_surface_type: string | null
+  lot_description: string | null
+  utilities_notes: string | null
   year_built: number | null
   stories: string | null
   parking_spaces: number | null
@@ -688,6 +693,11 @@ export async function getPropertyBySlug(
 
       p.lot_size,
       p.lot_size_units,
+      p.lot_size_sqft,
+      p.road_frontage_feet,
+      p.road_surface_type,
+      p.lot_description,
+      p.utilities_notes,
       p.year_built,
       p.stories,
       p.parking_spaces,
@@ -854,6 +864,11 @@ export async function getPropertyBySlug(
 
     lotSizeArea: toNumber(row.lot_size),
     lotSizeUnits: row.lot_size_units,
+    lotSizeSqft: toNumber(row.lot_size_sqft),
+    roadFrontageFeet: toNumber(row.road_frontage_feet),
+    roadSurfaceType: row.road_surface_type,
+    lotDescription: row.lot_description,
+    utilitiesNotes: row.utilities_notes,
     yearBuilt: row.year_built,
     stories: toNumber(row.stories),
     parkingSpaces: row.parking_spaces,

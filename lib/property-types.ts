@@ -17,6 +17,11 @@ export type PropertyDetail = {
   livingArea?: number | null
   lotSizeArea?: number | null
   lotSizeUnits?: string | null
+  lotSizeSqft?: number | null
+  roadFrontageFeet?: number | null
+  roadSurfaceType?: string | null
+  lotDescription?: string | null
+  utilitiesNotes?: string | null
   yearBuilt?: number | null
   stories?: number | null
   parkingSpaces?: number | null

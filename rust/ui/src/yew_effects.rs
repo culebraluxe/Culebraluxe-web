@@ -258,6 +258,7 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
             );
         }
         Effect::CreateOpsProperty {
+            property_type,
             screen,
             name,
             generation,
@@ -268,6 +269,7 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
                 serde_json::json!({
                     "action": "createProperty",
                     "name": name,
+                    "propertyType": property_type,
                 }),
                 dispatch,
             );

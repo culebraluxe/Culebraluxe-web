@@ -217,7 +217,24 @@ fn ops_form(page: &crate::model::PortalOpsWorkbenchPage) -> std::collections::BT
                 form.insert("isActiveListing".into(), property.is_active_listing.to_string());
                 form.insert("isPublished".into(), property.is_published.to_string());
                 put(&mut form, "propertyType", property.property_type.as_deref());
+                form.insert("hasOceanView".into(), property.has_ocean_view.to_string());
+                form.insert("hasBayView".into(), property.has_bay_view.to_string());
+                form.insert("hasBeachView".into(), property.has_beach_view.to_string());
+                form.insert("hasHarborView".into(), property.has_harbor_view.to_string());
+                form.insert("hasIslandView".into(), property.has_island_view.to_string());
+                form.insert("hasMountainView".into(), property.has_mountain_view.to_string());
+                form.insert("hasSunriseView".into(), property.has_sunrise_view.to_string());
+                form.insert("hasSunsetView".into(), property.has_sunset_view.to_string());
+                form.insert("hasWaterAccess".into(), property.has_water_access.to_string());
+                form.insert("hasBeachAccess".into(), property.has_beach_access.to_string());
+                form.insert("hasPool".into(), property.has_pool.to_string());
+                form.insert("hasGenerator".into(), property.has_generator.to_string());
+                form.insert("hasSolar".into(), property.has_solar.to_string());
+                form.insert("isFurnished".into(), property.is_furnished.to_string());
+                form.insert("isGated".into(), property.is_gated.to_string());
+
                 put(&mut form, "listPrice", property.list_price.as_deref());
+                put(&mut form, "originalListPrice", property.original_list_price.as_deref());
                 put(&mut form, "location", property.location.as_deref());
                 put(&mut form, "addressLine1", property.address_line1.as_deref());
                 put(&mut form, "streetNumber", property.street_number.as_deref());
@@ -238,12 +255,32 @@ fn ops_form(page: &crate::model::PortalOpsWorkbenchPage) -> std::collections::BT
                 put(&mut form, "squareFeet", property.square_feet.as_deref());
                 put(&mut form, "lotSize", property.lot_size.as_deref());
                 put(&mut form, "lotSizeUnits", property.lot_size_units.as_deref());
+                put(&mut form, "lotSizeSqft", property.lot_size_sqft.as_deref());
+                put(&mut form, "roadFrontageFeet", property.road_frontage_feet.as_deref());
+                put(&mut form, "roadSurfaceType", property.road_surface_type.as_deref());
+                put(&mut form, "lotDescription", property.lot_description.as_deref());
+                put(&mut form, "utilitiesNotes", property.utilities_notes.as_deref());
+                put(&mut form, "catastroNumber", property.catastro_number.as_deref());
+                put(&mut form, "buildability", property.buildability.as_deref());
+                put(&mut form, "slopeDescription", property.slope_description.as_deref());
+                put(&mut form, "poolPotential", property.pool_potential.as_deref());
+                put(&mut form, "roadAdjacency", property.road_adjacency.as_deref());
+                put(&mut form, "utilitiesAvailability", property.utilities_availability.as_deref());
+                put(&mut form, "hoaStatus", property.hoa_status.as_deref());
+                put(&mut form, "viewDescription", property.view_description.as_deref());
                 put(&mut form, "yearBuilt", property.year_built.as_deref());
                 put(&mut form, "stories", property.stories.as_deref());
                 put(&mut form, "parkingSpaces", property.parking_spaces.as_deref());
                 put(&mut form, "shortDescription", property.short_description.as_deref());
                 put(&mut form, "editorialDescription", property.editorial_description.as_deref());
                 put(&mut form, "publicRemarks", property.public_remarks.as_deref());
+                put(&mut form, "seoTitle", property.seo_title.as_deref());
+                put(&mut form, "seoDescription", property.seo_description.as_deref());
+                put(&mut form, "heroTitle", property.hero_title.as_deref());
+                put(&mut form, "tagline", property.tagline.as_deref());
+                put(&mut form, "architectureNotes", property.architecture_notes.as_deref());
+                put(&mut form, "amenitiesNotes", property.amenities_notes.as_deref());
+                put(&mut form, "lifestyleNotes", property.lifestyle_notes.as_deref());
                 put(&mut form, "listingAgentName", property.listing_agent_name.as_deref());
                 put(&mut form, "listingAgentEmail", property.listing_agent_email.as_deref());
                 put(&mut form, "listingAgentPhone", property.listing_agent_phone.as_deref());
@@ -1239,6 +1276,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                     if model.ops.creating {
                         model.ops.creating = false;
                         model.ops.new_name.clear();
+                        model.ops.new_property_type.clear();
                     }
                 }
             }
@@ -1530,6 +1568,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             model.ops.form.clear();
             model.ops.creating = false;
             model.ops.new_name.clear();
+            model.ops.new_property_type.clear();
             reset_ops_aux(model);
             model.selected_row_id = None;
             model.controls.query.clear();
@@ -1547,7 +1586,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 "project" => matches!(section.as_str(), "project" | "links"),
                 _ => matches!(
                     section.as_str(),
-                    "property" | "website" | "mls" | "photos" | "video" | "person"
+                    "property" | "site" | "legal" | "website" | "mls" | "photos" | "video" | "person" | "sources"
                 ),
             };
             if valid {
@@ -1621,6 +1660,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             model.ops.creating = !model.ops.creating;
             if !model.ops.creating {
                 model.ops.new_name.clear();
+                model.ops.new_property_type.clear();
             }
             model.error = None;
             Vec::new()
@@ -1629,6 +1669,12 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             if model.screen.key == "property-admin" && model.ops.entity == "property" {
                 model.ops.new_name = value;
                 model.error = None;
+            }
+            Vec::new()
+        }
+        Msg::OpsCreateTypeChanged(value) => {
+            if model.screen.key == "property-admin" && model.ops.entity == "property" {
+                model.ops.new_property_type = value;
             }
             Vec::new()
         }
@@ -1652,6 +1698,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             model.loading = true;
             model.error = None;
             vec![Effect::CreateOpsProperty {
+                property_type: model.ops.new_property_type.clone(),
                 screen: model.screen.key,
                 name,
                 generation: model.generation,
@@ -3451,6 +3498,7 @@ mod tests {
         };
         model.ops.creating = true;
         model.ops.new_name = "New Listing".into();
+        update(&mut model, Msg::OpsCreateTypeChanged("Land".into()));
 
         let effects = update(&mut model, Msg::OpsCreateRequested);
         assert_eq!(model.selected_row_id, None);
@@ -3458,11 +3506,79 @@ mod tests {
         assert_eq!(
             effects,
             vec![Effect::CreateOpsProperty {
+                property_type: "Land".into(),
                 screen: "property-admin",
                 name: "New Listing".into(),
                 generation: 0,
             }]
         );
+    }
+
+    #[test]
+    fn land_site_facts_use_the_same_property_save_effect() {
+        let mut model = Model {
+            screen: target("property-admin"),
+            selected_row_id: Some("land-id".into()),
+            ..Model::default()
+        };
+        for (key, value) in [
+            ("name", "Alturas de Zoni"),
+            ("propertyType", "Land"),
+            ("lotSize", "0.97"),
+            ("lotSizeUnits", "Acres"),
+            ("lotSizeSqft", "42243"),
+            ("roadFrontageFeet", "130"),
+            ("roadSurfaceType", "Asphalt"),
+            ("buildability", "Buildable"),
+            ("slopeDescription", "Sloped"),
+            ("poolPotential", "Room for pool"),
+            ("roadAdjacency", "Borders main road"),
+            ("utilitiesAvailability", "At property edge"),
+            ("hoaStatus", "No"),
+            ("viewDescription", "Full ocean view, a third of a mile from the beach"),
+            ("catastroNumber", "473-089-035-06-000"),
+        ] {
+            update(&mut model, Msg::OpsFieldChanged { key: key.into(), value: value.into() });
+        }
+        let effects = update(&mut model, Msg::OpsSaveRequested);
+        assert_eq!(effects.len(), 1);
+        match &effects[0] {
+            Effect::SaveOps { entity, fields, .. } => {
+                assert_eq!(entity, "property");
+                assert_eq!(fields.get("catastroNumber").map(String::as_str), Some("473-089-035-06-000"));
+                assert_eq!(fields.get("lotSizeSqft").map(String::as_str), Some("42243"));
+                assert_eq!(fields.get("hoaStatus").map(String::as_str), Some("No"));
+                assert_eq!(fields.get("propertyType").map(String::as_str), Some("Land"));
+            }
+            _ => panic!("expected the Property save effect"),
+        }
+    }
+
+    #[test]
+    fn property_draft_survives_tab_changes_without_requiring_optional_values() {
+        let mut model = Model {
+            screen: target("property-admin"),
+            selected_row_id: Some("property-id".into()),
+            ..Model::default()
+        };
+        model.ops.form.insert("name".into(), "Alturas de Zoni".into());
+        model.ops.form.insert("status".into(), "prospect".into());
+        model.ops.form.insert("catastroNumber".into(), "473-089-035-06-000".into());
+        update(&mut model, Msg::OpsFieldChanged { key: "lotSize".into(), value: "0.97".into() });
+        for tab in ["site", "legal", "website", "mls", "sources", "property"] {
+            update(&mut model, Msg::OpsSectionSelected(tab.into()));
+            assert_eq!(model.ops.section, tab);
+            assert_eq!(model.ops.form.get("lotSize").map(String::as_str), Some("0.97"));
+        }
+        let effects = update(&mut model, Msg::OpsSaveRequested);
+        match &effects[0] {
+            Effect::SaveOps { fields, .. } => {
+                assert_eq!(fields.get("lotSize").map(String::as_str), Some("0.97"));
+                assert_eq!(fields.get("catastroNumber").map(String::as_str), Some("473-089-035-06-000"));
+                assert!(!fields.contains_key("roadFrontageFeet"));
+            }
+            _ => panic!("expected a partial Property save"),
+        }
     }
 
     #[test]

@@ -84,17 +84,51 @@ const PROPERTY_CORE: &[FieldSpec] = &[
     FieldSpec { key: "status", label: "Status", kind: FieldKind::Select(PROPERTY_STATUS), wide: false, hint: None },
     FieldSpec { key: "propertyType", label: "Property type", kind: FieldKind::Text, wide: false, hint: None },
     FieldSpec { key: "listPrice", label: "List price", kind: FieldKind::Number, wide: false, hint: None },
+    FieldSpec { key: "originalListPrice", label: "Original list price", kind: FieldKind::Number, wide: false, hint: None },
     FieldSpec { key: "location", label: "Location label", kind: FieldKind::Text, wide: false, hint: None },
     FieldSpec { key: "bedrooms", label: "Bedrooms", kind: FieldKind::Number, wide: false, hint: None },
     FieldSpec { key: "bathrooms", label: "Bathrooms", kind: FieldKind::Number, wide: false, hint: None },
     FieldSpec { key: "bathroomsFull", label: "Full baths", kind: FieldKind::Number, wide: false, hint: None },
     FieldSpec { key: "bathroomsHalf", label: "Half baths", kind: FieldKind::Number, wide: false, hint: None },
     FieldSpec { key: "squareFeet", label: "Interior sqft", kind: FieldKind::Number, wide: false, hint: None },
-    FieldSpec { key: "lotSize", label: "Lot size", kind: FieldKind::Number, wide: false, hint: None },
-    FieldSpec { key: "lotSizeUnits", label: "Lot units", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "lotSize", label: "Lot area", kind: FieldKind::Number, wide: false, hint: Some("For 0.97 acres enter 0.97 and choose Acres below.") },
+    FieldSpec { key: "lotSizeUnits", label: "Lot units", kind: FieldKind::Select(&[("", "Choose units"), ("Acres", "Acres"), ("SqFt", "Square feet")]), wide: false, hint: None },
+    FieldSpec { key: "lotSizeSqft", label: "Reported lot square feet", kind: FieldKind::Number, wide: false, hint: Some("Enter separately from acreage; do not use Interior sqft.") },
     FieldSpec { key: "yearBuilt", label: "Year built", kind: FieldKind::Number, wide: false, hint: None },
     FieldSpec { key: "stories", label: "Stories", kind: FieldKind::Number, wide: false, hint: None },
     FieldSpec { key: "parkingSpaces", label: "Parking spaces", kind: FieldKind::Number, wide: false, hint: None },
+];
+
+const PROPERTY_FEATURES: &[FieldSpec] = &[
+    FieldSpec { key: "hasOceanView", label: "Ocean view", kind: FieldKind::Toggle, wide: false, hint: None },
+    FieldSpec { key: "hasBayView", label: "Bay view", kind: FieldKind::Toggle, wide: false, hint: None },
+    FieldSpec { key: "hasBeachView", label: "Beach view", kind: FieldKind::Toggle, wide: false, hint: None },
+    FieldSpec { key: "hasHarborView", label: "Harbor view", kind: FieldKind::Toggle, wide: false, hint: None },
+    FieldSpec { key: "hasIslandView", label: "Island view", kind: FieldKind::Toggle, wide: false, hint: None },
+    FieldSpec { key: "hasMountainView", label: "Mountain view", kind: FieldKind::Toggle, wide: false, hint: None },
+    FieldSpec { key: "hasSunriseView", label: "Sunrise view", kind: FieldKind::Toggle, wide: false, hint: None },
+    FieldSpec { key: "hasSunsetView", label: "Sunset view", kind: FieldKind::Toggle, wide: false, hint: None },
+    FieldSpec { key: "hasWaterAccess", label: "Water access", kind: FieldKind::Toggle, wide: false, hint: None },
+    FieldSpec { key: "hasBeachAccess", label: "Beach access", kind: FieldKind::Toggle, wide: false, hint: None },
+    FieldSpec { key: "hasPool", label: "Pool", kind: FieldKind::Toggle, wide: false, hint: None },
+    FieldSpec { key: "hasGenerator", label: "Generator", kind: FieldKind::Toggle, wide: false, hint: None },
+    FieldSpec { key: "hasSolar", label: "Solar", kind: FieldKind::Toggle, wide: false, hint: None },
+    FieldSpec { key: "isFurnished", label: "Furnished", kind: FieldKind::Toggle, wide: false, hint: None },
+    FieldSpec { key: "isGated", label: "Gated", kind: FieldKind::Toggle, wide: false, hint: None },
+];
+
+const PROPERTY_SITE: &[FieldSpec] = &[
+    FieldSpec { key: "buildability", label: "Buildability", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "slopeDescription", label: "Slope / terrain", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "poolPotential", label: "Room for pool", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "roadAdjacency", label: "Road adjacency", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "viewDescription", label: "View description", kind: FieldKind::Textarea(3), wide: true, hint: None },
+    FieldSpec { key: "lotDescription", label: "Other lot details", kind: FieldKind::Textarea(3), wide: true, hint: None },
+    FieldSpec { key: "roadFrontageFeet", label: "Road frontage (feet)", kind: FieldKind::Number, wide: false, hint: None },
+    FieldSpec { key: "roadSurfaceType", label: "Road surface", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "utilitiesAvailability", label: "Utilities availability / location", kind: FieldKind::Text, wide: false, hint: Some("For example: available at the property edge.") },
+    FieldSpec { key: "hoaStatus", label: "HOA status", kind: FieldKind::Select(&[("", "Unknown"), ("No", "No"), ("Yes", "Yes")]), wide: false, hint: None },
+    FieldSpec { key: "utilitiesNotes", label: "Utilities details", kind: FieldKind::Textarea(3), wide: true, hint: None },
 ];
 
 const PROPERTY_ADDRESS: &[FieldSpec] = &[
@@ -114,7 +148,8 @@ const PROPERTY_ADDRESS: &[FieldSpec] = &[
 
 const PROPERTY_LEGAL: &[FieldSpec] = &[
     FieldSpec { key: "legalOwnerName", label: "Legal owner", kind: FieldKind::Text, wide: true, hint: None },
-    FieldSpec { key: "listingIdentifier", label: "Catastro / listing identifier", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec { key: "catastroNumber", label: "Catastro number", kind: FieldKind::Text, wide: false, hint: Some("Puerto Rico parcel identifier, distinct from a listing ID.") },
+    FieldSpec { key: "listingIdentifier", label: "MLS / listing ID", kind: FieldKind::Text, wide: false, hint: None },
     FieldSpec { key: "registryEntry", label: "Registry entry", kind: FieldKind::Text, wide: false, hint: None },
     FieldSpec { key: "fincaNumber", label: "Finca number", kind: FieldKind::Text, wide: false, hint: None },
     FieldSpec { key: "registrySection", label: "Registry section", kind: FieldKind::Text, wide: false, hint: None },
@@ -135,6 +170,13 @@ const WEBSITE_FIELDS: &[FieldSpec] = &[
     FieldSpec { key: "shortDescription", label: "Short description", kind: FieldKind::Textarea(3), wide: true, hint: None },
     FieldSpec { key: "editorialDescription", label: "Editorial description", kind: FieldKind::Textarea(6), wide: true, hint: None },
     FieldSpec { key: "publicRemarks", label: "Public remarks", kind: FieldKind::Textarea(6), wide: true, hint: Some("Canonical remarks reused by downstream publication preparation.") },
+    FieldSpec { key: "seoTitle", label: "Search title", kind: FieldKind::Text, wide: true, hint: None },
+    FieldSpec { key: "seoDescription", label: "Search description", kind: FieldKind::Textarea(3), wide: true, hint: None },
+    FieldSpec { key: "heroTitle", label: "Hero title", kind: FieldKind::Textarea(3), wide: true, hint: None },
+    FieldSpec { key: "tagline", label: "Tagline", kind: FieldKind::Textarea(3), wide: true, hint: None },
+    FieldSpec { key: "architectureNotes", label: "Architecture notes", kind: FieldKind::Textarea(3), wide: true, hint: None },
+    FieldSpec { key: "amenitiesNotes", label: "Amenities notes", kind: FieldKind::Textarea(3), wide: true, hint: None },
+    FieldSpec { key: "lifestyleNotes", label: "Lifestyle notes", kind: FieldKind::Textarea(3), wide: true, hint: None },
 ];
 
 const MLS_FIELDS: &[FieldSpec] = &[
@@ -342,7 +384,7 @@ fn selector_rail(
                         <button
                             type="button"
                             onclick={create}
-                            disabled={model.ops.dirty}
+                            disabled={model.ops.dirty || !model.can("property.write")}
                             class="mt-2 flex h-8 w-full items-center justify-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/35 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--portal-navy)] hover:bg-white/60 disabled:opacity-35"
                         >
                             { if model.ops.creating { "Cancel new property" } else { "+ New property" } }
@@ -420,6 +462,13 @@ fn create_property(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html 
             on_msg.emit(Msg::OpsCreateNameChanged(value));
         })
     };
+    let change_type = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |event: InputEvent| {
+            let value = event.target_unchecked_into::<web_sys::HtmlInputElement>().value();
+            on_msg.emit(Msg::OpsCreateTypeChanged(value));
+        })
+    };
     let create = {
         let on_msg = on_msg.clone();
         Callback::from(move |_: MouseEvent| on_msg.emit(Msg::OpsCreateRequested))
@@ -432,10 +481,13 @@ fn create_property(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html 
                 placeholder="Property name"
                 class="h-8 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/65 px-2 text-[12px] outline-none"
             />
+            <input type="text" oninput={change_type} value={model.ops.new_property_type.clone()}
+                placeholder="Property type (for example, Land)"
+                class="mt-2 h-9 w-full rounded border border-[var(--portal-panel-border)] bg-white/65 px-2 text-[12px]" />
             <button
                 type="button"
                 onclick={create}
-                disabled={model.loading}
+                disabled={model.loading || !model.can("property.write")}
                 class="mt-2 h-8 w-full rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] text-[10px] font-semibold uppercase tracking-[0.12em] text-white disabled:opacity-40"
             >
                 { if model.loading { "Creating…" } else { "Create & open" } }
@@ -597,11 +649,14 @@ fn section_tabs(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
         "project" => &[("project", "Project"), ("links", "Links")],
         _ => &[
             ("property", "Property"),
+            ("site", "Site"),
+            ("legal", "Legal"),
             ("website", "Website"),
             ("mls", "MLS"),
             ("photos", "Photos"),
             ("video", "Video"),
             ("person", "Person"),
+            ("sources", "Sources"),
         ],
     };
 
@@ -642,6 +697,28 @@ fn property_editor(
     };
 
     match model.ops.section.as_str() {
+        "site" => html! {
+            <div class="space-y-4">
+                {section_intro("Site and land", "These facts apply to every property, including houses. Enter what is known now and return for other details later.")}
+                {field_panel(model, on_msg, "Views and access", PROPERTY_FEATURES)}
+                {field_panel(model, on_msg, "Lot and site", PROPERTY_SITE)}
+            </div>
+        },
+        "legal" => html! {
+            <div class="space-y-4">
+                {section_intro("Legal and listing details", "Add identifiers and representation details as they become available.")}
+                {field_panel(model, on_msg, "Legal / registry", PROPERTY_LEGAL)}
+                {field_panel(model, on_msg, "Listing representation", PROPERTY_AGENT)}
+                {field_panel(model, on_msg, "Administration", PROPERTY_ADMIN_FIELDS)}
+            </div>
+        },
+        "sources" => html! {
+            <div class="space-y-4">
+                {section_intro("Source data", "System and imported values are visible here for reconciliation.")}
+                {source_columns_panel("System and provenance columns", &property.source_metadata)}
+                {source_columns_panel("Regrid enrichment columns", &property.regrid_fields)}
+            </div>
+        },
         "website" => html! {
             <div class="space-y-4">
                 {section_intro("Website", "Presentation and publication controls over the canonical Property record.")}
@@ -651,6 +728,10 @@ fn property_editor(
         "mls" => html! {
             <div class="space-y-4">
                 {section_intro("Stellar MLS preparation", "Canonical Property values stay inherited; this section collects only MLS-specific extension fields.")}
+                <div class="grid gap-3 md:grid-cols-2">
+                    {readonly_card("property_id", property.stellar_property_id.as_deref().unwrap_or("—"))}
+                    {readonly_card("updated_at", property.stellar_updated_at.as_deref().unwrap_or("—"))}
+                </div>
                 <div class="grid gap-3 md:grid-cols-4">
                     {inherited("Property", value(model, "name"))}
                     {inherited("List price", value(model, "listPrice"))}
@@ -665,14 +746,36 @@ fn property_editor(
         "person" => property_person_editor(model, property, on_msg),
         _ => html! {
             <div class="space-y-4">
-                {section_intro("Property truth", "Enter operational facts once. Website, MLS preparation, media and transaction surfaces consume this record.")}
+                {section_intro("Property facts", "Start with what is known. Save and return to complete other fields in later passes.")}
                 {field_panel(model, on_msg, "Core", PROPERTY_CORE)}
                 {field_panel(model, on_msg, "Address", PROPERTY_ADDRESS)}
-                {field_panel(model, on_msg, "Legal / registry", PROPERTY_LEGAL)}
-                {field_panel(model, on_msg, "Listing representation", PROPERTY_AGENT)}
-                {field_panel(model, on_msg, "Administration", PROPERTY_ADMIN_FIELDS)}
             </div>
         },
+    }
+}
+
+fn source_columns_panel(
+    title: &str,
+    columns: &std::collections::BTreeMap<String, serde_json::Value>,
+) -> Html {
+    html! {
+        <section class="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/30 p-4">
+            <h2 class="mb-3 text-sm font-semibold text-[var(--portal-navy)]">{title}</h2>
+            <p class="mb-4 text-[12px] text-black/55">{"Read-only values maintained by the system or imported data source."}</p>
+            <dl class="grid gap-3 lg:grid-cols-2">
+                {for columns.iter().map(|(key, value)| {
+                    let display = if value.is_null() { "—".to_string() }
+                        else if let Some(text) = value.as_str() { text.to_string() }
+                        else { value.to_string() };
+                    html! {
+                        <div class="min-w-0 border-b border-[var(--portal-panel-border)] pb-2">
+                            <dt class="text-[12px] font-medium text-[var(--portal-navy)]">{key.as_str()}</dt>
+                            <dd class="break-all text-[13px] text-black/70">{display}</dd>
+                        </div>
+                    }
+                })}
+            </dl>
+        </section>
     }
 }
 

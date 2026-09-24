@@ -610,6 +610,11 @@ fn details(record: &PropertyRecord) -> Html {
                 { definition("Stories", record.stories.map(|value| format_number(value, ""))) }
             }
             { definition("Lot Size", record.lot_size.clone()) }
+            { definition("Lot Square Feet", record.lot_size_sqft.map(|value| format_number(value, "sq ft"))) }
+            { definition("Road Frontage", record.road_frontage_feet.map(|value| format_number(value, "ft"))) }
+            { definition("Road Surface", record.road_surface_type.clone()) }
+            { definition("Lot Description", record.lot_description.clone()) }
+            { definition("Utilities", record.utilities_notes.clone()) }
             { definition("Year Built", record.year_built.map(|value| value.to_string())) }
             { definition("Parking Spaces", record.parking_spaces.map(|value| format_number(value, ""))) }
             { definition("Neighborhood", record.neighborhood.clone()) }

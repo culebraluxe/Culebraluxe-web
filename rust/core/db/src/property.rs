@@ -14,7 +14,7 @@ struct PropertyRow {
     id: String,
     name: Option<String>,
     legal_owner_name: Option<String>,
-    listing_identifier: Option<String>,
+    catastro_number: Option<String>,
     registry_entry: Option<String>,
     finca_number: Option<String>,
     registry_section: Option<String>,
@@ -38,7 +38,7 @@ struct PropertyRelationRow {
     id: String,
     name: Option<String>,
     legal_owner_name: Option<String>,
-    listing_identifier: Option<String>,
+    catastro_number: Option<String>,
     registry_entry: Option<String>,
     finca_number: Option<String>,
     registry_section: Option<String>,
@@ -78,6 +78,10 @@ struct PropertyAdminSummaryRow {
 #[derive(Debug, FromRow)]
 struct PropertyAdminRecordRow {
     id: String,
+    source_metadata: sqlx::types::Json<std::collections::BTreeMap<String, serde_json::Value>>,
+    regrid_fields: sqlx::types::Json<std::collections::BTreeMap<String, serde_json::Value>>,
+    stellar_property_id: Option<String>,
+    stellar_updated_at: Option<String>,
     name: String,
     slug: Option<String>,
     status: String,
@@ -85,7 +89,23 @@ struct PropertyAdminRecordRow {
     is_active_listing: bool,
     is_published: bool,
     property_type: Option<String>,
+    has_ocean_view: bool,
+    has_bay_view: bool,
+    has_beach_view: bool,
+    has_harbor_view: bool,
+    has_island_view: bool,
+    has_mountain_view: bool,
+    has_sunrise_view: bool,
+    has_sunset_view: bool,
+    has_water_access: bool,
+    has_beach_access: bool,
+    has_pool: bool,
+    has_generator: bool,
+    has_solar: bool,
+    is_furnished: bool,
+    is_gated: bool,
     list_price: Option<String>,
+    original_list_price: Option<String>,
     location: Option<String>,
     address_line1: Option<String>,
     street_number: Option<String>,
@@ -106,12 +126,32 @@ struct PropertyAdminRecordRow {
     square_feet: Option<String>,
     lot_size: Option<String>,
     lot_size_units: Option<String>,
+    lot_size_sqft: Option<String>,
+    road_frontage_feet: Option<String>,
+    road_surface_type: Option<String>,
+    lot_description: Option<String>,
+    utilities_notes: Option<String>,
+    catastro_number: Option<String>,
+    buildability: Option<String>,
+    slope_description: Option<String>,
+    pool_potential: Option<String>,
+    road_adjacency: Option<String>,
+    utilities_availability: Option<String>,
+    hoa_status: Option<String>,
+    view_description: Option<String>,
     year_built: Option<String>,
     stories: Option<String>,
     parking_spaces: Option<String>,
     short_description: Option<String>,
     editorial_description: Option<String>,
     public_remarks: Option<String>,
+    seo_title: Option<String>,
+    seo_description: Option<String>,
+    hero_title: Option<String>,
+    tagline: Option<String>,
+    architecture_notes: Option<String>,
+    amenities_notes: Option<String>,
+    lifestyle_notes: Option<String>,
     listing_agent_name: Option<String>,
     listing_agent_email: Option<String>,
     listing_agent_phone: Option<String>,
@@ -165,6 +205,10 @@ fn map_admin_summary(row: PropertyAdminSummaryRow) -> PropertyAdminSummary {
 fn map_admin_record(row: PropertyAdminRecordRow) -> PropertyAdminRecord {
     PropertyAdminRecord {
         id: row.id,
+        source_metadata: row.source_metadata.0,
+        regrid_fields: row.regrid_fields.0,
+        stellar_property_id: row.stellar_property_id,
+        stellar_updated_at: row.stellar_updated_at,
         name: row.name,
         slug: row.slug,
         status: row.status,
@@ -172,7 +216,23 @@ fn map_admin_record(row: PropertyAdminRecordRow) -> PropertyAdminRecord {
         is_active_listing: row.is_active_listing,
         is_published: row.is_published,
         property_type: row.property_type,
+        has_ocean_view: row.has_ocean_view,
+        has_bay_view: row.has_bay_view,
+        has_beach_view: row.has_beach_view,
+        has_harbor_view: row.has_harbor_view,
+        has_island_view: row.has_island_view,
+        has_mountain_view: row.has_mountain_view,
+        has_sunrise_view: row.has_sunrise_view,
+        has_sunset_view: row.has_sunset_view,
+        has_water_access: row.has_water_access,
+        has_beach_access: row.has_beach_access,
+        has_pool: row.has_pool,
+        has_generator: row.has_generator,
+        has_solar: row.has_solar,
+        is_furnished: row.is_furnished,
+        is_gated: row.is_gated,
         list_price: row.list_price,
+        original_list_price: row.original_list_price,
         location: row.location,
         address_line1: row.address_line1,
         street_number: row.street_number,
@@ -193,12 +253,32 @@ fn map_admin_record(row: PropertyAdminRecordRow) -> PropertyAdminRecord {
         square_feet: row.square_feet,
         lot_size: row.lot_size,
         lot_size_units: row.lot_size_units,
+        lot_size_sqft: row.lot_size_sqft,
+        road_frontage_feet: row.road_frontage_feet,
+        road_surface_type: row.road_surface_type,
+        lot_description: row.lot_description,
+        utilities_notes: row.utilities_notes,
+        catastro_number: row.catastro_number,
+        buildability: row.buildability,
+        slope_description: row.slope_description,
+        pool_potential: row.pool_potential,
+        road_adjacency: row.road_adjacency,
+        utilities_availability: row.utilities_availability,
+        hoa_status: row.hoa_status,
+        view_description: row.view_description,
         year_built: row.year_built,
         stories: row.stories,
         parking_spaces: row.parking_spaces,
         short_description: row.short_description,
         editorial_description: row.editorial_description,
         public_remarks: row.public_remarks,
+        seo_title: row.seo_title,
+        seo_description: row.seo_description,
+        hero_title: row.hero_title,
+        tagline: row.tagline,
+        architecture_notes: row.architecture_notes,
+        amenities_notes: row.amenities_notes,
+        lifestyle_notes: row.lifestyle_notes,
         listing_agent_name: row.listing_agent_name,
         listing_agent_email: row.listing_agent_email,
         listing_agent_phone: row.listing_agent_phone,
@@ -240,7 +320,7 @@ macro_rules! property_sql {
     ($prefix:literal, $suffix:literal) => {
         concat!(
             $prefix,
-            "p.id::text as id, p.name, p.legal_owner_name, p.listing_identifier, ",
+            "p.id::text as id, p.name, p.legal_owner_name, p.catastro_number, ",
             "p.registry_entry, p.finca_number, p.registry_section, ",
             "p.status, p.archived_at, p.address_line1, p.location, ",
             "p.street_number, p.street_name, p.unit_number, p.city, p.state_or_province, ",
@@ -306,7 +386,7 @@ fn map_property(row: PropertyRow) -> Property {
             .unwrap_or_else(|| "Property".into()),
         local_name,
         legal_owner_name: compact(row.legal_owner_name.as_deref()),
-        catastro_number: compact(row.listing_identifier.as_deref()),
+        catastro_number: compact(row.catastro_number.as_deref()),
         registry_entry: compact(row.registry_entry.as_deref()),
         finca_number: compact(row.finca_number.as_deref()),
         registry_section: compact(row.registry_section.as_deref()),
@@ -325,7 +405,7 @@ fn map_relation(row: PropertyRelationRow) -> DbResult<PropertyForPerson> {
         id: row.id,
         name: row.name,
         legal_owner_name: row.legal_owner_name,
-        listing_identifier: row.listing_identifier,
+        catastro_number: row.catastro_number,
         registry_entry: row.registry_entry,
         finca_number: row.finca_number,
         registry_section: row.registry_section,
@@ -613,6 +693,7 @@ impl PropertyDao {
                 or coalesce(p.city, '') ilike $1
                 or coalesce(p.neighborhood, '') ilike $1
                 or coalesce(p.listing_identifier, '') ilike $1
+                or coalesce(p.catastro_number, '') ilike $1
             ))
             "#,
         )
@@ -643,6 +724,7 @@ impl PropertyDao {
                 or coalesce(p.city, '') ilike $1
                 or coalesce(p.neighborhood, '') ilike $1
                 or coalesce(p.listing_identifier, '') ilike $1
+                or coalesce(p.catastro_number, '') ilike $1
             ))
             order by
                 case when p.archived_at is null then 0 else 1 end,
@@ -671,6 +753,19 @@ impl PropertyDao {
             r#"
             select
                 p.id::text as id,
+                jsonb_build_object(
+                    'id', p.id, 'listing_user_id', p.listing_user_id,
+                    'created_at', p.created_at, 'updated_at', p.updated_at,
+                    'source_type', p.source_type, 'source_provider', p.source_provider,
+                    'source_listing_key', p.source_listing_key,
+                    'source_modified_at', p.source_modified_at,
+                    'last_synced_at', p.last_synced_at,
+                    'catastro_source', p.catastro_source
+                ) as source_metadata,
+                coalesce((select jsonb_object_agg(key, value)
+                    from jsonb_each(to_jsonb(p)) where key like 'regrid_%'), '{}'::jsonb) as regrid_fields,
+                s.property_id::text as stellar_property_id,
+                s.updated_at::text as stellar_updated_at,
                 coalesce(nullif(trim(p.name), ''), 'Unnamed property') as name,
                 p.slug,
                 p.status,
@@ -678,7 +773,23 @@ impl PropertyDao {
                 p.is_active_listing,
                 p.is_published,
                 p.property_type,
+                p.has_ocean_view,
+                p.has_bay_view,
+                p.has_beach_view,
+                p.has_harbor_view,
+                p.has_island_view,
+                p.has_mountain_view,
+                p.has_sunrise_view,
+                p.has_sunset_view,
+                p.has_water_access,
+                p.has_beach_access,
+                p.has_pool,
+                p.has_generator,
+                p.has_solar,
+                p.is_furnished,
+                p.is_gated,
                 p.list_price::text as list_price,
+                p.original_list_price::text as original_list_price,
                 p.location,
                 p.address_line1,
                 p.street_number,
@@ -699,12 +810,32 @@ impl PropertyDao {
                 p.square_feet::text as square_feet,
                 p.lot_size::text as lot_size,
                 p.lot_size_units,
+                p.lot_size_sqft::text as lot_size_sqft,
+                p.road_frontage_feet::text as road_frontage_feet,
+                p.road_surface_type,
+                p.lot_description,
+                p.utilities_notes,
+                p.catastro_number,
+                p.buildability,
+                p.slope_description,
+                p.pool_potential,
+                p.road_adjacency,
+                p.utilities_availability,
+                p.hoa_status,
+                p.view_description,
                 p.year_built::text as year_built,
                 p.stories::text as stories,
                 p.parking_spaces::text as parking_spaces,
                 p.short_description,
                 p.editorial_description,
                 p.public_remarks,
+                p.seo_title,
+                p.seo_description,
+                p.hero_title,
+                p.tagline,
+                p.architecture_notes,
+                p.amenities_notes,
+                p.lifestyle_notes,
                 p.listing_agent_name,
                 p.listing_agent_email,
                 p.listing_agent_phone,
@@ -759,12 +890,13 @@ impl PropertyDao {
         let id = uuid::Uuid::new_v4().to_string();
         sqlx::query(
             r#"
-            insert into property (id, name, status, is_active_listing, is_published)
-            values ($1::uuid, $2, 'prospect', false, false)
+            insert into property (id, name, property_type, status, is_active_listing, is_published)
+            values ($1::uuid, $2, $3, 'prospect', false, false)
             "#,
         )
         .bind(&id)
         .bind(request.name.trim())
+        .bind(request.property_type.as_deref().map(str::trim).filter(|value| !value.is_empty()))
         .execute(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("property.admin.create", &error))?;
@@ -829,7 +961,43 @@ impl PropertyDao {
                 registry_section = nullif($44::text, ''),
                 seller_person_id = nullif($45::text, '')::uuid,
                 archived_at = case when $46 then coalesce(archived_at, now()) else null end,
-                updated_at = now()
+                updated_at = now(),
+                has_ocean_view = $47,
+                has_bay_view = $48,
+                has_beach_view = $49,
+                has_harbor_view = $50,
+                has_island_view = $51,
+                has_mountain_view = $52,
+                has_sunrise_view = $53,
+                has_sunset_view = $54,
+                has_water_access = $55,
+                has_beach_access = $56,
+                has_pool = $57,
+                has_generator = $58,
+                has_solar = $59,
+                is_furnished = $60,
+                is_gated = $61,
+                hero_title = nullif($62::text, ''),
+                tagline = nullif($63::text, ''),
+                architecture_notes = nullif($64::text, ''),
+                amenities_notes = nullif($65::text, ''),
+                lifestyle_notes = nullif($66::text, ''),
+                lot_size_sqft = nullif($67::text, '')::numeric,
+                road_frontage_feet = nullif($68::text, '')::numeric,
+                road_surface_type = nullif($69::text, ''),
+                lot_description = nullif($70::text, ''),
+                utilities_notes = nullif($71::text, ''),
+                original_list_price = nullif($72::text, '')::numeric,
+                seo_title = nullif($73::text, ''),
+                seo_description = nullif($74::text, ''),
+                catastro_number = nullif($75::text, ''),
+                buildability = nullif($76::text, ''),
+                slope_description = nullif($77::text, ''),
+                pool_potential = nullif($78::text, ''),
+                road_adjacency = nullif($79::text, ''),
+                utilities_availability = nullif($80::text, ''),
+                hoa_status = nullif($81::text, ''),
+                view_description = nullif($82::text, '')
             where id = $1::uuid
             returning id::text
             "#,
@@ -880,6 +1048,42 @@ impl PropertyDao {
         .bind(request.registry_section.as_deref())
         .bind(request.seller_person_id.as_deref())
         .bind(request.archived)
+        .bind(request.has_ocean_view)
+        .bind(request.has_bay_view)
+        .bind(request.has_beach_view)
+        .bind(request.has_harbor_view)
+        .bind(request.has_island_view)
+        .bind(request.has_mountain_view)
+        .bind(request.has_sunrise_view)
+        .bind(request.has_sunset_view)
+        .bind(request.has_water_access)
+        .bind(request.has_beach_access)
+        .bind(request.has_pool)
+        .bind(request.has_generator)
+        .bind(request.has_solar)
+        .bind(request.is_furnished)
+        .bind(request.is_gated)
+        .bind(request.hero_title.as_deref())
+        .bind(request.tagline.as_deref())
+        .bind(request.architecture_notes.as_deref())
+        .bind(request.amenities_notes.as_deref())
+        .bind(request.lifestyle_notes.as_deref())
+        .bind(request.lot_size_sqft.as_deref())
+        .bind(request.road_frontage_feet.as_deref())
+        .bind(request.road_surface_type.as_deref())
+        .bind(request.lot_description.as_deref())
+        .bind(request.utilities_notes.as_deref())
+        .bind(request.original_list_price.as_deref())
+        .bind(request.seo_title.as_deref())
+        .bind(request.seo_description.as_deref())
+        .bind(request.catastro_number.as_deref())
+        .bind(request.buildability.as_deref())
+        .bind(request.slope_description.as_deref())
+        .bind(request.pool_potential.as_deref())
+        .bind(request.road_adjacency.as_deref())
+        .bind(request.utilities_availability.as_deref())
+        .bind(request.hoa_status.as_deref())
+        .bind(request.view_description.as_deref())
         .fetch_optional(tx.connection())
         .await
         .map_err(|error| DbFailure::from_sqlx("property.admin.save.property", &error))?;
@@ -1048,7 +1252,7 @@ async fn upsert_for_person_tx(
     let row = if let Some(existing) = current {
         sqlx::query_as::<_, PropertyRow>(property_sql!(
             "update property p
-             set name=$2, legal_owner_name=$3, listing_identifier=$4,
+             set name=$2, legal_owner_name=$3, catastro_number=$4,
                  registry_entry=$5, finca_number=$6, registry_section=$7,
                  address_line1=$8, city=$9, state_or_province=$10,
                  neighborhood=$11, postal_code=$12, country=$13,
@@ -1076,7 +1280,7 @@ async fn upsert_for_person_tx(
     } else {
         sqlx::query_as::<_, PropertyRow>(property_sql!(
             "insert into property as p (
-                 name, legal_owner_name, listing_identifier, registry_entry,
+                 name, legal_owner_name, catastro_number, registry_entry,
                  finca_number, registry_section, address_line1, city,
                  state_or_province, neighborhood, postal_code, country,
                  iso_country_code, source_type

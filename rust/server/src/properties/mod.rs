@@ -550,6 +550,9 @@ fn validate_admin_save(
         (request.bathrooms_half.as_deref(), "Half bathrooms"),
         (request.square_feet.as_deref(), "Square feet"),
         (request.lot_size.as_deref(), "Lot size"),
+        (request.lot_size_sqft.as_deref(), "Lot square feet"),
+        (request.road_frontage_feet.as_deref(), "Road frontage"),
+        (request.original_list_price.as_deref(), "Original list price"),
         (request.year_built.as_deref(), "Year built"),
         (request.stories.as_deref(), "Stories"),
         (request.parking_spaces.as_deref(), "Parking spaces"),
@@ -557,6 +560,14 @@ fn validate_admin_save(
         (request.stellar.annual_tax.as_deref(), "Annual tax"),
     ] {
         parse_non_negative(value, label)?;
+    }
+    if let Some(hoa) = compact_text(request.hoa_status.as_deref()) {
+        if !matches!(hoa, "Yes" | "No") {
+            return Err(CoreServiceError::business(
+                "PROPERTY_HOA_STATUS_INVALID",
+                "HOA status must be Yes, No, or unknown.",
+            ));
+        }
     }
     if let Some(raw) = compact_text(request.stellar.total_area_sqft.as_deref()) {
         let total_area = raw.parse::<f64>().map_err(|_| {
