@@ -30,22 +30,27 @@ export function resolveInternalApiKey(
     .digest('hex')
 }
 
+// A plain record is intentional: JSON bridge writers add content-type with
+// object spread. Returning Headers here would silently discard every bridge
+// header because Headers entries are not enumerable object properties.
+export type RustBridgeHeaders = Record<string, string>
+
 export function buildRustBridgeHeaders(input: {
   identity: RustBridgeIdentity
   internalApiKey: string
   correlationId: string
   causationId?: string
-}): Headers {
-  const headers = new Headers({
+}): RustBridgeHeaders {
+  const headers: RustBridgeHeaders = {
     accept: 'application/json',
     'x-culebra-internal-key': input.internalApiKey,
     'x-culebra-auth-provider': input.identity.provider,
     'x-culebra-auth-sub': input.identity.providerSubject,
     'x-culebra-correlation-id': input.correlationId,
-  })
+  }
 
   const causationId = input.causationId?.trim()
-  if (causationId) headers.set('x-culebra-causation-id', causationId)
+  if (causationId) headers['x-culebra-causation-id'] = causationId
 
   return headers
 }

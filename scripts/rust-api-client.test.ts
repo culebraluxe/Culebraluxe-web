@@ -43,11 +43,31 @@ test('bridge forwards provider identity but no role or security level', () => {
     causationId: ' cause-456 ',
   })
 
-  assert.equal(headers.get('x-culebra-auth-provider'), 'google')
-  assert.equal(headers.get('x-culebra-auth-sub'), 'stable-provider-subject')
-  assert.equal(headers.get('x-culebra-correlation-id'), 'corr-123')
-  assert.equal(headers.get('x-culebra-causation-id'), 'cause-456')
-  assert.equal(headers.get('x-culebra-internal-key'), syntheticKey)
-  assert.equal(headers.get('x-culebra-security-level'), null)
-  assert.equal(headers.get('x-culebra-role-codes'), null)
+  assert.equal(headers['x-culebra-auth-provider'], 'google')
+  assert.equal(headers['x-culebra-auth-sub'], 'stable-provider-subject')
+  assert.equal(headers['x-culebra-correlation-id'], 'corr-123')
+  assert.equal(headers['x-culebra-causation-id'], 'cause-456')
+  assert.equal(headers['x-culebra-internal-key'], syntheticKey)
+  assert.equal(headers['x-culebra-security-level'], undefined)
+  assert.equal(headers['x-culebra-role-codes'], undefined)
+})
+
+test('JSON write header spread preserves the trusted bridge identity and key', () => {
+  const syntheticKey = ['test', 'bridge', 'key', 'not', 'secret'].join('-')
+  const bridgeHeaders = buildRustBridgeHeaders({
+    identity: { provider: 'google', providerSubject: 'stable-provider-subject' },
+    internalApiKey: syntheticKey,
+    correlationId: 'corr-write-123',
+  })
+  const request = new Request('https://rust.example.invalid/v1/properties/admin', {
+    method: 'POST',
+    headers: { ...bridgeHeaders, 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'ZoniBluff' }),
+  })
+
+  assert.equal(request.headers.get('x-culebra-internal-key'), syntheticKey)
+  assert.equal(request.headers.get('x-culebra-auth-provider'), 'google')
+  assert.equal(request.headers.get('x-culebra-auth-sub'), 'stable-provider-subject')
+  assert.equal(request.headers.get('x-culebra-correlation-id'), 'corr-write-123')
+  assert.equal(request.headers.get('content-type'), 'application/json')
 })
