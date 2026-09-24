@@ -123,6 +123,8 @@ mod tests {
                 app_user_id: "test-user".into(),
                 level: value.into(),
                 role_codes: vec![],
+                account_type: "internal".into(),
+                entitlement_codes: vec![],
             }),
         };
 

@@ -11,6 +11,7 @@ struct PrincipalRow {
     person_id: Option<String>,
     role_codes: Vec<String>,
     authority_codes: Vec<String>,
+    entitlement_codes: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -70,7 +71,16 @@ impl SecurityDao {
                     join authority a on a.id = ra.authority_id
                     where aur.app_user_id = u.id
                     order by a.code
-                  ) as authority_codes
+                  ) as authority_codes,
+                  array(
+                    select distinct e.code
+                    from app_user_role aur
+                    join security_role r on r.id = aur.role_id and r.active = true
+                    join role_entitlement re on re.role_id = r.id
+                    join entitlement e on e.id = re.entitlement_id
+                    where aur.app_user_id = u.id and e.active = true
+                    order by e.code
+                  ) as entitlement_codes
                 from app_user u
                 where u.id = $1::uuid and u.active = true
                 limit 1
@@ -89,6 +99,7 @@ impl SecurityDao {
             account_type: row.account_type,
             role_codes: row.role_codes,
             authority_codes: row.authority_codes,
+            entitlement_codes: row.entitlement_codes,
             person_id: row.person_id,
         }))
     }

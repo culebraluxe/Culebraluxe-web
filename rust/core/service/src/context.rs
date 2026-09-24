@@ -19,6 +19,10 @@ pub struct ServicePrincipal {
     pub app_user_id: String,
     pub level: String,
     pub role_codes: Vec<String>,
+    #[serde(default)]
+    pub account_type: String,
+    #[serde(default)]
+    pub entitlement_codes: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

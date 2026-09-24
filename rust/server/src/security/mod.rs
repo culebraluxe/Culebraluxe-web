@@ -1,4 +1,6 @@
 mod identity_cache;
+mod entitlements;
+pub use entitlements::CasbinAuthorizationPort;
 
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;

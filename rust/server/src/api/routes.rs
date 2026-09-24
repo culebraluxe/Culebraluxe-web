@@ -56,6 +56,7 @@ struct WhoAmI {
     account_type: String,
     role_codes: Vec<String>,
     authority_codes: Vec<String>,
+    entitlement_codes: Vec<String>,
     person_id: Option<String>,
     security_level: String,
 }
@@ -631,6 +632,7 @@ async fn whoami(
             account_type: actor.account_type,
             role_codes: actor.role_codes,
             authority_codes: actor.authority_codes,
+            entitlement_codes: actor.entitlement_codes,
             person_id: actor.person_id,
             security_level: level,
         },

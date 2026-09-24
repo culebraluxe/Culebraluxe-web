@@ -1,8 +1,7 @@
 use db::Database;
 use server::api::{build_router, error_capture, ApiConfig};
-use service::{
-    CapturingAuditPort, CapturingDomainEventPort, DefaultAuthorizationPort, ServiceInfrastructure,
-};
+use service::{CapturingAuditPort, CapturingDomainEventPort, ServiceInfrastructure};
+use server::security::CasbinAuthorizationPort;
 use std::{error::Error, sync::Arc};
 use tokio::net::TcpListener;
 
@@ -18,7 +17,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // recursion-guarded on the db side, so a dead database cannot fail this and cannot loop on itself.
     error_capture::install(db.clone());
     let infrastructure = ServiceInfrastructure::new(
-        Arc::new(DefaultAuthorizationPort),
+        Arc::new(CasbinAuthorizationPort::new().await?),
         Arc::new(CapturingAuditPort::default()),
         Arc::new(CapturingDomainEventPort::default()),
     );

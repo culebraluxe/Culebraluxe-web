@@ -27,6 +27,8 @@ pub struct ActingUser {
     pub account_type: String,
     pub role_codes: Vec<String>,
     pub authority_codes: Vec<String>,
+    #[serde(default)]
+    pub entitlement_codes: Vec<String>,
     pub person_id: Option<String>,
 }
 
