@@ -7,12 +7,16 @@ use wasm_bindgen::JsCast;
 use yew::platform::spawn_local;
 use yew::Callback;
 
-use crate::model::{Effect, Msg, PortalDealPeopleSearch, PortalEntitlements, PortalRoleEntitlements, PropertyRecent};
+use crate::model::{
+    Effect, Msg, PortalDealPeopleSearch, PortalEntitlements, PortalRoleEntitlements,
+    PortalSecurityUser, PropertyRecent,
+};
 
 const PAGE_PATH: &str = "/api/rust-ui/public-page";
 const ROWS_PATH: &str = "/api/rust-ui/public-rows";
 const PORTAL_PATH: &str = "/api/portal/rust-ui/page";
 const ROLE_ENTITLEMENTS_PATH: &str = "/api/portal/rust-ui/role-entitlements";
+const SECURITY_USERS_PATH: &str = "/api/portal/rust-ui/security-users";
 const TECH_PATH: &str = "/api/portal/rust-ui/tech";
 const FLIGHT_RECORDER_PATH: &str = "/api/portal/flight-recorder";
 const COCKPIT_PATH: &str = "/api/portal/rust-ui/cockpit";
@@ -34,6 +38,9 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
         }
         Effect::SetRoleEntitlement { generation, role_code, action, granted } => {
             set_role_entitlement(generation, role_code, action, granted, dispatch);
+        }
+        Effect::SetUserPrimaryRole { generation, app_user_id, role_code } => {
+            set_user_primary_role(generation, app_user_id, role_code, dispatch);
         }
         Effect::PropertyBrowserRead { id, slug, title, valid_slugs } => {
             read_property_browser(id, slug, title, valid_slugs, dispatch);
@@ -1150,6 +1157,67 @@ fn set_role_entitlement(generation: u64, role_code: String, action: String, gran
     });
 }
 
+#[derive(serde::Deserialize)]
+struct SecurityUsersResponse {
+    users: Vec<PortalSecurityUser>,
+}
+
+fn set_user_primary_role(
+    generation: u64,
+    app_user_id: String,
+    role_code: String,
+    dispatch: &Callback<Msg>,
+) {
+    let dispatch = dispatch.clone();
+    spawn_local(async move {
+        let payload = serde_json::json!({ "appUserId": app_user_id, "roleCode": role_code });
+        let message = match Request::put(SECURITY_USERS_PATH)
+            .header("content-type", "application/json")
+            .body(payload.to_string())
+        {
+            Ok(request) => match request.send().await {
+                Ok(response) if response.ok() => match response.json::<SecurityUsersResponse>().await {
+                    Ok(value) => Msg::SecurityUserRoleChanged {
+                        generation,
+                        users: value.users,
+                    },
+                    Err(error) => Msg::EffectFailed {
+                        screen: "settings-users".into(),
+                        generation,
+                        message: format!("User role response could not be read: {error}"),
+                    },
+                },
+                Ok(response) => {
+                    let status = response.status();
+                    let body = response.json::<serde_json::Value>().await.ok();
+                    let detail = body
+                        .as_ref()
+                        .and_then(|value| value.get("error"))
+                        .and_then(serde_json::Value::as_str);
+                    Msg::EffectFailed {
+                        screen: "settings-users".into(),
+                        generation,
+                        message: detail
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| format!("User role update failed ({status}).")),
+                    }
+                }
+                Err(error) => Msg::EffectFailed {
+                    screen: "settings-users".into(),
+                    generation,
+                    message: format!("User role request failed: {error}"),
+                },
+            },
+            Err(error) => Msg::EffectFailed {
+                screen: "settings-users".into(),
+                generation,
+                message: format!("User role request could not be built: {error}"),
+            },
+        };
+        dispatch.emit(message);
+    });
+}
+
 fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
     let (url, screen, generation, kind) = match effect {
         // A COMMAND IS NOT A READ and cannot arrive here: every command effect has its own runner, matched in `run`
@@ -1334,7 +1402,8 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
         | Effect::SaveProjectWork { .. }
         | Effect::BrowserNavigate { .. }
         | Effect::FetchEntitlements { .. }
-        | Effect::SetRoleEntitlement { .. } => return,
+        | Effect::SetRoleEntitlement { .. }
+        | Effect::SetUserPrimaryRole { .. } => return,
     };
 
     let dispatch = dispatch.clone();
