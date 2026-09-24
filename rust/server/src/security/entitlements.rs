@@ -77,8 +77,25 @@ impl AuthorizationPort for CasbinAuthorizationPort {
         // visitor has no principal at all — that is what "published" means. See PUBLIC_READ_ACTIONS.
         let published =
             request.kind == OperationKind::Query && PUBLIC_READ_ACTIONS.contains(&request.action);
+        // THE EDGE MAY RESOLVE AN IDENTITY FOR A SESSION IT HOLDS.
+        //
+        // The kernel's login operation is authorized like every other operation — but this is the step that
+        // ESTABLISHES who is calling, so the question is circular if it is asked about the caller. Rust grants
+        // `security.identity.resolve` to the Auth.js edge actor, and the identified door cannot BE that actor: it
+        // mints the actor from the session's own identity. So every signed-in user was refused the right to find out
+        // that they had signed in: the resolution failed closed and the portal answered "not authorized".
+        //
+        // A request that arrives with a resolved USER is the edge speaking for that user's session — and the only
+        // way to reach either door is the internal bridge key, a server-side credential the browser never holds. So
+        // this is the edge's question, answered for the edge, without opening the action to anonymous callers: the
+        // `system:reserved` branch below still refuses it for the public door and for anything without a session.
+        let identity_resolution = request.action == "security.identity.resolve"
+            && request.kind == OperationKind::Query
+            && request.actor.kind == ServiceActorKind::User;
         let (allowed, policy_id) = if bootstrap || public || published {
             (true, "system:explicit")
+        } else if identity_resolution {
+            (true, "rule:identity.resolve.edge")
         } else if request.action == "security.identity.resolve"
             || request.action == "vault.publicListingDocument.read"
         {
@@ -264,6 +281,31 @@ mod tests {
         };
         req.operation = "security.resolveIdentity";
         assert!(auth.authorize(req.clone()).await.unwrap().allowed);
+
+        // The OTHER way the edge asks: through the kernel, for a session it holds. The identified door mints a USER
+        // actor, so a policy that only recognised the edge actor refused every sign-in — the resolution failed closed
+        // and the portal answered "not authorized". Both arrivals are the edge, and the internal bridge key (which the
+        // browser never has) is what makes that true.
+        let mut sign_in = request("security.identity.resolve", OperationKind::Query, &[]);
+        sign_in.actor = ServiceActor {
+            id: Some("user-1".into()),
+            kind: ServiceActorKind::User,
+        };
+        sign_in.operation = "security.resolveIdentity";
+        let decision = auth.authorize(sign_in.clone()).await.unwrap();
+        assert!(
+            decision.allowed,
+            "a signed-in session may find out who it is"
+        );
+        assert_eq!(decision.policy_id, "rule:identity.resolve.edge");
+
+        // But not as anything else: no session, no resolution — the reserved branch still holds.
+        sign_in.actor = ServiceActor {
+            id: None,
+            kind: ServiceActorKind::System,
+        };
+        assert!(!auth.authorize(sign_in).await.unwrap().allowed);
+
         req.operation = "security.getPrincipal";
         assert!(!auth.authorize(req.clone()).await.unwrap().allowed);
         req.actor.id = Some("public-website".into());
