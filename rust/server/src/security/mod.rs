@@ -1,7 +1,11 @@
 mod entitlement_catalog;
 mod entitlements;
+mod guest;
 mod identity_cache;
 pub use entitlements::CasbinAuthorizationPort;
+pub use guest::{
+    mail_from_env as guest_mail_from_env, GuestSignInService, GUEST_EMAIL_CODE_PROVIDER,
+};
 
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;

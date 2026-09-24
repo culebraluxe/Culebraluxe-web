@@ -81,6 +81,22 @@ impl AuthorizationPort for CasbinAuthorizationPort {
             && request.operation == "website.notifyLead"
             && request.action == "website.lead.notify"
             && request.kind == OperationKind::Command;
+        // GUEST SIGN-IN (security/guest.rs). The public website asks for and checks emailed codes for a visitor who
+        // has no principal yet; the Auth.js edge provisions the external guest behind an identity it has proved.
+        // A guest is an external account, so the principal branch below refuses it every grant.
+        let guest_code = system
+            && request.actor.id.as_deref() == Some("public-website")
+            && request.kind == OperationKind::Command
+            && matches!(
+                (request.operation, request.action),
+                ("security.requestGuestCode", "security.guestCode.request")
+                    | ("security.verifyGuestCode", "security.guestCode.verify")
+            );
+        let guest_provision = system
+            && request.actor.id.as_deref() == Some(service::AUTHJS_EDGE_ACTOR)
+            && request.operation == "security.provisionGuest"
+            && request.action == "security.guest.provision"
+            && request.kind == OperationKind::Command;
         // PUBLISHED ACTIONS: anyone may run them, and only as a QUERY. Placed before the principal check because a
         // visitor has no principal at all — that is what "published" means. See PUBLIC_READ_ACTIONS.
         let published =
@@ -100,13 +116,17 @@ impl AuthorizationPort for CasbinAuthorizationPort {
         let identity_resolution = request.action == "security.identity.resolve"
             && request.kind == OperationKind::Query
             && request.actor.kind == ServiceActorKind::User;
-        let (allowed, policy_id) = if bootstrap || public || lead_notice || published {
+        let explicit =
+            bootstrap || public || lead_notice || guest_code || guest_provision || published;
+        let (allowed, policy_id) = if explicit {
             (true, "system:explicit")
         } else if identity_resolution {
             (true, "rule:identity.resolve.edge")
         } else if request.action == "security.identity.resolve"
             || request.action == "vault.publicListingDocument.read"
             || request.action == "website.lead.notify"
+            || request.action.starts_with("security.guestCode.")
+            || request.action == "security.guest.provision"
         {
             (false, "system:reserved")
         } else if let Some(principal) = request.principal.as_ref() {
@@ -399,6 +419,62 @@ mod tests {
             !auth.authorize(public_read).await.unwrap().allowed,
             "the site reads its listings; it does not write them"
         );
+    }
+
+    #[tokio::test]
+    async fn guest_sign_in_is_reserved_to_its_doors() {
+        let auth = CasbinAuthorizationPort::new().await.unwrap();
+        for (actor, operation, action) in [
+            (
+                "public-website",
+                "security.requestGuestCode",
+                "security.guestCode.request",
+            ),
+            (
+                "public-website",
+                "security.verifyGuestCode",
+                "security.guestCode.verify",
+            ),
+            (
+                service::AUTHJS_EDGE_ACTOR,
+                "security.provisionGuest",
+                "security.guest.provision",
+            ),
+        ] {
+            let mut req = request(action, OperationKind::Command, &[]);
+            req.principal = None;
+            req.operation = operation;
+            req.actor = ServiceActor {
+                id: Some(actor.into()),
+                kind: ServiceActorKind::System,
+            };
+            assert!(
+                auth.authorize(req.clone()).await.unwrap().allowed,
+                "{action}"
+            );
+
+            req.operation = "security.somethingElse";
+            assert!(
+                !auth.authorize(req.clone()).await.unwrap().allowed,
+                "{action} borrowed"
+            );
+            req.operation = operation;
+
+            req.actor.id = Some("someone-else".into());
+            assert!(
+                !auth.authorize(req).await.unwrap().allowed,
+                "{action} other actor"
+            );
+
+            // Reserved: neither a grant nor ROOT opens it to a signed-in user.
+            let mut granted = request(action, OperationKind::Command, &[action]);
+            granted.operation = operation;
+            granted.principal.as_mut().unwrap().role_codes = vec!["root".into()];
+            assert!(
+                !auth.authorize(granted).await.unwrap().allowed,
+                "{action} granted"
+            );
+        }
     }
 
     #[tokio::test]

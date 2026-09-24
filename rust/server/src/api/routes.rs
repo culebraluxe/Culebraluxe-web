@@ -65,6 +65,43 @@ struct WhoAmI {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GuestCodeRequestBody {
+    email: String,
+    /// The visitor's address as the website saw it, for the per-IP limit.
+    client_ip: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GuestCodeVerifyBody {
+    email: String,
+    code: String,
+}
+
+/// What the provider says about the proved identity; the identity itself arrives in the edge's identity headers.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GuestProvisionBody {
+    email: Option<String>,
+    #[serde(default)]
+    email_verified: bool,
+    display_name: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GuestCodeSent {
+    sent: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GuestCodeVerified {
+    email: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SetRoleEntitlementBody {
     role_code: String,
     action: String,
@@ -556,6 +593,9 @@ pub fn router(state: ApiState) -> Router {
         // THE LOGIN SEAM'S QUESTION, as opposed to whoami's. Auth.js has proved a Google subject and nobody
         // knows yet whether it maps to an active application user; this answers known / unmapped / inactive.
         .route("/v1/security/identity", get(security_identity))
+        .route("/v1/security/guests", post(provision_guest))
+        .route("/v1/security/guest-code", post(request_guest_code))
+        .route("/v1/security/guest-code/verify", post(verify_guest_code))
         // THE SINGLE DECISION SURFACE: the TypeScript kernel asks here rather than holding its own copy of the
         // rule, so "may this principal do this" is answered in one place.
         .route("/v1/security/authorize", post(authorize_action))
@@ -837,7 +877,15 @@ async fn security_identity(
         .await
         .map_err(ApiError::from)?;
 
-    let value = match resolution {
+    let value = identity_response(resolution);
+
+    // A system context has no acting user, so the envelope carries the correlation id rather than a resolved
+    // request context: inventing an actor here would be worse than admitting there is not one.
+    Ok(success_with_correlation(value, &context.correlation_id))
+}
+
+fn identity_response(resolution: domain::SecurityIdentityResolution) -> IdentityResolutionResponse {
+    match resolution {
         domain::SecurityIdentityResolution::Known(principal) => IdentityResolutionResponse {
             kind: "known",
             acting_user: Some(principal.acting_user.into()),
@@ -853,11 +901,90 @@ async fn security_identity(
             acting_user: None,
             security_level: None,
         },
-    };
+    }
+}
 
-    // A system context has no acting user, so the envelope carries the correlation id rather than a resolved
-    // request context: inventing an actor here would be worse than admitting there is not one.
-    Ok(success_with_correlation(value, &context.correlation_id))
+/// Email a guest a sign-in code. The public website's door: its server holds the internal key.
+async fn request_guest_code(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<GuestCodeRequestBody>,
+) -> Result<Json<ApiSuccess<GuestCodeSent>>, ApiError> {
+    let context = resolve_public_guest_context(&state, &headers)?;
+    state
+        .services()
+        .guest_sign_in()
+        .request_code(&body.email, body.client_ip.as_deref(), &context)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(success_with_correlation(
+        GuestCodeSent { sent: true },
+        &context.correlation_id,
+    ))
+}
+
+/// Check a guest's code. On success the guest exists, and the answer is the email to sign in as (the `email-code`
+/// identity's subject).
+async fn verify_guest_code(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<GuestCodeVerifyBody>,
+) -> Result<Json<ApiSuccess<GuestCodeVerified>>, ApiError> {
+    let context = resolve_public_guest_context(&state, &headers)?;
+    let email = state
+        .services()
+        .guest_sign_in()
+        .verify_code(&body.email, &body.code, &context)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(success_with_correlation(
+        GuestCodeVerified { email },
+        &context.correlation_id,
+    ))
+}
+
+/// Provision the external guest behind an identity the edge has proved (Google, email code), then resolve it exactly
+/// as `/v1/security/identity` does. A staff identity that already maps is simply resolved; provisioning only ever
+/// creates EXTERNAL guests.
+async fn provision_guest(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<GuestProvisionBody>,
+) -> Result<Json<ApiSuccess<IdentityResolutionResponse>>, ApiError> {
+    let (provider, provider_subject, context) = asserted_identity_context(&state, &headers)?;
+    let mut security = state.services().security();
+    let resolution = match security
+        .resolve_identity(&provider, &provider_subject, &context)
+        .await
+        .map_err(ApiError::from)?
+    {
+        domain::SecurityIdentityResolution::Unmapped => {
+            state
+                .services()
+                .guest_sign_in()
+                .provision(
+                    domain::security::GuestClaim {
+                        provider: provider.clone(),
+                        subject: provider_subject.clone(),
+                        email: body.email,
+                        email_verified: body.email_verified,
+                        display_name: body.display_name,
+                    },
+                    &context,
+                )
+                .await
+                .map_err(ApiError::from)?;
+            security
+                .resolve_identity(&provider, &provider_subject, &context)
+                .await
+                .map_err(ApiError::from)?
+        }
+        known_or_inactive => known_or_inactive,
+    };
+    Ok(success_with_correlation(
+        identity_response(resolution),
+        &context.correlation_id,
+    ))
 }
 
 /// The decision itself, shared by the identified and the anonymous doors.

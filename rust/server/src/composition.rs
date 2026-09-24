@@ -89,6 +89,15 @@ impl CoreServices {
         )
     }
 
+    /// External guests: emailed sign-in codes and provisioning on first sign-in. Mail as for lead emails.
+    pub fn guest_sign_in(&self) -> crate::security::GuestSignInService<db::GuestDao> {
+        crate::security::GuestSignInService::new(
+            db::GuestDao::new(self.db.clone()),
+            crate::security::guest_mail_from_env(),
+            self.infrastructure.clone(),
+        )
+    }
+
     /// A website lead's emails, sent with the mail settings in the environment (none: the service refuses).
     pub fn website_leads(&self) -> WebsiteLeadService<db::WebsiteLeadDao> {
         WebsiteLeadService::new(

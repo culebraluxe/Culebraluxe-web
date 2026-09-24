@@ -123,6 +123,37 @@ pub fn resolve_security_level(role_codes: &[String]) -> SecurityLevel {
         })
 }
 
+/// The sign-in providers an EXTERNAL GUEST may use: Google, or a code emailed to them (subject = the email).
+pub const GUEST_PROVIDERS: &[&str] = &["google", "email-code"];
+
+/// Who a guest sign-in says it is, for provisioning an external `guest` user on first sight.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GuestClaim {
+    pub provider: String,
+    pub subject: String,
+    pub email: Option<String>,
+    /// Only a verified email may link this sign-in to an existing external user.
+    #[serde(default)]
+    pub email_verified: bool,
+    pub display_name: Option<String>,
+}
+
+/// The rate limits' view of recent guest codes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct GuestCodeHistory {
+    pub email_last_hour: i64,
+    pub ip_last_hour: i64,
+    pub seconds_since_last_for_email: Option<i64>,
+}
+
+/// An address's one live code, as a verification attempt sees it (this attempt already counted).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GuestCodeAttempt {
+    pub id: String,
+    pub code_hash: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
