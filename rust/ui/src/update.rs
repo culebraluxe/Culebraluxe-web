@@ -44,6 +44,7 @@ pub fn is_ported_portal_screen(key: &str) -> bool {
             // generic rows output that replaced them.
             | "db-test"
             | "security"
+            | "settings-users"
             | "whatsapp-meta"
             | "system-health"
             | "property-admin"
@@ -92,6 +93,13 @@ pub fn is_editorial(key: &str) -> bool {
             // The property record is a page, not a list: it is a cockpit, a gallery, four tabs of documents and video, and
             // the neighbours. Serving it as rows was what flattened it into a fact table.
             | "site-property-detail"
+    )
+}
+
+fn is_canonical_internal_role(code: &str) -> bool {
+    matches!(
+        code,
+        "internal_guest" | "user" | "business_power_user" | "owner" | "root"
     )
 }
 
@@ -470,6 +478,8 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
     model.ops = crate::model::OpsWorkbenchState::default();
     model.listing_media = crate::model::ListingMediaState::default();
     model.deal_workspace = DealWorkspaceState::default();
+    model.security_user_role_drafts.clear();
+    model.user_role_busy = None;
 
     // Local screens own deterministic browser-only state and do not ask the server for a payload.
     // Seller Strategy resets its calculator model; UI Lab owns its comparison/demo model inside its Yew component.
@@ -741,6 +751,55 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 .and_then(|portal| portal.support.as_mut())
                 .and_then(|support| support.security.as_mut()) {
                 security.role_entitlements = roles;
+            }
+            Vec::new()
+        }
+        Msg::SecurityUserRoleDraftChanged {
+            app_user_id,
+            role_code,
+        } => {
+            if model.screen.key == "settings-users"
+                && is_canonical_internal_role(&role_code)
+                && !app_user_id.trim().is_empty()
+            {
+                model.security_user_role_drafts.insert(app_user_id, role_code);
+                model.error = None;
+            }
+            Vec::new()
+        }
+        Msg::SecurityUserRoleRequested {
+            app_user_id,
+            role_code,
+        } => {
+            if model.screen.key != "settings-users"
+                || model.user_role_busy.is_some()
+                || !model.can("security.role.manage")
+                || !is_canonical_internal_role(&role_code)
+                || app_user_id.trim().is_empty()
+            {
+                return Vec::new();
+            }
+            model.user_role_busy = Some(app_user_id.clone());
+            model.error = None;
+            vec![Effect::SetUserPrimaryRole {
+                generation: model.generation,
+                app_user_id,
+                role_code,
+            }]
+        }
+        Msg::SecurityUserRoleChanged { generation, users } => {
+            if !owns(model, "settings-users", generation) {
+                return Vec::new();
+            }
+            model.user_role_busy = None;
+            model.security_user_role_drafts.clear();
+            if let Some(support) = model
+                .page
+                .as_mut()
+                .and_then(|page| page.portal.as_mut())
+                .and_then(|portal| portal.support.as_mut())
+            {
+                support.security_users = users;
             }
             Vec::new()
         }
@@ -1288,6 +1347,9 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             model.loading = false;
             if model.screen.key == "security" {
                 model.role_grant_busy = false;
+            }
+            if model.screen.key == "settings-users" {
+                model.user_role_busy = None;
             }
             if model.screen.key == "property-admin" {
                 model.ops.saving = false;
@@ -3662,6 +3724,52 @@ mod tests {
             }] if role_code == "user" && action == "person.write"
         ));
         assert!(model.role_grant_busy);
+    }
+
+    #[test]
+    fn user_role_assignment_requires_exact_root_in_the_reducer() {
+        let mut model = Model {
+            screen: target("settings-users"),
+            entitlements: Some(crate::model::PortalEntitlements {
+                account_type: "internal".into(),
+                security_level: "ROOT".into(),
+                is_root: false,
+                entitlement_codes: vec!["security.role.manage".into()],
+            }),
+            ..Model::default()
+        };
+
+        let denied = update(
+            &mut model,
+            Msg::SecurityUserRoleRequested {
+                app_user_id: "11111111-1111-4111-8111-111111111111".into(),
+                role_code: "user".into(),
+            },
+        );
+        assert!(denied.is_empty());
+        assert!(model.user_role_busy.is_none());
+
+        model.entitlements.as_mut().unwrap().is_root = true;
+        let allowed = update(
+            &mut model,
+            Msg::SecurityUserRoleRequested {
+                app_user_id: "11111111-1111-4111-8111-111111111111".into(),
+                role_code: "business_power_user".into(),
+            },
+        );
+        assert!(matches!(
+            allowed.as_slice(),
+            [Effect::SetUserPrimaryRole {
+                app_user_id,
+                role_code,
+                ..
+            }] if app_user_id == "11111111-1111-4111-8111-111111111111"
+                && role_code == "business_power_user"
+        ));
+        assert_eq!(
+            model.user_role_busy.as_deref(),
+            Some("11111111-1111-4111-8111-111111111111")
+        );
     }
 
     #[test]
