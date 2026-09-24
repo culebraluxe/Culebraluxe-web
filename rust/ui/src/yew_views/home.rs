@@ -10,6 +10,7 @@
 
 use yew::prelude::*;
 
+use crate::format::{listing_enquire_href, listing_facts, listing_price_label, FactsStyle};
 use crate::model::{Block, Listing};
 use crate::yew_views::chrome::PageProps;
 
@@ -89,28 +90,6 @@ pub fn rule_cta(block: &Block, fallback: &'static str, rule: &'static str) -> Ht
     }
 }
 
-/// One line of the facts under an estate's name — beds, baths and area, joined the way the component joined them.
-fn facts(listing: &Listing) -> String {
-    let count = |value: f64| -> String {
-        if value.fract() == 0.0 {
-            format!("{}", value as i64)
-        } else {
-            format!("{value}")
-        }
-    };
-    let mut parts: Vec<String> = Vec::new();
-    if let Some(beds) = listing.beds {
-        parts.push(format!("{} Bed", count(beds)));
-    }
-    if let Some(baths) = listing.baths {
-        parts.push(format!("{} Bath", count(baths)));
-    }
-    if let Some(area) = listing.area.as_deref().filter(|value| !value.is_empty()) {
-        parts.push(area.to_string());
-    }
-    parts.join("  \u{00b7}  ")
-}
-
 impl Home {
     /// "The Collection" — three estates, each an image beside its numeral, name, facts and price, alternating sides.
     ///
@@ -169,13 +148,13 @@ impl Home {
                                                 <p class="mt-3 text-xs font-light uppercase tracking-[0.24em] text-muted-foreground">{ location }</p>
                                             }
                                             <p class="mt-8 max-w-xs text-sm font-light leading-relaxed text-foreground/80">
-                                                { facts(listing) }
+                                                { listing_facts(listing, FactsStyle::Full) }
                                             </p>
                                             <div class="mt-8 flex items-center justify-between border-t border-border pt-6">
                                                 <span class="text-xs font-light uppercase tracking-[0.2em] text-muted-foreground">
-                                                    { listing.price.clone().unwrap_or_else(|| "Price upon request".to_string()) }
+                                                    { listing_price_label(listing) }
                                                 </span>
-                                                <a href="#contact" class="inline-flex items-center gap-2 text-xs font-light uppercase tracking-[0.2em] text-foreground">
+                                                <a href={listing_enquire_href(listing)} class="inline-flex items-center gap-2 text-xs font-light uppercase tracking-[0.2em] text-foreground">
                                                     {"Enquire"}<span class="inline-block h-px w-6 bg-foreground"></span>
                                                 </a>
                                             </div>
@@ -223,7 +202,7 @@ impl Home {
                             <h2 class="text-balance font-serif text-4xl font-light leading-[1.05] md:text-5xl">{ title.to_string() }</h2>
                             <p class="mt-5 max-w-md text-pretty text-sm font-light leading-relaxed text-background/70">{ intro.to_string() }</p>
                         </div>
-                        <a href="#properties" class="inline-flex items-center gap-3 self-start border border-background/30 px-8 py-4 text-xs font-light uppercase tracking-[0.2em] transition-colors duration-500 hover:border-background md:self-auto">
+                        <a href="/properties" class="inline-flex items-center gap-3 self-start border border-background/30 px-8 py-4 text-xs font-light uppercase tracking-[0.2em] transition-colors duration-500 hover:border-background md:self-auto">
                             {"View All Properties"}<span aria-hidden="true">{"\u{2192}"}</span>
                         </a>
                     </div>
@@ -233,7 +212,7 @@ impl Home {
                                 <div class="relative aspect-[5/4] w-full overflow-hidden bg-background/10">
                                     <a href={format!("/properties/{}", listing.slug)} aria-label={listing.name.clone()}>
                                         <img src={listing.image_path.clone().unwrap_or_else(|| "/placeholder.svg".to_string())}
-                                            alt={listing.name.clone()}
+                                            alt={listing.image_alt.clone().unwrap_or_else(|| listing.name.clone())}
                                             sizes="(min-width: 1024px) 22vw, (min-width: 640px) 45vw, 90vw"
                                             class="absolute inset-0 h-full w-full object-cover transition-transform duration-[1400ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-[1.05]" />
                                     </a>
@@ -248,10 +227,10 @@ impl Home {
                                         { listing.name.clone() }
                                     </a>
                                     <span class="whitespace-nowrap text-sm font-light text-background/80">
-                                        { listing.price.clone().unwrap_or_else(|| "Price upon request".to_string()) }
+                                        { listing_price_label(listing) }
                                     </span>
                                 </div>
-                                <p class="mt-2 text-[11px] font-light uppercase tracking-[0.16em] text-background/55">{ facts(listing) }</p>
+                                <p class="mt-2 text-[11px] font-light uppercase tracking-[0.16em] text-background/55">{ listing_facts(listing, FactsStyle::Compact) }</p>
                             </article>
                         }) }
                     </div>

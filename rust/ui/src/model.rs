@@ -338,6 +338,8 @@ pub struct BlockItem {
 #[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Listing {
+    /// The property's id, which the enquiry link carries so the contact page knows which estate was asked about.
+    pub id: String,
     pub slug: String,
     pub name: String,
     pub location: Option<String>,
@@ -350,7 +352,14 @@ pub struct Listing {
     /// presents as a page with no hero and no sections rather than as a bad number.
     pub beds: Option<f64>,
     pub baths: Option<f64>,
+    /// The LOT, formatted ("1 Acre", "12,000 SF").
     pub area: Option<String>,
+    /// The interior living area, formatted ("6,399 SF"). Separate from `area` because a residence is read by its
+    /// interior first and its lot second; land has only a lot.
+    pub interior_area: Option<String>,
+    /// The views the property has, in the read model's order ("Ocean", "Beach", ...).
+    pub views: Vec<String>,
+    pub beach_access: bool,
     /// Whether the estate is in the featured set, which is what draws the badge on its card.
     pub featured: bool,
 }
