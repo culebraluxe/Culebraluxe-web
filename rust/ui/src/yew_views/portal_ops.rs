@@ -1735,10 +1735,19 @@ fn media_editor(
 
     html! {
         <div class="space-y-4">
-            {section_intro(
-                "Photos",
-                "Review the Property photography in-place, then add the next photo without leaving the canonical record.",
-            )}
+            // NO SECTION INTRO HERE. It said "Review the Property photography in-place, then add the next photo
+            // without leaving the canonical record" — a sentence that describes the screen to someone who has not
+            // seen it, placed on a screen only reached by someone who already knows why they are there. The tab is
+            // called Photos.
+
+            // THE FAILURE HAS TO BE VISIBLE. Every op in this screen writes its problem into `model.error`, and this
+            // view never rendered it — so an upload that failed said nothing at all. "Nothing happened" is the most
+            // expensive bug report there is: it describes a screen, not a cause.
+            if let Some(error) = model.error.clone() {
+                <div class="rounded-[var(--portal-tab-radius)] border border-red-400/60 bg-red-50 px-3 py-2 text-[12px] font-light text-red-700">
+                    {error}
+                </div>
+            }
 
             // THE COUNTS ARE A LINE, NOT THREE CARDS. Three panels of numbers sat above the gallery and pushed the
             // photograph — the thing this tab exists for — down the screen; the numbers are reference, not content.
