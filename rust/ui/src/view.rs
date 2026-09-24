@@ -2994,13 +2994,7 @@ pub(crate) fn listing_is_land(listing: &Listing) -> bool {
 /// digits is a listing with no price. That is a narrower contract than a numeric field would be, and it is the one the
 /// payload offers; the day it carries `listPrice`, this function goes.
 fn listing_price(listing: &Listing) -> Option<f64> {
-    let digits: String = listing
-        .price
-        .as_deref()?
-        .chars()
-        .filter(|character| character.is_ascii_digit())
-        .collect();
-    digits.parse().ok()
+    crate::search::listing_price(listing)
 }
 
 /// The Buyers inventory, narrowed and ordered: `applySearchFilters` from `lib/search-contract.ts`, in Rust.
@@ -3015,58 +3009,17 @@ fn listing_price(listing: &Listing) -> Option<f64> {
 ///     the contract's own rule, and the reason the bar disables that control on the Land tab;
 ///   - free text matches the name, the location and the property type, case-insensitively.
 ///
-/// WHAT IT CANNOT DO, STATED RATHER THAN HIDDEN: the live bar's view filter reads a property's `views`, and this payload
-/// carries none — so that control renders with no options and nothing to honour. It is not a filter that silently
-/// matches everything; it is a filter with no vocabulary, which is why it is disabled and labelled in the view.
+/// The view filter is live: the payload carries each listing's `views`, and the matcher checks membership.
 ///
 /// It takes the model rather than a filter set so the list on screen cannot be narrowed by something no control
 /// explains: what is rendered is always a function of what the model holds.
 pub(crate) fn buyers_visible<'a>(listings: &'a [Listing], model: &Model) -> Vec<&'a Listing> {
-    let controls = &model.controls;
-    let category = controls.tab.as_deref().unwrap_or("all");
-    let query = controls.query.trim().to_ascii_lowercase();
-    let named = |key: &str| controls.named.get(key).map(String::as_str).unwrap_or("");
-    let max_price = named("price").parse::<f64>().ok();
-    let beds = named("beds").parse::<f64>().ok();
-    let sort = named("sort");
-
+    // ONE MATCHER: the grid, the saved-search counts and their alerts all ask `search::matches`.
+    let filters = crate::search::SearchFilters::from_controls(&model.controls);
+    let sort = filters.sort.as_str();
     let mut visible: Vec<&Listing> = listings
         .iter()
-        .filter(|listing| {
-            let is_land = listing_is_land(listing);
-            if category == "land" && !is_land {
-                return false;
-            }
-            if category == "homes" && is_land {
-                return false;
-            }
-            if let Some(ceiling) = max_price {
-                if listing_price(listing).map_or(true, |price| price > ceiling) {
-                    return false;
-                }
-            }
-            if let Some(floor) = beds {
-                if is_land || listing.beds.map_or(true, |beds| beds < floor) {
-                    return false;
-                }
-            }
-            if !query.is_empty() {
-                let haystack = [
-                    listing.name.to_ascii_lowercase(),
-                    listing
-                        .location
-                        .as_deref()
-                        .unwrap_or("")
-                        .to_ascii_lowercase(),
-                    listing.kind.as_deref().unwrap_or("").to_ascii_lowercase(),
-                ]
-                .join(" ");
-                if !haystack.contains(&query) {
-                    return false;
-                }
-            }
-            true
-        })
+        .filter(|listing| crate::search::matches(listing, &filters))
         .collect();
 
     // No price sorts last under every ordering, which is what the contract's `?? -1` and `?? MAX_SAFE_INTEGER` say.

@@ -12,6 +12,7 @@ use crate::media::MediaService;
 use crate::people::PersonService;
 use crate::projects::ProjectService;
 use crate::properties::PropertyService;
+use crate::public_listings::PublicListingService;
 use crate::security::SecurityService;
 use crate::showings::ShowingService;
 use crate::signature::SignatureService;
@@ -75,6 +76,11 @@ impl CoreServices {
 
     pub fn forms(&self) -> FormService<FormDao> {
         FormService::new(FormDao::new(self.db.clone()), self.infrastructure.clone())
+    }
+
+    /// The public site's listing copy, authorized as the published `property.public.read`.
+    pub fn public_listings(&self) -> PublicListingService<db::PublicListingDao> {
+        PublicListingService::new(db::PublicListingDao::new(self.db.clone()), self.infrastructure.clone())
     }
 
     pub fn property(&self) -> PropertyService<PropertyDao> {

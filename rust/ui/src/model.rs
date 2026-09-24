@@ -2233,6 +2233,10 @@ pub struct Model {
     pub saved_listings: Vec<String>,
     /// The contact form's own state: the interest chosen and where the submission is.
     pub contact_form: ContactFormState,
+    /// The Buyers compare set (at most three), as the device's store holds it.
+    pub compare: Vec<crate::search::CompareEntry>,
+    /// The visitor's saved searches, as the device's store holds them.
+    pub saved_searches: Vec<crate::search::SavedSearch>,
     /// Seller Strategy is deterministic local application state: no fetch and no parallel React model.
     pub seller_strategy: crate::seller_strategy::SellerStrategyState,
     /// Contracts create/search state is reducer-owned just like every other interactive portal surface.
@@ -2289,6 +2293,8 @@ impl Default for Model {
             property_media: PropertyMediaState::default(),
             saved_listings: Vec::new(),
             contact_form: ContactFormState::default(),
+            compare: Vec::new(),
+            saved_searches: Vec::new(),
             seller_strategy: crate::seller_strategy::SellerStrategyState::default(),
             deal_create: DealCreateState::default(),
             accounting: AccountingState::default(),
@@ -2421,6 +2427,17 @@ pub enum Msg {
     /// The form was submitted, with a fresh id the view generated for a first attempt.
     ContactSubmitted { submission: ContactSubmission, new_id: String },
     ContactResult { accepted: bool },
+
+    // ---- Buyers: compare and saved searches ------------------------------------------------------------------------
+    /// The device's compare set and saved searches, read when the Buyers page loads.
+    BuyerToolsLoaded { compare: Vec<crate::search::CompareEntry>, searches: Vec<crate::search::SavedSearch> },
+    /// The compare control on a card was pressed, or a column's remove button: toggles that listing.
+    CompareToggled(String),
+    /// "Save this search": the current filters. The view supplies a fresh id and the time.
+    SearchSaved { new_id: String, now: String },
+    /// A saved search was chosen: apply its filters and mark it viewed.
+    SavedSearchApplied { id: String, now: String },
+    SavedSearchRemoved(String),
 
     // ---- Flight Recorder -----------------------------------------------------------------------------------------
     FlightRecorderRefreshRequested,
@@ -2765,6 +2782,12 @@ pub enum Effect {
     PropertyFavoriteWrite { id: String, slug: String, title: String, saved: bool },
     /// Read which listings the visitor has saved, for the hearts on a page of cards.
     ListingFavoritesRead,
+    /// Read the compare set and saved searches from the device.
+    BuyerToolsRead,
+    /// Persist the compare set.
+    CompareWrite(Vec<crate::search::CompareEntry>),
+    /// Persist the saved searches.
+    SavedSearchesWrite(Vec<crate::search::SavedSearch>),
     /// Send a contact form submission to the website intake pipeline.
     SubmitContact { submission: ContactSubmission, submission_id: String },
     /// Fetch rows for this screen, optionally about one record.

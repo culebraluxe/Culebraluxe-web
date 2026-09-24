@@ -13,7 +13,8 @@ import {
 import { formatArea, formatPrice, propertyLocation } from '@/lib/property'
 import { getProperties } from '@/lib/property-reads'
 import type { PropertySummary } from '@/legacy/services/property'
-import { withApiHandler } from '@/lib/error-capture-seam'
+import { withApiHandler, withServerErrorCapture } from '@/lib/error-capture-seam'
+import { rustApiPublicListingCopy } from '@/lib/rust-api/client'
 
 // ---------------------------------------------------------------------------
 // PAGE CONTENT FOR THE RUST UI ON THE PUBLIC SITE.
@@ -63,7 +64,22 @@ function block(source: unknown) {
  * four empty frames and a "Price upon request" on an estate with a price. Formatting goes through the same helpers the
  * TypeScript cards used, so a price reads the same on both sides.
  */
-function listing(source: PropertySummary) {
+/**
+ * The published listings' taglines, by slug, from the Rust public read. THE CARDS LIVE WITHOUT THEM: a failure is
+ * captured durably by the seam (so it is seen) and the page is served with no taglines rather than no page.
+ */
+const readListingCopy = withServerErrorCapture(
+  '/api/rust-ui/public-page:listing-copy',
+  rustApiPublicListingCopy,
+  { level: 'warn', route: '/api/rust-ui/public-page' },
+)
+
+async function taglinesBySlug(): Promise<Map<string, string>> {
+  const copy = await readListingCopy().catch(() => [])
+  return new Map(copy.map((entry) => [entry.slug, entry.tagline]))
+}
+
+function listing(source: PropertySummary, taglines: Map<string, string> = new Map()) {
   return {
     id: source.id ?? '',
     slug: source.slug ?? '',
@@ -81,6 +97,7 @@ function listing(source: PropertySummary) {
     interiorArea: source.squareFeet ? formatArea(source.squareFeet, 'SF') : null,
     views: source.views ?? [],
     beachAccess: source.beachAccess === true,
+    tagline: taglines.get(source.slug ?? '') ?? null,
     featured: source.featured === true,
   }
 }
@@ -91,9 +108,10 @@ async function GETHandler(req: NextRequest): Promise<Response> {
   switch (screen) {
     case 'site-home': {
       // The same two reads the live homepage made, at the same time, each with its own failure.
-      const [propertiesResult, contentResult] = await Promise.all([
+      const [propertiesResult, contentResult, taglines] = await Promise.all([
         getProperties({ publicOnly: true }),
         getMarketingContent(),
+        taglinesBySlug(),
       ])
       const properties = propertiesResult.ok ? propertiesResult.data : []
       const home = contentResult.ok ? buildHomeContent(contentResult.data) : undefined
@@ -104,8 +122,10 @@ async function GETHandler(req: NextRequest): Promise<Response> {
         culture: block(home?.culture),
         about: block(home?.about),
         contact: block(home?.contact),
-        featured: properties.filter((property) => property.featured === true).map(listing),
-        listings: properties.map(listing),
+        featured: properties
+          .filter((property) => property.featured === true)
+          .map((property) => listing(property, taglines)),
+        listings: properties.map((property) => listing(property, taglines)),
       })
     }
     // THE EDITORIAL PAGES, each fed by the slot the live page read. These do not need a new read model: the copy is
@@ -132,15 +152,15 @@ async function GETHandler(req: NextRequest): Promise<Response> {
       const result = await getProperties({ publicOnly: true })
       const properties = result.ok ? result.data : []
       return NextResponse.json({
-        listings: properties.map(listing),
-        featured: properties.filter((property) => property.featured === true).map(listing),
+        listings: properties.map((property) => listing(property)),
+        featured: properties.filter((property) => property.featured === true).map((property) => listing(property)),
       })
     }
     case 'site-favorites': {
       // SAVED PROPERTIES LIVE IN THE BROWSER, so the page is the published inventory and the browser picks the saved
       // ones out of it. A saved listing that has since been unpublished is simply not in this list, so it cannot show.
       const result = await getProperties({ publicOnly: true })
-      return NextResponse.json({ listings: result.ok ? result.data.map(listing) : [] })
+      return NextResponse.json({ listings: result.ok ? result.data.map((property) => listing(property)) : [] })
     }
     case 'site-about': {
       const result = await getMarketingContent()
@@ -293,7 +313,7 @@ async function GETHandler(req: NextRequest): Promise<Response> {
           gallery: galleryImages ?? [],
           videos: videos ?? [],
           documents: documents ?? [],
-          similar: similarResult.ok ? similarResult.data.map(listing) : [],
+          similar: similarResult.ok ? similarResult.data.map((property) => listing(property)) : [],
           publicSlugs: slugsResult.ok ? slugsResult.data : [],
         },
       })

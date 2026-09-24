@@ -23,6 +23,7 @@
 pub mod document;
 pub mod format;
 pub mod model;
+pub mod search;
 pub mod seller_strategy;
 pub mod update;
 pub mod view;

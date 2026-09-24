@@ -1455,7 +1455,10 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             model.loading = false;
             model.error = None;
             model.page = Some(page);
-            if matches!(model.screen.key, "site-home" | "site-buyers" | "site-favorites") {
+            if model.screen.key == "site-buyers" {
+                return vec![Effect::ListingFavoritesRead, Effect::BuyerToolsRead];
+            }
+            if matches!(model.screen.key, "site-home" | "site-favorites") {
                 return vec![Effect::ListingFavoritesRead];
             }
             if model.screen.key == "site-contact" {
@@ -1571,6 +1574,64 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 model.contact_form.status = if accepted { ContactStatus::Sent } else { ContactStatus::Failed };
             }
             Vec::new()
+        }
+        Msg::BuyerToolsLoaded { compare, searches } => {
+            let listings = model.page.as_ref().map(|page| page.listings.clone()).unwrap_or_default();
+            // A delisted property cannot hold one of the three compare slots: prune, and persist the pruning.
+            let pruned = crate::search::prune_compare(&compare, &listings);
+            let changed = pruned != compare;
+            model.compare = pruned;
+            model.saved_searches = searches;
+            if changed {
+                vec![Effect::CompareWrite(model.compare.clone())]
+            } else {
+                Vec::new()
+            }
+        }
+        Msg::CompareToggled(id) => {
+            let Some(listing) = model
+                .page
+                .as_ref()
+                .and_then(|page| page.listings.iter().find(|listing| listing.id == id))
+                .cloned()
+            else {
+                return Vec::new();
+            };
+            let next = crate::search::toggle_compare(&model.compare, &listing);
+            if next == model.compare {
+                return Vec::new();
+            }
+            model.compare = next;
+            vec![Effect::CompareWrite(model.compare.clone())]
+        }
+        Msg::SearchSaved { new_id, now } => {
+            let Some(page) = model.page.as_ref() else { return Vec::new() };
+            let filters = crate::search::SearchFilters::from_controls(&model.controls);
+            let current = crate::search::match_ids(&page.listings, &filters);
+            model.saved_searches = crate::search::save_search(&model.saved_searches, &filters, current, &new_id, &now);
+            vec![Effect::SavedSearchesWrite(model.saved_searches.clone())]
+        }
+        Msg::SavedSearchApplied { id, now } => {
+            let Some(search) = model.saved_searches.iter().find(|search| search.id == id).cloned() else {
+                return Vec::new();
+            };
+            let listings = model.page.as_ref().map(|page| page.listings.clone()).unwrap_or_default();
+            search.filters.apply_to(&mut model.controls);
+            // Viewing it is what clears its alert: what it matches now becomes what it has seen.
+            let current = crate::search::match_ids(&listings, &search.filters);
+            if let Some(entry) = model.saved_searches.iter_mut().find(|entry| entry.id == id) {
+                entry.last_match_ids = current;
+                entry.last_checked_at = Some(now);
+            }
+            vec![Effect::SavedSearchesWrite(model.saved_searches.clone())]
+        }
+        Msg::SavedSearchRemoved(id) => {
+            let before = model.saved_searches.len();
+            model.saved_searches.retain(|search| search.id != id);
+            if model.saved_searches.len() == before {
+                return Vec::new();
+            }
+            vec![Effect::SavedSearchesWrite(model.saved_searches.clone())]
         }
         Msg::ListingFavoritesLoaded(ids) => {
             model.saved_listings = ids;
@@ -4197,6 +4258,55 @@ mod tests {
             ..Default::default()
         });
         model
+    }
+
+    fn buyers_model() -> Model {
+        let mut model = Model { screen: target("site-buyers"), ..Model::default() };
+        let listing = |id: &str, views: &[&str]| crate::model::Listing {
+            id: id.into(),
+            slug: format!("{id}-slug"),
+            name: format!("Estate {id}"),
+            views: views.iter().map(|view| view.to_string()).collect(),
+            ..Default::default()
+        };
+        model.page = Some(crate::model::PageContent {
+            listings: vec![listing("a", &["Ocean"]), listing("b", &["Bay"]), listing("c", &["Ocean"]), listing("d", &[])],
+            ..Default::default()
+        });
+        model
+    }
+
+    #[test]
+    fn compare_persists_each_change_holds_three_and_prunes_the_delisted() {
+        use crate::search::CompareEntry;
+        let mut model = buyers_model();
+        let stale = CompareEntry { id: "gone".into(), slug: "gone-slug".into(), name: "Gone".into() };
+        let loaded = update(&mut model, Msg::BuyerToolsLoaded { compare: vec![stale], searches: vec![] });
+        assert_eq!(loaded, vec![Effect::CompareWrite(vec![])], "a delisted entry is pruned and the pruning persisted");
+        for id in ["a", "b", "c"] {
+            assert!(matches!(update(&mut model, Msg::CompareToggled(id.into())).as_slice(), [Effect::CompareWrite(_)]));
+        }
+        assert!(update(&mut model, Msg::CompareToggled("d".into())).is_empty(), "a fourth is refused");
+        assert!(update(&mut model, Msg::CompareToggled("not-on-page".into())).is_empty());
+        update(&mut model, Msg::CompareToggled("b".into()));
+        assert_eq!(model.compare.iter().map(|entry| entry.id.as_str()).collect::<Vec<_>>(), vec!["a", "c"]);
+    }
+
+    #[test]
+    fn a_saved_search_captures_the_bar_and_applying_it_restores_the_bar_and_clears_its_alert() {
+        let mut model = buyers_model();
+        update(&mut model, Msg::FilterSelected { key: "view".into(), value: "Ocean".into() });
+        let saved = update(&mut model, Msg::SearchSaved { new_id: "ss-1".into(), now: "t1".into() });
+        assert!(matches!(saved.as_slice(), [Effect::SavedSearchesWrite(_)]));
+        assert_eq!(model.saved_searches[0].name, "Ocean view");
+        assert_eq!(model.saved_searches[0].last_match_ids, vec!["a".to_string(), "c".to_string()]);
+        // Pretend the search last looked when only "a" matched: "c" is new until it is applied.
+        model.saved_searches[0].last_match_ids = vec!["a".into()];
+        update(&mut model, Msg::FilterSelected { key: "view".into(), value: String::new() });
+        update(&mut model, Msg::SavedSearchApplied { id: "ss-1".into(), now: "t2".into() });
+        assert_eq!(model.controls.named.get("view").map(String::as_str), Some("Ocean"));
+        assert_eq!(model.saved_searches[0].last_match_ids.len(), 2);
+        assert!(matches!(update(&mut model, Msg::SavedSearchRemoved("ss-1".into())).as_slice(), [Effect::SavedSearchesWrite(v)] if v.is_empty()));
     }
 
     #[test]

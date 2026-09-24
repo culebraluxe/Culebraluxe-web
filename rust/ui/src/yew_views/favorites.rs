@@ -53,7 +53,7 @@ impl Component for Favorites {
                         </div>
                     } else {
                         <div class="mt-12 grid gap-x-7 gap-y-14 md:grid-cols-2 xl:grid-cols-3">
-                            { for saved.into_iter().map(|listing| card(listing, true, on_msg)) }
+                            { for saved.into_iter().map(|listing| card(listing, true, None, on_msg)) }
                         </div>
                     }
                 </div>

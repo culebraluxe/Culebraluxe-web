@@ -144,7 +144,10 @@ impl Buyers {
         let strip = listings.iter().map(slide).collect::<Vec<_>>();
         let cards = visible
             .iter()
-            .map(|listing| card(listing, model.saved_listings.contains(&listing.id), on_msg))
+            .map(|listing| {
+                let compared = model.compare.iter().any(|entry| entry.id == listing.id);
+                card(listing, model.saved_listings.contains(&listing.id), Some(compared), on_msg)
+            })
             .collect::<Vec<_>>();
         html! {
             <>
@@ -185,10 +188,19 @@ impl Buyers {
                         <div class="mb-7 flex flex-wrap gap-x-8 gap-y-3 border-b border-border">
                             { self.tabs(model, on_msg) }
                         </div>
-                        { self.filters(model, on_msg) }
-                        <div class="grid gap-x-7 gap-y-14 md:grid-cols-2 xl:grid-cols-3">
-                            { for cards }
-                        </div>
+                        { self.filters(model, listings, on_msg) }
+                        { saved_searches_panel(model, listings, on_msg) }
+                        if cards.is_empty() {
+                            <div class="border-t border-border py-16">
+                                <p class="font-serif text-2xl font-light text-foreground">{"No properties match these filters."}</p>
+                                <p class="mt-3 text-sm font-light text-muted-foreground">{"Widen the search, or save it to hear when one arrives."}</p>
+                            </div>
+                        } else {
+                            <div class="grid gap-x-7 gap-y-14 md:grid-cols-2 xl:grid-cols-3">
+                                { for cards }
+                            </div>
+                        }
+                        { compare_table(model, listings, on_msg) }
                     </div>
                 </section>
             </>
@@ -234,7 +246,7 @@ impl Buyers {
 impl Buyers {
     /// The filter bar. Every control renders the MODEL's value and emits exactly one message; none is read back out of
     /// the DOM, which is what makes filtering a pure function of the model.
-    fn filters(&self, model: &Model, on_msg: &Callback<Msg>) -> Html {
+    fn filters(&self, model: &Model, listings: &[Listing], on_msg: &Callback<Msg>) -> Html {
         let controls = &model.controls;
         let named = |key: &str| controls.named.get(key).cloned().unwrap_or_default();
         // The contract's own rule: land has no bedrooms, so that control is disabled on the Land tab — there it would
@@ -269,7 +281,7 @@ impl Buyers {
                     </label>
                     { select("price", "Any Price", &PRICES, &named("price"), false, on_msg) }
                     { select("beds", "Any Beds", &BEDS, &named("beds"), beds_disabled, on_msg) }
-                    { view_filter() }
+                    { view_select(&crate::search::view_options(listings), &named("view"), on_msg) }
                     { select("sort", "Sort", &SORTS, &chosen_sort, false, on_msg) }
                 </div>
             </div>
@@ -312,14 +324,247 @@ fn select(
     }
 }
 
-/// The view filter, which this payload cannot feed: no `views` field reaches it, so the control has one option and
-/// nothing it could match. Disabled and honest rather than enabled and inert.
-fn view_filter() -> Html {
+/// The view filter, fed by the views the inventory actually has: an option for each, and nothing it could not match.
+fn view_select(options: &[String], chosen: &str, on_msg: &Callback<Msg>) -> Html {
+    let onchange = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |event: Event| {
+            let value = event.target_unchecked_into::<web_sys::HtmlSelectElement>().value();
+            on_msg.emit(Msg::FilterSelected { key: "view".to_string(), value });
+        })
+    };
     html! {
-        <select aria-label="Any View" disabled=true
-            class="h-12 border border-border bg-background px-4 text-xs font-light uppercase tracking-[0.12em] text-foreground outline-none opacity-40 md:col-span-2">
-            <option value="" selected=true>{"Any View"}</option>
+        <select aria-label="Any View" disabled={options.is_empty()} {onchange}
+            class={classes!(
+                "h-12", "border", "border-border", "bg-background", "px-4", "text-xs", "font-light", "uppercase",
+                "tracking-[0.12em]", "text-foreground", "outline-none", "cursor-pointer", "md:col-span-2",
+                options.is_empty().then_some("opacity-40")
+            )}>
+            <option value="" selected={chosen.is_empty()}>{"Any View"}</option>
+            { for options.iter().map(|view| html! {
+                <option value={view.clone()} selected={view.eq_ignore_ascii_case(chosen)}>{ format!("{view} View") }</option>
+            }) }
         </select>
+    }
+}
+
+/// The scales on a card (`CompareProperty`): adds the listing to the compare set, or takes it out.
+fn compare_button(listing: &Listing, compared: bool, on_msg: &Callback<Msg>) -> Html {
+    let onclick = {
+        let on_msg = on_msg.clone();
+        let id = listing.id.clone();
+        Callback::from(move |event: MouseEvent| {
+            event.prevent_default();
+            event.stop_propagation();
+            on_msg.emit(Msg::CompareToggled(id.clone()));
+        })
+    };
+    let label = if compared {
+        format!("Remove {} from compare", listing.name)
+    } else {
+        format!("Add {} to compare", listing.name)
+    };
+    html! {
+        <button type="button" {onclick} aria-pressed={compared.to_string()} aria-label={label.clone()} title={label}
+            class="absolute right-16 top-4 z-30 flex h-10 w-10 items-center justify-center rounded-full bg-background/80 text-foreground backdrop-blur-sm transition-colors duration-300 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+            <svg class={classes!("h-4", "w-4", "transition-colors", "duration-300", compared.then_some("text-accent"))}
+                viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
+                <path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
+                <path d="M7 21h10" /><path d="M12 3v18" /><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2" />
+            </svg>
+        </button>
+    }
+}
+
+/// A fresh id for a saved search, in the TypeScript store's style, and the time now, for the reducer.
+fn search_stamp() -> (String, String) {
+    let now = js_sys::Date::new_0();
+    let id = format!("ss-{}-{}", now.get_time() as u64, (js_sys::Math::random() * 1e9) as u64);
+    (id, now.to_iso_string().into())
+}
+
+/// Saved searches (`SavedSearchesPanel`): save what the bar says now, and each saved search as a chip with its match
+/// count and an honest "+N new" since it was last viewed. Choosing one applies its filters.
+fn saved_searches_panel(model: &Model, listings: &[Listing], on_msg: &Callback<Msg>) -> Html {
+    let current = crate::search::SearchFilters::from_controls(&model.controls);
+    let current_saved = model.saved_searches.iter().any(|search| search.filters.key() == current.key());
+    let views = model
+        .saved_searches
+        .iter()
+        .map(|search| {
+            let matches = crate::search::match_ids(listings, &search.filters);
+            let new = crate::search::new_match_ids(search, &matches).len();
+            (search, matches.len(), new)
+        })
+        .collect::<Vec<_>>();
+    let total_new: usize = views.iter().map(|(_, _, new)| new).sum();
+    let save = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| {
+            let (new_id, now) = search_stamp();
+            on_msg.emit(Msg::SearchSaved { new_id, now });
+        })
+    };
+    html! {
+        <div class="mb-12 flex flex-col gap-4 border border-border bg-muted/30 px-5 py-4 md:flex-row md:items-center md:justify-between">
+            <button type="button" onclick={save} aria-pressed={current_saved.to_string()}
+                class="flex h-12 min-w-0 items-center gap-3 border border-border bg-background px-5 text-xs font-light uppercase tracking-[0.2em] text-foreground transition-colors duration-300 hover:border-foreground">
+                <svg class={classes!("h-4", "w-4", "flex-none", if current_saved { "text-accent" } else { "text-muted-foreground" })}
+                    viewBox="0 0 24 24" fill={if current_saved { "currentColor" } else { "none" }} stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                    <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" />
+                </svg>
+                <span class="truncate">{ if current_saved { "Search saved" } else { "Save this search" } }</span>
+            </button>
+            if views.is_empty() {
+                <p class="text-xs font-light leading-relaxed text-muted-foreground">
+                    {"Save a search to get an alert when new matching properties appear."}
+                </p>
+            } else {
+                <div class="flex flex-wrap items-center gap-2" aria-label="Saved searches">
+                    if total_new > 0 {
+                        <span class="inline-flex h-6 items-center gap-1.5 bg-accent/10 px-2.5 text-[10px] font-light uppercase tracking-[0.16em] text-accent">
+                            { format!("{total_new} new across {}", views.len()) }
+                        </span>
+                    }
+                    { for views.into_iter().map(|(search, count, new)| {
+                        let apply = {
+                            let on_msg = on_msg.clone();
+                            let id = search.id.clone();
+                            Callback::from(move |_: MouseEvent| {
+                                let (_, now) = search_stamp();
+                                on_msg.emit(Msg::SavedSearchApplied { id: id.clone(), now });
+                            })
+                        };
+                        let remove = {
+                            let on_msg = on_msg.clone();
+                            let id = search.id.clone();
+                            Callback::from(move |_: MouseEvent| on_msg.emit(Msg::SavedSearchRemoved(id.clone())))
+                        };
+                        html! {
+                            <span class="inline-flex items-stretch border border-border bg-background">
+                                <button type="button" onclick={apply} title="Apply this saved search"
+                                    class="group flex h-12 items-center gap-2 pl-4 pr-2 text-left">
+                                    <span class="max-w-56 truncate text-xs font-light tracking-wide text-foreground/90 group-hover:text-foreground">
+                                        { search.name.clone() }
+                                    </span>
+                                    <span class="text-[10px] font-light uppercase tracking-[0.14em] text-muted-foreground" aria-hidden="true">{ count }</span>
+                                    if new > 0 {
+                                        <span class="text-[10px] font-light uppercase tracking-[0.14em] text-accent">{ format!("+{new} new") }</span>
+                                    }
+                                </button>
+                                <button type="button" onclick={remove} aria-label={format!("Remove saved search {}", search.name)}
+                                    class="flex h-12 w-10 flex-none items-center justify-center text-muted-foreground transition-colors hover:text-foreground">
+                                    { close_icon() }
+                                </button>
+                            </span>
+                        }
+                    }) }
+                </div>
+            }
+        </div>
+    }
+}
+
+fn close_icon() -> Html {
+    html! {
+        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path d="M18 6 6 18" /><path d="m6 6 12 12" />
+        </svg>
+    }
+}
+
+/// One row of the compare table: its label and how a listing answers it.
+type CompareRow = (&'static str, fn(&Listing) -> String);
+
+fn dash() -> String {
+    "\u{2014}".to_string()
+}
+
+fn count_or_dash(value: Option<f64>) -> String {
+    value.map(|value| format!("{value}")).unwrap_or_else(dash)
+}
+
+const COMPARE_ROWS: [CompareRow; 9] = [
+    ("Price", |listing| crate::format::listing_price_label(listing)),
+    ("Location", |listing| listing.location.clone().unwrap_or_else(dash)),
+    ("Type", |listing| listing.kind.clone().unwrap_or_else(dash)),
+    ("Beds", |listing| if crate::format::listing_is_land(listing) { dash() } else { count_or_dash(listing.beds) }),
+    ("Baths", |listing| if crate::format::listing_is_land(listing) { dash() } else { count_or_dash(listing.baths) }),
+    ("Interior", |listing| {
+        if crate::format::listing_is_land(listing) { dash() } else { listing.interior_area.clone().unwrap_or_else(dash) }
+    }),
+    ("Lot", |listing| listing.area.clone().unwrap_or_else(dash)),
+    ("Views", |listing| if listing.views.is_empty() { dash() } else { listing.views.join(", ") }),
+    ("Beach access", |listing| (if listing.beach_access { "Yes" } else { "No" }).to_string()),
+];
+
+/// "Side by side" (`CompareBar`): once two are chosen, a table of the facts that decide between them. Only published
+/// listings appear, in the order they were chosen.
+fn compare_table(model: &Model, listings: &[Listing], on_msg: &Callback<Msg>) -> Html {
+    let chosen = model
+        .compare
+        .iter()
+        .filter_map(|entry| listings.iter().find(|listing| listing.slug == entry.slug))
+        .collect::<Vec<&Listing>>();
+    if chosen.len() < 2 {
+        return Html::default();
+    }
+    html! {
+        <section class="mt-20 border-t border-border pt-12" aria-label="Compare properties">
+            <div class="mb-8 flex flex-wrap items-center justify-between gap-4">
+                <div>
+                    <p class="mb-3 text-xs font-light uppercase tracking-[0.34em] text-accent">{"Compare"}</p>
+                    <h2 class="font-serif text-3xl font-light leading-tight text-foreground">{"Side by side"}</h2>
+                </div>
+                <p class="text-xs font-light text-muted-foreground">
+                    { format!("{} of {} selected", chosen.len(), crate::search::COMPARE_MAX) }
+                </p>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full min-w-[640px] border-collapse">
+                    <thead>
+                        <tr>
+                            <th class="w-40 border-b border-border pb-4 pr-6 text-left align-bottom">
+                                <span class="text-[10px] font-light uppercase tracking-[0.2em] text-muted-foreground">{"Property"}</span>
+                            </th>
+                            { for chosen.iter().map(|listing| {
+                                let remove = {
+                                    let on_msg = on_msg.clone();
+                                    let id = listing.id.clone();
+                                    Callback::from(move |_: MouseEvent| on_msg.emit(Msg::CompareToggled(id.clone())))
+                                };
+                                html! {
+                                    <th class="border-b border-border pb-4 pr-6 text-left align-bottom">
+                                        <div class="relative mb-4 aspect-[4/3] w-44 overflow-hidden bg-muted">
+                                            { listing_image(listing, "absolute inset-0 h-full w-full object-cover", "176px") }
+                                            <button type="button" onclick={remove} aria-label={format!("Remove {} from compare", listing.name)}
+                                                class="absolute right-2 top-2 flex h-10 w-10 items-center justify-center rounded-full bg-background/80 text-foreground backdrop-blur-sm transition-colors duration-300 hover:bg-background">
+                                                { close_icon() }
+                                            </button>
+                                        </div>
+                                        <a href={format!("/properties/{}", listing.slug)}
+                                            class="font-serif text-xl font-light leading-tight text-foreground transition-colors hover:text-accent">
+                                            { listing.name.clone() }
+                                        </a>
+                                    </th>
+                                }
+                            }) }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        { for COMPARE_ROWS.iter().map(|(label, value)| html! {
+                            <tr>
+                                <td class="border-b border-border py-4 pr-6 text-[10px] font-light uppercase tracking-[0.16em] text-muted-foreground">{ *label }</td>
+                                { for chosen.iter().map(|listing| html! {
+                                    <td class="border-b border-border py-4 pr-6 text-sm font-light text-foreground">{ value(listing) }</td>
+                                }) }
+                            </tr>
+                        }) }
+                    </tbody>
+                </table>
+            </div>
+        </section>
     }
 }
 
@@ -392,7 +637,9 @@ fn slide(listing: &Listing) -> Html {
 }
 
 /// One inventory card: the photograph with its badges, then the place, the price and its facts.
-pub(crate) fn card(listing: &Listing, saved: bool, on_msg: &Callback<Msg>) -> Html {
+/// One inventory card. `compared` is `Some` where the page offers Compare (the Buyers grid) and `None` where it does
+/// not (the Saved page).
+pub(crate) fn card(listing: &Listing, saved: bool, compared: Option<bool>, on_msg: &Callback<Msg>) -> Html {
     let facts = crate::format::listing_facts(listing, crate::format::FactsStyle::Full);
     html! {
         <article class="group relative">
@@ -409,6 +656,9 @@ pub(crate) fn card(listing: &Listing, saved: bool, on_msg: &Callback<Msg>) -> Ht
                     </span>
                 }
                 { save_heart(listing, saved, on_msg, "absolute right-4 top-4") }
+                if let Some(compared) = compared {
+                    { compare_button(listing, compared, on_msg) }
+                }
             </div>
             <a href={format!("/properties/{}", listing.slug)} aria-label={format!("View {}", listing.name)}
                 class="absolute inset-0 z-10"></a>

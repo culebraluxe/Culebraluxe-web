@@ -51,6 +51,23 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
         Effect::SubmitContact { submission, submission_id } => {
             submit_contact(submission, submission_id, dispatch);
         }
+        Effect::BuyerToolsRead => {
+            let read = |key: &str| {
+                browser_storage()
+                    .and_then(|storage| storage.get_item(key).ok().flatten())
+                    .unwrap_or_default()
+            };
+            // Each entry is read on its own, so one malformed record drops that record, not the list.
+            let compare = parse_entries::<crate::search::CompareEntry>(&read(COMPARE_KEY));
+            let searches = parse_entries::<crate::search::SavedSearch>(&read(SAVED_SEARCHES_KEY));
+            dispatch.emit(Msg::BuyerToolsLoaded { compare, searches });
+        }
+        Effect::CompareWrite(entries) => {
+            write_store(COMPARE_KEY, &entries, "culebraluxe:compare-changed");
+        }
+        Effect::SavedSearchesWrite(searches) => {
+            write_store(SAVED_SEARCHES_KEY, &searches, "culebraluxe:saved-searches-changed");
+        }
         Effect::ListingFavoritesRead => {
             let ids = browser_storage()
                 .map(|storage| {
@@ -1070,6 +1087,33 @@ fn run_projects_command(
 const FAVORITES_KEY: &str = "culebraluxe:saved-properties";
 const RECENT_KEY: &str = "culebraluxe:recently-viewed";
 
+const COMPARE_KEY: &str = "culebraluxe:compare-properties";
+const SAVED_SEARCHES_KEY: &str = "culebraluxe:saved-searches";
+
+/// A stored JSON array, keeping only the entries that parse as `T`.
+fn parse_entries<T: serde::de::DeserializeOwned>(raw: &str) -> Vec<T> {
+    serde_json::from_str::<Vec<serde_json::Value>>(raw)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|entry| serde_json::from_value(entry).ok())
+        .collect()
+}
+
+/// Persist a list to the device and tell any other listener, as the TypeScript stores did. A no-op write stays
+/// silent. Storage can be unavailable (private browsing); then the reducer's copy is all there is for this visit.
+fn write_store<T: serde::Serialize>(key: &str, entries: &[T], event: &str) {
+    let Some(storage) = browser_storage() else { return };
+    let Ok(next) = serde_json::to_string(entries) else { return };
+    if storage.get_item(key).ok().flatten().as_deref() == Some(next.as_str()) {
+        return;
+    }
+    if storage.set_item(key, &next).is_ok() {
+        if let (Some(window), Ok(event)) = (web_sys::window(), web_sys::CustomEvent::new(event)) {
+            let _ = window.dispatch_event(&event);
+        }
+    }
+}
+
 fn browser_storage() -> Option<web_sys::Storage> {
     web_sys::window()?.local_storage().ok().flatten()
 }
@@ -1282,6 +1326,9 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
         Effect::PropertyBrowserRead { .. }
         | Effect::PropertyFavoriteWrite { .. }
         | Effect::ListingFavoritesRead
+        | Effect::BuyerToolsRead
+        | Effect::CompareWrite(_)
+        | Effect::SavedSearchesWrite(_)
         | Effect::SubmitContact { .. } => {
             unreachable!("Property browser effects are run before network reads")
         }

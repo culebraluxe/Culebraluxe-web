@@ -21,6 +21,7 @@ mod person;
 mod pool;
 mod project;
 mod property;
+mod public_listing;
 // Public because the `retrying_read!` macro expands inside other crates and has to name these helpers there.
 pub mod accounting;
 pub mod metrics;
@@ -55,6 +56,7 @@ pub use person::PersonDao;
 pub use pool::{resolve_declared_target, Database, DbTarget};
 pub use project::{ProjectDao, ProjectTxDao};
 pub use property::PropertyDao;
+pub use public_listing::PublicListingDao;
 pub use retry::{retry, RetryPolicy};
 pub use security::SecurityDao;
 pub use task::TaskDao;
