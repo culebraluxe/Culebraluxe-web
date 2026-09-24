@@ -316,12 +316,15 @@ fn view_filter() -> Html {
     }
 }
 
-/// A listing's photograph, or the soft gradient the design uses when a property has no hero image.
-fn listing_image(listing: &Listing, class: &str) -> Html {
-    match listing.image_path.as_deref() {
+/// A listing's photograph, or the soft gradient the design uses when a property has no hero image. Shared with the
+/// homepage cards, so a listing without a photograph looks the same everywhere rather than a gradient here and a
+/// placeholder graphic there. Lazy, because the cards sit below the fold and the strip scrolls sideways; the browser
+/// still fetches whatever is in view straight away.
+pub(crate) fn listing_image(listing: &Listing, class: &str, sizes: &str) -> Html {
+    match listing.image_path.as_deref().filter(|src| !src.trim().is_empty()) {
         Some(src) => html! {
             <img src={src.to_string()} alt={listing.image_alt.clone().unwrap_or_else(|| listing.name.clone())}
-                sizes="(min-width: 1024px) 80vw, 100vw" class={class.to_string()} />
+                sizes={sizes.to_string()} loading="lazy" decoding="async" class={class.to_string()} />
         },
         None => html! {
             <div class="h-full w-full bg-gradient-to-br from-[#d9dde0] via-[#eef0f1] to-[#c4cbd0]"></div>
@@ -333,7 +336,7 @@ fn listing_image(listing: &Listing, class: &str) -> Html {
 fn slide(listing: &Listing) -> Html {
     html! {
         <article class="group relative h-full w-[86vw] flex-none overflow-hidden bg-muted sm:w-[420px]">
-            { listing_image(listing, "absolute inset-0 h-full w-full object-cover") }
+            { listing_image(listing, "absolute inset-0 h-full w-full object-cover", "(min-width: 1024px) 80vw, 100vw") }
             <div class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/25 to-transparent p-6">
                 <p class="text-[10px] font-light uppercase tracking-[0.2em] text-background/75">
                     { listing.location.clone().unwrap_or_default() }
@@ -355,7 +358,7 @@ fn card(listing: &Listing) -> Html {
     html! {
         <article class="group relative">
             <div class="relative aspect-[4/3] overflow-hidden bg-muted">
-                { listing_image(listing, "absolute inset-0 h-full w-full object-cover") }
+                { listing_image(listing, "absolute inset-0 h-full w-full object-cover", "(min-width: 1024px) 80vw, 100vw") }
                 if listing.featured {
                     <span class="absolute left-4 top-4 z-20 bg-background/90 px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.18em] text-foreground backdrop-blur-sm">
                         {"Featured"}

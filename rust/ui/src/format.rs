@@ -164,6 +164,11 @@ fn present(value: &Option<String>) -> Option<String> {
 /// The one-line facts under a listing's name, joined with a spaced middle dot. Missing numbers are left out, never
 /// printed as zero.
 pub fn listing_facts(listing: &Listing, style: FactsStyle) -> String {
+    listing_fact_parts(listing, style).join("  \u{00b7}  ")
+}
+
+/// The same facts, one per entry, for a view that sets its own separators (HTML collapses the spaced dot to a squeeze).
+pub fn listing_fact_parts(listing: &Listing, style: FactsStyle) -> Vec<String> {
     let mut parts: Vec<String> = Vec::new();
     if listing_is_land(listing) {
         parts.extend(present(&listing.area));
@@ -184,7 +189,7 @@ pub fn listing_facts(listing: &Listing, style: FactsStyle) -> String {
             parts.push(format!("{} View", view.trim()));
         }
     }
-    parts.join("  \u{00b7}  ")
+    parts
 }
 
 /// A listing's price for display, or the request wording when it has none.

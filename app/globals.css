@@ -203,6 +203,33 @@
   }
 }
 
+/* The Rust UI's scroll reveal: what `components/reveal.tsx` did with an IntersectionObserver, done by the browser.
+   A scroll-driven animation needs no JavaScript and no WASM, so Yew views opt in with a class. Where the browser
+   cannot run it, or the visitor asked for less motion, the content is simply there - never stuck invisible.
+   `--reveal-step` staggers siblings in a row (0, 1, 2 ...). */
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .reveal {
+      animation: reveal cubic-bezier(0.22, 1, 0.36, 1) both;
+      animation-timeline: view();
+      animation-range: entry calc(var(--reveal-step, 0) * 6%) entry calc(70% + var(--reveal-step, 0) * 6%);
+    }
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
