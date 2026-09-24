@@ -38,6 +38,7 @@ Existing `BaseService` operations and Rust `AuthorizationPort` enforce actions. 
 | `/portal/db-test` | `portal.read` | — |
 | `/portal/admin/whatsapp-meta` | `portal.read` | — |
 | `/portal/settings` | `security.principal.read` | `security.entitlement.manage` (ROOT only) |
+| `/portal/settings/users` | `security.principal.read` | `security.role.manage` (ROOT only) |
 
 Rows reflect the listed destinations in `lib/navigation/registry.ts`; detail, retired, and unlisted routes still require their service operation checks. `tech.access` remains a ROOT-only authority. The SUPPORT Security screen displays the active role grants through the Rust Security service.
 
@@ -112,6 +113,8 @@ The existing Rust MVI `SCREENS` registry contains these 59 `/portal/` screens pl
 
 - The Rust authorization port, role grant migration, navigation projection, and selected Yew controls are implemented. The existing TypeScript service kernel and Forms binding use the same role grant tables while they remain in use.
 - The SUPPORT editor changes active internal-role grants through the Security service. The canonical Rust authorization port requires the exact `root` role for `security.entitlement.manage`; view and reducer controls use the same exact-root projection. Authorized mutation outcomes are audited by the Security service. Authorization refusals fail before mutation. Showing commands within a Deal workspace use `showing.write`; other Deal workspace commands use `deal.write`.
-- DEV migrations 210, 211, and 212 are applied and verified. Migration 212 removes the `owner` management grant seeded by 211 while preserving the exact `root` grant. DEV now has 34 entitlements / 209 role grants, and migration 212 is recorded in `schema_migration` with the committed file checksum. Migration 210 contributes 33 base actions / 208 grants; 211 adds the management action and two grants; 212 removes the single owner management grant.
+- DEV migrations 210-213 are applied and verified. Migration 212 removes the `owner` entitlement-management grant seeded by 211 while preserving exact ROOT administration. Migration 213 adds the canonical `business_power_user` role, seeds its 33 operational grants, and adds `security.role.manage` to literal ROOT only. DEV now has 35 entitlements / 243 role grants, and migrations 212-213 are recorded in `schema_migration` with their committed-file checksums.
+- Canonical internal assignment vocabulary is `internal_guest` → `user` → `business_power_user` → `owner` → `root`. Legacy aliases remain readable for existing assignments, but the Users administration screen writes only canonical primary roles. External `client`/guest access remains outside that internal assignment path.
+- User-role writes follow Yew MVI → Next transport → Rust `SecurityService` → authorization → `SecurityDao` → `app_user_role`. The DAO replaces only coarse security roles, preserves additive specialist roles, and refuses a change that would remove the final active ROOT.
 - Rust workspace compilation is green and the committed `rust/Cargo.lock` includes Casbin. The repository-wide rustfmt and TypeScript lint backlogs predate this entitlement slice; this slice must not add new debt.
-- PROD remains untouched. Migrations 210-212 must be applied and checked on PROD only as a separate explicit release step.
+- PROD remains untouched. Migrations 210-213 must be applied and checked on PROD only as a separate explicit release step.
