@@ -85,17 +85,19 @@ const PROPERTY_CORE: &[FieldSpec] = &[
     FieldSpec { key: "propertyType", label: "Property type", kind: FieldKind::Text, wide: false, hint: None },
     FieldSpec { key: "listPrice", label: "List price", kind: FieldKind::Number, wide: false, hint: None },
     FieldSpec { key: "originalListPrice", label: "Original list price", kind: FieldKind::Number, wide: false, hint: None },
-    FieldSpec { key: "location", label: "Location label", kind: FieldKind::Text, wide: false, hint: None },
     FieldSpec { key: "bedrooms", label: "Bedrooms", kind: FieldKind::Number, wide: false, hint: None },
     FieldSpec { key: "bathrooms", label: "Bathrooms", kind: FieldKind::Number, wide: false, hint: None },
     FieldSpec { key: "bathroomsFull", label: "Full baths", kind: FieldKind::Number, wide: false, hint: None },
     FieldSpec { key: "bathroomsHalf", label: "Half baths", kind: FieldKind::Number, wide: false, hint: None },
     FieldSpec { key: "squareFeet", label: "Interior sqft", kind: FieldKind::Number, wide: false, hint: None },
-    FieldSpec { key: "lotSizeAcres", label: "Lot acres", kind: FieldKind::Number, wide: false, hint: Some("Reported acreage, independent of lot square feet.") },
-    FieldSpec { key: "lotSizeSqft", label: "Lot square feet", kind: FieldKind::Number, wide: false, hint: Some("Reported lot square feet, independent of acreage and interior square feet.") },
     FieldSpec { key: "yearBuilt", label: "Year built", kind: FieldKind::Number, wide: false, hint: None },
     FieldSpec { key: "stories", label: "Stories", kind: FieldKind::Number, wide: false, hint: None },
     FieldSpec { key: "parkingSpaces", label: "Parking spaces", kind: FieldKind::Number, wide: false, hint: None },
+];
+
+const PROPERTY_SITE_AREA: &[FieldSpec] = &[
+    FieldSpec { key: "lotSizeAcres", label: "Lot acres", kind: FieldKind::Number, wide: false, hint: Some("Reported acreage; enter independently of square feet.") },
+    FieldSpec { key: "lotSizeSqft", label: "Lot square feet", kind: FieldKind::Number, wide: false, hint: Some("Reported lot area in square feet; enter independently of acres and interior area.") },
 ];
 
 const PROPERTY_FEATURES: &[FieldSpec] = &[
@@ -131,6 +133,7 @@ const PROPERTY_SITE: &[FieldSpec] = &[
 ];
 
 const PROPERTY_ADDRESS: &[FieldSpec] = &[
+    FieldSpec { key: "location", label: "Location label", kind: FieldKind::Text, wide: false, hint: None },
     FieldSpec { key: "addressLine1", label: "Address line", kind: FieldKind::Text, wide: true, hint: None },
     FieldSpec { key: "streetNumber", label: "Street number", kind: FieldKind::Text, wide: false, hint: None },
     FieldSpec { key: "streetName", label: "Street name", kind: FieldKind::Text, wide: false, hint: None },
@@ -147,8 +150,11 @@ const PROPERTY_ADDRESS: &[FieldSpec] = &[
 
 const PROPERTY_LEGAL: &[FieldSpec] = &[
     FieldSpec { key: "legalOwnerName", label: "Legal owner", kind: FieldKind::Text, wide: true, hint: None },
-    FieldSpec { key: "catastroNumber", label: "Catastro number", kind: FieldKind::Text, wide: false, hint: Some("Puerto Rico parcel identifier, distinct from a listing ID.") },
     FieldSpec { key: "listingIdentifier", label: "MLS / listing ID", kind: FieldKind::Text, wide: false, hint: None },
+];
+
+const PROPERTY_PARCEL: &[FieldSpec] = &[
+    FieldSpec { key: "catastroNumber", label: "Catastro number", kind: FieldKind::Text, wide: false, hint: Some("Puerto Rico parcel identifier, distinct from a listing ID.") },
     FieldSpec { key: "registryEntry", label: "Registry entry", kind: FieldKind::Text, wide: false, hint: None },
     FieldSpec { key: "fincaNumber", label: "Finca number", kind: FieldKind::Text, wide: false, hint: None },
     FieldSpec { key: "registrySection", label: "Registry section", kind: FieldKind::Text, wide: false, hint: None },
@@ -698,15 +704,18 @@ fn property_editor(
     match model.ops.section.as_str() {
         "site" => html! {
             <div class="space-y-4">
-                {section_intro("Site and land", "These facts apply to every property, including houses. Enter what is known now and return for other details later.")}
-                {field_panel(model, on_msg, "Views and access", PROPERTY_FEATURES)}
-                {field_panel(model, on_msg, "Lot and site", PROPERTY_SITE)}
+                {section_intro("Site and land", "Lot, location and parcel facts apply to every property, including houses. Enter what is known now and return later.")}
+                {field_panel(model, on_msg, "Land area", PROPERTY_SITE_AREA)}
+                {field_panel(model, on_msg, "Terrain, roads and utilities", PROPERTY_SITE)}
+                {feature_panel(model, on_msg)}
+                {field_panel(model, on_msg, "Location and address", PROPERTY_ADDRESS)}
+                {field_panel(model, on_msg, "Parcel identifiers", PROPERTY_PARCEL)}
             </div>
         },
         "legal" => html! {
             <div class="space-y-4">
                 {section_intro("Legal and listing details", "Add identifiers and representation details as they become available.")}
-                {field_panel(model, on_msg, "Legal / registry", PROPERTY_LEGAL)}
+                {field_panel(model, on_msg, "Legal owner and listing ID", PROPERTY_LEGAL)}
                 {field_panel(model, on_msg, "Listing representation", PROPERTY_AGENT)}
                 {field_panel(model, on_msg, "Administration", PROPERTY_ADMIN_FIELDS)}
             </div>
@@ -746,10 +755,38 @@ fn property_editor(
         _ => html! {
             <div class="space-y-4">
                 {section_intro("Property facts", "Start with what is known. Save and return to complete other fields in later passes.")}
-                {field_panel(model, on_msg, "Core", PROPERTY_CORE)}
-                {field_panel(model, on_msg, "Address", PROPERTY_ADDRESS)}
+                {field_panel(model, on_msg, "Listing and building facts", PROPERTY_CORE)}
             </div>
         },
+    }
+}
+
+fn feature_panel(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
+    html! {
+        <section class="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/30 p-4">
+            <h2 class="mb-3 text-[12px] font-semibold text-[var(--portal-navy)]">{"Views, access and improvements"}</h2>
+            <div class="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
+                {for PROPERTY_FEATURES.iter().map(|field| {
+                    let key = field.key.to_string();
+                    let on_msg = on_msg.clone();
+                    html! {
+                        <label class="flex min-h-10 items-center gap-2 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/55 px-3 py-2 text-[13px] text-[var(--portal-navy)]">
+                            <input
+                                type="checkbox"
+                                checked={value(model, field.key) == "true"}
+                                disabled={model.ops.saving}
+                                onchange={Callback::from(move |event: Event| {
+                                    let checked = event.target_unchecked_into::<web_sys::HtmlInputElement>().checked();
+                                    on_msg.emit(Msg::OpsFieldChanged { key: key.clone(), value: checked.to_string() });
+                                })}
+                                class="h-4 w-4 shrink-0 rounded border-[var(--portal-panel-border)]"
+                            />
+                            <span>{field.label}</span>
+                        </label>
+                    }
+                })}
+            </div>
+        </section>
     }
 }
 

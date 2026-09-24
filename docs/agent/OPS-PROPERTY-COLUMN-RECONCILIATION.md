@@ -17,7 +17,7 @@ The Property count spans Property, Site, Legal, Website, and Sources tabs plus t
 | --- | --- | --- | --- |
 | `id` | uuid | Sources / `id` | Read-only (system / provenance) |
 | `name` | text | Property / `name` | Editable |
-| `location` | text | Property / `location` | Editable |
+| `location` | text | Site / `location` | Editable |
 | `status` | text | Property / `status` | Editable |
 | `list_price` | numeric | Property / `listPrice` | Editable |
 | `bedrooms` | numeric | Property / `bedrooms` | Editable |
@@ -33,15 +33,15 @@ The Property count spans Property, Site, Legal, Website, and Sources tabs plus t
 | `slug` | text | Website / `slug` | Editable |
 | `original_list_price` | numeric | Property / `originalListPrice` | Editable |
 | `featured` | boolean | Website / `featured` | Editable |
-| `street_number` | text | Property / `streetNumber` | Editable |
-| `street_name` | text | Property / `streetName` | Editable |
-| `unit_number` | text | Property / `unitNumber` | Editable |
-| `city` | text | Property / `city` | Editable |
-| `state_or_province` | text | Property / `stateOrProvince` | Editable |
-| `postal_code` | text | Property / `postalCode` | Editable |
-| `neighborhood` | text | Property / `neighborhood` | Editable |
-| `latitude` | numeric | Property / `latitude` | Editable |
-| `longitude` | numeric | Property / `longitude` | Editable |
+| `street_number` | text | Site / `streetNumber` | Editable |
+| `street_name` | text | Site / `streetName` | Editable |
+| `unit_number` | text | Site / `unitNumber` | Editable |
+| `city` | text | Site / `city` | Editable |
+| `state_or_province` | text | Site / `stateOrProvince` | Editable |
+| `postal_code` | text | Site / `postalCode` | Editable |
+| `neighborhood` | text | Site / `neighborhood` | Editable |
+| `latitude` | numeric | Site / `latitude` | Editable |
+| `longitude` | numeric | Site / `longitude` | Editable |
 | `bathrooms_full` | integer | Property / `bathroomsFull` | Editable |
 | `bathrooms_half` | integer | Property / `bathroomsHalf` | Editable |
 | `lot_size` | numeric | Sources / `lot_size` | Read-only (legacy measurement) |
@@ -85,12 +85,12 @@ The Property count spans Property, Site, Legal, Website, and Sources tabs plus t
 | `seo_description` | text | Website / `seoDescription` | Editable |
 | `is_published` | boolean | Website / `isPublished` | Editable |
 | `legal_owner_name` | text | Legal / `legalOwnerName` | Editable |
-| `country` | text | Property / `country` | Editable |
-| `iso_country_code` | text | Property / `isoCountryCode` | Editable |
-| `address_line1` | text | Property / `addressLine1` | Editable |
-| `registry_entry` | text | Legal / `registryEntry` | Editable |
-| `finca_number` | text | Legal / `fincaNumber` | Editable |
-| `registry_section` | text | Legal / `registrySection` | Editable |
+| `country` | text | Site / `country` | Editable |
+| `iso_country_code` | text | Site / `isoCountryCode` | Editable |
+| `address_line1` | text | Site / `addressLine1` | Editable |
+| `registry_entry` | text | Site / `registryEntry` | Editable |
+| `finca_number` | text | Site / `fincaNumber` | Editable |
+| `registry_section` | text | Site / `registrySection` | Editable |
 | `is_active_listing` | boolean | Website / `isActiveListing` | Editable |
 | `catastro_source` | text | Sources / `catastro_source` | Read-only (system / provenance) |
 | `regrid_address_source` | text | Sources / `regrid_address_source` | Read-only (Regrid) |
@@ -135,12 +135,12 @@ The Property count spans Property, Site, Legal, Website, and Sources tabs plus t
 | `regrid_usecode` | text | Sources / `regrid_usecode` | Read-only (Regrid) |
 | `regrid_usedesc` | text | Sources / `regrid_usedesc` | Read-only (Regrid) |
 | `regrid_zoning` | text | Sources / `regrid_zoning` | Read-only (Regrid) |
-| `lot_size_sqft` | numeric | Property / `lotSizeSqft` | Editable |
+| `lot_size_sqft` | numeric | Site / `lotSizeSqft` | Editable |
 | `road_frontage_feet` | numeric | Site / `roadFrontageFeet` | Editable |
 | `road_surface_type` | text | Site / `roadSurfaceType` | Editable |
 | `lot_description` | text | Site / `lotDescription` | Editable |
 | `utilities_notes` | text | Site / `utilitiesNotes` | Editable |
-| `catastro_number` | text | Legal / `catastroNumber` | Editable |
+| `catastro_number` | text | Site / `catastroNumber` | Editable |
 | `buildability` | text | Site / `buildability` | Editable |
 | `slope_description` | text | Site / `slopeDescription` | Editable |
 | `pool_potential` | text | Site / `poolPotential` | Editable |
@@ -148,7 +148,7 @@ The Property count spans Property, Site, Legal, Website, and Sources tabs plus t
 | `utilities_availability` | text | Site / `utilitiesAvailability` | Editable |
 | `hoa_status` | text | Site / `hoaStatus` | Editable |
 | `view_description` | text | Site / `viewDescription` | Editable |
-| `lot_size_acres` | numeric | Property / `lotSizeAcres` | Editable |
+| `lot_size_acres` | numeric | Site / `lotSizeAcres` | Editable |
 
 ## Stellar listing extension (17 columns)
 
