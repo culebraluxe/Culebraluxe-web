@@ -149,6 +149,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_contract_floor_and_the_guest_default_hold_where_they_are_enforced() {
+        let auth = CasbinAuthorizationPort::new().await.unwrap();
+
+        // THE RULES MOVED HERE, SO THEIR TESTS DID TOO. These two assertions used to live in the TypeScript
+        // suite, testing the TypeScript copy of the rules; that copy is gone (the port asks this one now), so
+        // leaving the test behind would have deleted the only coverage of a rule that still guards a command.
+
+        // contract.execute is high-value and near-irreversible: BUSINESS_POWER_USER is the floor, and holding the
+        // grant does not lower it.
+        let mut execute = request(
+            "contract.execute",
+            OperationKind::Command,
+            &["contract.execute"],
+        );
+        execute.domain = "contract";
+        execute.operation = "contract.execute";
+        execute.principal.as_mut().unwrap().level = "USER".into();
+        assert!(
+            !auth.authorize(execute.clone()).await.unwrap().allowed,
+            "USER must not execute a contract, even holding the grant"
+        );
+        execute.principal.as_mut().unwrap().level = "BUSINESS_POWER_USER".into();
+        assert!(
+            auth.authorize(execute).await.unwrap().allowed,
+            "BUSINESS_POWER_USER is the floor for contract.execute"
+        );
+
+        // A missing principal (GUEST) never commands, whatever the action.
+        let mut guest = request("contract.write", OperationKind::Command, &[]);
+        guest.principal = None;
+        assert!(
+            !auth.authorize(guest).await.unwrap().allowed,
+            "a missing principal must not command"
+        );
+    }
+
+    #[tokio::test]
     async fn action_and_kind_must_both_match_a_role_grant() {
         let auth = CasbinAuthorizationPort::new().await.unwrap();
         assert!(
