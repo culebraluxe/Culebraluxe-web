@@ -42,10 +42,6 @@ pub fn policy_domain_for(action: &'static str) -> &'static str {
     }
 }
 
-/// The sign-in providers that may resolve to a staff user (`app_user`): Google, and the break-glass path
-/// (`breakGlassSubject` in auth.ts). The visitor email-code provider is deliberately absent.
-pub const STAFF_IDENTITY_PROVIDERS: &[&str] = &["google", "break-glass"];
-
 #[async_trait]
 pub trait SecurityRepository: Send {
     async fn resolve_provider_subject(
@@ -133,17 +129,6 @@ impl<R: SecurityRepository> SecurityService<R> {
             context,
         )
         .await?;
-
-        // ONLY A STAFF SIGN-IN METHOD CAN NAME A STAFF USER. Visitors (external guests) sign in with an email code or
-        // Google and live in their own tables, so they never map here anyway; this makes it a rule rather than a
-        // property of today's data. An `auth_identity` row for any other provider — added by mistake, or by a
-        // future feature — still resolves to nobody, and the portal answers "not authorized".
-        if !STAFF_IDENTITY_PROVIDERS.contains(&provider) {
-            let result: Result<SecurityIdentityResolution, CoreServiceError> =
-                Ok(SecurityIdentityResolution::Unmapped);
-            audit_result(&self.runtime, "security", OP, context, decision, &result).await?;
-            return result;
-        }
 
         // The cache sits between the authorization decision and the two lookups, so the audit trail records this
         // operation on every request exactly as it did before; only the queries are skipped.
@@ -505,7 +490,7 @@ mod tests {
     async fn identity_database_failure_is_not_reported_as_unmapped() {
         let mut service = SecurityService::new(IdentityLookupFailure, infrastructure());
         let result = service
-            .resolve_identity("google", "test-subject-db-failure", &context())
+            .resolve_identity("test-provider-db-failure", "subject-1", &context())
             .await;
 
         assert!(matches!(result, Err(CoreServiceError::Database(_))));
@@ -515,25 +500,10 @@ mod tests {
     async fn principal_database_failure_is_not_reported_as_inactive() {
         let mut service = SecurityService::new(PrincipalLookupFailure, infrastructure());
         let result = service
-            .resolve_identity("google", "test-subject-principal-failure", &context())
+            .resolve_identity("test-provider-principal-failure", "subject-2", &context())
             .await;
 
         assert!(matches!(result, Err(CoreServiceError::Database(_))));
-    }
-
-    #[tokio::test]
-    async fn a_visitor_sign_in_method_never_resolves_to_a_staff_user() {
-        // This repository would map ANY subject to a user; the provider rule must stop the lookup before it runs.
-        let mut service = SecurityService::new(PrincipalLookupFailure, infrastructure());
-        for provider in ["email", "visitor", "credentials"] {
-            let result = service
-                .resolve_identity(provider, "lisa@culebraluxe.com", &context())
-                .await;
-            assert!(
-                matches!(result, Ok(SecurityIdentityResolution::Unmapped)),
-                "{provider}"
-            );
-        }
     }
 
     #[tokio::test]
