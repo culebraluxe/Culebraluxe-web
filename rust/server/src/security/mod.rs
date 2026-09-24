@@ -5,7 +5,11 @@ pub use entitlements::CasbinAuthorizationPort;
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
 use db::{DbResult, SecurityDao};
-use domain::{resolve_security_level, security::RoleEntitlements, ActingUser, SecurityIdentityResolution, SecurityPrincipal};
+use domain::{
+    resolve_security_level,
+    security::{RoleEntitlements, SecurityUserRoles},
+    ActingUser, SecurityIdentityResolution, SecurityPrincipal,
+};
 use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
 
 #[async_trait]
@@ -18,6 +22,8 @@ pub trait SecurityRepository: Send {
     async fn get_principal(&mut self, app_user_id: &str) -> DbResult<Option<ActingUser>>;
     async fn list_role_entitlements(&mut self) -> DbResult<Vec<RoleEntitlements>>;
     async fn set_role_entitlement(&mut self, role_code: &str, action: &str, granted: bool) -> DbResult<bool>;
+    async fn list_security_users(&mut self) -> DbResult<Vec<SecurityUserRoles>>;
+    async fn set_user_primary_role(&mut self, app_user_id: &str, role_code: &str) -> DbResult<bool>;
 }
 
 #[async_trait]
@@ -38,6 +44,14 @@ impl SecurityRepository for SecurityDao {
     }
     async fn set_role_entitlement(&mut self, role_code: &str, action: &str, granted: bool) -> DbResult<bool> {
         SecurityDao::set_role_entitlement(self, role_code, action, granted).await
+    }
+
+    async fn list_security_users(&mut self) -> DbResult<Vec<SecurityUserRoles>> {
+        SecurityDao::list_security_users(self).await
+    }
+
+    async fn set_user_primary_role(&mut self, app_user_id: &str, role_code: &str) -> DbResult<bool> {
+        SecurityDao::set_user_primary_role(self, app_user_id, role_code).await
     }
 }
 
@@ -142,6 +156,58 @@ impl<R: SecurityRepository> SecurityService<R> {
         result
     }
 
+    pub async fn list_security_users(
+        &mut self,
+        context: &ServiceContext,
+    ) -> Result<Vec<SecurityUserRoles>, CoreServiceError> {
+        const OP: &str = "security.listUsers";
+        let decision = authorize(
+            &self.runtime,
+            "security",
+            "security.principal.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+        let result: Result<Vec<SecurityUserRoles>, CoreServiceError> =
+            self.repository.list_security_users().await.map_err(Into::into);
+        audit_result(&self.runtime, "security", OP, context, decision, &result).await?;
+        result
+    }
+
+    pub async fn set_user_primary_role(
+        &mut self,
+        app_user_id: &str,
+        role_code: &str,
+        context: &ServiceContext,
+    ) -> Result<(), CoreServiceError> {
+        const OP: &str = "security.setUserPrimaryRole";
+        let decision = authorize(
+            &self.runtime,
+            "security",
+            "security.role.manage",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+        let result = match self
+            .repository
+            .set_user_primary_role(app_user_id, role_code)
+            .await
+        {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(CoreServiceError::business(
+                "SECURITY_ROLE_TARGET_INVALID",
+                "An active internal user and canonical role are required, and the final ROOT cannot be removed.",
+            )),
+            Err(error) => Err(error.into()),
+        };
+        audit_result(&self.runtime, "security", OP, context, decision, &result).await?;
+        result
+    }
+
     pub async fn get_principal(
         &mut self,
         app_user_id: &str,
@@ -237,6 +303,13 @@ mod tests {
         async fn set_role_entitlement(&mut self, _role_code: &str, _action: &str, _granted: bool) -> DbResult<bool> {
             unreachable!("grant mutation must not run after identity lookup failure")
         }
+
+        async fn list_security_users(&mut self) -> DbResult<Vec<SecurityUserRoles>> {
+            Ok(Vec::new())
+        }
+        async fn set_user_primary_role(&mut self, _app_user_id: &str, _role_code: &str) -> DbResult<bool> {
+            unreachable!("role mutation must not run after identity lookup failure")
+        }
     }
 
     struct PrincipalLookupFailure;
@@ -259,6 +332,13 @@ mod tests {
         }
         async fn set_role_entitlement(&mut self, _role_code: &str, _action: &str, _granted: bool) -> DbResult<bool> {
             Err(transient("security.set_role_entitlement"))
+        }
+
+        async fn list_security_users(&mut self) -> DbResult<Vec<SecurityUserRoles>> {
+            Err(transient("security.list_security_users"))
+        }
+        async fn set_user_primary_role(&mut self, _app_user_id: &str, _role_code: &str) -> DbResult<bool> {
+            Err(transient("security.set_user_primary_role"))
         }
     }
 
