@@ -10,8 +10,11 @@
 
 use yew::prelude::*;
 
-use crate::format::{listing_enquire_href, listing_facts, listing_price_label, FactsStyle};
+use crate::format::{
+    listing_enquire_href, listing_eyebrow, listing_fact_parts, listing_highlights, listing_price_label, FactsStyle,
+};
 use crate::model::{Block, Listing};
+use crate::yew_views::buyers::listing_image;
 use crate::yew_views::chrome::PageProps;
 
 pub struct Home;
@@ -96,12 +99,16 @@ impl Home {
     /// THE SIDES ALTERNATE BY INDEX, as the component did it: `md:[direction:rtl]` on every second article with the inner
     /// columns set back to `ltr`. The alternation is most of what the section looks like, so it is reproduced rather than
     /// simplified to one side.
+    ///
+    /// WHAT THE PORT HAD LOST, AND IS BACK: the scroll reveal (`reveal`, in `app/globals.css`) and the Enquire rule that
+    /// draws out on hover. WHAT IS NEW: the price is set in the serif at reading size — it was the smallest, greyest text
+    /// on the card — the type sits with the place above the name, and up to two highlights come from the listing's flags.
     fn collection(&self, items: &[Listing]) -> Html {
         let shown = &items[..items.len().min(3)];
         html! {
-            <section id="properties" class="px-6 py-28 md:px-12 md:py-40">
+            <section id="properties" class="px-6 py-24 md:px-12 md:py-40">
                 <div class="mx-auto max-w-[1600px]">
-                    <div class="mb-20 md:mb-28">
+                    <div class="reveal mb-16 md:mb-28">
                         <div class="flex flex-col gap-6 border-b border-border pb-10 md:flex-row md:items-end md:justify-between">
                             <div>
                                 <p class="mb-4 text-xs font-light uppercase tracking-[0.34em] text-accent">{"The Collection"}</p>
@@ -114,54 +121,13 @@ impl Home {
                             </p>
                         </div>
                     </div>
-                    <div class="flex flex-col gap-28 md:gap-40">
+                    <div class="flex flex-col gap-20 md:gap-40">
                         if shown.is_empty() {
                             <p class="max-w-xl text-sm font-light leading-relaxed text-muted-foreground">
                                 {"The next collection is being prepared."}
                             </p>
                         } else {
-                            { for shown.iter().enumerate().map(|(index, listing)| {
-                                let numeral = format!("{:02}", index + 1);
-                                let reversed = index % 2 == 1;
-                                html! {
-                                    <article class={classes!(
-                                        "grid", "items-center", "gap-10", "md:grid-cols-12", "md:gap-16",
-                                        reversed.then_some("md:[direction:rtl]")
-                                    )}>
-                                        <div class="md:col-span-8 md:[direction:ltr]">
-                                            <a href={format!("/properties/{}", listing.slug)} aria-label={format!("View {}", listing.name)}
-                                                class="group relative block aspect-[16/10] w-full overflow-hidden">
-                                                <img src={listing.image_path.clone().unwrap_or_else(|| "/placeholder.svg".to_string())}
-                                                    alt={listing.image_alt.clone().unwrap_or_else(|| listing.name.clone())}
-                                                    sizes="(min-width: 768px) 66vw, 100vw"
-                                                    class="absolute inset-0 h-full w-full object-cover transition-transform duration-[1600ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-[1.04]" />
-                                            </a>
-                                        </div>
-                                        <div class="md:col-span-4 md:[direction:ltr]">
-                                            <span class="font-serif text-sm font-light text-accent">{ format!("({numeral})") }</span>
-                                            <h3 class="mt-4 font-serif text-3xl font-light leading-tight text-foreground md:text-4xl">
-                                                <a href={format!("/properties/{}", listing.slug)} class="transition-colors duration-300 hover:text-accent">
-                                                    { listing.name.clone() }
-                                                </a>
-                                            </h3>
-                                            if let Some(location) = listing.location.clone().filter(|value| !value.is_empty()) {
-                                                <p class="mt-3 text-xs font-light uppercase tracking-[0.24em] text-muted-foreground">{ location }</p>
-                                            }
-                                            <p class="mt-8 max-w-xs text-sm font-light leading-relaxed text-foreground/80">
-                                                { listing_facts(listing, FactsStyle::Full) }
-                                            </p>
-                                            <div class="mt-8 flex items-center justify-between border-t border-border pt-6">
-                                                <span class="text-xs font-light uppercase tracking-[0.2em] text-muted-foreground">
-                                                    { listing_price_label(listing) }
-                                                </span>
-                                                <a href={listing_enquire_href(listing)} class="inline-flex items-center gap-2 text-xs font-light uppercase tracking-[0.2em] text-foreground">
-                                                    {"Enquire"}<span class="inline-block h-px w-6 bg-foreground"></span>
-                                                </a>
-                                            </div>
-                                        </div>
-                                    </article>
-                                }
-                            }) }
+                            { for shown.iter().enumerate().map(|(index, listing)| collection_item(index, listing)) }
                         }
                     </div>
                 </div>
@@ -170,8 +136,69 @@ impl Home {
     }
 }
 
+/// One estate in the Collection.
+fn collection_item(index: usize, listing: &Listing) -> Html {
+    let href = format!("/properties/{}", listing.slug);
+    let numeral = format!("({:02})", index + 1);
+    let reversed = index % 2 == 1;
+    let highlights = listing_highlights(listing, 2);
+    html! {
+        <article class={classes!(
+            "reveal", "grid", "items-center", "gap-8", "md:grid-cols-12", "md:gap-16",
+            reversed.then_some("md:[direction:rtl]")
+        )}>
+            <div class="md:col-span-8 md:[direction:ltr]">
+                <a href={href.clone()} aria-label={format!("View {}", listing.name)} tabindex="-1"
+                    class="group relative block aspect-[16/10] w-full overflow-hidden bg-muted">
+                    { listing_image(
+                        listing,
+                        "absolute inset-0 h-full w-full object-cover transition-transform duration-[1600ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-[1.04]",
+                        "(min-width: 768px) 66vw, 100vw",
+                    ) }
+                </a>
+            </div>
+            <div class="md:col-span-4 md:[direction:ltr]">
+                <div class="flex items-baseline gap-4">
+                    <span class="font-serif text-sm font-light text-accent">{ numeral }</span>
+                    if let Some(eyebrow) = listing_eyebrow(listing) {
+                        <p class="text-[11px] font-light uppercase tracking-[0.24em] text-muted-foreground">{ eyebrow }</p>
+                    }
+                </div>
+                <h3 class="mt-4 text-balance font-serif text-3xl font-light leading-tight text-foreground md:text-4xl">
+                    <a href={href} class="transition-colors duration-300 hover:text-accent">{ listing.name.clone() }</a>
+                </h3>
+                <p class="mt-6 max-w-sm text-sm font-light leading-relaxed text-foreground/80">
+                    { facts_line(listing, FactsStyle::Full, "text-accent") }
+                </p>
+                if !highlights.is_empty() {
+                    <ul class="mt-5 flex flex-wrap gap-2" aria-label="Highlights">
+                        { for highlights.into_iter().map(|highlight| html! {
+                            <li class="border border-border px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.18em] text-muted-foreground">
+                                { highlight }
+                            </li>
+                        }) }
+                    </ul>
+                }
+                <div class="mt-8 flex items-end justify-between gap-6 border-t border-border pt-6">
+                    <span class="font-serif text-2xl font-light leading-none text-foreground lining-nums">{ listing_price_label(listing) }</span>
+                    <a href={listing_enquire_href(listing)}
+                        class="group/link inline-flex items-center gap-2 whitespace-nowrap text-xs font-light uppercase tracking-[0.2em] text-foreground transition-colors duration-300 hover:text-accent">
+                        {"Enquire"}
+                        <span class="inline-block h-px w-6 bg-current transition-all duration-500 group-hover/link:w-10" aria-hidden="true"></span>
+                    </a>
+                </div>
+            </div>
+        </article>
+    }
+}
+
 impl Home {
     /// The dark portfolio band: a heading, a "View All Properties" button, and four cards.
+    ///
+    /// EACH CARD IS ONE LINK. The image and the name were two links to the same page, so a keyboard stopped on every
+    /// estate twice; the card now carries one stretched link, the pattern the buyers inventory already uses. The facts
+    /// line is the one the TypeScript card drew — beds, baths and the leading view — at a contrast that reads on the dark
+    /// band, and the cards reveal in a short stagger across the row.
     fn portfolio(&self, block: &Block, items: &[Listing]) -> Html {
         let shown = &items[..items.len().min(4)];
         if shown.is_empty() {
@@ -196,47 +223,70 @@ impl Home {
         html! {
             <section class="bg-foreground px-6 py-24 text-background md:px-12 md:py-32">
                 <div class="mx-auto max-w-[1600px]">
-                    <div class="mb-14 flex flex-col gap-8 md:flex-row md:items-end md:justify-between">
+                    <div class="reveal mb-14 flex flex-col gap-8 md:flex-row md:items-end md:justify-between">
                         <div class="max-w-xl">
                             <p class="mb-4 text-xs font-light uppercase tracking-[0.34em] text-background/60">{ eyebrow.to_string() }</p>
                             <h2 class="text-balance font-serif text-4xl font-light leading-[1.05] md:text-5xl">{ title.to_string() }</h2>
                             <p class="mt-5 max-w-md text-pretty text-sm font-light leading-relaxed text-background/70">{ intro.to_string() }</p>
                         </div>
-                        <a href="/properties" class="inline-flex items-center gap-3 self-start border border-background/30 px-8 py-4 text-xs font-light uppercase tracking-[0.2em] transition-colors duration-500 hover:border-background md:self-auto">
-                            {"View All Properties"}<span aria-hidden="true">{"\u{2192}"}</span>
+                        <a href="/properties" class="group inline-flex items-center gap-3 self-start border border-background/30 px-8 py-4 text-xs font-light uppercase tracking-[0.2em] transition-colors duration-500 hover:border-background md:self-auto">
+                            {"View All Properties"}
+                            <span class="inline-block transition-transform duration-500 group-hover:translate-x-1" aria-hidden="true">{"\u{2192}"}</span>
                         </a>
                     </div>
-                    <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-                        { for shown.iter().map(|listing| html! {
-                            <article class="group flex flex-col">
-                                <div class="relative aspect-[5/4] w-full overflow-hidden bg-background/10">
-                                    <a href={format!("/properties/{}", listing.slug)} aria-label={listing.name.clone()}>
-                                        <img src={listing.image_path.clone().unwrap_or_else(|| "/placeholder.svg".to_string())}
-                                            alt={listing.image_alt.clone().unwrap_or_else(|| listing.name.clone())}
-                                            sizes="(min-width: 1024px) 22vw, (min-width: 640px) 45vw, 90vw"
-                                            class="absolute inset-0 h-full w-full object-cover transition-transform duration-[1400ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-[1.05]" />
-                                    </a>
-                                    if listing.featured {
-                                        <span class="absolute left-3 top-3 bg-background/90 px-3 py-1 text-[10px] font-light uppercase tracking-[0.18em] text-foreground">
-                                            {"Featured"}
-                                        </span>
-                                    }
-                                </div>
-                                <div class="mt-5 flex items-baseline justify-between gap-4">
-                                    <a href={format!("/properties/{}", listing.slug)} class="font-serif text-xl font-light transition-colors duration-300 hover:text-background/70">
-                                        { listing.name.clone() }
-                                    </a>
-                                    <span class="whitespace-nowrap text-sm font-light text-background/80">
-                                        { listing_price_label(listing) }
-                                    </span>
-                                </div>
-                                <p class="mt-2 text-[11px] font-light uppercase tracking-[0.16em] text-background/55">{ listing_facts(listing, FactsStyle::Compact) }</p>
-                            </article>
-                        }) }
+                    <div class="grid grid-cols-1 gap-x-6 gap-y-12 sm:grid-cols-2 lg:grid-cols-4">
+                        { for shown.iter().enumerate().map(|(index, listing)| portfolio_card(index, listing)) }
                     </div>
                 </div>
             </section>
         }
+    }
+}
+
+/// A facts line with its separators drawn, not typed: a spaced middle dot in a string collapses to a squeeze in HTML.
+/// The dots are decoration, hidden from screen readers, which hear a comma between the facts instead.
+fn facts_line(listing: &Listing, style: FactsStyle, dot: &'static str) -> Html {
+    html! {
+        { for listing_fact_parts(listing, style).into_iter().enumerate().map(|(index, part)| html! {
+            <>
+                if index > 0 {
+                    <span class="sr-only">{", "}</span>
+                    <span class={classes!("mx-2", dot)} aria-hidden="true">{"\u{00b7}"}</span>
+                }
+                <span class="whitespace-nowrap">{ part }</span>
+            </>
+        }) }
+    }
+}
+
+/// One card in the portfolio band.
+fn portfolio_card(index: usize, listing: &Listing) -> Html {
+    html! {
+        <article class="reveal group relative flex flex-col" style={format!("--reveal-step: {}", index % 4)}>
+            <div class="relative aspect-[5/4] w-full overflow-hidden bg-background/10">
+                { listing_image(
+                    listing,
+                    "absolute inset-0 h-full w-full object-cover transition-transform duration-[1400ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-[1.05]",
+                    "(min-width: 1024px) 22vw, (min-width: 640px) 45vw, 90vw",
+                ) }
+                if listing.featured {
+                    <span class="pointer-events-none absolute left-3 top-3 z-20 bg-background/90 px-3 py-1 text-[10px] font-light uppercase tracking-[0.18em] text-foreground">
+                        {"Featured"}
+                    </span>
+                }
+            </div>
+            <a href={format!("/properties/{}", listing.slug)} aria-label={format!("View {}", listing.name)}
+                class="absolute inset-0 z-10 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-4 focus-visible:outline-background"></a>
+            <div class="mt-5 flex items-baseline justify-between gap-4">
+                <h3 class="min-w-0 font-serif text-xl font-light transition-colors duration-300 group-hover:text-background/70">
+                    { listing.name.clone() }
+                </h3>
+                <span class="whitespace-nowrap font-serif text-lg font-light text-background/90 lining-nums">{ listing_price_label(listing) }</span>
+            </div>
+            <p class="mt-2 text-[11px] font-light uppercase tracking-[0.16em] text-background/70">
+                { facts_line(listing, FactsStyle::Compact, "text-background/40") }
+            </p>
+        </article>
     }
 }
 
