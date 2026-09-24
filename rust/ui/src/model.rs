@@ -2100,6 +2100,7 @@ pub struct PropertyMediaState {
 pub struct PortalEntitlements {
     pub account_type: String,
     pub security_level: String,
+    pub is_root: bool,
     pub entitlement_codes: Vec<String>,
 }
 
@@ -2200,9 +2201,14 @@ impl Model {
     /// Cosmetic UI capability check. The service port remains the enforcement point.
     pub fn can(&self, action: &str) -> bool {
         self.entitlements.as_ref().is_some_and(|grants| {
-            grants.account_type == "internal"
-                && (grants.security_level == "ROOT"
-                    || grants.entitlement_codes.iter().any(|code| code == action))
+            if grants.account_type != "internal" {
+                false
+            } else if action == "security.entitlement.manage" {
+                grants.is_root
+            } else {
+                grants.security_level == "ROOT"
+                    || grants.entitlement_codes.iter().any(|code| code == action)
+            }
         })
     }
 
