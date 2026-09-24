@@ -8,7 +8,7 @@ import { captureServerError } from "@/lib/server-error-capture"
 import { appServiceErrorSink } from "@/lib/service-error-sink"
 import { getActingUser } from "@/lib/auth/get-acting-user"
 import { getPortalSessionAdapter } from "@/lib/auth/portal-session"
-import { AuthorizationService, StaticAuthorizationPolicyProvider } from "@/legacy/services/entitlement"
+import { AuthorizationService } from '@/legacy/services/entitlement'
 import { ServiceRegistry, type ServiceContext } from "@/legacy/services/core"
 import { ProjectService, type InstantiateProjectRequest } from "@/legacy/services/project"
 import type { ProjectStatus } from "@/legacy/services/project"
@@ -42,7 +42,7 @@ export async function instantiateProjectAction(
   try {
     const context = await serviceContext()
     const infrastructure = {
-      authorization: new AuthorizationService(new StaticAuthorizationPolicyProvider()),
+      authorization: new AuthorizationService(),
       errors: appServiceErrorSink(),
     }
     const registry = new ServiceRegistry()
@@ -64,7 +64,7 @@ export async function updateProjectStatusAction(
   try {
     const context = await serviceContext()
     const project = new ProjectService(new SqlProjectRepository(), {
-      authorization: new AuthorizationService(new StaticAuthorizationPolicyProvider()),
+      authorization: new AuthorizationService(),
       errors: appServiceErrorSink(),
     })
     const result = await project.execute({

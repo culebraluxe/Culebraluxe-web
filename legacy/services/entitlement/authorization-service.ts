@@ -5,6 +5,21 @@ import type {
   ServiceOperationKind,
 } from '@/legacy/services/core'
 import { hasSecurityLevel, type SecurityLevel } from '@/legacy/services/security/level'
+// NOTE: no static import of the Rust client here — it is `server-only` and is loaded lazily in askRustToDecide,
+// so harnesses and scripts that import this module without ever authorizing stay loadable.
+
+/** Where a decision comes from. Production passes nothing and gets the Rust security service. */
+export type DecisionDelegate = (
+  request: AuthorizationRequest,
+) => Promise<AuthorizationDecision>
+
+/**
+ * THE POLICY-AS-DATA TYPES BELOW ARE HISTORY, kept only because the field names are still read by older callers.
+ *
+ * The rules they describe are no longer evaluated here: `AuthorizationService` asks the Rust security service, which
+ * owns the ROOT-only rule for the `security.*.manage` actions, the entitlement grants and the level hierarchy. What
+ * remains in this file is the port and its delegate.
+ */
 
 /**
  * Policy-as-data authorization resolver (first cut).
@@ -38,128 +53,59 @@ export interface EntitlementGrantProvider {
   hasGrant(appUserId: string, action: string, kind: ServiceOperationKind): Promise<boolean>
 }
 
-/** Built-in rules; the enforce list starts where the open-stub left off. */
-export const DEFAULT_AUTHORIZATION_POLICIES: readonly AuthorizationPolicy[] = [
-  {
-    id: 'rule:contract.execute',
-    description: 'Executing a Contract is high-value and near-irreversible.',
-    domain: 'contract',
-    operation: 'contract.execute',
-    kind: 'command',
-    minLevel: 'BUSINESS_POWER_USER',
-  },
-]
-
-const ROOT_POLICY_ID = 'authorization:root'
-
+/**
+ * THE AUTHORIZATION PORT, decided by Rust.
+ *
+ * There is ONE engine for "may this principal do this action", and it is the Rust security service: the Casbin port,
+ * the ROOT-only rule for `security.entitlement.manage` / `security.role.manage`, the entitlement grants and the level
+ * hierarchy. This class is the boundary the TypeScript kernel talks to; it holds no rules of its own.
+ *
+ * WHY IT USED TO HOLD RULES, AND WHAT THAT COST. It carried a policy table read from the database plus its own
+ * role-entitlement query, so TypeScript could decide without asking anyone. Two engines meant two answers: the
+ * ROOT-only rule existed in Rust and NOT here, so a grant row Rust would refuse to honour would have been honoured on
+ * this side. They also disagreed about freshness — a revocation bit on the next Rust request, and whenever the
+ * TypeScript query happened to run.
+ *
+ * A call that cannot reach the authority is NOT an allow: the client throws, BaseService fails the operation, and
+ * "we could not check" stays distinct from "it is fine".
+ */
 export class AuthorizationService implements AuthorizationPort {
   readonly mode = 'enforced' as const
 
-  constructor(
-    private readonly provider: AuthorizationPolicyProvider,
-    private readonly grants?: EntitlementGrantProvider,
-  ) {}
+  constructor(private readonly decide: DecisionDelegate = askRustToDecide) {}
 
   async authorize(request: AuthorizationRequest): Promise<AuthorizationDecision> {
-    const level: SecurityLevel = request.principal?.level ?? 'GUEST'
-    const isGuest = level === 'GUEST'
-
-    // ROOT is the explicit superuser: god access, one place, never per-handler.
-    if (level === 'ROOT') {
-      return {
-        allowed: true,
-        reason: 'ROOT superuser',
-        policyId: ROOT_POLICY_ID,
-        mode: 'enforced',
-      }
-    }
-
-    const rules = await this.provider.policies()
-    const rule = this.match(request, rules)
-    // The rule is a minimum-level floor; a role grant is also required. This
-    // keeps the existing high-value rules while making per-action grants real.
-    const levelAllowed = !rule || hasSecurityLevel(level, rule.minLevel)
-    const grantAllowed = this.grants && request.principal
-      ? await this.grants.hasGrant(request.principal.appUserId, request.action, request.kind)
-      : undefined
-    if (rule) {
-      const allowed = levelAllowed && (grantAllowed ?? true)
-      return {
-        allowed,
-        reason: !levelAllowed
-          ? `${rule.id}: ${level} is below required ${rule.minLevel}`
-          : grantAllowed === false
-            ? `${rule.id}: no matching role entitlement`
-            : `${rule.id}: ${level} meets required ${rule.minLevel}`,
-        policyId: rule.id,
-        mode: 'enforced',
-      }
-    }
-
-    if (grantAllowed !== undefined) {
-      return {
-        allowed: grantAllowed,
-        reason: grantAllowed ? 'role entitlement granted' : 'no matching role entitlement',
-        policyId: `entitlement:${request.action}`,
-        mode: 'enforced',
-      }
-    }
-
-    // No rule: kind-based default. GUEST (unauthenticated) may read, never write.
-    if (request.kind === 'query') {
-      return {
-        allowed: true,
-        reason: isGuest ? 'default: GUEST query allowed' : 'default: query allowed',
-        policyId: 'default:query',
-        mode: 'enforced',
-      }
-    }
-    if (isGuest) {
-      return {
-        allowed: false,
-        reason: 'default: GUEST (or missing principal) cannot run commands',
-        policyId: 'default:guest.command-deny',
-        mode: 'enforced',
-      }
-    }
-    return {
-      allowed: true,
-      reason: `default: ${level} command allowed`,
-      policyId: 'default:command',
-      mode: 'enforced',
-    }
-  }
-
-  /** Highest-specificity matching rule wins; ties keep first definition order. */
-  private match(
-    request: AuthorizationRequest,
-    policies: readonly AuthorizationPolicy[],
-  ): AuthorizationPolicy | null {
-    let best: AuthorizationPolicy | null = null
-    let bestSpecificity = -1
-    for (const policy of policies) {
-      if (policy.domain !== undefined && policy.domain !== request.domain) continue
-      if (policy.operation !== undefined && policy.operation !== request.operation) continue
-      if (policy.action !== undefined && policy.action !== request.action) continue
-      if (policy.kind !== undefined && policy.kind !== request.kind) continue
-      const specificity =
-        (policy.domain === undefined ? 0 : 1) +
-        (policy.action === undefined ? 0 : 1) +
-        (policy.operation === undefined ? 0 : 1) +
-        (policy.kind === undefined ? 0 : 1)
-      if (specificity > bestSpecificity) {
-        best = policy
-        bestSpecificity = specificity
-      }
-    }
-    return best
+    return this.decide(request)
   }
 }
 
-/** Constant provider wrapping a static rule set (the first-cut policy source). */
-export class StaticAuthorizationPolicyProvider implements AuthorizationPolicyProvider {
-  constructor(private readonly rules: readonly AuthorizationPolicy[] = DEFAULT_AUTHORIZATION_POLICIES) {}
-  async policies(): Promise<readonly AuthorizationPolicy[]> {
-    return this.rules
+/**
+ * The production delegate: one question to the service that owns the answer.
+ *
+ * THE REQUEST'S DOMAIN AND OPERATION ARE NOT SENT. Rust derives them from the action, because its policy keys rules on
+ * those fields — a client able to relabel its own domain could dodge the `contract.execute` level floor. The action
+ * and its kind are the whole question, and the catalog refuses any action it does not know.
+ *
+ * WHICH DOOR, HOWEVER, IS THE ACTOR'S. The public site has no session (a visitor is not signed in), so it asks the
+ * public door, which resolves the caller to the `public-website` system actor in Rust; everyone else asks the
+ * identified one. The choice is made here because this is where the caller's own description of itself arrives, and
+ * it is a claim Rust verifies against a named list rather than one this side can widen.
+ *
+ * The client is imported LAZILY because it is `server-only` (it reads the Auth.js session and signs bridge headers),
+ * and this module is imported by scripts and harnesses that run outside a Next build and never authorize. Loading it
+ * on the path that needs it keeps those callers loadable instead of failing at import time.
+ */
+async function askRustToDecide(request: AuthorizationRequest): Promise<AuthorizationDecision> {
+  const { rustApiAuthorize, rustApiAuthorizePublic } = await import('@/lib/rust-api/client')
+  const isPublicSurface =
+    request.actor?.kind === 'system' && request.actor.id === 'public-website'
+  const decision = isPublicSurface
+    ? await rustApiAuthorizePublic(request.action, request.kind)
+    : await rustApiAuthorize(request.action, request.kind)
+  return {
+    allowed: decision.allowed,
+    reason: decision.reason,
+    policyId: decision.policyId,
+    mode: 'enforced',
   }
 }

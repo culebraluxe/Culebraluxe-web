@@ -8,10 +8,7 @@ import {
   PROPERTY_OPERATIONS,
   PropertyService,
 } from '@/legacy/services/property'
-import {
-  AuthorizationService,
-  StaticAuthorizationPolicyProvider,
-} from '@/legacy/services/entitlement'
+import { AuthorizationService } from '@/legacy/services/entitlement'
 import { appServiceErrorSink } from '@/lib/service-error-sink'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
@@ -20,7 +17,7 @@ import { withApiHandler } from '@/lib/error-capture-seam'
 // boundary. Forms can consume the same Property DTOs without depending on this
 // HTTP adapter.
 const propertyService = new PropertyService(new SqlPropertyRepository(), {
-  authorization: new AuthorizationService(new StaticAuthorizationPolicyProvider()),
+  authorization: new AuthorizationService(),
   errors: appServiceErrorSink(),
 })
 

@@ -4,7 +4,8 @@ import { SqlProjectRepository } from '@/legacy/db/project-service-repository'
 import { SqlWbsRepository } from '@/legacy/db/wbs-service-repository'
 import { ProjectService } from '@/legacy/services/project'
 import { WbsService } from '@/legacy/services/wbs'
-import { AuthorizationService, StaticAuthorizationPolicyProvider } from '@/legacy/services/entitlement'
+import { AuthorizationService } from '@/legacy/services/entitlement'
+import { harnessAuthorization } from '@/scripts/harness-authorization'
 import { resolveSecurityLevel } from '@/legacy/services/security'
 import { mapRealProjectsToWorkspace } from '../ui/projects/service-projection'
 import { ServiceRegistry } from '@/legacy/services/core'
@@ -23,7 +24,7 @@ async function main() {
   }
 
   const infrastructure = {
-    authorization: new AuthorizationService(new StaticAuthorizationPolicyProvider()),
+    authorization: new AuthorizationService(harnessAuthorization),
   }
   const wbsService = new WbsService(new SqlWbsRepository(), infrastructure)
   const registry = new ServiceRegistry()

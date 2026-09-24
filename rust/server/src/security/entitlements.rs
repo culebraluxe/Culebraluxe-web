@@ -21,6 +21,22 @@ e = some(where (p_eft == allow))
 m = r.sub == p.sub && r.obj == p.obj && r.act == p.act
 "#;
 
+/// The actions that are PUBLISHED: they may be run by anyone, queries only.
+///
+/// The rule this replaces was the open-stub default "GUEST may query", which is a hole rather than a decision — an
+/// anonymous caller was allowed `deal.read`, `firm.read` and `security.listRoleEntitlements` too. The site publishes
+/// ACTIVE LISTINGS; it does not publish the firm's deals. So publication is a NAMED list.
+///
+/// WHY AN ACTION AND NOT AN OPERATION. The decision endpoint derives an operation from the action, so a list of
+/// operation names could never match here. It also has to be an action of its OWN rather than the internal
+/// `property.read`: public listings and private property detail are both reads, and sharing one action would let the
+/// public surface reach the detail — the guarantee would live in a code comment instead of in the policy.
+///
+/// WHY "ANYONE" RATHER THAN "THE PUBLIC ACTOR". An action on this list is published, so being signed in does not
+/// remove the right to read it: an internal picker may read what an anonymous visitor may read. The public DOOR still
+/// exists, because a visitor has no session and the identified door requires one.
+const PUBLIC_READ_ACTIONS: &[&str] = &["property.public.read"];
+
 /// Evaluates the grants supplied by the active user's DB roles against an explicit
 /// Casbin action catalog. The database remains the source of truth for grants.
 pub struct CasbinAuthorizationPort {
@@ -57,7 +73,11 @@ impl AuthorizationPort for CasbinAuthorizationPort {
             && request.operation == "vault.publicListingDocumentBytes"
             && request.action == "vault.publicListingDocument.read"
             && request.kind == OperationKind::Query;
-        let (allowed, policy_id) = if bootstrap || public {
+        // PUBLISHED ACTIONS: anyone may run them, and only as a QUERY. Placed before the principal check because a
+        // visitor has no principal at all — that is what "published" means. See PUBLIC_READ_ACTIONS.
+        let published =
+            request.kind == OperationKind::Query && PUBLIC_READ_ACTIONS.contains(&request.action);
+        let (allowed, policy_id) = if bootstrap || public || published {
             (true, "system:explicit")
         } else if request.action == "security.identity.resolve"
             || request.action == "vault.publicListingDocument.read"
@@ -252,6 +272,55 @@ mod tests {
         assert!(auth.authorize(req.clone()).await.unwrap().allowed);
         req.action = "vault.read";
         assert!(!auth.authorize(req).await.unwrap().allowed);
+
+        // ---- PUBLISHED actions (PUBLIC_READ_ACTIONS) ---------------------------------------------------------
+        // The public site goes through the service kernel with no principal, so "may it read this" is decided here.
+        // The rule this replaces was the open-stub default "GUEST may query", which would have allowed ALL of the
+        // negatives below to an anonymous caller.
+        let mut public_read = request("property.public.read", OperationKind::Query, &[]);
+        public_read.principal = None;
+        public_read.actor = ServiceActor {
+            id: Some("public-website".into()),
+            kind: ServiceActorKind::System,
+        };
+        assert!(
+            auth.authorize(public_read.clone()).await.unwrap().allowed,
+            "published listings may be read with no principal at all"
+        );
+
+        // Signed in, published data: still readable. Publication is not a privilege that sign-in removes.
+        public_read.actor = ServiceActor {
+            id: Some("u1".into()),
+            kind: ServiceActorKind::User,
+        };
+        assert!(
+            auth.authorize(public_read.clone()).await.unwrap().allowed,
+            "an internal reader may read what an anonymous visitor may read"
+        );
+
+        // NOT PUBLISHED: the internal read action, which is how private property detail is reached.
+        public_read.action = "property.read";
+        assert!(
+            !auth.authorize(public_read.clone()).await.unwrap().allowed,
+            "private property detail is not published"
+        );
+
+        // NOT PUBLISHED: other people's data.
+        for action in ["deal.read", "firm.read", "security.role.manage"] {
+            public_read.action = action;
+            assert!(
+                !auth.authorize(public_read.clone()).await.unwrap().allowed,
+                "{action} is not published"
+            );
+        }
+
+        // PUBLICATION IS A READ: the same published action cannot be COMMANDED.
+        public_read.action = "property.public.read";
+        public_read.kind = OperationKind::Command;
+        assert!(
+            !auth.authorize(public_read).await.unwrap().allowed,
+            "the site reads its listings; it does not write them"
+        );
     }
 
     #[tokio::test]

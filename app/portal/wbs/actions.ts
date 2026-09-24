@@ -10,10 +10,7 @@ import { resolveSecurityLevel } from "@/legacy/services/security"
 import { WbsService } from "@/legacy/services/wbs"
 import type { WbsCategoryId } from "@/legacy/services/wbs"
 import { appServiceErrorSink } from "@/lib/service-error-sink"
-import {
-  AuthorizationService,
-  StaticAuthorizationPolicyProvider,
-} from "@/legacy/services/entitlement"
+import { AuthorizationService } from "@/legacy/services/entitlement"
 import type { ServiceContext } from "@/legacy/services/core"
 
 export type WbsActionResult =
@@ -26,7 +23,7 @@ export type AppleReminderActionResult =
 
 function wbsService(): WbsService {
   return new WbsService(new SqlWbsRepository(), {
-    authorization: new AuthorizationService(new StaticAuthorizationPolicyProvider()),
+    authorization: new AuthorizationService(),
     errors: appServiceErrorSink(),
   })
 }

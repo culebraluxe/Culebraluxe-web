@@ -1,8 +1,8 @@
 // ---------------------------------------------------------------------------
-// AUTH-09E — V1 ROOT / BUSINESS_POWER tech entitlement.
+// AUTH-09E — V1 ROOT / BUSINESS_POWER authority split.
 //
-// Proves the authority-based split without a live browser, using the DB gateway
-// test executor seam + a fake SessionAdapter:
+// Proves the authority-based split without a live browser, using the Security
+// repository seam + a fake SessionAdapter:
 //   A  ROOT            -> tech.access true
 //   B  BUSINESS_POWER  -> tech.access false
 //   C  ROOT            -> TECH nav visible
@@ -12,55 +12,84 @@
 //   G  Security (Support) respects settings.read
 //   H  Security mutation requires settings.manage
 //   I  Lisa dual identities map to ONE app_user
-//   J  runtime lookup uses provider+subject, never email
+//   J  identity resolution uses provider+subject, never email
 //   K  inactive user denied
 //   L  unknown provider subject denied
 //   M  role assignment never creates a duplicate app_user
 //   N  existing portal.read behavior intact
+//
+// THE SEAM MOVED WITH THE MAPPING. These tests used to stage rows through
+// `setDatabaseTestExecutor`, because the projection ran in TypeScript. The
+// projection is the Rust security service's now, so they stage the RESOLUTION
+// (`setSecurityRepositoryForTesting`) — the actor a subject maps to — and keep
+// asserting the authority rules and redirect targets, which is what this fence
+// is actually about. J's subject moved too, so its assertion follows the code to
+// `rust/core/db/src/security.rs` rather than guarding a TS file that no longer
+// performs the lookup.
 // ---------------------------------------------------------------------------
 
 import { test, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
-import { setDatabaseTestExecutor } from '@/legacy/db/client'
-import type { QueryExecutor, QueryRow } from '@/legacy/db/query-executor'
 import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
+import {
+  setAuthorizationPortForTesting,
+  setSecurityRepositoryForTesting,
+} from '@/lib/auth/security-runtime'
 import type { SessionAdapter } from '@/lib/auth/session-adapter'
+import type { ActingUser, AuthorityCode } from '@/lib/auth/types'
+import type { SecurityRepository } from '@/legacy/services/security'
 import {
   OPERATING_SURFACES,
   navigationForSurface,
 } from '@/lib/navigation'
 
-afterEach(() => setDatabaseTestExecutor(null))
+afterEach(() => {
+  setSecurityRepositoryForTesting(null)
+  setAuthorizationPortForTesting(null)
+})
 
-/** Canned row-sets replayed in order (last set repeats). */
-function makeExecutor(sequences: QueryRow[][]): QueryExecutor {
-  let i = 0
-  return async (strings) => {
-    const set = sequences[Math.min(i, sequences.length - 1)] ?? []
-    i++
-    return set
-  }
+/**
+ * The decision for the operations these tests run. Identity resolution is itself authorized
+ * (`security.identity.resolve`, granted to the Auth.js edge actor by a Rust bootstrap rule), and this permits it so
+ * the test is about the mapping and the gate rather than about a bridge client that cannot load outside a Next
+ * runtime. The rule itself is asserted in Rust.
+ */
+const permitAuthorization = {
+  mode: 'enforced' as const,
+  authorize: async () => ({
+    allowed: true,
+    reason: 'test: identity resolution is permitted',
+    policyId: 'test:permit',
+    mode: 'enforced' as const,
+  }),
 }
 
-function principal(
+/** Install both doubles: the mapping, and the decision that permits reading it. */
+function installDoubles(repository: SecurityRepository): void {
+  setAuthorizationPortForTesting(permitAuthorization)
+  setSecurityRepositoryForTesting(repository)
+}
+
+function actor(
   appUserId: string,
   roleCodes: string[],
   authorityCodes: string[],
-): QueryRow {
+): ActingUser {
   return {
-    app_user_id: appUserId,
-    display_name: appUserId,
+    appUserId,
+    displayName: appUserId,
     email: null,
-    account_type: 'internal',
-    person_id: null,
-    role_codes: roleCodes,
-    authority_codes: authorityCodes,
+    accountType: 'internal',
+    roleCodes,
+    authorityCodes,
+    entitlementCodes: [],
+    personId: null,
   }
 }
 
-const ROOT_PRINCIPAL = principal('root-user', ['root'], [
+const ROOT_PRINCIPAL = actor('root-user', ['root'], [
   'portal.read',
   'crm.write',
   'listing.write',
@@ -71,7 +100,7 @@ const ROOT_PRINCIPAL = principal('root-user', ['root'], [
   'tech.access',
 ])
 
-const BP_PRINCIPAL = principal('bp-user', ['business_power'], [
+const BP_PRINCIPAL = actor('bp-user', ['business_power'], [
   'portal.read',
   'crm.write',
   'listing.write',
@@ -80,8 +109,8 @@ const BP_PRINCIPAL = principal('bp-user', ['business_power'], [
   'settings.read',
 ])
 
-/** Fake adapter + executor resolving to the given principal (subject 'sub-1'). */
-function authorizeAs(p: QueryRow): SessionAdapter {
+/** A fake session for the given actor's subject. */
+function authorizeAs(_p: ActingUser): SessionAdapter {
   return {
     getSession: async () => ({
       provider: 'google',
@@ -90,15 +119,27 @@ function authorizeAs(p: QueryRow): SessionAdapter {
     }),
   }
 }
-function executorFor(p: QueryRow): QueryExecutor {
-  return makeExecutor([[{ app_user_id: p.app_user_id }], [p]])
+
+function repositoryFor(p: ActingUser): SecurityRepository {
+  return {
+    async resolveProviderSubject() {
+      return { kind: 'known', actingUser: p }
+    },
+    async getPrincipal() {
+      return null
+    },
+  }
 }
+
 async function checkRoute(
-  p: QueryRow,
+  p: ActingUser,
   authority: string,
 ): Promise<{ ok: boolean; redirectTo?: string }> {
-  setDatabaseTestExecutor(executorFor(p))
-  const result = await resolvePortalAccess(authorizeAs(p), authority as never)
+  installDoubles(repositoryFor(p))
+  const result = await resolvePortalAccess(
+    authorizeAs(p),
+    authority as AuthorityCode,
+  )
   return result.ok ? { ok: true } : { ok: false, redirectTo: result.redirectTo }
 }
 
@@ -111,6 +152,26 @@ test('AUTH-09E B: BUSINESS_POWER does NOT have tech.access', async () => {
   const r = await checkRoute(BP_PRINCIPAL, 'tech.access')
   assert.equal(r.ok, false)
   if (!r.ok) assert.equal(r.redirectTo, '/login/unauthorized')
+})
+
+test('AUTH-09E C: ROOT sees TECH nav', () => {
+  assert.equal(OPERATING_SURFACES.TECH.accessAuthority, 'tech.access')
+  const items = navigationForSurface('TECH')
+  assert.ok(items.length > 0, 'TECH has nav items')
+  assert.ok(
+    items.every((i) => i.authority === 'tech.access'),
+    'all TECH nav items require tech.access',
+  )
+  const rootAuth = ROOT_PRINCIPAL.authorityCodes
+  const visible = items.filter((i) => !i.authority || rootAuth.includes(i.authority))
+  assert.equal(visible.length, items.length, 'ROOT sees all TECH nav items')
+})
+
+test('AUTH-09E D: BUSINESS_POWER does NOT see TECH nav', () => {
+  const items = navigationForSurface('TECH')
+  const bpAuth = BP_PRINCIPAL.authorityCodes
+  const visible = items.filter((i) => !i.authority || bpAuth.includes(i.authority))
+  assert.equal(visible.length, 0, 'no TECH nav items visible to BUSINESS_POWER')
 })
 
 test('AUTH-09E E: ROOT direct TECH route allowed', async () => {
@@ -129,7 +190,7 @@ test('AUTH-09E G: Support/Security respects settings.read', async () => {
   const bpRead = await checkRoute(BP_PRINCIPAL, 'settings.read')
   assert.equal(bpRead.ok, true)
   // An actor without settings.read is denied the Security surface.
-  const noRead = principal('v', ['viewer'], ['portal.read', 'deal.read'])
+  const noRead = actor('v', ['viewer'], ['portal.read', 'deal.read'])
   const denied = await checkRoute(noRead, 'settings.read')
   assert.equal(denied.ok, false)
 })
@@ -145,13 +206,15 @@ test('AUTH-09E H: Security mutation requires settings.manage', async () => {
 test('AUTH-09E N: existing portal.read behavior intact for both roles', async () => {
   assert.equal((await checkRoute(ROOT_PRINCIPAL, 'portal.read')).ok, true)
   assert.equal((await checkRoute(BP_PRINCIPAL, 'portal.read')).ok, true)
+})
 
 test('AUTH-09E I: Lisa dual identities map to ONE app_user', async () => {
-  const shared = 'shared-lisa-user'
-  const p = principal(shared, ['business_power'], ['portal.read'])
-  const run = async (subject: string, email: string) => {
-    setDatabaseTestExecutor(makeExecutor([[{ app_user_id: shared }], [p]]))
-    return resolvePortalAccess(
+  // Two provider subjects, one application user: the mapping is by subject, and
+  // both subjects resolve to the same actor, so the app_user is not duplicated.
+  const shared = actor('shared-lisa-user', ['business_power'], ['portal.read'])
+  installDoubles(repositoryFor(shared))
+  const run = async (subject: string, email: string) =>
+    resolvePortalAccess(
       {
         getSession: async () => ({
           provider: 'google',
@@ -161,58 +224,69 @@ test('AUTH-09E I: Lisa dual identities map to ONE app_user', async () => {
       },
       'portal.read',
     )
-  }
   const a = await run('google-sub-lisa-1', 'lisa@culebraluxe.com')
   const b = await run('google-sub-lisa-2', 'penfield33@gmail.com')
   assert.equal(a.ok && b.ok, true)
   if (a.ok && b.ok) assert.equal(a.actor.appUserId, b.actor.appUserId)
 })
 
-test('AUTH-09E J: runtime lookup uses provider+subject, never email', async () => {
-  const src = await readFile(new URL('../../db/auth-identity.ts', import.meta.url), 'utf8')
-  assert.ok(src.includes('provider_subject'), 'lookup keyed by provider_subject')
+test('AUTH-09E J: identity resolution is keyed by provider+subject, never email', async () => {
+  // THE LOOKUP MOVED, SO THE GUARD MOVED WITH IT. This asserted the SQL in
+  // `legacy/db/auth-identity.ts`; the lookup is now in Rust, and a guard left
+  // behind on the old file would keep passing while the real lookup drifted.
+  const src = await readFile(
+    new URL('../../../rust/core/db/src/security.rs', import.meta.url),
+    'utf8',
+  )
+  const lookup = src.slice(
+    src.indexOf('pub async fn resolve_provider_subject'),
+    src.indexOf('pub async fn get_principal'),
+  )
+  assert.ok(lookup.length > 0, 'the Rust lookup was found')
   assert.ok(
-    !/where[\s\S]{0,140}email/i.test(src),
-    'no email used as an identity lookup key in resolveProviderSubject',
+    lookup.includes('provider = $1 and provider_subject = $2'),
+    'lookup keyed by provider + provider_subject',
+  )
+  // Scoped to the lookup: `get_principal` selects u.email legitimately, so a
+  // whole-file check for 'email' would be a guard that fails for the wrong
+  // reason and then gets weakened until it passes.
+  assert.ok(
+    !/where[\s\S]{0,200}email/i.test(lookup),
+    'email is never an identity lookup key',
   )
 })
 
 test('AUTH-09E K: inactive user denied', async () => {
-  setDatabaseTestExecutor(makeExecutor([[{ app_user_id: 'u1' }], []]))
+  installDoubles({
+    async resolveProviderSubject() {
+      return { kind: 'inactive' }
+    },
+    async getPrincipal() {
+      return null
+    },
+  })
   const r = await resolvePortalAccess(authorizeAs(ROOT_PRINCIPAL), 'portal.read')
   assert.equal(r.ok, false)
 })
 
 test('AUTH-09E L: unknown provider subject denied', async () => {
-  setDatabaseTestExecutor(makeExecutor([[]]))
+  installDoubles({
+    async resolveProviderSubject() {
+      return { kind: 'unmapped' }
+    },
+    async getPrincipal() {
+      return null
+    },
+  })
   const r = await resolvePortalAccess(authorizeAs(ROOT_PRINCIPAL), 'portal.read')
   assert.equal(r.ok, false)
 })
 
 test('AUTH-09E M: role assignment never creates a duplicate app_user', async () => {
-  const src = await readFile(new URL('../../../scripts/provision-v1-roles.ts', import.meta.url), 'utf8')
+  const src = await readFile(
+    new URL('../../../scripts/provision-v1-roles.ts', import.meta.url),
+    'utf8',
+  )
   assert.ok(src.includes('insert into app_user_role'), 'only role assignments written')
   assert.ok(!src.includes('insert into app_user '), 'never inserts into app_user')
-})
-
-test('AUTH-09E C: ROOT sees TECH nav', () => {
-  assert.equal(OPERATING_SURFACES.TECH.accessAuthority, 'tech.access')
-  const items = navigationForSurface('TECH')
-  assert.ok(items.length > 0, 'TECH has nav items')
-  assert.ok(
-    items.every((i) => i.authority === 'tech.access'),
-    'all TECH nav items require tech.access',
-  )
-  const rootAuth = ROOT_PRINCIPAL.authority_codes as string[]
-  const visible = items.filter((i) => !i.authority || rootAuth.includes(i.authority))
-  assert.equal(visible.length, items.length, 'ROOT sees all TECH nav items')
-})
-
-test('AUTH-09E D: BUSINESS_POWER does NOT see TECH nav', () => {
-  const items = navigationForSurface('TECH')
-  const bpAuth = BP_PRINCIPAL.authority_codes as string[]
-  const visible = items.filter((i) => !i.authority || bpAuth.includes(i.authority))
-  assert.equal(visible.length, 0, 'no TECH nav items visible to BUSINESS_POWER')
-})
-
 })

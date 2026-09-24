@@ -1,5 +1,10 @@
 // Each action is a distinct entitlement; the second value is its operation kind.
 // Keep this catalog aligned with the corresponding SQL seed.
+//
+// An action must appear here to be DECIDABLE by the authorize endpoint, which refuses anything it cannot name. That
+// is why `security.identity.resolve` is listed even though no role grants it: the login seam's own operation is
+// authorized (granted to the Auth.js edge actor by a policy rule), and an action that cannot be named cannot be
+// decided — the seam would have failed closed against a catalog gap rather than against a policy.
 pub(super) const ACTIONS: &[(&str, &str)] = &[
     ("accounting.read", "query"),
     ("accounting.write", "command"),
@@ -22,8 +27,10 @@ pub(super) const ACTIONS: &[(&str, &str)] = &[
     ("portal.read", "query"),
     ("project.read", "query"),
     ("project.write", "command"),
+    ("property.public.read", "query"),
     ("property.read", "query"),
     ("property.write", "command"),
+    ("security.identity.resolve", "query"),
     ("security.principal.read", "query"),
     ("security.entitlement.manage", "command"),
     ("security.role.manage", "command"),

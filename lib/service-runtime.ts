@@ -12,8 +12,7 @@ import { SqlFormInstanceRepository } from '@/legacy/db/form-service-repository'
 import { SqlVaultRepository } from '@/legacy/db/vault-service-repository'
 import { SqlCommsRepository } from '@/legacy/db/comms-service-repository'
 import { composeCoreServices } from '@/legacy/services/composition'
-import { AuthorizationService, SqlRoleEntitlementProvider } from '@/legacy/services/entitlement'
-import { SqlAuthorizationPolicyProvider } from '@/legacy/services/entitlement/db-authorization-policy-provider'
+import { AuthorizationService } from '@/legacy/services/entitlement'
 import { appServiceErrorSink } from '@/lib/service-error-sink'
 
 /**
@@ -24,10 +23,7 @@ import { appServiceErrorSink } from '@/lib/service-error-sink'
  * query the `property` / `person` tables directly; a screen that does is a
  * surface that missed the service-layer refactor.
  */
-export const coreEntitlements = new AuthorizationService(
-  new SqlAuthorizationPolicyProvider(),
-  new SqlRoleEntitlementProvider(),
-)
+export const coreEntitlements = new AuthorizationService()
 
 export const coreServices = composeCoreServices(
   {

@@ -9,42 +9,86 @@ import { SqlShowingRepository } from '@/legacy/db/showing-service-repository'
 import { SqlWbsRepository } from '@/legacy/db/wbs-service-repository'
 import { SqlProjectRepository } from '@/legacy/db/project-service-repository'
 import { composeCoreServices } from '@/legacy/services/composition'
-import { AuthorizationService, SqlRoleEntitlementProvider } from '@/legacy/services/entitlement'
-import { SqlAuthorizationPolicyProvider } from '@/legacy/services/entitlement/db-authorization-policy-provider'
-import { SECURITY_OPERATIONS, type SecurityIdentityResolution } from '@/legacy/services/security'
+import { AuthorizationService } from '@/legacy/services/entitlement'
+import type { AuthorizationPort } from '@/legacy/services/core'
+import type { SecurityRepository } from '@/legacy/services/security/repository'
+import {
+  SECURITY_OPERATIONS,
+  type SecurityIdentityResolution,
+  type SecurityService,
+} from '@/legacy/services/security'
 import { appServiceErrorSink } from '@/lib/service-error-sink'
 
-const authEntitlements = new AuthorizationService(
-  new SqlAuthorizationPolicyProvider(),
-  new SqlRoleEntitlementProvider(),
-)
+let securityRepository: SecurityRepository | null = null
+let authorizationPort: AuthorizationPort | null = null
+let composed: SecurityService | null = null
+
+/**
+ * TEST SEAM: substitute the Security service's persistence boundary.
+ *
+ * The same shape as `setDatabaseTestExecutor` in `legacy/db/client.ts`, and for the same reason: the identity
+ * mapping is a boundary, and a test that wants to say "this subject maps to this actor" should say it HERE rather
+ * than in whatever query language currently implements it. Both used to be SQL; the mapping is now the Rust
+ * service's, and a test pinned to SQL stopped saying anything true.
+ *
+ * What this deliberately does NOT substitute is the Security service itself: the composed service still runs, so
+ * its failure mapping stays under test — a repository that throws must still come out as `unmapped`, which is the
+ * fail-closed guarantee AUTH-02 rests on.
+ *
+ * `null` restores the real repository.
+ */
+export function setSecurityRepositoryForTesting(repository: SecurityRepository | null): void {
+  securityRepository = repository
+  composed = null // the next call rebuilds the kernel around the substitute
+}
+
+/**
+ * TEST SEAM: substitute the AUTHORIZATION PORT, the other half of what the Rust service owns.
+ *
+ * Identity resolution is an authorized operation (`security.identity.resolve`, granted to the Auth.js edge actor by
+ * a bootstrap rule in Rust), so a test of the login seam hits the authority as well as the mapping. In a browser-less
+ * Node test there is no Next runtime for the bridge client to load under, so the decision has to be supplied — the
+ * same way the repository is.
+ *
+ * `null` restores the real port.
+ */
+export function setAuthorizationPortForTesting(port: AuthorizationPort | null): void {
+  authorizationPort = port
+  composed = null
+}
 
 /**
  * Server-side application-security composition used by the login seam.
  * Auth.js proves the provider identity; SecurityService owns its application
  * mapping. The Security service comes from the single shared kernel composition
  * (composeCoreServices), so there is exactly one place the kernel is built.
- * The authorization port is supplied with the same role grants as the Rust kernel.
+ *
+ * Built LAZILY so the test seam above can take effect; the kernel is still composed in exactly one place.
  */
-export const applicationSecurityService = composeCoreServices(
-  {
-    person: new SqlPersonRepository(),
-    firm: new SqlFirmRepository(),
-    property: new SqlPropertyRepository(),
-    contract: new SqlContractRepository(),
-    showing: new SqlShowingRepository(),
-    security: new RustSecurityRepository(),
-    wbs: new SqlWbsRepository(),
-    project: new SqlProjectRepository(),
-  },
-  { authorization: authEntitlements, errors: appServiceErrorSink() },
-).security
+export function applicationSecurityService(): SecurityService {
+  composed ??= composeCoreServices(
+    {
+      person: new SqlPersonRepository(),
+      firm: new SqlFirmRepository(),
+      property: new SqlPropertyRepository(),
+      contract: new SqlContractRepository(),
+      showing: new SqlShowingRepository(),
+      security: securityRepository ?? new RustSecurityRepository(),
+      wbs: new SqlWbsRepository(),
+      project: new SqlProjectRepository(),
+    },
+    // The authorization port is the Rust security service: this kernel asks for its decisions rather than
+    // reproducing them (see AuthorizationService).
+    { authorization: authorizationPort ?? new AuthorizationService(), errors: appServiceErrorSink() },
+  ).security
+  return composed
+}
 
 export async function resolveApplicationSecurityIdentity(
   provider: string,
   providerSubject: string,
 ): Promise<SecurityIdentityResolution> {
-  const result = await applicationSecurityService.execute({
+  const result = await applicationSecurityService().execute({
     operation: SECURITY_OPERATIONS.RESOLVE_IDENTITY,
     payload: { provider, providerSubject },
     context: {

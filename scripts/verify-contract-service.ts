@@ -5,7 +5,7 @@
 
 import { composeCoreServices } from '@/legacy/services/composition'
 import { AuthorizationService } from '@/legacy/services/entitlement/authorization-service'
-import { StaticAuthorizationPolicyProvider } from '@/legacy/services/entitlement/authorization-service'
+import { harnessAuthorization } from '@/scripts/harness-authorization'
 import { SqlContractRepository } from '@/legacy/db/contract-service-repository'
 import { CONTRACT_OPERATIONS } from '@/legacy/services/contract'
 import { sql } from '@/legacy/db/client'
@@ -21,7 +21,7 @@ const services = composeCoreServices(
     wbs: null as never,
     project: null as never,
   },
-  { authorization: new AuthorizationService(new StaticAuthorizationPolicyProvider()) },
+  { authorization: new AuthorizationService(harnessAuthorization) },
 )
 
 let failures = 0

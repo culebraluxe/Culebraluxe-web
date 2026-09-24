@@ -6,6 +6,7 @@ import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
 import { bypassBridgeIdentity } from '@/lib/rust-api/dev-identity'
 import {
   buildRustBridgeHeaders,
+  buildRustPublicBridgeHeaders,
   resolveInternalApiKey,
   resolveRustApiBaseUrl,
 } from '@/lib/rust-api/contract'
@@ -99,6 +100,104 @@ export async function rustApiResolveIdentity(
     identity: { provider, providerSubject },
   })
   return result.value
+}
+
+export type RustAuthorizationDecision = {
+  allowed: boolean
+  reason: string
+  policyId: string
+  mode: string
+}
+
+/**
+ * Ask the security service to DECIDE one action for the signed-in principal.
+ *
+ * One brain: the answer comes from the same Casbin port every Rust service uses, so the ROOT-only rule for the
+ * `security.*.manage` actions, the entitlement grants and the level hierarchy are applied once instead of being
+ * remembered by a second implementation. The question is the action and its kind — nothing else, because the policy
+ * keys rules on domain and operation and Rust derives those from the action rather than trusting a client to
+ * describe it.
+ */
+export async function rustApiAuthorize(
+  action: string,
+  kind: 'query' | 'command',
+): Promise<RustAuthorizationDecision> {
+  const result = await rustApiJsonWrite<RustAuthorizationDecision>(
+    '/v1/security/authorize',
+    'POST',
+    { action, kind },
+  )
+  return result.value
+}
+
+/**
+ * The same question, asked by the ANONYMOUS PUBLIC SITE.
+ *
+ * The public site has no session, so the identified door cannot answer for it — it requires a principal. This one
+ * asks the public door, which resolves the caller to the `public-website` system actor in Rust (the same actor the
+ * vault's public document route uses) and refuses identity headers. What that actor may reach is the Rust
+ * PUBLIC_READ_ACTIONS list: named published reads, queries only. It is NOT "anonymous callers may query" — that rule
+ * would have handed the public site `deal.read`.
+ */
+export async function rustApiAuthorizePublic(
+  action: string,
+  kind: 'query' | 'command',
+): Promise<RustAuthorizationDecision> {
+  const correlationId = randomUUID()
+  const headers = {
+    ...buildRustPublicBridgeHeaders({
+      internalApiKey: internalApiKey(),
+      correlationId,
+    }),
+    'content-type': 'application/json',
+  }
+
+  let response: Response
+  try {
+    response = await fetch(`${rustApiBaseUrl()}/v1/security/authorize/public`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ action, kind }),
+      cache: 'no-store',
+    })
+  } catch (cause) {
+    throw new RustApiError({
+      status: 503,
+      code: 'RUST_API_UNAVAILABLE',
+      message: cause instanceof Error ? cause.message : 'Rust API request failed.',
+      retryable: true,
+      correlationId,
+    })
+  }
+
+  let payload: RustApiSuccess<RustAuthorizationDecision> | RustApiFailure
+  try {
+    payload = (await response.json()) as
+      | RustApiSuccess<RustAuthorizationDecision>
+      | RustApiFailure
+  } catch {
+    throw new RustApiError({
+      status: 502,
+      code: 'RUST_API_INVALID_RESPONSE',
+      message: 'Rust API returned a non-JSON response.',
+      retryable: true,
+      correlationId,
+    })
+  }
+
+  if (!response.ok || !payload.ok) {
+    const failure = payload as RustApiFailure
+    throw new RustApiError({
+      status: response.status,
+      code: failure.error?.code ?? 'RUST_API_FAILURE',
+      message: failure.error?.message ?? 'Rust API request failed.',
+      retryable: failure.error?.retryable ?? response.status >= 500,
+      correlationId: failure.correlationId ?? correlationId,
+      incidentId: failure.error?.incidentId ?? null,
+    })
+  }
+
+  return payload.value
 }
 
 function rustApiBaseUrl(): string {

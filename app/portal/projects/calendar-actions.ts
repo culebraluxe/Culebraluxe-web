@@ -11,10 +11,7 @@ import type { CatchUpCalendarEvent } from "@/lib/catchup/calendar-adapter"
 import { CalendarService } from "@/legacy/services/calendar"
 import type { CreateAppleCalendarEventRequest } from "@/legacy/services/calendar"
 import type { ServiceContext } from "@/legacy/services/core"
-import {
-  AuthorizationService,
-  StaticAuthorizationPolicyProvider,
-} from "@/legacy/services/entitlement"
+import { AuthorizationService } from "@/legacy/services/entitlement"
 import { resolveSecurityLevel } from "@/legacy/services/security"
 
 export type LoadCatchUpScheduleResult =
@@ -27,7 +24,7 @@ export type CreateAppleCalendarEventResult =
 
 function calendarService(): CalendarService {
   return new CalendarService(new SqlCalendarRepository(), {
-    authorization: new AuthorizationService(new StaticAuthorizationPolicyProvider()),
+    authorization: new AuthorizationService(),
     errors: appServiceErrorSink(),
   })
 }

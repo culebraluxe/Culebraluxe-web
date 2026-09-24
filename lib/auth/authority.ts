@@ -1,9 +1,10 @@
 // AUTH-03 canonical authority helpers.
 //
 // Legacy authority codes remain as a compatibility boundary for older Portal
-// routes while the service layer uses the skinny EntitlementService. ROOT is
-// the deliberate break-glass/operator level in the four-level SecurityService
-// model and therefore always passes these legacy guards.
+// routes while the service layer authorizes through the authorization port
+// (decided by the Rust security service). ROOT is the deliberate
+// break-glass/operator level in the four-level SecurityService model and
+// therefore always passes these legacy guards.
 
 import type { ActingUser, AuthorityCode } from './types'
 import { MissingAuthorityError } from './errors'

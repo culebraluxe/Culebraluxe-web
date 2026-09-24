@@ -11,7 +11,7 @@
 
 import { composeCoreServices } from '@/legacy/services/composition'
 import { AuthorizationService } from '@/legacy/services/entitlement/authorization-service'
-import { StaticAuthorizationPolicyProvider } from '@/legacy/services/entitlement/authorization-service'
+import { harnessAuthorization } from '@/scripts/harness-authorization'
 import { SqlListingPropertyRepository } from '@/legacy/db/listing-property-service-repository'
 import { SqlPersonRepository } from '@/legacy/db/person-service-repository'
 import { SqlFormInstanceRepository } from '@/legacy/db/form-service-repository'
@@ -40,7 +40,7 @@ const services = composeCoreServices(
     wbs: null as never,
     project: null as never,
   },
-  { authorization: new AuthorizationService(new StaticAuthorizationPolicyProvider()) },
+  { authorization: new AuthorizationService(harnessAuthorization) },
 )
 
 let failures = 0
