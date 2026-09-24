@@ -111,7 +111,7 @@ The existing Rust MVI `SCREENS` registry contains these 59 `/portal/` screens pl
 ## Delivery status
 
 - The Rust authorization port, role grant migration, navigation projection, and selected Yew controls are staged for verification. The existing TypeScript service kernel and Forms binding use the same role grant tables while they remain in use.
-- The SUPPORT editor changes active internal-role grants through the Security service; the service audits every accepted or refused command. Showing commands within a Deal workspace use `showing.write`; other Deal workspace commands use `deal.write`.
-- DEV migrations 210 and 211 have been applied and verified. Direct route authorization and the remaining button inventory, Rust compilation, and PROD promotion are not complete.
-- Migrations 210 and 211 must be applied and checked on PROD before releasing code that reads or writes these tables.
-- This checkout has no Rust toolchain, and its committed `rust/Cargo.lock` does not include Casbin yet. The dependency lock and Rust compilation must be completed before any release.
+- The SUPPORT editor changes active internal-role grants through the Security service. The canonical Rust authorization port requires the exact `root` role for `security.entitlement.manage`; view and reducer controls use the same exact-root projection. Authorized mutation outcomes are audited by the Security service. Authorization refusals fail before mutation. Showing commands within a Deal workspace use `showing.write`; other Deal workspace commands use `deal.write`.
+- DEV migrations 210 and 211 are applied and verified. Migration 212 is a forward-only correction that removes the `owner` management grant seeded by 211; it must be applied on DEV before this slice is closed. Migration 210 contributes 33 base actions / 208 grants; 211 adds the management action and two grants; after 212 the intended state is 34 actions / 209 grants.
+- Rust workspace compilation is green and the committed `rust/Cargo.lock` includes Casbin. The repository-wide rustfmt and TypeScript lint backlogs predate this entitlement slice; this slice must not add new debt.
+- PROD remains untouched. Migrations 210-212 must be applied and checked on PROD only as a separate explicit release step.
