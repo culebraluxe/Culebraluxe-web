@@ -1,11 +1,13 @@
-use super::context::{resolve_request_context, ResolvedRequestContext};
+use super::context::{resolve_public_guest_context, resolve_request_context, ResolvedRequestContext};
 use super::{diagnostics, engine, ApiError, ApiState};
 use crate::service_support::CoreServiceError;
 use crate::vault::VaultArtifactPort;
 use async_trait::async_trait;
 use axum::{
     extract::{DefaultBodyLimit, Multipart, Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    body::Body,
+    http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode},
+    response::Response,
     routing::{get, post},
     Json, Router,
 };
@@ -569,6 +571,8 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/calendar", get(calendar).post(create_apple_calendar_event))
         .route("/v1/vault/documents", get(vault_documents))
         .route("/v1/vault/documents/{id}", get(vault_document))
+        .route("/v1/vault/public-listing-documents/{id}", get(vault_public_listing_document_bytes))
+        .route("/v1/vault/document-bytes/{id}", get(vault_private_document_bytes))
         // The workflow engine, served. Same verbs the re-workflow CLI accepted, now behind the internal key and the
         // same identity resolution as every other route, so an engine command is a first-class part of this server
         // instead of a spawned process with its own pool and no error capture.
@@ -2077,6 +2081,67 @@ async fn vault_document(
             )
         })?;
     Ok(success(value, &resolved))
+}
+
+#[derive(Debug, Deserialize)]
+struct VaultDownloadQuery {
+    download: Option<String>,
+}
+
+fn vault_document_response(
+    document: domain::VaultMediaBytes,
+    download: bool,
+) -> Result<Response, ApiError> {
+    let content_type = HeaderValue::from_str(&document.mime_type)
+        .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream"));
+    let mut response = Response::new(Body::from(document.bytes));
+    let headers = response.headers_mut();
+    headers.insert(header::CONTENT_TYPE, content_type);
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("private, no-store"));
+    headers.insert(HeaderName::from_static("x-content-type-options"), HeaderValue::from_static("nosniff"));
+    let safe_filename = document.filename
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_' | ' ') { ch } else { '_' })
+        .collect::<String>();
+    let disposition = format!("{}; filename=\"{}\"", if download { "attachment" } else { "inline" }, safe_filename);
+    headers.insert(header::CONTENT_DISPOSITION, HeaderValue::from_str(&disposition).map_err(|_| {
+        ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "VAULT_INVALID_FILENAME", "Invalid document filename.", false)
+    })?);
+    Ok(response)
+}
+
+async fn vault_public_listing_document_bytes(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(query): Query<VaultDownloadQuery>,
+) -> Result<Response, ApiError> {
+    let context = resolve_public_guest_context(&state, &headers)?;
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| ApiError::not_found("VAULT_DOCUMENT_NOT_FOUND", "Document not found."))?;
+    let mut vault = state.services().vault(Arc::new(UnavailableVaultArtifactPort));
+    let document = vault
+        .public_listing_document_bytes(&id.to_string(), &context)
+        .await
+        .map_err(ApiError::from)?
+        .ok_or_else(|| ApiError::not_found("VAULT_DOCUMENT_NOT_FOUND", "Document not found."))?;
+    vault_document_response(document, query.download.as_deref() == Some("1"))
+}
+
+async fn vault_private_document_bytes(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(query): Query<VaultDownloadQuery>,
+) -> Result<Response, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| ApiError::not_found("VAULT_DOCUMENT_NOT_FOUND", "Document not found."))?;
+    let mut vault = state.services().vault(Arc::new(UnavailableVaultArtifactPort));
+    let document = vault
+        .media_bytes(&id.to_string(), &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?
+        .ok_or_else(|| ApiError::not_found("VAULT_DOCUMENT_NOT_FOUND", "Document not found."))?;
+    vault_document_response(document, query.download.as_deref() == Some("1"))
 }
 
 pub(crate) fn success<T>(value: T, resolved: &ResolvedRequestContext) -> Json<ApiSuccess<T>> {

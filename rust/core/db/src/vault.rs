@@ -989,7 +989,7 @@ impl VaultDao {
             r#"
             select file_data, filename, mime_type
             from media
-            where id = $1::uuid
+            where id = $1::uuid and media_type = 'document' and file_data is not null
             limit 1
             "#,
         )
@@ -997,6 +997,58 @@ impl VaultDao {
         .fetch_optional(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("vault.media_bytes", &error))?;
+        Ok(row.map(|row| VaultMediaBytes {
+            bytes: row.file_data.unwrap_or_default(),
+            filename: row.filename,
+            mime_type: row.mime_type,
+        }))
+    }
+
+    /// A guest may receive bytes only when every link is to a live public listing
+    /// as a document and the asset has no transaction-document lineage.
+    pub async fn public_listing_document_bytes(
+        &self,
+        media_id: &str,
+    ) -> DbResult<Option<VaultMediaBytes>> {
+        let row = sqlx::query_as::<_, MediaRow>(
+            r#"
+            select m.file_data, m.filename, m.mime_type
+            from media m
+            where m.id = $1::uuid
+              and m.media_type = 'document'
+              and lower(split_part(m.mime_type, ';', 1)) = 'application/pdf'
+              and m.file_data is not null
+              and exists (
+                  select 1 from property_media pm
+                  join property p on p.id = pm.property_id
+                  where pm.media_id = m.id
+                    and pm.role = 'document'
+                    and p.is_published = true
+                    and p.is_active_listing = true
+                    and p.archived_at is null
+              )
+              and not exists (
+                  select 1 from property_media pm
+                  left join property p on p.id = pm.property_id
+                  where pm.media_id = m.id
+                    and (pm.role <> 'document' or p.id is null
+                      or p.is_published is distinct from true
+                      or p.is_active_listing is distinct from true
+                      or p.archived_at is not null)
+              )
+              and not exists (
+                  select 1 from transaction_document td
+                  where td.media_id = m.id
+                     or td.signed_media_id = m.id
+                     or td.signed_audit_media_id = m.id
+              )
+            limit 1
+            "#,
+        )
+        .bind(media_id)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("vault.public_listing_document_bytes", &error))?;
         Ok(row.map(|row| VaultMediaBytes {
             bytes: row.file_data.unwrap_or_default(),
             filename: row.filename,

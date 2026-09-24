@@ -90,6 +90,34 @@ pub async fn resolve_request_context(
     })
 }
 
+/// The anonymous website is represented as GUEST in the service layer. Only
+/// the dedicated public Vault route uses this context; ordinary Vault reads
+/// continue to require a resolved application user.
+pub fn resolve_public_guest_context(
+    state: &ApiState,
+    headers: &HeaderMap,
+) -> Result<ServiceContext, ApiError> {
+    validate_internal_key(state, headers)?;
+    if identity_header_presence(headers) != (false, false) {
+        return Err(ApiError::unauthorized(
+            "GUEST_IDENTITY_UNEXPECTED",
+            "Public document reads must not carry identity headers.",
+        ));
+    }
+    Ok(ServiceContext {
+        actor: ServiceActor {
+            id: Some("public-website".into()),
+            kind: ServiceActorKind::System,
+        },
+        correlation_id: header(headers, HEADER_CORRELATION_ID)
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| Uuid::new_v4().to_string()),
+        causation_id: None,
+        principal: None,
+    })
+}
+
 /// A context for engine commands, which may arrive with a user or without one.
 ///
 /// An interactive command comes from a page and gets attributed to the person who ran it. A background command does not:

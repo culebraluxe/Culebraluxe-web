@@ -43,6 +43,10 @@ pub trait VaultRepository: Send {
     ) -> DbResult<Option<IssuedDocumentForFormInstance>>;
     async fn next_issued_version(&mut self, request: &NextIssuedVersionRequest) -> DbResult<i32>;
     async fn media_bytes(&mut self, media_id: &str) -> DbResult<Option<VaultMediaBytes>>;
+    async fn public_listing_document_bytes(
+        &mut self,
+        media_id: &str,
+    ) -> DbResult<Option<VaultMediaBytes>>;
     async fn form_contract_id(&mut self, form_instance_id: &str) -> DbResult<Option<String>>;
     async fn bind_form_to_contract(
         &mut self,
@@ -100,6 +104,13 @@ impl VaultRepository for VaultDao {
 
     async fn media_bytes(&mut self, media_id: &str) -> DbResult<Option<VaultMediaBytes>> {
         VaultDao::media_bytes(self, media_id).await
+    }
+
+    async fn public_listing_document_bytes(
+        &mut self,
+        media_id: &str,
+    ) -> DbResult<Option<VaultMediaBytes>> {
+        VaultDao::public_listing_document_bytes(self, media_id).await
     }
 
     async fn form_contract_id(&mut self, form_instance_id: &str) -> DbResult<Option<String>> {
@@ -357,6 +368,30 @@ impl<R: VaultRepository> VaultService<R> {
         let result = self
             .repository
             .media_bytes(media_id)
+            .await
+            .map_err(Into::into);
+        audit_result(&self.runtime, "vault", OP, context, decision, &result).await?;
+        result
+    }
+
+    pub async fn public_listing_document_bytes(
+        &mut self,
+        media_id: &str,
+        context: &ServiceContext,
+    ) -> Result<Option<VaultMediaBytes>, CoreServiceError> {
+        const OP: &str = "vault.publicListingDocumentBytes";
+        let decision = authorize(
+            &self.runtime,
+            "vault",
+            "vault.publicListingDocument.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+        let result = self
+            .repository
+            .public_listing_document_bytes(media_id)
             .await
             .map_err(Into::into);
         audit_result(&self.runtime, "vault", OP, context, decision, &result).await?;
