@@ -62,6 +62,14 @@ struct WhoAmI {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SetRoleEntitlementBody {
+    role_code: String,
+    action: String,
+    granted: bool,
+}
+
+#[derive(Debug, Deserialize)]
 struct PeopleSearchQuery {
     #[serde(default)]
     query: String,
@@ -495,7 +503,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/healthz", get(health))
         .route("/readyz", get(ready))
         .route("/v1/whoami", get(whoami))
-        .route("/v1/security/role-entitlements", get(role_entitlements))
+        .route("/v1/security/role-entitlements", get(role_entitlements).put(set_role_entitlement))
         .route("/v1/cockpit", get(cockpit))
         .route("/v1/workflows", get(workflows))
         .route("/v1/workflows/{id}", get(workflow_detail))
@@ -622,6 +630,20 @@ async fn role_entitlements(
         .list_role_entitlements(&resolved.service)
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn set_role_entitlement(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<SetRoleEntitlementBody>,
+) -> Result<Json<ApiSuccess<Vec<domain::security::RoleEntitlements>>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut security = state.services().security();
+    security.set_role_entitlement(&body.role_code, &body.action, body.granted, &resolved.service)
+        .await.map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    let value = security.list_role_entitlements(&resolved.service)
+        .await.map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(value, &resolved))
 }
 

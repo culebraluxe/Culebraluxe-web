@@ -506,6 +506,8 @@ fn deal_workspace(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
     let property = workspace.property.as_ref();
     let client = workspace.client.as_ref();
     let busy = model.deal_workspace.busy_action.is_some();
+    let deal_busy = busy || !model.can("deal.write");
+    let showing_busy = busy || !model.can("showing.write");
 
     let next_action = workspace
         .open_tasks
@@ -584,20 +586,20 @@ fn deal_workspace(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
             <div class="mt-4 grid gap-4 lg:grid-cols-3">
                 { property_card(property) }
                 { client_card(client) }
-                { participants_card(model, workspace, on_msg, busy) }
+                { participants_card(model, workspace, on_msg, deal_busy) }
             </div>
 
             <div class="mt-4 grid gap-4 lg:grid-cols-2">
-                { tasks_card(model, workspace, on_msg, busy) }
+                { tasks_card(model, workspace, on_msg, deal_busy) }
                 { activity_card(workspace) }
             </div>
 
             <div class="mt-4">
-                { offers_card(model, workspace, on_msg, busy) }
+                { offers_card(model, workspace, on_msg, deal_busy) }
             </div>
 
             <div class="mt-4">
-                { showings_card(model, workspace, on_msg, busy) }
+                { showings_card(model, workspace, on_msg, showing_busy) }
             </div>
 
             if let Some(notes) = deal.notes.as_ref().filter(|value| !value.trim().is_empty()) {

@@ -7,11 +7,12 @@ use wasm_bindgen::JsCast;
 use yew::platform::spawn_local;
 use yew::Callback;
 
-use crate::model::{Effect, Msg, PortalDealPeopleSearch, PortalEntitlements, PropertyRecent};
+use crate::model::{Effect, Msg, PortalDealPeopleSearch, PortalEntitlements, PortalRoleEntitlements, PropertyRecent};
 
 const PAGE_PATH: &str = "/api/rust-ui/public-page";
 const ROWS_PATH: &str = "/api/rust-ui/public-rows";
 const PORTAL_PATH: &str = "/api/portal/rust-ui/page";
+const ROLE_ENTITLEMENTS_PATH: &str = "/api/portal/rust-ui/role-entitlements";
 const TECH_PATH: &str = "/api/portal/rust-ui/tech";
 const FLIGHT_RECORDER_PATH: &str = "/api/portal/flight-recorder";
 const COCKPIT_PATH: &str = "/api/portal/rust-ui/cockpit";
@@ -30,6 +31,9 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
     match effect {
         Effect::FetchEntitlements { generation } => {
             fetch_entitlements(generation, dispatch);
+        }
+        Effect::SetRoleEntitlement { generation, role_code, action, granted } => {
+            set_role_entitlement(generation, role_code, action, granted, dispatch);
         }
         Effect::PropertyBrowserRead { id, slug, title, valid_slugs } => {
             read_property_browser(id, slug, title, valid_slugs, dispatch);
@@ -1115,6 +1119,37 @@ fn fetch_entitlements(generation: u64, dispatch: &Callback<Msg>) {
     });
 }
 
+#[derive(serde::Deserialize)]
+struct RoleGrantResponse {
+    roles: Vec<PortalRoleEntitlements>,
+}
+
+fn set_role_entitlement(generation: u64, role_code: String, action: String, granted: bool, dispatch: &Callback<Msg>) {
+    let dispatch = dispatch.clone();
+    spawn_local(async move {
+        let payload = serde_json::json!({ "roleCode": role_code, "action": action, "granted": granted });
+        let message = match Request::put(ROLE_ENTITLEMENTS_PATH)
+            .header("content-type", "application/json")
+            .body(payload.to_string()) {
+            Ok(request) => match request.send().await {
+                Ok(response) if response.ok() => match response.json::<RoleGrantResponse>().await {
+                    Ok(value) => Msg::SecurityRoleGrantChanged { generation, roles: value.roles },
+                    Err(error) => Msg::EffectFailed { screen: "security".into(), generation, message: format!("Role grant response could not be read: {error}") },
+                },
+                Ok(response) => {
+                    let status = response.status();
+                    let body = response.json::<serde_json::Value>().await.ok();
+                    let detail = body.as_ref().and_then(|value| value.get("error")).and_then(serde_json::Value::as_str);
+                    Msg::EffectFailed { screen: "security".into(), generation, message: detail.map(str::to_owned).unwrap_or_else(|| format!("Role grant update failed ({status}).")) }
+                }
+                Err(error) => Msg::EffectFailed { screen: "security".into(), generation, message: format!("Role grant request failed: {error}") },
+            },
+            Err(error) => Msg::EffectFailed { screen: "security".into(), generation, message: format!("Role grant request could not be built: {error}") },
+        };
+        dispatch.emit(message);
+    });
+}
+
 fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
     let (url, screen, generation, kind) = match effect {
         // A COMMAND IS NOT A READ and cannot arrive here: every command effect has its own runner, matched in `run`
@@ -1298,7 +1333,8 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
         | Effect::UpdateProjectStatus { .. }
         | Effect::SaveProjectWork { .. }
         | Effect::BrowserNavigate { .. }
-        | Effect::FetchEntitlements { .. } => return,
+        | Effect::FetchEntitlements { .. }
+        | Effect::SetRoleEntitlement { .. } => return,
     };
 
     let dispatch = dispatch.clone();

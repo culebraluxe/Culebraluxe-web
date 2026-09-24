@@ -25,6 +25,7 @@ pub(super) const ACTIONS: &[(&str, &str)] = &[
     ("property.read", "query"),
     ("property.write", "command"),
     ("security.principal.read", "query"),
+    ("security.entitlement.manage", "command"),
     ("showing.read", "query"),
     ("showing.write", "command"),
     ("signature.read", "query"),

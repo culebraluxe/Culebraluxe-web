@@ -37,7 +37,7 @@ Existing `BaseService` operations and Rust `AuthorizationPort` enforce actions. 
 | `/portal/system-health` | `portal.read` | — |
 | `/portal/db-test` | `portal.read` | — |
 | `/portal/admin/whatsapp-meta` | `portal.read` | — |
-| `/portal/settings` | `security.principal.read` | Grant editing is not implemented |
+| `/portal/settings` | `security.principal.read` | `security.entitlement.manage` (ROOT only) |
 
 Rows reflect the listed destinations in `lib/navigation/registry.ts`; detail, retired, and unlisted routes still require their service operation checks. `tech.access` remains a ROOT-only authority. The SUPPORT Security screen displays the active role grants through the Rust Security service.
 
@@ -111,6 +111,7 @@ The existing Rust MVI `SCREENS` registry contains these 59 `/portal/` screens pl
 ## Delivery status
 
 - The Rust authorization port, role grant migration, navigation projection, and selected Yew controls are staged for verification. The existing TypeScript service kernel and Forms binding use the same role grant tables while they remain in use.
-- The page and button authorization inventory across every screen, role grant editing, DEV migration, Rust compilation of the new changes, and PROD promotion are not complete.
-- `legacy/db/migrations/210_role_entitlements.sql` must be applied and checked before code that reads its new tables can be released.
+- The SUPPORT editor changes active internal-role grants through the Security service; the service audits every accepted or refused command. Showing commands within a Deal workspace use `showing.write`; other Deal workspace commands use `deal.write`.
+- DEV migrations 210 and 211 have been applied and verified. Direct route authorization and the remaining button inventory, Rust compilation, and PROD promotion are not complete.
+- Migrations 210 and 211 must be applied and checked on PROD before releasing code that reads or writes these tables.
 - This checkout has no Rust toolchain, and its committed `rust/Cargo.lock` does not include Casbin yet. The dependency lock and Rust compilation must be completed before any release.

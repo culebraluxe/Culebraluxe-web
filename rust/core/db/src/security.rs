@@ -31,6 +31,36 @@ impl SecurityDao {
         Self { db }
     }
 
+    /// One statement makes the grant change atomic and refuses unknown or inactive
+    /// roles/actions. Account type is checked here as well as by the service port.
+    pub async fn set_role_entitlement(&self, role_code: &str, action: &str, granted: bool) -> DbResult<bool> {
+        sqlx::query_scalar::<_, bool>(
+            r#"
+            with target as (
+                select r.id as role_id, e.id as entitlement_id
+                from security_role r cross join entitlement e
+                where r.code = $1 and r.active = true and r.account_type = 'internal'
+                  and e.code = $2 and e.active = true
+            ), added as (
+                insert into role_entitlement (role_id, entitlement_id)
+                select role_id, entitlement_id from target where $3
+                on conflict do nothing returning 1
+            ), removed as (
+                delete from role_entitlement re using target
+                where re.role_id = target.role_id and re.entitlement_id = target.entitlement_id
+                  and not $3 returning 1
+            )
+            select exists(select 1 from target)
+            "#,
+        )
+        .bind(role_code)
+        .bind(action)
+        .bind(granted)
+        .fetch_one(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("security.set_role_entitlement", &error))
+    }
+
     pub async fn list_role_entitlements(&self) -> DbResult<Vec<RoleEntitlements>> {
         let rows = crate::retrying_read!(async {
             sqlx::query_as::<_, RoleEntitlementRow>(

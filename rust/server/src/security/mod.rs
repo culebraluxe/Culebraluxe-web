@@ -17,6 +17,7 @@ pub trait SecurityRepository: Send {
     ) -> DbResult<Option<String>>;
     async fn get_principal(&mut self, app_user_id: &str) -> DbResult<Option<ActingUser>>;
     async fn list_role_entitlements(&mut self) -> DbResult<Vec<RoleEntitlements>>;
+    async fn set_role_entitlement(&mut self, role_code: &str, action: &str, granted: bool) -> DbResult<bool>;
 }
 
 #[async_trait]
@@ -34,6 +35,9 @@ impl SecurityRepository for SecurityDao {
     }
     async fn list_role_entitlements(&mut self) -> DbResult<Vec<RoleEntitlements>> {
         SecurityDao::list_role_entitlements(self).await
+    }
+    async fn set_role_entitlement(&mut self, role_code: &str, action: &str, granted: bool) -> DbResult<bool> {
+        SecurityDao::set_role_entitlement(self, role_code, action, granted).await
     }
 }
 
@@ -114,6 +118,26 @@ impl<R: SecurityRepository> SecurityService<R> {
         ).await?;
         let result: Result<Vec<RoleEntitlements>, CoreServiceError> =
             self.repository.list_role_entitlements().await.map_err(Into::into);
+        audit_result(&self.runtime, "security", OP, context, decision, &result).await?;
+        result
+    }
+
+    pub async fn set_role_entitlement(
+        &mut self,
+        role_code: &str,
+        action: &str,
+        granted: bool,
+        context: &ServiceContext,
+    ) -> Result<(), CoreServiceError> {
+        const OP: &str = "security.setRoleEntitlement";
+        let decision = authorize(
+            &self.runtime, "security", "security.entitlement.manage", OP, OperationKind::Command, context,
+        ).await?;
+        let result = match self.repository.set_role_entitlement(role_code, action, granted).await {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(CoreServiceError::business("ENTITLEMENT_TARGET_UNKNOWN", "An active internal role and action are required.")),
+            Err(error) => Err(error.into()),
+        };
         audit_result(&self.runtime, "security", OP, context, decision, &result).await?;
         result
     }
@@ -210,6 +234,9 @@ mod tests {
         async fn list_role_entitlements(&mut self) -> DbResult<Vec<RoleEntitlements>> {
             Ok(Vec::new())
         }
+        async fn set_role_entitlement(&mut self, _role_code: &str, _action: &str, _granted: bool) -> DbResult<bool> {
+            unreachable!("grant mutation must not run after identity lookup failure")
+        }
     }
 
     struct PrincipalLookupFailure;
@@ -229,6 +256,9 @@ mod tests {
         }
         async fn list_role_entitlements(&mut self) -> DbResult<Vec<RoleEntitlements>> {
             Err(transient("security.list_role_entitlements"))
+        }
+        async fn set_role_entitlement(&mut self, _role_code: &str, _action: &str, _granted: bool) -> DbResult<bool> {
+            Err(transient("security.set_role_entitlement"))
         }
     }
 

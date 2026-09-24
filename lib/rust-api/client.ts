@@ -328,8 +328,8 @@ export async function rustApiWriteForm<T>(
 type RustApiJsonWriteOptions = RustApiReadOptions
 
 async function rustApiJsonWrite<T>(
-  path: `/v1/${string}`,
-  method: 'POST' | 'PATCH',
+    path: `/v1/${string}`,
+  method: 'POST' | 'PATCH' | 'PUT',
   body: Record<string, unknown>,
   options: RustApiJsonWriteOptions = {},
 ): Promise<RustApiSuccess<T>> {
@@ -399,6 +399,12 @@ async function rustApiJsonWrite<T>(
   }
 
   return payload
+}
+
+export async function rustApiSetRoleEntitlement<T>(
+  body: { roleCode: string; action: string; granted: boolean },
+): Promise<RustApiSuccess<T>> {
+  return rustApiJsonWrite<T>('/v1/security/role-entitlements', 'PUT', body)
 }
 
 export async function rustApiCreateDeal<T>(

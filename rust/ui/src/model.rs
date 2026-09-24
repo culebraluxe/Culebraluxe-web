@@ -2108,6 +2108,8 @@ pub struct Model {
     pub screen: Screen,
     pub entitlements: Option<PortalEntitlements>,
     pub entitlements_error: bool,
+    pub selected_security_role: Option<String>,
+    pub role_grant_busy: bool,
     pub loading: bool,
     pub error: Option<String>,
     pub rows: Vec<Row>,
@@ -2169,6 +2171,8 @@ impl Default for Model {
             screen: SCREENS[0],
             entitlements: None,
             entitlements_error: false,
+            selected_security_role: None,
+            role_grant_busy: false,
             loading: false,
             error: None,
             rows: Vec::new(),
@@ -2213,6 +2217,9 @@ impl Model {
 pub enum Msg {
     EntitlementsLoaded { generation: u64, grants: PortalEntitlements },
     EntitlementsUnavailable { generation: u64 },
+    SecurityRoleSelected(String),
+    SecurityRoleGrantRequested { role_code: String, action: String, granted: bool },
+    SecurityRoleGrantChanged { generation: u64, roles: Vec<PortalRoleEntitlements> },
     /// The screen mounted, or navigation arrived that needs data.
     ScreenOpened(Screen),
     /// A HOST RUN OPENED THIS SCREEN, and this is the generation it belongs to.
@@ -2622,6 +2629,7 @@ impl Msg {
 #[serde(tag = "effect")]
 pub enum Effect {
     FetchEntitlements { generation: u64 },
+    SetRoleEntitlement { generation: u64, role_code: String, action: String, granted: bool },
     PropertyBrowserRead { id: String, slug: String, title: String, valid_slugs: Vec<String> },
     PropertyFavoriteWrite { id: String, slug: String, title: String, saved: bool },
     /// Fetch rows for this screen, optionally about one record.

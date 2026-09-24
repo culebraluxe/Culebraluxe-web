@@ -70,6 +70,8 @@ impl AuthorizationPort for CasbinAuthorizationPort {
                 (true, "role:root")
             } else if request.domain == "tech" || request.action.starts_with("tech.") {
                 (false, "domain:tech")
+            } else if request.action == "security.entitlement.manage" {
+                (false, "rule:entitlement.manage.root")
             } else if request.domain == "contract"
                 && request.operation == "contract.execute"
                 && principal.level != "BUSINESS_POWER_USER"

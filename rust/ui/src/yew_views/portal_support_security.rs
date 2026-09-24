@@ -61,14 +61,14 @@ impl Component for Security {
         let screen = crate::model::screen("security").expect("the Security screen is in the registry");
         html! {
             <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
-                { self.body(&props.model) }
+                { self.body(&props.model, &props.on_msg) }
             </PortalShell>
         }
     }
 }
 
 impl Security {
-    fn body(&self, model: &crate::model::Model) -> Html {
+    fn body(&self, model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
         let read = model
             .page
             .as_ref()
@@ -87,7 +87,7 @@ impl Security {
                 </div>
                 { self.sections() }
                 { self.status_panel(read.as_ref().map(|read| &read.status)) }
-                { self.entitlement_panel(read.as_ref().map(|read| read.role_entitlements.as_slice())) }
+                { self.entitlement_panel(model, read.as_ref().map(|read| read.role_entitlements.as_slice()), on_msg) }
                 { self.break_glass_panel(read.as_ref().map(|read| &read.break_glass)) }
             </div>
         }
@@ -114,7 +114,21 @@ impl Security {
 }
 
 impl Security {
-    fn entitlement_panel(&self, roles: Option<&[crate::model::PortalRoleEntitlements]>) -> Html {
+    fn entitlement_panel(&self, model: &crate::model::Model, roles: Option<&[crate::model::PortalRoleEntitlements]>, on_msg: &Callback<Msg>) -> Html {
+        let selected = roles.and_then(|roles| {
+            roles.iter().filter(|role| role.account_type == "internal")
+                .find(|role| model.selected_security_role.as_deref() == Some(role.role_code.as_str()))
+                .or_else(|| roles.iter().find(|role| role.role_code == "user" && role.account_type == "internal"))
+                .or_else(|| roles.iter().find(|role| role.account_type == "internal"))
+        });
+        let actions = roles.map(|roles| roles.iter().flat_map(|role| role.entitlement_codes.iter().cloned())
+            .collect::<std::collections::BTreeSet<_>>()).unwrap_or_default();
+        let select_role = {
+            let on_msg = on_msg.clone();
+            Callback::from(move |event: Event| {
+                on_msg.emit(Msg::SecurityRoleSelected(event.target_unchecked_into::<web_sys::HtmlSelectElement>().value()));
+            })
+        };
         html! {
             <section class={classes!(PANEL, "mt-6", "p-6")}>
                 <h2 class="font-serif text-2xl font-light">{"Role entitlements"}</h2>
@@ -136,6 +150,36 @@ impl Security {
                             </tbody>
                         </table>
                     </div>
+                    if model.can("security.entitlement.manage") {
+                        if let Some(role) = selected {
+                            <div class="mt-6 border-t border-black/10 pt-5">
+                                <label for="role-grant-selector" class="text-xs font-medium uppercase tracking-[0.12em]">{"Edit role grants"}</label>
+                                <select id="role-grant-selector" value={role.role_code.clone()} onchange={select_role}
+                                    class="ml-3 rounded border border-black/20 bg-white px-3 py-2 text-sm">
+                                    { for roles.iter().filter(|role| role.account_type == "internal").map(|role| html! {
+                                        <option key={role.role_code.clone()} value={role.role_code.clone()}>{role.role_code.clone()}</option>
+                                    }) }
+                                </select>
+                                <div class="mt-4 grid gap-2 md:grid-cols-2">
+                                    { for actions.iter().filter(|code| code.as_str() != "security.entitlement.manage").map(|code| {
+                                        let granted = role.entitlement_codes.contains(code);
+                                        let on_msg = on_msg.clone();
+                                        let role_code = role.role_code.clone();
+                                        let action = code.clone();
+                                        html! {
+                                            <button key={code.clone()} type="button" disabled={model.role_grant_busy}
+                                                onclick={Callback::from(move |_: MouseEvent| on_msg.emit(Msg::SecurityRoleGrantRequested {
+                                                    role_code: role_code.clone(), action: action.clone(), granted: !granted,
+                                                }))}
+                                                class="flex min-h-10 items-center justify-between gap-3 rounded border border-black/10 px-3 py-2 text-left text-xs disabled:opacity-40">
+                                                <span>{code.clone()}</span><span>{if granted {"Granted"} else {"Denied"}}</span>
+                                            </button>
+                                        }
+                                    }) }
+                                </div>
+                            </div>
+                        }
+                    }
                 } else {
                     <p class="mt-3 text-sm font-light text-black/40">{"Reading role entitlements…"}</p>
                 }
@@ -250,4 +294,3 @@ impl Security {
         }
     }
 }
-

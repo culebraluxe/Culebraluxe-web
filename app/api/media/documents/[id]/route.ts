@@ -25,7 +25,7 @@ async function GETHandler(request: Request, context: { params: Promise<{ id: str
   })
   const download = new URL(request.url).searchParams.get('download') === '1' ? '?download=1' : ''
 
-  async function readVault(path: string, bridgeHeaders: Headers): Promise<Response> {
+  async function readVault(path: string, bridgeHeaders: HeadersInit): Promise<Response> {
     let upstream: Response
     try {
       upstream = await fetch(`${base}${path}/${id}${download}`, {

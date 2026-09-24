@@ -382,6 +382,16 @@ fn deal_workspace_command(
     busy_action: impl Into<String>,
     command: PortalDealCommand,
 ) -> Vec<Effect> {
+    let action = match &command {
+        PortalDealCommand::CreateShowing { .. }
+        | PortalDealCommand::ScheduleShowing { .. }
+        | PortalDealCommand::CancelShowing { .. }
+        | PortalDealCommand::CompleteShowing { .. } => "showing.write",
+        _ => "deal.write",
+    };
+    if !model.can(action) {
+        return Vec::new();
+    }
     if model.screen.key != "deal-record" || model.deal_workspace.busy_action.is_some() {
         return Vec::new();
     }
@@ -688,6 +698,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             model.generation = generation;
             model.entitlements = None;
             model.entitlements_error = false;
+            model.role_grant_busy = false;
             let mut effects = open(model, screen, scope);
             if screen.path.starts_with("/portal/") {
                 effects.push(Effect::FetchEntitlements { generation });
@@ -705,6 +716,31 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             if model.generation == generation {
                 model.entitlements = None;
                 model.entitlements_error = true;
+            }
+            Vec::new()
+        }
+        Msg::SecurityRoleSelected(role_code) => {
+            if model.screen.key == "security" {
+                model.selected_security_role = Some(role_code);
+            }
+            Vec::new()
+        }
+        Msg::SecurityRoleGrantRequested { role_code, action, granted } => {
+            if model.screen.key != "security" || model.role_grant_busy || !model.can("security.entitlement.manage") {
+                return Vec::new();
+            }
+            model.role_grant_busy = true;
+            model.error = None;
+            vec![Effect::SetRoleEntitlement { generation: model.generation, role_code, action, granted }]
+        }
+        Msg::SecurityRoleGrantChanged { generation, roles } => {
+            if !owns(model, "security", generation) { return Vec::new(); }
+            model.role_grant_busy = false;
+            if let Some(security) = model.page.as_mut()
+                .and_then(|page| page.portal.as_mut())
+                .and_then(|portal| portal.support.as_mut())
+                .and_then(|support| support.security.as_mut()) {
+                security.role_entitlements = roles;
             }
             Vec::new()
         }
@@ -1250,6 +1286,9 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 return Vec::new();
             }
             model.loading = false;
+            if model.screen.key == "security" {
+                model.role_grant_busy = false;
+            }
             if model.screen.key == "property-admin" {
                 model.ops.saving = false;
                 model.ops.creating = false;
@@ -3584,6 +3623,11 @@ mod tests {
         let mut model = Model {
             screen: target("deal-record"),
             scope: Some("deal-7".into()),
+            entitlements: Some(crate::model::PortalEntitlements {
+                account_type: "internal".into(),
+                security_level: "USER".into(),
+                entitlement_codes: vec!["deal.write".into()],
+            }),
             ..Model::default()
         };
 
@@ -3631,6 +3675,27 @@ mod tests {
         );
         assert!(model.deal_workspace.task_title.is_empty());
         assert!(model.deal_workspace.busy_action.is_none());
+    }
+
+    #[test]
+    fn showing_grant_issues_only_showing_commands_from_a_deal_workspace() {
+        let mut model = Model {
+            screen: target("deal-record"),
+            scope: Some("deal-7".into()),
+            entitlements: Some(crate::model::PortalEntitlements {
+                account_type: "internal".into(),
+                security_level: "USER".into(),
+                entitlement_codes: vec!["showing.write".into()],
+            }),
+            ..Model::default()
+        };
+        assert!(deal_workspace_command(&mut model, "task:create", PortalDealCommand::CreateTask {
+            title: "Private task".into(), detail: None, due_at: None,
+        }).is_empty());
+        assert!(model.deal_workspace.busy_action.is_none());
+        assert_eq!(deal_workspace_command(&mut model, "showing:cancel", PortalDealCommand::CancelShowing {
+            showing_id: "showing-1".into(),
+        }).len(), 1);
     }
 
     #[test]

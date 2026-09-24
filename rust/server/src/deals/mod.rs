@@ -147,10 +147,19 @@ impl<R: DealPortalRepository> DealPortalService<R> {
         context: &ServiceContext,
     ) -> Result<DealWorkspaceCommandResult, CoreServiceError> {
         const OP: &str = "deal.workspace.command";
+        // Showing operations are the USER capability; the rest of this workspace
+        // requires deal.write. Keep the decision at the service boundary.
+        let action = match command {
+            DealWorkspaceCommand::CreateShowing { .. }
+            | DealWorkspaceCommand::ScheduleShowing { .. }
+            | DealWorkspaceCommand::CancelShowing { .. }
+            | DealWorkspaceCommand::CompleteShowing { .. } => "showing.write",
+            _ => "deal.write",
+        };
         let decision = authorize(
             &self.runtime,
             "deal",
-            "deal.write",
+            action,
             OP,
             OperationKind::Command,
             context,
