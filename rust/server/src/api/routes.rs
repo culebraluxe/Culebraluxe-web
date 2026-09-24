@@ -24,7 +24,7 @@ use integrations::boldsign::{BoldSignConfig, BoldSignSignatureProvider};
 use integrations::mux::{MuxClient, MuxConfig};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use service::{OperationKind, SignatureProvider};
+use service::{OperationKind, ServiceContext, SignatureProvider};
 use std::{collections::BTreeMap, sync::Arc};
 
 #[derive(Debug, Serialize)]
@@ -521,6 +521,12 @@ pub fn router(state: ApiState) -> Router {
         // THE SINGLE DECISION SURFACE: the TypeScript kernel asks here rather than holding its own copy of the
         // rule, so "may this principal do this" is answered in one place.
         .route("/v1/security/authorize", post(authorize_action))
+        // The same decision for the anonymous public site, which has no principal to decide for. What it may
+        // reach is the policy's named public-read list, not this route's business.
+        .route(
+            "/v1/security/authorize/public",
+            post(authorize_public_action),
+        )
         .route(
             "/v1/security/role-entitlements",
             get(role_entitlements).put(set_role_entitlement),
@@ -814,38 +820,16 @@ async fn security_identity(
     Ok(success_with_correlation(value, &context.correlation_id))
 }
 
-/// One action to decide: the action name and its kind. Nothing else — see the handler for why.
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct AuthorizeBody {
-    action: String,
-    kind: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AuthorizeResponse {
-    allowed: bool,
-    reason: String,
-    policy_id: String,
-    mode: &'static str,
-}
-
-/// THE ONE DECISION SURFACE.
+/// The decision itself, shared by the identified and the anonymous doors.
 ///
-/// The TypeScript kernel asks here instead of carrying its own copy of the rule, so "may this principal do this?"
-/// has a single answer — including the ROOT-only rule for `security.entitlement.manage` and `security.role.manage`,
-/// which the TypeScript copy did not carry and therefore disagreed with this one by construction.
-///
-/// THE CALLER NAMES ONLY AN ACTION, and it must be one the catalog knows. Domain and operation are derived from it
-/// inside the service (see `SecurityService::decide`), because the policy keys rules on those fields and a caller
-/// that could rename them could dodge the `contract.execute` level floor. A command asked about as a query is
-/// refused rather than answered: the kind is part of the question.
-async fn authorize_action(
-    State(state): State<ApiState>,
-    headers: HeaderMap,
-    Json(body): Json<AuthorizeBody>,
-) -> Result<Json<ApiSuccess<AuthorizeResponse>>, ApiError> {
+/// The two doors differ ONLY in how the caller is resolved (a signed-in principal, or the public website), so the
+/// question and its validation live here once. A second copy for the public path is how the public path would end up
+/// accepting an action the catalog does not define.
+async fn authorize_decision(
+    state: &ApiState,
+    body: &AuthorizeBody,
+    context: &ServiceContext,
+) -> Result<AuthorizeResponse, ApiError> {
     let Some((action, catalog_kind)) = crate::security::catalog_action(&body.action) else {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
@@ -882,24 +866,88 @@ async fn authorize_action(
         ));
     }
 
-    let resolved = resolve_request_context(&state, &headers).await?;
     let decision = state
         .services()
         .security()
-        .decide(action, kind, &resolved.service)
+        .decide(action, kind, context)
         .await
-        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+        .map_err(|error| ApiError::from(error))?;
 
-    Ok(success(
-        AuthorizeResponse {
-            allowed: decision.allowed,
-            reason: decision.reason,
-            policy_id: decision.policy_id,
-            mode: decision.mode,
-        },
-        &resolved,
-    ))
+    Ok(AuthorizeResponse {
+        allowed: decision.allowed,
+        reason: decision.reason,
+        policy_id: decision.policy_id,
+        mode: decision.mode,
+    })
 }
+
+/// THE ONE DECISION SURFACE.
+///
+/// The TypeScript kernel asks here instead of carrying its own copy of the rule, so "may this principal do this?"
+/// has a single answer — including the ROOT-only rule for `security.entitlement.manage` and `security.role.manage`,
+/// which the TypeScript copy did not carry and therefore disagreed with this one by construction.
+///
+/// THE CALLER NAMES ONLY AN ACTION, and it must be one the catalog knows. Domain and operation are derived from it
+/// inside the service (see `SecurityService::decide`), because the policy keys rules on those fields and a caller
+/// that could rename them could dodge the `contract.execute` level floor. A command asked about as a query is
+/// refused rather than answered: the kind is part of the question.
+async fn authorize_action(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<AuthorizeBody>,
+) -> Result<Json<ApiSuccess<AuthorizeResponse>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let decision = authorize_decision(&state, &body, &resolved.service)
+        .await
+        .map_err(|error| correlate(error, &resolved))?;
+
+    Ok(success(decision, &resolved))
+}
+
+/// The same decision, asked by the ANONYMOUS PUBLIC SITE.
+///
+/// The public site reads published listings for visitors who have no session, so it has no principal to decide for —
+/// and it cannot use the identified door, which requires one. This door resolves the caller to the `public-website`
+/// system actor instead (`resolve_public_guest_context`, the same actor the vault's public document route uses) and
+/// refuses identity headers outright: a caller either IS the public website or IS somebody, never an ambiguous
+/// mixture that could be read either way by whichever rule matched first.
+///
+/// WHAT IT CAN REACH IS THE POLICY'S BUSINESS, NOT THIS HANDLER'S: the public actor is allowed the operations named
+/// in the Rust `PUBLIC_READ_ACTIONS` list, and queries only. This door only says who is asking.
+async fn authorize_public_action(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<AuthorizeBody>,
+) -> Result<Json<ApiSuccess<AuthorizeResponse>>, ApiError> {
+    let context = resolve_public_guest_context(&state, &headers)?;
+    let correlation_id = context.correlation_id.clone();
+    let decision = authorize_decision(&state, &body, &context)
+        .await
+        .map_err(|error| error.with_correlation(correlation_id.clone()))?;
+
+    // No acting user to hand to `success`, so the correlation id is passed explicitly rather than invented.
+    Ok(success_with_correlation(decision, &correlation_id))
+}
+
+/// One action to decide: the action name and its kind. Nothing else — see the handler for why.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct AuthorizeBody {
+    action: String,
+    kind: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AuthorizeResponse {
+    allowed: bool,
+    reason: String,
+    policy_id: String,
+    mode: &'static str,
+}
+
+/// THE ONE DECISION SURFACE.
+///
 
 async fn whoami(
     State(state): State<ApiState>,
