@@ -41,6 +41,24 @@ export abstract class BaseService<TMap extends ServiceOperationMap>
     // One mailbox per service instance by default. Replace with any ServiceQueue
     // implementation (durable/distributed) without changing the service contract.
     this.queue = infrastructure.queue ?? new InMemoryServiceQueue()
+
+    // LOUD, AT CONSTRUCTION TIME, BECAUSE THE ALTERNATIVE IS SILENCE.
+    //
+    // A service built without an authorization port does not leak anything: `authorize` refuses every operation with
+    // AUTHORIZATION_UNAVAILABLE. That is the right default and the wrong experience — three services shipped that way
+    // during the Rust conversion and simply did nothing, quietly, because nothing complained. Failing closed is a
+    // safety property; it is not a substitute for noticing.
+    //
+    // This fires at the site of the mistake rather than at the call site, so the log line names the service that was
+    // built wrong instead of the feature that stopped working. `composeCoreServices` always supplies a port, so a
+    // kernel built the normal way never prints this.
+    if (!infrastructure.authorization) {
+      console.error(
+        `[service-authorization] ${new.target.name} was constructed without an authorization port: ` +
+          `every operation it runs will fail with AUTHORIZATION_UNAVAILABLE. Build it with ` +
+          `{ authorization: new AuthorizationService() } or compose it through composeCoreServices().`,
+      )
+    }
   }
 
   dependencies(): readonly string[] {
