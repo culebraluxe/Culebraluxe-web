@@ -230,6 +230,26 @@
   }
 }
 
+/* The FAQ answers open and close smoothly, as the React accordion's grid-rows transition did, on a native <details>. */
+@supports selector(::details-content) {
+  .faq-details {
+    interpolate-size: allow-keywords;
+  }
+  .faq-details::details-content {
+    block-size: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition:
+      block-size 400ms ease-out,
+      opacity 400ms ease-out,
+      content-visibility 400ms allow-discrete;
+  }
+  .faq-details[open]::details-content {
+    block-size: auto;
+    opacity: 1;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

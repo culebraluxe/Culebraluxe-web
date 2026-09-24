@@ -136,6 +136,12 @@ async function GETHandler(req: NextRequest): Promise<Response> {
         featured: properties.filter((property) => property.featured === true).map(listing),
       })
     }
+    case 'site-favorites': {
+      // SAVED PROPERTIES LIVE IN THE BROWSER, so the page is the published inventory and the browser picks the saved
+      // ones out of it. A saved listing that has since been unpublished is simply not in this list, so it cannot show.
+      const result = await getProperties({ publicOnly: true })
+      return NextResponse.json({ listings: result.ok ? result.data.map(listing) : [] })
+    }
     case 'site-about': {
       const result = await getMarketingContent()
       const home = result.ok ? buildHomeContent(result.data) : undefined
@@ -158,7 +164,22 @@ async function GETHandler(req: NextRequest): Promise<Response> {
       const blocks = result.ok ? result.data : []
       // The contact page's own two slots, exactly the shape `ContactPageContent` documents.
       const contact = buildContactPageContent(blocks)
-      return NextResponse.json({ hero: block(contact.hero), contact: block(contact.contact) })
+      // An enquiry about one property names it, as the live form did ("Request a private viewing of ..."). The id comes
+      // from the page's URL, so it is looked up among the PUBLISHED listings only: an unpublished property's name is not
+      // something a guessed id may reveal.
+      const propertyId = req.nextUrl.searchParams.get('scope')
+      let enquiryProperty: string | null = null
+      if (propertyId) {
+        const listings = await getProperties({ publicOnly: true })
+        enquiryProperty = listings.ok
+          ? (listings.data.find((property) => property.id === propertyId)?.name ?? null)
+          : null
+      }
+      return NextResponse.json({
+        hero: block(contact.hero),
+        contact: block(contact.contact),
+        enquiryProperty,
+      })
     }
     case 'site-guide': {
       // THE GUIDE IS THE ONE PAGE WHOSE CONTENT IS NOT EDITORIAL COPY. It is a catalogue of places read from

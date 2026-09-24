@@ -9,6 +9,7 @@ pub mod buyers;
 pub mod chrome;
 pub mod contact;
 pub mod faq;
+pub mod favorites;
 pub mod guide;
 pub mod portal_accounting_dashboard;
 pub mod portal_accounting_expenses;

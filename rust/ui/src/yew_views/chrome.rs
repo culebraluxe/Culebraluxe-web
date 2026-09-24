@@ -104,13 +104,15 @@ impl Component for Header {
                             { item(Route::Contact, "Contact", CAPSULE) }
                             { outside("/portal/dashboard", "Portal", CAPSULE) }
                         </nav>
-                        <details class="lg:hidden">
+                        // The bars turn into a cross when the menu is open, as the live button did, and choosing a
+                        // destination closes the menu: the router changes the page without a load, so nothing else would.
+                        <details class="group lg:hidden">
                             <summary class="flex cursor-pointer list-none flex-col items-end gap-1.5 text-brand-ivory [&::-webkit-details-marker]:hidden" aria-label="Menu">
-                                <span class="block h-px w-6 bg-current"></span>
-                                <span class="block h-px w-6 bg-current"></span>
-                                <span class="block h-px w-6 bg-current"></span>
+                                <span class="block h-px w-6 bg-current transition-all duration-300 group-open:translate-y-[7px] group-open:rotate-45"></span>
+                                <span class="block h-px w-6 bg-current transition-all duration-300 group-open:opacity-0"></span>
+                                <span class="block h-px w-6 bg-current transition-all duration-300 group-open:-translate-y-[7px] group-open:-rotate-45"></span>
                             </summary>
-                            <nav class="absolute inset-x-0 top-full flex max-h-[75svh] flex-col gap-2 overflow-y-auto border-t border-brand-gold/25 bg-brand-navy px-4 py-4 backdrop-blur-md" aria-label="Mobile">
+                            <nav onclick={close_menu()} class="absolute inset-x-0 top-full flex max-h-[75svh] flex-col gap-2 overflow-y-auto border-t border-brand-gold/25 bg-brand-navy px-4 py-4 backdrop-blur-md animate-[fadeUp_0.4s_ease-out_both]" aria-label="Mobile">
                                 { item(Route::Buyers, "Buyers", MOBILE_CAPSULE) }
                                 { item(Route::Sellers, "Sellers", MOBILE_CAPSULE) }
                                 { item(Route::Services, "Services", MOBILE_CAPSULE) }
@@ -127,6 +129,24 @@ impl Component for Header {
             </>
         }
     }
+}
+
+/// Close the `<details>` the clicked menu sits in, once a link in it is chosen. Found from the clicked link, not from
+/// `current_target`: Yew delegates its listeners to the app root, so the current target is the root, not this menu.
+fn close_menu() -> Callback<MouseEvent> {
+    Callback::from(|event: MouseEvent| {
+        use wasm_bindgen::JsCast;
+        let Some(link) = event
+            .target()
+            .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
+            .and_then(|element| element.closest("a").ok().flatten())
+        else {
+            return;
+        };
+        if let Some(menu) = link.closest("details").ok().flatten() {
+            let _ = menu.remove_attribute("open");
+        }
+    })
 }
 
 /// The footer, as `components/site-footer.tsx` renders it.
@@ -162,7 +182,7 @@ impl Component for Footer {
                         </nav>
                     </div>
                     <div class="mt-14 flex flex-col gap-3 border-t border-border pt-8 text-xs font-light uppercase tracking-[0.16em] text-muted-foreground md:flex-row md:justify-between">
-                        <p>{"\u{00a9} CulebraLuxe. All rights reserved."}</p>
+                        <p>{ format!("\u{00a9} {} CulebraLuxe. All rights reserved.", js_sys::Date::new_0().get_full_year()) }</p>
                         <p>{"Culebra \u{00b7} Puerto Rico"}</p>
                     </div>
                 </div>

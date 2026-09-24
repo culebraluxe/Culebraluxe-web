@@ -284,7 +284,7 @@ pub const SCREENS: &[Screen] = &[
     Screen { key: "site-privacy", title: "Privacy", path: "/privacy", surface: Surface::Site, nav: Nav::Unlisted, deferred: None , detail_of: None },
     Screen { key: "site-video", title: "Video", path: "/video", surface: Surface::Site, nav: Nav::Unlisted, deferred: Some("A tool-test page for video playback: one Mux player and a hardcoded playback id. The player is a third-party island and is not ported, so what is left is the note instead of the embed.") , detail_of: None },
     Screen { key: "site-whatsapp", title: "WhatsApp", path: "/whatsapp", surface: Surface::Site, nav: Nav::Unlisted, deferred: None , detail_of: None },
-    Screen { key: "site-favorites", title: "Favorites", path: "/favorites", surface: Surface::Site, nav: Nav::Unlisted, deferred: Some("Never finished: this screen was meant to hold saved properties and never held anything. A Rust body belongs with the feature, not ahead of it - and the feature is a real decision, not a port.") , detail_of: None },
+    Screen { key: "site-favorites", title: "Favorites", path: "/favorites", surface: Surface::Site, nav: Nav::Unlisted, deferred: None, detail_of: None },
 
     // ---- ROUTES THE TABLE WAS MISSING. It is now checked against `find app -name page.tsx` (80 routes, minus the two
     // preview hosts this port adds), rather than against a registry that says of itself "Only EXISTING routes are
@@ -360,6 +360,9 @@ pub struct Listing {
     /// The views the property has, in the read model's order ("Ocean", "Beach", ...).
     pub views: Vec<String>,
     pub beach_access: bool,
+    /// The listing's one-line pitch ("Two residences. Two pools. ..."). Absent until the public read serves it: the
+    /// card draws it when it is there and leaves no gap when it is not.
+    pub tagline: Option<String>,
     /// Whether the estate is in the featured set, which is what draws the badge on its card.
     pub featured: bool,
 }
@@ -1835,6 +1838,8 @@ pub struct PageContent {
     /// `None` for every screen still rendering rows: a screen with no DTO yet keeps the generic list, and the two live
     /// side by side while the port goes screen by screen.
     pub portal: Option<PortalPage>,
+    /// The published property an enquiry on the contact page is about, by name (screen `site-contact`, scoped).
+    pub enquiry_property: Option<String>,
 }
 
 ///
@@ -2139,6 +2144,40 @@ pub struct PropertyRecent {
     pub at: i64,
 }
 
+/// Where a contact form submission is. `Sent` replaces the form with the thank-you; `Failed` keeps the form and the
+/// visitor's typing, and says so.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ContactStatus {
+    #[default]
+    Idle,
+    Sending,
+    Sent,
+    Failed,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ContactFormState {
+    /// "Buying", "Selling" or "Both" - the live form's chooser. Empty means the default, "Buying".
+    pub interest: String,
+    pub status: ContactStatus,
+    /// One id per enquiry, reused on a retry so the intake pipeline can recognise the same submission twice.
+    pub submission_id: Option<String>,
+}
+
+/// What the visitor typed, read from the form when it is submitted.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+pub struct ContactSubmission {
+    pub name: String,
+    pub email: String,
+    pub message: String,
+    /// The honeypot. A person never sees it; a bot fills it.
+    pub company: String,
+    /// `private_viewing` or `property_information` for a property enquiry; empty for a general one.
+    pub request_type: String,
+    pub property_id: String,
+    pub service: String,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PropertyMediaState {
     pub tab: PropertyTab,
@@ -2188,6 +2227,11 @@ pub struct Model {
     pub page: Option<PageContent>,
     /// Public property gallery selection/lightbox state.
     pub property_media: PropertyMediaState,
+    /// The ids of the listings this visitor has saved, as the browser's favorites store holds them. Read when a page of
+    /// listing cards loads, so each card's heart shows the truth rather than a default.
+    pub saved_listings: Vec<String>,
+    /// The contact form's own state: the interest chosen and where the submission is.
+    pub contact_form: ContactFormState,
     /// Seller Strategy is deterministic local application state: no fetch and no parallel React model.
     pub seller_strategy: crate::seller_strategy::SellerStrategyState,
     /// Contracts create/search state is reducer-owned just like every other interactive portal surface.
@@ -2242,6 +2286,8 @@ impl Default for Model {
             controls: Controls::default(),
             page: None,
             property_media: PropertyMediaState::default(),
+            saved_listings: Vec::new(),
+            contact_form: ContactFormState::default(),
             seller_strategy: crate::seller_strategy::SellerStrategyState::default(),
             deal_create: DealCreateState::default(),
             accounting: AccountingState::default(),
@@ -2364,6 +2410,16 @@ pub enum Msg {
     PropertyBrowserLoaded { id: String, saved: bool, recent: Vec<PropertyRecent> },
     PropertyFavoriteToggled,
     PropertyFavoriteStored { id: String, saved: bool },
+    /// The favorites store answered: these listing ids are saved.
+    ListingFavoritesLoaded(Vec<String>),
+    /// The heart on a listing card was pressed.
+    ListingFavoriteToggled(String),
+
+    // ---- Contact form --------------------------------------------------------------------------------------------
+    ContactInterestChosen(String),
+    /// The form was submitted, with a fresh id the view generated for a first attempt.
+    ContactSubmitted { submission: ContactSubmission, new_id: String },
+    ContactResult { accepted: bool },
 
     // ---- Flight Recorder -----------------------------------------------------------------------------------------
     FlightRecorderRefreshRequested,
@@ -2706,6 +2762,10 @@ pub enum Effect {
     SetUserPrimaryRole { generation: u64, app_user_id: String, role_code: String },
     PropertyBrowserRead { id: String, slug: String, title: String, valid_slugs: Vec<String> },
     PropertyFavoriteWrite { id: String, slug: String, title: String, saved: bool },
+    /// Read which listings the visitor has saved, for the hearts on a page of cards.
+    ListingFavoritesRead,
+    /// Send a contact form submission to the website intake pipeline.
+    SubmitContact { submission: ContactSubmission, submission_id: String },
     /// Fetch rows for this screen, optionally about one record.
     ///
     /// The screen travels with the effect rather than being scraped back out of the DOM, and `scope` is the record key

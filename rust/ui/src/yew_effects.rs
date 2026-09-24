@@ -48,6 +48,17 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
         Effect::PropertyFavoriteWrite { id, slug, title, saved } => {
             write_property_favorite(id, slug, title, saved, dispatch);
         }
+        Effect::SubmitContact { submission, submission_id } => {
+            submit_contact(submission, submission_id, dispatch);
+        }
+        Effect::ListingFavoritesRead => {
+            let ids = browser_storage()
+                .map(|storage| {
+                    favorite_entries(&storage).iter().filter_map(favorite_id).map(str::to_string).collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            dispatch.emit(Msg::ListingFavoritesLoaded(ids));
+        }
         Effect::FetchFlightRecorder {
             screen,
             instance_id,
@@ -1114,6 +1125,48 @@ fn write_property_favorite(id: String, slug: String, title: String, saved: bool,
     dispatch.emit(Msg::PropertyFavoriteStored { id, saved: actual });
 }
 
+const WEBSITE_INTAKE_PATH: &str = "/api/rust-ui/website-intake";
+
+/// Post a contact form submission. Anything but an accepted answer is the failed state: the visitor keeps their typing
+/// and is told, and the route has already recorded why.
+fn submit_contact(submission: crate::model::ContactSubmission, submission_id: String, dispatch: &Callback<Msg>) {
+    let dispatch = dispatch.clone();
+    let request_type = if submission.request_type.is_empty() {
+        "general_enquiry".to_string()
+    } else {
+        submission.request_type.clone()
+    };
+    let mut body = serde_json::json!({
+        "submissionId": submission_id,
+        "requestType": request_type,
+        "name": submission.name,
+        "email": submission.email,
+        "message": submission.message,
+        "company": submission.company,
+    });
+    if !submission.property_id.is_empty() {
+        body["propertyId"] = serde_json::Value::String(submission.property_id.clone());
+    }
+    if !submission.service.is_empty() {
+        body["service"] = serde_json::Value::String(submission.service.clone());
+    }
+    spawn_local(async move {
+        let accepted = match Request::post(WEBSITE_INTAKE_PATH).json(&body) {
+            Ok(request) => match request.send().await {
+                Ok(response) if response.ok() => response
+                    .json::<serde_json::Value>()
+                    .await
+                    .ok()
+                    .and_then(|value| value.get("accepted").and_then(serde_json::Value::as_bool))
+                    .unwrap_or(false),
+                _ => false,
+            },
+            Err(_) => false,
+        };
+        dispatch.emit(Msg::ContactResult { accepted });
+    });
+}
+
 fn fetch_entitlements(generation: u64, dispatch: &Callback<Msg>) {
     let dispatch = dispatch.clone();
     spawn_local(async move {
@@ -1226,7 +1279,10 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
         // before its catch-all passes anything unhandled to this function. The arm is here because the match must be
         // exhaustive — and a command falling through to a read would be a request to the wrong route with the wrong verb,
         // which is exactly the kind of silence this file exists to avoid.
-        Effect::PropertyBrowserRead { .. } | Effect::PropertyFavoriteWrite { .. } => {
+        Effect::PropertyBrowserRead { .. }
+        | Effect::PropertyFavoriteWrite { .. }
+        | Effect::ListingFavoritesRead
+        | Effect::SubmitContact { .. } => {
             unreachable!("Property browser effects are run before network reads")
         }
         Effect::SaveOps { .. } | Effect::CreateOpsProperty { .. } => {

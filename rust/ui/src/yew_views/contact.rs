@@ -1,21 +1,19 @@
-//! `/contact` — how to reach the office, on Yew.
+//! `/contact` — how to reach the office, and the enquiry form, on Yew.
 //!
-//! THE LIVE PAGE'S FORM IS NOT HERE, AND THAT IS THE HONEST PORT OF IT. `components/contact.tsx` held a form whose
-//! submission state was React state and whose submit called a server action — and on the live site the request it made
-//! never completed. Reproducing it would mean either an island holding React state (the thing this port is removing from
-//! public pages) or a POST endpoint for a browser form to target, which is new server code rather than ported markup.
-//! Neither is markup, so this renders what the page genuinely has: the hero from the content store, the section's own
-//! copy, and the office and email the content store carries — the email as the `mailto:` link it already was. A form that
-//! appears to send and does not is worse than a page that says how to reach someone.
+//! THE FORM IS BACK. It posts to `/api/rust-ui/website-intake`, which hands the fields to the same website intake
+//! pipeline the React form called, so there is still one way a lead arrives. The fields, the interest chooser, the
+//! property context and the sent/failed states are Rust markup driven by the reducer (`ContactFormState`).
 //!
-//! WHEN THE FORM COMES BACK it needs one thing first: an endpoint a plain `<form method="post">` can target, with the
-//! honeypot, the request type, the property context and the submission id it already had. Then the fields, the interest
-//! choice and the sent/failed states are Rust markup, because a form submission is a page load and a page load can carry
-//! its outcome in the URL.
+//! THE PROPERTY CONTEXT COMES FROM THE LINK. Every "Enquire" and "Book a Private Viewing" builds
+//! `/contact?propertyId=...&requestType=private_viewing`; the router scopes the page by the id, the payload names the
+//! property (published listings only), and the request type comes from the same query.
 
 use yew::prelude::*;
 
-use crate::model::{BlockItem, PageContent};
+use wasm_bindgen::JsCast;
+
+use crate::model::{BlockItem, ContactStatus, ContactSubmission, Model, Msg, PageContent};
+use crate::yew_router::query_param;
 use crate::yew_views::buyers::page_hero;
 use crate::yew_views::chrome::PageProps;
 
@@ -45,8 +43,8 @@ impl Component for Contact {
                     page.hero.image_alt.as_deref().unwrap_or("The Culebra coastline at golden hour"),
                 ) }
                 <section id="contact" class="bg-primary px-6 py-28 text-primary-foreground md:px-12 md:py-40">
-                    <div class="mx-auto max-w-[1600px]">
-                        <div class="max-w-3xl">
+                    <div class="mx-auto grid max-w-[1600px] gap-16 md:grid-cols-12 md:gap-24">
+                        <div class="reveal md:col-span-5">
                             <p class="mb-6 text-xs font-light uppercase tracking-[0.34em] text-primary-foreground/50">
                                 { page.contact.eyebrow.clone() }
                             </p>
@@ -55,6 +53,9 @@ impl Component for Contact {
                             </h2>
                             { self.details(page) }
                         </div>
+                        <div class="reveal md:col-span-7" style="--reveal-step: 1">
+                            { enquiry_form(&ctx.props().model, &ctx.props().on_msg) }
+                        </div>
                     </div>
                 </section>
             </>
@@ -62,10 +63,160 @@ impl Component for Contact {
     }
 }
 
+/// The request a link asked for: a private viewing, property information, or (no property) a general enquiry.
+fn request_type(model: &Model) -> &'static str {
+    if model.scope.as_deref().map(str::trim).unwrap_or("").is_empty() {
+        return "";
+    }
+    match query_param("requestType").as_deref() {
+        Some("property_information") => "property_information",
+        _ => "private_viewing",
+    }
+}
+
+/// The live form's layout and words, with its three states: the form, sending, and the thank-you.
+fn enquiry_form(model: &Model, on_msg: &Callback<Msg>) -> Html {
+    let state = &model.contact_form;
+    let request = request_type(model);
+    let property_name = model.page.as_ref().and_then(|page| page.enquiry_property.clone());
+    if state.status == ContactStatus::Sent {
+        let note = match request {
+            "private_viewing" => "Your private viewing request has been received. A member of the CulebraLuxe team will be in touch within one business day.",
+            "property_information" => "Your request for property information has been received. A member of the CulebraLuxe team will respond within one business day.",
+            _ => "Your note has reached us. A member of the CulebraLuxe team will respond personally within one business day.",
+        };
+        return html! {
+            <div class="flex h-full min-h-64 flex-col items-start justify-center border-t border-primary-foreground/10 pt-10" role="status">
+                <p class="font-serif text-3xl font-light md:text-4xl">{"Thank you."}</p>
+                <p class="mt-4 max-w-md text-sm font-light leading-relaxed text-primary-foreground/70">{ note }</p>
+            </div>
+        };
+    }
+    let interest = if state.interest.is_empty() { "Buying" } else { state.interest.as_str() };
+    let sending = state.status == ContactStatus::Sending;
+    let onsubmit = {
+        let on_msg = on_msg.clone();
+        let scope = model.scope.clone().unwrap_or_default();
+        Callback::from(move |event: SubmitEvent| {
+            event.prevent_default();
+            let submission = ContactSubmission {
+                name: field_value("contact-name"),
+                email: field_value("contact-email"),
+                message: field_value("contact-message"),
+                company: field_value("contact-company"),
+                request_type: request.to_string(),
+                property_id: if request.is_empty() { String::new() } else { scope.trim().to_string() },
+                service: if request.is_empty() { query_param("service").unwrap_or_default() } else { String::new() },
+            };
+            on_msg.emit(Msg::ContactSubmitted { submission, new_id: random_uuid() });
+        })
+    };
+    let label = "text-xs font-light uppercase tracking-[0.22em] text-primary-foreground/50";
+    let input = "border-0 border-b border-primary-foreground/25 bg-transparent pb-3 text-sm font-light text-primary-foreground placeholder:text-primary-foreground/30 focus:border-primary-foreground focus:outline-none";
+    html! {
+        <>
+            if !request.is_empty() {
+                <div class="mb-10 border-b border-primary-foreground/10 pb-8">
+                    <p class="text-xs font-light uppercase tracking-[0.34em] text-primary-foreground/50">
+                        { if request == "private_viewing" { "Private Viewing" } else { "Property Information" } }
+                    </p>
+                    <p class="mt-3 font-serif text-2xl font-light leading-snug md:text-3xl">
+                        { if request == "private_viewing" { "Request a private viewing" } else { "Request property information" } }
+                        if let Some(name) = property_name {
+                            <span class="mt-1 block text-primary-foreground/70">{ format!("of {name}") }</span>
+                        }
+                    </p>
+                </div>
+            }
+            <form {onsubmit} class="relative flex flex-col gap-10">
+                <div class="absolute -left-[9999px]" aria-hidden="true">
+                    <label for="contact-company">{"Company"}</label>
+                    <input id="contact-company" name="company" type="text" tabindex="-1" autocomplete="off" />
+                </div>
+                <div class="grid gap-10 sm:grid-cols-2">
+                    <div class="flex flex-col gap-3">
+                        <label for="contact-name" class={label}>{"Name"}</label>
+                        <input id="contact-name" name="name" type="text" autocomplete="name" required=true class={input} />
+                    </div>
+                    <div class="flex flex-col gap-3">
+                        <label for="contact-email" class={label}>{"Email"}</label>
+                        <input id="contact-email" name="email" type="email" autocomplete="email" required=true class={input} />
+                    </div>
+                </div>
+                if request.is_empty() {
+                    <fieldset class="flex flex-col gap-4">
+                        <legend class={label}>{"I am interested in"}</legend>
+                        <div class="mt-4 flex flex-wrap gap-3">
+                            { for ["Buying", "Selling", "Both"].into_iter().map(|option| {
+                                let on_msg = on_msg.clone();
+                                let chosen = option == interest;
+                                html! {
+                                    <button type="button" aria-pressed={chosen.to_string()}
+                                        onclick={Callback::from(move |_: MouseEvent| on_msg.emit(Msg::ContactInterestChosen(option.to_string())))}
+                                        class={classes!(
+                                            "border", "px-6", "py-2.5", "text-xs", "font-light", "uppercase", "tracking-[0.18em]",
+                                            "transition-colors", "duration-300",
+                                            if chosen { "border-primary-foreground bg-primary-foreground text-primary" }
+                                            else { "border-primary-foreground/25 text-primary-foreground/70 hover:border-primary-foreground/60" }
+                                        )}>
+                                        { option }
+                                    </button>
+                                }
+                            }) }
+                        </div>
+                    </fieldset>
+                }
+                <div class="flex flex-col gap-3">
+                    <label for="contact-message" class={label}>{"Message"}</label>
+                    <textarea id="contact-message" name="message" rows="4"
+                        class={classes!("resize-none", input)}
+                        placeholder="Tell us a little about what you are looking for." />
+                </div>
+                <button type="submit" disabled={sending}
+                    class="group mt-2 inline-flex min-h-11 items-center gap-3 self-start px-4 text-xs font-light uppercase tracking-[0.24em] disabled:opacity-60">
+                    { if sending { "Sending\u{2026}" } else if request == "private_viewing" { "Request viewing" } else { "Send enquiry" } }
+                    <span class="inline-block h-px w-12 bg-primary-foreground transition-all duration-500 group-hover:w-20" aria-hidden="true"></span>
+                </button>
+                if state.status == ContactStatus::Failed {
+                    <p class="text-sm text-primary-foreground/70" role="alert">{"We could not send your note. Please try again."}</p>
+                }
+            </form>
+        </>
+    }
+}
+
+/// A form control's current value, by id. The fields are uncontrolled, as they were in the live form: the reducer holds
+/// the submission's state, not every keystroke.
+fn field_value(id: &str) -> String {
+    let Some(element) = web_sys::window().and_then(|window| window.document()).and_then(|doc| doc.get_element_by_id(id))
+    else {
+        return String::new();
+    };
+    if let Some(input) = element.dyn_ref::<web_sys::HtmlInputElement>() {
+        return input.value();
+    }
+    element
+        .dyn_ref::<web_sys::HtmlTextAreaElement>()
+        .map(|area| area.value())
+        .unwrap_or_default()
+}
+
+/// `crypto.randomUUID()` — the submission id the intake pipeline requires. Empty only if the browser has no Web Crypto,
+/// which the pipeline then rejects as invalid rather than accepting an id that is not unique.
+fn random_uuid() -> String {
+    let Some(window) = web_sys::window() else { return String::new(); };
+    let crypto = js_sys::Reflect::get(&window, &"crypto".into()).ok();
+    crypto
+        .and_then(|crypto| {
+            let function = js_sys::Reflect::get(&crypto, &"randomUUID".into()).ok()?;
+            let function = function.dyn_into::<js_sys::Function>().ok()?;
+            function.call0(&crypto).ok()?.as_string()
+        })
+        .unwrap_or_default()
+}
+
 impl Contact {
-    /// ONE COLUMN, NOT A 12-COLUMN GRID WITH AN EMPTY HALF. The live section put the copy on the left and the form on
-    /// the right; with no form there is no second column, and a two-column grid holding one column is a gap a visitor
-    /// reads as something that failed to load.
+    /// The office and the email, under the heading in the left column, as the live section had them.
     fn details(&self, page: &PageContent) -> Html {
         // The block's items are typed, not positional: `office` and `email` are the two the live page read, by key. A
         // missing one renders nothing rather than a label with no value under it.

@@ -4,7 +4,7 @@
 //! restored session all arrive as `Navigate` and produce the same state.
 
 use crate::model::{
-    record_for, Controls, DealCreateState, DealWorkspaceState, Effect, Model, Msg,
+    record_for, ContactStatus, Controls, DealCreateState, DealWorkspaceState, Effect, Model, Msg,
     PortalDealCommand, Screen, WorkflowDiagnosticsState, PAGE_SIZE,
 };
 
@@ -90,6 +90,8 @@ pub fn is_editorial(key: &str) -> bool {
             | "site-guide"
             | "site-contact"
             | "site-faq"
+            // Saved properties: the public listings, filtered in the browser by what this device has saved.
+            | "site-favorites"
             // The property record is a page, not a list: it is a cockpit, a gallery, four tabs of documents and video, and
             // the neighbours. Serving it as rows was what flattened it into a fact table.
             | "site-property-detail"
@@ -1452,6 +1454,12 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             model.loading = false;
             model.error = None;
             model.page = Some(page);
+            if matches!(model.screen.key, "site-home" | "site-buyers" | "site-favorites") {
+                return vec![Effect::ListingFavoritesRead];
+            }
+            if model.screen.key == "site-contact" {
+                model.contact_form = crate::model::ContactFormState::default();
+            }
             if model.screen.key == "site-property-detail" {
                 model.property_media = crate::model::PropertyMediaState::default();
                 if let Some(record) = model.page.as_ref().and_then(|page| page.property.as_ref()) {
@@ -1540,7 +1548,55 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 saved: !model.property_media.saved,
             }]
         }
+        Msg::ContactInterestChosen(interest) => {
+            if matches!(interest.as_str(), "Buying" | "Selling" | "Both") {
+                model.contact_form.interest = interest;
+            }
+            Vec::new()
+        }
+        Msg::ContactSubmitted { submission, new_id } => {
+            // One submission at a time, and none after the thank-you: a double click is one enquiry, not two.
+            if model.screen.key != "site-contact"
+                || matches!(model.contact_form.status, ContactStatus::Sending | ContactStatus::Sent)
+            {
+                return Vec::new();
+            }
+            let submission_id = model.contact_form.submission_id.get_or_insert(new_id).clone();
+            model.contact_form.status = ContactStatus::Sending;
+            vec![Effect::SubmitContact { submission, submission_id }]
+        }
+        Msg::ContactResult { accepted } => {
+            if model.contact_form.status == ContactStatus::Sending {
+                model.contact_form.status = if accepted { ContactStatus::Sent } else { ContactStatus::Failed };
+            }
+            Vec::new()
+        }
+        Msg::ListingFavoritesLoaded(ids) => {
+            model.saved_listings = ids;
+            Vec::new()
+        }
+        Msg::ListingFavoriteToggled(id) => {
+            // Only a listing the page actually shows can be saved from a card: the id is looked up, never trusted.
+            let Some(listing) = model
+                .page
+                .as_ref()
+                .and_then(|page| page.listings.iter().chain(page.featured.iter()).find(|listing| listing.id == id))
+            else {
+                return Vec::new();
+            };
+            vec![Effect::PropertyFavoriteWrite {
+                id: listing.id.clone(),
+                slug: listing.slug.clone(),
+                title: listing.name.clone(),
+                saved: !model.saved_listings.contains(&listing.id),
+            }]
+        }
         Msg::PropertyFavoriteStored { id, saved } => {
+            // The cards' hearts follow the store whichever screen wrote it.
+            model.saved_listings.retain(|saved_id| *saved_id != id);
+            if saved {
+                model.saved_listings.push(id.clone());
+            }
             if model.screen.key == "site-property-detail"
                 && model.page.as_ref().and_then(|page| page.property.as_ref()).is_some_and(|property| property.id == id)
             {
@@ -4140,6 +4196,66 @@ mod tests {
             ..Default::default()
         });
         model
+    }
+
+    #[test]
+    fn a_contact_submission_is_sent_once_and_a_retry_keeps_its_id() {
+        use crate::model::{ContactStatus, ContactSubmission};
+        let mut model = Model { screen: target("site-contact"), ..Model::default() };
+        let submission = ContactSubmission { name: "Ada".into(), email: "ada@example.com".into(), ..Default::default() };
+        let first = update(&mut model, Msg::ContactSubmitted { submission: submission.clone(), new_id: "id-1".into() });
+        assert!(matches!(first.as_slice(), [Effect::SubmitContact { submission_id, .. }] if submission_id == "id-1"));
+        // A second click while the first is in flight is the same enquiry, not another one.
+        assert!(update(&mut model, Msg::ContactSubmitted { submission: submission.clone(), new_id: "id-2".into() }).is_empty());
+        update(&mut model, Msg::ContactResult { accepted: false });
+        assert_eq!(model.contact_form.status, ContactStatus::Failed);
+        // The retry reuses the first id, so the intake pipeline can recognise a repeat.
+        let retry = update(&mut model, Msg::ContactSubmitted { submission: submission.clone(), new_id: "id-3".into() });
+        assert!(matches!(retry.as_slice(), [Effect::SubmitContact { submission_id, .. }] if submission_id == "id-1"));
+        update(&mut model, Msg::ContactResult { accepted: true });
+        assert_eq!(model.contact_form.status, ContactStatus::Sent);
+        assert!(update(&mut model, Msg::ContactSubmitted { submission, new_id: "id-4".into() }).is_empty());
+    }
+
+    #[test]
+    fn the_interest_chooser_takes_only_its_three_answers() {
+        let mut model = Model { screen: target("site-contact"), ..Model::default() };
+        update(&mut model, Msg::ContactInterestChosen("Selling".into()));
+        update(&mut model, Msg::ContactInterestChosen("Anything".into()));
+        assert_eq!(model.contact_form.interest, "Selling");
+    }
+
+    #[test]
+    fn a_card_heart_saves_only_a_listing_the_page_shows_and_follows_the_store() {
+        let mut model = Model { screen: target("site-home"), ..Model::default() };
+        model.page = Some(crate::model::PageContent {
+            listings: vec![crate::model::Listing {
+                id: "p-1".into(),
+                slug: "estate".into(),
+                name: "Estate".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+        assert_eq!(update(&mut model, Msg::ListingFavoriteToggled("not-on-page".into())), vec![]);
+        assert_eq!(
+            update(&mut model, Msg::ListingFavoriteToggled("p-1".into())),
+            vec![Effect::PropertyFavoriteWrite {
+                id: "p-1".into(),
+                slug: "estate".into(),
+                title: "Estate".into(),
+                saved: true,
+            }]
+        );
+        update(&mut model, Msg::PropertyFavoriteStored { id: "p-1".into(), saved: true });
+        assert_eq!(model.saved_listings, vec!["p-1".to_string()]);
+        // Pressed again, the same heart unsaves.
+        assert!(matches!(
+            update(&mut model, Msg::ListingFavoriteToggled("p-1".into())).as_slice(),
+            [Effect::PropertyFavoriteWrite { saved: false, .. }]
+        ));
+        update(&mut model, Msg::PropertyFavoriteStored { id: "p-1".into(), saved: false });
+        assert!(model.saved_listings.is_empty());
     }
 
     #[test]

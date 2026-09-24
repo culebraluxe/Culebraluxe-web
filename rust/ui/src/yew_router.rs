@@ -15,6 +15,7 @@ use crate::model::{screen, Msg, Screen};
 use crate::yew_views::about::About;
 use crate::yew_views::buyers::Buyers;
 use crate::yew_views::contact::Contact;
+use crate::yew_views::favorites::Favorites;
 use crate::yew_views::faq::Faq;
 use crate::yew_views::guide::Guide;
 use crate::yew_views::home::Home;
@@ -41,6 +42,8 @@ pub enum Route {
     Faq,
     #[at("/contact")]
     Contact,
+    #[at("/favorites")]
+    Favorites,
     #[at("/properties/:slug")]
     Property { slug: String },
     /// A URL this app does not serve. It renders a message rather than a blank page, and the reader is offered the way
@@ -62,6 +65,7 @@ impl Route {
             Route::Guide => screen("site-guide"),
             Route::Faq => screen("site-faq"),
             Route::Contact => screen("site-contact"),
+            Route::Favorites => screen("site-favorites"),
             Route::Property { .. } => screen("site-property-detail"),
             Route::NotFound => None,
         }
@@ -71,9 +75,24 @@ impl Route {
     pub fn scope(&self) -> Option<String> {
         match self {
             Route::Property { slug } => Some(slug.clone()),
+            // An enquiry about one property carries its id in the query (`/contact?propertyId=...`), the link every
+            // card and the detail page build. It scopes the page so the payload can name the property.
+            Route::Contact => query_param("propertyId"),
             _ => None,
         }
     }
+}
+
+/// One value from the current page's query string, decoded. `None` when it is absent or empty.
+pub fn query_param(name: &str) -> Option<String> {
+    let search = web_sys::window()?.location().search().ok()?;
+    search.trim_start_matches('?').split('&').find_map(|pair| {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        (key == name)
+            .then(|| js_sys::decode_uri_component(&value.replace('+', " ")).ok().map(String::from))
+            .flatten()
+            .filter(|value| !value.trim().is_empty())
+    })
 }
 
 #[derive(Properties, PartialEq)]
@@ -112,6 +131,7 @@ impl Component for Shell {
                         Route::Guide => html! { <Guide model={model.clone()} on_msg={on_msg.clone()} /> },
                         Route::Faq => html! { <Faq model={model.clone()} on_msg={on_msg.clone()} /> },
                         Route::Contact => html! { <Contact model={model.clone()} on_msg={on_msg.clone()} /> },
+                        Route::Favorites => html! { <Favorites model={model.clone()} on_msg={on_msg.clone()} /> },
                         Route::Property { .. } => html! {
                             <PropertyDetail model={model.clone()} on_msg={on_msg.clone()} />
                         },

@@ -81,11 +81,15 @@ pub fn page_hero(
             <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-black/25 to-black/40"></div>
             <div class="relative w-full px-6 pb-16 pt-40 md:px-12 md:pb-24">
                 <div class="mx-auto max-w-[1600px]">
-                    <p class="mb-5 text-xs font-light uppercase tracking-[0.4em] text-background/70">{ eyebrow }</p>
-                    <h1 class="max-w-4xl text-balance font-serif text-4xl font-light leading-[1.05] text-background md:text-6xl">
-                        { title }
-                    </h1>
-                    { intro }
+                    // The live hero faded up on load (`Reveal` fires at once for what is already in view), heading
+                    // first and the intro a beat after.
+                    <div class="animate-[fadeUp_1.2s_cubic-bezier(0.22,1,0.36,1)_both]">
+                        <p class="mb-5 text-xs font-light uppercase tracking-[0.4em] text-background/70">{ eyebrow }</p>
+                        <h1 class="max-w-4xl text-balance font-serif text-4xl font-light leading-[1.05] text-background md:text-6xl">
+                            { title }
+                        </h1>
+                    </div>
+                    <div class="animate-[fadeUp_1.2s_cubic-bezier(0.22,1,0.36,1)_both] [animation-delay:120ms]">{ intro }</div>
                 </div>
             </div>
         </section>
@@ -138,7 +142,10 @@ impl Buyers {
             total => format!("{total} properties"),
         };
         let strip = listings.iter().map(slide).collect::<Vec<_>>();
-        let cards = visible.iter().copied().map(card).collect::<Vec<_>>();
+        let cards = visible
+            .iter()
+            .map(|listing| card(listing, model.saved_listings.contains(&listing.id), on_msg))
+            .collect::<Vec<_>>();
         html! {
             <>
                 <section class="px-6 pb-12 pt-12 md:px-12 md:pb-16 md:pt-16">
@@ -332,6 +339,38 @@ pub(crate) fn listing_image(listing: &Listing, class: &str, sizes: &str) -> Html
     }
 }
 
+/// The round heart on a listing card, `SaveProperty variant="icon"` from the TypeScript card. It sits above the card's
+/// stretched link, so pressing it saves rather than navigates. Nothing without an id can be saved, so nothing is drawn.
+pub(crate) fn save_heart(listing: &Listing, saved: bool, on_msg: &Callback<Msg>, class: &'static str) -> Html {
+    if listing.id.trim().is_empty() {
+        return Html::default();
+    }
+    let onclick = {
+        let on_msg = on_msg.clone();
+        let id = listing.id.clone();
+        Callback::from(move |event: MouseEvent| {
+            event.prevent_default();
+            event.stop_propagation();
+            on_msg.emit(Msg::ListingFavoriteToggled(id.clone()));
+        })
+    };
+    let label = if saved { format!("Saved: {}", listing.name) } else { format!("Save {}", listing.name) };
+    html! {
+        <button type="button" {onclick} aria-pressed={saved.to_string()} aria-label={label.clone()} title={label}
+            class={classes!(
+                "z-30", "flex", "h-10", "w-10", "items-center", "justify-center", "rounded-full", "bg-background/80",
+                "text-foreground", "backdrop-blur-sm", "transition-colors", "duration-300", "hover:bg-background",
+                "focus-visible:outline-none", "focus-visible:ring-2", "focus-visible:ring-accent", class
+            )}>
+            { crate::icons::icon_html(
+                "heart",
+                if saved { "h-4 w-4 fill-accent text-accent transition-all duration-300" } else { "h-4 w-4 transition-all duration-300" },
+                "2",
+            ).unwrap_or_default() }
+        </button>
+    }
+}
+
 /// One slide of the featured strip.
 fn slide(listing: &Listing) -> Html {
     html! {
@@ -353,7 +392,7 @@ fn slide(listing: &Listing) -> Html {
 }
 
 /// One inventory card: the photograph with its badges, then the place, the price and its facts.
-fn card(listing: &Listing) -> Html {
+pub(crate) fn card(listing: &Listing, saved: bool, on_msg: &Callback<Msg>) -> Html {
     let facts = crate::format::listing_facts(listing, crate::format::FactsStyle::Full);
     html! {
         <article class="group relative">
@@ -369,6 +408,7 @@ fn card(listing: &Listing) -> Html {
                         {"Land"}
                     </span>
                 }
+                { save_heart(listing, saved, on_msg, "absolute right-4 top-4") }
             </div>
             <a href={format!("/properties/{}", listing.slug)} aria-label={format!("View {}", listing.name)}
                 class="absolute inset-0 z-10"></a>

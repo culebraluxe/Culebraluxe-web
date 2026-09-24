@@ -1,17 +1,16 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import { YewApp } from '@/components/rust-ui/yew-app'
 
 // ---------------------------------------------------------------------------
-// CONVERTED TO RUST (screen: site-favorites).
+// /favorites — YEW OWNS THIS ROUTE NOW.
 //
-// What this route rendered now lives in rust/ui/src/view.rs, fed by the rows route. The route itself is unchanged,
-// which is what keeps every link and bookmark working.
+// Saved properties (`rust/ui/src/yew_views/favorites.rs`): the published listings, picked out by what this device has
+// saved with the heart on a card. This file only puts the mount point on the page.
 // ---------------------------------------------------------------------------
 
 export default function Page() {
-
   return (
     <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/rust-ui/public-rows" start="site-favorites" />
+      <YewApp />
     </div>
   )
 }

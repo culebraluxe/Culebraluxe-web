@@ -70,9 +70,11 @@ impl Faq {
         html! {
             <ul class="mx-auto max-w-3xl">
                 { for questions.into_iter().enumerate().map(|(index, (question, answer))| html! {
-                    <li class="border-b border-border">
-                        // `open` on the first one only, because that is what the live component initialised to.
-                        <details class="group" open={index == 0}>
+                    <li class="reveal border-b border-border">
+                        // `open` on the first one only, because that is what the live component initialised to. The
+                        // shared `name` makes them one accordion - opening a question closes the last, as the live one
+                        // did - and `faq-details` animates the answer open (`app/globals.css`).
+                        <details class="faq-details group" name="faq" open={index == 0}>
                             <summary class="flex w-full cursor-pointer list-none items-start justify-between gap-8 py-7 text-left [&::-webkit-details-marker]:hidden">
                                 <span class="font-serif text-lg font-light leading-snug text-foreground md:text-xl">{ question }</span>
                                 <span class="relative mt-2 inline-block h-4 w-4 shrink-0" aria-hidden="true">

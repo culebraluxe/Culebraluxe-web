@@ -14,7 +14,8 @@ use crate::format::{
     listing_enquire_href, listing_eyebrow, listing_fact_parts, listing_highlights, listing_price_label, FactsStyle,
 };
 use crate::model::{Block, Listing};
-use crate::yew_views::buyers::listing_image;
+use crate::model::Msg;
+use crate::yew_views::buyers::{listing_image, save_heart};
 use crate::yew_views::chrome::PageProps;
 
 pub struct Home;
@@ -28,7 +29,9 @@ impl Component for Home {
     }
 
     fn view(&self, ctx: &Context<Self>) -> Html {
-        let Some(page) = ctx.props().model.page.as_ref() else {
+        let model = &ctx.props().model;
+        let on_msg = &ctx.props().on_msg;
+        let Some(page) = model.page.as_ref() else {
             // The chrome and the loading line are already on screen. An empty body here is honest; filling it with
             // invented copy would be worse than a page that is still arriving.
             return Html::default();
@@ -38,7 +41,7 @@ impl Component for Home {
                 { hero(&page.hero) }
                 if !page.listings.is_empty() {
                     { self.collection(&page.featured) }
-                    { self.portfolio(&page.buyers, &page.listings) }
+                    { self.portfolio(&page.buyers, &page.listings, &model.saved_listings, on_msg) }
                 }
                 { self.services_band(&page.buyers, &page.sellers) }
                 { self.culture(&page.culture) }
@@ -65,11 +68,11 @@ fn hero(block: &Block) -> Html {
             <div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
             <div class="relative flex h-full flex-col justify-end px-6 pb-20 md:px-12 md:pb-28">
                 <div class="mx-auto w-full max-w-[1600px]">
-                    <p class="mb-6 text-xs font-light uppercase tracking-[0.4em] text-background/70">{ block.eyebrow.clone() }</p>
-                    <h1 class="max-w-4xl text-balance font-serif text-5xl font-light leading-[1.02] text-background md:text-7xl lg:text-8xl">
+                    <p class="mb-6 text-xs font-light uppercase tracking-[0.4em] text-background/70 animate-[fadeUp_1.2s_ease-out_both]">{ block.eyebrow.clone() }</p>
+                    <h1 class="max-w-4xl text-balance font-serif text-5xl font-light leading-[1.02] text-background md:text-7xl lg:text-8xl animate-[fadeUp_1.2s_ease-out_0.15s_both]">
                         { block.title.clone() }
                     </h1>
-                    <div class="mt-10 flex flex-col gap-6 border-t border-background/25 pt-8 md:flex-row md:items-end md:justify-between">
+                    <div class="mt-10 flex flex-col gap-6 border-t border-background/25 pt-8 md:flex-row md:items-end md:justify-between animate-[fadeUp_1.2s_ease-out_0.35s_both]">
                         <p class="max-w-md text-pretty text-sm font-light leading-relaxed text-background/80">{ block.body.clone() }</p>
                         { rule_cta(block, "#properties", "bg-background") }
                     </div>
@@ -86,9 +89,10 @@ pub fn rule_cta(block: &Block, fallback: &'static str, rule: &'static str) -> Ht
     };
     let href = block.cta_href.as_deref().unwrap_or(fallback);
     html! {
-        <a href={href.to_string()} class="inline-flex items-center gap-3 text-xs font-light uppercase tracking-[0.24em]">
+        <a href={href.to_string()} class="group inline-flex items-center gap-3 text-xs font-light uppercase tracking-[0.24em]">
             { label.to_string() }
-            <span class={classes!("inline-block", "h-px", "w-10", rule)}></span>
+            <span class={classes!("inline-block", "h-px", "w-10", "transition-all", "duration-500", "group-hover:w-16", rule)}
+                aria-hidden="true"></span>
         </a>
     }
 }
@@ -167,6 +171,11 @@ fn collection_item(index: usize, listing: &Listing) -> Html {
                 <h3 class="mt-4 text-balance font-serif text-3xl font-light leading-tight text-foreground md:text-4xl">
                     <a href={href} class="transition-colors duration-300 hover:text-accent">{ listing.name.clone() }</a>
                 </h3>
+                if let Some(tagline) = listing.tagline.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+                    <p class="mt-4 max-w-sm text-pretty font-serif text-lg font-light italic leading-snug text-foreground/75">
+                        { tagline.to_string() }
+                    </p>
+                }
                 <p class="mt-6 max-w-sm text-sm font-light leading-relaxed text-foreground/80">
                     { facts_line(listing, FactsStyle::Full, "text-accent") }
                 </p>
@@ -199,7 +208,7 @@ impl Home {
     /// estate twice; the card now carries one stretched link, the pattern the buyers inventory already uses. The facts
     /// line is the one the TypeScript card drew — beds, baths and the leading view — at a contrast that reads on the dark
     /// band, and the cards reveal in a short stagger across the row.
-    fn portfolio(&self, block: &Block, items: &[Listing]) -> Html {
+    fn portfolio(&self, block: &Block, items: &[Listing], saved: &[String], on_msg: &Callback<Msg>) -> Html {
         let shown = &items[..items.len().min(4)];
         if shown.is_empty() {
             // The component rendered nothing at all with no listings, rather than an empty band.
@@ -235,7 +244,9 @@ impl Home {
                         </a>
                     </div>
                     <div class="grid grid-cols-1 gap-x-6 gap-y-12 sm:grid-cols-2 lg:grid-cols-4">
-                        { for shown.iter().enumerate().map(|(index, listing)| portfolio_card(index, listing)) }
+                        { for shown.iter().enumerate().map(|(index, listing)| {
+                            portfolio_card(index, listing, saved.contains(&listing.id), on_msg)
+                        }) }
                     </div>
                 </div>
             </section>
@@ -260,7 +271,7 @@ fn facts_line(listing: &Listing, style: FactsStyle, dot: &'static str) -> Html {
 }
 
 /// One card in the portfolio band.
-fn portfolio_card(index: usize, listing: &Listing) -> Html {
+fn portfolio_card(index: usize, listing: &Listing, saved: bool, on_msg: &Callback<Msg>) -> Html {
     html! {
         <article class="reveal group relative flex flex-col" style={format!("--reveal-step: {}", index % 4)}>
             <div class="relative aspect-[5/4] w-full overflow-hidden bg-background/10">
@@ -274,6 +285,7 @@ fn portfolio_card(index: usize, listing: &Listing) -> Html {
                         {"Featured"}
                     </span>
                 }
+                { save_heart(listing, saved, on_msg, "absolute right-3 top-3") }
             </div>
             <a href={format!("/properties/{}", listing.slug)} aria-label={format!("View {}", listing.name)}
                 class="absolute inset-0 z-10 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-4 focus-visible:outline-background"></a>
@@ -303,11 +315,11 @@ impl Home {
             <div class="bg-primary text-primary-foreground">
                 <section id="buyers" class="border-b border-primary-foreground/10 px-6 py-28 md:px-12 md:py-40">
                     <div class="mx-auto grid max-w-[1600px] gap-14 md:grid-cols-2 md:gap-24">
-                        <div>
+                        <div class="reveal">
                             <p class="mb-6 text-xs font-light uppercase tracking-[0.34em] text-primary-foreground/50">{ buyers.eyebrow.clone() }</p>
                             <h2 class="text-balance font-serif text-4xl font-light leading-[1.06] md:text-5xl">{ buyers.title.clone() }</h2>
                         </div>
-                        <div class="flex flex-col justify-center gap-10">
+                        <div class="reveal flex flex-col justify-center gap-10" style="--reveal-step: 1">
                             <p class="max-w-md text-pretty text-sm font-light leading-relaxed text-primary-foreground/75">{ buyers.body.clone() }</p>
                             <ul class="flex flex-col divide-y divide-primary-foreground/10 border-y border-primary-foreground/10">
                                 { for buyer_items.iter().map(|value| html! {
@@ -320,13 +332,13 @@ impl Home {
                 </section>
                 <section id="sellers" class="px-6 py-28 md:px-12 md:py-40">
                     <div class="mx-auto grid max-w-[1600px] items-center gap-14 md:grid-cols-2 md:gap-24">
-                        <div class="relative aspect-[4/5] w-full overflow-hidden">
+                        <div class="reveal relative aspect-[4/5] w-full overflow-hidden">
                             <img src={sellers.image_path.clone().unwrap_or_else(|| "/images/coastline.png".to_string())}
                                 alt={sellers.image_alt.clone().unwrap_or_else(|| "Aerial view of the Culebra coastline with jade and turquoise water".to_string())}
                                 sizes="(min-width: 768px) 50vw, 100vw"
                                 class="absolute inset-0 h-full w-full object-cover" />
                         </div>
-                        <div class="flex flex-col gap-10">
+                        <div class="reveal flex flex-col gap-10" style="--reveal-step: 1">
                             <div>
                                 <p class="mb-6 text-xs font-light uppercase tracking-[0.34em] text-primary-foreground/50">{ sellers.eyebrow.clone() }</p>
                                 <h2 class="text-balance font-serif text-4xl font-light leading-[1.06] md:text-5xl">{ sellers.title.clone() }</h2>
@@ -363,7 +375,7 @@ impl Home {
                         sizes="100vw" class="absolute inset-0 h-full w-full object-cover" />
                     <div class="absolute inset-0 bg-gradient-to-t from-black/55 via-black/15 to-black/25"></div>
                     <div class="absolute inset-0 flex flex-col justify-end px-6 pb-20 md:px-12 md:pb-28">
-                        <div class="mx-auto w-full max-w-[1600px]">
+                        <div class="reveal mx-auto w-full max-w-[1600px]">
                             <p class="mb-5 text-xs font-light uppercase tracking-[0.4em] text-background/70">{ block.eyebrow.clone() }</p>
                             <h2 class="max-w-3xl text-balance font-serif text-4xl font-light leading-[1.05] text-background md:text-6xl">
                                 { block.title.clone() }
@@ -373,8 +385,8 @@ impl Home {
                 </div>
                 <div class="px-6 py-24 md:px-12 md:py-32">
                     <div class="mx-auto grid max-w-[1600px] gap-14 md:grid-cols-12 md:gap-24">
-                        <p class="text-xs font-light uppercase tracking-[0.28em] text-accent md:col-span-4">{ block.subtitle.clone() }</p>
-                        <div class="md:col-span-8">
+                        <p class="reveal text-xs font-light uppercase tracking-[0.28em] text-accent md:col-span-4">{ block.subtitle.clone() }</p>
+                        <div class="reveal md:col-span-8" style="--reveal-step: 1">
                             <p class="max-w-3xl text-balance font-serif text-2xl font-light leading-[1.4] text-foreground md:text-3xl">
                                 { block.body.clone() }
                             </p>
@@ -421,14 +433,14 @@ impl Home {
         html! {
             <section id="about" class="px-6 py-28 md:px-12 md:py-40">
                 <div class="mx-auto max-w-[1600px]">
-                    <p class="mb-16 text-xs font-light uppercase tracking-[0.34em] text-accent md:mb-24">{ block.eyebrow.clone() }</p>
-                    <h2 class="max-w-5xl text-balance font-serif text-3xl font-light leading-[1.2] text-foreground md:text-5xl md:leading-[1.18]">
+                    <p class="reveal mb-16 text-xs font-light uppercase tracking-[0.34em] text-accent md:mb-24">{ block.eyebrow.clone() }</p>
+                    <h2 class="reveal max-w-5xl text-balance font-serif text-3xl font-light leading-[1.2] text-foreground md:text-5xl md:leading-[1.18]">
                         { block.title.clone() }
                     </h2>
                     <div class="mt-20 grid gap-14 border-t border-border pt-16 md:mt-28 md:grid-cols-3 md:gap-16">
-                        <p class="max-w-sm text-sm font-light leading-relaxed text-muted-foreground">{ block.body.clone() }</p>
-                        <p class="max-w-sm text-sm font-light leading-relaxed text-muted-foreground">{ paragraph }</p>
-                        <div class="flex flex-col justify-between gap-8">
+                        <p class="reveal max-w-sm text-sm font-light leading-relaxed text-muted-foreground" style="--reveal-step: 1">{ block.body.clone() }</p>
+                        <p class="reveal max-w-sm text-sm font-light leading-relaxed text-muted-foreground" style="--reveal-step: 2">{ paragraph }</p>
+                        <div class="reveal flex flex-col justify-between gap-8" style="--reveal-step: 3">
                             <div class="grid grid-cols-2 gap-8">
                                 { for stats.iter().map(|(label, value)| html! {
                                     <div>
