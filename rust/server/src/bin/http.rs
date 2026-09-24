@@ -1,7 +1,7 @@
 use db::Database;
 use server::api::{build_router, error_capture, ApiConfig};
-use service::{CapturingAuditPort, CapturingDomainEventPort, ServiceInfrastructure};
 use server::security::CasbinAuthorizationPort;
+use service::{CapturingAuditPort, CapturingDomainEventPort, ServiceInfrastructure};
 use std::{error::Error, sync::Arc};
 use tokio::net::TcpListener;
 
