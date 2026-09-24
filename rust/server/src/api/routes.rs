@@ -664,6 +664,7 @@ pub fn router(state: ApiState) -> Router {
             get(vault_public_listing_document_bytes),
         )
         .route("/v1/public/listing-copy", get(public_listing_copy))
+        .route("/v1/website-intake/{id}/notify", post(notify_website_lead))
         .route(
             "/v1/vault/document-bytes/{id}",
             get(vault_private_document_bytes),
@@ -2551,6 +2552,23 @@ fn vault_document_response(
         })?,
     );
     Ok(response)
+}
+
+/// Email the team and the visitor about one website lead the public site has just saved. The body is empty: the id is
+/// all the caller supplies, and the emails are written from the stored lead. Sent once per lead.
+async fn notify_website_lead(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<ApiSuccess<domain::WebsiteLeadNotice>>, ApiError> {
+    let context = resolve_public_guest_context(&state, &headers)?;
+    let notice = state
+        .services()
+        .website_leads()
+        .notify(&id, &context)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(success_with_correlation(notice, &context.correlation_id))
 }
 
 /// The taglines of published listings, for the anonymous public site: the same guest door the public document route

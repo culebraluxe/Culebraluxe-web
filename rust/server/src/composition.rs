@@ -20,6 +20,7 @@ use crate::signature::SignatureService;
 use crate::task::TaskService;
 use crate::vault::{VaultArtifactPort, VaultService};
 use crate::wbs::WbsService;
+use crate::website_leads::WebsiteLeadService;
 use crate::workflow_portal::WorkflowPortalService;
 use db::{
     AccountingDao, CalendarDao, ClientDao, CockpitDao, CommsDao, ContractDao, Database,
@@ -84,6 +85,15 @@ impl CoreServices {
     pub fn public_listings(&self) -> PublicListingService<db::PublicListingDao> {
         PublicListingService::new(
             db::PublicListingDao::new(self.db.clone()),
+            self.infrastructure.clone(),
+        )
+    }
+
+    /// A website lead's emails, sent with the mail settings in the environment (none: the service refuses).
+    pub fn website_leads(&self) -> WebsiteLeadService<db::WebsiteLeadDao> {
+        WebsiteLeadService::new(
+            db::WebsiteLeadDao::new(self.db.clone()),
+            crate::website_leads::mail_from_env(),
             self.infrastructure.clone(),
         )
     }

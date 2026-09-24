@@ -23,6 +23,7 @@ pub mod signature;
 pub mod task;
 pub mod vault;
 pub mod wbs;
+pub mod website_lead;
 pub mod workflow_portal;
 
 pub use accounting::*;
@@ -46,6 +47,7 @@ pub use property::{
     SetPropertyStatusRequest, UpsertPropertyForPersonRequest,
 };
 pub use public_listing::PublicListingCopy;
+pub use website_lead::{WebsiteLead, WebsiteLeadNotice};
 
 pub use security::{
     resolve_security_level, ActingUser, SecurityIdentityResolution, SecurityLevel,

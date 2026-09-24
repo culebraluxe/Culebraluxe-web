@@ -200,6 +200,60 @@ export async function rustApiAuthorizePublic(
   return payload.value
 }
 
+export type RustWebsiteLeadNotice = 'sent' | 'already_handled'
+
+/**
+ * Ask Rust to email the team and the visitor about ONE website lead that was just saved
+ * (`POST /v1/website-intake/{id}/notify`). Only the id is sent: Rust writes the emails from the stored lead and sends
+ * them once. Anonymous public door, authorized as `website.lead.notify`.
+ */
+export async function rustApiNotifyWebsiteLead(submissionId: string): Promise<RustWebsiteLeadNotice> {
+  const correlationId = randomUUID()
+  const headers = buildRustPublicBridgeHeaders({ internalApiKey: internalApiKey(), correlationId })
+
+  let response: Response
+  try {
+    response = await fetch(
+      `${rustApiBaseUrl()}/v1/website-intake/${encodeURIComponent(submissionId)}/notify`,
+      { method: 'POST', headers, cache: 'no-store' },
+    )
+  } catch (cause) {
+    throw new RustApiError({
+      status: 503,
+      code: 'RUST_API_UNAVAILABLE',
+      message: cause instanceof Error ? cause.message : 'Rust API request failed.',
+      retryable: true,
+      correlationId,
+    })
+  }
+
+  let payload: RustApiSuccess<RustWebsiteLeadNotice> | RustApiFailure
+  try {
+    payload = (await response.json()) as RustApiSuccess<RustWebsiteLeadNotice> | RustApiFailure
+  } catch {
+    throw new RustApiError({
+      status: 502,
+      code: 'RUST_API_INVALID_RESPONSE',
+      message: 'Rust API returned a non-JSON response.',
+      retryable: true,
+      correlationId,
+    })
+  }
+
+  if (!response.ok || !payload.ok) {
+    const failure = payload as RustApiFailure
+    throw new RustApiError({
+      status: response.status,
+      code: failure.error?.code ?? 'RUST_API_FAILURE',
+      message: failure.error?.message ?? 'Rust API request failed.',
+      retryable: failure.error?.retryable ?? response.status >= 500,
+      correlationId: failure.correlationId ?? correlationId,
+      incidentId: failure.error?.incidentId ?? null,
+    })
+  }
+  return payload.value
+}
+
 export type RustPublicListingCopy = { slug: string; tagline: string }
 
 /**

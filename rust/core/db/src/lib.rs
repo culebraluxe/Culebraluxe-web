@@ -22,6 +22,7 @@ mod pool;
 mod project;
 mod property;
 mod public_listing;
+mod website_lead;
 // Public because the `retrying_read!` macro expands inside other crates and has to name these helpers there.
 pub mod accounting;
 pub mod metrics;
@@ -65,4 +66,5 @@ pub use task::TaskDao;
 pub use transaction::DbTransaction;
 pub use vault::VaultDao;
 pub use wbs::WbsDao;
+pub use website_lead::WebsiteLeadDao;
 pub use workflow_portal::WorkflowPortalDao;

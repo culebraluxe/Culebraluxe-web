@@ -28,6 +28,7 @@ pub mod signature;
 pub mod task;
 pub mod vault;
 pub mod wbs;
+pub mod website_leads;
 pub mod workflow_portal;
 
 pub use composition::CoreServices;

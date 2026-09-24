@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server'
 
 import { submitWebsiteIntake } from '@/app/actions/website-intake'
-import { withApiHandler } from '@/lib/error-capture-seam'
+import { withApiHandler, withServerErrorCapture } from '@/lib/error-capture-seam'
+import { rustApiNotifyWebsiteLead } from '@/lib/rust-api/client'
 
 // ---------------------------------------------------------------------------
 // THE CONTACT FORM'S TRANSPORT, FOR THE RUST UI.
@@ -16,6 +17,16 @@ import { withApiHandler } from '@/lib/error-capture-seam'
 // AN UNAVAILABLE PIPELINE IS A FAILURE, NOT AN ANSWER. The action logs and returns `unavailable`; this throws on it, so
 // `withApiHandler` records it durably and the page shows its failed state rather than a thank-you nobody received.
 // ---------------------------------------------------------------------------
+
+/**
+ * The lead's emails: a notice to the team and a confirmation to the visitor, sent by Rust from the stored lead.
+ * THE LEAD IS ALREADY SAVED when this runs, so a mail failure must not turn the visitor's thank-you into an error:
+ * it is captured durably by the seam (so it is seen and can be retried) and the response stays accepted.
+ */
+const notifyLead = withServerErrorCapture('/api/rust-ui/website-intake:notify', rustApiNotifyWebsiteLead, {
+  level: 'warn',
+  route: '/api/rust-ui/website-intake',
+})
 
 const FIELDS = ['submissionId', 'requestType', 'propertyId', 'name', 'email', 'message', 'service', 'company'] as const
 
@@ -39,6 +50,12 @@ async function POSTHandler(req: NextRequest): Promise<Response> {
   const result = await submitWebsiteIntake(formData)
   if (result.status === 'unavailable') {
     throw new Error(`Website intake unavailable for submission ${String(formData.get('submissionId') ?? '')}`)
+  }
+  // A filled honeypot is "accepted" with nothing saved, so there is nothing to email about.
+  const submissionId = String(formData.get('submissionId') ?? '')
+  const honeypot = String(formData.get('company') ?? '').trim() !== ''
+  if (result.accepted && submissionId && !honeypot) {
+    await notifyLead(submissionId).catch(() => undefined)
   }
   return NextResponse.json(result, { status: result.accepted ? 200 : 422 })
 }

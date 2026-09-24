@@ -73,6 +73,14 @@ impl AuthorizationPort for CasbinAuthorizationPort {
             && request.operation == "vault.publicListingDocumentBytes"
             && request.action == "vault.publicListingDocument.read"
             && request.kind == OperationKind::Query;
+        // A WEBSITE LEAD'S EMAILS: the public website asks the server to email the team and the visitor about ONE
+        // submission it has just saved. The command carries only the submission id; the server reads what the emails
+        // say from the database and sends each lead's emails once (server/src/website_leads.rs).
+        let lead_notice = system
+            && request.actor.id.as_deref() == Some("public-website")
+            && request.operation == "website.notifyLead"
+            && request.action == "website.lead.notify"
+            && request.kind == OperationKind::Command;
         // PUBLISHED ACTIONS: anyone may run them, and only as a QUERY. Placed before the principal check because a
         // visitor has no principal at all — that is what "published" means. See PUBLIC_READ_ACTIONS.
         let published =
@@ -92,12 +100,13 @@ impl AuthorizationPort for CasbinAuthorizationPort {
         let identity_resolution = request.action == "security.identity.resolve"
             && request.kind == OperationKind::Query
             && request.actor.kind == ServiceActorKind::User;
-        let (allowed, policy_id) = if bootstrap || public || published {
+        let (allowed, policy_id) = if bootstrap || public || lead_notice || published {
             (true, "system:explicit")
         } else if identity_resolution {
             (true, "rule:identity.resolve.edge")
         } else if request.action == "security.identity.resolve"
             || request.action == "vault.publicListingDocument.read"
+            || request.action == "website.lead.notify"
         {
             (false, "system:reserved")
         } else if let Some(principal) = request.principal.as_ref() {
@@ -313,7 +322,34 @@ mod tests {
         req.operation = "vault.publicListingDocumentBytes";
         assert!(auth.authorize(req.clone()).await.unwrap().allowed);
         req.action = "vault.read";
-        assert!(!auth.authorize(req).await.unwrap().allowed);
+        assert!(!auth.authorize(req.clone()).await.unwrap().allowed);
+
+        // A website lead's emails: the public website may command exactly this, and nobody else may.
+        req.action = "website.lead.notify";
+        req.operation = "website.notifyLead";
+        req.kind = OperationKind::Command;
+        assert!(auth.authorize(req.clone()).await.unwrap().allowed);
+        req.operation = "website.notifyAnything";
+        assert!(
+            !auth.authorize(req.clone()).await.unwrap().allowed,
+            "only the named operation"
+        );
+        req.operation = "website.notifyLead";
+        req.actor.id = Some("authjs-edge".into());
+        assert!(
+            !auth.authorize(req.clone()).await.unwrap().allowed,
+            "only the public website"
+        );
+        let mut granted = request(
+            "website.lead.notify",
+            OperationKind::Command,
+            &["website.lead.notify"],
+        );
+        granted.operation = "website.notifyLead";
+        assert!(
+            !auth.authorize(granted).await.unwrap().allowed,
+            "reserved: no role can grant it"
+        );
 
         // ---- PUBLISHED actions (PUBLIC_READ_ACTIONS) ---------------------------------------------------------
         // The public site goes through the service kernel with no principal, so "may it read this" is decided here.
