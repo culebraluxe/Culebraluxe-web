@@ -49,7 +49,23 @@ export const GUARD_FUNCTIONS = new Set([
 // The ONLY call expressions that count as a session check: the lightweight
 // next-auth JWT decoder. A handler that consults the portal session is not
 // deliberately reachable without one, so it can never be declared `public`.
-export const SESSION_FUNCTIONS = new Set(['getToken'])
+/**
+ * The session seams this scanner recognises as "this handler establishes who is calling".
+ *
+ * `getPortalActingUser` is the CANONICAL one: it resolves the caller through the security service (and therefore through
+ * the Rust decision) and returns null when nobody is signed in, so a handler that refuses on null has a caller it can
+ * name. It was missing from this list while `getToken` — the older, weaker pattern it replaced — was present, which is
+ * why the portal's newer API routes were reported as `undecided-handler`: the scanner did not know the seam they use.
+ *
+ * Recognising the canonical seam does not loosen the fence. A handler still has to establish a caller OR be declared in
+ * `ROUTE_AUTHORITY_EXCEPTIONS`; what changes is that "establishes a caller" now includes the seam the codebase actually
+ * uses instead of only the one it used to.
+ */
+export const SESSION_FUNCTIONS = new Set([
+  'getToken',
+  'getPortalActingUser',
+  'resolvePortalAccess',
+])
 
 export const MANIFEST_REL_PATH = 'docs/agent/route-authority-manifest.md'
 const AUTHORITY_TYPES_REL_PATH = 'lib/auth/types.ts'
