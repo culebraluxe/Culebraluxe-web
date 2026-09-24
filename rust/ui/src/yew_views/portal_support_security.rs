@@ -4,9 +4,8 @@
 //! navigation cards to Users, Roles and Authorities, then the Security Status panel with its nine counts and the
 //! Break-glass readiness panel with its six conditions.
 //!
-//! READ-ONLY, AND THE CARDS ARE LINKS. Users, Roles and Authorities are their own routes that still render what they render;
-//! these three cards are navigation, drawn as anchors because the portal's URLs belong to Next rather than to this app's
-//! router. Nothing on this screen creates, edits or assigns anything.
+//! THE CARDS ARE LINKS. Users, Roles and Authorities are their own routes. ROOT role assignment now lives on Users;
+//! this landing page still owns no user-role mutation itself. The role-entitlement editor below is also ROOT-only.
 //!
 //! WHAT IS NOT ON THIS SCREEN, AND MUST NOT BE: the break-glass secret, its hash, the root user's id, any token, and any
 //! credential of any kind. The panel says whether each condition holds — "Ready" or "Not configured" — which is exactly what
