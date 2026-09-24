@@ -1,4 +1,6 @@
 import { RustUiHost } from '@/components/rust-ui/host'
+import { signIn } from '@/auth'
+import { devAuthLog } from '@/lib/auth/dev-auth-log'
 
 // ---------------------------------------------------------------------------
 // CONVERTED TO RUST (screen: login).
@@ -8,10 +10,15 @@ import { RustUiHost } from '@/components/rust-ui/host'
 // ---------------------------------------------------------------------------
 
 export default function Page() {
-
   return (
     <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/rust-ui/public-rows" start="login" />
+      <form action={async () => {
+        'use server'
+        devAuthLog('AUTH_SIGNIN_STARTED')
+        await signIn('google', { redirectTo: '/portal-auth-proof' })
+      }}>
+        <RustUiHost rowsPath="/api/rust-ui/public-rows" start="login" />
+      </form>
     </div>
   )
 }

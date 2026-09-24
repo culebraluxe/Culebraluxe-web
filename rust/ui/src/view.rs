@@ -3490,8 +3490,8 @@ fn login_recovery_view() -> String {
 ///
 /// WHY A BODY RATHER THAN TEXT EXTRACTION. The page this replaces used a Next *server action* to start the OAuth flow,
 /// and a server action is not markup — it is a Next mechanism that cannot survive the port. So the body is written, and
-/// it links to the endpoint Auth.js already exposes for exactly this (`/api/auth/signin/google`), which is the same
-/// flow its own default sign-in page uses. Sign-in therefore still works from Rust; what is lost is the env-guarded
+/// it renders the submit button inside the Auth.js server-action form owned by the Next entry page. The server action
+/// starts Google's OAuth handshake; a GET link to `/api/auth/signin/google` is rejected by Auth.js. What is lost is the env-guarded
 /// "Portal temporarily unavailable" branch, which needs the server's configuration and is a follow-up rather than
 /// something to fake here.
 ///
@@ -3507,10 +3507,10 @@ fn login_view() -> String {
            <h1 class=\"font-serif text-xl font-light\">Sign in</h1>\
            <p class=\"mt-2 text-sm font-light leading-6 text-black/50\">Access is for the CulebraLuxe team. There is no \
              public sign-up — accounts are provisioned by an administrator.</p>\
-           <a href=\"/api/auth/signin/google?callbackUrl=%2Fportal-auth-proof\" \
+           <button type=\"submit\" \
              class=\"mt-8 flex min-h-12 w-full items-center justify-center gap-3 rounded-sm border \
              border-[#030f23]/15 px-4 text-sm font-light text-[#030f23] transition hover:border-[#030f23]\">\
-             Continue with Google</a>\
+             Continue with Google</button>\
            <p class=\"mt-4 text-xs font-light text-black/40\">Having trouble? Contact a CulebraLuxe administrator.</p>\
          </div>\
          <div class=\"mt-6 text-center\">\
@@ -3976,6 +3976,14 @@ fn row_item(model: &Model, row: &Row) -> String {
 mod tests {
     use super::*;
     use crate::model::{Msg, Nav, Screen};
+
+    #[test]
+    fn login_submits_to_the_auth_js_form_without_a_get_signin_link() {
+        let html = login_view();
+        assert!(html.contains("<button type=\"submit\""));
+        assert!(!html.contains("/api/auth/signin/google"));
+        assert!(html.contains("Continue with Google</button>"));
+    }
 
     /// Screens are addressed by KEY in these tests. The table is the source of truth, so a test that named a variant
     /// would be asserting a name that only exists in a previous version of this file.
