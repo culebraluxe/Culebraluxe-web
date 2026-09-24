@@ -37,6 +37,22 @@ m = r.sub == p.sub && r.obj == p.obj && r.act == p.act
 /// exists, because a visitor has no session and the identified door requires one.
 const PUBLIC_READ_ACTIONS: &[&str] = &["property.public.read"];
 
+/// The COMMANDS only the public website may run, as `(operation, action)` pairs, and nobody else — not even ROOT.
+///
+/// Each is a narrow thing the site asks the server to do for a visitor who has no principal: the request names only
+/// what the server needs, and the server decides the rest from the database. Both halves must match, so a caller
+/// cannot borrow one action for a different operation, and every action here is RESERVED: no role can be granted it.
+///
+/// - A website lead's emails (server/src/website_leads.rs): the command carries only the submission id.
+/// - Visitor sign-in (server/src/visitor.rs): send an email code, check one, and resolve a signed-in visitor. A visitor
+///   is an EXTERNAL GUEST held in its own tables; nothing here reaches `app_user`, so none of it can open the portal.
+const PUBLIC_WEBSITE_COMMANDS: &[(&str, &str)] = &[
+    ("website.notifyLead", "website.lead.notify"),
+    ("visitor.requestSignInCode", "visitor.signin.request"),
+    ("visitor.verifySignInCode", "visitor.signin.verify"),
+    ("visitor.resolveSession", "visitor.session.resolve"),
+];
+
 /// Evaluates the grants supplied by the active user's DB roles against an explicit
 /// Casbin action catalog. The database remains the source of truth for grants.
 pub struct CasbinAuthorizationPort {
@@ -73,14 +89,11 @@ impl AuthorizationPort for CasbinAuthorizationPort {
             && request.operation == "vault.publicListingDocumentBytes"
             && request.action == "vault.publicListingDocument.read"
             && request.kind == OperationKind::Query;
-        // A WEBSITE LEAD'S EMAILS: the public website asks the server to email the team and the visitor about ONE
-        // submission it has just saved. The command carries only the submission id; the server reads what the emails
-        // say from the database and sends each lead's emails once (server/src/website_leads.rs).
-        let lead_notice = system
+        // THE PUBLIC WEBSITE'S OWN COMMANDS (lead emails, visitor sign-in). See PUBLIC_WEBSITE_COMMANDS.
+        let website_command = system
             && request.actor.id.as_deref() == Some("public-website")
-            && request.operation == "website.notifyLead"
-            && request.action == "website.lead.notify"
-            && request.kind == OperationKind::Command;
+            && request.kind == OperationKind::Command
+            && PUBLIC_WEBSITE_COMMANDS.contains(&(request.operation, request.action));
         // PUBLISHED ACTIONS: anyone may run them, and only as a QUERY. Placed before the principal check because a
         // visitor has no principal at all — that is what "published" means. See PUBLIC_READ_ACTIONS.
         let published =
@@ -100,13 +113,15 @@ impl AuthorizationPort for CasbinAuthorizationPort {
         let identity_resolution = request.action == "security.identity.resolve"
             && request.kind == OperationKind::Query
             && request.actor.kind == ServiceActorKind::User;
-        let (allowed, policy_id) = if bootstrap || public || lead_notice || published {
+        let (allowed, policy_id) = if bootstrap || public || website_command || published {
             (true, "system:explicit")
         } else if identity_resolution {
             (true, "rule:identity.resolve.edge")
         } else if request.action == "security.identity.resolve"
             || request.action == "vault.publicListingDocument.read"
-            || request.action == "website.lead.notify"
+            || PUBLIC_WEBSITE_COMMANDS
+                .iter()
+                .any(|&(_, action)| action == request.action)
         {
             (false, "system:reserved")
         } else if let Some(principal) = request.principal.as_ref() {
@@ -399,6 +414,52 @@ mod tests {
             !auth.authorize(public_read).await.unwrap().allowed,
             "the site reads its listings; it does not write them"
         );
+    }
+
+    #[tokio::test]
+    async fn visitor_sign_in_is_the_public_websites_alone() {
+        let auth = CasbinAuthorizationPort::new().await.unwrap();
+        for (operation, action) in [
+            ("visitor.requestSignInCode", "visitor.signin.request"),
+            ("visitor.verifySignInCode", "visitor.signin.verify"),
+            ("visitor.resolveSession", "visitor.session.resolve"),
+        ] {
+            let mut req = request(action, OperationKind::Command, &[]);
+            req.principal = None;
+            req.operation = operation;
+            req.actor = ServiceActor {
+                id: Some("public-website".into()),
+                kind: ServiceActorKind::System,
+            };
+            assert!(
+                auth.authorize(req.clone()).await.unwrap().allowed,
+                "{action}"
+            );
+
+            // Only as the operation it belongs to.
+            req.operation = "website.notifyLead";
+            assert!(
+                !auth.authorize(req.clone()).await.unwrap().allowed,
+                "{action} borrowed"
+            );
+            req.operation = operation;
+
+            // Only for the public website.
+            req.actor.id = Some("authjs-edge".into());
+            assert!(
+                !auth.authorize(req).await.unwrap().allowed,
+                "{action} other actor"
+            );
+
+            // Reserved: neither a grant nor ROOT opens it to a signed-in user.
+            let mut granted = request(action, OperationKind::Command, &[action]);
+            granted.operation = operation;
+            granted.principal.as_mut().unwrap().role_codes = vec!["root".into()];
+            assert!(
+                !auth.authorize(granted).await.unwrap().allowed,
+                "{action} granted"
+            );
+        }
     }
 
     #[tokio::test]
