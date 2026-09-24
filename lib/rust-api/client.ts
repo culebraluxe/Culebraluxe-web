@@ -200,6 +200,64 @@ export async function rustApiAuthorizePublic(
   return payload.value
 }
 
+export type RustPublicListingCopy = { slug: string; tagline: string }
+
+/**
+ * The taglines of PUBLISHED listings, from the public door (`GET /v1/public/listing-copy`).
+ *
+ * Anonymous by construction: the public bridge headers carry no identity, and Rust authorizes the read as the
+ * published `property.public.read`. A failure throws a RustApiError like every other call here; the caller decides
+ * whether the page can live without the copy.
+ */
+export async function rustApiPublicListingCopy(): Promise<RustPublicListingCopy[]> {
+  const correlationId = randomUUID()
+  const headers = buildRustPublicBridgeHeaders({ internalApiKey: internalApiKey(), correlationId })
+
+  let response: Response
+  try {
+    response = await fetch(`${rustApiBaseUrl()}/v1/public/listing-copy`, { headers, cache: 'no-store' })
+  } catch (cause) {
+    throw new RustApiError({
+      status: 503,
+      code: 'RUST_API_UNAVAILABLE',
+      message: cause instanceof Error ? cause.message : 'Rust API request failed.',
+      retryable: true,
+      correlationId,
+    })
+  }
+
+  let payload: RustApiSuccess<RustPublicListingCopy[]> | RustApiFailure
+  try {
+    payload = (await response.json()) as RustApiSuccess<RustPublicListingCopy[]> | RustApiFailure
+  } catch {
+    throw new RustApiError({
+      status: 502,
+      code: 'RUST_API_INVALID_RESPONSE',
+      message: 'Rust API returned a non-JSON response.',
+      retryable: true,
+      correlationId,
+    })
+  }
+
+  if (!response.ok || !payload.ok) {
+    const failure = payload as RustApiFailure
+    throw new RustApiError({
+      status: response.status,
+      code: failure.error?.code ?? 'RUST_API_FAILURE',
+      message: failure.error?.message ?? 'Rust API request failed.',
+      retryable: failure.error?.retryable ?? response.status >= 500,
+      correlationId: failure.correlationId ?? correlationId,
+      incidentId: failure.error?.incidentId ?? null,
+    })
+  }
+
+  // The body crosses a process boundary: keep only well-formed entries.
+  return (Array.isArray(payload.value) ? payload.value : []).filter(
+    (entry): entry is RustPublicListingCopy =>
+      Boolean(entry) && typeof entry.slug === 'string' && typeof entry.tagline === 'string',
+  )
+}
+
 function rustApiBaseUrl(): string {
   const value = resolveRustApiBaseUrl(process.env.RUST_API_BASE_URL, process.env.NODE_ENV)
   if (value) return value

@@ -20,6 +20,7 @@ pub mod media;
 pub mod people;
 pub mod projects;
 pub mod properties;
+pub mod public_listings;
 pub mod security;
 pub mod service_support;
 pub mod showings;

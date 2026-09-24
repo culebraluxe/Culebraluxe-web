@@ -58,20 +58,36 @@ impl SearchFilters {
         let named = |key: &str| controls.named.get(key).cloned().unwrap_or_default();
         let sort = named("sort");
         Self {
-            category: controls.tab.clone().filter(|tab| !tab.is_empty()).unwrap_or_else(|| "all".into()),
+            category: controls
+                .tab
+                .clone()
+                .filter(|tab| !tab.is_empty())
+                .unwrap_or_else(|| "all".into()),
             q: controls.query.clone(),
             max_price: named("price"),
             beds: named("beds"),
             view: named("view"),
-            sort: if sort.is_empty() { "featured".into() } else { sort },
+            sort: if sort.is_empty() {
+                "featured".into()
+            } else {
+                sort
+            },
         }
     }
 
     /// Put these filters on the Buyers controls: applying a saved search is exactly choosing them by hand.
     pub fn apply_to(&self, controls: &mut Controls) {
-        controls.tab = Some(if self.category.is_empty() { "all".into() } else { self.category.clone() });
+        controls.tab = Some(if self.category.is_empty() {
+            "all".into()
+        } else {
+            self.category.clone()
+        });
         controls.query = self.q.clone();
-        for (key, value) in [("price", &self.max_price), ("beds", &self.beds), ("view", &self.view)] {
+        for (key, value) in [
+            ("price", &self.max_price),
+            ("beds", &self.beds),
+            ("view", &self.view),
+        ] {
             if value.trim().is_empty() {
                 controls.named.remove(key);
             } else {
@@ -178,7 +194,12 @@ pub fn matches(listing: &Listing, filters: &SearchFilters) -> bool {
         }
     }
     let view = filters.view.trim();
-    if !view.is_empty() && !listing.views.iter().any(|candidate| candidate.eq_ignore_ascii_case(view)) {
+    if !view.is_empty()
+        && !listing
+            .views
+            .iter()
+            .any(|candidate| candidate.eq_ignore_ascii_case(view))
+    {
         return false;
     }
     let query = filters.q.trim().to_lowercase();
@@ -232,13 +253,21 @@ pub fn view_options(listings: &[Listing]) -> Vec<String> {
 /// Toggle a listing in the compare set. Adding past `COMPARE_MAX` is refused rather than dropping another entry.
 pub fn toggle_compare(entries: &[CompareEntry], listing: &Listing) -> Vec<CompareEntry> {
     if entries.iter().any(|entry| entry.id == listing.id) {
-        return entries.iter().filter(|entry| entry.id != listing.id).cloned().collect();
+        return entries
+            .iter()
+            .filter(|entry| entry.id != listing.id)
+            .cloned()
+            .collect();
     }
     if entries.len() >= COMPARE_MAX {
         return entries.to_vec();
     }
     let mut next = entries.to_vec();
-    next.push(CompareEntry { id: listing.id.clone(), slug: listing.slug.clone(), name: listing.name.clone() });
+    next.push(CompareEntry {
+        id: listing.id.clone(),
+        slug: listing.slug.clone(),
+        name: listing.name.clone(),
+    });
     next
 }
 
@@ -283,7 +312,13 @@ pub fn save_search(
 mod tests {
     use super::*;
 
-    fn listing(id: &str, kind: &str, price: Option<&str>, beds: Option<f64>, views: &[&str]) -> Listing {
+    fn listing(
+        id: &str,
+        kind: &str,
+        price: Option<&str>,
+        beds: Option<f64>,
+        views: &[&str],
+    ) -> Listing {
         Listing {
             id: id.into(),
             slug: format!("{id}-slug"),
@@ -299,7 +334,13 @@ mod tests {
 
     fn inventory() -> Vec<Listing> {
         vec![
-            listing("a", "Luxury Estate", Some("$2,500,000"), Some(8.0), &["Ocean", "Beach"]),
+            listing(
+                "a",
+                "Luxury Estate",
+                Some("$2,500,000"),
+                Some(8.0),
+                &["Ocean", "Beach"],
+            ),
             listing("b", "Villa", Some("$1,200,000"), Some(3.0), &["Bay"]),
             listing("c", "Land", Some("$400,000"), None, &["Ocean"]),
             listing("d", "Villa", None, Some(5.0), &[]),
@@ -307,7 +348,11 @@ mod tests {
     }
 
     fn filters(update: impl FnOnce(&mut SearchFilters)) -> SearchFilters {
-        let mut filters = SearchFilters { category: "all".into(), sort: "featured".into(), ..Default::default() };
+        let mut filters = SearchFilters {
+            category: "all".into(),
+            sort: "featured".into(),
+            ..Default::default()
+        };
         update(&mut filters);
         filters
     }
@@ -315,13 +360,28 @@ mod tests {
     #[test]
     fn the_matcher_is_the_contract() {
         let all = inventory();
-        assert_eq!(match_ids(&all, &filters(|f| f.category = "land".into())), vec!["c"]);
-        assert_eq!(match_ids(&all, &filters(|f| f.category = "homes".into())), vec!["a", "b", "d"]);
+        assert_eq!(
+            match_ids(&all, &filters(|f| f.category = "land".into())),
+            vec!["c"]
+        );
+        assert_eq!(
+            match_ids(&all, &filters(|f| f.category = "homes".into())),
+            vec!["a", "b", "d"]
+        );
         // A ceiling excludes the unpriced listing.
-        assert_eq!(match_ids(&all, &filters(|f| f.max_price = "2000000".into())), vec!["b", "c"]);
+        assert_eq!(
+            match_ids(&all, &filters(|f| f.max_price = "2000000".into())),
+            vec!["b", "c"]
+        );
         // A bedroom floor excludes land whatever it says.
-        assert_eq!(match_ids(&all, &filters(|f| f.beds = "4".into())), vec!["a", "d"]);
-        assert_eq!(match_ids(&all, &filters(|f| f.view = "ocean".into())), vec!["a", "c"]);
+        assert_eq!(
+            match_ids(&all, &filters(|f| f.beds = "4".into())),
+            vec!["a", "d"]
+        );
+        assert_eq!(
+            match_ids(&all, &filters(|f| f.view = "ocean".into())),
+            vec!["a", "c"]
+        );
         assert_eq!(match_ids(&all, &filters(|f| f.q = "BAY".into())), vec!["b"]);
     }
 
@@ -340,7 +400,8 @@ mod tests {
     }
 
     #[test]
-    fn saving_the_same_filters_refreshes_one_entry_and_new_matches_are_counted_from_the_last_look() {
+    fn saving_the_same_filters_refreshes_one_entry_and_new_matches_are_counted_from_the_last_look()
+    {
         let all = inventory();
         let ocean = filters(|f| f.view = "Ocean".into());
         let saved = save_search(&[], &ocean, vec!["a".into()], "ss-1", "t1");
@@ -349,7 +410,13 @@ mod tests {
         let current = match_ids(&all, &ocean);
         assert_eq!(new_match_ids(&saved[0], &current), vec!["c"]);
         // Re-saving the same filters (case aside) is the same search, watching from now.
-        let again = save_search(&saved, &filters(|f| f.view = "OCEAN".into()), current.clone(), "ss-2", "t2");
+        let again = save_search(
+            &saved,
+            &filters(|f| f.view = "OCEAN".into()),
+            current.clone(),
+            "ss-2",
+            "t2",
+        );
         assert_eq!(again.len(), 1);
         assert_eq!(again[0].id, "ss-1");
         assert!(new_match_ids(&again[0], &current).is_empty());
@@ -362,7 +429,12 @@ mod tests {
         for listing in &all {
             set = toggle_compare(&set, listing);
         }
-        assert_eq!(set.iter().map(|entry| entry.id.as_str()).collect::<Vec<_>>(), vec!["a", "b", "c"]);
+        assert_eq!(
+            set.iter()
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a", "b", "c"]
+        );
         // Toggling a chosen one removes it; a delisted one is pruned.
         let set = toggle_compare(&set, &all[1]);
         assert_eq!(set.len(), 2);
@@ -372,7 +444,8 @@ mod tests {
     #[test]
     fn the_storage_shape_is_the_typescript_one() {
         let raw = r#"[{"id":"ss-1","name":"Land","filters":{"category":"land","q":"","maxPrice":"","beds":"","view":"","sort":"featured"},"createdAt":"t","lastCheckedAt":null,"lastMatchIds":["c"]}]"#;
-        let parsed: Vec<SavedSearch> = serde_json::from_str(raw).expect("the React site's saved searches still read");
+        let parsed: Vec<SavedSearch> =
+            serde_json::from_str(raw).expect("the React site's saved searches still read");
         assert_eq!(parsed[0].filters.category, "land");
         assert_eq!(serde_json::to_string(&parsed).unwrap(), raw);
     }

@@ -664,6 +664,10 @@ pub fn router(state: ApiState) -> Router {
             get(vault_public_listing_document_bytes),
         )
         .route(
+            "/v1/public/listing-copy",
+            get(public_listing_copy),
+        )
+        .route(
             "/v1/vault/document-bytes/{id}",
             get(vault_private_document_bytes),
         )
@@ -2547,6 +2551,22 @@ fn vault_document_response(
         })?,
     );
     Ok(response)
+}
+
+/// The taglines of published listings, for the anonymous public site: the same guest door the public document route
+/// uses (no identity headers), authorized as the published `property.public.read`.
+async fn public_listing_copy(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<Vec<domain::PublicListingCopy>>>, ApiError> {
+    let context = resolve_public_guest_context(&state, &headers)?;
+    let copy = state
+        .services()
+        .public_listings()
+        .listing_copy(&context)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(success_with_correlation(copy, &context.correlation_id))
 }
 
 async fn vault_public_listing_document_bytes(

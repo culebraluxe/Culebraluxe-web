@@ -16,6 +16,7 @@ pub mod media;
 pub mod person;
 pub mod project;
 pub mod property;
+pub mod public_listing;
 pub mod security;
 pub mod showing;
 pub mod signature;
@@ -37,6 +38,7 @@ pub use project::{
     WbsCategory,
 };
 
+pub use public_listing::PublicListingCopy;
 pub use property::{
     CreatePropertyAdminRequest, FindPropertyByAddressRequest, PersonPropertyContext,
     PersonPropertyRelation, Property, PropertyAddress, PropertyAddressPatch, PropertyAdminPage,
