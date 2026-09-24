@@ -12,9 +12,8 @@ import { SqlFormInstanceRepository } from '@/legacy/db/form-service-repository'
 import { SqlVaultRepository } from '@/legacy/db/vault-service-repository'
 import { SqlCommsRepository } from '@/legacy/db/comms-service-repository'
 import { composeCoreServices } from '@/legacy/services/composition'
-import { AuthorizationService } from '@/legacy/services/entitlement'
+import { AuthorizationService, SqlRoleEntitlementProvider } from '@/legacy/services/entitlement'
 import { SqlAuthorizationPolicyProvider } from '@/legacy/services/entitlement/db-authorization-policy-provider'
-import { SqlRoleEntitlementProvider } from '@/legacy/services/entitlement/db-role-entitlement-provider'
 import { appServiceErrorSink } from '@/lib/service-error-sink'
 
 /**
