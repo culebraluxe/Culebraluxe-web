@@ -3563,6 +3563,7 @@ mod tests {
             grants: crate::model::PortalEntitlements {
                 account_type: "internal".into(),
                 security_level: "ROOT".into(),
+                is_root: true,
                 entitlement_codes: vec!["accounting.write".into()],
             },
         });
@@ -3619,6 +3620,51 @@ mod tests {
     }
 
     #[test]
+    fn entitlement_management_requires_exact_root_in_the_reducer() {
+        let mut model = Model {
+            screen: target("security"),
+            entitlements: Some(crate::model::PortalEntitlements {
+                account_type: "internal".into(),
+                security_level: "ROOT".into(),
+                is_root: false,
+                entitlement_codes: vec!["security.entitlement.manage".into()],
+            }),
+            ..Model::default()
+        };
+
+        let denied = update(
+            &mut model,
+            Msg::SecurityRoleGrantRequested {
+                role_code: "user".into(),
+                action: "person.write".into(),
+                granted: true,
+            },
+        );
+        assert!(denied.is_empty());
+        assert!(!model.role_grant_busy);
+
+        model.entitlements.as_mut().unwrap().is_root = true;
+        let allowed = update(
+            &mut model,
+            Msg::SecurityRoleGrantRequested {
+                role_code: "user".into(),
+                action: "person.write".into(),
+                granted: true,
+            },
+        );
+        assert!(matches!(
+            allowed.as_slice(),
+            [Effect::SetRoleEntitlement {
+                role_code,
+                action,
+                granted: true,
+                ..
+            }] if role_code == "user" && action == "person.write"
+        ));
+        assert!(model.role_grant_busy);
+    }
+
+    #[test]
     fn deal_workspace_commands_are_reducer_owned_and_scoped() {
         let mut model = Model {
             screen: target("deal-record"),
@@ -3626,6 +3672,7 @@ mod tests {
             entitlements: Some(crate::model::PortalEntitlements {
                 account_type: "internal".into(),
                 security_level: "USER".into(),
+                is_root: false,
                 entitlement_codes: vec!["deal.write".into()],
             }),
             ..Model::default()
@@ -3685,6 +3732,7 @@ mod tests {
             entitlements: Some(crate::model::PortalEntitlements {
                 account_type: "internal".into(),
                 security_level: "USER".into(),
+                is_root: false,
                 entitlement_codes: vec!["showing.write".into()],
             }),
             ..Model::default()
