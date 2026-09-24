@@ -33,10 +33,20 @@ export type {
 
 const service = coreServices.property
 
-/** Public reads run as the unauthenticated public surface (GUEST may query). */
+/**
+ * Public reads run as the PUBLIC WEBSITE system actor: no principal, and an identity the
+ * Rust policy recognises.
+ *
+ * THE IDENTITY IS THE POINT. These reads used to run as an unnamed system actor and were
+ * allowed by the kernel's open-stub default ("GUEST may query"), which is a hole rather
+ * than a decision — it would have allowed the same caller to read deals and role
+ * entitlements. Rust publishes a NAMED list of public READ ACTIONS for the
+ * `public-website` actor (the same actor the vault's public listing read uses), so a caller
+ * that stays silent is not the public site and gets nothing.
+ */
 function publicContext() {
   return {
-    actor: { id: null, kind: 'system' as const },
+    actor: { id: 'public-website', kind: 'system' as const },
     correlationId: randomUUID(),
   }
 }

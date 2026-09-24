@@ -107,13 +107,20 @@ export class PropertyService extends BaseService<PropertyOperationMap> {
         },
       },
       // ---- Public inventory reads -------------------------------------------------
-      // Queries, so the kernel's default lets an unauthenticated (GUEST) public page
-      // read them while still denying every command. Out-of-band authorization is
-      // deliberately absent: the public site has no principal, and an ACTIVE LISTING
-      // is public information. Internal/private Property detail stays behind
-      // property.get, which is never exposed to a public surface.
+      // PAIRED WITH AN EXPLICIT ACTION, and with the Rust policy that publishes them.
+      // These used to rely on the kernel's open-stub default ("GUEST may query") with no
+      // action at all, which had two problems: that default let an anonymous caller run ANY
+      // query — deal.read included — and an action-less operation is one the Rust authorize
+      // endpoint cannot name, so it fails closed as AUTHORIZATION_UNAVAILABLE.
+      //
+      // The public-ness now lives in the ACTION: these reads carry property.public.read, which
+      // Rust publishes by name (PUBLIC_READ_ACTIONS). The internal reads above keep
+      // property.read, so private property detail is not published merely by sharing an action
+      // with the marketing inventory. Internal/private Property detail stays behind
+      // property.get, which is not published and never reaches a public surface.
       [PROPERTY_OPERATIONS.LIST]: {
         kind: 'query',
+        authorization: 'property.public.read',
         description: 'List inventory. publicOnly=true returns ACTIVE LISTINGS only (public surfaces).',
         idempotent: true,
         execution: { mode: 'inline' },
@@ -121,6 +128,7 @@ export class PropertyService extends BaseService<PropertyOperationMap> {
       },
       [PROPERTY_OPERATIONS.SEARCH]: {
         kind: 'query',
+        authorization: 'property.public.read',
         description: 'Structured buyers search over active-listing inventory, plus the stable view vocabulary.',
         idempotent: true,
         execution: { mode: 'inline' },
@@ -128,6 +136,7 @@ export class PropertyService extends BaseService<PropertyOperationMap> {
       },
       [PROPERTY_OPERATIONS.SIMILAR]: {
         kind: 'query',
+        authorization: 'property.public.read',
         description: 'Deterministic similar-listing suggestions from canonical Property fields.',
         idempotent: true,
         execution: { mode: 'inline' },
@@ -135,6 +144,7 @@ export class PropertyService extends BaseService<PropertyOperationMap> {
       },
       [PROPERTY_OPERATIONS.BY_SLUG]: {
         kind: 'query',
+        authorization: 'property.public.read',
         description: 'Load the full public listing payload for one slug.',
         idempotent: true,
         execution: { mode: 'inline' },
@@ -142,6 +152,7 @@ export class PropertyService extends BaseService<PropertyOperationMap> {
       },
       [PROPERTY_OPERATIONS.PUBLIC_SLUGS]: {
         kind: 'query',
+        authorization: 'property.public.read',
         description: 'The set of currently live public listing slugs (stale recently-viewed entries drop out).',
         idempotent: true,
         execution: { mode: 'inline' },
@@ -149,6 +160,7 @@ export class PropertyService extends BaseService<PropertyOperationMap> {
       },
       [PROPERTY_OPERATIONS.INTRO]: {
         kind: 'query',
+        authorization: 'property.public.read',
         description: 'Minimal public Property reference (id, name, location) for intros and cross-links.',
         idempotent: true,
         execution: { mode: 'inline' },

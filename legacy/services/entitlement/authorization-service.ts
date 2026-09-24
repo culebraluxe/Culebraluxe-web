@@ -86,13 +86,22 @@ export class AuthorizationService implements AuthorizationPort {
  * those fields — a client able to relabel its own domain could dodge the `contract.execute` level floor. The action
  * and its kind are the whole question, and the catalog refuses any action it does not know.
  *
+ * WHICH DOOR, HOWEVER, IS THE ACTOR'S. The public site has no session (a visitor is not signed in), so it asks the
+ * public door, which resolves the caller to the `public-website` system actor in Rust; everyone else asks the
+ * identified one. The choice is made here because this is where the caller's own description of itself arrives, and
+ * it is a claim Rust verifies against a named list rather than one this side can widen.
+ *
  * The client is imported LAZILY because it is `server-only` (it reads the Auth.js session and signs bridge headers),
  * and this module is imported by scripts and harnesses that run outside a Next build and never authorize. Loading it
  * on the path that needs it keeps those callers loadable instead of failing at import time.
  */
 async function askRustToDecide(request: AuthorizationRequest): Promise<AuthorizationDecision> {
-  const { rustApiAuthorize } = await import('@/lib/rust-api/client')
-  const decision = await rustApiAuthorize(request.action, request.kind)
+  const { rustApiAuthorize, rustApiAuthorizePublic } = await import('@/lib/rust-api/client')
+  const isPublicSurface =
+    request.actor?.kind === 'system' && request.actor.id === 'public-website'
+  const decision = isPublicSurface
+    ? await rustApiAuthorizePublic(request.action, request.kind)
+    : await rustApiAuthorize(request.action, request.kind)
   return {
     allowed: decision.allowed,
     reason: decision.reason,
