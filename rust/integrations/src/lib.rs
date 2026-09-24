@@ -5,6 +5,7 @@
 pub mod apple;
 pub mod boldsign;
 pub mod google;
+pub mod mail;
 pub mod mux;
 pub mod neon;
 pub mod whatsapp;

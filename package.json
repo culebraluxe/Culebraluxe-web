@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "node scripts/dev-start.mjs",
     "dev:raw": "next dev",
+    "mail:test": "bash scripts/mail-test.sh",
     "ui:build": "bash scripts/rust-ui-build.sh",
     "ui:build:release": "RUST_UI_PROFILE=release bash scripts/rust-ui-build.sh",
     "contacts:sync:prod": "bash scripts/contacts-sync.sh",

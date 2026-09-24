@@ -21,3 +21,9 @@ chrono.workspace = true
 reqwest.workspace = true
 tokio.workspace = true
 unicode-normalization.workspace = true
+# Outbound email over SMTP (iCloud Mail for the business address). rustls with ring, the provider sqlx already uses.
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "hostname", "tokio1-rustls-tls"] }
+
+[[bin]]
+name = "mail-test"
+path = "src/bin/mail_test.rs"
