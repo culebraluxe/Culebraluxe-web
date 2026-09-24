@@ -160,7 +160,10 @@ impl Security {
                                     }) }
                                 </select>
                                 <div class="mt-4 grid gap-2 md:grid-cols-2">
-                                    { for actions.iter().filter(|code| code.as_str() != "security.entitlement.manage").map(|code| {
+                                    { for actions.iter().filter(|code| !matches!(
+                                        code.as_str(),
+                                        "security.entitlement.manage" | "security.role.manage"
+                                    )).map(|code| {
                                         let granted = role.entitlement_codes.contains(code);
                                         let on_msg = on_msg.clone();
                                         let role_code = role.role_code.clone();
