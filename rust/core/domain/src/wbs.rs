@@ -115,7 +115,6 @@ pub struct SaveWbsItemRequest {
     pub status: Option<WbsStatus>,
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppleReminderUpsertRequest {

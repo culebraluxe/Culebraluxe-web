@@ -114,11 +114,7 @@ fn workspace(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
     }
 }
 
-fn row_view(
-    row: &PortalRecordProperty,
-    selected_id: Option<&str>,
-    on_msg: &Callback<Msg>,
-) -> Html {
+fn row_view(row: &PortalRecordProperty, selected_id: Option<&str>, on_msg: &Callback<Msg>) -> Html {
     let selected = selected_id == Some(row.id.as_str());
     let id = row.id.clone();
     let onclick = {
@@ -217,7 +213,9 @@ fn status_band(model: &crate::model::Model, property: &PortalRecordProperty) -> 
 }
 
 fn field(label: &str, value: Option<&str>) -> Html {
-    let value = value.filter(|value| !value.trim().is_empty()).unwrap_or("—");
+    let value = value
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("—");
     html! {
         <div>
             <div class="text-[10px] font-light uppercase tracking-[0.16em] text-black/35">{ label }</div>

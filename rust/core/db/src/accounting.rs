@@ -263,10 +263,7 @@ impl AccountingDao {
                 .into_iter()
                 .map(ReceivableRow::into_domain)
                 .collect(),
-            expense_categories: categories
-                .into_iter()
-                .map(ShareRow::into_share)
-                .collect(),
+            expense_categories: categories.into_iter().map(ShareRow::into_share).collect(),
         })
     }
 
@@ -292,10 +289,7 @@ impl AccountingDao {
             total_income: income.total(),
             total_expenses: expenses.total(),
             income: income.into_iter().map(LineTotalRow::into_line).collect(),
-            expenses: expenses
-                .into_iter()
-                .map(LineTotalRow::into_line)
-                .collect(),
+            expenses: expenses.into_iter().map(LineTotalRow::into_line).collect(),
             net_income: net.money(),
         })
     }
@@ -391,8 +385,6 @@ impl AccountingDao {
             paid_on: row.paid_on,
         }))
     }
-
-
 }
 
 /// The receivable projection every read shares: associations resolved to names, amounts as digits.
@@ -474,7 +466,6 @@ select (
   - (select coalesce(sum(amount), 0) from account_expense where status = 'POSTED')
 )::text as v
 "#;
-
 
 /// The six months ending with this one, each with its income, cost and difference.
 ///
@@ -601,7 +592,6 @@ group by t.category
 order by sum(t.amount) desc
 "#;
 
-
 /// The income lines of a P&L, grouped by category, with the period's total carried on every row.
 ///
 /// The total is a window function rather than a second round trip and rather than a sum in Rust: the figure that has to
@@ -642,7 +632,6 @@ select (
   ), 0)
 )::text as v
 "#;
-
 
 /// One category line as the P&L queries return it: the line, and the period's total beside it.
 #[derive(Debug, Clone, FromRow)]
@@ -759,8 +748,6 @@ async fn range_net(pool: &sqlx::PgPool, from: &str, to: &str) -> Result<TextValu
         .fetch_one(pool)
         .await
 }
-
-
 
 #[cfg(test)]
 mod tests {

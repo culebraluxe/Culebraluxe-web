@@ -2,10 +2,11 @@ use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
 use db::{CommsDao, DbResult};
 use domain::{
-    active_source_count, moment_dto, source_dto, summarize_relationship_evidence, ActivityFeedEntry,
-    CommsAggregate, CommsMomentPage, CommsPanel, CommsSourceRecord, CommsTimeline,
-    GetCommsPanelRequest, GetCommsTimelineRequest, LastContactRecord, RelationshipEvidenceRecord,
-    COMMS_MAX_PAGE_SIZE, COMMS_MOMENT_LIMIT, COMMS_PAGE_SIZE, COMMS_SOURCE_SLOT_COUNT,
+    active_source_count, moment_dto, source_dto, summarize_relationship_evidence,
+    ActivityFeedEntry, CommsAggregate, CommsMomentPage, CommsPanel, CommsSourceRecord,
+    CommsTimeline, GetCommsPanelRequest, GetCommsTimelineRequest, LastContactRecord,
+    RelationshipEvidenceRecord, COMMS_MAX_PAGE_SIZE, COMMS_MOMENT_LIMIT, COMMS_PAGE_SIZE,
+    COMMS_SOURCE_SLOT_COUNT,
 };
 use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
 

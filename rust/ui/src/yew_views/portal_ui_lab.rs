@@ -172,7 +172,9 @@ impl UiLab {
 
     fn tab_button(&self, ctx: &Context<Self>, tab: LabTab) -> Html {
         let active = self.lab.tab == tab;
-        let onclick = ctx.link().callback(move |_: MouseEvent| LabMsg::TabSelected(tab));
+        let onclick = ctx
+            .link()
+            .callback(move |_: MouseEvent| LabMsg::TabSelected(tab));
         html! {
             <button
                 type="button"
@@ -327,9 +329,16 @@ impl UiLab {
         }
     }
 
-    fn density_button(&self, ctx: &Context<Self>, density: &'static str, label: &'static str) -> Html {
+    fn density_button(
+        &self,
+        ctx: &Context<Self>,
+        density: &'static str,
+        label: &'static str,
+    ) -> Html {
         let active = self.lab.density == density;
-        let onclick = ctx.link().callback(move |_: MouseEvent| LabMsg::DensityChanged(density));
+        let onclick = ctx
+            .link()
+            .callback(move |_: MouseEvent| LabMsg::DensityChanged(density));
         html! {
             <button
                 type="button"
@@ -436,7 +445,6 @@ impl UiLab {
         }
     }
 
-
     fn analytics_preview(&self) -> Html {
         let points = [
             ("Apr", 42_i32, 31_i32),
@@ -528,9 +536,24 @@ impl UiLab {
 
     fn kanban_preview(&self) -> Html {
         let columns = [
-            ("Active", vec![("Prepare MLS package", "High"), ("Review seller copy", "Normal")]),
-            ("Backlog", vec![("Broker open invite", "Normal"), ("Portal launch report", "Low")]),
-            ("Closed", vec![("Photography booked", "Done"), ("Listing signed", "Done")]),
+            (
+                "Active",
+                vec![
+                    ("Prepare MLS package", "High"),
+                    ("Review seller copy", "Normal"),
+                ],
+            ),
+            (
+                "Backlog",
+                vec![
+                    ("Broker open invite", "Normal"),
+                    ("Portal launch report", "Low"),
+                ],
+            ),
+            (
+                "Closed",
+                vec![("Photography booked", "Done"), ("Listing signed", "Done")],
+            ),
         ];
         html! {
             <section class="portal-glass-panel rounded-[var(--portal-panel-radius)] p-4">
@@ -558,8 +581,12 @@ impl UiLab {
     }
 
     fn interaction_patterns(&self, ctx: &Context<Self>) -> Html {
-        let open_dialog = ctx.link().callback(|_: MouseEvent| LabMsg::DialogChanged(true));
-        let open_command = ctx.link().callback(|_: MouseEvent| LabMsg::CommandChanged(true));
+        let open_dialog = ctx
+            .link()
+            .callback(|_: MouseEvent| LabMsg::DialogChanged(true));
+        let open_command = ctx
+            .link()
+            .callback(|_: MouseEvent| LabMsg::CommandChanged(true));
         let previous = ctx.link().callback(|_: MouseEvent| LabMsg::PageChanged(0));
         let next = ctx.link().callback(|_: MouseEvent| LabMsg::PageChanged(1));
         let rows = if self.lab.page == 0 {
@@ -651,8 +678,12 @@ impl UiLab {
     }
 
     fn overlays(&self, ctx: &Context<Self>) -> Html {
-        let close_dialog = ctx.link().callback(|_: MouseEvent| LabMsg::DialogChanged(false));
-        let close_command = ctx.link().callback(|_: MouseEvent| LabMsg::CommandChanged(false));
+        let close_dialog = ctx
+            .link()
+            .callback(|_: MouseEvent| LabMsg::DialogChanged(false));
+        let close_command = ctx
+            .link()
+            .callback(|_: MouseEvent| LabMsg::CommandChanged(false));
 
         html! {
             <>
@@ -692,14 +723,54 @@ impl UiLab {
 
     fn stack_matrix(&self) -> Html {
         let stack = [
-            ("Culebra Native", "Foundation", "Shell, tokens, MVI and product-specific controls", "Keep"),
-            ("PatternFly Yew", "Controls", "Forms, drawers, toolbars, pagination and mature SaaS patterns", "Compare"),
-            ("rs-grid-yew", "Grid", "Virtualized sorting/filter/edit/clipboard for serious datasets", "Use for hard grids"),
-            ("Charming", "Charts", "Rust API over ECharts for production chart vocabulary", "Chart candidate"),
-            ("yew-hooks", "Utility", "Debounce, browser behavior and reusable interaction hooks", "Utility"),
-            ("yew_icons", "Icons", "Shared Lucide vocabulary with the React portal", "Utility"),
-            ("Hadrone", "Dashboard", "Drag/resize dashboard layout experiments", "Lab first"),
-            ("TailYew", "Controls", "Lighter visual alternative to PatternFly", "Compare"),
+            (
+                "Culebra Native",
+                "Foundation",
+                "Shell, tokens, MVI and product-specific controls",
+                "Keep",
+            ),
+            (
+                "PatternFly Yew",
+                "Controls",
+                "Forms, drawers, toolbars, pagination and mature SaaS patterns",
+                "Compare",
+            ),
+            (
+                "rs-grid-yew",
+                "Grid",
+                "Virtualized sorting/filter/edit/clipboard for serious datasets",
+                "Use for hard grids",
+            ),
+            (
+                "Charming",
+                "Charts",
+                "Rust API over ECharts for production chart vocabulary",
+                "Chart candidate",
+            ),
+            (
+                "yew-hooks",
+                "Utility",
+                "Debounce, browser behavior and reusable interaction hooks",
+                "Utility",
+            ),
+            (
+                "yew_icons",
+                "Icons",
+                "Shared Lucide vocabulary with the React portal",
+                "Utility",
+            ),
+            (
+                "Hadrone",
+                "Dashboard",
+                "Drag/resize dashboard layout experiments",
+                "Lab first",
+            ),
+            (
+                "TailYew",
+                "Controls",
+                "Lighter visual alternative to PatternFly",
+                "Compare",
+            ),
         ];
 
         html! {
@@ -799,7 +870,6 @@ fn status_badge(status: &'static str) -> Html {
         </span>
     }
 }
-
 
 fn command_row(label: &'static str, shortcut: &'static str) -> Html {
     html! {

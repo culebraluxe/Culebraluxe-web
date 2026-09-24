@@ -100,7 +100,6 @@ impl Receivables {
     }
 }
 
-
 impl Receivables {
     /// The create form. The same shape as the expense form's: a `<form>` whose submit dispatches a message, every field bound
     /// to the reducer, and no validation that Rust would then have to agree with.
@@ -183,7 +182,6 @@ impl Receivables {
         }
     }
 }
-
 
 impl Receivables {
     /// The book, with each row's status and its Mark Paid control.
@@ -298,7 +296,6 @@ impl Receivables {
     }
 }
 
-
 /// The name that identifies a receivable: the person, then the property, then the deal — the live screen's order.
 fn belonging(receivable: &PortalAccountingReceivable) -> String {
     receivable
@@ -334,4 +331,3 @@ fn status_badge(status: &str, overdue: bool) -> Html {
         </span>
     }
 }
-

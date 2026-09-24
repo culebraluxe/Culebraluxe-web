@@ -60,7 +60,6 @@ pub struct UpdatePersonAdminRequest {
     pub company: Option<String>,
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttachPersonIdentityRequest {
     pub person_id: String,

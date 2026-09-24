@@ -354,11 +354,31 @@ pub fn evaluate(inputs: &Inputs) -> ModelResult {
             flags.push(format!("{label} probabilities must sum to 100%."));
         }
     };
-    check_triple(inputs.o1_p_low + inputs.o1_p_mid + inputs.o1_p_high, "As-is", inputs.o1_on);
-    check_triple(inputs.o2_p_low + inputs.o2_p_mid + inputs.o2_p_high, "Improve", inputs.o2_on);
-    check_triple(inputs.o3_p_low + inputs.o3_p_mid + inputs.o3_p_high, "Join", inputs.o3_on);
-    check_triple(inputs.o4_p_low + inputs.o4_p_mid + inputs.o4_p_high, "Fork", inputs.o4_on);
-    check_triple(inputs.o5_p_low + inputs.o5_p_mid + inputs.o5_p_high, "Hold", inputs.o5_on);
+    check_triple(
+        inputs.o1_p_low + inputs.o1_p_mid + inputs.o1_p_high,
+        "As-is",
+        inputs.o1_on,
+    );
+    check_triple(
+        inputs.o2_p_low + inputs.o2_p_mid + inputs.o2_p_high,
+        "Improve",
+        inputs.o2_on,
+    );
+    check_triple(
+        inputs.o3_p_low + inputs.o3_p_mid + inputs.o3_p_high,
+        "Join",
+        inputs.o3_on,
+    );
+    check_triple(
+        inputs.o4_p_low + inputs.o4_p_mid + inputs.o4_p_high,
+        "Fork",
+        inputs.o4_on,
+    );
+    check_triple(
+        inputs.o5_p_low + inputs.o5_p_mid + inputs.o5_p_high,
+        "Hold",
+        inputs.o5_on,
+    );
     if inputs.o3_on && inputs.o3_cap_rate <= 0.0 {
         flags.push("Join cap rate must be greater than 0.".into());
     }
@@ -368,9 +388,15 @@ pub fn evaluate(inputs: &Inputs) -> ModelResult {
     if inputs.o5_on && (inputs.o5_share <= 0.0 || inputs.o5_share > 1.0) {
         flags.push("Hold/recap share must be between 0 and 100%.".into());
     }
-    if ![inputs.o1_on, inputs.o2_on, inputs.o3_on, inputs.o4_on, inputs.o5_on]
-        .into_iter()
-        .any(|on| on)
+    if ![
+        inputs.o1_on,
+        inputs.o2_on,
+        inputs.o3_on,
+        inputs.o4_on,
+        inputs.o5_on,
+    ]
+    .into_iter()
+    .any(|on| on)
     {
         flags.push("Turn on at least one path.".into());
     }
@@ -386,16 +412,23 @@ pub fn evaluate(inputs: &Inputs) -> ModelResult {
         improved * (1.0 + inputs.o2_mid_delta),
         improved * (1.0 + inputs.o2_high_delta),
     ];
-    let pack = if inputs.o3_cap_rate > 0.0 { inputs.o3_noi / inputs.o3_cap_rate } else { 0.0 };
+    let pack = if inputs.o3_cap_rate > 0.0 {
+        inputs.o3_noi / inputs.o3_cap_rate
+    } else {
+        0.0
+    };
     let o3 = [
         pack * (1.0 + inputs.o3_low_delta),
         pack * (1.0 + inputs.o3_mid_delta),
         pack * (1.0 + inputs.o3_high_delta),
     ];
     let o4 = [
-        inputs.appraisal * (1.0 + inputs.o4_low_delta) + inputs.o4_asset_base * (1.0 + inputs.o4_low_delta),
-        inputs.appraisal * (1.0 + inputs.o4_mid_delta) + inputs.o4_asset_base * (1.0 + inputs.o4_mid_delta),
-        inputs.appraisal * (1.0 + inputs.o4_high_delta) + inputs.o4_asset_base * (1.0 + inputs.o4_high_delta),
+        inputs.appraisal * (1.0 + inputs.o4_low_delta)
+            + inputs.o4_asset_base * (1.0 + inputs.o4_low_delta),
+        inputs.appraisal * (1.0 + inputs.o4_mid_delta)
+            + inputs.o4_asset_base * (1.0 + inputs.o4_mid_delta),
+        inputs.appraisal * (1.0 + inputs.o4_high_delta)
+            + inputs.o4_asset_base * (1.0 + inputs.o4_high_delta),
     ];
     let share = inputs.o5_share.clamp(0.0, 1.0);
     let o5 = [
@@ -411,53 +444,297 @@ pub fn evaluate(inputs: &Inputs) -> ModelResult {
         }
     };
 
-    push(BranchInput { id: "1L", label: "1-Low", option: 1, price: o1[0], p: inputs.o1_p_low, future_capex: 0.0, salvage: inputs.o1_salvage }, inputs.o1_on, inputs.o1_months);
-    push(BranchInput { id: "1M", label: "1-Mid", option: 1, price: o1[1], p: inputs.o1_p_mid, future_capex: 0.0, salvage: inputs.o1_salvage }, inputs.o1_on, inputs.o1_months);
-    push(BranchInput { id: "1H", label: "1-Ideal", option: 1, price: o1[2], p: inputs.o1_p_high, future_capex: 0.0, salvage: inputs.o1_salvage }, inputs.o1_on, inputs.o1_months);
-    push(BranchInput { id: "2L", label: "2-Low", option: 2, price: o2[0], p: inputs.o2_p_low, future_capex: inputs.o2_capex, salvage: inputs.o2_salvage }, inputs.o2_on, inputs.o2_months);
-    push(BranchInput { id: "2M", label: "2-Base", option: 2, price: o2[1], p: inputs.o2_p_mid, future_capex: inputs.o2_capex, salvage: inputs.o2_salvage }, inputs.o2_on, inputs.o2_months);
-    push(BranchInput { id: "2H", label: "2-High", option: 2, price: o2[2], p: inputs.o2_p_high, future_capex: inputs.o2_capex, salvage: inputs.o2_salvage }, inputs.o2_on, inputs.o2_months);
-    push(BranchInput { id: "3L", label: "3-Success Low", option: 3, price: o3[0], p: inputs.o3_p_success * inputs.o3_p_low, future_capex: inputs.o3_capex, salvage: 0.0 }, inputs.o3_on, inputs.o3_months);
-    push(BranchInput { id: "3M", label: "3-Success Base", option: 3, price: o3[1], p: inputs.o3_p_success * inputs.o3_p_mid, future_capex: inputs.o3_capex, salvage: 0.0 }, inputs.o3_on, inputs.o3_months);
-    push(BranchInput { id: "3H", label: "3-Success High", option: 3, price: o3[2], p: inputs.o3_p_success * inputs.o3_p_high, future_capex: inputs.o3_capex, salvage: 0.0 }, inputs.o3_on, inputs.o3_months);
-    push(BranchInput { id: "3F", label: "3-Fail", option: 3, price: inputs.o3_fail_salvage, p: 1.0 - inputs.o3_p_success, future_capex: inputs.o3_capex, salvage: 0.0 }, inputs.o3_on, inputs.o3_months);
-    push(BranchInput { id: "4L", label: "4-Low house+assets", option: 4, price: o4[0], p: inputs.o4_p_low, future_capex: inputs.o4_capex, salvage: inputs.o4_salvage }, inputs.o4_on, inputs.o4_months);
-    push(BranchInput { id: "4M", label: "4-Mid house+assets", option: 4, price: o4[1], p: inputs.o4_p_mid, future_capex: inputs.o4_capex, salvage: inputs.o4_salvage }, inputs.o4_on, inputs.o4_months);
-    push(BranchInput { id: "4H", label: "4-High house+assets", option: 4, price: o4[2], p: inputs.o4_p_high, future_capex: inputs.o4_capex, salvage: inputs.o4_salvage }, inputs.o4_on, inputs.o4_months);
-    push(BranchInput { id: "5L", label: "5-Low terminal", option: 5, price: o5[0], p: inputs.o5_p_low, future_capex: inputs.o5_capex, salvage: inputs.o5_period_cash }, inputs.o5_on, inputs.o5_months);
-    push(BranchInput { id: "5M", label: "5-Mid terminal", option: 5, price: o5[1], p: inputs.o5_p_mid, future_capex: inputs.o5_capex, salvage: inputs.o5_period_cash }, inputs.o5_on, inputs.o5_months);
-    push(BranchInput { id: "5H", label: "5-High terminal", option: 5, price: o5[2], p: inputs.o5_p_high, future_capex: inputs.o5_capex, salvage: inputs.o5_period_cash }, inputs.o5_on, inputs.o5_months);
+    push(
+        BranchInput {
+            id: "1L",
+            label: "1-Low",
+            option: 1,
+            price: o1[0],
+            p: inputs.o1_p_low,
+            future_capex: 0.0,
+            salvage: inputs.o1_salvage,
+        },
+        inputs.o1_on,
+        inputs.o1_months,
+    );
+    push(
+        BranchInput {
+            id: "1M",
+            label: "1-Mid",
+            option: 1,
+            price: o1[1],
+            p: inputs.o1_p_mid,
+            future_capex: 0.0,
+            salvage: inputs.o1_salvage,
+        },
+        inputs.o1_on,
+        inputs.o1_months,
+    );
+    push(
+        BranchInput {
+            id: "1H",
+            label: "1-Ideal",
+            option: 1,
+            price: o1[2],
+            p: inputs.o1_p_high,
+            future_capex: 0.0,
+            salvage: inputs.o1_salvage,
+        },
+        inputs.o1_on,
+        inputs.o1_months,
+    );
+    push(
+        BranchInput {
+            id: "2L",
+            label: "2-Low",
+            option: 2,
+            price: o2[0],
+            p: inputs.o2_p_low,
+            future_capex: inputs.o2_capex,
+            salvage: inputs.o2_salvage,
+        },
+        inputs.o2_on,
+        inputs.o2_months,
+    );
+    push(
+        BranchInput {
+            id: "2M",
+            label: "2-Base",
+            option: 2,
+            price: o2[1],
+            p: inputs.o2_p_mid,
+            future_capex: inputs.o2_capex,
+            salvage: inputs.o2_salvage,
+        },
+        inputs.o2_on,
+        inputs.o2_months,
+    );
+    push(
+        BranchInput {
+            id: "2H",
+            label: "2-High",
+            option: 2,
+            price: o2[2],
+            p: inputs.o2_p_high,
+            future_capex: inputs.o2_capex,
+            salvage: inputs.o2_salvage,
+        },
+        inputs.o2_on,
+        inputs.o2_months,
+    );
+    push(
+        BranchInput {
+            id: "3L",
+            label: "3-Success Low",
+            option: 3,
+            price: o3[0],
+            p: inputs.o3_p_success * inputs.o3_p_low,
+            future_capex: inputs.o3_capex,
+            salvage: 0.0,
+        },
+        inputs.o3_on,
+        inputs.o3_months,
+    );
+    push(
+        BranchInput {
+            id: "3M",
+            label: "3-Success Base",
+            option: 3,
+            price: o3[1],
+            p: inputs.o3_p_success * inputs.o3_p_mid,
+            future_capex: inputs.o3_capex,
+            salvage: 0.0,
+        },
+        inputs.o3_on,
+        inputs.o3_months,
+    );
+    push(
+        BranchInput {
+            id: "3H",
+            label: "3-Success High",
+            option: 3,
+            price: o3[2],
+            p: inputs.o3_p_success * inputs.o3_p_high,
+            future_capex: inputs.o3_capex,
+            salvage: 0.0,
+        },
+        inputs.o3_on,
+        inputs.o3_months,
+    );
+    push(
+        BranchInput {
+            id: "3F",
+            label: "3-Fail",
+            option: 3,
+            price: inputs.o3_fail_salvage,
+            p: 1.0 - inputs.o3_p_success,
+            future_capex: inputs.o3_capex,
+            salvage: 0.0,
+        },
+        inputs.o3_on,
+        inputs.o3_months,
+    );
+    push(
+        BranchInput {
+            id: "4L",
+            label: "4-Low house+assets",
+            option: 4,
+            price: o4[0],
+            p: inputs.o4_p_low,
+            future_capex: inputs.o4_capex,
+            salvage: inputs.o4_salvage,
+        },
+        inputs.o4_on,
+        inputs.o4_months,
+    );
+    push(
+        BranchInput {
+            id: "4M",
+            label: "4-Mid house+assets",
+            option: 4,
+            price: o4[1],
+            p: inputs.o4_p_mid,
+            future_capex: inputs.o4_capex,
+            salvage: inputs.o4_salvage,
+        },
+        inputs.o4_on,
+        inputs.o4_months,
+    );
+    push(
+        BranchInput {
+            id: "4H",
+            label: "4-High house+assets",
+            option: 4,
+            price: o4[2],
+            p: inputs.o4_p_high,
+            future_capex: inputs.o4_capex,
+            salvage: inputs.o4_salvage,
+        },
+        inputs.o4_on,
+        inputs.o4_months,
+    );
+    push(
+        BranchInput {
+            id: "5L",
+            label: "5-Low terminal",
+            option: 5,
+            price: o5[0],
+            p: inputs.o5_p_low,
+            future_capex: inputs.o5_capex,
+            salvage: inputs.o5_period_cash,
+        },
+        inputs.o5_on,
+        inputs.o5_months,
+    );
+    push(
+        BranchInput {
+            id: "5M",
+            label: "5-Mid terminal",
+            option: 5,
+            price: o5[1],
+            p: inputs.o5_p_mid,
+            future_capex: inputs.o5_capex,
+            salvage: inputs.o5_period_cash,
+        },
+        inputs.o5_on,
+        inputs.o5_months,
+    );
+    push(
+        BranchInput {
+            id: "5H",
+            label: "5-High terminal",
+            option: 5,
+            price: o5[2],
+            p: inputs.o5_p_high,
+            future_capex: inputs.o5_capex,
+            salvage: inputs.o5_period_cash,
+        },
+        inputs.o5_on,
+        inputs.o5_months,
+    );
 
     let emv = |option: OptionId, pv_field: bool| -> f64 {
         branches
             .iter()
             .filter(|branch| branch.option == option)
-            .map(|branch| branch.p * if pv_field { branch.pv } else { branch.after_tax })
+            .map(|branch| {
+                branch.p
+                    * if pv_field {
+                        branch.pv
+                    } else {
+                        branch.after_tax
+                    }
+            })
             .sum()
     };
 
     let catalog = [
-        (1, "1  Sell as-is", "As-is", inputs.o1_on, inputs.o1_months, 0.0),
-        (2, "2  Improve then sell", "Improve", inputs.o2_on, inputs.o2_months, inputs.o2_capex),
-        (3, "3  Join then sell package", "Join", inputs.o3_on, inputs.o3_months, inputs.o3_capex),
-        (4, "4  Fork house and assets", "Fork", inputs.o4_on, inputs.o4_months, inputs.o4_capex),
-        (5, "5  Hold or recap", "Hold", inputs.o5_on, inputs.o5_months, inputs.o5_capex - inputs.o5_period_cash),
+        (
+            1,
+            "1  Sell as-is",
+            "As-is",
+            inputs.o1_on,
+            inputs.o1_months,
+            0.0,
+        ),
+        (
+            2,
+            "2  Improve then sell",
+            "Improve",
+            inputs.o2_on,
+            inputs.o2_months,
+            inputs.o2_capex,
+        ),
+        (
+            3,
+            "3  Join then sell package",
+            "Join",
+            inputs.o3_on,
+            inputs.o3_months,
+            inputs.o3_capex,
+        ),
+        (
+            4,
+            "4  Fork house and assets",
+            "Fork",
+            inputs.o4_on,
+            inputs.o4_months,
+            inputs.o4_capex,
+        ),
+        (
+            5,
+            "5  Hold or recap",
+            "Hold",
+            inputs.o5_on,
+            inputs.o5_months,
+            inputs.o5_capex - inputs.o5_period_cash,
+        ),
     ];
 
     let mut raw: Vec<OptionScore> = catalog
         .into_iter()
-        .map(|(option, name, short, on, months, future_cash)| OptionScore {
-            option,
-            name,
-            short,
-            on,
-            months,
-            future_cash,
-            emv_undiscounted: if on { emv(option, false) } else { f64::NEG_INFINITY },
-            emv_pv: if on { emv(option, true) } else { f64::NEG_INFINITY },
-            vs_option1: 0.0,
-            best: false,
-        })
+        .map(
+            |(option, name, short, on, months, future_cash)| OptionScore {
+                option,
+                name,
+                short,
+                on,
+                months,
+                future_cash,
+                emv_undiscounted: if on {
+                    emv(option, false)
+                } else {
+                    f64::NEG_INFINITY
+                },
+                emv_pv: if on {
+                    emv(option, true)
+                } else {
+                    f64::NEG_INFINITY
+                },
+                vs_option1: 0.0,
+                best: false,
+            },
+        )
         .collect();
 
     let best_pv = raw
@@ -474,7 +751,11 @@ pub fn evaluate(inputs: &Inputs) -> ModelResult {
             score.emv_undiscounted = 0.0;
             score.emv_pv = 0.0;
         }
-        score.vs_option1 = if score.on && o1_on { raw_pv - o1_pv } else { 0.0 };
+        score.vs_option1 = if score.on && o1_on {
+            raw_pv - o1_pv
+        } else {
+            0.0
+        };
         score.best = score.on && raw_pv == best_pv;
     }
 
@@ -483,11 +764,23 @@ pub fn evaluate(inputs: &Inputs) -> ModelResult {
     let winner = ranked.first().cloned().unwrap_or_else(|| raw[0].clone());
     let runner_up = ranked.get(1).cloned();
 
-    ModelResult { basis, branches, scores: raw, winner, runner_up, flags }
+    ModelResult {
+        basis,
+        branches,
+        scores: raw,
+        winner,
+        runner_up,
+        flags,
+    }
 }
 
 pub fn rank_strategies(model: &ModelResult) -> Vec<OptionScore> {
-    let mut ranked: Vec<OptionScore> = model.scores.iter().filter(|score| score.on).cloned().collect();
+    let mut ranked: Vec<OptionScore> = model
+        .scores
+        .iter()
+        .filter(|score| score.on)
+        .cloned()
+        .collect();
     ranked.sort_by(|a, b| b.emv_pv.total_cmp(&a.emv_pv));
     ranked
 }
@@ -495,7 +788,10 @@ pub fn rank_strategies(model: &ModelResult) -> Vec<OptionScore> {
 pub fn recommendation_rationale(model: &ModelResult) -> String {
     let winner = &model.winner;
     let enabled: Vec<&OptionScore> = model.scores.iter().filter(|score| score.on).collect();
-    let shortest_months = enabled.iter().map(|score| score.months).fold(f64::INFINITY, f64::min);
+    let shortest_months = enabled
+        .iter()
+        .map(|score| score.months)
+        .fold(f64::INFINITY, f64::min);
     let strategy = match winner.option {
         1 => "Selling as-is requires no additional capital",
         2 => "The invested improvements are expected to lift proceeds above the as-is path",
@@ -513,7 +809,10 @@ pub fn recommendation_rationale(model: &ModelResult) -> String {
         parts.push("with the shortest path to liquidity".into());
     }
     if winner.future_cash > 0.0 {
-        parts.push(format!("requiring {} of incremental capital", money(winner.future_cash)));
+        parts.push(format!(
+            "requiring {} of incremental capital",
+            money(winner.future_cash)
+        ));
     }
     if let Some(runner_up) = &model.runner_up {
         let gap = winner.emv_pv - runner_up.emv_pv;
@@ -530,45 +829,75 @@ pub fn takeaways(model: &ModelResult, inputs: &Inputs) -> Vec<Takeaway> {
     if !enabled.is_empty() {
         out.push(Takeaway {
             tone: TakeawayTone::Positive,
-            text: format!("{} carries the highest expected PV at {}.", model.winner.short, money(model.winner.emv_pv)),
+            text: format!(
+                "{} carries the highest expected PV at {}.",
+                model.winner.short,
+                money(model.winner.emv_pv)
+            ),
         });
         if let Some(fastest) = enabled.iter().min_by(|a, b| a.months.total_cmp(&b.months)) {
             if fastest.option != model.winner.option {
                 out.push(Takeaway {
                     tone: TakeawayTone::Neutral,
-                    text: format!("{} reaches liquidity soonest at {} months.", fastest.short, number(fastest.months)),
+                    text: format!(
+                        "{} reaches liquidity soonest at {} months.",
+                        fastest.short,
+                        number(fastest.months)
+                    ),
                 });
             }
         }
-        if let Some(heaviest) = enabled.iter().max_by(|a, b| a.future_cash.total_cmp(&b.future_cash)) {
+        if let Some(heaviest) = enabled
+            .iter()
+            .max_by(|a, b| a.future_cash.total_cmp(&b.future_cash))
+        {
             if heaviest.future_cash > 0.0 {
                 out.push(Takeaway {
                     tone: TakeawayTone::Caution,
-                    text: format!("{} requires the most incremental capital at {}.", heaviest.short, money(heaviest.future_cash)),
+                    text: format!(
+                        "{} requires the most incremental capital at {}.",
+                        heaviest.short,
+                        money(heaviest.future_cash)
+                    ),
                 });
             }
         }
         if let Some(longest) = enabled.iter().max_by(|a, b| a.months.total_cmp(&b.months)) {
             out.push(Takeaway {
                 tone: TakeawayTone::Neutral,
-                text: format!("{} has the longest horizon at {} months.", longest.short, number(longest.months)),
+                text: format!(
+                    "{} has the longest horizon at {} months.",
+                    longest.short,
+                    number(longest.months)
+                ),
             });
         }
     }
     if let Some(worst) = model.branches.iter().min_by(|a, b| a.pv.total_cmp(&b.pv)) {
         out.push(Takeaway {
             tone: TakeawayTone::Caution,
-            text: format!("The lowest single outcome is {} at {} PV.", worst.label, money(worst.pv)),
+            text: format!(
+                "The lowest single outcome is {} at {} PV.",
+                worst.label,
+                money(worst.pv)
+            ),
         });
     }
     if inputs.o3_on && inputs.o3_p_success < 1.0 {
         out.push(Takeaway {
             tone: TakeawayTone::Caution,
-            text: format!("Join carries a {} failure branch at {} salvage.", pct(1.0 - inputs.o3_p_success), money(inputs.o3_fail_salvage)),
+            text: format!(
+                "Join carries a {} failure branch at {} salvage.",
+                pct(1.0 - inputs.o3_p_success),
+                money(inputs.o3_fail_salvage)
+            ),
         });
     }
     for flag in model.flags.iter().take(2) {
-        out.push(Takeaway { tone: TakeawayTone::Caution, text: flag.clone() });
+        out.push(Takeaway {
+            tone: TakeawayTone::Caution,
+            text: flag.clone(),
+        });
     }
     out
 }
@@ -630,7 +959,10 @@ mod tests {
         let mut inputs = Inputs::default();
         inputs.o1_p_low = 0.9;
         let result = evaluate(&inputs);
-        assert!(result.flags.iter().any(|flag| flag == "As-is probabilities must sum to 100%."));
+        assert!(result
+            .flags
+            .iter()
+            .any(|flag| flag == "As-is probabilities must sum to 100%."));
     }
 
     #[test]

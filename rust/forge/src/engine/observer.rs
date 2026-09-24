@@ -22,11 +22,7 @@ const INSERT_OBSERVER_SQL: &str = "
     ON CONFLICT (source_system, source_event_id)
     WHERE source_event_id IS NOT NULL DO NOTHING";
 
-fn observer_source_event_id(
-    process_instance_id: &str,
-    task_id: &str,
-    event_type: &str,
-) -> String {
+fn observer_source_event_id(process_instance_id: &str, task_id: &str, event_type: &str) -> String {
     format!("forge:{process_instance_id}:{task_id}:{event_type}")
 }
 

@@ -46,15 +46,9 @@ impl<R: TaskRepository> TaskService<R> {
         .await?;
 
         let result = async {
-            self.repository
-                .complete(task_id)
-                .await?
-                .ok_or_else(|| {
-                    CoreServiceError::business(
-                        "TASK_NOT_OPEN",
-                        "Task not found or already resolved.",
-                    )
-                })
+            self.repository.complete(task_id).await?.ok_or_else(|| {
+                CoreServiceError::business("TASK_NOT_OPEN", "Task not found or already resolved.")
+            })
         }
         .await;
 

@@ -36,8 +36,8 @@ impl Component for WhatsAppMeta {
 
     fn view(&self, ctx: &Context<Self>) -> Html {
         let props = ctx.props();
-        let screen =
-            crate::model::screen("whatsapp-meta").expect("the WhatsApp diagnostic is in the registry");
+        let screen = crate::model::screen("whatsapp-meta")
+            .expect("the WhatsApp diagnostic is in the registry");
         html! {
             <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
                 <main class="min-h-screen bg-brand-navy px-6 py-12 text-brand-ivory">
@@ -168,4 +168,3 @@ fn field(label: &str, value: Option<&str>) -> Html {
         </div>
     }
 }
-

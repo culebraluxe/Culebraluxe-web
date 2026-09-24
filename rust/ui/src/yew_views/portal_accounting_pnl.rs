@@ -17,7 +17,8 @@ use crate::model::{Msg, PortalAccountingLine, PortalAccountingPnl};
 use crate::yew_views::portal_accounting_shell::{AccountingShell, GlassPanel};
 use crate::yew_views::portal_shell::PortalShell;
 
-const DATE_INPUT: &str = "mt-1 block w-44 rounded-md border border-white/15 bg-white/5 px-3 py-2 text-sm text-white \
+const DATE_INPUT: &str =
+    "mt-1 block w-44 rounded-md border border-white/15 bg-white/5 px-3 py-2 text-sm text-white \
                           focus:border-[var(--portal-gold)] focus:outline-none";
 const LABEL: &str = "block text-[11px] font-medium uppercase tracking-wide text-white/60";
 
@@ -39,7 +40,8 @@ impl Component for Pnl {
 
     fn view(&self, ctx: &Context<Self>) -> Html {
         let props = ctx.props();
-        let screen = crate::model::screen("accounting-pnl").expect("the P&L screen is in the registry");
+        let screen =
+            crate::model::screen("accounting-pnl").expect("the P&L screen is in the registry");
         html! {
             <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
                 <AccountingShell eyebrow="Accounting" title="P&L Statement">
@@ -135,7 +137,6 @@ impl Pnl {
     }
 }
 
-
 impl Pnl {
     /// The income side: each category as the database grouped it, then the period's total.
     ///
@@ -186,4 +187,3 @@ impl Pnl {
         }
     }
 }
-

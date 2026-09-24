@@ -43,7 +43,8 @@ const EXPENSE_CATEGORIES: [&str; 9] = [
 ];
 
 /// The read-only field styling the live draft used for what it "extracted".
-const READONLY: &str = "mt-1 w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-sm text-white";
+const READONLY: &str =
+    "mt-1 w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-sm text-white";
 const LABEL: &str = "block text-[11px] font-medium uppercase tracking-wide text-white/60";
 
 #[derive(Properties, PartialEq)]
@@ -179,7 +180,6 @@ impl Scanner {
     }
 }
 
-
 impl Scanner {
     /// The reviewed draft, and the control that saves it.
     ///
@@ -257,4 +257,3 @@ impl Scanner {
         }
     }
 }
-

@@ -11,26 +11,26 @@ use crate::yew_views::portal_accounting_expenses::Expenses as AccountingExpenses
 use crate::yew_views::portal_accounting_pnl::Pnl as AccountingPnl;
 use crate::yew_views::portal_accounting_receipt_scanner::Scanner as AccountingReceiptScanner;
 use crate::yew_views::portal_accounting_receivables::Receivables as AccountingReceivables;
+use crate::yew_views::portal_activity::Activity;
+use crate::yew_views::portal_cabinet::Cabinet;
+use crate::yew_views::portal_clients::{ClientRecord, Clients};
+use crate::yew_views::portal_cockpit::Cockpit;
+use crate::yew_views::portal_deals::{DealRecord, Deals};
+use crate::yew_views::portal_flight_recorder::FlightRecorder;
+use crate::yew_views::portal_flight_recorder_list::FlightRecorderList;
+use crate::yew_views::portal_forms::{FormRecord, Forms};
+use crate::yew_views::portal_listing_media::ListingMedia;
+use crate::yew_views::portal_ops::OpsWorkbench;
+use crate::yew_views::portal_projects::Projects;
+use crate::yew_views::portal_seller_strategy::SellerStrategy;
+use crate::yew_views::portal_storyboard::Storyboard;
 use crate::yew_views::portal_support_db_test::DbTest as SupportDbTest;
 use crate::yew_views::portal_support_security::Security as SupportSecurity;
 use crate::yew_views::portal_support_system_health::SystemHealth as SupportSystemHealth;
 use crate::yew_views::portal_support_users::SecurityUsers as SupportSecurityUsers;
 use crate::yew_views::portal_support_whatsapp_meta::WhatsAppMeta as SupportWhatsAppMeta;
-use crate::yew_views::portal_activity::Activity;
-use crate::yew_views::portal_cabinet::Cabinet;
-use crate::yew_views::portal_clients::{ClientRecord, Clients};
-use crate::yew_views::portal_listing_media::ListingMedia;
-use crate::yew_views::portal_ops::OpsWorkbench;
-use crate::yew_views::portal_cockpit::Cockpit;
-use crate::yew_views::portal_deals::{DealRecord, Deals};
-use crate::yew_views::portal_forms::{FormRecord, Forms};
-use crate::yew_views::portal_flight_recorder::FlightRecorder;
-use crate::yew_views::portal_flight_recorder_list::FlightRecorderList;
-use crate::yew_views::portal_projects::Projects;
-use crate::yew_views::portal_seller_strategy::SellerStrategy;
-use crate::yew_views::portal_storyboard::Storyboard;
-use crate::yew_views::portal_ui_lab::UiLab;
 use crate::yew_views::portal_tech::TechCockpit;
+use crate::yew_views::portal_ui_lab::UiLab;
 use crate::yew_views::portal_workflow_record::WorkflowRecord;
 use crate::yew_views::portal_workflows::Workflows;
 
@@ -82,8 +82,12 @@ impl Component for PortalApp {
         match self.model.screen.key {
             "dashboard" => html! { <Cockpit model={self.model.clone()} on_msg={on_msg.clone()} /> },
             "tech" => html! { <TechCockpit model={self.model.clone()} on_msg={on_msg.clone()} /> },
-            "trace-record" => html! { <FlightRecorder model={self.model.clone()} on_msg={on_msg.clone()} /> },
-            "tech-flight-recorder" => html! { <FlightRecorderList model={self.model.clone()} on_msg={on_msg} /> },
+            "trace-record" => {
+                html! { <FlightRecorder model={self.model.clone()} on_msg={on_msg.clone()} /> }
+            }
+            "tech-flight-recorder" => {
+                html! { <FlightRecorderList model={self.model.clone()} on_msg={on_msg} /> }
+            }
             "cabinet" => html! { <Cabinet model={self.model.clone()} on_msg={on_msg} /> },
             "activity" => html! { <Activity model={self.model.clone()} on_msg={on_msg} /> },
             "accounting" => {
@@ -113,8 +117,12 @@ impl Component for PortalApp {
             "system-health" => {
                 html! { <SupportSystemHealth model={self.model.clone()} on_msg={on_msg} /> }
             }
-            "property-admin" => html! { <OpsWorkbench model={self.model.clone()} on_msg={on_msg} /> },
-            "property-media" => html! { <ListingMedia model={self.model.clone()} on_msg={on_msg} /> },
+            "property-admin" => {
+                html! { <OpsWorkbench model={self.model.clone()} on_msg={on_msg} /> }
+            }
+            "property-media" => {
+                html! { <ListingMedia model={self.model.clone()} on_msg={on_msg} /> }
+            }
             "clients" => html! { <Clients model={self.model.clone()} on_msg={on_msg} /> },
             "client-record" => {
                 html! { <ClientRecord model={self.model.clone()} on_msg={on_msg} /> }
@@ -128,7 +136,9 @@ impl Component for PortalApp {
             "forms" => html! { <Forms model={self.model.clone()} on_msg={on_msg} /> },
             "form-record" => html! { <FormRecord model={self.model.clone()} on_msg={on_msg} /> },
             "projects" => html! { <Projects model={self.model.clone()} on_msg={on_msg} /> },
-            "seller-strategy" => html! { <SellerStrategy model={self.model.clone()} on_msg={on_msg} /> },
+            "seller-strategy" => {
+                html! { <SellerStrategy model={self.model.clone()} on_msg={on_msg} /> }
+            }
             "workflows" => html! { <Workflows model={self.model.clone()} on_msg={on_msg} /> },
             "workflow-record" => {
                 html! { <WorkflowRecord model={self.model.clone()} on_msg={on_msg} /> }

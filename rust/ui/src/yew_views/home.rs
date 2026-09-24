@@ -11,10 +11,11 @@
 use yew::prelude::*;
 
 use crate::format::{
-    listing_enquire_href, listing_eyebrow, listing_fact_parts, listing_highlights, listing_price_label, FactsStyle,
+    listing_enquire_href, listing_eyebrow, listing_fact_parts, listing_highlights,
+    listing_price_label, FactsStyle,
 };
-use crate::model::{Block, Listing};
 use crate::model::Msg;
+use crate::model::{Block, Listing};
 use crate::yew_views::buyers::{listing_image, save_heart};
 use crate::yew_views::chrome::PageProps;
 
@@ -208,7 +209,13 @@ impl Home {
     /// estate twice; the card now carries one stretched link, the pattern the buyers inventory already uses. The facts
     /// line is the one the TypeScript card drew — beds, baths and the leading view — at a contrast that reads on the dark
     /// band, and the cards reveal in a short stagger across the row.
-    fn portfolio(&self, block: &Block, items: &[Listing], saved: &[String], on_msg: &Callback<Msg>) -> Html {
+    fn portfolio(
+        &self,
+        block: &Block,
+        items: &[Listing],
+        saved: &[String],
+        on_msg: &Callback<Msg>,
+    ) -> Html {
         let shown = &items[..items.len().min(4)];
         if shown.is_empty() {
             // The component rendered nothing at all with no listings, rather than an empty band.
@@ -456,4 +463,3 @@ impl Home {
         }
     }
 }
-

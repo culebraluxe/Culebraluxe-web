@@ -146,7 +146,12 @@ impl Buyers {
             .iter()
             .map(|listing| {
                 let compared = model.compare.iter().any(|entry| entry.id == listing.id);
-                card(listing, model.saved_listings.contains(&listing.id), Some(compared), on_msg)
+                card(
+                    listing,
+                    model.saved_listings.contains(&listing.id),
+                    Some(compared),
+                    on_msg,
+                )
             })
             .collect::<Vec<_>>();
         html! {
@@ -340,8 +345,13 @@ fn view_select(options: &[String], chosen: &str, on_msg: &Callback<Msg>) -> Html
     let onchange = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: Event| {
-            let value = event.target_unchecked_into::<web_sys::HtmlSelectElement>().value();
-            on_msg.emit(Msg::FilterSelected { key: "view".to_string(), value });
+            let value = event
+                .target_unchecked_into::<web_sys::HtmlSelectElement>()
+                .value();
+            on_msg.emit(Msg::FilterSelected {
+                key: "view".to_string(),
+                value,
+            });
         })
     };
     html! {
@@ -402,7 +412,11 @@ fn searches_message(model: &Model) -> String {
 /// A fresh id for a saved search, in the TypeScript store's style, and the time now, for the reducer.
 fn search_stamp() -> (String, String) {
     let now = js_sys::Date::new_0();
-    let id = format!("ss-{}-{}", now.get_time() as u64, (js_sys::Math::random() * 1e9) as u64);
+    let id = format!(
+        "ss-{}-{}",
+        now.get_time() as u64,
+        (js_sys::Math::random() * 1e9) as u64
+    );
     (id, now.to_iso_string().into())
 }
 
@@ -410,7 +424,10 @@ fn search_stamp() -> (String, String) {
 /// count and an honest "+N new" since it was last viewed. Choosing one applies its filters.
 fn saved_searches_panel(model: &Model, listings: &[Listing], on_msg: &Callback<Msg>) -> Html {
     let current = crate::search::SearchFilters::from_controls(&model.controls);
-    let current_saved = model.saved_searches.iter().any(|search| search.filters.key() == current.key());
+    let current_saved = model
+        .saved_searches
+        .iter()
+        .any(|search| search.filters.key() == current.key());
     let views = model
         .saved_searches
         .iter()
@@ -508,17 +525,45 @@ fn count_or_dash(value: Option<f64>) -> String {
 }
 
 const COMPARE_ROWS: [CompareRow; 9] = [
-    ("Price", |listing| crate::format::listing_price_label(listing)),
-    ("Location", |listing| listing.location.clone().unwrap_or_else(dash)),
+    ("Price", |listing| {
+        crate::format::listing_price_label(listing)
+    }),
+    ("Location", |listing| {
+        listing.location.clone().unwrap_or_else(dash)
+    }),
     ("Type", |listing| listing.kind.clone().unwrap_or_else(dash)),
-    ("Beds", |listing| if crate::format::listing_is_land(listing) { dash() } else { count_or_dash(listing.beds) }),
-    ("Baths", |listing| if crate::format::listing_is_land(listing) { dash() } else { count_or_dash(listing.baths) }),
+    ("Beds", |listing| {
+        if crate::format::listing_is_land(listing) {
+            dash()
+        } else {
+            count_or_dash(listing.beds)
+        }
+    }),
+    ("Baths", |listing| {
+        if crate::format::listing_is_land(listing) {
+            dash()
+        } else {
+            count_or_dash(listing.baths)
+        }
+    }),
     ("Interior", |listing| {
-        if crate::format::listing_is_land(listing) { dash() } else { listing.interior_area.clone().unwrap_or_else(dash) }
+        if crate::format::listing_is_land(listing) {
+            dash()
+        } else {
+            listing.interior_area.clone().unwrap_or_else(dash)
+        }
     }),
     ("Lot", |listing| listing.area.clone().unwrap_or_else(dash)),
-    ("Views", |listing| if listing.views.is_empty() { dash() } else { listing.views.join(", ") }),
-    ("Beach access", |listing| (if listing.beach_access { "Yes" } else { "No" }).to_string()),
+    ("Views", |listing| {
+        if listing.views.is_empty() {
+            dash()
+        } else {
+            listing.views.join(", ")
+        }
+    }),
+    ("Beach access", |listing| {
+        (if listing.beach_access { "Yes" } else { "No" }).to_string()
+    }),
 ];
 
 /// "Side by side" (`CompareBar`): once two are chosen, a table of the facts that decide between them. Only published
@@ -595,7 +640,11 @@ fn compare_table(model: &Model, listings: &[Listing], on_msg: &Callback<Msg>) ->
 /// placeholder graphic there. Lazy, because the cards sit below the fold and the strip scrolls sideways; the browser
 /// still fetches whatever is in view straight away.
 pub(crate) fn listing_image(listing: &Listing, class: &str, sizes: &str) -> Html {
-    match listing.image_path.as_deref().filter(|src| !src.trim().is_empty()) {
+    match listing
+        .image_path
+        .as_deref()
+        .filter(|src| !src.trim().is_empty())
+    {
         Some(src) => html! {
             <img src={src.to_string()} alt={listing.image_alt.clone().unwrap_or_else(|| listing.name.clone())}
                 sizes={sizes.to_string()} loading="lazy" decoding="async" class={class.to_string()} />
@@ -608,7 +657,12 @@ pub(crate) fn listing_image(listing: &Listing, class: &str, sizes: &str) -> Html
 
 /// The round heart on a listing card, `SaveProperty variant="icon"` from the TypeScript card. It sits above the card's
 /// stretched link, so pressing it saves rather than navigates. Nothing without an id can be saved, so nothing is drawn.
-pub(crate) fn save_heart(listing: &Listing, saved: bool, on_msg: &Callback<Msg>, class: &'static str) -> Html {
+pub(crate) fn save_heart(
+    listing: &Listing,
+    saved: bool,
+    on_msg: &Callback<Msg>,
+    class: &'static str,
+) -> Html {
     if listing.id.trim().is_empty() {
         return Html::default();
     }
@@ -621,7 +675,11 @@ pub(crate) fn save_heart(listing: &Listing, saved: bool, on_msg: &Callback<Msg>,
             on_msg.emit(Msg::ListingFavoriteToggled(id.clone()));
         })
     };
-    let label = if saved { format!("Saved: {}", listing.name) } else { format!("Save {}", listing.name) };
+    let label = if saved {
+        format!("Saved: {}", listing.name)
+    } else {
+        format!("Save {}", listing.name)
+    };
     html! {
         <button type="button" {onclick} aria-pressed={saved.to_string()} aria-label={label.clone()} title={label}
             class={classes!(
@@ -661,7 +719,12 @@ fn slide(listing: &Listing) -> Html {
 /// One inventory card: the photograph with its badges, then the place, the price and its facts.
 /// One inventory card. `compared` is `Some` where the page offers Compare (the Buyers grid) and `None` where it does
 /// not (the Saved page).
-pub(crate) fn card(listing: &Listing, saved: bool, compared: Option<bool>, on_msg: &Callback<Msg>) -> Html {
+pub(crate) fn card(
+    listing: &Listing,
+    saved: bool,
+    compared: Option<bool>,
+    on_msg: &Callback<Msg>,
+) -> Html {
     let facts = crate::format::listing_facts(listing, crate::format::FactsStyle::Full);
     html! {
         <article class="group relative">

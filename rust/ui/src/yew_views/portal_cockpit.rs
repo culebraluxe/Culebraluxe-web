@@ -92,7 +92,12 @@ fn cockpit(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
 
 fn kpis(data: &PortalCockpitPage) -> Html {
     let values = [
-        ("Clients", data.active_client_count, "/portal/clients", false),
+        (
+            "Clients",
+            data.active_client_count,
+            "/portal/clients",
+            false,
+        ),
         ("Live deals", data.live_deal_count, "/portal/deals", false),
         ("Upcoming", data.upcoming_count, "/portal/attention", false),
         (

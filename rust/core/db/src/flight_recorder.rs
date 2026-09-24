@@ -99,12 +99,7 @@ impl FlightRecorderDao {
 
         // Same bounded-concurrency fix as the mature TypeScript read: a long-lived deal can have many attempts, and
         // reading them one after another turns one page load into N serialized database round trips.
-        let bundles = try_join_all(
-            instance_ids
-                .iter()
-                .map(|id| self.instance_bundle(id)),
-        )
-        .await?;
+        let bundles = try_join_all(instance_ids.iter().map(|id| self.instance_bundle(id))).await?;
 
         let mut workflows = Vec::new();
         let mut events = Vec::new();
@@ -127,9 +122,7 @@ impl FlightRecorderDao {
                 _ => (primary.subject_id.clone(), None),
             },
             Some("person") => match primary.subject_id.as_deref() {
-                Some(id) if Uuid::parse_str(id).is_ok() => {
-                    (None, self.person_label(id).await?)
-                }
+                Some(id) if Uuid::parse_str(id).is_ok() => (None, self.person_label(id).await?),
                 _ => (None, primary.subject_id.clone()),
             },
             _ => (None, None),
@@ -439,7 +432,9 @@ fn event_dto(row: &TraceRow, graph: &Value) -> FlightRecorderEvent {
 
     FlightRecorderEvent {
         event_id,
-        occurred_at: row.occurred_at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        occurred_at: row
+            .occurred_at
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
         event_type: row.event_type.clone(),
         source_system: row.system.clone(),
         summary: row.summary.clone(),
@@ -662,7 +657,11 @@ fn node_states(
                 node_id: node_id.clone(),
                 state,
                 // A historical RUN_END can exist without its matching start row. It still proves the node executed once.
-                execution_count: execution_count.max(if !completed.is_empty() || failed { 1 } else { 0 }),
+                execution_count: execution_count.max(if !completed.is_empty() || failed {
+                    1
+                } else {
+                    0
+                }),
                 entered_at: first.map(|event| {
                     event
                         .occurred_at
@@ -721,7 +720,12 @@ mod tests {
         });
         let events = vec![
             row("NODE_ENTERED", Some("a"), "2026-09-22T12:00:00Z", None),
-            row("NODE_COMPLETED", Some("a"), "2026-09-22T12:01:00Z", Some("SUCCESS")),
+            row(
+                "NODE_COMPLETED",
+                Some("a"),
+                "2026-09-22T12:01:00Z",
+                Some("SUCCESS"),
+            ),
             row("NODE_ENTERED", Some("b"), "2026-09-22T12:02:00Z", None),
         ];
         assert_eq!(current_node(&events).as_deref(), Some("b"));
@@ -741,7 +745,12 @@ mod tests {
         });
         let mut start = row("RUN_START", Some("architect"), "2026-09-22T12:00:00Z", None);
         start.metadata = Some(json!({"attempt": 1}));
-        let mut end = row("RUN_END", Some("architect"), "2026-09-22T12:01:00Z", Some("allow"));
+        let mut end = row(
+            "RUN_END",
+            Some("architect"),
+            "2026-09-22T12:01:00Z",
+            Some("allow"),
+        );
         end.metadata = Some(json!({"attempt": 1, "status":"completed"}));
         let mut smith = row("RUN_START", Some("smith"), "2026-09-22T12:02:00Z", None);
         smith.metadata = Some(json!({"attempt": 1}));
@@ -757,7 +766,12 @@ mod tests {
     #[test]
     fn forge_run_pairs_by_attempt_even_when_observer_rows_are_out_of_order() {
         let graph = json!({"nodes":{"lead":{"id":"lead","type":"task","name":"Lead"}}});
-        let mut end = row("RUN_END", Some("lead"), "2026-09-22T12:00:00Z", Some("allow"));
+        let mut end = row(
+            "RUN_END",
+            Some("lead"),
+            "2026-09-22T12:00:00Z",
+            Some("allow"),
+        );
         end.metadata = Some(json!({"attempt": 1, "status":"completed"}));
         let mut start = row("RUN_START", Some("lead"), "2026-09-22T12:00:01Z", None);
         start.metadata = Some(json!({"attempt": 1}));
@@ -787,7 +801,12 @@ mod tests {
     fn completed_workflow_has_no_current_node() {
         let events = vec![
             row("NODE_ENTERED", Some("end"), "2026-09-22T12:00:00Z", None),
-            row("WORKFLOW_COMPLETED", None, "2026-09-22T12:01:00Z", Some("SUCCESS")),
+            row(
+                "WORKFLOW_COMPLETED",
+                None,
+                "2026-09-22T12:01:00Z",
+                Some("SUCCESS"),
+            ),
         ];
         assert_eq!(current_node(&events), None);
     }
@@ -801,7 +820,12 @@ mod tests {
             }
         });
         let events = vec![
-            row("process.started", Some("start"), "2026-09-22T12:00:00Z", None),
+            row(
+                "process.started",
+                Some("start"),
+                "2026-09-22T12:00:00Z",
+                None,
+            ),
             row("token.moved", Some("smith"), "2026-09-22T12:00:01Z", None),
             row("task.created", Some("smith"), "2026-09-22T12:00:01Z", None),
         ];

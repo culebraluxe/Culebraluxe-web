@@ -160,7 +160,6 @@ impl PersonDao {
         Ok(row.map(map_person))
     }
 
-
     pub async fn update_admin(
         &self,
         request: &UpdatePersonAdminRequest,

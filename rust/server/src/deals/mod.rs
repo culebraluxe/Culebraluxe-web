@@ -224,9 +224,11 @@ impl<R: DealPortalRepository> DealPortalService<R> {
                         ));
                     }
                     let valid_subject = if role == "owner" {
-                        person_id.is_none() && user_id.as_deref().is_some_and(|id| !id.trim().is_empty())
+                        person_id.is_none()
+                            && user_id.as_deref().is_some_and(|id| !id.trim().is_empty())
                     } else {
-                        user_id.is_none() && person_id.as_deref().is_some_and(|id| !id.trim().is_empty())
+                        user_id.is_none()
+                            && person_id.as_deref().is_some_and(|id| !id.trim().is_empty())
                     };
                     if !valid_subject {
                         return Err(CoreServiceError::business(

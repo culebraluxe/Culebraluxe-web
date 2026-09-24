@@ -662,7 +662,6 @@ pub struct PortalTechHistory {
     pub latest_run_result: Option<String>,
 }
 
-
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PortalOpsRow {
@@ -1672,7 +1671,6 @@ pub struct PortalFormTemplateChoice {
     pub active_version: i32,
 }
 
-
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PortalProjectsPage {
@@ -2005,8 +2003,6 @@ impl CommandNotice {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct FlightRecorderState {
     /// The exact process instance from the route. A story id never belongs here.
@@ -2017,7 +2013,6 @@ pub struct FlightRecorderState {
     /// own fetching or application state.
     pub transaction: Option<serde_json::Value>,
 }
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct OpsWorkbenchState {
@@ -2337,14 +2332,35 @@ impl Model {
 /// Every intent the shell can receive. This is the whole vocabulary a widget may speak.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Msg {
-    EntitlementsLoaded { generation: u64, grants: PortalEntitlements },
-    EntitlementsUnavailable { generation: u64 },
+    EntitlementsLoaded {
+        generation: u64,
+        grants: PortalEntitlements,
+    },
+    EntitlementsUnavailable {
+        generation: u64,
+    },
     SecurityRoleSelected(String),
-    SecurityRoleGrantRequested { role_code: String, action: String, granted: bool },
-    SecurityRoleGrantChanged { generation: u64, roles: Vec<PortalRoleEntitlements> },
-    SecurityUserRoleDraftChanged { app_user_id: String, role_code: String },
-    SecurityUserRoleRequested { app_user_id: String, role_code: String },
-    SecurityUserRoleChanged { generation: u64, users: Vec<PortalSecurityUser> },
+    SecurityRoleGrantRequested {
+        role_code: String,
+        action: String,
+        granted: bool,
+    },
+    SecurityRoleGrantChanged {
+        generation: u64,
+        roles: Vec<PortalRoleEntitlements>,
+    },
+    SecurityUserRoleDraftChanged {
+        app_user_id: String,
+        role_code: String,
+    },
+    SecurityUserRoleRequested {
+        app_user_id: String,
+        role_code: String,
+    },
+    SecurityUserRoleChanged {
+        generation: u64,
+        users: Vec<PortalSecurityUser>,
+    },
     /// The screen mounted, or navigation arrived that needs data.
     ScreenOpened(Screen),
     /// A HOST RUN OPENED THIS SCREEN, and this is the generation it belongs to.
@@ -2414,9 +2430,16 @@ pub enum Msg {
     /// Move the lightbox by -1 or +1, wrapping at both ends.
     PropertyLightboxMoved(i8),
     PropertyTabSelected(PropertyTab),
-    PropertyBrowserLoaded { id: String, saved: bool, recent: Vec<PropertyRecent> },
+    PropertyBrowserLoaded {
+        id: String,
+        saved: bool,
+        recent: Vec<PropertyRecent>,
+    },
     PropertyFavoriteToggled,
-    PropertyFavoriteStored { id: String, saved: bool },
+    PropertyFavoriteStored {
+        id: String,
+        saved: bool,
+    },
     /// The favorites store answered: these listing ids are saved.
     ListingFavoritesLoaded(Vec<String>),
     /// The heart on a listing card was pressed.
@@ -2425,18 +2448,32 @@ pub enum Msg {
     // ---- Contact form --------------------------------------------------------------------------------------------
     ContactInterestChosen(String),
     /// The form was submitted, with a fresh id the view generated for a first attempt.
-    ContactSubmitted { submission: ContactSubmission, new_id: String },
-    ContactResult { accepted: bool },
+    ContactSubmitted {
+        submission: ContactSubmission,
+        new_id: String,
+    },
+    ContactResult {
+        accepted: bool,
+    },
 
     // ---- Buyers: compare and saved searches ------------------------------------------------------------------------
     /// The device's compare set and saved searches, read when the Buyers page loads.
-    BuyerToolsLoaded { compare: Vec<crate::search::CompareEntry>, searches: Vec<crate::search::SavedSearch> },
+    BuyerToolsLoaded {
+        compare: Vec<crate::search::CompareEntry>,
+        searches: Vec<crate::search::SavedSearch>,
+    },
     /// The compare control on a card was pressed, or a column's remove button: toggles that listing.
     CompareToggled(String),
     /// "Save this search": the current filters. The view supplies a fresh id and the time.
-    SearchSaved { new_id: String, now: String },
+    SearchSaved {
+        new_id: String,
+        now: String,
+    },
     /// A saved search was chosen: apply its filters and mark it viewed.
-    SavedSearchApplied { id: String, now: String },
+    SavedSearchApplied {
+        id: String,
+        now: String,
+    },
     SavedSearchRemoved(String),
 
     // ---- Flight Recorder -----------------------------------------------------------------------------------------
@@ -2457,7 +2494,9 @@ pub enum Msg {
     TechScopedRunRequested(String),
     TechMoveWorkbenchRequested(String),
     TechLaunchFlightRequested,
-    TechScheduleFlightRequested { scheduled_for: String },
+    TechScheduleFlightRequested {
+        scheduled_for: String,
+    },
     TechCancelFlightRequested(String),
     TechCommandCompleted {
         screen: String,
@@ -2470,7 +2509,10 @@ pub enum Msg {
     OpsEntitySelected(String),
     OpsSectionSelected(String),
     OpsRailToggled,
-    OpsFieldChanged { key: String, value: String },
+    OpsFieldChanged {
+        key: String,
+        value: String,
+    },
     OpsSaveRequested,
     OpsRevertRequested,
     OpsCreateToggled,
@@ -2534,29 +2576,64 @@ pub enum Msg {
     DealWorkspaceTaskDetailChanged(String),
     DealWorkspaceTaskDueChanged(String),
     DealWorkspaceCreateTaskRequested,
-    DealWorkspaceCompleteTaskRequested { task_id: String },
-    DealWorkspaceOfferAmountChanged { key: String, value: String },
-    DealWorkspaceSubmitOfferRequested { parent_offer_id: Option<String> },
-    DealWorkspaceWithdrawOfferRequested { offer_id: String },
-    DealWorkspaceRejectOfferRequested { offer_id: String },
+    DealWorkspaceCompleteTaskRequested {
+        task_id: String,
+    },
+    DealWorkspaceOfferAmountChanged {
+        key: String,
+        value: String,
+    },
+    DealWorkspaceSubmitOfferRequested {
+        parent_offer_id: Option<String>,
+    },
+    DealWorkspaceWithdrawOfferRequested {
+        offer_id: String,
+    },
+    DealWorkspaceRejectOfferRequested {
+        offer_id: String,
+    },
     DealWorkspaceCreateShowingRequested,
-    DealWorkspaceShowingTimeChanged { showing_id: String, value: String },
-    DealWorkspaceScheduleShowingRequested { showing_id: String },
-    DealWorkspaceCancelShowingRequested { showing_id: String },
-    DealWorkspaceCompleteShowingRequested { showing_id: String },
+    DealWorkspaceShowingTimeChanged {
+        showing_id: String,
+        value: String,
+    },
+    DealWorkspaceScheduleShowingRequested {
+        showing_id: String,
+    },
+    DealWorkspaceCancelShowingRequested {
+        showing_id: String,
+    },
+    DealWorkspaceCompleteShowingRequested {
+        showing_id: String,
+    },
     DealWorkspaceParticipantQueryChanged(String),
-    DealWorkspaceParticipantSelected { id: String, label: String },
+    DealWorkspaceParticipantSelected {
+        id: String,
+        label: String,
+    },
     DealWorkspaceParticipantRoleChanged(String),
     DealWorkspaceAddParticipantRequested,
-    DealWorkspaceOtherRoleChanged { participant_id: String, value: String },
-    DealWorkspaceUpdateOtherRequested { participant_id: String },
-    DealWorkspaceEndOtherRequested { participant_id: String },
+    DealWorkspaceOtherRoleChanged {
+        participant_id: String,
+        value: String,
+    },
+    DealWorkspaceUpdateOtherRequested {
+        participant_id: String,
+    },
+    DealWorkspaceEndOtherRequested {
+        participant_id: String,
+    },
     DealWorkspaceStructuralRoleChanged(String),
     DealWorkspaceStructuralQueryChanged(String),
-    DealWorkspaceStructuralPersonSelected { id: String, label: String },
+    DealWorkspaceStructuralPersonSelected {
+        id: String,
+        label: String,
+    },
     DealWorkspaceStructuralOwnerChanged(String),
     DealWorkspaceSetStructuralRequested,
-    DealWorkspaceEndStructuralRequested { participant_id: String },
+    DealWorkspaceEndStructuralRequested {
+        participant_id: String,
+    },
     DealWorkspacePeopleLoaded {
         screen: String,
         generation: u64,
@@ -2618,9 +2695,14 @@ pub enum Msg {
     ReceivableDueOnChanged(String),
     ReceivableSubmitted,
     /// The operator chose the date one receivable was paid on.
-    ReceivablePaidDateChanged { id: String, value: String },
+    ReceivablePaidDateChanged {
+        id: String,
+        value: String,
+    },
     /// The operator marked a receivable paid. The transition itself is Rust's and the database's: this asks for it.
-    ReceivablePaidSubmitted { id: String },
+    ReceivablePaidSubmitted {
+        id: String,
+    },
 
     // ---- accounting: the P&L's period ---------------------------------------------------------------------
     PnlFromChanged(String),
@@ -2775,11 +2857,32 @@ impl Msg {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(tag = "effect")]
 pub enum Effect {
-    FetchEntitlements { generation: u64 },
-    SetRoleEntitlement { generation: u64, role_code: String, action: String, granted: bool },
-    SetUserPrimaryRole { generation: u64, app_user_id: String, role_code: String },
-    PropertyBrowserRead { id: String, slug: String, title: String, valid_slugs: Vec<String> },
-    PropertyFavoriteWrite { id: String, slug: String, title: String, saved: bool },
+    FetchEntitlements {
+        generation: u64,
+    },
+    SetRoleEntitlement {
+        generation: u64,
+        role_code: String,
+        action: String,
+        granted: bool,
+    },
+    SetUserPrimaryRole {
+        generation: u64,
+        app_user_id: String,
+        role_code: String,
+    },
+    PropertyBrowserRead {
+        id: String,
+        slug: String,
+        title: String,
+        valid_slugs: Vec<String>,
+    },
+    PropertyFavoriteWrite {
+        id: String,
+        slug: String,
+        title: String,
+        saved: bool,
+    },
     /// Read which listings the visitor has saved, for the hearts on a page of cards.
     ListingFavoritesRead,
     /// Read the compare set and saved searches from the device.
@@ -2789,7 +2892,10 @@ pub enum Effect {
     /// Persist the saved searches.
     SavedSearchesWrite(Vec<crate::search::SavedSearch>),
     /// Send a contact form submission to the website intake pipeline.
-    SubmitContact { submission: ContactSubmission, submission_id: String },
+    SubmitContact {
+        submission: ContactSubmission,
+        submission_id: String,
+    },
     /// Fetch rows for this screen, optionally about one record.
     ///
     /// The screen travels with the effect rather than being scraped back out of the DOM, and `scope` is the record key
@@ -3030,7 +3136,9 @@ pub enum Effect {
         owner: Option<String>,
     },
     /// Browser navigation is an effect, not a view mutation.
-    BrowserNavigate { href: String },
+    BrowserNavigate {
+        href: String,
+    },
     /// Fetch a public page's content: the blocks, not the rows.
     ///
     /// A SEPARATE EFFECT because it is a different request and a different shape. A list screen asks what its rows are;

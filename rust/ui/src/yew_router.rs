@@ -15,8 +15,8 @@ use crate::model::{screen, Msg, Screen};
 use crate::yew_views::about::About;
 use crate::yew_views::buyers::Buyers;
 use crate::yew_views::contact::Contact;
-use crate::yew_views::favorites::Favorites;
 use crate::yew_views::faq::Faq;
+use crate::yew_views::favorites::Favorites;
 use crate::yew_views::guide::Guide;
 use crate::yew_views::home::Home;
 use crate::yew_views::property_detail::PropertyDetail;
@@ -89,7 +89,11 @@ pub fn query_param(name: &str) -> Option<String> {
     search.trim_start_matches('?').split('&').find_map(|pair| {
         let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
         (key == name)
-            .then(|| js_sys::decode_uri_component(&value.replace('+', " ")).ok().map(String::from))
+            .then(|| {
+                js_sys::decode_uri_component(&value.replace('+', " "))
+                    .ok()
+                    .map(String::from)
+            })
             .flatten()
             .filter(|value| !value.trim().is_empty())
     })

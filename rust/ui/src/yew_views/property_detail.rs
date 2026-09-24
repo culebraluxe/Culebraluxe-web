@@ -49,30 +49,28 @@ impl Component for PropertyDetail {
         let on_keydown = {
             let on_msg = on_msg.clone();
             let lightbox_open = model.property_media.lightbox_open;
-            Callback::from(move |event: KeyboardEvent| {
-                match event.key().as_str() {
-                    "ArrowLeft" => {
-                        event.prevent_default();
-                        if lightbox_open {
-                            on_msg.emit(Msg::PropertyLightboxMoved(-1));
-                        } else {
-                            on_msg.emit(Msg::PropertyMediaPrevious);
-                        }
+            Callback::from(move |event: KeyboardEvent| match event.key().as_str() {
+                "ArrowLeft" => {
+                    event.prevent_default();
+                    if lightbox_open {
+                        on_msg.emit(Msg::PropertyLightboxMoved(-1));
+                    } else {
+                        on_msg.emit(Msg::PropertyMediaPrevious);
                     }
-                    "ArrowRight" => {
-                        event.prevent_default();
-                        if lightbox_open {
-                            on_msg.emit(Msg::PropertyLightboxMoved(1));
-                        } else {
-                            on_msg.emit(Msg::PropertyMediaNext);
-                        }
-                    }
-                    "Escape" if lightbox_open => {
-                        event.prevent_default();
-                        on_msg.emit(Msg::PropertyLightboxClosed);
-                    }
-                    _ => {}
                 }
+                "ArrowRight" => {
+                    event.prevent_default();
+                    if lightbox_open {
+                        on_msg.emit(Msg::PropertyLightboxMoved(1));
+                    } else {
+                        on_msg.emit(Msg::PropertyMediaNext);
+                    }
+                }
+                "Escape" if lightbox_open => {
+                    event.prevent_default();
+                    on_msg.emit(Msg::PropertyLightboxClosed);
+                }
+                _ => {}
             })
         };
 
@@ -142,18 +140,60 @@ fn breadcrumb(record: &PropertyRecord) -> Html {
 }
 
 fn cockpit(record: &PropertyRecord, model: &Model, on_msg: &Callback<Msg>) -> Html {
-    let land = record.kind.as_deref().is_some_and(|kind| kind.eq_ignore_ascii_case("land"));
+    let land = record
+        .kind
+        .as_deref()
+        .is_some_and(|kind| kind.eq_ignore_ascii_case("land"));
     let facts = [
-        if land { None } else { record.beds.map(|value| ("bed-double", "Beds", format_number(value, ""))) },
-        if land { None } else { record.baths.map(|value| ("bath", "Baths", bathrooms_display(record, value))) },
-        if land { None } else { record.area.clone().map(|value| ("maximize", "Interior", value)) },
-        if land { record.lot_size.clone().map(|value| ("trees", "Lot", value)) } else { None },
-        record.year_built.map(|value| ("calendar-days", "Built", value.to_string())),
-        record.parking_spaces.map(|value| ("car", "Parking", format_number(value, ""))),
-        record.stories.map(|value| ("layers-3", "Stories", format_number(value, "")))
-            .or_else(|| record.water_access.then(|| ("waves", "Water Access", "Yes".into()))),
-    ].into_iter().flatten().collect::<Vec<_>>();
-    let viewing = format!("/contact?propertyId={}&requestType=private_viewing#contact", record.id);
+        if land {
+            None
+        } else {
+            record
+                .beds
+                .map(|value| ("bed-double", "Beds", format_number(value, "")))
+        },
+        if land {
+            None
+        } else {
+            record
+                .baths
+                .map(|value| ("bath", "Baths", bathrooms_display(record, value)))
+        },
+        if land {
+            None
+        } else {
+            record
+                .area
+                .clone()
+                .map(|value| ("maximize", "Interior", value))
+        },
+        if land {
+            record.lot_size.clone().map(|value| ("trees", "Lot", value))
+        } else {
+            None
+        },
+        record
+            .year_built
+            .map(|value| ("calendar-days", "Built", value.to_string())),
+        record
+            .parking_spaces
+            .map(|value| ("car", "Parking", format_number(value, ""))),
+        record
+            .stories
+            .map(|value| ("layers-3", "Stories", format_number(value, "")))
+            .or_else(|| {
+                record
+                    .water_access
+                    .then(|| ("waves", "Water Access", "Yes".into()))
+            }),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+    let viewing = format!(
+        "/contact?propertyId={}&requestType=private_viewing#contact",
+        record.id
+    );
     let saved = model.property_media.saved;
     let save = {
         let on_msg = on_msg.clone();
@@ -244,7 +284,10 @@ fn media_panel(record: &PropertyRecord, model: &Model, on_msg: &Callback<Msg>) -
         .collect::<Vec<_>>();
     let visible = supporting.iter().take(4).cloned().collect::<Vec<_>>();
     let remaining = supporting.len().saturating_sub(visible.len());
-    let first_hidden = supporting.get(visible.len()).map(|(index, _)| *index).unwrap_or(0);
+    let first_hidden = supporting
+        .get(visible.len())
+        .map(|(index, _)| *index)
+        .unwrap_or(0);
     let has_navigation = total > 1;
 
     let previous = {
@@ -436,9 +479,16 @@ fn lightbox(record: &PropertyRecord, model: &Model, on_msg: &Callback<Msg>) -> H
 }
 
 fn detail_sections(record: &PropertyRecord, model: &Model, on_msg: &Callback<Msg>) -> Html {
-    let mut tabs = vec![(PropertyTab::Overview, "Overview"), (PropertyTab::Details, "Details")];
-    if !record.videos.is_empty() { tabs.push((PropertyTab::Video, "Video")); }
-    if !record.documents.is_empty() { tabs.push((PropertyTab::Documents, "Documents")); }
+    let mut tabs = vec![
+        (PropertyTab::Overview, "Overview"),
+        (PropertyTab::Details, "Details"),
+    ];
+    if !record.videos.is_empty() {
+        tabs.push((PropertyTab::Video, "Video"));
+    }
+    if !record.documents.is_empty() {
+        tabs.push((PropertyTab::Documents, "Documents"));
+    }
     tabs.push((PropertyTab::Map, "Map"));
     let active = model.property_media.tab;
     let content = match active {
@@ -475,7 +525,9 @@ fn detail_sections(record: &PropertyRecord, model: &Model, on_msg: &Callback<Msg
 }
 
 fn definition(label: &str, value: Option<String>) -> Html {
-    let Some(value) = value.filter(|value| !value.trim().is_empty()) else { return Html::default() };
+    let Some(value) = value.filter(|value| !value.trim().is_empty()) else {
+        return Html::default();
+    };
     html! {
         <div class="min-w-0 border-t border-brand-navy/40 bg-card/60 px-3 py-4 ring-1 ring-inset ring-brand-navy/25">
             <dt class="text-[10px] font-semibold uppercase tracking-[0.17em] text-brand-navy/70">{label.to_string()}</dt>
@@ -485,7 +537,9 @@ fn definition(label: &str, value: Option<String>) -> Html {
 }
 
 fn editorial_fact(label: &str, value: Option<String>) -> Html {
-    let Some(value) = value.filter(|value| !value.trim().is_empty()) else { return Html::default() };
+    let Some(value) = value.filter(|value| !value.trim().is_empty()) else {
+        return Html::default();
+    };
     html! {
         <div class="flex items-baseline justify-between gap-5 border-b border-brand-navy/20 py-2 last:border-0">
             <dt class="text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-navy/70">{label.to_string()}</dt>
@@ -495,21 +549,62 @@ fn editorial_fact(label: &str, value: Option<String>) -> Html {
 }
 
 fn overview(record: &PropertyRecord) -> Html {
-    let editorial = record.description.as_deref().filter(|text| !text.trim().is_empty());
-    let compact_amenities = record.amenities.iter().filter(|item| matches!(item.as_str(),
-        "Pool" | "Whole-Home Generator" | "Solar Power" | "Furnished" | "Gated" | "Water Access" | "Beach Access"
-    )).collect::<Vec<_>>();
-    let amenity_notes = record.amenities.iter().filter(|item| !matches!(item.as_str(),
-        "Pool" | "Whole-Home Generator" | "Solar Power" | "Furnished" | "Gated" | "Water Access" | "Beach Access"
-    )).collect::<Vec<_>>();
+    let editorial = record
+        .description
+        .as_deref()
+        .filter(|text| !text.trim().is_empty());
+    let compact_amenities = record
+        .amenities
+        .iter()
+        .filter(|item| {
+            matches!(
+                item.as_str(),
+                "Pool"
+                    | "Whole-Home Generator"
+                    | "Solar Power"
+                    | "Furnished"
+                    | "Gated"
+                    | "Water Access"
+                    | "Beach Access"
+            )
+        })
+        .collect::<Vec<_>>();
+    let amenity_notes = record
+        .amenities
+        .iter()
+        .filter(|item| {
+            !matches!(
+                item.as_str(),
+                "Pool"
+                    | "Whole-Home Generator"
+                    | "Solar Power"
+                    | "Furnished"
+                    | "Gated"
+                    | "Water Access"
+                    | "Beach Access"
+            )
+        })
+        .collect::<Vec<_>>();
     let views = &record.view_type;
-    let lifestyle = record.lifestyle_tags.iter().filter(|tag| {
-        !record.amenities.iter().any(|item| item.eq_ignore_ascii_case(tag))
-            && !views.iter().any(|view| view.eq_ignore_ascii_case(tag)
-                || format!("{view} View").eq_ignore_ascii_case(tag))
-    }).collect::<Vec<_>>();
-    let has_sidebar = record.lot_size.is_some() || record.neighborhood.is_some()
-        || !views.is_empty() || !lifestyle.is_empty() || record.listing_agent_name.is_some()
+    let lifestyle = record
+        .lifestyle_tags
+        .iter()
+        .filter(|tag| {
+            !record
+                .amenities
+                .iter()
+                .any(|item| item.eq_ignore_ascii_case(tag))
+                && !views.iter().any(|view| {
+                    view.eq_ignore_ascii_case(tag)
+                        || format!("{view} View").eq_ignore_ascii_case(tag)
+                })
+        })
+        .collect::<Vec<_>>();
+    let has_sidebar = record.lot_size.is_some()
+        || record.neighborhood.is_some()
+        || !views.is_empty()
+        || !lifestyle.is_empty()
+        || record.listing_agent_name.is_some()
         || record.listing_id.is_some();
     html! {
         <div class={if has_sidebar { "grid items-start gap-8 lg:grid-cols-[minmax(0,1.65fr)_minmax(280px,1fr)] lg:gap-12" } else { "max-w-4xl" }}>
@@ -593,7 +688,10 @@ fn overview(record: &PropertyRecord) -> Html {
 }
 
 fn details(record: &PropertyRecord) -> Html {
-    let land = record.kind.as_deref().is_some_and(|kind| kind.eq_ignore_ascii_case("land"));
+    let land = record
+        .kind
+        .as_deref()
+        .is_some_and(|kind| kind.eq_ignore_ascii_case("land"));
     html! {
         <dl class="grid grid-cols-1 gap-x-8 sm:grid-cols-2 lg:grid-cols-3 lg:gap-x-10">
             { definition("Property Type", record.kind.clone()) }
@@ -625,8 +723,15 @@ fn details(record: &PropertyRecord) -> Html {
 }
 
 fn location(record: &PropertyRecord) -> Html {
-    let context = [&record.neighborhood, &record.city, &record.state_or_province]
-        .into_iter().filter_map(|item| item.as_deref()).collect::<Vec<_>>().join(", ");
+    let context = [
+        &record.neighborhood,
+        &record.city,
+        &record.state_or_province,
+    ]
+    .into_iter()
+    .filter_map(|item| item.as_deref())
+    .collect::<Vec<_>>()
+    .join(", ");
     let map = record.latitude.zip(record.longitude);
     html! {
         <div class="grid items-start gap-7 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
@@ -713,7 +818,9 @@ fn documents(record: &PropertyRecord) -> Html {
 }
 
 fn similar_properties(record: &PropertyRecord) -> Html {
-    if record.similar.is_empty() { return Html::default(); }
+    if record.similar.is_empty() {
+        return Html::default();
+    }
     html! {
         <section class="mt-24 md:mt-32">
             <div class="mb-12 flex items-end justify-between gap-6 border-b border-border pb-10">
@@ -743,7 +850,9 @@ fn similar_properties(record: &PropertyRecord) -> Html {
 }
 
 fn recently_viewed(model: &Model) -> Html {
-    if model.property_media.recent.is_empty() { return Html::default(); }
+    if model.property_media.recent.is_empty() {
+        return Html::default();
+    }
     html! {
         <nav aria-label="Recently viewed properties" class="mt-16 border-t border-border pt-8 md:mt-20">
             <p class="text-xs font-light uppercase tracking-[0.34em] text-brand-gold">{"Recently Viewed"}</p>
@@ -762,12 +871,24 @@ fn format_number(value: f64, label: &str) -> String {
     } else {
         value.to_string()
     };
-    if label.is_empty() { number } else { format!("{number} {label}") }
+    if label.is_empty() {
+        number
+    } else {
+        format!("{number} {label}")
+    }
 }
 
 fn bathrooms_display(record: &PropertyRecord, total: f64) -> String {
     let mut parts = Vec::new();
-    if let Some(full) = record.bathrooms_full { parts.push(format!("{} Full", format_number(full, ""))); }
-    if let Some(half) = record.bathrooms_half { parts.push(format!("{} Half", format_number(half, ""))); }
-    if parts.is_empty() { format_number(total, "") } else { format!("{} ({})", format_number(total, ""), parts.join(", ")) }
+    if let Some(full) = record.bathrooms_full {
+        parts.push(format!("{} Full", format_number(full, "")));
+    }
+    if let Some(half) = record.bathrooms_half {
+        parts.push(format!("{} Half", format_number(half, "")));
+    }
+    if parts.is_empty() {
+        format_number(total, "")
+    } else {
+        format!("{} ({})", format_number(total, ""), parts.join(", "))
+    }
 }

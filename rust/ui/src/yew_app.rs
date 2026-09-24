@@ -123,4 +123,3 @@ pub fn yew_mount(element_id: &str) -> Result<(), wasm_bindgen::JsValue> {
     yew::Renderer::<App>::with_root(root).render();
     Ok(())
 }
-

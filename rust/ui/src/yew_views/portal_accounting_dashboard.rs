@@ -19,7 +19,8 @@ use crate::yew_views::portal_shell::PortalShell;
 
 /// The ring's slice colours, in the order the live screen used them.
 const DONUT_COLOURS: [&str; 9] = [
-    "#c6a15b", "#7dd3fc", "#f0abfc", "#86efac", "#fcd34d", "#fca5a5", "#a5b4fc", "#93c5fd", "#e2e8f0",
+    "#c6a15b", "#7dd3fc", "#f0abfc", "#86efac", "#fcd34d", "#fca5a5", "#a5b4fc", "#93c5fd",
+    "#e2e8f0",
 ];
 
 /// The two-column rail the analytics row and the money-in/money-out row share, so their edges line up at desktop widths.
@@ -43,7 +44,8 @@ impl Component for Dashboard {
 
     fn view(&self, ctx: &Context<Self>) -> Html {
         let props = ctx.props();
-        let screen = crate::model::screen("accounting").expect("the accounting screen is in the registry");
+        let screen =
+            crate::model::screen("accounting").expect("the accounting screen is in the registry");
         html! {
             <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
                 <AccountingShell eyebrow="Accounting" title="Dashboard">
@@ -140,7 +142,6 @@ impl Dashboard {
     }
 }
 
-
 impl Dashboard {
     /// This month's cost by category, as a ring with its legend — or the live screen's own sentence when the month is
     /// empty, which is a real state on a quiet month and not a failure to load.
@@ -189,7 +190,10 @@ impl Dashboard {
                 let from = cursor;
                 let to = cursor + category.percent.max(0) * 360 / 100;
                 cursor = to;
-                format!("{} {from}deg {to}deg", DONUT_COLOURS[index % DONUT_COLOURS.len()])
+                format!(
+                    "{} {from}deg {to}deg",
+                    DONUT_COLOURS[index % DONUT_COLOURS.len()]
+                )
             })
             .collect::<Vec<_>>()
             .join(", ");
@@ -203,7 +207,6 @@ impl Dashboard {
         }
     }
 }
-
 
 impl Dashboard {
     /// Money in: the six most recent live receivables, with the name that identifies each one.
@@ -290,7 +293,6 @@ impl Dashboard {
     }
 }
 
-
 impl Dashboard {
     /// Money out: the most recent posted expenses.
     fn expenses_panel(&self, dashboard: &PortalAccountingDashboard) -> Html {
@@ -355,4 +357,3 @@ impl Dashboard {
         }
     }
 }
-

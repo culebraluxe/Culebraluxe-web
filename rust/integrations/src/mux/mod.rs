@@ -71,13 +71,23 @@ fn env_value(key: &str) -> Option<String> {
 }
 
 fn environment_suffix(vercel_env: Option<&str>, app_env: Option<&str>) -> Option<&'static str> {
-    match vercel_env.unwrap_or_default().trim().to_ascii_lowercase().as_str() {
+    match vercel_env
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "production" => return Some("PROD"),
         "preview" | "development" => return Some("DEV"),
         _ => {}
     }
 
-    match app_env.unwrap_or_default().trim().to_ascii_lowercase().as_str() {
+    match app_env
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "production" | "prod" => Some("PROD"),
         "preview" | "development" | "dev" | "test" | "testing" => Some("DEV"),
         _ => None,
@@ -312,8 +322,14 @@ mod tests {
 
     #[test]
     fn selects_mux_environment_suffix() {
-        assert_eq!(environment_suffix(Some("production"), Some("dev")), Some("PROD"));
-        assert_eq!(environment_suffix(Some("preview"), Some("prod")), Some("DEV"));
+        assert_eq!(
+            environment_suffix(Some("production"), Some("dev")),
+            Some("PROD")
+        );
+        assert_eq!(
+            environment_suffix(Some("preview"), Some("prod")),
+            Some("DEV")
+        );
         assert_eq!(environment_suffix(None, Some("prod")), Some("PROD"));
         assert_eq!(environment_suffix(None, Some("development")), Some("DEV"));
         assert_eq!(environment_suffix(None, None), None);

@@ -475,7 +475,6 @@ fn documents_view(projects: &PortalProjectsPage, project: &PortalProject) -> Htm
     }
 }
 
-
 fn placeholder_view(title: &str, message: &str) -> Html {
     html! {
         <div class="flex h-full min-h-64 items-center justify-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/25 px-8 text-center">
@@ -671,7 +670,21 @@ fn select_status_msg(on_msg: &Callback<Msg>) -> Callback<Event> {
 }
 
 fn work_input_class() -> Classes {
-    classes!("mt-1","block","h-8","w-full","rounded-[var(--portal-tab-radius)]","border","border-[var(--portal-panel-border)]","bg-white/70","px-2.5","text-[12px]","font-light","text-black/70","outline-none")
+    classes!(
+        "mt-1",
+        "block",
+        "h-8",
+        "w-full",
+        "rounded-[var(--portal-tab-radius)]",
+        "border",
+        "border-[var(--portal-panel-border)]",
+        "bg-white/70",
+        "px-2.5",
+        "text-[12px]",
+        "font-light",
+        "text-black/70",
+        "outline-none"
+    )
 }
 
 fn selected_project(projects: &PortalProjectsPage) -> Option<&PortalProject> {
@@ -723,7 +736,10 @@ fn child_items<'a>(
 
 fn project_progress(projects: &PortalProjectsPage, project_id: &str) -> i32 {
     let items = project_items(projects, project_id);
-    let planned = items.iter().filter(|item| item.status != "dismissed").count();
+    let planned = items
+        .iter()
+        .filter(|item| item.status != "dismissed")
+        .count();
     if planned == 0 {
         return 0;
     }
@@ -743,7 +759,10 @@ fn project_in_domain(
     match domain {
         "properties" => {
             project.property_id.is_some()
-                || project.areas.iter().any(|area| area == "properties" || area == "media")
+                || project
+                    .areas
+                    .iter()
+                    .any(|area| area == "properties" || area == "media")
                 || project_items.iter().any(|item| {
                     item.entity
                         .as_ref()
@@ -908,7 +927,10 @@ fn activity_view(projects: &PortalProjectsPage, project: &PortalProject) -> Html
     }
 }
 
-fn project_property_ids(projects: &PortalProjectsPage, project: &PortalProject) -> BTreeSet<String> {
+fn project_property_ids(
+    projects: &PortalProjectsPage,
+    project: &PortalProject,
+) -> BTreeSet<String> {
     let mut ids = BTreeSet::new();
     if let Some(id) = project.property_id.as_ref() {
         ids.insert(id.clone());
@@ -969,7 +991,10 @@ fn date_value(value: Option<&str>) -> String {
         .to_string()
 }
 
-fn timeline_widget_json(projects: &PortalProjectsPage, project: &PortalProject) -> serde_json::Value {
+fn timeline_widget_json(
+    projects: &PortalProjectsPage,
+    project: &PortalProject,
+) -> serde_json::Value {
     let items = project_items(projects, &project.id);
     json!({
         "project": project,
@@ -978,7 +1003,10 @@ fn timeline_widget_json(projects: &PortalProjectsPage, project: &PortalProject) 
     })
 }
 
-fn calendar_widget_json(projects: &PortalProjectsPage, project: &PortalProject) -> serde_json::Value {
+fn calendar_widget_json(
+    projects: &PortalProjectsPage,
+    project: &PortalProject,
+) -> serde_json::Value {
     let events = project_items(projects, &project.id)
         .into_iter()
         .filter_map(|item| {

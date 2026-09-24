@@ -1,3 +1,4 @@
+use crate::accounting::AccountingService;
 use crate::calendar::CalendarService;
 use crate::clients::ClientService;
 use crate::cockpit::CockpitService;
@@ -19,11 +20,12 @@ use crate::signature::SignatureService;
 use crate::task::TaskService;
 use crate::vault::{VaultArtifactPort, VaultService};
 use crate::wbs::WbsService;
-use crate::accounting::AccountingService;
 use crate::workflow_portal::WorkflowPortalService;
 use db::{
-    AccountingDao, CalendarDao, ClientDao, CockpitDao, CommsDao, ContractDao, Database, DealPortalDao, FirmDao, FlightRecorderDao, FormDao, MediaDao, PersonDao,
-    ProjectDao, PropertyDao, SecurityDao, ShowingDao, SignatureDao, TaskDao, VaultDao, WbsDao, WorkflowPortalDao,
+    AccountingDao, CalendarDao, ClientDao, CockpitDao, CommsDao, ContractDao, Database,
+    DealPortalDao, FirmDao, FlightRecorderDao, FormDao, MediaDao, PersonDao, ProjectDao,
+    PropertyDao, SecurityDao, ShowingDao, SignatureDao, TaskDao, VaultDao, WbsDao,
+    WorkflowPortalDao,
 };
 use service::{ServiceInfrastructure, SignatureProvider};
 use std::sync::Arc;
@@ -80,7 +82,10 @@ impl CoreServices {
 
     /// The public site's listing copy, authorized as the published `property.public.read`.
     pub fn public_listings(&self) -> PublicListingService<db::PublicListingDao> {
-        PublicListingService::new(db::PublicListingDao::new(self.db.clone()), self.infrastructure.clone())
+        PublicListingService::new(
+            db::PublicListingDao::new(self.db.clone()),
+            self.infrastructure.clone(),
+        )
     }
 
     pub fn property(&self) -> PropertyService<PropertyDao> {

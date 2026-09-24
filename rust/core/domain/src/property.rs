@@ -111,7 +111,6 @@ pub struct PropertyAddressPatch {
     pub iso_country_code: FieldPatch<String>,
 }
 
-
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PropertyAdminSummary {

@@ -135,11 +135,7 @@ fn workspace(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
     }
 }
 
-fn row_view(
-    row: &PortalClientSummary,
-    selected_id: Option<&str>,
-    on_msg: &Callback<Msg>,
-) -> Html {
+fn row_view(row: &PortalClientSummary, selected_id: Option<&str>, on_msg: &Callback<Msg>) -> Html {
     let selected = selected_id == Some(row.id.as_str());
     let id = row.id.clone();
     let onclick = {
@@ -302,7 +298,9 @@ fn identity_panel(client: &PortalClientDetail, data: &PortalClientsPage) -> Html
 }
 
 fn detail_field(label: &str, value: Option<&str>) -> Html {
-    let value = value.filter(|value| !value.trim().is_empty()).unwrap_or("—");
+    let value = value
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("—");
     let populated = value != "—";
     html! {
         <div>
@@ -364,7 +362,9 @@ fn notes_panel(client: &PortalClientDetail) -> Html {
 
 fn relationship_panel(client: &PortalClientDetail, data: &PortalClientsPage) -> Html {
     let comms = data.comms.as_ref();
-    let observed = comms.map(|value| value.aggregate.observed_count).unwrap_or(0);
+    let observed = comms
+        .map(|value| value.aggregate.observed_count)
+        .unwrap_or(0);
     let active_sources = comms
         .map(|value| value.aggregate.active_source_count)
         .unwrap_or(0);
@@ -425,7 +425,10 @@ fn compact_relationship_header(aggregate: &PortalCommsAggregate) -> Html {
     }
 }
 
-fn source_for<'a>(sources: &'a [PortalCommsSource], channel: &str) -> Option<&'a PortalCommsSource> {
+fn source_for<'a>(
+    sources: &'a [PortalCommsSource],
+    channel: &str,
+) -> Option<&'a PortalCommsSource> {
     sources
         .iter()
         .filter(|source| source.channel == channel)
@@ -564,10 +567,26 @@ fn dock_link(href: Option<&str>, icon_name: &str, label: &str, title: &str) -> H
 
 fn dock_action_class() -> Classes {
     classes!(
-        "inline-flex","min-h-8","flex-1","items-center","justify-center","gap-1.5",
-        "rounded-[var(--portal-tab-radius)]","border","border-white/15","px-2",
-        "text-[10px]","font-medium","uppercase","tracking-[0.12em]","text-white/75",
-        "transition","hover:border-[var(--portal-gold)]","hover:text-white","disabled:cursor-not-allowed","disabled:opacity-35"
+        "inline-flex",
+        "min-h-8",
+        "flex-1",
+        "items-center",
+        "justify-center",
+        "gap-1.5",
+        "rounded-[var(--portal-tab-radius)]",
+        "border",
+        "border-white/15",
+        "px-2",
+        "text-[10px]",
+        "font-medium",
+        "uppercase",
+        "tracking-[0.12em]",
+        "text-white/75",
+        "transition",
+        "hover:border-[var(--portal-gold)]",
+        "hover:text-white",
+        "disabled:cursor-not-allowed",
+        "disabled:opacity-35"
     )
 }
 

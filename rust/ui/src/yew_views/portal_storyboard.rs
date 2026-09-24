@@ -5,9 +5,7 @@
 
 use yew::prelude::*;
 
-use crate::model::{
-    Msg, PortalStoryboardPage, PortalStoryboardPanel, PortalStoryboardStory,
-};
+use crate::model::{Msg, PortalStoryboardPage, PortalStoryboardPanel, PortalStoryboardStory};
 use crate::yew_views::portal_shell::PortalShell;
 
 #[derive(Properties, PartialEq)]
@@ -108,7 +106,11 @@ fn kpi_card(label: &'static str, value: String, note: &'static str, dark: bool) 
     } else {
         "text-[var(--portal-navy)]"
     };
-    let note_tone = if dark { "text-white/55" } else { "text-black/40" };
+    let note_tone = if dark {
+        "text-white/55"
+    } else {
+        "text-black/40"
+    };
 
     html! {
         <section class={classes!("rounded-[var(--portal-panel-radius)]", "p-3", surface)}>
@@ -263,9 +265,13 @@ fn status_badge(status: &str, subdued: bool) -> Html {
     } else {
         match status {
             "Complete" => "bg-[var(--portal-success-pale)] text-[var(--portal-success)]",
-            "In Progress" | "Partial" => "bg-[var(--portal-blue-pale)] text-[var(--portal-navy-soft)]",
+            "In Progress" | "Partial" => {
+                "bg-[var(--portal-blue-pale)] text-[var(--portal-navy-soft)]"
+            }
             "Ready" | "Batched" => "bg-[var(--portal-gold-pale)] text-[var(--portal-gold-muted)]",
-            "Blocked" | "Failed" | "Hold" => "bg-[var(--portal-archive-pale)] text-[var(--portal-archive)]",
+            "Blocked" | "Failed" | "Hold" => {
+                "bg-[var(--portal-archive-pale)] text-[var(--portal-archive)]"
+            }
             _ => "bg-[var(--portal-neutral-pale)] text-[var(--portal-neutral)]",
         }
     };

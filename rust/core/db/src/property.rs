@@ -59,7 +59,6 @@ struct PropertyRelationRow {
     relation_status: Option<String>,
 }
 
-
 #[derive(Debug, FromRow)]
 struct PropertyAdminSummaryRow {
     id: String,
@@ -901,14 +900,23 @@ impl PropertyDao {
         )
         .bind(&id)
         .bind(request.name.trim())
-        .bind(request.property_type.as_deref().map(str::trim).filter(|value| !value.is_empty()))
+        .bind(
+            request
+                .property_type
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty()),
+        )
         .execute(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("property.admin.create", &error))?;
 
-        self.admin_get(&id)
-            .await?
-            .ok_or_else(|| DbFailure::schema_mismatch("property.admin.create", "created Property could not be reloaded"))
+        self.admin_get(&id).await?.ok_or_else(|| {
+            DbFailure::schema_mismatch(
+                "property.admin.create",
+                "created Property could not be reloaded",
+            )
+        })
     }
 
     pub async fn admin_save(

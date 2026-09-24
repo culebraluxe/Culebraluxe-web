@@ -264,4 +264,3 @@ pub enum DealWorkspaceCommand {
 pub struct DealWorkspaceCommandResult {
     pub id: String,
 }
-

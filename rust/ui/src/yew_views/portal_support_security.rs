@@ -18,7 +18,8 @@ use crate::yew_views::portal_shell::PortalShell;
 
 /// The light surface the portal's read-only pages use.
 const PANEL: &str = "portal-glass-panel rounded-[var(--portal-panel-radius)]";
-const SOFT_PANEL: &str = "portal-glass-panel portal-glass-panel-soft rounded-[var(--portal-panel-radius)]";
+const SOFT_PANEL: &str =
+    "portal-glass-panel portal-glass-panel-soft rounded-[var(--portal-panel-radius)]";
 
 /// The three destinations, with the words the pre-cutover page used for each.
 const SECTIONS: [(&str, &str, &str); 3] = [
@@ -57,7 +58,8 @@ impl Component for Security {
 
     fn view(&self, ctx: &Context<Self>) -> Html {
         let props = ctx.props();
-        let screen = crate::model::screen("security").expect("the Security screen is in the registry");
+        let screen =
+            crate::model::screen("security").expect("the Security screen is in the registry");
         html! {
             <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
                 { self.body(&props.model, &props.on_msg) }
@@ -113,19 +115,42 @@ impl Security {
 }
 
 impl Security {
-    fn entitlement_panel(&self, model: &crate::model::Model, roles: Option<&[crate::model::PortalRoleEntitlements]>, on_msg: &Callback<Msg>) -> Html {
+    fn entitlement_panel(
+        &self,
+        model: &crate::model::Model,
+        roles: Option<&[crate::model::PortalRoleEntitlements]>,
+        on_msg: &Callback<Msg>,
+    ) -> Html {
         let selected = roles.and_then(|roles| {
-            roles.iter().filter(|role| role.account_type == "internal")
-                .find(|role| model.selected_security_role.as_deref() == Some(role.role_code.as_str()))
-                .or_else(|| roles.iter().find(|role| role.role_code == "user" && role.account_type == "internal"))
+            roles
+                .iter()
+                .filter(|role| role.account_type == "internal")
+                .find(|role| {
+                    model.selected_security_role.as_deref() == Some(role.role_code.as_str())
+                })
+                .or_else(|| {
+                    roles
+                        .iter()
+                        .find(|role| role.role_code == "user" && role.account_type == "internal")
+                })
                 .or_else(|| roles.iter().find(|role| role.account_type == "internal"))
         });
-        let actions = roles.map(|roles| roles.iter().flat_map(|role| role.entitlement_codes.iter().cloned())
-            .collect::<std::collections::BTreeSet<_>>()).unwrap_or_default();
+        let actions = roles
+            .map(|roles| {
+                roles
+                    .iter()
+                    .flat_map(|role| role.entitlement_codes.iter().cloned())
+                    .collect::<std::collections::BTreeSet<_>>()
+            })
+            .unwrap_or_default();
         let select_role = {
             let on_msg = on_msg.clone();
             Callback::from(move |event: Event| {
-                on_msg.emit(Msg::SecurityRoleSelected(event.target_unchecked_into::<web_sys::HtmlSelectElement>().value()));
+                on_msg.emit(Msg::SecurityRoleSelected(
+                    event
+                        .target_unchecked_into::<web_sys::HtmlSelectElement>()
+                        .value(),
+                ));
             })
         };
         html! {
@@ -203,15 +228,51 @@ impl Security {
             };
         };
         let items: [(&str, i64, &str); 9] = [
-            ("Active internal users", status.active_internal_users, "Internal accounts currently enabled"),
-            ("External users", status.external_users, "Customer/client accounts"),
-            ("Users with no role", status.users_with_no_role, "Active actors that would lack authority"),
-            ("Users with multiple roles", status.users_with_multiple_roles, "Actors holding more than one role"),
-            ("Mapped auth identities", status.mapped_auth_identities, "Provider subjects linked to app_users"),
-            ("Unmapped app_users", status.unmapped_app_users, "Application users with no provider identity"),
-            ("Owner assignments", status.owner_role_assignments, "Current owner-role holders"),
-            ("Inactive users w/ active role", status.inactive_users_with_active_role_mappings, "Disabled actors still mapped to an active role"),
-            ("Account-type mismatches", status.account_type_mismatch_count, "Should always be 0 (invariant)"),
+            (
+                "Active internal users",
+                status.active_internal_users,
+                "Internal accounts currently enabled",
+            ),
+            (
+                "External users",
+                status.external_users,
+                "Customer/client accounts",
+            ),
+            (
+                "Users with no role",
+                status.users_with_no_role,
+                "Active actors that would lack authority",
+            ),
+            (
+                "Users with multiple roles",
+                status.users_with_multiple_roles,
+                "Actors holding more than one role",
+            ),
+            (
+                "Mapped auth identities",
+                status.mapped_auth_identities,
+                "Provider subjects linked to app_users",
+            ),
+            (
+                "Unmapped app_users",
+                status.unmapped_app_users,
+                "Application users with no provider identity",
+            ),
+            (
+                "Owner assignments",
+                status.owner_role_assignments,
+                "Current owner-role holders",
+            ),
+            (
+                "Inactive users w/ active role",
+                status.inactive_users_with_active_role_mappings,
+                "Disabled actors still mapped to an active role",
+            ),
+            (
+                "Account-type mismatches",
+                status.account_type_mismatch_count,
+                "Should always be 0 (invariant)",
+            ),
         ];
         let owner_assigned = status.owner_role_assignments != 0;
         html! {
@@ -246,7 +307,6 @@ impl Security {
         }
     }
 }
-
 
 impl Security {
     /// Break-glass posture: six conditions, each ready or not.

@@ -32,10 +32,19 @@ pub trait PropertyRepository: Send {
         &mut self,
         request: &SetPropertyStatusRequest,
     ) -> DbResult<Option<Property>>;
-    async fn admin_page(&mut self, request: &PropertyAdminPageRequest) -> DbResult<PropertyAdminPage>;
+    async fn admin_page(
+        &mut self,
+        request: &PropertyAdminPageRequest,
+    ) -> DbResult<PropertyAdminPage>;
     async fn admin_get(&mut self, property_id: &str) -> DbResult<Option<PropertyAdminRecord>>;
-    async fn admin_create(&mut self, request: &CreatePropertyAdminRequest) -> DbResult<PropertyAdminRecord>;
-    async fn admin_save(&mut self, request: &SavePropertyAdminRequest) -> DbResult<Option<PropertyAdminRecord>>;
+    async fn admin_create(
+        &mut self,
+        request: &CreatePropertyAdminRequest,
+    ) -> DbResult<PropertyAdminRecord>;
+    async fn admin_save(
+        &mut self,
+        request: &SavePropertyAdminRequest,
+    ) -> DbResult<Option<PropertyAdminRecord>>;
 }
 
 #[async_trait]
@@ -79,7 +88,10 @@ impl PropertyRepository for PropertyDao {
         PropertyDao::set_status(self, request).await
     }
 
-    async fn admin_page(&mut self, request: &PropertyAdminPageRequest) -> DbResult<PropertyAdminPage> {
+    async fn admin_page(
+        &mut self,
+        request: &PropertyAdminPageRequest,
+    ) -> DbResult<PropertyAdminPage> {
         db::retrying_read!(PropertyDao::admin_page(self, request))
     }
 
@@ -87,11 +99,17 @@ impl PropertyRepository for PropertyDao {
         db::retrying_read!(PropertyDao::admin_get(self, property_id))
     }
 
-    async fn admin_create(&mut self, request: &CreatePropertyAdminRequest) -> DbResult<PropertyAdminRecord> {
+    async fn admin_create(
+        &mut self,
+        request: &CreatePropertyAdminRequest,
+    ) -> DbResult<PropertyAdminRecord> {
         PropertyDao::admin_create(self, request).await
     }
 
-    async fn admin_save(&mut self, request: &SavePropertyAdminRequest) -> DbResult<Option<PropertyAdminRecord>> {
+    async fn admin_save(
+        &mut self,
+        request: &SavePropertyAdminRequest,
+    ) -> DbResult<Option<PropertyAdminRecord>> {
         PropertyDao::admin_save(self, request).await
     }
 }
@@ -264,7 +282,6 @@ impl<R: PropertyRepository> PropertyService<R> {
         result
     }
 
-
     pub async fn admin_page(
         &mut self,
         request: &PropertyAdminPageRequest,
@@ -280,7 +297,11 @@ impl<R: PropertyRepository> PropertyService<R> {
             context,
         )
         .await?;
-        let result = self.repository.admin_page(request).await.map_err(Into::into);
+        let result = self
+            .repository
+            .admin_page(request)
+            .await
+            .map_err(Into::into);
         audit_result(&self.runtime, "property", OP, context, decision, &result).await?;
         result
     }
@@ -300,7 +321,11 @@ impl<R: PropertyRepository> PropertyService<R> {
             context,
         )
         .await?;
-        let result = self.repository.admin_get(property_id).await.map_err(Into::into);
+        let result = self
+            .repository
+            .admin_get(property_id)
+            .await
+            .map_err(Into::into);
         audit_result(&self.runtime, "property", OP, context, decision, &result).await?;
         result
     }
@@ -373,16 +398,12 @@ impl<R: PropertyRepository> PropertyService<R> {
                     )
                 })?;
             validate_admin_save(&current, request)?;
-            let property = self
-                .repository
-                .admin_save(request)
-                .await?
-                .ok_or_else(|| {
-                    CoreServiceError::business(
-                        "PROPERTY_NOT_FOUND",
-                        format!("Property not found: {}", request.property_id),
-                    )
-                })?;
+            let property = self.repository.admin_save(request).await?.ok_or_else(|| {
+                CoreServiceError::business(
+                    "PROPERTY_NOT_FOUND",
+                    format!("Property not found: {}", request.property_id),
+                )
+            })?;
             self.runtime
                 .emit(
                     "property.admin_saved",
@@ -445,7 +466,6 @@ impl<R: PropertyRepository> PropertyService<R> {
     }
 }
 
-
 fn compact_text(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
 }
@@ -455,7 +475,10 @@ fn parse_non_negative(value: Option<&str>, label: &'static str) -> Result<(), Co
         return Ok(());
     };
     let parsed = raw.parse::<f64>().map_err(|_| {
-        CoreServiceError::business("PROPERTY_NUMBER_INVALID", format!("{label} must be a number."))
+        CoreServiceError::business(
+            "PROPERTY_NUMBER_INVALID",
+            format!("{label} must be a number."),
+        )
     })?;
     if !parsed.is_finite() || parsed < 0.0 {
         return Err(CoreServiceError::business(
@@ -476,7 +499,10 @@ fn parse_range(
         return Ok(());
     };
     let parsed = raw.parse::<f64>().map_err(|_| {
-        CoreServiceError::business("PROPERTY_NUMBER_INVALID", format!("{label} must be a number."))
+        CoreServiceError::business(
+            "PROPERTY_NUMBER_INVALID",
+            format!("{label} must be a number."),
+        )
     })?;
     if !parsed.is_finite() || parsed < min || parsed > max {
         return Err(CoreServiceError::business(
@@ -553,7 +579,10 @@ fn validate_admin_save(
         (request.lot_size_acres.as_deref(), "Lot acres"),
         (request.lot_size_sqft.as_deref(), "Lot square feet"),
         (request.road_frontage_feet.as_deref(), "Road frontage"),
-        (request.original_list_price.as_deref(), "Original list price"),
+        (
+            request.original_list_price.as_deref(),
+            "Original list price",
+        ),
         (request.year_built.as_deref(), "Year built"),
         (request.stories.as_deref(), "Stories"),
         (request.parking_spaces.as_deref(), "Parking spaces"),
@@ -572,10 +601,7 @@ fn validate_admin_save(
     }
     if let Some(raw) = compact_text(request.stellar.total_area_sqft.as_deref()) {
         let total_area = raw.parse::<f64>().map_err(|_| {
-            CoreServiceError::business(
-                "PROPERTY_NUMBER_INVALID",
-                "Total area must be a number.",
-            )
+            CoreServiceError::business("PROPERTY_NUMBER_INVALID", "Total area must be a number.")
         })?;
         if !total_area.is_finite() || total_area <= 0.0 {
             return Err(CoreServiceError::business(
@@ -589,7 +615,10 @@ fn validate_admin_save(
 
     if let Some(year) = compact_text(request.stellar.tax_year.as_deref()) {
         let parsed = year.parse::<i32>().map_err(|_| {
-            CoreServiceError::business("PROPERTY_TAX_YEAR_INVALID", "Tax year must be a whole year.")
+            CoreServiceError::business(
+                "PROPERTY_TAX_YEAR_INVALID",
+                "Tax year must be a whole year.",
+            )
         })?;
         if !(1800..=2200).contains(&parsed) {
             return Err(CoreServiceError::business(

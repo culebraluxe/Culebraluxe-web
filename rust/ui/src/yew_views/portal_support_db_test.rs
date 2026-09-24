@@ -18,7 +18,8 @@ use crate::model::{Msg, PortalDbTest, PortalDbTestClient};
 use crate::yew_views::portal_shell::PortalShell;
 
 /// The light surface the portal's read-only pages use, since this screen is not one of Accounting's navy panels.
-const PANEL: &str = "portal-glass-panel portal-glass-panel-soft rounded-[var(--portal-panel-radius)]";
+const PANEL: &str =
+    "portal-glass-panel portal-glass-panel-soft rounded-[var(--portal-panel-radius)]";
 
 #[derive(Properties, PartialEq)]
 pub struct DbTestProps {
@@ -38,7 +39,8 @@ impl Component for DbTest {
 
     fn view(&self, ctx: &Context<Self>) -> Html {
         let props = ctx.props();
-        let screen = crate::model::screen("db-test").expect("the DB Test screen is in the registry");
+        let screen =
+            crate::model::screen("db-test").expect("the DB Test screen is in the registry");
         html! {
             <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
                 { self.body(&props.model) }
@@ -159,4 +161,3 @@ impl DbTest {
         }
     }
 }
-

@@ -65,7 +65,13 @@ impl Component for Contact {
 
 /// The request a link asked for: a private viewing, property information, or (no property) a general enquiry.
 fn request_type(model: &Model) -> &'static str {
-    if model.scope.as_deref().map(str::trim).unwrap_or("").is_empty() {
+    if model
+        .scope
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("")
+        .is_empty()
+    {
         return "";
     }
     match query_param("requestType").as_deref() {
@@ -78,7 +84,10 @@ fn request_type(model: &Model) -> &'static str {
 fn enquiry_form(model: &Model, on_msg: &Callback<Msg>) -> Html {
     let state = &model.contact_form;
     let request = request_type(model);
-    let property_name = model.page.as_ref().and_then(|page| page.enquiry_property.clone());
+    let property_name = model
+        .page
+        .as_ref()
+        .and_then(|page| page.enquiry_property.clone());
     if state.status == ContactStatus::Sent {
         let note = match request {
             "private_viewing" => "Your private viewing request has been received. A member of the CulebraLuxe team will be in touch within one business day.",
@@ -92,7 +101,11 @@ fn enquiry_form(model: &Model, on_msg: &Callback<Msg>) -> Html {
             </div>
         };
     }
-    let interest = if state.interest.is_empty() { "Buying" } else { state.interest.as_str() };
+    let interest = if state.interest.is_empty() {
+        "Buying"
+    } else {
+        state.interest.as_str()
+    };
     let sending = state.status == ContactStatus::Sending;
     let onsubmit = {
         let on_msg = on_msg.clone();
@@ -105,10 +118,21 @@ fn enquiry_form(model: &Model, on_msg: &Callback<Msg>) -> Html {
                 message: field_value("contact-message"),
                 company: field_value("contact-company"),
                 request_type: request.to_string(),
-                property_id: if request.is_empty() { String::new() } else { scope.trim().to_string() },
-                service: if request.is_empty() { query_param("service").unwrap_or_default() } else { String::new() },
+                property_id: if request.is_empty() {
+                    String::new()
+                } else {
+                    scope.trim().to_string()
+                },
+                service: if request.is_empty() {
+                    query_param("service").unwrap_or_default()
+                } else {
+                    String::new()
+                },
             };
-            on_msg.emit(Msg::ContactSubmitted { submission, new_id: random_uuid() });
+            on_msg.emit(Msg::ContactSubmitted {
+                submission,
+                new_id: random_uuid(),
+            });
         })
     };
     let label = "text-xs font-light uppercase tracking-[0.22em] text-primary-foreground/50";
@@ -188,7 +212,9 @@ fn enquiry_form(model: &Model, on_msg: &Callback<Msg>) -> Html {
 /// A form control's current value, by id. The fields are uncontrolled, as they were in the live form: the reducer holds
 /// the submission's state, not every keystroke.
 fn field_value(id: &str) -> String {
-    let Some(element) = web_sys::window().and_then(|window| window.document()).and_then(|doc| doc.get_element_by_id(id))
+    let Some(element) = web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|doc| doc.get_element_by_id(id))
     else {
         return String::new();
     };
@@ -204,7 +230,9 @@ fn field_value(id: &str) -> String {
 /// `crypto.randomUUID()` — the submission id the intake pipeline requires. Empty only if the browser has no Web Crypto,
 /// which the pipeline then rejects as invalid rather than accepting an id that is not unique.
 fn random_uuid() -> String {
-    let Some(window) = web_sys::window() else { return String::new(); };
+    let Some(window) = web_sys::window() else {
+        return String::new();
+    };
     let crypto = js_sys::Reflect::get(&window, &"crypto".into()).ok();
     crypto
         .and_then(|crypto| {
@@ -298,7 +326,10 @@ pub(crate) fn quick_enquiry(model: &Model, on_msg: &Callback<Msg>, enquiry: Quic
                 company: field_value("quick-company"),
                 ..Default::default()
             };
-            on_msg.emit(Msg::ContactSubmitted { submission, new_id: random_uuid() });
+            on_msg.emit(Msg::ContactSubmitted {
+                submission,
+                new_id: random_uuid(),
+            });
         })
     };
     let input = "h-12 border-0 border-b border-border bg-transparent text-sm font-light text-foreground placeholder:text-muted-foreground focus:border-foreground focus:outline-none";

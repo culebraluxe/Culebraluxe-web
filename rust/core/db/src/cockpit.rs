@@ -1,7 +1,5 @@
 use crate::{Database, DbFailure, DbResult};
-use domain::{
-    CockpitDeal, CockpitInteraction, CockpitSnapshot, CockpitStageCount, CockpitTask,
-};
+use domain::{CockpitDeal, CockpitInteraction, CockpitSnapshot, CockpitStageCount, CockpitTask};
 use sqlx::FromRow;
 
 #[derive(Debug, FromRow)]
@@ -83,13 +81,7 @@ impl CockpitDao {
             self.workflow_counts(),
         )?;
 
-        let (
-            overdue_tasks,
-            tasks_due_soon,
-            recent_interactions,
-            featured_deal,
-            pipeline,
-        ) = tokio::try_join!(
+        let (overdue_tasks, tasks_due_soon, recent_interactions, featured_deal, pipeline) = tokio::try_join!(
             self.overdue_tasks(),
             self.tasks_due_soon(),
             self.recent_interactions(),

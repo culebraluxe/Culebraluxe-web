@@ -36,19 +36,41 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
         Effect::FetchEntitlements { generation } => {
             fetch_entitlements(generation, dispatch);
         }
-        Effect::SetRoleEntitlement { generation, role_code, action, granted } => {
+        Effect::SetRoleEntitlement {
+            generation,
+            role_code,
+            action,
+            granted,
+        } => {
             set_role_entitlement(generation, role_code, action, granted, dispatch);
         }
-        Effect::SetUserPrimaryRole { generation, app_user_id, role_code } => {
+        Effect::SetUserPrimaryRole {
+            generation,
+            app_user_id,
+            role_code,
+        } => {
             set_user_primary_role(generation, app_user_id, role_code, dispatch);
         }
-        Effect::PropertyBrowserRead { id, slug, title, valid_slugs } => {
+        Effect::PropertyBrowserRead {
+            id,
+            slug,
+            title,
+            valid_slugs,
+        } => {
             read_property_browser(id, slug, title, valid_slugs, dispatch);
         }
-        Effect::PropertyFavoriteWrite { id, slug, title, saved } => {
+        Effect::PropertyFavoriteWrite {
+            id,
+            slug,
+            title,
+            saved,
+        } => {
             write_property_favorite(id, slug, title, saved, dispatch);
         }
-        Effect::SubmitContact { submission, submission_id } => {
+        Effect::SubmitContact {
+            submission,
+            submission_id,
+        } => {
             submit_contact(submission, submission_id, dispatch);
         }
         Effect::BuyerToolsRead => {
@@ -66,12 +88,20 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
             write_store(COMPARE_KEY, &entries, "culebraluxe:compare-changed");
         }
         Effect::SavedSearchesWrite(searches) => {
-            write_store(SAVED_SEARCHES_KEY, &searches, "culebraluxe:saved-searches-changed");
+            write_store(
+                SAVED_SEARCHES_KEY,
+                &searches,
+                "culebraluxe:saved-searches-changed",
+            );
         }
         Effect::ListingFavoritesRead => {
             let ids = browser_storage()
                 .map(|storage| {
-                    favorite_entries(&storage).iter().filter_map(favorite_id).map(str::to_string).collect::<Vec<_>>()
+                    favorite_entries(&storage)
+                        .iter()
+                        .filter_map(favorite_id)
+                        .map(str::to_string)
+                        .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
             dispatch.emit(Msg::ListingFavoritesLoaded(ids));
@@ -129,14 +159,7 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
             alt,
             generation,
         } => {
-            run_listing_media_upload(
-                screen,
-                generation,
-                property_id,
-                role,
-                alt,
-                dispatch,
-            );
+            run_listing_media_upload(screen, generation, property_id, role, alt, dispatch);
         }
         Effect::UpdateProjectStatus {
             screen,
@@ -216,13 +239,7 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
             purpose,
             query,
         } => {
-            run_deal_workspace_people_search(
-                screen,
-                generation,
-                purpose,
-                query,
-                dispatch,
-            );
+            run_deal_workspace_people_search(screen, generation, purpose, query, dispatch);
         }
         Effect::RunDealWorkspaceCommand {
             screen,
@@ -230,13 +247,7 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
             deal_id,
             command,
         } => {
-            run_deal_workspace_command(
-                screen,
-                generation,
-                deal_id,
-                command,
-                dispatch,
-            );
+            run_deal_workspace_command(screen, generation, deal_id, command, dispatch);
         }
 
         Effect::SearchOpsPeople {
@@ -253,14 +264,7 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
             alt,
             generation,
         } => {
-            run_ops_media_upload(
-                screen,
-                generation,
-                property_id,
-                role,
-                alt,
-                dispatch,
-            );
+            run_ops_media_upload(screen, generation, property_id, role, alt, dispatch);
         }
         Effect::SaveOps {
             screen,
@@ -428,7 +432,6 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
     }
 }
 
-
 fn run_ops_command(
     screen: &'static str,
     generation: u64,
@@ -501,7 +504,9 @@ fn run_ops_people_search(
                     Err(error) => Msg::EffectFailed {
                         screen: screen.to_string(),
                         generation,
-                        message: format!("the OPPS Person search answer could not be read: {error}"),
+                        message: format!(
+                            "the OPPS Person search answer could not be read: {error}"
+                        ),
                     },
                 },
                 Err(error) => Msg::EffectFailed {
@@ -550,7 +555,9 @@ fn run_ops_media_upload(
             return;
         };
         let Ok(input) = element.dyn_into::<web_sys::HtmlInputElement>() else {
-            dispatch.emit(fail("the OPPS Media file input has the wrong element type.".into()));
+            dispatch.emit(fail(
+                "the OPPS Media file input has the wrong element type.".into(),
+            ));
             return;
         };
         let Some(file) = input.files().and_then(|files| files.get(0)) else {
@@ -576,14 +583,18 @@ fn run_ops_media_upload(
                 )
                 .is_err()
         {
-            dispatch.emit(fail("the browser could not prepare the selected image.".into()));
+            dispatch.emit(fail(
+                "the browser could not prepare the selected image.".into(),
+            ));
             return;
         }
 
         let request = match Request::post(LISTING_MEDIA_UPLOAD_PATH).body(form) {
             Ok(request) => request,
             Err(error) => {
-                dispatch.emit(fail(format!("the OPPS Media upload could not be built: {error}")));
+                dispatch.emit(fail(format!(
+                    "the OPPS Media upload could not be built: {error}"
+                )));
                 return;
             }
         };
@@ -615,10 +626,7 @@ fn run_flight_recorder_read(
 ) {
     let dispatch = dispatch.clone();
     spawn_local(async move {
-        let url = format!(
-            "{FLIGHT_RECORDER_PATH}/{}",
-            encode_component(&instance_id)
-        );
+        let url = format!("{FLIGHT_RECORDER_PATH}/{}", encode_component(&instance_id));
         let answer = Request::get(&url).send().await;
         let msg = match answer {
             Ok(response) => {
@@ -880,8 +888,12 @@ fn run_deal_create(
             Ok(response) if response.ok() => match response.text().await {
                 Ok(body) => match serde_json::from_str::<serde_json::Value>(&body)
                     .ok()
-                    .and_then(|value| value.get("id").and_then(serde_json::Value::as_str).map(str::to_owned))
-                {
+                    .and_then(|value| {
+                        value
+                            .get("id")
+                            .and_then(serde_json::Value::as_str)
+                            .map(str::to_owned)
+                    }) {
                     Some(id) => Msg::DealCreated {
                         screen: screen.to_string(),
                         generation,
@@ -902,7 +914,10 @@ fn run_deal_create(
             Ok(response) => Msg::EffectFailed {
                 screen: screen.to_string(),
                 generation,
-                message: format!("the contract create request failed with {}", response.status()),
+                message: format!(
+                    "the contract create request failed with {}",
+                    response.status()
+                ),
             },
             Err(error) => Msg::EffectFailed {
                 screen: screen.to_string(),
@@ -953,7 +968,10 @@ fn run_deal_workspace_people_search(
             Ok(response) => Msg::EffectFailed {
                 screen: screen.to_string(),
                 generation,
-                message: format!("the workspace people search failed with {}", response.status()),
+                message: format!(
+                    "the workspace people search failed with {}",
+                    response.status()
+                ),
             },
             Err(error) => Msg::EffectFailed {
                 screen: screen.to_string(),
@@ -1004,8 +1022,12 @@ fn run_deal_workspace_command(
             Ok(response) if response.ok() => match response.text().await {
                 Ok(body) => match serde_json::from_str::<serde_json::Value>(&body)
                     .ok()
-                    .and_then(|value| value.get("id").and_then(serde_json::Value::as_str).map(str::to_owned))
-                {
+                    .and_then(|value| {
+                        value
+                            .get("id")
+                            .and_then(serde_json::Value::as_str)
+                            .map(str::to_owned)
+                    }) {
                     Some(id) => Msg::DealWorkspaceCommandCompleted {
                         screen: screen.to_string(),
                         generation,
@@ -1102,8 +1124,12 @@ fn parse_entries<T: serde::de::DeserializeOwned>(raw: &str) -> Vec<T> {
 /// Persist a list to the device and tell any other listener, as the TypeScript stores did. A no-op write stays
 /// silent. Storage can be unavailable (private browsing); then the reducer's copy is all there is for this visit.
 fn write_store<T: serde::Serialize>(key: &str, entries: &[T], event: &str) {
-    let Some(storage) = browser_storage() else { return };
-    let Ok(next) = serde_json::to_string(entries) else { return };
+    let Some(storage) = browser_storage() else {
+        return;
+    };
+    let Ok(next) = serde_json::to_string(entries) else {
+        return;
+    };
     if storage.get_item(key).ok().flatten().as_deref() == Some(next.as_str()) {
         return;
     }
@@ -1119,43 +1145,79 @@ fn browser_storage() -> Option<web_sys::Storage> {
 }
 
 fn favorite_entries(storage: &web_sys::Storage) -> Vec<serde_json::Value> {
-    storage.get_item(FAVORITES_KEY).ok().flatten()
+    storage
+        .get_item(FAVORITES_KEY)
+        .ok()
+        .flatten()
         .and_then(|raw| serde_json::from_str::<Vec<serde_json::Value>>(&raw).ok())
         .unwrap_or_default()
 }
 
 fn favorite_id(entry: &serde_json::Value) -> Option<&str> {
-    entry.as_str().or_else(|| entry.get("id").and_then(serde_json::Value::as_str))
+    entry
+        .as_str()
+        .or_else(|| entry.get("id").and_then(serde_json::Value::as_str))
 }
 
-fn read_property_browser(id: String, slug: String, title: String, valid_slugs: Vec<String>, dispatch: &Callback<Msg>) {
+fn read_property_browser(
+    id: String,
+    slug: String,
+    title: String,
+    valid_slugs: Vec<String>,
+    dispatch: &Callback<Msg>,
+) {
     let Some(storage) = browser_storage() else {
-        dispatch.emit(Msg::PropertyBrowserLoaded { id, saved: false, recent: Vec::new() });
+        dispatch.emit(Msg::PropertyBrowserLoaded {
+            id,
+            saved: false,
+            recent: Vec::new(),
+        });
         return;
     };
-    let saved = favorite_entries(&storage).iter().any(|entry| favorite_id(entry) == Some(id.as_str()));
-    let existing = storage.get_item(RECENT_KEY).ok().flatten()
+    let saved = favorite_entries(&storage)
+        .iter()
+        .any(|entry| favorite_id(entry) == Some(id.as_str()));
+    let existing = storage
+        .get_item(RECENT_KEY)
+        .ok()
+        .flatten()
         .and_then(|raw| serde_json::from_str::<Vec<PropertyRecent>>(&raw).ok())
         .unwrap_or_default();
-    let mut recorded = vec![PropertyRecent { slug: slug.clone(), id: id.clone(), name: title, at: js_sys::Date::now() as i64 }];
+    let mut recorded = vec![PropertyRecent {
+        slug: slug.clone(),
+        id: id.clone(),
+        name: title,
+        at: js_sys::Date::now() as i64,
+    }];
     recorded.extend(existing.into_iter().filter(|entry| entry.id != id));
     recorded.truncate(6);
     recorded.retain(|entry| entry.slug == slug || valid_slugs.contains(&entry.slug));
     if let Ok(serialized) = serde_json::to_string(&recorded) {
         let _ = storage.set_item(RECENT_KEY, &serialized);
     }
-    let recent = recorded.into_iter().filter(|entry| entry.slug != slug).collect();
+    let recent = recorded
+        .into_iter()
+        .filter(|entry| entry.slug != slug)
+        .collect();
     dispatch.emit(Msg::PropertyBrowserLoaded { id, saved, recent });
 }
 
-fn write_property_favorite(id: String, slug: String, title: String, saved: bool, dispatch: &Callback<Msg>) {
+fn write_property_favorite(
+    id: String,
+    slug: String,
+    title: String,
+    saved: bool,
+    dispatch: &Callback<Msg>,
+) {
     let Some(storage) = browser_storage() else {
         dispatch.emit(Msg::PropertyFavoriteStored { id, saved: false });
         return;
     };
     let mut entries = favorite_entries(&storage);
     entries.retain(|entry| favorite_id(entry) != Some(id.as_str()));
-    if saved { entries.push(serde_json::json!({ "id": id.clone(), "slug": slug, "name": title })); }
+    if saved {
+        entries.push(serde_json::json!({ "id": id.clone(), "slug": slug, "name": title }));
+    }
     if let Ok(serialized) = serde_json::to_string(&entries) {
         if storage.set_item(FAVORITES_KEY, &serialized).is_ok() {
             if let Some(window) = web_sys::window() {
@@ -1165,7 +1227,9 @@ fn write_property_favorite(id: String, slug: String, title: String, saved: bool,
             }
         }
     }
-    let actual = favorite_entries(&storage).iter().any(|entry| favorite_id(entry) == Some(id.as_str()));
+    let actual = favorite_entries(&storage)
+        .iter()
+        .any(|entry| favorite_id(entry) == Some(id.as_str()));
     dispatch.emit(Msg::PropertyFavoriteStored { id, saved: actual });
 }
 
@@ -1173,7 +1237,11 @@ const WEBSITE_INTAKE_PATH: &str = "/api/rust-ui/website-intake";
 
 /// Post a contact form submission. Anything but an accepted answer is the failed state: the visitor keeps their typing
 /// and is told, and the route has already recorded why.
-fn submit_contact(submission: crate::model::ContactSubmission, submission_id: String, dispatch: &Callback<Msg>) {
+fn submit_contact(
+    submission: crate::model::ContactSubmission,
+    submission_id: String,
+    dispatch: &Callback<Msg>,
+) {
     let dispatch = dispatch.clone();
     let request_type = if submission.request_type.is_empty() {
         "general_enquiry".to_string()
@@ -1214,7 +1282,10 @@ fn submit_contact(submission: crate::model::ContactSubmission, submission_id: St
 fn fetch_entitlements(generation: u64, dispatch: &Callback<Msg>) {
     let dispatch = dispatch.clone();
     spawn_local(async move {
-        let grants = match Request::get("/api/portal/rust-ui/entitlements").send().await {
+        let grants = match Request::get("/api/portal/rust-ui/entitlements")
+            .send()
+            .await
+        {
             Ok(response) if response.ok() => response.json::<PortalEntitlements>().await.ok(),
             _ => None,
         };
@@ -1230,27 +1301,59 @@ struct RoleGrantResponse {
     roles: Vec<PortalRoleEntitlements>,
 }
 
-fn set_role_entitlement(generation: u64, role_code: String, action: String, granted: bool, dispatch: &Callback<Msg>) {
+fn set_role_entitlement(
+    generation: u64,
+    role_code: String,
+    action: String,
+    granted: bool,
+    dispatch: &Callback<Msg>,
+) {
     let dispatch = dispatch.clone();
     spawn_local(async move {
-        let payload = serde_json::json!({ "roleCode": role_code, "action": action, "granted": granted });
+        let payload =
+            serde_json::json!({ "roleCode": role_code, "action": action, "granted": granted });
         let message = match Request::put(ROLE_ENTITLEMENTS_PATH)
             .header("content-type", "application/json")
-            .body(payload.to_string()) {
+            .body(payload.to_string())
+        {
             Ok(request) => match request.send().await {
                 Ok(response) if response.ok() => match response.json::<RoleGrantResponse>().await {
-                    Ok(value) => Msg::SecurityRoleGrantChanged { generation, roles: value.roles },
-                    Err(error) => Msg::EffectFailed { screen: "security".into(), generation, message: format!("Role grant response could not be read: {error}") },
+                    Ok(value) => Msg::SecurityRoleGrantChanged {
+                        generation,
+                        roles: value.roles,
+                    },
+                    Err(error) => Msg::EffectFailed {
+                        screen: "security".into(),
+                        generation,
+                        message: format!("Role grant response could not be read: {error}"),
+                    },
                 },
                 Ok(response) => {
                     let status = response.status();
                     let body = response.json::<serde_json::Value>().await.ok();
-                    let detail = body.as_ref().and_then(|value| value.get("error")).and_then(serde_json::Value::as_str);
-                    Msg::EffectFailed { screen: "security".into(), generation, message: detail.map(str::to_owned).unwrap_or_else(|| format!("Role grant update failed ({status}).")) }
+                    let detail = body
+                        .as_ref()
+                        .and_then(|value| value.get("error"))
+                        .and_then(serde_json::Value::as_str);
+                    Msg::EffectFailed {
+                        screen: "security".into(),
+                        generation,
+                        message: detail
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| format!("Role grant update failed ({status}).")),
+                    }
                 }
-                Err(error) => Msg::EffectFailed { screen: "security".into(), generation, message: format!("Role grant request failed: {error}") },
+                Err(error) => Msg::EffectFailed {
+                    screen: "security".into(),
+                    generation,
+                    message: format!("Role grant request failed: {error}"),
+                },
             },
-            Err(error) => Msg::EffectFailed { screen: "security".into(), generation, message: format!("Role grant request could not be built: {error}") },
+            Err(error) => Msg::EffectFailed {
+                screen: "security".into(),
+                generation,
+                message: format!("Role grant request could not be built: {error}"),
+            },
         };
         dispatch.emit(message);
     });
@@ -1275,17 +1378,19 @@ fn set_user_primary_role(
             .body(payload.to_string())
         {
             Ok(request) => match request.send().await {
-                Ok(response) if response.ok() => match response.json::<SecurityUsersResponse>().await {
-                    Ok(value) => Msg::SecurityUserRoleChanged {
-                        generation,
-                        users: value.users,
-                    },
-                    Err(error) => Msg::EffectFailed {
-                        screen: "settings-users".into(),
-                        generation,
-                        message: format!("User role response could not be read: {error}"),
-                    },
-                },
+                Ok(response) if response.ok() => {
+                    match response.json::<SecurityUsersResponse>().await {
+                        Ok(value) => Msg::SecurityUserRoleChanged {
+                            generation,
+                            users: value.users,
+                        },
+                        Err(error) => Msg::EffectFailed {
+                            screen: "settings-users".into(),
+                            generation,
+                            message: format!("User role response could not be read: {error}"),
+                        },
+                    }
+                }
                 Ok(response) => {
                     let status = response.status();
                     let body = response.json::<serde_json::Value>().await.ok();
@@ -1366,18 +1471,12 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
             generation,
             Kind::Portal,
         ),
-        Effect::FetchCabinet { screen, generation } => (
-            CABINET_PATH.to_string(),
-            screen,
-            generation,
-            Kind::Portal,
-        ),
-        Effect::FetchCockpit { screen, generation } => (
-            COCKPIT_PATH.to_string(),
-            screen,
-            generation,
-            Kind::Portal,
-        ),
+        Effect::FetchCabinet { screen, generation } => {
+            (CABINET_PATH.to_string(), screen, generation, Kind::Portal)
+        }
+        Effect::FetchCockpit { screen, generation } => {
+            (COCKPIT_PATH.to_string(), screen, generation, Kind::Portal)
+        }
         Effect::FetchPage {
             screen,
             scope,
@@ -1470,12 +1569,9 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
             generation,
             Kind::Portal,
         ),
-        Effect::FetchProjects { screen, generation } => (
-            PROJECTS_PATH.to_string(),
-            screen,
-            generation,
-            Kind::Portal,
-        ),
+        Effect::FetchProjects { screen, generation } => {
+            (PROJECTS_PATH.to_string(), screen, generation, Kind::Portal)
+        }
         Effect::FetchDeals {
             screen,
             scope,
@@ -1582,13 +1678,7 @@ fn query(path: &str, screen: &str, scope: Option<&str>) -> String {
     }
 }
 
-
-fn ops_workbench_query(
-    entity: &str,
-    selected: Option<&str>,
-    search: &str,
-    page: usize,
-) -> String {
+fn ops_workbench_query(entity: &str, selected: Option<&str>, search: &str, page: usize) -> String {
     let mut url = format!(
         "{OPPS_PATH}?entity={}&page={}&search={}",
         encode_component(entity),
@@ -1602,17 +1692,8 @@ fn ops_workbench_query(
     url
 }
 
-fn ops_query(
-    path: &str,
-    selected: Option<&str>,
-    search: &str,
-    page: usize,
-) -> String {
-    let mut url = format!(
-        "{path}?page={}&search={}",
-        page,
-        encode_component(search)
-    );
+fn ops_query(path: &str, selected: Option<&str>, search: &str, page: usize) -> String {
+    let mut url = format!("{path}?page={}&search={}", page, encode_component(search));
     if let Some(selected) = selected.filter(|value| !value.is_empty()) {
         url.push_str("&selected=");
         url.push_str(&encode_component(selected));
@@ -1684,8 +1765,7 @@ fn run_record_archive(
                     "propertyId": property_id,
                 })
                 .to_string(),
-            )
-        {
+            ) {
             Ok(request) => request,
             Err(error) => {
                 dispatch.emit(Msg::EffectFailed {
@@ -1749,7 +1829,9 @@ fn run_listing_media_upload(
             return;
         };
         let Ok(input) = element.dyn_into::<web_sys::HtmlInputElement>() else {
-            dispatch.emit(fail("the Listing Media file input has the wrong element type.".into()));
+            dispatch.emit(fail(
+                "the Listing Media file input has the wrong element type.".into(),
+            ));
             return;
         };
         let Some(file) = input.files().and_then(|files| files.get(0)) else {
@@ -1775,14 +1857,18 @@ fn run_listing_media_upload(
                 )
                 .is_err()
         {
-            dispatch.emit(fail("the browser could not prepare the selected image.".into()));
+            dispatch.emit(fail(
+                "the browser could not prepare the selected image.".into(),
+            ));
             return;
         }
 
         let request = match Request::post(LISTING_MEDIA_UPLOAD_PATH).body(form) {
             Ok(request) => request,
             Err(error) => {
-                dispatch.emit(fail(format!("the Listing Media upload could not be built: {error}")));
+                dispatch.emit(fail(format!(
+                    "the Listing Media upload could not be built: {error}"
+                )));
                 return;
             }
         };
@@ -1800,7 +1886,9 @@ fn run_listing_media_upload(
                     message: bridge_error_message(&body, status),
                 }
             }
-            Err(error) => fail(format!("the Listing Media upload could not be sent: {error}")),
+            Err(error) => fail(format!(
+                "the Listing Media upload could not be sent: {error}"
+            )),
         };
         dispatch.emit(msg);
     });

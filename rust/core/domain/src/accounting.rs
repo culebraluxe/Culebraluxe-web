@@ -42,8 +42,7 @@ pub const EXPENSE_CATEGORIES: [&str; 9] = [
 /// The controlled receivable categories. Unlike expenses these are NOT enforced: the seam uppercases what it is given and
 /// falls back to `COMMISSION`, and that behaviour is preserved here rather than tightened, because tightening it would
 /// reject rows that already exist.
-pub const RECEIVABLE_CATEGORIES: [&str; 4] =
-    ["COMMISSION", "LEASING_FEE", "MISC_INCOME", "OTHER"];
+pub const RECEIVABLE_CATEGORIES: [&str; 4] = ["COMMISSION", "LEASING_FEE", "MISC_INCOME", "OTHER"];
 
 /// What can be wrong with an Accounting request. The code is for the client; the message is for a human.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -85,7 +84,10 @@ impl Money {
     pub fn parse(value: &str) -> Result<Self, AccountingError> {
         let trimmed = value.trim();
         if trimmed.is_empty() {
-            return Err(AccountingError::new("AMOUNT_INVALID", "Amount is required."));
+            return Err(AccountingError::new(
+                "AMOUNT_INVALID",
+                "Amount is required.",
+            ));
         }
         let digits = trimmed.strip_prefix(['+', '-']).unwrap_or(trimmed);
         let mut seen_point = false;
@@ -291,7 +293,6 @@ pub struct MarkReceivablePaidOutcome {
     pub paid_on: String,
 }
 
-
 /// Create an expense. The four required fields are the four the live form collected.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -362,7 +363,6 @@ pub struct CreateReceivableCommand {
     pub property_id: Option<String>,
     pub person_id: Option<String>,
 }
-
 
 impl CreateReceivableCommand {
     pub fn validate(&self) -> Result<(), AccountingError> {
@@ -460,8 +460,6 @@ fn date(value: &str, code: &'static str, label: &str) -> Result<NaiveDate, Accou
         .map_err(|_| AccountingError::new(code, format!("{label} must be a date, as YYYY-MM-DD.")))
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -551,7 +549,6 @@ mod tests {
         assert_eq!(command.validate().unwrap_err().code(), "EXPENSE_ON_INVALID");
     }
 
-
     #[test]
     fn receivable_requires_a_description() {
         let command = CreateReceivableCommand {
@@ -612,7 +609,10 @@ mod tests {
             receivable_id: "  ".into(),
             paid_on: "2026-03-10".into(),
         };
-        assert_eq!(missing.validate().unwrap_err().code(), "RECEIVABLE_REQUIRED");
+        assert_eq!(
+            missing.validate().unwrap_err().code(),
+            "RECEIVABLE_REQUIRED"
+        );
 
         let bad_date = MarkReceivablePaidCommand {
             receivable_id: "abc".into(),

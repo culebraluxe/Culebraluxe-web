@@ -140,7 +140,6 @@ fn records_effect(model: &Model) -> Effect {
     }
 }
 
-
 fn ops_effect(model: &Model) -> Effect {
     Effect::FetchOps {
         screen: model.screen.key,
@@ -176,7 +175,9 @@ fn put(form: &mut std::collections::BTreeMap<String, String>, key: &str, value: 
     form.insert(key.to_string(), value.unwrap_or_default().to_string());
 }
 
-fn ops_form(page: &crate::model::PortalOpsWorkbenchPage) -> std::collections::BTreeMap<String, String> {
+fn ops_form(
+    page: &crate::model::PortalOpsWorkbenchPage,
+) -> std::collections::BTreeMap<String, String> {
     let mut form = std::collections::BTreeMap::new();
     match page.entity.as_str() {
         "person" => {
@@ -201,7 +202,10 @@ fn ops_form(page: &crate::model::PortalOpsWorkbenchPage) -> std::collections::BT
                 put(&mut form, "playbookId", project.playbook_id.as_deref());
                 form.insert(
                     "playbookVersion".into(),
-                    project.playbook_version.map(|value| value.to_string()).unwrap_or_default(),
+                    project
+                        .playbook_version
+                        .map(|value| value.to_string())
+                        .unwrap_or_default(),
                 );
                 put(&mut form, "personId", project.person_id.as_deref());
                 put(&mut form, "propertyId", project.property_id.as_deref());
@@ -216,7 +220,10 @@ fn ops_form(page: &crate::model::PortalOpsWorkbenchPage) -> std::collections::BT
                 put(&mut form, "slug", property.slug.as_deref());
                 put(&mut form, "status", Some(&property.status));
                 form.insert("featured".into(), property.featured.to_string());
-                form.insert("isActiveListing".into(), property.is_active_listing.to_string());
+                form.insert(
+                    "isActiveListing".into(),
+                    property.is_active_listing.to_string(),
+                );
                 form.insert("isPublished".into(), property.is_published.to_string());
                 put(&mut form, "propertyType", property.property_type.as_deref());
                 form.insert("hasOceanView".into(), property.has_ocean_view.to_string());
@@ -224,11 +231,23 @@ fn ops_form(page: &crate::model::PortalOpsWorkbenchPage) -> std::collections::BT
                 form.insert("hasBeachView".into(), property.has_beach_view.to_string());
                 form.insert("hasHarborView".into(), property.has_harbor_view.to_string());
                 form.insert("hasIslandView".into(), property.has_island_view.to_string());
-                form.insert("hasMountainView".into(), property.has_mountain_view.to_string());
-                form.insert("hasSunriseView".into(), property.has_sunrise_view.to_string());
+                form.insert(
+                    "hasMountainView".into(),
+                    property.has_mountain_view.to_string(),
+                );
+                form.insert(
+                    "hasSunriseView".into(),
+                    property.has_sunrise_view.to_string(),
+                );
                 form.insert("hasSunsetView".into(), property.has_sunset_view.to_string());
-                form.insert("hasWaterAccess".into(), property.has_water_access.to_string());
-                form.insert("hasBeachAccess".into(), property.has_beach_access.to_string());
+                form.insert(
+                    "hasWaterAccess".into(),
+                    property.has_water_access.to_string(),
+                );
+                form.insert(
+                    "hasBeachAccess".into(),
+                    property.has_beach_access.to_string(),
+                );
                 form.insert("hasPool".into(), property.has_pool.to_string());
                 form.insert("hasGenerator".into(), property.has_generator.to_string());
                 form.insert("hasSolar".into(), property.has_solar.to_string());
@@ -236,81 +255,245 @@ fn ops_form(page: &crate::model::PortalOpsWorkbenchPage) -> std::collections::BT
                 form.insert("isGated".into(), property.is_gated.to_string());
 
                 put(&mut form, "listPrice", property.list_price.as_deref());
-                put(&mut form, "originalListPrice", property.original_list_price.as_deref());
+                put(
+                    &mut form,
+                    "originalListPrice",
+                    property.original_list_price.as_deref(),
+                );
                 put(&mut form, "location", property.location.as_deref());
                 put(&mut form, "addressLine1", property.address_line1.as_deref());
                 put(&mut form, "streetNumber", property.street_number.as_deref());
                 put(&mut form, "streetName", property.street_name.as_deref());
                 put(&mut form, "unitNumber", property.unit_number.as_deref());
                 put(&mut form, "city", property.city.as_deref());
-                put(&mut form, "stateOrProvince", property.state_or_province.as_deref());
+                put(
+                    &mut form,
+                    "stateOrProvince",
+                    property.state_or_province.as_deref(),
+                );
                 put(&mut form, "neighborhood", property.neighborhood.as_deref());
                 put(&mut form, "postalCode", property.postal_code.as_deref());
                 put(&mut form, "country", property.country.as_deref());
-                put(&mut form, "isoCountryCode", property.iso_country_code.as_deref());
+                put(
+                    &mut form,
+                    "isoCountryCode",
+                    property.iso_country_code.as_deref(),
+                );
                 put(&mut form, "latitude", property.latitude.as_deref());
                 put(&mut form, "longitude", property.longitude.as_deref());
                 put(&mut form, "bedrooms", property.bedrooms.as_deref());
                 put(&mut form, "bathrooms", property.bathrooms.as_deref());
-                put(&mut form, "bathroomsFull", property.bathrooms_full.as_deref());
-                put(&mut form, "bathroomsHalf", property.bathrooms_half.as_deref());
+                put(
+                    &mut form,
+                    "bathroomsFull",
+                    property.bathrooms_full.as_deref(),
+                );
+                put(
+                    &mut form,
+                    "bathroomsHalf",
+                    property.bathrooms_half.as_deref(),
+                );
                 put(&mut form, "squareFeet", property.square_feet.as_deref());
                 put(&mut form, "lotSize", property.lot_size.as_deref());
-                put(&mut form, "lotSizeUnits", property.lot_size_units.as_deref());
-                put(&mut form, "lotSizeAcres", property.lot_size_acres.as_deref());
+                put(
+                    &mut form,
+                    "lotSizeUnits",
+                    property.lot_size_units.as_deref(),
+                );
+                put(
+                    &mut form,
+                    "lotSizeAcres",
+                    property.lot_size_acres.as_deref(),
+                );
                 put(&mut form, "lotSizeSqft", property.lot_size_sqft.as_deref());
-                put(&mut form, "roadFrontageFeet", property.road_frontage_feet.as_deref());
-                put(&mut form, "roadSurfaceType", property.road_surface_type.as_deref());
-                put(&mut form, "lotDescription", property.lot_description.as_deref());
-                put(&mut form, "utilitiesNotes", property.utilities_notes.as_deref());
-                put(&mut form, "catastroNumber", property.catastro_number.as_deref());
+                put(
+                    &mut form,
+                    "roadFrontageFeet",
+                    property.road_frontage_feet.as_deref(),
+                );
+                put(
+                    &mut form,
+                    "roadSurfaceType",
+                    property.road_surface_type.as_deref(),
+                );
+                put(
+                    &mut form,
+                    "lotDescription",
+                    property.lot_description.as_deref(),
+                );
+                put(
+                    &mut form,
+                    "utilitiesNotes",
+                    property.utilities_notes.as_deref(),
+                );
+                put(
+                    &mut form,
+                    "catastroNumber",
+                    property.catastro_number.as_deref(),
+                );
                 put(&mut form, "buildability", property.buildability.as_deref());
-                put(&mut form, "slopeDescription", property.slope_description.as_deref());
-                put(&mut form, "poolPotential", property.pool_potential.as_deref());
-                put(&mut form, "roadAdjacency", property.road_adjacency.as_deref());
-                put(&mut form, "utilitiesAvailability", property.utilities_availability.as_deref());
+                put(
+                    &mut form,
+                    "slopeDescription",
+                    property.slope_description.as_deref(),
+                );
+                put(
+                    &mut form,
+                    "poolPotential",
+                    property.pool_potential.as_deref(),
+                );
+                put(
+                    &mut form,
+                    "roadAdjacency",
+                    property.road_adjacency.as_deref(),
+                );
+                put(
+                    &mut form,
+                    "utilitiesAvailability",
+                    property.utilities_availability.as_deref(),
+                );
                 put(&mut form, "hoaStatus", property.hoa_status.as_deref());
-                put(&mut form, "viewDescription", property.view_description.as_deref());
+                put(
+                    &mut form,
+                    "viewDescription",
+                    property.view_description.as_deref(),
+                );
                 put(&mut form, "yearBuilt", property.year_built.as_deref());
                 put(&mut form, "stories", property.stories.as_deref());
-                put(&mut form, "parkingSpaces", property.parking_spaces.as_deref());
-                put(&mut form, "shortDescription", property.short_description.as_deref());
-                put(&mut form, "editorialDescription", property.editorial_description.as_deref());
-                put(&mut form, "publicRemarks", property.public_remarks.as_deref());
+                put(
+                    &mut form,
+                    "parkingSpaces",
+                    property.parking_spaces.as_deref(),
+                );
+                put(
+                    &mut form,
+                    "shortDescription",
+                    property.short_description.as_deref(),
+                );
+                put(
+                    &mut form,
+                    "editorialDescription",
+                    property.editorial_description.as_deref(),
+                );
+                put(
+                    &mut form,
+                    "publicRemarks",
+                    property.public_remarks.as_deref(),
+                );
                 put(&mut form, "seoTitle", property.seo_title.as_deref());
-                put(&mut form, "seoDescription", property.seo_description.as_deref());
+                put(
+                    &mut form,
+                    "seoDescription",
+                    property.seo_description.as_deref(),
+                );
                 put(&mut form, "heroTitle", property.hero_title.as_deref());
                 put(&mut form, "tagline", property.tagline.as_deref());
-                put(&mut form, "architectureNotes", property.architecture_notes.as_deref());
-                put(&mut form, "amenitiesNotes", property.amenities_notes.as_deref());
-                put(&mut form, "lifestyleNotes", property.lifestyle_notes.as_deref());
-                put(&mut form, "listingAgentName", property.listing_agent_name.as_deref());
-                put(&mut form, "listingAgentEmail", property.listing_agent_email.as_deref());
-                put(&mut form, "listingAgentPhone", property.listing_agent_phone.as_deref());
-                put(&mut form, "listingOffice", property.listing_office.as_deref());
-                put(&mut form, "legalOwnerName", property.legal_owner_name.as_deref());
-                put(&mut form, "listingIdentifier", property.listing_identifier.as_deref());
-                put(&mut form, "registryEntry", property.registry_entry.as_deref());
+                put(
+                    &mut form,
+                    "architectureNotes",
+                    property.architecture_notes.as_deref(),
+                );
+                put(
+                    &mut form,
+                    "amenitiesNotes",
+                    property.amenities_notes.as_deref(),
+                );
+                put(
+                    &mut form,
+                    "lifestyleNotes",
+                    property.lifestyle_notes.as_deref(),
+                );
+                put(
+                    &mut form,
+                    "listingAgentName",
+                    property.listing_agent_name.as_deref(),
+                );
+                put(
+                    &mut form,
+                    "listingAgentEmail",
+                    property.listing_agent_email.as_deref(),
+                );
+                put(
+                    &mut form,
+                    "listingAgentPhone",
+                    property.listing_agent_phone.as_deref(),
+                );
+                put(
+                    &mut form,
+                    "listingOffice",
+                    property.listing_office.as_deref(),
+                );
+                put(
+                    &mut form,
+                    "legalOwnerName",
+                    property.legal_owner_name.as_deref(),
+                );
+                put(
+                    &mut form,
+                    "listingIdentifier",
+                    property.listing_identifier.as_deref(),
+                );
+                put(
+                    &mut form,
+                    "registryEntry",
+                    property.registry_entry.as_deref(),
+                );
                 put(&mut form, "fincaNumber", property.finca_number.as_deref());
-                put(&mut form, "registrySection", property.registry_section.as_deref());
-                put(&mut form, "sellerPersonId", property.seller_person_id.as_deref());
+                put(
+                    &mut form,
+                    "registrySection",
+                    property.registry_section.as_deref(),
+                );
+                put(
+                    &mut form,
+                    "sellerPersonId",
+                    property.seller_person_id.as_deref(),
+                );
                 form.insert("archived".into(), property.archived.to_string());
 
                 let stellar = &property.stellar;
-                put(&mut form, "listingContractDate", stellar.listing_contract_date.as_deref());
-                put(&mut form, "expirationDate", stellar.expiration_date.as_deref());
+                put(
+                    &mut form,
+                    "listingContractDate",
+                    stellar.listing_contract_date.as_deref(),
+                );
+                put(
+                    &mut form,
+                    "expirationDate",
+                    stellar.expiration_date.as_deref(),
+                );
                 put(&mut form, "listingType", stellar.listing_type.as_deref());
                 put(&mut form, "agentMlsId", stellar.agent_mls_id.as_deref());
                 put(&mut form, "taxId", stellar.tax_id.as_deref());
                 put(&mut form, "taxYear", stellar.tax_year.as_deref());
                 put(&mut form, "annualTax", stellar.annual_tax.as_deref());
-                put(&mut form, "legalDescription", stellar.legal_description.as_deref());
+                put(
+                    &mut form,
+                    "legalDescription",
+                    stellar.legal_description.as_deref(),
+                );
                 put(&mut form, "zoning", stellar.zoning.as_deref());
-                put(&mut form, "totalAreaSqft", stellar.total_area_sqft.as_deref());
-                put(&mut form, "heatedAreaSource", stellar.heated_area_source.as_deref());
-                put(&mut form, "ownershipType", stellar.ownership_type.as_deref());
+                put(
+                    &mut form,
+                    "totalAreaSqft",
+                    stellar.total_area_sqft.as_deref(),
+                );
+                put(
+                    &mut form,
+                    "heatedAreaSource",
+                    stellar.heated_area_source.as_deref(),
+                );
+                put(
+                    &mut form,
+                    "ownershipType",
+                    stellar.ownership_type.as_deref(),
+                );
                 put(&mut form, "hoaDetails", stellar.hoa_details.as_deref());
-                put(&mut form, "showingInstructions", stellar.showing_instructions.as_deref());
+                put(
+                    &mut form,
+                    "showingInstructions",
+                    stellar.showing_instructions.as_deref(),
+                );
                 put(&mut form, "occupantType", stellar.occupant_type.as_deref());
             }
         }
@@ -339,17 +522,24 @@ fn project_in_domain(
     match domain {
         "properties" => {
             project.property_id.is_some()
-                || project.areas.iter().any(|area| area == "properties" || area == "media")
-                || project_items
-                    .clone()
-                    .any(|item| item.entity.as_ref().is_some_and(|entity| entity.entity_type == "property"))
+                || project
+                    .areas
+                    .iter()
+                    .any(|area| area == "properties" || area == "media")
+                || project_items.clone().any(|item| {
+                    item.entity
+                        .as_ref()
+                        .is_some_and(|entity| entity.entity_type == "property")
+                })
         }
         "people" => {
             project.person_id.is_some()
                 || project.areas.iter().any(|area| area == "clients")
-                || project_items
-                    .clone()
-                    .any(|item| item.entity.as_ref().is_some_and(|entity| entity.entity_type == "person"))
+                || project_items.clone().any(|item| {
+                    item.entity
+                        .as_ref()
+                        .is_some_and(|entity| entity.entity_type == "person")
+                })
         }
         "deals" => {
             project.contract_id.is_some()
@@ -457,11 +647,7 @@ fn deal_workspace_command(
     }]
 }
 
-fn deal_workspace_people_search(
-    model: &mut Model,
-    purpose: &str,
-    query: String,
-) -> Vec<Effect> {
+fn deal_workspace_people_search(model: &mut Model, purpose: &str, query: String) -> Vec<Effect> {
     if model.screen.key != "deal-record" {
         return Vec::new();
     }
@@ -540,7 +726,8 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
         // A screen that has a real component asks for its DTO; every other portal screen still asks for rows, so the two
         // live side by side while the port goes screen by screen. See `is_ported_portal_screen`.
         if screen.key == "trace-record" {
-            let Some(instance_id) = model.scope.clone().filter(|value| !value.trim().is_empty()) else {
+            let Some(instance_id) = model.scope.clone().filter(|value| !value.trim().is_empty())
+            else {
                 model.loading = false;
                 model.error = Some("Flight Recorder requires a process-instance id.".into());
                 return Vec::new();
@@ -670,7 +857,15 @@ const SCANNER_SEEDS: [(&str, &str, &str, &str, &str); 4] = [
 ];
 
 /// The nth demonstration receipt. The cycle is the point: pressing Scan again shows the next one, as the live component did.
-fn scanner_seed(index: usize) -> (&'static str, &'static str, &'static str, &'static str, &'static str) {
+fn scanner_seed(
+    index: usize,
+) -> (
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+) {
     SCANNER_SEEDS[index % SCANNER_SEEDS.len()]
 }
 
@@ -775,21 +970,38 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             }
             Vec::new()
         }
-        Msg::SecurityRoleGrantRequested { role_code, action, granted } => {
-            if model.screen.key != "security" || model.role_grant_busy || !model.can("security.entitlement.manage") {
+        Msg::SecurityRoleGrantRequested {
+            role_code,
+            action,
+            granted,
+        } => {
+            if model.screen.key != "security"
+                || model.role_grant_busy
+                || !model.can("security.entitlement.manage")
+            {
                 return Vec::new();
             }
             model.role_grant_busy = true;
             model.error = None;
-            vec![Effect::SetRoleEntitlement { generation: model.generation, role_code, action, granted }]
+            vec![Effect::SetRoleEntitlement {
+                generation: model.generation,
+                role_code,
+                action,
+                granted,
+            }]
         }
         Msg::SecurityRoleGrantChanged { generation, roles } => {
-            if !owns(model, "security", generation) { return Vec::new(); }
+            if !owns(model, "security", generation) {
+                return Vec::new();
+            }
             model.role_grant_busy = false;
-            if let Some(security) = model.page.as_mut()
+            if let Some(security) = model
+                .page
+                .as_mut()
                 .and_then(|page| page.portal.as_mut())
                 .and_then(|portal| portal.support.as_mut())
-                .and_then(|support| support.security.as_mut()) {
+                .and_then(|support| support.security.as_mut())
+            {
                 security.role_entitlements = roles;
             }
             Vec::new()
@@ -802,7 +1014,9 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 && is_canonical_internal_role(&role_code)
                 && !app_user_id.trim().is_empty()
             {
-                model.security_user_role_drafts.insert(app_user_id, role_code);
+                model
+                    .security_user_role_drafts
+                    .insert(app_user_id, role_code);
                 model.error = None;
             }
             Vec::new()
@@ -888,10 +1102,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             if model.screen.key != "trace-record" || model.loading {
                 return Vec::new();
             }
-            let Some(instance_id) = model
-                .scope
-                .clone()
-                .filter(|value| !value.trim().is_empty())
+            let Some(instance_id) = model.scope.clone().filter(|value| !value.trim().is_empty())
             else {
                 model.error = Some("Flight Recorder requires a process-instance id.".into());
                 return Vec::new();
@@ -1041,7 +1252,10 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             }]
         }
         Msg::TechScheduleFlightRequested { scheduled_for } => {
-            if model.screen.key != "tech" || model.tech.busy_action.is_some() || scheduled_for.trim().is_empty() {
+            if model.screen.key != "tech"
+                || model.tech.busy_action.is_some()
+                || scheduled_for.trim().is_empty()
+            {
                 return Vec::new();
             }
             model.tech.busy_action = Some("scheduleFlight".into());
@@ -1057,7 +1271,10 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             }]
         }
         Msg::TechCancelFlightRequested(batch_id) => {
-            if model.screen.key != "tech" || model.tech.busy_action.is_some() || batch_id.trim().is_empty() {
+            if model.screen.key != "tech"
+                || model.tech.busy_action.is_some()
+                || batch_id.trim().is_empty()
+            {
                 return Vec::new();
             }
             model.tech.busy_action = Some("cancelFlight".into());
@@ -1190,7 +1407,8 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             ) {
                 if model.accounting.submitting {
                     model.accounting.submitting = false;
-                    model.accounting.notice = Some(crate::model::CommandNotice::success("Created."));
+                    model.accounting.notice =
+                        Some(crate::model::CommandNotice::success("Created."));
                 }
                 // A new record's date starts on the book's day: the payload carries what the database calls today, and the
                 // draft takes it only while it has none of its own — so a date the operator chose is never overwritten by
@@ -1313,14 +1531,8 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                         )
                     });
                 if let Some(projects) = page.projects.as_mut() {
-                    if let Some((
-                        domain,
-                        project_id,
-                        node_id,
-                        view,
-                        catch_up,
-                        work_collapsed,
-                    )) = previous
+                    if let Some((domain, project_id, node_id, view, catch_up, work_collapsed)) =
+                        previous
                     {
                         projects.active_domain = if domain.is_empty() {
                             initial_project_domain(projects)
@@ -1329,7 +1541,9 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                         };
                         projects.selected_project_id = project_id
                             .filter(|id| projects.projects.iter().any(|project| &project.id == id))
-                            .or_else(|| first_project_for_domain(projects, &projects.active_domain));
+                            .or_else(|| {
+                                first_project_for_domain(projects, &projects.active_domain)
+                            });
                         projects.selected_node_id = node_id
                             .filter(|id| {
                                 projects.items.iter().any(|item| {
@@ -1398,11 +1612,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 model.ops.person_searching = false;
                 model.ops.media_uploading = false;
             }
-            if let Some(portal) = model
-                .page
-                .as_mut()
-                .and_then(|page| page.portal.as_mut())
-            {
+            if let Some(portal) = model.page.as_mut().and_then(|page| page.portal.as_mut()) {
                 if let Some(forms) = portal.forms.as_mut() {
                     forms.saving = false;
                 }
@@ -1415,8 +1625,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             }
             if model.tech.busy_action.is_some() {
                 model.tech.busy_action = None;
-                model.tech.notice =
-                    Some(crate::model::CommandNotice::failure(message.clone()));
+                model.tech.notice = Some(crate::model::CommandNotice::failure(message.clone()));
             }
             model.deal_create.searching = false;
             model.deal_create.submitting = false;
@@ -1433,7 +1642,9 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             // A FAILED INSTANCE DETAIL IS REPORTED IN ITS ROW, NOT OVER THE PAGE. The screen's own payload loaded fine; what
             // failed is the read one open row asked for, and putting it in `model.error` would blank a page of counts the
             // operator can still use — the difference between a row that failed and a screen that failed.
-            if model.screen.key == "system-health" && model.workflow.loading_instance.take().is_some() {
+            if model.screen.key == "system-health"
+                && model.workflow.loading_instance.take().is_some()
+            {
                 model.workflow.detail = None;
                 model.workflow.error = Some(message);
                 return Vec::new();
@@ -1455,7 +1666,10 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             model.loading = false;
             model.error = None;
             model.page = Some(page);
-            if matches!(model.screen.key, "site-contact" | "site-favorites" | "site-buyers") {
+            if matches!(
+                model.screen.key,
+                "site-contact" | "site-favorites" | "site-buyers"
+            ) {
                 model.contact_form = crate::model::ContactFormState::default();
             }
             if model.screen.key == "site-buyers" {
@@ -1469,7 +1683,9 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 if let Some(record) = model.page.as_ref().and_then(|page| page.property.as_ref()) {
                     if !record.id.is_empty() {
                         return vec![Effect::PropertyBrowserRead {
-                            id: record.id.clone(), slug: record.slug.clone(), title: record.title.clone(),
+                            id: record.id.clone(),
+                            slug: record.slug.clone(),
+                            title: record.title.clone(),
                             valid_slugs: record.public_slugs.clone(),
                         }];
                     }
@@ -1497,8 +1713,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
         Msg::PropertyMediaNext => {
             let total = property_media_total(model);
             if model.screen.key == "site-property-detail" && total > 1 {
-                model.property_media.active_index =
-                    (model.property_media.active_index + 1) % total;
+                model.property_media.active_index = (model.property_media.active_index + 1) % total;
             }
             Vec::new()
         }
@@ -1537,7 +1752,11 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
         }
         Msg::PropertyBrowserLoaded { id, saved, recent } => {
             if model.screen.key == "site-property-detail"
-                && model.page.as_ref().and_then(|page| page.property.as_ref()).is_some_and(|property| property.id == id)
+                && model
+                    .page
+                    .as_ref()
+                    .and_then(|page| page.property.as_ref())
+                    .is_some_and(|property| property.id == id)
             {
                 model.property_media.saved = saved;
                 model.property_media.recent = recent;
@@ -1545,10 +1764,16 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             Vec::new()
         }
         Msg::PropertyFavoriteToggled => {
-            let Some(record) = model.page.as_ref().and_then(|page| page.property.as_ref()) else { return Vec::new(); };
-            if model.screen.key != "site-property-detail" { return Vec::new(); }
+            let Some(record) = model.page.as_ref().and_then(|page| page.property.as_ref()) else {
+                return Vec::new();
+            };
+            if model.screen.key != "site-property-detail" {
+                return Vec::new();
+            }
             vec![Effect::PropertyFavoriteWrite {
-                id: record.id.clone(), slug: record.slug.clone(), title: record.title.clone(),
+                id: record.id.clone(),
+                slug: record.slug.clone(),
+                title: record.title.clone(),
                 saved: !model.property_media.saved,
             }]
         }
@@ -1561,23 +1786,42 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
         Msg::ContactSubmitted { submission, new_id } => {
             // One submission at a time, and none after the thank-you: a double click is one enquiry, not two.
             // The contact page, and the quick "leave your email" forms on the Saved and Buyers pages.
-            if !matches!(model.screen.key, "site-contact" | "site-favorites" | "site-buyers")
-                || matches!(model.contact_form.status, ContactStatus::Sending | ContactStatus::Sent)
-            {
+            if !matches!(
+                model.screen.key,
+                "site-contact" | "site-favorites" | "site-buyers"
+            ) || matches!(
+                model.contact_form.status,
+                ContactStatus::Sending | ContactStatus::Sent
+            ) {
                 return Vec::new();
             }
-            let submission_id = model.contact_form.submission_id.get_or_insert(new_id).clone();
+            let submission_id = model
+                .contact_form
+                .submission_id
+                .get_or_insert(new_id)
+                .clone();
             model.contact_form.status = ContactStatus::Sending;
-            vec![Effect::SubmitContact { submission, submission_id }]
+            vec![Effect::SubmitContact {
+                submission,
+                submission_id,
+            }]
         }
         Msg::ContactResult { accepted } => {
             if model.contact_form.status == ContactStatus::Sending {
-                model.contact_form.status = if accepted { ContactStatus::Sent } else { ContactStatus::Failed };
+                model.contact_form.status = if accepted {
+                    ContactStatus::Sent
+                } else {
+                    ContactStatus::Failed
+                };
             }
             Vec::new()
         }
         Msg::BuyerToolsLoaded { compare, searches } => {
-            let listings = model.page.as_ref().map(|page| page.listings.clone()).unwrap_or_default();
+            let listings = model
+                .page
+                .as_ref()
+                .map(|page| page.listings.clone())
+                .unwrap_or_default();
             // A delisted property cannot hold one of the three compare slots: prune, and persist the pruning.
             let pruned = crate::search::prune_compare(&compare, &listings);
             let changed = pruned != compare;
@@ -1606,17 +1850,29 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             vec![Effect::CompareWrite(model.compare.clone())]
         }
         Msg::SearchSaved { new_id, now } => {
-            let Some(page) = model.page.as_ref() else { return Vec::new() };
+            let Some(page) = model.page.as_ref() else {
+                return Vec::new();
+            };
             let filters = crate::search::SearchFilters::from_controls(&model.controls);
             let current = crate::search::match_ids(&page.listings, &filters);
-            model.saved_searches = crate::search::save_search(&model.saved_searches, &filters, current, &new_id, &now);
+            model.saved_searches =
+                crate::search::save_search(&model.saved_searches, &filters, current, &new_id, &now);
             vec![Effect::SavedSearchesWrite(model.saved_searches.clone())]
         }
         Msg::SavedSearchApplied { id, now } => {
-            let Some(search) = model.saved_searches.iter().find(|search| search.id == id).cloned() else {
+            let Some(search) = model
+                .saved_searches
+                .iter()
+                .find(|search| search.id == id)
+                .cloned()
+            else {
                 return Vec::new();
             };
-            let listings = model.page.as_ref().map(|page| page.listings.clone()).unwrap_or_default();
+            let listings = model
+                .page
+                .as_ref()
+                .map(|page| page.listings.clone())
+                .unwrap_or_default();
             search.filters.apply_to(&mut model.controls);
             // Viewing it is what clears its alert: what it matches now becomes what it has seen.
             let current = crate::search::match_ids(&listings, &search.filters);
@@ -1640,11 +1896,12 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
         }
         Msg::ListingFavoriteToggled(id) => {
             // Only a listing the page actually shows can be saved from a card: the id is looked up, never trusted.
-            let Some(listing) = model
-                .page
-                .as_ref()
-                .and_then(|page| page.listings.iter().chain(page.featured.iter()).find(|listing| listing.id == id))
-            else {
+            let Some(listing) = model.page.as_ref().and_then(|page| {
+                page.listings
+                    .iter()
+                    .chain(page.featured.iter())
+                    .find(|listing| listing.id == id)
+            }) else {
                 return Vec::new();
             };
             vec![Effect::PropertyFavoriteWrite {
@@ -1661,7 +1918,11 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 model.saved_listings.push(id.clone());
             }
             if model.screen.key == "site-property-detail"
-                && model.page.as_ref().and_then(|page| page.property.as_ref()).is_some_and(|property| property.id == id)
+                && model
+                    .page
+                    .as_ref()
+                    .and_then(|page| page.property.as_ref())
+                    .is_some_and(|property| property.id == id)
             {
                 model.property_media.saved = saved;
             }
@@ -1705,7 +1966,15 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 "project" => matches!(section.as_str(), "project" | "links"),
                 _ => matches!(
                     section.as_str(),
-                    "property" | "site" | "legal" | "website" | "mls" | "photos" | "video" | "person" | "sources"
+                    "property"
+                        | "site"
+                        | "legal"
+                        | "website"
+                        | "mls"
+                        | "photos"
+                        | "video"
+                        | "person"
+                        | "sources"
                 ),
             };
             if valid {
@@ -1773,7 +2042,8 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 return Vec::new();
             }
             if model.ops.dirty {
-                model.error = Some("Save or Revert changes before creating another property.".into());
+                model.error =
+                    Some("Save or Revert changes before creating another property.".into());
                 return Vec::new();
             }
             model.ops.creating = !model.ops.creating;
@@ -1872,7 +2142,10 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             }
 
             if id.is_empty() {
-                model.ops.form.insert("sellerPersonId".into(), String::new());
+                model
+                    .ops
+                    .form
+                    .insert("sellerPersonId".into(), String::new());
                 model.ops.selected_person = None;
                 model.ops.person_query.clear();
             } else {
@@ -1885,7 +2158,10 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 else {
                     return Vec::new();
                 };
-                model.ops.form.insert("sellerPersonId".into(), person.id.clone());
+                model
+                    .ops
+                    .form
+                    .insert("sellerPersonId".into(), person.id.clone());
                 model.ops.person_query = person.display_name.clone();
                 model.ops.selected_person = Some(person);
             }
@@ -2032,7 +2308,8 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             }]
         }
         Msg::ListingMediaRoleChanged(value) => {
-            if model.screen.key == "property-media" && matches!(value.as_str(), "hero" | "gallery") {
+            if model.screen.key == "property-media" && matches!(value.as_str(), "hero" | "gallery")
+            {
                 model.listing_media.role = value;
                 model.error = None;
             }
@@ -2053,7 +2330,10 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             Vec::new()
         }
         Msg::ListingMediaUploadRequested => {
-            if model.screen.key != "property-media" || model.loading || model.listing_media.uploading {
+            if model.screen.key != "property-media"
+                || model.loading
+                || model.listing_media.uploading
+            {
                 return Vec::new();
             }
             let Some(property_id) = model
@@ -2255,12 +2535,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             // The date is the row's own, falling back to the book's today while the operator has not changed it — the same
             // default its input shows, so what is sent is what is on screen.
             let today = accounting_today(model);
-            let paid_on = model
-                .accounting
-                .paid_on
-                .get(&id)
-                .cloned()
-                .unwrap_or(today);
+            let paid_on = model.accounting.paid_on.get(&id).cloned().unwrap_or(today);
             model.accounting.submitting = true;
             model.accounting.notice = None;
             model.error = None;
@@ -2738,8 +3013,16 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             Vec::new()
         }
         Msg::DealWorkspaceAddParticipantRequested => {
-            let person_id = model.deal_workspace.participant_person_id.trim().to_string();
-            let role_label = model.deal_workspace.participant_role_label.trim().to_string();
+            let person_id = model
+                .deal_workspace
+                .participant_person_id
+                .trim()
+                .to_string();
+            let role_label = model
+                .deal_workspace
+                .participant_role_label
+                .trim()
+                .to_string();
             if person_id.is_empty() {
                 model.error = Some("Select an existing person first.".into());
                 return Vec::new();
@@ -2763,7 +3046,10 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
         } => {
             if model.screen.key == "deal-record" {
                 if value.is_empty() {
-                    model.deal_workspace.other_role_labels.remove(&participant_id);
+                    model
+                        .deal_workspace
+                        .other_role_labels
+                        .remove(&participant_id);
                 } else {
                     model
                         .deal_workspace
@@ -2894,15 +3180,11 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 return Vec::new();
             }
             match purpose.as_str() {
-                "participant"
-                    if model.deal_workspace.participant_query.trim() == query =>
-                {
+                "participant" if model.deal_workspace.participant_query.trim() == query => {
                     model.deal_workspace.participant_people = people;
                     model.deal_workspace.participant_searching = false;
                 }
-                "structural"
-                    if model.deal_workspace.structural_query.trim() == query =>
-                {
+                "structural" if model.deal_workspace.structural_query.trim() == query => {
                     model.deal_workspace.structural_people = people;
                     model.deal_workspace.structural_searching = false;
                 }
@@ -3303,8 +3585,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             if let Some(id) = node_id.as_deref() {
                 let valid = projects.items.iter().any(|item| {
                     item.id == id
-                        && item.project_id.as_deref()
-                            == projects.selected_project_id.as_deref()
+                        && item.project_id.as_deref() == projects.selected_project_id.as_deref()
                 });
                 if !valid {
                     return Vec::new();
@@ -3349,7 +3630,10 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             projects.work_dirty = false;
             Vec::new()
         }
-        Msg::ProjectCatchUpItemSelected { project_id, node_id } => {
+        Msg::ProjectCatchUpItemSelected {
+            project_id,
+            node_id,
+        } => {
             let Some(projects) = model
                 .page
                 .as_mut()
@@ -3371,7 +3655,10 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             projects.work_dirty = false;
             Vec::new()
         }
-        Msg::ProjectCatchUpItemCompleteRequested { project_id, node_id } => {
+        Msg::ProjectCatchUpItemCompleteRequested {
+            project_id,
+            node_id,
+        } => {
             let Some(projects) = model
                 .page
                 .as_mut()
@@ -3419,8 +3706,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             else {
                 return Vec::new();
             };
-            if projects.saving
-                || !matches!(status.as_str(), "open" | "doing" | "done" | "archived")
+            if projects.saving || !matches!(status.as_str(), "open" | "doing" | "done" | "archived")
             {
                 return Vec::new();
             }
@@ -3442,16 +3728,12 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
         Msg::ProjectWorkNotesChanged(value) => {
             project_work_change(model, |item| item.notes = value)
         }
-        Msg::ProjectWorkOwnerChanged(value) => {
-            project_work_change(model, |item| {
-                item.owner = (!value.trim().is_empty()).then_some(value)
-            })
-        }
-        Msg::ProjectWorkDueChanged(value) => {
-            project_work_change(model, |item| {
-                item.due_at = (!value.trim().is_empty()).then_some(value)
-            })
-        }
+        Msg::ProjectWorkOwnerChanged(value) => project_work_change(model, |item| {
+            item.owner = (!value.trim().is_empty()).then_some(value)
+        }),
+        Msg::ProjectWorkDueChanged(value) => project_work_change(model, |item| {
+            item.due_at = (!value.trim().is_empty()).then_some(value)
+        }),
         Msg::ProjectWorkStatusChanged(value) => {
             if !matches!(value.as_str(), "open" | "doing" | "done" | "dismissed") {
                 return Vec::new();
@@ -3547,7 +3829,6 @@ mod tests {
             message: message.to_string(),
         }
     }
-
 
     #[test]
     fn data_workbench_opens_on_property_through_the_universal_transport() {
@@ -3653,17 +3934,29 @@ mod tests {
             ("roadAdjacency", "Borders main road"),
             ("utilitiesAvailability", "At property edge"),
             ("hoaStatus", "No"),
-            ("viewDescription", "Full ocean view, a third of a mile from the beach"),
+            (
+                "viewDescription",
+                "Full ocean view, a third of a mile from the beach",
+            ),
             ("catastroNumber", "473-089-035-06-000"),
         ] {
-            update(&mut model, Msg::OpsFieldChanged { key: key.into(), value: value.into() });
+            update(
+                &mut model,
+                Msg::OpsFieldChanged {
+                    key: key.into(),
+                    value: value.into(),
+                },
+            );
         }
         let effects = update(&mut model, Msg::OpsSaveRequested);
         assert_eq!(effects.len(), 1);
         match &effects[0] {
             Effect::SaveOps { entity, fields, .. } => {
                 assert_eq!(entity, "property");
-                assert_eq!(fields.get("catastroNumber").map(String::as_str), Some("473-089-035-06-000"));
+                assert_eq!(
+                    fields.get("catastroNumber").map(String::as_str),
+                    Some("473-089-035-06-000")
+                );
                 assert_eq!(fields.get("lotSizeAcres").map(String::as_str), Some("0.97"));
                 assert_eq!(fields.get("lotSizeSqft").map(String::as_str), Some("42243"));
                 assert_eq!(fields.get("hoaStatus").map(String::as_str), Some("No"));
@@ -3680,20 +3973,38 @@ mod tests {
             selected_row_id: Some("property-id".into()),
             ..Model::default()
         };
-        model.ops.form.insert("name".into(), "Alturas de Zoni".into());
+        model
+            .ops
+            .form
+            .insert("name".into(), "Alturas de Zoni".into());
         model.ops.form.insert("status".into(), "prospect".into());
-        model.ops.form.insert("catastroNumber".into(), "473-089-035-06-000".into());
-        update(&mut model, Msg::OpsFieldChanged { key: "lotSizeAcres".into(), value: "0.97".into() });
+        model
+            .ops
+            .form
+            .insert("catastroNumber".into(), "473-089-035-06-000".into());
+        update(
+            &mut model,
+            Msg::OpsFieldChanged {
+                key: "lotSizeAcres".into(),
+                value: "0.97".into(),
+            },
+        );
         for tab in ["site", "legal", "website", "mls", "sources", "property"] {
             update(&mut model, Msg::OpsSectionSelected(tab.into()));
             assert_eq!(model.ops.section, tab);
-            assert_eq!(model.ops.form.get("lotSizeAcres").map(String::as_str), Some("0.97"));
+            assert_eq!(
+                model.ops.form.get("lotSizeAcres").map(String::as_str),
+                Some("0.97")
+            );
         }
         let effects = update(&mut model, Msg::OpsSaveRequested);
         match &effects[0] {
             Effect::SaveOps { fields, .. } => {
                 assert_eq!(fields.get("lotSizeAcres").map(String::as_str), Some("0.97"));
-                assert_eq!(fields.get("catastroNumber").map(String::as_str), Some("473-089-035-06-000"));
+                assert_eq!(
+                    fields.get("catastroNumber").map(String::as_str),
+                    Some("473-089-035-06-000")
+                );
                 assert!(!fields.contains_key("roadFrontageFeet"));
             }
             _ => panic!("expected a partial Property save"),
@@ -3724,7 +4035,10 @@ mod tests {
 
         assert!(update(&mut model, msg).is_empty());
         assert_eq!(model.ops.entity, "project");
-        assert!(model.loading, "a stale answer must not finish the current request");
+        assert!(
+            model.loading,
+            "a stale answer must not finish the current request"
+        );
     }
 
     #[test]
@@ -3852,18 +4166,26 @@ mod tests {
     #[test]
     fn a_stale_entitlement_answer_cannot_regrant_edit_controls() {
         let mut model = Model::default();
-        update(&mut model, Msg::MountScoped {
-            screen: target("accounting-expenses"), scope: None, generation: 7,
-        });
-        update(&mut model, Msg::EntitlementsLoaded {
-            generation: 6,
-            grants: crate::model::PortalEntitlements {
-                account_type: "internal".into(),
-                security_level: "ROOT".into(),
-                is_root: true,
-                entitlement_codes: vec!["accounting.write".into()],
+        update(
+            &mut model,
+            Msg::MountScoped {
+                screen: target("accounting-expenses"),
+                scope: None,
+                generation: 7,
             },
-        });
+        );
+        update(
+            &mut model,
+            Msg::EntitlementsLoaded {
+                generation: 6,
+                grants: crate::model::PortalEntitlements {
+                    account_type: "internal".into(),
+                    security_level: "ROOT".into(),
+                    is_root: true,
+                    entitlement_codes: vec!["accounting.write".into()],
+                },
+            },
+        );
         assert!(!model.can("accounting.write"));
         update(&mut model, Msg::EntitlementsUnavailable { generation: 7 });
         assert!(!model.can("accounting.write"));
@@ -3876,10 +4198,7 @@ mod tests {
             screen: target("deals"),
             ..Model::default()
         };
-        let search = update(
-            &mut model,
-            Msg::DealCreateClientQueryChanged("Ali".into()),
-        );
+        let search = update(&mut model, Msg::DealCreateClientQueryChanged("Ali".into()));
         assert!(model.deal_create.searching);
         assert_eq!(
             search,
@@ -4080,13 +4399,28 @@ mod tests {
             }),
             ..Model::default()
         };
-        assert!(deal_workspace_command(&mut model, "task:create", PortalDealCommand::CreateTask {
-            title: "Private task".into(), detail: None, due_at: None,
-        }).is_empty());
+        assert!(deal_workspace_command(
+            &mut model,
+            "task:create",
+            PortalDealCommand::CreateTask {
+                title: "Private task".into(),
+                detail: None,
+                due_at: None,
+            }
+        )
+        .is_empty());
         assert!(model.deal_workspace.busy_action.is_none());
-        assert_eq!(deal_workspace_command(&mut model, "showing:cancel", PortalDealCommand::CancelShowing {
-            showing_id: "showing-1".into(),
-        }).len(), 1);
+        assert_eq!(
+            deal_workspace_command(
+                &mut model,
+                "showing:cancel",
+                PortalDealCommand::CancelShowing {
+                    showing_id: "showing-1".into(),
+                }
+            )
+            .len(),
+            1
+        );
     }
 
     #[test]
@@ -4262,7 +4596,10 @@ mod tests {
     }
 
     fn buyers_model() -> Model {
-        let mut model = Model { screen: target("site-buyers"), ..Model::default() };
+        let mut model = Model {
+            screen: target("site-buyers"),
+            ..Model::default()
+        };
         let listing = |id: &str, views: &[&str]| crate::model::Listing {
             id: id.into(),
             slug: format!("{id}-slug"),
@@ -4271,7 +4608,12 @@ mod tests {
             ..Default::default()
         };
         model.page = Some(crate::model::PageContent {
-            listings: vec![listing("a", &["Ocean"]), listing("b", &["Bay"]), listing("c", &["Ocean"]), listing("d", &[])],
+            listings: vec![
+                listing("a", &["Ocean"]),
+                listing("b", &["Bay"]),
+                listing("c", &["Ocean"]),
+                listing("d", &[]),
+            ],
             ..Default::default()
         });
         model
@@ -4281,70 +4623,195 @@ mod tests {
     fn compare_persists_each_change_holds_three_and_prunes_the_delisted() {
         use crate::search::CompareEntry;
         let mut model = buyers_model();
-        let stale = CompareEntry { id: "gone".into(), slug: "gone-slug".into(), name: "Gone".into() };
-        let loaded = update(&mut model, Msg::BuyerToolsLoaded { compare: vec![stale], searches: vec![] });
-        assert_eq!(loaded, vec![Effect::CompareWrite(vec![])], "a delisted entry is pruned and the pruning persisted");
+        let stale = CompareEntry {
+            id: "gone".into(),
+            slug: "gone-slug".into(),
+            name: "Gone".into(),
+        };
+        let loaded = update(
+            &mut model,
+            Msg::BuyerToolsLoaded {
+                compare: vec![stale],
+                searches: vec![],
+            },
+        );
+        assert_eq!(
+            loaded,
+            vec![Effect::CompareWrite(vec![])],
+            "a delisted entry is pruned and the pruning persisted"
+        );
         for id in ["a", "b", "c"] {
-            assert!(matches!(update(&mut model, Msg::CompareToggled(id.into())).as_slice(), [Effect::CompareWrite(_)]));
+            assert!(matches!(
+                update(&mut model, Msg::CompareToggled(id.into())).as_slice(),
+                [Effect::CompareWrite(_)]
+            ));
         }
-        assert!(update(&mut model, Msg::CompareToggled("d".into())).is_empty(), "a fourth is refused");
+        assert!(
+            update(&mut model, Msg::CompareToggled("d".into())).is_empty(),
+            "a fourth is refused"
+        );
         assert!(update(&mut model, Msg::CompareToggled("not-on-page".into())).is_empty());
         update(&mut model, Msg::CompareToggled("b".into()));
-        assert_eq!(model.compare.iter().map(|entry| entry.id.as_str()).collect::<Vec<_>>(), vec!["a", "c"]);
+        assert_eq!(
+            model
+                .compare
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a", "c"]
+        );
     }
 
     #[test]
     fn a_saved_search_captures_the_bar_and_applying_it_restores_the_bar_and_clears_its_alert() {
         let mut model = buyers_model();
-        update(&mut model, Msg::FilterSelected { key: "view".into(), value: "Ocean".into() });
-        let saved = update(&mut model, Msg::SearchSaved { new_id: "ss-1".into(), now: "t1".into() });
+        update(
+            &mut model,
+            Msg::FilterSelected {
+                key: "view".into(),
+                value: "Ocean".into(),
+            },
+        );
+        let saved = update(
+            &mut model,
+            Msg::SearchSaved {
+                new_id: "ss-1".into(),
+                now: "t1".into(),
+            },
+        );
         assert!(matches!(saved.as_slice(), [Effect::SavedSearchesWrite(_)]));
         assert_eq!(model.saved_searches[0].name, "Ocean view");
-        assert_eq!(model.saved_searches[0].last_match_ids, vec!["a".to_string(), "c".to_string()]);
+        assert_eq!(
+            model.saved_searches[0].last_match_ids,
+            vec!["a".to_string(), "c".to_string()]
+        );
         // Pretend the search last looked when only "a" matched: "c" is new until it is applied.
         model.saved_searches[0].last_match_ids = vec!["a".into()];
-        update(&mut model, Msg::FilterSelected { key: "view".into(), value: String::new() });
-        update(&mut model, Msg::SavedSearchApplied { id: "ss-1".into(), now: "t2".into() });
-        assert_eq!(model.controls.named.get("view").map(String::as_str), Some("Ocean"));
+        update(
+            &mut model,
+            Msg::FilterSelected {
+                key: "view".into(),
+                value: String::new(),
+            },
+        );
+        update(
+            &mut model,
+            Msg::SavedSearchApplied {
+                id: "ss-1".into(),
+                now: "t2".into(),
+            },
+        );
+        assert_eq!(
+            model.controls.named.get("view").map(String::as_str),
+            Some("Ocean")
+        );
         assert_eq!(model.saved_searches[0].last_match_ids.len(), 2);
-        assert!(matches!(update(&mut model, Msg::SavedSearchRemoved("ss-1".into())).as_slice(), [Effect::SavedSearchesWrite(v)] if v.is_empty()));
+        assert!(
+            matches!(update(&mut model, Msg::SavedSearchRemoved("ss-1".into())).as_slice(), [Effect::SavedSearchesWrite(v)] if v.is_empty())
+        );
     }
 
     #[test]
     fn a_contact_submission_is_sent_once_and_a_retry_keeps_its_id() {
         use crate::model::{ContactStatus, ContactSubmission};
-        let mut model = Model { screen: target("site-contact"), ..Model::default() };
-        let submission = ContactSubmission { name: "Ada".into(), email: "ada@example.com".into(), ..Default::default() };
-        let first = update(&mut model, Msg::ContactSubmitted { submission: submission.clone(), new_id: "id-1".into() });
-        assert!(matches!(first.as_slice(), [Effect::SubmitContact { submission_id, .. }] if submission_id == "id-1"));
+        let mut model = Model {
+            screen: target("site-contact"),
+            ..Model::default()
+        };
+        let submission = ContactSubmission {
+            name: "Ada".into(),
+            email: "ada@example.com".into(),
+            ..Default::default()
+        };
+        let first = update(
+            &mut model,
+            Msg::ContactSubmitted {
+                submission: submission.clone(),
+                new_id: "id-1".into(),
+            },
+        );
+        assert!(
+            matches!(first.as_slice(), [Effect::SubmitContact { submission_id, .. }] if submission_id == "id-1")
+        );
         // A second click while the first is in flight is the same enquiry, not another one.
-        assert!(update(&mut model, Msg::ContactSubmitted { submission: submission.clone(), new_id: "id-2".into() }).is_empty());
+        assert!(update(
+            &mut model,
+            Msg::ContactSubmitted {
+                submission: submission.clone(),
+                new_id: "id-2".into()
+            }
+        )
+        .is_empty());
         update(&mut model, Msg::ContactResult { accepted: false });
         assert_eq!(model.contact_form.status, ContactStatus::Failed);
         // The retry reuses the first id, so the intake pipeline can recognise a repeat.
-        let retry = update(&mut model, Msg::ContactSubmitted { submission: submission.clone(), new_id: "id-3".into() });
-        assert!(matches!(retry.as_slice(), [Effect::SubmitContact { submission_id, .. }] if submission_id == "id-1"));
+        let retry = update(
+            &mut model,
+            Msg::ContactSubmitted {
+                submission: submission.clone(),
+                new_id: "id-3".into(),
+            },
+        );
+        assert!(
+            matches!(retry.as_slice(), [Effect::SubmitContact { submission_id, .. }] if submission_id == "id-1")
+        );
         update(&mut model, Msg::ContactResult { accepted: true });
         assert_eq!(model.contact_form.status, ContactStatus::Sent);
-        assert!(update(&mut model, Msg::ContactSubmitted { submission, new_id: "id-4".into() }).is_empty());
+        assert!(update(
+            &mut model,
+            Msg::ContactSubmitted {
+                submission,
+                new_id: "id-4".into()
+            }
+        )
+        .is_empty());
     }
 
     #[test]
     fn the_saved_and_buyers_pages_can_send_a_quick_enquiry_and_other_pages_cannot() {
         use crate::model::ContactSubmission;
-        let submission = ContactSubmission { name: "Ada".into(), email: "ada@example.com".into(), ..Default::default() };
+        let submission = ContactSubmission {
+            name: "Ada".into(),
+            email: "ada@example.com".into(),
+            ..Default::default()
+        };
         for screen in ["site-favorites", "site-buyers"] {
-            let mut model = Model { screen: target(screen), ..Model::default() };
-            let sent = update(&mut model, Msg::ContactSubmitted { submission: submission.clone(), new_id: "id".into() });
-            assert!(matches!(sent.as_slice(), [Effect::SubmitContact { .. }]), "{screen} sends");
+            let mut model = Model {
+                screen: target(screen),
+                ..Model::default()
+            };
+            let sent = update(
+                &mut model,
+                Msg::ContactSubmitted {
+                    submission: submission.clone(),
+                    new_id: "id".into(),
+                },
+            );
+            assert!(
+                matches!(sent.as_slice(), [Effect::SubmitContact { .. }]),
+                "{screen} sends"
+            );
         }
-        let mut model = Model { screen: target("site-about"), ..Model::default() };
-        assert!(update(&mut model, Msg::ContactSubmitted { submission, new_id: "id".into() }).is_empty());
+        let mut model = Model {
+            screen: target("site-about"),
+            ..Model::default()
+        };
+        assert!(update(
+            &mut model,
+            Msg::ContactSubmitted {
+                submission,
+                new_id: "id".into()
+            }
+        )
+        .is_empty());
     }
 
     #[test]
     fn the_interest_chooser_takes_only_its_three_answers() {
-        let mut model = Model { screen: target("site-contact"), ..Model::default() };
+        let mut model = Model {
+            screen: target("site-contact"),
+            ..Model::default()
+        };
         update(&mut model, Msg::ContactInterestChosen("Selling".into()));
         update(&mut model, Msg::ContactInterestChosen("Anything".into()));
         assert_eq!(model.contact_form.interest, "Selling");
@@ -4352,7 +4819,10 @@ mod tests {
 
     #[test]
     fn a_card_heart_saves_only_a_listing_the_page_shows_and_follows_the_store() {
-        let mut model = Model { screen: target("site-home"), ..Model::default() };
+        let mut model = Model {
+            screen: target("site-home"),
+            ..Model::default()
+        };
         model.page = Some(crate::model::PageContent {
             listings: vec![crate::model::Listing {
                 id: "p-1".into(),
@@ -4362,7 +4832,13 @@ mod tests {
             }],
             ..Default::default()
         });
-        assert_eq!(update(&mut model, Msg::ListingFavoriteToggled("not-on-page".into())), vec![]);
+        assert_eq!(
+            update(
+                &mut model,
+                Msg::ListingFavoriteToggled("not-on-page".into())
+            ),
+            vec![]
+        );
         assert_eq!(
             update(&mut model, Msg::ListingFavoriteToggled("p-1".into())),
             vec![Effect::PropertyFavoriteWrite {
@@ -4372,14 +4848,26 @@ mod tests {
                 saved: true,
             }]
         );
-        update(&mut model, Msg::PropertyFavoriteStored { id: "p-1".into(), saved: true });
+        update(
+            &mut model,
+            Msg::PropertyFavoriteStored {
+                id: "p-1".into(),
+                saved: true,
+            },
+        );
         assert_eq!(model.saved_listings, vec!["p-1".to_string()]);
         // Pressed again, the same heart unsaves.
         assert!(matches!(
             update(&mut model, Msg::ListingFavoriteToggled("p-1".into())).as_slice(),
             [Effect::PropertyFavoriteWrite { saved: false, .. }]
         ));
-        update(&mut model, Msg::PropertyFavoriteStored { id: "p-1".into(), saved: false });
+        update(
+            &mut model,
+            Msg::PropertyFavoriteStored {
+                id: "p-1".into(),
+                saved: false,
+            },
+        );
         assert!(model.saved_listings.is_empty());
     }
 
@@ -4394,16 +4882,37 @@ mod tests {
     fn property_tabs_and_browser_receipts_belong_to_the_open_record() {
         let mut model = property_carousel_model();
         model.page.as_mut().unwrap().property.as_mut().unwrap().id = "casa-id".into();
-        update(&mut model, Msg::PropertyTabSelected(crate::model::PropertyTab::Details));
+        update(
+            &mut model,
+            Msg::PropertyTabSelected(crate::model::PropertyTab::Details),
+        );
         assert_eq!(model.property_media.tab, crate::model::PropertyTab::Details);
 
-        update(&mut model, Msg::PropertyFavoriteStored { id: "other-id".into(), saved: true });
+        update(
+            &mut model,
+            Msg::PropertyFavoriteStored {
+                id: "other-id".into(),
+                saved: true,
+            },
+        );
         assert!(!model.property_media.saved);
-        update(&mut model, Msg::PropertyFavoriteStored { id: "casa-id".into(), saved: true });
+        update(
+            &mut model,
+            Msg::PropertyFavoriteStored {
+                id: "casa-id".into(),
+                saved: true,
+            },
+        );
         assert!(model.property_media.saved);
-        assert_eq!(update(&mut model, Msg::PropertyFavoriteToggled), vec![Effect::PropertyFavoriteWrite {
-            id: "casa-id".into(), slug: "casa-luar".into(), title: "Casa Luar".into(), saved: false,
-        }]);
+        assert_eq!(
+            update(&mut model, Msg::PropertyFavoriteToggled),
+            vec![Effect::PropertyFavoriteWrite {
+                id: "casa-id".into(),
+                slug: "casa-luar".into(),
+                title: "Casa Luar".into(),
+                saved: false,
+            }]
+        );
     }
 
     #[test]
@@ -4411,10 +4920,16 @@ mod tests {
         let mut model = property_carousel_model();
 
         update(&mut model, Msg::PropertyMediaPrevious);
-        assert_eq!(model.property_media.active_index, 2, "previous from hero wraps to last photo");
+        assert_eq!(
+            model.property_media.active_index, 2,
+            "previous from hero wraps to last photo"
+        );
 
         update(&mut model, Msg::PropertyMediaNext);
-        assert_eq!(model.property_media.active_index, 0, "next from last wraps to hero");
+        assert_eq!(
+            model.property_media.active_index, 0,
+            "next from last wraps to hero"
+        );
     }
 
     #[test]
@@ -4676,11 +5191,17 @@ mod tests {
             screen: target("accounting"),
             ..Model::default()
         };
-        update(&mut elsewhere, Msg::ExpenseVendorChanged("Sunrise Fuel".into()));
+        update(
+            &mut elsewhere,
+            Msg::ExpenseVendorChanged("Sunrise Fuel".into()),
+        );
         assert_eq!(elsewhere.accounting.expense_vendor, "");
 
         let mut model = expenses_screen();
-        update(&mut model, Msg::ExpenseVendorChanged("  Harbour Marine  ".into()));
+        update(
+            &mut model,
+            Msg::ExpenseVendorChanged("  Harbour Marine  ".into()),
+        );
         // The reducer stores what was typed, spaces and all: trimming is the domain's job, and doing it here as well would
         // mean two ideas of what the operator entered.
         assert_eq!(model.accounting.expense_vendor, "  Harbour Marine  ");
@@ -4702,7 +5223,10 @@ mod tests {
         assert_eq!(body["amount"], "125.50");
         assert_eq!(body["vendor"], "Sunrise Fuel");
         assert_eq!(body["expenseOn"], "2026-03-04");
-        assert!(model.accounting.submitting, "the form is pending until the answer arrives");
+        assert!(
+            model.accounting.submitting,
+            "the form is pending until the answer arrives"
+        );
         assert!(model.accounting.notice.is_none());
     }
 
@@ -4725,9 +5249,15 @@ mod tests {
         // What the bridge answers with: the screen as it now is, including the row just written.
         let payload = r#"{"accounting":{"expenses":[{"id":"e1","vendor":"Sunrise Fuel","category":"Office",
             "amount":"125.50","expenseOn":"2026-03-04","status":"POSTED"}],"today":"2026-03-04"}}"#;
-        update(&mut model, Msg::portal_loaded_json("accounting-expenses", 0, payload));
+        update(
+            &mut model,
+            Msg::portal_loaded_json("accounting-expenses", 0, payload),
+        );
 
-        assert!(!model.accounting.submitting, "the pending state ends with the answer");
+        assert!(
+            !model.accounting.submitting,
+            "the pending state ends with the answer"
+        );
         assert_eq!(
             model.accounting.notice,
             Some(crate::model::CommandNotice::success("Created."))
@@ -4775,12 +5305,18 @@ mod tests {
             screen: target("accounting-expenses"),
             ..Model::default()
         };
-        update(&mut fresh, Msg::portal_loaded_json("accounting-expenses", 0, payload));
+        update(
+            &mut fresh,
+            Msg::portal_loaded_json("accounting-expenses", 0, payload),
+        );
         assert_eq!(fresh.accounting.expense_on, "2026-03-04");
 
         let mut chosen = expenses_screen();
         chosen.accounting.expense_on = "2026-03-01".into();
-        update(&mut chosen, Msg::portal_loaded_json("accounting-expenses", 0, payload));
+        update(
+            &mut chosen,
+            Msg::portal_loaded_json("accounting-expenses", 0, payload),
+        );
         assert_eq!(
             chosen.accounting.expense_on, "2026-03-01",
             "a date the operator chose must survive a refresh"
@@ -4827,10 +5363,7 @@ mod tests {
                 value: "2026-03-10".into(),
             },
         );
-        let effects = update(
-            &mut model,
-            Msg::ReceivablePaidSubmitted { id: "r1".into() },
-        );
+        let effects = update(&mut model, Msg::ReceivablePaidSubmitted { id: "r1".into() });
 
         let Effect::AccountingCommand { body, .. } = &effects[0] else {
             panic!("marking a receivable paid must ask for an Accounting command");
@@ -4851,10 +5384,7 @@ mod tests {
             Msg::portal_loaded_json("accounting-receivables", 0, payload),
         );
 
-        let effects = update(
-            &mut model,
-            Msg::ReceivablePaidSubmitted { id: "r1".into() },
-        );
+        let effects = update(&mut model, Msg::ReceivablePaidSubmitted { id: "r1".into() });
         let Effect::AccountingCommand { body, .. } = &effects[0] else {
             panic!("marking a receivable paid must ask for an Accounting command");
         };
@@ -4880,17 +5410,16 @@ mod tests {
         );
         assert_eq!(
             model.accounting.notice,
-            Some(crate::model::CommandNotice::failure("Description is required."))
+            Some(crate::model::CommandNotice::failure(
+                "Description is required."
+            ))
         );
     }
 
     #[test]
     fn a_void_receivable_that_cannot_be_paid_keeps_its_row_and_reports_the_conflict() {
         let mut model = receivables_screen();
-        update(
-            &mut model,
-            Msg::ReceivablePaidSubmitted { id: "r1".into() },
-        );
+        update(&mut model, Msg::ReceivablePaidSubmitted { id: "r1".into() });
         // The service's answer for a receivable that is missing or void: nothing was transitioned.
         update(
             &mut model,
@@ -4907,7 +5436,6 @@ mod tests {
                 "Receivable not found or voided."
             ))
         );
-
     }
 
     // ---- accounting: the P&L's period ------------------------------------------------------------------------------
@@ -4933,7 +5461,10 @@ mod tests {
         assert_eq!(*screen, "accounting-pnl");
         assert_eq!(from, "2026-03-01");
         assert_eq!(to, "2026-03-31");
-        assert!(model.loading, "the screen is loading the period it asked for");
+        assert!(
+            model.loading,
+            "the screen is loading the period it asked for"
+        );
     }
 
     #[test]
@@ -4945,7 +5476,10 @@ mod tests {
         // The bridge's answer for a first visit: the current month, echoed back.
         let payload = r#"{"accounting":{"pnl":{"from":"2026-03-01","to":"2026-03-31","income":[],
             "totalIncome":"0","expenses":[],"totalExpenses":"0","netIncome":"0"}}}"#;
-        update(&mut model, Msg::portal_loaded_json("accounting-pnl", 0, payload));
+        update(
+            &mut model,
+            Msg::portal_loaded_json("accounting-pnl", 0, payload),
+        );
 
         assert_eq!(model.accounting.pnl_from, "2026-03-01");
         assert_eq!(model.accounting.pnl_to, "2026-03-31");
@@ -4953,7 +5487,10 @@ mod tests {
         // A second payload for a period the operator chose does not overwrite what they typed: the fields are theirs once
         // they hold anything.
         update(&mut model, Msg::PnlFromChanged("2026-01-01".into()));
-        update(&mut model, Msg::portal_loaded_json("accounting-pnl", 0, payload));
+        update(
+            &mut model,
+            Msg::portal_loaded_json("accounting-pnl", 0, payload),
+        );
         assert_eq!(model.accounting.pnl_from, "2026-01-01");
     }
 
@@ -5069,10 +5606,7 @@ mod tests {
     #[test]
     fn an_attached_file_is_named_by_the_reader_not_by_the_drop() {
         let mut model = scanner_screen("2026-03-04");
-        update(
-            &mut model,
-            Msg::ScannerFileChosen("IMG_4821.HEIC".into()),
-        );
+        update(&mut model, Msg::ScannerFileChosen("IMG_4821.HEIC".into()));
         assert_eq!(model.accounting.scanner.file_name, "IMG_4821.HEIC");
         // Scanning does not rename an attachment that is already there.
         update(&mut model, Msg::ScannerScanned);
@@ -5084,10 +5618,7 @@ mod tests {
         let mut model = scanner_screen("2026-03-04");
         update(&mut model, Msg::ScannerScanned);
         // The reviewer corrects the extraction: the one field the live select appeared to offer but could not change.
-        update(
-            &mut model,
-            Msg::ScannerCategoryChanged("Office".into()),
-        );
+        update(&mut model, Msg::ScannerCategoryChanged("Office".into()));
 
         let effects = update(&mut model, Msg::ScannerSubmitted);
         let Effect::AccountingCommand { screen, body, .. } = &effects[0] else {
@@ -5277,7 +5808,10 @@ mod tests {
         assert_eq!(*scope, None);
 
         let payload = system_health_payload("i-1", "i-1");
-        update(&mut model, Msg::portal_loaded_json("system-health", 0, &payload));
+        update(
+            &mut model,
+            Msg::portal_loaded_json("system-health", 0, &payload),
+        );
         assert_eq!(model.workflow.selected_instance, None);
 
         // The click.
@@ -5300,7 +5834,10 @@ mod tests {
         assert_eq!(model.workflow.loading_instance.as_deref(), Some("i-1"));
 
         // The answer.
-        update(&mut model, Msg::portal_loaded_json("system-health", 0, &payload));
+        update(
+            &mut model,
+            Msg::portal_loaded_json("system-health", 0, &payload),
+        );
         let detail = model
             .workflow
             .detail
@@ -5335,7 +5872,10 @@ mod tests {
             },
         );
         let payload = system_health_payload("i-2", "i-1");
-        update(&mut model, Msg::portal_loaded_json("system-health", 0, &payload));
+        update(
+            &mut model,
+            Msg::portal_loaded_json("system-health", 0, &payload),
+        );
 
         assert!(model.workflow.detail.is_none());
         assert_eq!(
@@ -5384,7 +5924,10 @@ mod tests {
             ..Model::default()
         };
         let payload = system_health_payload("i-1", "i-1");
-        update(&mut model, Msg::portal_loaded_json("system-health", 0, &payload));
+        update(
+            &mut model,
+            Msg::portal_loaded_json("system-health", 0, &payload),
+        );
         update(
             &mut model,
             Msg::WorkflowInstanceToggled {

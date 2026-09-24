@@ -106,12 +106,7 @@ impl WorkflowPortalDao {
             self.events(instance_id),
         )?;
 
-        let summary = summary(
-            &instance,
-            &tokens,
-            open_task_count,
-            pending_timer_count,
-        );
+        let summary = summary(&instance, &tokens, open_task_count, pending_timer_count);
         let current_nodes: HashSet<&str> = tokens
             .iter()
             .filter(|row| row.status == "active")
@@ -125,7 +120,10 @@ impl WorkflowPortalDao {
         let optional = optional_nodes(&instance.definition);
         let display_order = display_order(&instance.definition);
         let timeline_ids = if display_order.is_empty() {
-            current_nodes.iter().map(|value| (*value).to_string()).collect()
+            current_nodes
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect()
         } else {
             display_order
         };
@@ -458,9 +456,7 @@ fn node_description(definition: &Value, node_id: &str) -> Option<String> {
 }
 
 fn node_responsibility<'a>(definition: &'a Value, node_id: &str) -> Option<&'a str> {
-    node(definition, node_id)?
-        .get("responsibility")?
-        .as_str()
+    node(definition, node_id)?.get("responsibility")?.as_str()
 }
 
 fn is_control(node_type: Option<&str>) -> bool {

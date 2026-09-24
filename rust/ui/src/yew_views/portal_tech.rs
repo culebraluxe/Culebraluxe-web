@@ -152,12 +152,36 @@ fn kpis(tech: &PortalTechPage) -> Html {
         .filter(|run| run.status == "failed")
         .count();
     let values = [
-        ("Stories", tech.total_stories.to_string(), "canonical raw material".to_string()),
-        ("Workbench", tech.active_work.len().to_string(), "today's inspection tray".to_string()),
-        ("Flight", tech.staging_flight.as_ref().map(|flight| flight.story_count).unwrap_or(0).to_string(), "staged, not dispatched".to_string()),
+        (
+            "Stories",
+            tech.total_stories.to_string(),
+            "canonical raw material".to_string(),
+        ),
+        (
+            "Workbench",
+            tech.active_work.len().to_string(),
+            "today's inspection tray".to_string(),
+        ),
+        (
+            "Flight",
+            tech.staging_flight
+                .as_ref()
+                .map(|flight| flight.story_count)
+                .unwrap_or(0)
+                .to_string(),
+            "staged, not dispatched".to_string(),
+        ),
         ("Queued", queued.to_string(), "handed to Forge".to_string()),
-        ("Running", running.to_string(), "machine owns it".to_string()),
-        ("Failed", failed.to_string(), format!("{:.1}% board complete", tech.completion_percent)),
+        (
+            "Running",
+            running.to_string(),
+            "machine owns it".to_string(),
+        ),
+        (
+            "Failed",
+            failed.to_string(),
+            format!("{:.1}% board complete", tech.completion_percent),
+        ),
     ];
     html! {
         <section class="mb-4 grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
@@ -198,9 +222,17 @@ fn sorter(tech: &PortalTechPage) -> Html {
     }
 }
 
-fn flight_strip(model: &crate::model::Model, tech: &PortalTechPage, on_msg: &Callback<Msg>) -> Html {
+fn flight_strip(
+    model: &crate::model::Model,
+    tech: &PortalTechPage,
+    on_msg: &Callback<Msg>,
+) -> Html {
     let busy = model.tech.busy_action.is_some();
-    let flight_count = tech.staging_flight.as_ref().map(|flight| flight.story_count).unwrap_or(0);
+    let flight_count = tech
+        .staging_flight
+        .as_ref()
+        .map(|flight| flight.story_count)
+        .unwrap_or(0);
     let launch = {
         let on_msg = on_msg.clone();
         Callback::from(move |_: MouseEvent| on_msg.emit(Msg::TechLaunchFlightRequested))
@@ -291,7 +323,9 @@ fn flight_card(flight: &PortalTechFlight, busy: bool, on_msg: &Callback<Msg>) ->
     let batch_id = flight.id.clone();
     let cancel = {
         let on_msg = on_msg.clone();
-        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::TechCancelFlightRequested(batch_id.clone())))
+        Callback::from(move |_: MouseEvent| {
+            on_msg.emit(Msg::TechCancelFlightRequested(batch_id.clone()))
+        })
     };
     html! {
         <div class="rounded-md border border-white/10 bg-white/[0.03] p-2.5">
@@ -407,7 +441,10 @@ fn workbench_queue(tech: &PortalTechPage, on_msg: &Callback<Msg>) -> Html {
 }
 
 fn workbench_row(story: &PortalTechStory, tech: &PortalTechPage, on_msg: &Callback<Msg>) -> Html {
-    let selected = tech.selected_story.as_ref().is_some_and(|candidate| candidate.id == story.id);
+    let selected = tech
+        .selected_story
+        .as_ref()
+        .is_some_and(|candidate| candidate.id == story.id);
     let id = story.id.clone();
     let onclick = {
         let on_msg = on_msg.clone();
@@ -429,7 +466,11 @@ fn workbench_row(story: &PortalTechStory, tech: &PortalTechPage, on_msg: &Callba
     }
 }
 
-fn selected_story(model: &crate::model::Model, tech: &PortalTechPage, on_msg: &Callback<Msg>) -> Html {
+fn selected_story(
+    model: &crate::model::Model,
+    tech: &PortalTechPage,
+    on_msg: &Callback<Msg>,
+) -> Html {
     let Some(story) = tech.selected_story.as_ref() else {
         return html! {
             <article class="rounded-md border border-white/10 bg-white/[0.025] p-5 text-sm text-slate-500">
@@ -437,18 +478,25 @@ fn selected_story(model: &crate::model::Model, tech: &PortalTechPage, on_msg: &C
             </article>
         };
     };
-    let on_bench = tech.active_work.iter().any(|candidate| candidate.id == story.id);
+    let on_bench = tech
+        .active_work
+        .iter()
+        .any(|candidate| candidate.id == story.id);
     let engine_owned = selected_engine_owned(tech, &story.id);
     let engine_live = selected_engine_live(tech, &story.id);
     let busy = model.tech.busy_action.is_some();
 
     let scoped = |target: &'static str| {
         let on_msg = on_msg.clone();
-        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::TechScopedRunRequested(target.to_string())))
+        Callback::from(move |_: MouseEvent| {
+            on_msg.emit(Msg::TechScopedRunRequested(target.to_string()))
+        })
     };
     let move_to = |target: &'static str| {
         let on_msg = on_msg.clone();
-        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::TechMoveWorkbenchRequested(target.to_string())))
+        Callback::from(move |_: MouseEvent| {
+            on_msg.emit(Msg::TechMoveWorkbenchRequested(target.to_string()))
+        })
     };
     let good_to_go = {
         let on_msg = on_msg.clone();
@@ -674,7 +722,11 @@ fn engine_runs_panel(title: &'static str, runs: &[&PortalTechEngineRun], results
 }
 
 fn engine_run_card(run: &PortalTechEngineRun, results: bool) -> Html {
-    let status = if run.stale { "INTERRUPTED" } else { run.status.as_str() };
+    let status = if run.stale {
+        "INTERRUPTED"
+    } else {
+        run.status.as_str()
+    };
     html! {
         <div class="rounded-md border border-white/10 bg-white/[0.025] px-2.5 py-2">
             <div class="flex items-start justify-between gap-2">
@@ -774,7 +826,9 @@ fn local_datetime_to_iso(raw: &str) -> Option<String> {
 }
 
 fn selected_engine_owned(tech: &PortalTechPage, story_id: &str) -> bool {
-    tech.queued_cards.iter().any(|item| item.story_id == story_id)
+    tech.queued_cards
+        .iter()
+        .any(|item| item.story_id == story_id)
         || tech.engine_runs.iter().any(|run| {
             run.story_id == story_id
                 && !run.stale
@@ -793,10 +847,7 @@ fn selected_engine_live(tech: &PortalTechPage, story_id: &str) -> bool {
 fn running_runs(tech: &PortalTechPage) -> Vec<&PortalTechEngineRun> {
     tech.engine_runs
         .iter()
-        .filter(|run| {
-            !run.stale
-                && matches!(run.status.as_str(), "running" | "claimed" | "queued")
-        })
+        .filter(|run| !run.stale && matches!(run.status.as_str(), "running" | "claimed" | "queued"))
         .collect()
 }
 
@@ -804,8 +855,7 @@ fn result_runs(tech: &PortalTechPage) -> Vec<&PortalTechEngineRun> {
     tech.engine_runs
         .iter()
         .filter(|run| {
-            run.stale
-                || matches!(run.status.as_str(), "completed" | "failed" | "interrupted")
+            run.stale || matches!(run.status.as_str(), "completed" | "failed" | "interrupted")
         })
         .collect()
 }

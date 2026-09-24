@@ -21,7 +21,10 @@ pub trait PersonRepository: Send {
         &mut self,
         request: &AttachPersonIdentityRequest,
     ) -> DbResult<PersonIdentity>;
-    async fn update_admin(&mut self, request: &UpdatePersonAdminRequest) -> DbResult<Option<Person>>;
+    async fn update_admin(
+        &mut self,
+        request: &UpdatePersonAdminRequest,
+    ) -> DbResult<Option<Person>>;
     async fn search(&mut self, request: &SearchPeopleRequest) -> DbResult<Vec<PersonSearchResult>>;
 }
 
@@ -49,7 +52,10 @@ impl PersonRepository for PersonDao {
         PersonDao::attach_identity(self, request).await
     }
 
-    async fn update_admin(&mut self, request: &UpdatePersonAdminRequest) -> DbResult<Option<Person>> {
+    async fn update_admin(
+        &mut self,
+        request: &UpdatePersonAdminRequest,
+    ) -> DbResult<Option<Person>> {
         PersonDao::update_admin(self, request).await
     }
 
@@ -169,7 +175,6 @@ impl<R: PersonRepository> PersonService<R> {
         audit_result(&self.runtime, "person", OP, context, decision, &result).await?;
         result
     }
-
 
     pub async fn update_admin(
         &mut self,

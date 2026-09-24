@@ -10,8 +10,6 @@
 use crate::format::format_money;
 use yew::prelude::*;
 
-
-
 /// The accounting page frame: the navy surface, its eyebrow and its title.
 #[derive(Properties, PartialEq)]
 pub struct AccountingShellProps {
@@ -134,7 +132,6 @@ pub fn MetricCard(props: &MetricCardProps) -> Html {
     }
 }
 
-
 /// The six-month trend, drawn as the dependency-free SVG the live screen drew.
 ///
 /// GEOMETRY, NOT ACCOUNTING. The amounts become pixel coordinates here, which is the one job a float is right for: a point
@@ -221,4 +218,3 @@ pub fn PnlTrendChart(props: &PnlTrendChartProps) -> Html {
         </div>
     }
 }
-

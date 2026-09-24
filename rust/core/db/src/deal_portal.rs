@@ -245,7 +245,13 @@ impl DealPortalDao {
             .bind(&request.property_id)
             .bind(&request.client_person_id)
             .bind(request.owner_user_id.as_deref())
-            .bind(request.notes.as_deref().map(str::trim).filter(|value| !value.is_empty()))
+            .bind(
+                request
+                    .notes
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty()),
+            )
             .execute(tx.connection())
             .await
             .map_err(|error| DbFailure::from_sqlx("deal.create.insert", &error))?;
@@ -1117,16 +1123,15 @@ impl DealPortalDao {
         };
 
         let property_id = header.property_id.clone();
-        let (open_tasks, activity, participants, offers, showings, contracts, owner_candidates) =
-            tokio::try_join!(
-                self.workspace_tasks(deal_id),
-                self.workspace_activity(deal_id),
-                self.workspace_participants(deal_id),
-                self.workspace_offers(deal_id),
-                self.workspace_showings(deal_id),
-                self.contracts_for_property(&property_id),
-                self.owner_candidates(),
-            )?;
+        let (open_tasks, activity, participants, offers, showings, contracts, owner_candidates) = tokio::try_join!(
+            self.workspace_tasks(deal_id),
+            self.workspace_activity(deal_id),
+            self.workspace_participants(deal_id),
+            self.workspace_offers(deal_id),
+            self.workspace_showings(deal_id),
+            self.contracts_for_property(&property_id),
+            self.owner_candidates(),
+        )?;
 
         Ok(DealWorkspaceSnapshot {
             deal: Some(DealWorkspaceDeal {
@@ -1632,17 +1637,20 @@ impl DealPortalDao {
             .map_err(|error| DbFailure::from_sqlx("deal.portfolio.contracts", &error))
         })?;
 
-        Ok(rows.into_iter().map(|row| DealContractPortfolioItem {
-            id: row.id,
-            form_template_id: row.form_template_id,
-            contract_type: row.contract_type,
-            property_id: row.property_id,
-            property_label: row.property_label,
-            status: row.status,
-            process_instance_id: row.process_instance_id,
-            executed_at: row.executed_at,
-            created_at: row.created_at,
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|row| DealContractPortfolioItem {
+                id: row.id,
+                form_template_id: row.form_template_id,
+                contract_type: row.contract_type,
+                property_id: row.property_id,
+                property_label: row.property_label,
+                status: row.status,
+                process_instance_id: row.process_instance_id,
+                executed_at: row.executed_at,
+                created_at: row.created_at,
+            })
+            .collect())
     }
 
     async fn dealable_properties(&self) -> DbResult<Vec<DealableProperty>> {
@@ -1659,11 +1667,14 @@ impl DealPortalDao {
             .await
             .map_err(|error| DbFailure::from_sqlx("deal.portfolio.properties", &error))
         })?;
-        Ok(rows.into_iter().map(|row| DealableProperty {
-            id: row.id,
-            name: row.name.unwrap_or_else(|| "Property".into()),
-            location: row.location,
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|row| DealableProperty {
+                id: row.id,
+                name: row.name.unwrap_or_else(|| "Property".into()),
+                location: row.location,
+            })
+            .collect())
     }
 
     async fn owner_candidates(&self) -> DbResult<Vec<DealOwnerCandidate>> {
@@ -1680,11 +1691,14 @@ impl DealPortalDao {
             .await
             .map_err(|error| DbFailure::from_sqlx("deal.portfolio.users", &error))
         })?;
-        Ok(rows.into_iter().map(|row| DealOwnerCandidate {
-            id: row.id,
-            display_name: row.display_name,
-            email: row.email,
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|row| DealOwnerCandidate {
+                id: row.id,
+                display_name: row.display_name,
+                email: row.email,
+            })
+            .collect())
     }
 }
 
@@ -1694,7 +1708,11 @@ fn parse_number(value: Option<&str>) -> Option<f64> {
 
 fn map_deal(row: DealRow) -> DealPortfolioItem {
     let mut descriptor = Vec::new();
-    if let Some(bedrooms) = row.bedrooms.as_deref().and_then(|value| value.parse::<f64>().ok()) {
+    if let Some(bedrooms) = row
+        .bedrooms
+        .as_deref()
+        .and_then(|value| value.parse::<f64>().ok())
+    {
         descriptor.push(format!(
             "{} bedrooms",
             if bedrooms.fract().abs() < 0.000_001 {
@@ -1714,7 +1732,9 @@ fn map_deal(row: DealRow) -> DealPortfolioItem {
         id: row.id,
         property_id: row.property_id,
         property_name: row.property_name,
-        property_location: row.property_location.unwrap_or_else(|| "Culebra, Puerto Rico".into()),
+        property_location: row
+            .property_location
+            .unwrap_or_else(|| "Culebra, Puerto Rico".into()),
         property_descriptor: (!descriptor.is_empty()).then(|| descriptor.join(" · ")),
         hero_media_id: row.hero_media_id,
         client_id: row.client_id,

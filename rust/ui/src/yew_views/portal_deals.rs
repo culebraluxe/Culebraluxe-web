@@ -771,7 +771,9 @@ fn other_participant_controls(
         let on_msg = on_msg.clone();
         let id = id.clone();
         Callback::from(move |event: InputEvent| {
-            let value = event.target_unchecked_into::<web_sys::HtmlInputElement>().value();
+            let value = event
+                .target_unchecked_into::<web_sys::HtmlInputElement>()
+                .value();
             on_msg.emit(Msg::DealWorkspaceOtherRoleChanged {
                 participant_id: id.clone(),
                 value,
@@ -808,7 +810,9 @@ fn add_participant_form(model: &crate::model::Model, on_msg: &Callback<Msg>, bus
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
             on_msg.emit(Msg::DealWorkspaceParticipantQueryChanged(
-                event.target_unchecked_into::<web_sys::HtmlInputElement>().value(),
+                event
+                    .target_unchecked_into::<web_sys::HtmlInputElement>()
+                    .value(),
             ))
         })
     };
@@ -816,7 +820,9 @@ fn add_participant_form(model: &crate::model::Model, on_msg: &Callback<Msg>, bus
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
             on_msg.emit(Msg::DealWorkspaceParticipantRoleChanged(
-                event.target_unchecked_into::<web_sys::HtmlInputElement>().value(),
+                event
+                    .target_unchecked_into::<web_sys::HtmlInputElement>()
+                    .value(),
             ))
         })
     };
@@ -857,7 +863,9 @@ fn structural_participant_form(
         let on_msg = on_msg.clone();
         Callback::from(move |event: Event| {
             on_msg.emit(Msg::DealWorkspaceStructuralRoleChanged(
-                event.target_unchecked_into::<web_sys::HtmlSelectElement>().value(),
+                event
+                    .target_unchecked_into::<web_sys::HtmlSelectElement>()
+                    .value(),
             ))
         })
     };
@@ -865,7 +873,9 @@ fn structural_participant_form(
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
             on_msg.emit(Msg::DealWorkspaceStructuralQueryChanged(
-                event.target_unchecked_into::<web_sys::HtmlInputElement>().value(),
+                event
+                    .target_unchecked_into::<web_sys::HtmlInputElement>()
+                    .value(),
             ))
         })
     };
@@ -873,7 +883,9 @@ fn structural_participant_form(
         let on_msg = on_msg.clone();
         Callback::from(move |event: Event| {
             on_msg.emit(Msg::DealWorkspaceStructuralOwnerChanged(
-                event.target_unchecked_into::<web_sys::HtmlSelectElement>().value(),
+                event
+                    .target_unchecked_into::<web_sys::HtmlSelectElement>()
+                    .value(),
             ))
         })
     };
@@ -962,7 +974,9 @@ fn tasks_card(
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
             on_msg.emit(Msg::DealWorkspaceTaskTitleChanged(
-                event.target_unchecked_into::<web_sys::HtmlInputElement>().value(),
+                event
+                    .target_unchecked_into::<web_sys::HtmlInputElement>()
+                    .value(),
             ))
         })
     };
@@ -970,7 +984,9 @@ fn tasks_card(
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
             on_msg.emit(Msg::DealWorkspaceTaskDetailChanged(
-                event.target_unchecked_into::<web_sys::HtmlInputElement>().value(),
+                event
+                    .target_unchecked_into::<web_sys::HtmlInputElement>()
+                    .value(),
             ))
         })
     };
@@ -978,7 +994,9 @@ fn tasks_card(
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
             on_msg.emit(Msg::DealWorkspaceTaskDueChanged(
-                event.target_unchecked_into::<web_sys::HtmlInputElement>().value(),
+                event
+                    .target_unchecked_into::<web_sys::HtmlInputElement>()
+                    .value(),
             ))
         })
     };
@@ -1119,12 +1137,20 @@ fn offer_row(
     let withdraw = {
         let on_msg = on_msg.clone();
         let id = offer.id.clone();
-        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::DealWorkspaceWithdrawOfferRequested { offer_id: id.clone() }))
+        Callback::from(move |_: MouseEvent| {
+            on_msg.emit(Msg::DealWorkspaceWithdrawOfferRequested {
+                offer_id: id.clone(),
+            })
+        })
     };
     let reject = {
         let on_msg = on_msg.clone();
         let id = offer.id.clone();
-        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::DealWorkspaceRejectOfferRequested { offer_id: id.clone() }))
+        Callback::from(move |_: MouseEvent| {
+            on_msg.emit(Msg::DealWorkspaceRejectOfferRequested {
+                offer_id: id.clone(),
+            })
+        })
     };
     html! {
         <div class="border-b border-[var(--portal-panel-border)] px-5 py-4 last:border-b-0">
@@ -1168,14 +1194,21 @@ fn offer_form(
     busy: bool,
 ) -> Html {
     let key = parent_offer_id.clone().unwrap_or_else(|| "root".into());
-    let value = model.deal_workspace.offer_amounts.get(&key).cloned().unwrap_or_default();
+    let value = model
+        .deal_workspace
+        .offer_amounts
+        .get(&key)
+        .cloned()
+        .unwrap_or_default();
     let amount_change = {
         let on_msg = on_msg.clone();
         let key = key.clone();
         Callback::from(move |event: InputEvent| {
             on_msg.emit(Msg::DealWorkspaceOfferAmountChanged {
                 key: key.clone(),
-                value: event.target_unchecked_into::<web_sys::HtmlInputElement>().value(),
+                value: event
+                    .target_unchecked_into::<web_sys::HtmlInputElement>()
+                    .value(),
             })
         })
     };
@@ -1243,31 +1276,50 @@ fn showing_row(
     busy: bool,
 ) -> Html {
     let id = showing.id.clone();
-    let time = model.deal_workspace.showing_times.get(&id).cloned().unwrap_or_default();
+    let time = model
+        .deal_workspace
+        .showing_times
+        .get(&id)
+        .cloned()
+        .unwrap_or_default();
     let time_change = {
         let on_msg = on_msg.clone();
         let id = id.clone();
         Callback::from(move |event: InputEvent| {
             on_msg.emit(Msg::DealWorkspaceShowingTimeChanged {
                 showing_id: id.clone(),
-                value: event.target_unchecked_into::<web_sys::HtmlInputElement>().value(),
+                value: event
+                    .target_unchecked_into::<web_sys::HtmlInputElement>()
+                    .value(),
             })
         })
     };
     let schedule = {
         let on_msg = on_msg.clone();
         let id = id.clone();
-        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::DealWorkspaceScheduleShowingRequested { showing_id: id.clone() }))
+        Callback::from(move |_: MouseEvent| {
+            on_msg.emit(Msg::DealWorkspaceScheduleShowingRequested {
+                showing_id: id.clone(),
+            })
+        })
     };
     let cancel = {
         let on_msg = on_msg.clone();
         let id = id.clone();
-        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::DealWorkspaceCancelShowingRequested { showing_id: id.clone() }))
+        Callback::from(move |_: MouseEvent| {
+            on_msg.emit(Msg::DealWorkspaceCancelShowingRequested {
+                showing_id: id.clone(),
+            })
+        })
     };
     let complete = {
         let on_msg = on_msg.clone();
         let id = id.clone();
-        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::DealWorkspaceCompleteShowingRequested { showing_id: id.clone() }))
+        Callback::from(move |_: MouseEvent| {
+            on_msg.emit(Msg::DealWorkspaceCompleteShowingRequested {
+                showing_id: id.clone(),
+            })
+        })
     };
     html! {
         <div class="border-b border-[var(--portal-panel-border)] px-5 py-4 last:border-b-0">
@@ -1302,7 +1354,11 @@ fn showing_row(
 
 fn property_descriptor(property: &crate::model::PortalDealWorkspaceProperty) -> String {
     let mut parts = Vec::new();
-    if let Some(kind) = property.property_type.as_ref().filter(|value| !value.trim().is_empty()) {
+    if let Some(kind) = property
+        .property_type
+        .as_ref()
+        .filter(|value| !value.trim().is_empty())
+    {
         parts.push(kind.clone());
     }
     if let Some(bedrooms) = property.bedrooms {
@@ -1314,7 +1370,11 @@ fn property_descriptor(property: &crate::model::PortalDealWorkspaceProperty) -> 
     if let Some(square_feet) = property.square_feet {
         parts.push(format!("{} SF", group_integer(square_feet)));
     }
-    if parts.is_empty() { "No details on file".into() } else { parts.join(" · ") }
+    if parts.is_empty() {
+        "No details on file".into()
+    } else {
+        parts.join(" · ")
+    }
 }
 
 fn format_showing_dates(showing: &crate::model::PortalDealWorkspaceShowing) -> String {
@@ -1333,9 +1393,17 @@ fn format_showing_dates(showing: &crate::model::PortalDealWorkspaceShowing) -> S
 
 fn small_action_class() -> Classes {
     classes!(
-        "min-h-8","rounded-[var(--portal-tab-radius)]","border",
-        "border-[var(--portal-panel-border)]","px-2.5","text-[9px]","font-medium",
-        "uppercase","tracking-[0.11em]","text-[var(--portal-navy-soft)]","disabled:opacity-35"
+        "min-h-8",
+        "rounded-[var(--portal-tab-radius)]",
+        "border",
+        "border-[var(--portal-panel-border)]",
+        "px-2.5",
+        "text-[9px]",
+        "font-medium",
+        "uppercase",
+        "tracking-[0.11em]",
+        "text-[var(--portal-navy-soft)]",
+        "disabled:opacity-35"
     )
 }
 
@@ -1401,16 +1469,40 @@ fn offer_summary(deal: &PortalDeal) -> String {
     }
     let amount = format_currency(deal.latest_offer_amount.or(deal.offer_price));
     match deal.latest_offer_status.as_deref() {
-        Some(status) => format!("{} offer{} · {} · {}", deal.offer_count, if deal.offer_count == 1 { "" } else { "s" }, title_case(status), amount),
-        None => format!("{} offer{} · {}", deal.offer_count, if deal.offer_count == 1 { "" } else { "s" }, amount),
+        Some(status) => format!(
+            "{} offer{} · {} · {}",
+            deal.offer_count,
+            if deal.offer_count == 1 { "" } else { "s" },
+            title_case(status),
+            amount
+        ),
+        None => format!(
+            "{} offer{} · {}",
+            deal.offer_count,
+            if deal.offer_count == 1 { "" } else { "s" },
+            amount
+        ),
     }
 }
 
 fn field_class() -> Classes {
     classes!(
-        "mt-1","block","h-10","w-full","rounded-[var(--portal-tab-radius)]","border",
-        "border-[var(--portal-panel-border)]","bg-white/70","px-3","text-sm","font-light",
-        "normal-case","tracking-normal","text-black/70","outline-none","focus:border-[var(--portal-navy)]"
+        "mt-1",
+        "block",
+        "h-10",
+        "w-full",
+        "rounded-[var(--portal-tab-radius)]",
+        "border",
+        "border-[var(--portal-panel-border)]",
+        "bg-white/70",
+        "px-3",
+        "text-sm",
+        "font-light",
+        "normal-case",
+        "tracking-normal",
+        "text-black/70",
+        "outline-none",
+        "focus:border-[var(--portal-navy)]"
     )
 }
 

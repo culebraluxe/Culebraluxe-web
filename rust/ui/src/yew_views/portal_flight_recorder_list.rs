@@ -26,8 +26,8 @@ impl Component for FlightRecorderList {
 
     fn view(&self, ctx: &Context<Self>) -> Html {
         let props = ctx.props();
-        let screen =
-            crate::model::screen("tech-flight-recorder").expect("flight recorder list screen exists");
+        let screen = crate::model::screen("tech-flight-recorder")
+            .expect("flight recorder list screen exists");
         html! {
             <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
                 { body(&props.model) }
@@ -152,8 +152,10 @@ fn status(summary: &PortalWorkflowSummary) -> (&'static str, String) {
     if summary.outcome.as_deref() == Some("cancelled") {
         return ("bg-black/5 text-black/55", "Cancelled".into());
     }
-    if matches!(summary.outcome.as_deref(), Some("failed") | Some("conflict"))
-        || summary.status == "error"
+    if matches!(
+        summary.outcome.as_deref(),
+        Some("failed") | Some("conflict")
+    ) || summary.status == "error"
     {
         return (
             "bg-red-50 text-red-700",

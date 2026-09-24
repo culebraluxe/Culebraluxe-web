@@ -80,153 +80,801 @@ const PROJECT_STATUS: &[(&str, &str)] = &[
 ];
 
 const PROPERTY_CORE: &[FieldSpec] = &[
-    FieldSpec { key: "name", label: "Property name", kind: FieldKind::Text, wide: true, hint: Some("Canonical property name.") },
-    FieldSpec { key: "status", label: "Status", kind: FieldKind::Select(PROPERTY_STATUS), wide: false, hint: None },
-    FieldSpec { key: "propertyType", label: "Property type", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "listPrice", label: "List price", kind: FieldKind::Number, wide: false, hint: None },
-    FieldSpec { key: "originalListPrice", label: "Original list price", kind: FieldKind::Number, wide: false, hint: None },
-    FieldSpec { key: "bedrooms", label: "Bedrooms", kind: FieldKind::Number, wide: false, hint: None },
-    FieldSpec { key: "bathrooms", label: "Bathrooms", kind: FieldKind::Number, wide: false, hint: None },
-    FieldSpec { key: "bathroomsFull", label: "Full baths", kind: FieldKind::Number, wide: false, hint: None },
-    FieldSpec { key: "bathroomsHalf", label: "Half baths", kind: FieldKind::Number, wide: false, hint: None },
-    FieldSpec { key: "squareFeet", label: "Interior sqft", kind: FieldKind::Number, wide: false, hint: None },
-    FieldSpec { key: "yearBuilt", label: "Year built", kind: FieldKind::Number, wide: false, hint: None },
-    FieldSpec { key: "stories", label: "Stories", kind: FieldKind::Number, wide: false, hint: None },
-    FieldSpec { key: "parkingSpaces", label: "Parking spaces", kind: FieldKind::Number, wide: false, hint: None },
+    FieldSpec {
+        key: "name",
+        label: "Property name",
+        kind: FieldKind::Text,
+        wide: true,
+        hint: Some("Canonical property name."),
+    },
+    FieldSpec {
+        key: "status",
+        label: "Status",
+        kind: FieldKind::Select(PROPERTY_STATUS),
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "propertyType",
+        label: "Property type",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "listPrice",
+        label: "List price",
+        kind: FieldKind::Number,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "originalListPrice",
+        label: "Original list price",
+        kind: FieldKind::Number,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "bedrooms",
+        label: "Bedrooms",
+        kind: FieldKind::Number,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "bathrooms",
+        label: "Bathrooms",
+        kind: FieldKind::Number,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "bathroomsFull",
+        label: "Full baths",
+        kind: FieldKind::Number,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "bathroomsHalf",
+        label: "Half baths",
+        kind: FieldKind::Number,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "squareFeet",
+        label: "Interior sqft",
+        kind: FieldKind::Number,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "yearBuilt",
+        label: "Year built",
+        kind: FieldKind::Number,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "stories",
+        label: "Stories",
+        kind: FieldKind::Number,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "parkingSpaces",
+        label: "Parking spaces",
+        kind: FieldKind::Number,
+        wide: false,
+        hint: None,
+    },
 ];
 
 const PROPERTY_SITE_AREA: &[FieldSpec] = &[
-    FieldSpec { key: "lotSizeAcres", label: "Lot acres", kind: FieldKind::Number, wide: false, hint: Some("Reported acreage; enter independently of square feet.") },
-    FieldSpec { key: "lotSizeSqft", label: "Lot square feet", kind: FieldKind::Number, wide: false, hint: Some("Reported lot area in square feet; enter independently of acres and interior area.") },
+    FieldSpec {
+        key: "lotSizeAcres",
+        label: "Lot acres",
+        kind: FieldKind::Number,
+        wide: false,
+        hint: Some("Reported acreage; enter independently of square feet."),
+    },
+    FieldSpec {
+        key: "lotSizeSqft",
+        label: "Lot square feet",
+        kind: FieldKind::Number,
+        wide: false,
+        hint: Some(
+            "Reported lot area in square feet; enter independently of acres and interior area.",
+        ),
+    },
 ];
 
 const PROPERTY_FEATURES: &[FieldSpec] = &[
-    FieldSpec { key: "hasOceanView", label: "Ocean view", kind: FieldKind::Toggle, wide: false, hint: None },
-    FieldSpec { key: "hasBayView", label: "Bay view", kind: FieldKind::Toggle, wide: false, hint: None },
-    FieldSpec { key: "hasBeachView", label: "Beach view", kind: FieldKind::Toggle, wide: false, hint: None },
-    FieldSpec { key: "hasHarborView", label: "Harbor view", kind: FieldKind::Toggle, wide: false, hint: None },
-    FieldSpec { key: "hasIslandView", label: "Island view", kind: FieldKind::Toggle, wide: false, hint: None },
-    FieldSpec { key: "hasMountainView", label: "Mountain view", kind: FieldKind::Toggle, wide: false, hint: None },
-    FieldSpec { key: "hasSunriseView", label: "Sunrise view", kind: FieldKind::Toggle, wide: false, hint: None },
-    FieldSpec { key: "hasSunsetView", label: "Sunset view", kind: FieldKind::Toggle, wide: false, hint: None },
-    FieldSpec { key: "hasWaterAccess", label: "Water access", kind: FieldKind::Toggle, wide: false, hint: None },
-    FieldSpec { key: "hasBeachAccess", label: "Beach access", kind: FieldKind::Toggle, wide: false, hint: None },
-    FieldSpec { key: "hasPool", label: "Pool", kind: FieldKind::Toggle, wide: false, hint: None },
-    FieldSpec { key: "hasGenerator", label: "Generator", kind: FieldKind::Toggle, wide: false, hint: None },
-    FieldSpec { key: "hasSolar", label: "Solar", kind: FieldKind::Toggle, wide: false, hint: None },
-    FieldSpec { key: "isFurnished", label: "Furnished", kind: FieldKind::Toggle, wide: false, hint: None },
-    FieldSpec { key: "isGated", label: "Gated", kind: FieldKind::Toggle, wide: false, hint: None },
+    FieldSpec {
+        key: "hasOceanView",
+        label: "Ocean view",
+        kind: FieldKind::Toggle,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "hasBayView",
+        label: "Bay view",
+        kind: FieldKind::Toggle,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "hasBeachView",
+        label: "Beach view",
+        kind: FieldKind::Toggle,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "hasHarborView",
+        label: "Harbor view",
+        kind: FieldKind::Toggle,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "hasIslandView",
+        label: "Island view",
+        kind: FieldKind::Toggle,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "hasMountainView",
+        label: "Mountain view",
+        kind: FieldKind::Toggle,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "hasSunriseView",
+        label: "Sunrise view",
+        kind: FieldKind::Toggle,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "hasSunsetView",
+        label: "Sunset view",
+        kind: FieldKind::Toggle,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "hasWaterAccess",
+        label: "Water access",
+        kind: FieldKind::Toggle,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "hasBeachAccess",
+        label: "Beach access",
+        kind: FieldKind::Toggle,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "hasPool",
+        label: "Pool",
+        kind: FieldKind::Toggle,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "hasGenerator",
+        label: "Generator",
+        kind: FieldKind::Toggle,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "hasSolar",
+        label: "Solar",
+        kind: FieldKind::Toggle,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "isFurnished",
+        label: "Furnished",
+        kind: FieldKind::Toggle,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "isGated",
+        label: "Gated",
+        kind: FieldKind::Toggle,
+        wide: false,
+        hint: None,
+    },
 ];
 
 const PROPERTY_SITE: &[FieldSpec] = &[
-    FieldSpec { key: "buildability", label: "Buildability", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "slopeDescription", label: "Slope / terrain", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "poolPotential", label: "Room for pool", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "roadAdjacency", label: "Road adjacency", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "viewDescription", label: "View description", kind: FieldKind::Textarea(3), wide: true, hint: None },
-    FieldSpec { key: "lotDescription", label: "Other lot details", kind: FieldKind::Textarea(3), wide: true, hint: None },
-    FieldSpec { key: "roadFrontageFeet", label: "Road frontage (feet)", kind: FieldKind::Number, wide: false, hint: None },
-    FieldSpec { key: "roadSurfaceType", label: "Road surface", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "utilitiesAvailability", label: "Utilities availability / location", kind: FieldKind::Text, wide: false, hint: Some("For example: available at the property edge.") },
-    FieldSpec { key: "hoaStatus", label: "HOA status", kind: FieldKind::Select(&[("", "Unknown"), ("No", "No"), ("Yes", "Yes")]), wide: false, hint: None },
-    FieldSpec { key: "utilitiesNotes", label: "Utilities details", kind: FieldKind::Textarea(3), wide: true, hint: None },
+    FieldSpec {
+        key: "buildability",
+        label: "Buildability",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "slopeDescription",
+        label: "Slope / terrain",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "poolPotential",
+        label: "Room for pool",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "roadAdjacency",
+        label: "Road adjacency",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "viewDescription",
+        label: "View description",
+        kind: FieldKind::Textarea(3),
+        wide: true,
+        hint: None,
+    },
+    FieldSpec {
+        key: "lotDescription",
+        label: "Other lot details",
+        kind: FieldKind::Textarea(3),
+        wide: true,
+        hint: None,
+    },
+    FieldSpec {
+        key: "roadFrontageFeet",
+        label: "Road frontage (feet)",
+        kind: FieldKind::Number,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "roadSurfaceType",
+        label: "Road surface",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "utilitiesAvailability",
+        label: "Utilities availability / location",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: Some("For example: available at the property edge."),
+    },
+    FieldSpec {
+        key: "hoaStatus",
+        label: "HOA status",
+        kind: FieldKind::Select(&[("", "Unknown"), ("No", "No"), ("Yes", "Yes")]),
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "utilitiesNotes",
+        label: "Utilities details",
+        kind: FieldKind::Textarea(3),
+        wide: true,
+        hint: None,
+    },
 ];
 
 const PROPERTY_ADDRESS: &[FieldSpec] = &[
-    FieldSpec { key: "location", label: "Location label", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "addressLine1", label: "Address line", kind: FieldKind::Text, wide: true, hint: None },
-    FieldSpec { key: "streetNumber", label: "Street number", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "streetName", label: "Street name", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "unitNumber", label: "Unit", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "neighborhood", label: "Neighborhood", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "city", label: "Municipality / city", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "stateOrProvince", label: "State / province", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "postalCode", label: "Postal code", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "country", label: "Country", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "isoCountryCode", label: "ISO country", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "latitude", label: "Latitude", kind: FieldKind::Number, wide: false, hint: None },
-    FieldSpec { key: "longitude", label: "Longitude", kind: FieldKind::Number, wide: false, hint: None },
+    FieldSpec {
+        key: "location",
+        label: "Location label",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "addressLine1",
+        label: "Address line",
+        kind: FieldKind::Text,
+        wide: true,
+        hint: None,
+    },
+    FieldSpec {
+        key: "streetNumber",
+        label: "Street number",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "streetName",
+        label: "Street name",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "unitNumber",
+        label: "Unit",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "neighborhood",
+        label: "Neighborhood",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "city",
+        label: "Municipality / city",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "stateOrProvince",
+        label: "State / province",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "postalCode",
+        label: "Postal code",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "country",
+        label: "Country",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "isoCountryCode",
+        label: "ISO country",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "latitude",
+        label: "Latitude",
+        kind: FieldKind::Number,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "longitude",
+        label: "Longitude",
+        kind: FieldKind::Number,
+        wide: false,
+        hint: None,
+    },
 ];
 
 const PROPERTY_LEGAL: &[FieldSpec] = &[
-    FieldSpec { key: "legalOwnerName", label: "Legal owner", kind: FieldKind::Text, wide: true, hint: None },
-    FieldSpec { key: "listingIdentifier", label: "MLS / listing ID", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec {
+        key: "legalOwnerName",
+        label: "Legal owner",
+        kind: FieldKind::Text,
+        wide: true,
+        hint: None,
+    },
+    FieldSpec {
+        key: "listingIdentifier",
+        label: "MLS / listing ID",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
 ];
 
 const PROPERTY_PARCEL: &[FieldSpec] = &[
-    FieldSpec { key: "catastroNumber", label: "Catastro number", kind: FieldKind::Text, wide: false, hint: Some("Puerto Rico parcel identifier, distinct from a listing ID.") },
-    FieldSpec { key: "registryEntry", label: "Registry entry", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "fincaNumber", label: "Finca number", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "registrySection", label: "Registry section", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec {
+        key: "catastroNumber",
+        label: "Catastro number",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: Some("Puerto Rico parcel identifier, distinct from a listing ID."),
+    },
+    FieldSpec {
+        key: "registryEntry",
+        label: "Registry entry",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "fincaNumber",
+        label: "Finca number",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "registrySection",
+        label: "Registry section",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
 ];
 
 const PROPERTY_AGENT: &[FieldSpec] = &[
-    FieldSpec { key: "listingAgentName", label: "Listing agent", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "listingAgentEmail", label: "Agent email", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "listingAgentPhone", label: "Agent phone", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "listingOffice", label: "Listing office", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec {
+        key: "listingAgentName",
+        label: "Listing agent",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "listingAgentEmail",
+        label: "Agent email",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "listingAgentPhone",
+        label: "Agent phone",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "listingOffice",
+        label: "Listing office",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
 ];
 
 const WEBSITE_FIELDS: &[FieldSpec] = &[
-    FieldSpec { key: "slug", label: "Public slug", kind: FieldKind::Text, wide: true, hint: Some("Lowercase letters, numbers and single hyphens.") },
-    FieldSpec { key: "featured", label: "Featured", kind: FieldKind::Toggle, wide: false, hint: None },
-    FieldSpec { key: "isActiveListing", label: "Active listing", kind: FieldKind::Toggle, wide: false, hint: None },
-    FieldSpec { key: "isPublished", label: "Published", kind: FieldKind::Toggle, wide: false, hint: None },
-    FieldSpec { key: "shortDescription", label: "Short description", kind: FieldKind::Textarea(3), wide: true, hint: None },
-    FieldSpec { key: "editorialDescription", label: "Editorial description", kind: FieldKind::Textarea(6), wide: true, hint: None },
-    FieldSpec { key: "publicRemarks", label: "Public remarks", kind: FieldKind::Textarea(6), wide: true, hint: Some("Canonical remarks reused by downstream publication preparation.") },
-    FieldSpec { key: "seoTitle", label: "Search title", kind: FieldKind::Text, wide: true, hint: None },
-    FieldSpec { key: "seoDescription", label: "Search description", kind: FieldKind::Textarea(3), wide: true, hint: None },
-    FieldSpec { key: "heroTitle", label: "Hero title", kind: FieldKind::Textarea(3), wide: true, hint: None },
-    FieldSpec { key: "tagline", label: "Tagline", kind: FieldKind::Textarea(3), wide: true, hint: None },
-    FieldSpec { key: "architectureNotes", label: "Architecture notes", kind: FieldKind::Textarea(3), wide: true, hint: None },
-    FieldSpec { key: "amenitiesNotes", label: "Amenities notes", kind: FieldKind::Textarea(3), wide: true, hint: None },
-    FieldSpec { key: "lifestyleNotes", label: "Lifestyle notes", kind: FieldKind::Textarea(3), wide: true, hint: None },
+    FieldSpec {
+        key: "slug",
+        label: "Public slug",
+        kind: FieldKind::Text,
+        wide: true,
+        hint: Some("Lowercase letters, numbers and single hyphens."),
+    },
+    FieldSpec {
+        key: "featured",
+        label: "Featured",
+        kind: FieldKind::Toggle,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "isActiveListing",
+        label: "Active listing",
+        kind: FieldKind::Toggle,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "isPublished",
+        label: "Published",
+        kind: FieldKind::Toggle,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "shortDescription",
+        label: "Short description",
+        kind: FieldKind::Textarea(3),
+        wide: true,
+        hint: None,
+    },
+    FieldSpec {
+        key: "editorialDescription",
+        label: "Editorial description",
+        kind: FieldKind::Textarea(6),
+        wide: true,
+        hint: None,
+    },
+    FieldSpec {
+        key: "publicRemarks",
+        label: "Public remarks",
+        kind: FieldKind::Textarea(6),
+        wide: true,
+        hint: Some("Canonical remarks reused by downstream publication preparation."),
+    },
+    FieldSpec {
+        key: "seoTitle",
+        label: "Search title",
+        kind: FieldKind::Text,
+        wide: true,
+        hint: None,
+    },
+    FieldSpec {
+        key: "seoDescription",
+        label: "Search description",
+        kind: FieldKind::Textarea(3),
+        wide: true,
+        hint: None,
+    },
+    FieldSpec {
+        key: "heroTitle",
+        label: "Hero title",
+        kind: FieldKind::Textarea(3),
+        wide: true,
+        hint: None,
+    },
+    FieldSpec {
+        key: "tagline",
+        label: "Tagline",
+        kind: FieldKind::Textarea(3),
+        wide: true,
+        hint: None,
+    },
+    FieldSpec {
+        key: "architectureNotes",
+        label: "Architecture notes",
+        kind: FieldKind::Textarea(3),
+        wide: true,
+        hint: None,
+    },
+    FieldSpec {
+        key: "amenitiesNotes",
+        label: "Amenities notes",
+        kind: FieldKind::Textarea(3),
+        wide: true,
+        hint: None,
+    },
+    FieldSpec {
+        key: "lifestyleNotes",
+        label: "Lifestyle notes",
+        kind: FieldKind::Textarea(3),
+        wide: true,
+        hint: None,
+    },
 ];
 
 const MLS_FIELDS: &[FieldSpec] = &[
-    FieldSpec { key: "listingContractDate", label: "Listing contract date", kind: FieldKind::Date, wide: false, hint: None },
-    FieldSpec { key: "expirationDate", label: "Expiration date", kind: FieldKind::Date, wide: false, hint: None },
-    FieldSpec { key: "listingType", label: "Listing type", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "agentMlsId", label: "Agent MLS ID", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "taxId", label: "Tax ID", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "taxYear", label: "Tax year", kind: FieldKind::Number, wide: false, hint: None },
-    FieldSpec { key: "annualTax", label: "Annual tax", kind: FieldKind::Number, wide: false, hint: None },
-    FieldSpec { key: "zoning", label: "Zoning", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "totalAreaSqft", label: "Total area sqft", kind: FieldKind::Number, wide: false, hint: None },
-    FieldSpec { key: "heatedAreaSource", label: "Heated area source", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "ownershipType", label: "Ownership type", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "occupantType", label: "Occupant type", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "legalDescription", label: "Legal description", kind: FieldKind::Textarea(4), wide: true, hint: None },
-    FieldSpec { key: "hoaDetails", label: "HOA details", kind: FieldKind::Textarea(4), wide: true, hint: None },
-    FieldSpec { key: "showingInstructions", label: "Showing instructions", kind: FieldKind::Textarea(4), wide: true, hint: None },
+    FieldSpec {
+        key: "listingContractDate",
+        label: "Listing contract date",
+        kind: FieldKind::Date,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "expirationDate",
+        label: "Expiration date",
+        kind: FieldKind::Date,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "listingType",
+        label: "Listing type",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "agentMlsId",
+        label: "Agent MLS ID",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "taxId",
+        label: "Tax ID",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "taxYear",
+        label: "Tax year",
+        kind: FieldKind::Number,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "annualTax",
+        label: "Annual tax",
+        kind: FieldKind::Number,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "zoning",
+        label: "Zoning",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "totalAreaSqft",
+        label: "Total area sqft",
+        kind: FieldKind::Number,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "heatedAreaSource",
+        label: "Heated area source",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "ownershipType",
+        label: "Ownership type",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "occupantType",
+        label: "Occupant type",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "legalDescription",
+        label: "Legal description",
+        kind: FieldKind::Textarea(4),
+        wide: true,
+        hint: None,
+    },
+    FieldSpec {
+        key: "hoaDetails",
+        label: "HOA details",
+        kind: FieldKind::Textarea(4),
+        wide: true,
+        hint: None,
+    },
+    FieldSpec {
+        key: "showingInstructions",
+        label: "Showing instructions",
+        kind: FieldKind::Textarea(4),
+        wide: true,
+        hint: None,
+    },
 ];
 
-const PROPERTY_ADMIN_FIELDS: &[FieldSpec] = &[
-    FieldSpec { key: "archived", label: "Archived record", kind: FieldKind::Toggle, wide: false, hint: Some("Archives the record without rewriting transaction-owned listing status.") },
-];
+const PROPERTY_ADMIN_FIELDS: &[FieldSpec] = &[FieldSpec {
+    key: "archived",
+    label: "Archived record",
+    kind: FieldKind::Toggle,
+    wide: false,
+    hint: Some("Archives the record without rewriting transaction-owned listing status."),
+}];
 
 const PERSON_FIELDS: &[FieldSpec] = &[
-    FieldSpec { key: "displayName", label: "Display name", kind: FieldKind::Text, wide: true, hint: None },
-    FieldSpec { key: "status", label: "Status", kind: FieldKind::Select(PERSON_STATUS), wide: false, hint: None },
-    FieldSpec { key: "company", label: "Company", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec {
+        key: "displayName",
+        label: "Display name",
+        kind: FieldKind::Text,
+        wide: true,
+        hint: None,
+    },
+    FieldSpec {
+        key: "status",
+        label: "Status",
+        kind: FieldKind::Select(PERSON_STATUS),
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "company",
+        label: "Company",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
 ];
 
 const PROJECT_FIELDS: &[FieldSpec] = &[
-    FieldSpec { key: "name", label: "Project name", kind: FieldKind::Text, wide: true, hint: None },
-    FieldSpec { key: "status", label: "Status", kind: FieldKind::Select(PROJECT_STATUS), wide: false, hint: None },
-    FieldSpec { key: "owner", label: "Owner", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "projectType", label: "Project type", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "areas", label: "Areas", kind: FieldKind::Text, wide: true, hint: Some("Comma-separated project domains.") },
-    FieldSpec { key: "description", label: "Description", kind: FieldKind::Textarea(6), wide: true, hint: None },
+    FieldSpec {
+        key: "name",
+        label: "Project name",
+        kind: FieldKind::Text,
+        wide: true,
+        hint: None,
+    },
+    FieldSpec {
+        key: "status",
+        label: "Status",
+        kind: FieldKind::Select(PROJECT_STATUS),
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "owner",
+        label: "Owner",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "projectType",
+        label: "Project type",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "areas",
+        label: "Areas",
+        kind: FieldKind::Text,
+        wide: true,
+        hint: Some("Comma-separated project domains."),
+    },
+    FieldSpec {
+        key: "description",
+        label: "Description",
+        kind: FieldKind::Textarea(6),
+        wide: true,
+        hint: None,
+    },
 ];
 
 const PROJECT_LINKS: &[FieldSpec] = &[
-    FieldSpec { key: "playbookId", label: "Playbook ID", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "playbookVersion", label: "Playbook version", kind: FieldKind::Number, wide: false, hint: None },
-    FieldSpec { key: "personId", label: "Person ID", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "propertyId", label: "Property ID", kind: FieldKind::Text, wide: false, hint: None },
-    FieldSpec { key: "contractId", label: "Contract ID", kind: FieldKind::Text, wide: false, hint: None },
+    FieldSpec {
+        key: "playbookId",
+        label: "Playbook ID",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "playbookVersion",
+        label: "Playbook version",
+        kind: FieldKind::Number,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "personId",
+        label: "Person ID",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "propertyId",
+        label: "Property ID",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "contractId",
+        label: "Contract ID",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
 ];
 
 fn payload(model: &crate::model::Model) -> Option<&PortalOpsWorkbenchPage> {
@@ -337,7 +985,9 @@ fn selector_rail(
     let search = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
-            let value = event.target_unchecked_into::<web_sys::HtmlInputElement>().value();
+            let value = event
+                .target_unchecked_into::<web_sys::HtmlInputElement>()
+                .value();
             on_msg.emit(Msg::QueryChanged(value));
         })
     };
@@ -463,14 +1113,18 @@ fn create_property(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html 
     let change = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
-            let value = event.target_unchecked_into::<web_sys::HtmlInputElement>().value();
+            let value = event
+                .target_unchecked_into::<web_sys::HtmlInputElement>()
+                .value();
             on_msg.emit(Msg::OpsCreateNameChanged(value));
         })
     };
     let change_type = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
-            let value = event.target_unchecked_into::<web_sys::HtmlInputElement>().value();
+            let value = event
+                .target_unchecked_into::<web_sys::HtmlInputElement>()
+                .value();
             on_msg.emit(Msg::OpsCreateTypeChanged(value));
         })
     };
@@ -534,22 +1188,40 @@ fn editor_header(
     on_msg: &Callback<Msg>,
 ) -> Html {
     let (title, subtitle, status) = match data.entity.as_str() {
-        "person" => data.person.as_ref().map(|record| (
-            record.display_name.clone(),
-            record.company.clone().or_else(|| record.email.clone()).unwrap_or_else(|| "Person".into()),
-            record.status.clone(),
-        )),
-        "project" => data.project.as_ref().map(|record| (
-            record.name.clone(),
-            record.project_type.clone().unwrap_or_else(|| "Project".into()),
-            record.status.clone(),
-        )),
-        _ => data.property.as_ref().map(|record| (
-            record.name.clone(),
-            record.location.clone().unwrap_or_else(|| "Property".into()),
-            if record.archived { "archived".into() } else { record.status.clone() },
-        )),
-    }.unwrap_or_else(|| ("Record".into(), String::new(), String::new()));
+        "person" => data.person.as_ref().map(|record| {
+            (
+                record.display_name.clone(),
+                record
+                    .company
+                    .clone()
+                    .or_else(|| record.email.clone())
+                    .unwrap_or_else(|| "Person".into()),
+                record.status.clone(),
+            )
+        }),
+        "project" => data.project.as_ref().map(|record| {
+            (
+                record.name.clone(),
+                record
+                    .project_type
+                    .clone()
+                    .unwrap_or_else(|| "Project".into()),
+                record.status.clone(),
+            )
+        }),
+        _ => data.property.as_ref().map(|record| {
+            (
+                record.name.clone(),
+                record.location.clone().unwrap_or_else(|| "Property".into()),
+                if record.archived {
+                    "archived".into()
+                } else {
+                    record.status.clone()
+                },
+            )
+        }),
+    }
+    .unwrap_or_else(|| ("Record".into(), String::new(), String::new()));
 
     let save = {
         let on_msg = on_msg.clone();
@@ -650,7 +1322,11 @@ fn metric(label: &str, value: &str) -> Html {
 
 fn section_tabs(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
     let tabs: &[(&str, &str)] = match model.ops.entity.as_str() {
-        "person" => &[("identity", "Identity"), ("contact", "Contact"), ("relations", "Relations")],
+        "person" => &[
+            ("identity", "Identity"),
+            ("contact", "Contact"),
+            ("relations", "Relations"),
+        ],
         "project" => &[("project", "Project"), ("links", "Links")],
         _ => &[
             ("property", "Property"),
@@ -1335,11 +2011,7 @@ fn field_panel(
     }
 }
 
-fn field_grid(
-    model: &crate::model::Model,
-    on_msg: &Callback<Msg>,
-    fields: &[FieldSpec],
-) -> Html {
+fn field_grid(model: &crate::model::Model, on_msg: &Callback<Msg>, fields: &[FieldSpec]) -> Html {
     html! {
         <div class="grid gap-4 lg:grid-cols-2">
             {for fields.iter().map(|field| editor_field(model, on_msg, field))}
@@ -1347,11 +2019,7 @@ fn field_grid(
     }
 }
 
-fn editor_field(
-    model: &crate::model::Model,
-    on_msg: &Callback<Msg>,
-    field: &FieldSpec,
-) -> Html {
+fn editor_field(model: &crate::model::Model, on_msg: &Callback<Msg>, field: &FieldSpec) -> Html {
     let field_value = value(model, field.key);
     let wrapper = if field.wide { "lg:col-span-2" } else { "" };
     let disabled = model.ops.saving;
@@ -1414,7 +2082,11 @@ fn editor_field(
                 FieldKind::Number => "number",
                 _ => "text",
             };
-            let step = if matches!(field.kind, FieldKind::Number) { "any" } else { "" };
+            let step = if matches!(field.kind, FieldKind::Number) {
+                "any"
+            } else {
+                ""
+            };
             let key = field.key.to_string();
             let on_msg = on_msg.clone();
             html! {

@@ -2,16 +2,16 @@
 //!
 //! This crate must not depend on database, HTTP, process, or provider adapters.
 
-pub mod calendar;
 pub mod accounting;
-pub mod cockpit;
-pub mod deal_portal;
+pub mod calendar;
 pub mod client;
+pub mod cockpit;
 pub mod comms;
 pub mod contract;
+pub mod deal_portal;
 pub mod firm;
-pub mod forms;
 pub mod flight_recorder;
+pub mod forms;
 pub mod media;
 pub mod person;
 pub mod project;
@@ -38,7 +38,6 @@ pub use project::{
     WbsCategory,
 };
 
-pub use public_listing::PublicListingCopy;
 pub use property::{
     CreatePropertyAdminRequest, FindPropertyByAddressRequest, PersonPropertyContext,
     PersonPropertyRelation, Property, PropertyAddress, PropertyAddressPatch, PropertyAdminPage,
@@ -46,6 +45,7 @@ pub use property::{
     PropertyStellarDetails, SavePropertyAdminRequest, SetPropertyDisplayNameRequest,
     SetPropertyStatusRequest, UpsertPropertyForPersonRequest,
 };
+pub use public_listing::PublicListingCopy;
 
 pub use security::{
     resolve_security_level, ActingUser, SecurityIdentityResolution, SecurityLevel,
@@ -111,7 +111,6 @@ pub use signature::{
     SignatureRequestResult, SignatureRequestStatus, SignatureStatusResult,
     SignatureWebhookVerification,
 };
-
 
 pub use task::TaskCompletion;
 

@@ -215,7 +215,6 @@ impl<R: AccountingRepository> AccountingService<R> {
         result
     }
 
-
     /// Record an expense.
     pub async fn create_expense(
         &mut self,
@@ -370,7 +369,10 @@ mod tests {
             "receivable-1".to_owned()
         }
 
-        fn record_paid(&self, command: &MarkReceivablePaidCommand) -> Option<MarkReceivablePaidOutcome> {
+        fn record_paid(
+            &self,
+            command: &MarkReceivablePaidCommand,
+        ) -> Option<MarkReceivablePaidOutcome> {
             let mut recorder = self.0.lock().unwrap();
             recorder.paid.push(command.clone());
             recorder.paid_outcome.clone()
@@ -538,5 +540,4 @@ mod tests {
         assert_eq!(error.code(), "EXPENSE_CATEGORY_INVALID");
         assert!(repository.0.lock().unwrap().created_expenses.is_empty());
     }
-
 }

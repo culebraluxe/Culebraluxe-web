@@ -22,7 +22,8 @@ use crate::yew_views::portal_shell::PortalShell;
 
 /// The ring's slice colours, as the live screen drew them.
 const DONUT_COLOURS: [&str; 9] = [
-    "#c6a15b", "#7dd3fc", "#f0abfc", "#86efac", "#fcd34d", "#fca5a5", "#a5b4fc", "#93c5fd", "#e2e8f0",
+    "#c6a15b", "#7dd3fc", "#f0abfc", "#86efac", "#fcd34d", "#fca5a5", "#a5b4fc", "#93c5fd",
+    "#e2e8f0",
 ];
 
 /// The controlled input styling the live form used.
@@ -65,8 +66,8 @@ impl Component for Expenses {
 
     fn view(&self, ctx: &Context<Self>) -> Html {
         let props = ctx.props();
-        let screen =
-            crate::model::screen("accounting-expenses").expect("the expenses screen is in the registry");
+        let screen = crate::model::screen("accounting-expenses")
+            .expect("the expenses screen is in the registry");
         html! {
             <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
                 <AccountingShell eyebrow="Accounting" title="Expenses">
@@ -128,7 +129,6 @@ impl Expenses {
         }
     }
 }
-
 
 impl Expenses {
     /// The create form.
@@ -212,7 +212,6 @@ impl Expenses {
     }
 }
 
-
 impl Expenses {
     /// Expenses by category, as the live screen drew it: a ring, and the categories with their totals.
     ///
@@ -253,7 +252,6 @@ impl Expenses {
         }
     }
 }
-
 
 impl Expenses {
     /// The book: every expense, newest first, with the name that identifies what it belongs to.
@@ -321,7 +319,10 @@ fn ring_stops(categories: &[PortalAccountingShare]) -> String {
             let from = cursor;
             let to = cursor + category.percent.max(0) * 360 / 100;
             cursor = to;
-            format!("{} {from}deg {to}deg", DONUT_COLOURS[index % DONUT_COLOURS.len()])
+            format!(
+                "{} {from}deg {to}deg",
+                DONUT_COLOURS[index % DONUT_COLOURS.len()]
+            )
         })
         .collect::<Vec<_>>()
         .join(", ")
@@ -352,4 +353,3 @@ fn expense_status_badge(status: &str) -> Html {
         </span>
     }
 }
-

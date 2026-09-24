@@ -25,7 +25,8 @@ impl Component for SellerStrategy {
 
     fn view(&self, ctx: &Context<Self>) -> Html {
         let props = ctx.props();
-        let screen = crate::model::screen("seller-strategy").expect("seller strategy screen exists");
+        let screen =
+            crate::model::screen("seller-strategy").expect("seller strategy screen exists");
         html! {
             <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
                 { cockpit(&props.model, &props.on_msg) }
@@ -60,90 +61,357 @@ struct StrategyDef {
 }
 
 const PARENT_KEY: &[FieldDef] = &[
-    FieldDef { key: "propertyName", label: "Name", kind: FieldKind::Text },
-    FieldDef { key: "appraisal", label: "Appraisal", kind: FieldKind::Money },
-    FieldDef { key: "sellingCostPct", label: "Selling costs %", kind: FieldKind::Percent },
-    FieldDef { key: "discountRate", label: "Discount %", kind: FieldKind::Percent },
-    FieldDef { key: "taxRate", label: "Tax placeholder %", kind: FieldKind::Percent },
+    FieldDef {
+        key: "propertyName",
+        label: "Name",
+        kind: FieldKind::Text,
+    },
+    FieldDef {
+        key: "appraisal",
+        label: "Appraisal",
+        kind: FieldKind::Money,
+    },
+    FieldDef {
+        key: "sellingCostPct",
+        label: "Selling costs %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "discountRate",
+        label: "Discount %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "taxRate",
+        label: "Tax placeholder %",
+        kind: FieldKind::Percent,
+    },
 ];
 
 const PARENT_BASIS: &[FieldDef] = &[
-    FieldDef { key: "purchasePrice", label: "Purchase / basis", kind: FieldKind::Money },
-    FieldDef { key: "extraSpent", label: "Extra spent", kind: FieldKind::Money },
-    FieldDef { key: "contributoryToDate", label: "Contributory extra", kind: FieldKind::Money },
+    FieldDef {
+        key: "purchasePrice",
+        label: "Purchase / basis",
+        kind: FieldKind::Money,
+    },
+    FieldDef {
+        key: "extraSpent",
+        label: "Extra spent",
+        kind: FieldKind::Money,
+    },
+    FieldDef {
+        key: "contributoryToDate",
+        label: "Contributory extra",
+        kind: FieldKind::Money,
+    },
 ];
 
 const O1_FIELDS: &[FieldDef] = &[
-    FieldDef { key: "o1Months", label: "Months", kind: FieldKind::Months },
-    FieldDef { key: "o1Salvage", label: "Salvage", kind: FieldKind::Money },
-    FieldDef { key: "o1LowDelta", label: "Low vs appraisal %", kind: FieldKind::Percent },
-    FieldDef { key: "o1MidDelta", label: "Mid vs appraisal %", kind: FieldKind::Percent },
-    FieldDef { key: "o1HighDelta", label: "Ideal vs appraisal %", kind: FieldKind::Percent },
-    FieldDef { key: "o1PLow", label: "P low %", kind: FieldKind::Percent },
-    FieldDef { key: "o1PMid", label: "P mid %", kind: FieldKind::Percent },
-    FieldDef { key: "o1PHigh", label: "P ideal %", kind: FieldKind::Percent },
+    FieldDef {
+        key: "o1Months",
+        label: "Months",
+        kind: FieldKind::Months,
+    },
+    FieldDef {
+        key: "o1Salvage",
+        label: "Salvage",
+        kind: FieldKind::Money,
+    },
+    FieldDef {
+        key: "o1LowDelta",
+        label: "Low vs appraisal %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o1MidDelta",
+        label: "Mid vs appraisal %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o1HighDelta",
+        label: "Ideal vs appraisal %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o1PLow",
+        label: "P low %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o1PMid",
+        label: "P mid %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o1PHigh",
+        label: "P ideal %",
+        kind: FieldKind::Percent,
+    },
 ];
 
 const O2_FIELDS: &[FieldDef] = &[
-    FieldDef { key: "o2Capex", label: "Capex", kind: FieldKind::Money },
-    FieldDef { key: "o2Months", label: "Months", kind: FieldKind::Months },
-    FieldDef { key: "o2Recovery", label: "Recovery %", kind: FieldKind::Percent },
-    FieldDef { key: "o2Salvage", label: "Salvage", kind: FieldKind::Money },
-    FieldDef { key: "o2LowDelta", label: "Low vs improved %", kind: FieldKind::Percent },
-    FieldDef { key: "o2MidDelta", label: "Base vs improved %", kind: FieldKind::Percent },
-    FieldDef { key: "o2HighDelta", label: "High vs improved %", kind: FieldKind::Percent },
-    FieldDef { key: "o2PLow", label: "P low %", kind: FieldKind::Percent },
-    FieldDef { key: "o2PMid", label: "P base %", kind: FieldKind::Percent },
-    FieldDef { key: "o2PHigh", label: "P high %", kind: FieldKind::Percent },
+    FieldDef {
+        key: "o2Capex",
+        label: "Capex",
+        kind: FieldKind::Money,
+    },
+    FieldDef {
+        key: "o2Months",
+        label: "Months",
+        kind: FieldKind::Months,
+    },
+    FieldDef {
+        key: "o2Recovery",
+        label: "Recovery %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o2Salvage",
+        label: "Salvage",
+        kind: FieldKind::Money,
+    },
+    FieldDef {
+        key: "o2LowDelta",
+        label: "Low vs improved %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o2MidDelta",
+        label: "Base vs improved %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o2HighDelta",
+        label: "High vs improved %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o2PLow",
+        label: "P low %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o2PMid",
+        label: "P base %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o2PHigh",
+        label: "P high %",
+        kind: FieldKind::Percent,
+    },
 ];
 
 const O3_FIELDS: &[FieldDef] = &[
-    FieldDef { key: "o3Capex", label: "Launch cash", kind: FieldKind::Money },
-    FieldDef { key: "o3Months", label: "Months", kind: FieldKind::Months },
-    FieldDef { key: "o3Noi", label: "Stabilized NOI", kind: FieldKind::Money },
-    FieldDef { key: "o3CapRate", label: "Cap rate %", kind: FieldKind::Percent },
-    FieldDef { key: "o3PSuccess", label: "P stabilize %", kind: FieldKind::Percent },
-    FieldDef { key: "o3FailSalvage", label: "Fail salvage price", kind: FieldKind::Money },
-    FieldDef { key: "o3LowDelta", label: "Low vs NOI/cap %", kind: FieldKind::Percent },
-    FieldDef { key: "o3MidDelta", label: "Base vs NOI/cap %", kind: FieldKind::Percent },
-    FieldDef { key: "o3HighDelta", label: "High vs NOI/cap %", kind: FieldKind::Percent },
-    FieldDef { key: "o3PLow", label: "P low | success %", kind: FieldKind::Percent },
-    FieldDef { key: "o3PMid", label: "P base | success %", kind: FieldKind::Percent },
-    FieldDef { key: "o3PHigh", label: "P high | success %", kind: FieldKind::Percent },
+    FieldDef {
+        key: "o3Capex",
+        label: "Launch cash",
+        kind: FieldKind::Money,
+    },
+    FieldDef {
+        key: "o3Months",
+        label: "Months",
+        kind: FieldKind::Months,
+    },
+    FieldDef {
+        key: "o3Noi",
+        label: "Stabilized NOI",
+        kind: FieldKind::Money,
+    },
+    FieldDef {
+        key: "o3CapRate",
+        label: "Cap rate %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o3PSuccess",
+        label: "P stabilize %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o3FailSalvage",
+        label: "Fail salvage price",
+        kind: FieldKind::Money,
+    },
+    FieldDef {
+        key: "o3LowDelta",
+        label: "Low vs NOI/cap %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o3MidDelta",
+        label: "Base vs NOI/cap %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o3HighDelta",
+        label: "High vs NOI/cap %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o3PLow",
+        label: "P low | success %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o3PMid",
+        label: "P base | success %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o3PHigh",
+        label: "P high | success %",
+        kind: FieldKind::Percent,
+    },
 ];
 
 const O4_FIELDS: &[FieldDef] = &[
-    FieldDef { key: "o4Capex", label: "Split cost", kind: FieldKind::Money },
-    FieldDef { key: "o4Months", label: "Months", kind: FieldKind::Months },
-    FieldDef { key: "o4AssetBase", label: "Asset proceeds base", kind: FieldKind::Money },
-    FieldDef { key: "o4Salvage", label: "Leftover salvage", kind: FieldKind::Money },
-    FieldDef { key: "o4LowDelta", label: "Low %", kind: FieldKind::Percent },
-    FieldDef { key: "o4MidDelta", label: "Mid %", kind: FieldKind::Percent },
-    FieldDef { key: "o4HighDelta", label: "High %", kind: FieldKind::Percent },
-    FieldDef { key: "o4PLow", label: "P low %", kind: FieldKind::Percent },
-    FieldDef { key: "o4PMid", label: "P mid %", kind: FieldKind::Percent },
-    FieldDef { key: "o4PHigh", label: "P high %", kind: FieldKind::Percent },
+    FieldDef {
+        key: "o4Capex",
+        label: "Split cost",
+        kind: FieldKind::Money,
+    },
+    FieldDef {
+        key: "o4Months",
+        label: "Months",
+        kind: FieldKind::Months,
+    },
+    FieldDef {
+        key: "o4AssetBase",
+        label: "Asset proceeds base",
+        kind: FieldKind::Money,
+    },
+    FieldDef {
+        key: "o4Salvage",
+        label: "Leftover salvage",
+        kind: FieldKind::Money,
+    },
+    FieldDef {
+        key: "o4LowDelta",
+        label: "Low %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o4MidDelta",
+        label: "Mid %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o4HighDelta",
+        label: "High %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o4PLow",
+        label: "P low %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o4PMid",
+        label: "P mid %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o4PHigh",
+        label: "P high %",
+        kind: FieldKind::Percent,
+    },
 ];
 
 const O5_FIELDS: &[FieldDef] = &[
-    FieldDef { key: "o5Share", label: "Share sold %", kind: FieldKind::Percent },
-    FieldDef { key: "o5Months", label: "Months", kind: FieldKind::Months },
-    FieldDef { key: "o5PeriodCash", label: "Income/(carry) over period", kind: FieldKind::Money },
-    FieldDef { key: "o5Capex", label: "Keep-up capex", kind: FieldKind::Money },
-    FieldDef { key: "o5LowDelta", label: "Low vs appraisal %", kind: FieldKind::Percent },
-    FieldDef { key: "o5MidDelta", label: "Mid vs appraisal %", kind: FieldKind::Percent },
-    FieldDef { key: "o5HighDelta", label: "High vs appraisal %", kind: FieldKind::Percent },
-    FieldDef { key: "o5PLow", label: "P low %", kind: FieldKind::Percent },
-    FieldDef { key: "o5PMid", label: "P mid %", kind: FieldKind::Percent },
-    FieldDef { key: "o5PHigh", label: "P high %", kind: FieldKind::Percent },
+    FieldDef {
+        key: "o5Share",
+        label: "Share sold %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o5Months",
+        label: "Months",
+        kind: FieldKind::Months,
+    },
+    FieldDef {
+        key: "o5PeriodCash",
+        label: "Income/(carry) over period",
+        kind: FieldKind::Money,
+    },
+    FieldDef {
+        key: "o5Capex",
+        label: "Keep-up capex",
+        kind: FieldKind::Money,
+    },
+    FieldDef {
+        key: "o5LowDelta",
+        label: "Low vs appraisal %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o5MidDelta",
+        label: "Mid vs appraisal %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o5HighDelta",
+        label: "High vs appraisal %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o5PLow",
+        label: "P low %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o5PMid",
+        label: "P mid %",
+        kind: FieldKind::Percent,
+    },
+    FieldDef {
+        key: "o5PHigh",
+        label: "P high %",
+        kind: FieldKind::Percent,
+    },
 ];
 
 const STRATEGIES: &[StrategyDef] = &[
-    StrategyDef { id: 1, title: "Sell As-Is", short: "As-is", blurb: "Same house. Extra kit is salvage.", accent: "#1B365D", fields: O1_FIELDS },
-    StrategyDef { id: 2, title: "Improve then Sell", short: "Improve", blurb: "Same product, more brick.", accent: "#0F6E6B", fields: O2_FIELDS },
-    StrategyDef { id: 3, title: "Join", short: "Join", blurb: "One ticket: house + business.", accent: "#B85C38", fields: O3_FIELDS },
-    StrategyDef { id: 4, title: "Fork", short: "Fork", blurb: "House and assets separate.", accent: "#6C3483", fields: O4_FIELDS },
-    StrategyDef { id: 5, title: "Hold", short: "Hold", blurb: "Keep or sell only a share.", accent: "#7D6608", fields: O5_FIELDS },
+    StrategyDef {
+        id: 1,
+        title: "Sell As-Is",
+        short: "As-is",
+        blurb: "Same house. Extra kit is salvage.",
+        accent: "#1B365D",
+        fields: O1_FIELDS,
+    },
+    StrategyDef {
+        id: 2,
+        title: "Improve then Sell",
+        short: "Improve",
+        blurb: "Same product, more brick.",
+        accent: "#0F6E6B",
+        fields: O2_FIELDS,
+    },
+    StrategyDef {
+        id: 3,
+        title: "Join",
+        short: "Join",
+        blurb: "One ticket: house + business.",
+        accent: "#B85C38",
+        fields: O3_FIELDS,
+    },
+    StrategyDef {
+        id: 4,
+        title: "Fork",
+        short: "Fork",
+        blurb: "House and assets separate.",
+        accent: "#6C3483",
+        fields: O4_FIELDS,
+    },
+    StrategyDef {
+        id: 5,
+        title: "Hold",
+        short: "Hold",
+        blurb: "Keep or sell only a share.",
+        accent: "#7D6608",
+        fields: O5_FIELDS,
+    },
 ];
 
 fn cockpit(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
@@ -360,7 +628,11 @@ fn ranking_row(score: &OptionScore, max_pv: f64) -> Html {
     } else {
         0.0
     };
-    let fill = if score.best { "var(--portal-gold)" } else { "rgba(255,255,255,0.5)" };
+    let fill = if score.best {
+        "var(--portal-gold)"
+    } else {
+        "rgba(255,255,255,0.5)"
+    };
     html! {
         <div class="flex items-center gap-2">
             <span class="w-14 flex-none text-[11px] font-medium text-white">{ score.short }</span>
@@ -417,7 +689,11 @@ fn field_value(inputs: &Inputs, field: FieldDef) -> String {
         return value.as_str().unwrap_or_default().to_owned();
     }
     let number = value.as_f64().unwrap_or(0.0);
-    let number = if field.kind == FieldKind::Percent { number * 100.0 } else { number };
+    let number = if field.kind == FieldKind::Percent {
+        number * 100.0
+    } else {
+        number
+    };
     crate::seller_strategy::number((number * 10.0).round() / 10.0)
 }
 
@@ -427,8 +703,13 @@ fn strategy_card(
     active_edit: Option<OptionId>,
     on_msg: &Callback<Msg>,
 ) -> Html {
-    let score = model.scores.iter().find(|score| score.option == strategy.id);
-    let Some(score) = score else { return html! {}; };
+    let score = model
+        .scores
+        .iter()
+        .find(|score| score.option == strategy.id);
+    let Some(score) = score else {
+        return html! {};
+    };
     let option = strategy.id;
     let toggle = {
         let on_msg = on_msg.clone();
@@ -441,7 +722,11 @@ fn strategy_card(
     };
     let edit = {
         let on_msg = on_msg.clone();
-        let next = if active_edit == Some(strategy.id) { None } else { Some(strategy.id) };
+        let next = if active_edit == Some(strategy.id) {
+            None
+        } else {
+            Some(strategy.id)
+        };
         Callback::from(move |_: MouseEvent| on_msg.emit(Msg::SellerStrategyActiveEditChanged(next)))
     };
     let opacity = if score.on { "" } else { "opacity:0.55;" };
@@ -564,7 +849,12 @@ fn tips(option: OptionId) -> &'static [(&'static str, &'static str)] {
     match option {
         1 => &[("1L", "LOW"), ("1M", "MID"), ("1H", "IDEAL")],
         2 => &[("2L", "LOW"), ("2M", "BASE"), ("2H", "HIGH")],
-        3 => &[("3L", "LOW"), ("3M", "BASE"), ("3H", "HIGH"), ("3F", "FAIL")],
+        3 => &[
+            ("3L", "LOW"),
+            ("3M", "BASE"),
+            ("3H", "HIGH"),
+            ("3F", "FAIL"),
+        ],
         4 => &[("4L", "LOW"), ("4M", "MID"), ("4H", "HIGH")],
         _ => &[("5L", "LOW"), ("5M", "MID"), ("5H", "HIGH")],
     }

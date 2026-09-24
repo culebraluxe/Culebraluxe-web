@@ -14,10 +14,10 @@
 use yew::prelude::*;
 
 use crate::model::{
-    Msg, PortalEnvironmentReadiness, PortalSystemHealthSnapshot,
-    PortalWorkflowAnomaly, PortalWorkflowCorrelation, PortalWorkflowDefinition,
-    PortalWorkflowDiagnosticEvent, PortalWorkflowDiagnostics, PortalWorkflowInstance,
-    PortalWorkflowInstanceDetail, PortalWorkflowJob, PortalWorkflowTask, PortalWorkflowToken,
+    Msg, PortalEnvironmentReadiness, PortalSystemHealthSnapshot, PortalWorkflowAnomaly,
+    PortalWorkflowCorrelation, PortalWorkflowDefinition, PortalWorkflowDiagnosticEvent,
+    PortalWorkflowDiagnostics, PortalWorkflowInstance, PortalWorkflowInstanceDetail,
+    PortalWorkflowJob, PortalWorkflowTask, PortalWorkflowToken,
 };
 use crate::yew_views::portal_shell::PortalShell;
 
@@ -50,8 +50,8 @@ impl Component for SystemHealth {
 
     fn view(&self, ctx: &Context<Self>) -> Html {
         let props = ctx.props();
-        let screen =
-            crate::model::screen("system-health").expect("the system health screen is in the registry");
+        let screen = crate::model::screen("system-health")
+            .expect("the system health screen is in the registry");
         html! {
             <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
                 { self.body(&props.model, &props.on_msg) }
@@ -228,7 +228,6 @@ impl SystemHealth {
     }
 }
 
-
 impl SystemHealth {
     /// The environment and secrets posture.
     ///
@@ -242,13 +241,25 @@ impl SystemHealth {
     fn environment(&self, readiness: &PortalEnvironmentReadiness) -> Html {
         let items: [(&str, bool); 10] = [
             ("Database configured", readiness.database_configured),
-            ("DEV / PROD database separated", readiness.database_dev_prod_separated),
+            (
+                "DEV / PROD database separated",
+                readiness.database_dev_prod_separated,
+            ),
             ("Auth secret configured", readiness.auth_secret_configured),
-            ("Auth provider configured", readiness.auth_provider_configured),
+            (
+                "Auth provider configured",
+                readiness.auth_provider_configured,
+            ),
             ("Break-glass configured", readiness.break_glass_configured),
             ("Break-glass enabled", readiness.break_glass_enabled),
-            ("Google Maps key configured", readiness.google_maps_key_configured),
-            ("Demo key absent (production)", readiness.google_maps_demo_key_absent_in_production),
+            (
+                "Google Maps key configured",
+                readiness.google_maps_key_configured,
+            ),
+            (
+                "Demo key absent (production)",
+                readiness.google_maps_demo_key_absent_in_production,
+            ),
             ("Mux tokens configured", readiness.mux_configured),
             (
                 "Broker signature configured",
@@ -479,8 +490,7 @@ impl SystemHealth {
         instance: &PortalWorkflowInstance,
         on_msg: &Callback<Msg>,
     ) -> Html {
-        let selected =
-            workflow.selected_instance.as_deref() == Some(instance.instance_id.as_str());
+        let selected = workflow.selected_instance.as_deref() == Some(instance.instance_id.as_str());
         let toggle = {
             let on_msg = on_msg.clone();
             let instance_id = instance.instance_id.clone();
@@ -1161,4 +1171,3 @@ fn facts_block(variables: Option<&serde_json::Value>) -> Html {
         </pre>
     }
 }
-

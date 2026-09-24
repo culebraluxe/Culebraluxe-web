@@ -63,17 +63,18 @@ pub fn format_money(amount: &str) -> String {
     }
     let zero = whole_digits.iter().all(|digit| *digit == 0);
     let length = whole_digits.len();
-    let grouped = whole_digits
-        .iter()
-        .enumerate()
-        .fold(String::new(), |mut rendered, (index, digit)| {
-            // A separator before every third digit counted from the right, and never leading.
-            if index > 0 && (length - index) % 3 == 0 {
-                rendered.push(',');
-            }
-            rendered.push(char::from_digit(*digit, 10).unwrap_or('0'));
-            rendered
-        });
+    let grouped =
+        whole_digits
+            .iter()
+            .enumerate()
+            .fold(String::new(), |mut rendered, (index, digit)| {
+                // A separator before every third digit counted from the right, and never leading.
+                if index > 0 && (length - index) % 3 == 0 {
+                    rendered.push(',');
+                }
+                rendered.push(char::from_digit(*digit, 10).unwrap_or('0'));
+                rendered
+            });
     if negative && !zero {
         format!("-${grouped}")
     } else {
@@ -158,7 +159,11 @@ fn count(value: f64) -> String {
 }
 
 fn present(value: &Option<String>) -> Option<String> {
-    value.as_deref().map(str::trim).filter(|value| !value.is_empty()).map(str::to_string)
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 /// The one-line facts under a listing's name, joined with a spaced middle dot. Missing numbers are left out, never
@@ -297,15 +302,25 @@ mod listing_tests {
 
     #[test]
     fn every_card_says_the_same_thing_without_a_price() {
-        let unpriced = Listing { price: Some("  ".into()), ..residence() };
+        let unpriced = Listing {
+            price: Some("  ".into()),
+            ..residence()
+        };
         assert_eq!(listing_price_label(&unpriced), PRICE_ON_REQUEST);
         assert_eq!(listing_price_label(&residence()), "$2,500,000");
     }
 
     #[test]
     fn highlights_come_from_the_listing_flags_in_a_fixed_order() {
-        assert_eq!(listing_highlights(&residence(), 2), vec!["Ocean View", "Beach Access"]);
-        let inland = Listing { views: vec![], beach_access: false, ..residence() };
+        assert_eq!(
+            listing_highlights(&residence(), 2),
+            vec!["Ocean View", "Beach Access"]
+        );
+        let inland = Listing {
+            views: vec![],
+            beach_access: false,
+            ..residence()
+        };
         assert!(listing_highlights(&inland, 2).is_empty());
     }
 
