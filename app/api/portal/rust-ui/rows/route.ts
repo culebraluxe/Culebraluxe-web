@@ -32,7 +32,7 @@ import { getClients } from '@/legacy/db/clients'
 import { listSprintRollups } from '@/legacy/db/sprint'
 import { listAgentWorkItems } from '@/legacy/db/agent-work'
 import { getReportingSnapshot } from '@/legacy/db/reporting'
-import { getSettingsAuthorities, getSettingsRoles, getSettingsUsers } from '@/legacy/db/settings-auth'
+import { getSettingsAuthorities, getSettingsRoles } from '@/legacy/db/settings-auth'
 import { getFactoryCommandCenterSnapshot } from '@/lib/factory-command-center-data'
 import { listIssuedDocuments } from '@/lib/vault-io'
 import { getRuntimeInspection } from '@/legacy/workflow_app/runtime-inspector-read'
@@ -752,7 +752,6 @@ const SCREEN_LOADERS: Record<string, ScreenLoader> = {
   // otherwise the live page renders an empty list too, so an unconfigured engine is an empty screen and not a failure.
   workflows: async () => (engineConfigured() ? factRowsFrom(await getWorkflowSummaries()) : []),
   security: async () => factRowsFrom(await getSecurityStatus()),
-  'settings-users': async () => factRowsFrom(await getSettingsUsers()),
   'settings-roles': async () => factRowsFrom(await getSettingsRoles()),
   'settings-authorities': async () => factRowsFrom(await getSettingsAuthorities()),
 }
