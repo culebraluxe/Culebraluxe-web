@@ -47,6 +47,58 @@ pub struct RoleEntitlements {
     pub entitlement_codes: Vec<String>,
 }
 
+/// One internal application user as shown on the ROOT security-administration screen.
+/// Role codes remain visible for diagnosis, while primary_role_code normalizes the
+/// legacy coarse-role aliases to the canonical assignment vocabulary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecurityUserRoles {
+    pub app_user_id: String,
+    pub display_name: String,
+    pub email: Option<String>,
+    pub account_type: String,
+    pub active: bool,
+    pub role_codes: Vec<String>,
+    pub primary_role_code: Option<String>,
+}
+
+/// The five assignable internal roles. External guest/client access is a separate
+/// account type and is never assigned through the internal-user administration UI.
+pub const CANONICAL_INTERNAL_ROLE_CODES: &[&str] = &[
+    "internal_guest",
+    "user",
+    "business_power_user",
+    "owner",
+    "root",
+];
+
+pub fn canonical_primary_role(role_codes: &[String]) -> Option<&'static str> {
+    if role_codes.iter().any(|role| role == "root") {
+        Some("root")
+    } else if role_codes.iter().any(|role| role == "owner") {
+        Some("owner")
+    } else if role_codes.iter().any(|role| {
+        matches!(
+            role.as_str(),
+            "business_power" | "business_power_user" | "bus_power_user" | "agent"
+        )
+    }) {
+        Some("business_power_user")
+    } else if role_codes
+        .iter()
+        .any(|role| matches!(role.as_str(), "user" | "ops" | "viewer"))
+    {
+        Some("user")
+    } else if role_codes
+        .iter()
+        .any(|role| matches!(role.as_str(), "internal_guest" | "guest"))
+    {
+        Some("internal_guest")
+    } else {
+        None
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SecurityIdentityResolution {
     Known(SecurityPrincipal),
@@ -64,7 +116,7 @@ pub fn resolve_security_level(role_codes: &[String]) -> SecurityLevel {
                     SecurityLevel::BusinessPowerUser
                 }
                 "user" | "ops" | "viewer" => SecurityLevel::User,
-                "guest" | "client" => SecurityLevel::Guest,
+                "guest" | "internal_guest" | "client" => SecurityLevel::Guest,
                 _ => SecurityLevel::Guest,
             };
             current.max(candidate)
@@ -89,5 +141,26 @@ mod tests {
             resolve_security_level(&["viewer".into(), "agent".into()]),
             SecurityLevel::BusinessPowerUser
         );
+    }
+
+    #[test]
+    fn canonical_internal_guest_is_an_explicit_guest_role() {
+        assert_eq!(
+            resolve_security_level(&["internal_guest".into()]),
+            SecurityLevel::Guest
+        );
+        assert_eq!(
+            canonical_primary_role(&["internal_guest".into()]),
+            Some("internal_guest")
+        );
+    }
+
+    #[test]
+    fn legacy_role_aliases_normalize_only_at_the_primary_role_projection() {
+        assert_eq!(
+            canonical_primary_role(&["agent".into()]),
+            Some("business_power_user")
+        );
+        assert_eq!(canonical_primary_role(&["ops".into()]), Some("user"));
     }
 }
