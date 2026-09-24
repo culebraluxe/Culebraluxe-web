@@ -70,6 +70,13 @@ struct SetRoleEntitlementBody {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SetUserPrimaryRoleBody {
+    app_user_id: String,
+    role_code: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct PeopleSearchQuery {
     #[serde(default)]
     query: String,
@@ -504,6 +511,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/readyz", get(ready))
         .route("/v1/whoami", get(whoami))
         .route("/v1/security/role-entitlements", get(role_entitlements).put(set_role_entitlement))
+        .route("/v1/security/users", get(security_users).put(set_user_primary_role))
         .route("/v1/cockpit", get(cockpit))
         .route("/v1/workflows", get(workflows))
         .route("/v1/workflows/{id}", get(workflow_detail))
@@ -644,6 +652,38 @@ async fn set_role_entitlement(
         .await.map_err(|error| correlate(ApiError::from(error), &resolved))?;
     let value = security.list_role_entitlements(&resolved.service)
         .await.map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn security_users(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<Vec<domain::security::SecurityUserRoles>>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let value = state
+        .services()
+        .security()
+        .list_security_users(&resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn set_user_primary_role(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<SetUserPrimaryRoleBody>,
+) -> Result<Json<ApiSuccess<Vec<domain::security::SecurityUserRoles>>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut security = state.services().security();
+    security
+        .set_user_primary_role(&body.app_user_id, &body.role_code, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    let value = security
+        .list_security_users(&resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(value, &resolved))
 }
 
