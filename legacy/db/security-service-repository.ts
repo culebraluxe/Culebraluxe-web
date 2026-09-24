@@ -1,9 +1,11 @@
-import { rustApiRead, rustApiResolveIdentity } from '@/lib/rust-api/client'
 import type { ActingUser } from '@/lib/auth/types'
 import type {
   SecurityRepository,
   SecurityRepositoryIdentityResolution,
 } from '@/legacy/services/security'
+// NOTE: the Rust client is NOT imported statically. It is `server-only` (it reads the Auth.js session and signs
+// bridge headers), and this module is imported by tests and scripts that run outside a Next build just to *see* it.
+// Loading it on the path that needs it keeps those callers loadable; a static import made importing this file throw.
 
 /** The actor as `/v1/whoami` answers it — the TypeScript boundary's field names, from the Rust service. */
 type RustActor = {
@@ -55,6 +57,7 @@ export class RustSecurityRepository implements SecurityRepository {
     providerSubject: string,
   ): Promise<SecurityRepositoryIdentityResolution> {
     try {
+      const { rustApiResolveIdentity } = await import('@/lib/rust-api/client')
       const resolution = await rustApiResolveIdentity(provider, providerSubject)
       if (resolution.kind === 'known') {
         return { kind: 'known', actingUser: toActingUser(resolution.actingUser) }
@@ -70,6 +73,7 @@ export class RustSecurityRepository implements SecurityRepository {
 
   async getPrincipal(appUserId: string): Promise<ActingUser | null> {
     try {
+      const { rustApiRead } = await import('@/lib/rust-api/client')
       const result = await rustApiRead<RustActor>('/v1/whoami')
       const actor = toActingUser(result.value)
       // THE CALLER'S OWN PRINCIPAL ONLY. Every assertion in this adapter resolves the session identity it is called

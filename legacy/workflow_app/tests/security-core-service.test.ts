@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { AuthorizationService, StaticAuthorizationPolicyProvider } from '@/legacy/services/entitlement'
+import { AuthorizationService } from '@/legacy/services/entitlement'
 import {
   SECURITY_OPERATIONS,
   SecurityService,
@@ -69,7 +69,7 @@ test('SECURITY-CORE-01: SecurityService resolves exact mapped identity and level
   }
 
   const service = new SecurityService(repository, {
-    authorization: new AuthorizationService(new StaticAuthorizationPolicyProvider()),
+    authorization: new AuthorizationService(async () => ({ allowed: true, reason: 'test wiring: permit', policyId: 'test:permit', mode: 'enforced' })),
   })
 
   const resolved = await service.execute({
@@ -106,7 +106,7 @@ test('SECURITY-CORE-01: unmapped identity stays unmapped', async () => {
   }
 
   const service = new SecurityService(repository, {
-    authorization: new AuthorizationService(new StaticAuthorizationPolicyProvider()),
+    authorization: new AuthorizationService(async () => ({ allowed: true, reason: 'test wiring: permit', policyId: 'test:permit', mode: 'enforced' })),
   })
   const result = await service.execute({
     operation: SECURITY_OPERATIONS.RESOLVE_IDENTITY,
@@ -120,49 +120,41 @@ test('SECURITY-CORE-01: unmapped identity stays unmapped', async () => {
   )
 })
 
-test('SECURITY-CORE-01: authorization resolver enforces GUEST reads and the contract.execute rule', async () => {
-  const entitlements = new AuthorizationService(new StaticAuthorizationPolicyProvider())
-  assert.equal(entitlements.mode, 'enforced')
+test('SECURITY-CORE-01: the authorization port delegates its decision, it does not hold one', async () => {
+  // THE RULES ARE NOT TESTED HERE ANY MORE, because they are not enforced here any more: the port asks the Rust
+  // security service (see `AuthorizationService`). The contract.execute floor and the GUEST-without-principal rule
+  // moved with them and are asserted in `rust/server/src/security/entitlements.rs`
+  // (`the_contract_floor_and_the_guest_default_hold_where_they_are_enforced`).
+  //
+  // What this test can prove on its own is the DELEGATION: the decision a caller provides is the decision returned,
+  // both ways, and the mode is stamped. A denial arriving as a denial is the property BaseService depends on.
+  const allow = new AuthorizationService(async () => ({
+    allowed: true,
+    reason: 'delegate said yes',
+    policyId: 'test:allow',
+    mode: 'enforced',
+  }))
+  const deny = new AuthorizationService(async () => ({
+    allowed: false,
+    reason: 'no matching entitlement',
+    policyId: 'rule:security.manage.root',
+    mode: 'enforced',
+  }))
 
-  const base = { domain: 'contract', actor: context.actor }
-
-  const guestCommand = await entitlements.authorize({
-    ...base,
-    action: 'contract.write',
-    operation: 'contract.createFromForm',
+  const request = {
+    domain: 'security',
+    action: 'security.role.manage',
+    operation: 'security.setUserPrimaryRole',
     kind: 'command',
-  })
-  assert.equal(guestCommand.allowed, false, 'GUEST (missing principal) command denied under the resolver')
-  assert.equal(guestCommand.policyId, 'default:guest.command-deny')
+    actor: context.actor,
+  } as const
 
-  const guestQuery = await entitlements.authorize({
-    ...base,
-    action: 'contract.read',
-    operation: 'contract.get',
-    kind: 'query',
-  })
-  assert.equal(guestQuery.allowed, true, 'GUEST query allowed under the resolver')
+  const permitted = await allow.authorize({ ...request })
+  assert.equal(permitted.allowed, true)
+  assert.equal(permitted.policyId, 'test:allow')
 
-  const userExecute = await entitlements.authorize({
-    ...base,
-    action: 'contract.execute',
-    operation: 'contract.execute',
-    kind: 'command',
-    principal: { appUserId: 'user-1', level: 'USER', roleCodes: ['user'] },
-  })
-  assert.equal(userExecute.allowed, false, 'contract.execute denied for USER')
-  assert.equal(userExecute.mode, 'enforced')
-
-  const bpuExecute = await entitlements.authorize({
-    ...base,
-    action: 'contract.execute',
-    operation: 'contract.execute',
-    kind: 'command',
-    principal: {
-      appUserId: 'user-1',
-      level: 'BUSINESS_POWER_USER',
-      roleCodes: ['business_power'],
-    },
-  })
-  assert.equal(bpuExecute.allowed, true, 'contract.execute allowed for BUSINESS_POWER_USER')
+  const refused = await deny.authorize({ ...request })
+  assert.equal(refused.allowed, false, 'a denial must reach the caller as a denial')
+  assert.equal(refused.policyId, 'rule:security.manage.root')
+  assert.equal(refused.mode, 'enforced')
 })

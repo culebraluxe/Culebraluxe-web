@@ -5,7 +5,7 @@
 
 import { composeCoreServices } from '@/legacy/services/composition'
 import { AuthorizationService } from '@/legacy/services/entitlement/authorization-service'
-import { StaticAuthorizationPolicyProvider } from '@/legacy/services/entitlement/authorization-service'
+import { harnessAuthorization } from '@/scripts/harness-authorization'
 import { SqlVaultRepository } from '@/legacy/db/vault-service-repository'
 import { getTransactionDocument, listIssuedDocuments } from '@/legacy/db/transaction-document'
 import { getIssuedDocumentForFormInstance } from '@/legacy/db/issued-document'
@@ -24,7 +24,7 @@ const services = composeCoreServices(
     wbs: null as never,
     project: null as never,
   },
-  { authorization: new AuthorizationService(new StaticAuthorizationPolicyProvider()) },
+  { authorization: new AuthorizationService(harnessAuthorization) },
 )
 
 let failures = 0

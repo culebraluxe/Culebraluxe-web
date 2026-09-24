@@ -4,9 +4,9 @@
 // Read-only: it exercises the catalogue, the reads, and that commands are guarded.
 
 import { composeCoreServices } from '@/legacy/services/composition'
+import { harnessAuthorization } from '@/scripts/harness-authorization'
 import {
   AuthorizationService,
-  StaticAuthorizationPolicyProvider,
 } from '@/legacy/services/entitlement/authorization-service'
 import { SqlWbsRepository } from '@/legacy/db/wbs-service-repository'
 import { WBS_OPERATIONS } from '@/legacy/services/wbs'
@@ -23,7 +23,7 @@ const services = composeCoreServices(
     wbs: new SqlWbsRepository(),
     project: null as never,
   },
-  { authorization: new AuthorizationService(new StaticAuthorizationPolicyProvider()) },
+  { authorization: new AuthorizationService(harnessAuthorization) },
 )
 
 let failures = 0

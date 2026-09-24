@@ -8,6 +8,7 @@
 // already carries the same playbook.
 import { randomUUID } from 'node:crypto'
 
+import { harnessAuthorization } from '@/scripts/harness-authorization'
 import type { ServiceContext } from '@/legacy/services/core'
 
 // The database gateway builds its Neon executor at MODULE LOAD (not lazily), so
@@ -34,7 +35,7 @@ async function main() {
     dbTargetInfo: typeof import('@/legacy/db/client').dbTargetInfo
   }
 
-  const { AuthorizationService, StaticAuthorizationPolicyProvider } = await import('@/legacy/services/entitlement')
+  const { AuthorizationService } = await import('@/legacy/services/entitlement')
   const { ProjectService } = await import('@/legacy/services/project')
   const { WbsService } = await import('@/legacy/services/wbs')
   const { SqlProjectRepository } = await import('@/legacy/db/project-service-repository')
@@ -49,7 +50,7 @@ async function main() {
   }
 
   const infrastructure = {
-    authorization: new AuthorizationService(new StaticAuthorizationPolicyProvider()),
+    authorization: new AuthorizationService(harnessAuthorization),
   }
   const registry = new ServiceRegistry()
   registry.register(new WbsService(new SqlWbsRepository(), { ...infrastructure, router: registry }))

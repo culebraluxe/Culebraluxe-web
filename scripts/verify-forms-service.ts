@@ -6,7 +6,7 @@
 
 import { composeCoreServices } from '@/legacy/services/composition'
 import { AuthorizationService } from '@/legacy/services/entitlement/authorization-service'
-import { StaticAuthorizationPolicyProvider } from '@/legacy/services/entitlement/authorization-service'
+import { harnessAuthorization } from '@/scripts/harness-authorization'
 import { SqlFormInstanceRepository } from '@/legacy/db/form-service-repository'
 import { getFormInstance, latestFormEvidence, listFormInstances } from '@/legacy/db/form-service-repository'
 import { FORM_OPERATIONS } from '@/legacy/services/forms'
@@ -24,7 +24,7 @@ const services = composeCoreServices(
     project: null as never,
     form: new SqlFormInstanceRepository(),
   },
-  { authorization: new AuthorizationService(new StaticAuthorizationPolicyProvider()) },
+  { authorization: new AuthorizationService(harnessAuthorization) },
 )
 
 let failures = 0

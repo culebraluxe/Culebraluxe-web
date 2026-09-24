@@ -5,10 +5,7 @@ import { SqlCommsRepository } from '@/legacy/db/comms-service-repository'
 import type { QueryExecutor, QueryRow } from '@/legacy/db/query-executor'
 import type { RelationshipEvidenceForContext } from '@/lib/relationship-intel/relationship-context'
 import { CommsService } from '@/legacy/services/comms'
-import {
-  AuthorizationService,
-  StaticAuthorizationPolicyProvider,
-} from '@/legacy/services/entitlement'
+import { AuthorizationService } from '@/legacy/services/entitlement'
 import type {
   CommsMomentPage,
   CommsMomentRecord,
@@ -92,7 +89,7 @@ function harness(overrides: Partial<CommsRepository> = {}) {
   }
   return {
     service: new CommsService(repository, {
-      authorization: new AuthorizationService(new StaticAuthorizationPolicyProvider()),
+      authorization: new AuthorizationService(async () => ({ allowed: true, reason: 'test wiring: permit', policyId: 'test:permit', mode: 'enforced' })),
     }),
     repository,
     calls,

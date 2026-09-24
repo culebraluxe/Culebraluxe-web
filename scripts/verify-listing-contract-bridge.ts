@@ -11,12 +11,12 @@
 
 import { randomUUID } from 'node:crypto'
 
+import { harnessAuthorization } from '@/scripts/harness-authorization'
 import { sql } from '@/legacy/db/client'
 import { updateFormInstance } from '@/legacy/db/form-service-repository'
 import { composeCoreServices } from '@/legacy/services/composition'
 import {
   AuthorizationService,
-  StaticAuthorizationPolicyProvider,
 } from '@/legacy/services/entitlement/authorization-service'
 import { SqlContractRepository } from '@/legacy/db/contract-service-repository'
 import { SqlFirmRepository } from '@/legacy/db/firm-service-repository'
@@ -45,7 +45,7 @@ const services = composeCoreServices(
     wbs: null as never,
     project: null as never,
   },
-  { authorization: new AuthorizationService(new StaticAuthorizationPolicyProvider()) },
+  { authorization: new AuthorizationService(harnessAuthorization) },
 )
 
 const context = () => ({

@@ -19,10 +19,7 @@ import { ProjectService, type ProjectRepository } from '@/legacy/services/projec
 import { FormService, type FormRepository } from '@/legacy/services/forms'
 import { VaultService, type VaultRepository } from '@/legacy/services/vault'
 import { CommsService, type CommsRepository } from '@/legacy/services/comms'
-import {
-  AuthorizationService,
-  StaticAuthorizationPolicyProvider,
-} from '@/legacy/services/entitlement'
+import { AuthorizationService } from '@/legacy/services/entitlement'
 
 /**
  * Repositories required to build the full service kernel. Security and Showing
@@ -124,7 +121,7 @@ export function composeCoreServices(
     // Entitlement is required infrastructure: an enforced resolver by default so
     // a kernel is never built without an authorization decision source.
     authorization:
-      infrastructure.authorization ?? new AuthorizationService(new StaticAuthorizationPolicyProvider()),
+      infrastructure.authorization ?? new AuthorizationService(),
   }
 
   const person = registry.register(new PersonService(repositories.person, serviceInfrastructure))

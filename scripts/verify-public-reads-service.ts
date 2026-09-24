@@ -6,7 +6,7 @@
 
 import { composeCoreServices } from '@/legacy/services/composition'
 import { AuthorizationService } from '@/legacy/services/entitlement/authorization-service'
-import { StaticAuthorizationPolicyProvider } from '@/legacy/services/entitlement/authorization-service'
+import { harnessAuthorization } from '@/scripts/harness-authorization'
 import { SqlPropertyRepository } from '@/legacy/db/property-service-repository'
 import {
   getFilteredProperties,
@@ -31,7 +31,7 @@ const repos = {
 }
 
 const services = composeCoreServices(repos, {
-  authorization: new AuthorizationService(new StaticAuthorizationPolicyProvider()),
+  authorization: new AuthorizationService(harnessAuthorization),
 })
 const property = services.property
 

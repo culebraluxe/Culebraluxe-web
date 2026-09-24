@@ -9,15 +9,11 @@ import { SqlShowingRepository } from '@/legacy/db/showing-service-repository'
 import { SqlWbsRepository } from '@/legacy/db/wbs-service-repository'
 import { SqlProjectRepository } from '@/legacy/db/project-service-repository'
 import { composeCoreServices } from '@/legacy/services/composition'
-import { AuthorizationService, SqlRoleEntitlementProvider } from '@/legacy/services/entitlement'
-import { SqlAuthorizationPolicyProvider } from '@/legacy/services/entitlement/db-authorization-policy-provider'
+import { AuthorizationService } from '@/legacy/services/entitlement'
 import { SECURITY_OPERATIONS, type SecurityIdentityResolution } from '@/legacy/services/security'
 import { appServiceErrorSink } from '@/lib/service-error-sink'
 
-const authEntitlements = new AuthorizationService(
-  new SqlAuthorizationPolicyProvider(),
-  new SqlRoleEntitlementProvider(),
-)
+const authEntitlements = new AuthorizationService()
 
 /**
  * Server-side application-security composition used by the login seam.

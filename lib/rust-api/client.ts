@@ -101,6 +101,34 @@ export async function rustApiResolveIdentity(
   return result.value
 }
 
+export type RustAuthorizationDecision = {
+  allowed: boolean
+  reason: string
+  policyId: string
+  mode: string
+}
+
+/**
+ * Ask the security service to DECIDE one action for the signed-in principal.
+ *
+ * One brain: the answer comes from the same Casbin port every Rust service uses, so the ROOT-only rule for the
+ * `security.*.manage` actions, the entitlement grants and the level hierarchy are applied once instead of being
+ * remembered by a second implementation. The question is the action and its kind — nothing else, because the policy
+ * keys rules on domain and operation and Rust derives those from the action rather than trusting a client to
+ * describe it.
+ */
+export async function rustApiAuthorize(
+  action: string,
+  kind: 'query' | 'command',
+): Promise<RustAuthorizationDecision> {
+  const result = await rustApiJsonWrite<RustAuthorizationDecision>(
+    '/v1/security/authorize',
+    'POST',
+    { action, kind },
+  )
+  return result.value
+}
+
 function rustApiBaseUrl(): string {
   const value = resolveRustApiBaseUrl(process.env.RUST_API_BASE_URL, process.env.NODE_ENV)
   if (value) return value
