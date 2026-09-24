@@ -207,8 +207,7 @@ impl SecurityDao {
         Ok(rows
             .into_iter()
             .map(|row| {
-                let primary_role_code =
-                    canonical_primary_role(&row.role_codes).map(str::to_owned);
+                let primary_role_code = canonical_primary_role(&row.role_codes).map(str::to_owned);
                 SecurityUserRoles {
                     app_user_id: row.app_user_id,
                     display_name: row.display_name,
