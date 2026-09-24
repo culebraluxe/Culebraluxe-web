@@ -201,6 +201,17 @@ impl Buyers {
                             </div>
                         }
                         { compare_table(model, listings, on_msg) }
+                        if !model.saved_searches.is_empty() {
+                            // Saved searches, as a lead: until alerts are sent automatically, the team is the alert.
+                            { crate::yew_views::contact::quick_enquiry(model, on_msg, crate::yew_views::contact::QuickEnquiry {
+                                eyebrow: "Alerts",
+                                title: "Tell me when new properties match.",
+                                body: "Leave your details and the CulebraLuxe team will let you know as soon as a new property matches one of your saved searches, often before it is widely marketed.",
+                                button: "Alert me",
+                                sent: "We have your saved searches. A member of the CulebraLuxe team will be in touch when a new property matches.",
+                                message: searches_message(model),
+                            }) }
+                        }
                     </div>
                 </section>
             </>
@@ -375,6 +386,17 @@ fn compare_button(listing: &Listing, compared: bool, on_msg: &Callback<Msg>) -> 
             </svg>
         </button>
     }
+}
+
+/// The lead's message: each saved search by its name, so the team knows what to watch for.
+fn searches_message(model: &Model) -> String {
+    let lines = model
+        .saved_searches
+        .iter()
+        .map(|search| format!("- {}", search.name))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!("Please alert me when new properties match my saved searches:\n{lines}")
 }
 
 /// A fresh id for a saved search, in the TypeScript store's style, and the time now, for the reducer.

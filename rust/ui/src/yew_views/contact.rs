@@ -261,3 +261,78 @@ fn address_block(item: &BlockItem, link: bool) -> Html {
         </div>
     }
 }
+
+/// The words a quick enquiry is framed in, and the note that becomes the lead's message.
+pub(crate) struct QuickEnquiry {
+    pub eyebrow: &'static str,
+    pub title: &'static str,
+    pub body: &'static str,
+    pub button: &'static str,
+    pub sent: &'static str,
+    /// What the team reads: the saved properties or searches, spelled out.
+    pub message: String,
+}
+
+/// A short "leave your email" form that sends a general enquiry through the same intake pipeline as the contact page:
+/// a visitor's shortlist or saved searches become a lead the team can answer, with no account needed.
+pub(crate) fn quick_enquiry(model: &Model, on_msg: &Callback<Msg>, enquiry: QuickEnquiry) -> Html {
+    let state = &model.contact_form;
+    if state.status == ContactStatus::Sent {
+        return html! {
+            <div class="mt-16 border-t border-border pt-10" role="status">
+                <p class="font-serif text-2xl font-light text-foreground">{"Thank you."}</p>
+                <p class="mt-3 max-w-xl text-sm font-light leading-relaxed text-muted-foreground">{ enquiry.sent }</p>
+            </div>
+        };
+    }
+    let sending = state.status == ContactStatus::Sending;
+    let onsubmit = {
+        let on_msg = on_msg.clone();
+        let message = enquiry.message.clone();
+        Callback::from(move |event: SubmitEvent| {
+            event.prevent_default();
+            let submission = ContactSubmission {
+                name: field_value("quick-name"),
+                email: field_value("quick-email"),
+                message: message.clone(),
+                company: field_value("quick-company"),
+                ..Default::default()
+            };
+            on_msg.emit(Msg::ContactSubmitted { submission, new_id: random_uuid() });
+        })
+    };
+    let input = "h-12 border-0 border-b border-border bg-transparent text-sm font-light text-foreground placeholder:text-muted-foreground focus:border-foreground focus:outline-none";
+    html! {
+        <div class="mt-16 grid gap-8 border-t border-border pt-10 md:grid-cols-12 md:gap-12">
+            <div class="md:col-span-5">
+                <p class="mb-3 text-xs font-light uppercase tracking-[0.34em] text-accent">{ enquiry.eyebrow }</p>
+                <h2 class="font-serif text-3xl font-light leading-tight text-foreground">{ enquiry.title }</h2>
+                <p class="mt-3 max-w-md text-sm font-light leading-relaxed text-muted-foreground">{ enquiry.body }</p>
+            </div>
+            <form {onsubmit} class="relative flex flex-col gap-6 md:col-span-7">
+                <div class="absolute -left-[9999px]" aria-hidden="true">
+                    <label for="quick-company">{"Company"}</label>
+                    <input id="quick-company" name="company" type="text" tabindex="-1" autocomplete="off" />
+                </div>
+                <div class="grid gap-6 sm:grid-cols-2">
+                    <label class="flex flex-col gap-2">
+                        <span class="text-xs font-light uppercase tracking-[0.22em] text-muted-foreground">{"Name"}</span>
+                        <input id="quick-name" name="name" type="text" autocomplete="name" required=true class={input} />
+                    </label>
+                    <label class="flex flex-col gap-2">
+                        <span class="text-xs font-light uppercase tracking-[0.22em] text-muted-foreground">{"Email"}</span>
+                        <input id="quick-email" name="email" type="email" autocomplete="email" required=true class={input} />
+                    </label>
+                </div>
+                <button type="submit" disabled={sending}
+                    class="group inline-flex min-h-11 items-center gap-3 self-start text-xs font-light uppercase tracking-[0.24em] text-foreground disabled:opacity-60">
+                    { if sending { "Sending\u{2026}" } else { enquiry.button } }
+                    <span class="inline-block h-px w-12 bg-foreground transition-all duration-500 group-hover:w-20" aria-hidden="true"></span>
+                </button>
+                if state.status == ContactStatus::Failed {
+                    <p class="text-sm text-muted-foreground" role="alert">{"We could not send your note. Please try again."}</p>
+                }
+            </form>
+        </div>
+    }
+}

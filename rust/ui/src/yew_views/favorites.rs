@@ -10,8 +10,26 @@ use yew::prelude::*;
 use crate::model::Listing;
 use crate::yew_views::buyers::card;
 use crate::yew_views::chrome::PageProps;
+use crate::yew_views::contact::{quick_enquiry, QuickEnquiry};
 
 pub struct Favorites;
+
+/// The lead's message: each saved property by name, price and link, so the team can answer without looking it up.
+fn shortlist_message(saved: &[&Listing]) -> String {
+    let lines = saved
+        .iter()
+        .map(|listing| {
+            format!(
+                "- {} ({}) /properties/{}",
+                listing.name,
+                crate::format::listing_price_label(listing),
+                listing.slug
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!("Please send me details on my saved properties:\n{lines}")
+}
 
 impl Component for Favorites {
     type Message = ();
@@ -53,8 +71,17 @@ impl Component for Favorites {
                         </div>
                     } else {
                         <div class="mt-12 grid gap-x-7 gap-y-14 md:grid-cols-2 xl:grid-cols-3">
-                            { for saved.into_iter().map(|listing| card(listing, true, None, on_msg)) }
+                            { for saved.iter().map(|listing| card(listing, true, None, on_msg)) }
                         </div>
+                        // The shortlist, as a lead: the team sees exactly which properties this visitor kept.
+                        { quick_enquiry(model, on_msg, QuickEnquiry {
+                            eyebrow: "Your shortlist",
+                            title: "Send me these properties.",
+                            body: "Leave your details and the CulebraLuxe team will send you the full particulars of your saved properties, and arrange viewings if you wish.",
+                            button: "Send me the details",
+                            sent: "Your shortlist has reached us. A member of the CulebraLuxe team will be in touch within one business day.",
+                            message: shortlist_message(&saved),
+                        }) }
                     }
                 </div>
             </section>

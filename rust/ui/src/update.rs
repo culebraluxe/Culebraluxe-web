@@ -1455,14 +1455,14 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             model.loading = false;
             model.error = None;
             model.page = Some(page);
+            if matches!(model.screen.key, "site-contact" | "site-favorites" | "site-buyers") {
+                model.contact_form = crate::model::ContactFormState::default();
+            }
             if model.screen.key == "site-buyers" {
                 return vec![Effect::ListingFavoritesRead, Effect::BuyerToolsRead];
             }
             if matches!(model.screen.key, "site-home" | "site-favorites") {
                 return vec![Effect::ListingFavoritesRead];
-            }
-            if model.screen.key == "site-contact" {
-                model.contact_form = crate::model::ContactFormState::default();
             }
             if model.screen.key == "site-property-detail" {
                 model.property_media = crate::model::PropertyMediaState::default();
@@ -1560,7 +1560,8 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
         }
         Msg::ContactSubmitted { submission, new_id } => {
             // One submission at a time, and none after the thank-you: a double click is one enquiry, not two.
-            if model.screen.key != "site-contact"
+            // The contact page, and the quick "leave your email" forms on the Saved and Buyers pages.
+            if !matches!(model.screen.key, "site-contact" | "site-favorites" | "site-buyers")
                 || matches!(model.contact_form.status, ContactStatus::Sending | ContactStatus::Sent)
             {
                 return Vec::new();
@@ -4326,6 +4327,19 @@ mod tests {
         update(&mut model, Msg::ContactResult { accepted: true });
         assert_eq!(model.contact_form.status, ContactStatus::Sent);
         assert!(update(&mut model, Msg::ContactSubmitted { submission, new_id: "id-4".into() }).is_empty());
+    }
+
+    #[test]
+    fn the_saved_and_buyers_pages_can_send_a_quick_enquiry_and_other_pages_cannot() {
+        use crate::model::ContactSubmission;
+        let submission = ContactSubmission { name: "Ada".into(), email: "ada@example.com".into(), ..Default::default() };
+        for screen in ["site-favorites", "site-buyers"] {
+            let mut model = Model { screen: target(screen), ..Model::default() };
+            let sent = update(&mut model, Msg::ContactSubmitted { submission: submission.clone(), new_id: "id".into() });
+            assert!(matches!(sent.as_slice(), [Effect::SubmitContact { .. }]), "{screen} sends");
+        }
+        let mut model = Model { screen: target("site-about"), ..Model::default() };
+        assert!(update(&mut model, Msg::ContactSubmitted { submission, new_id: "id".into() }).is_empty());
     }
 
     #[test]
