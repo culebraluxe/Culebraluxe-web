@@ -6,6 +6,7 @@ import { rustApiRead } from '@/lib/rust-api/client'
 type PrincipalGrants = {
   accountType: string
   securityLevel: string
+  roleCodes: string[]
   entitlementCodes: string[]
 }
 
@@ -16,6 +17,7 @@ async function GETHandler(): Promise<Response> {
   return NextResponse.json({
     accountType: result.value.accountType,
     securityLevel: result.value.securityLevel,
+    isRoot: result.value.roleCodes.includes('root'),
     entitlementCodes: result.value.entitlementCodes,
   })
 }
