@@ -11,7 +11,6 @@ import { SqlProjectRepository } from '@/legacy/db/project-service-repository'
 import { composeCoreServices } from '@/legacy/services/composition'
 import { AuthorizationService } from '@/legacy/services/entitlement'
 import type { AuthorizationPort } from '@/legacy/services/core'
-import type { SecurityRepository } from '@/legacy/services/security/repository'
 import {
   SECURITY_OPERATIONS,
   type SecurityIdentityResolution,
@@ -19,9 +18,19 @@ import {
 } from '@/legacy/services/security'
 import { appServiceErrorSink } from '@/lib/service-error-sink'
 
-let securityRepository: SecurityRepository | null = null
+let securityRepository: SecurityRepositorySeam | null = null
 let authorizationPort: AuthorizationPort | null = null
 let composed: SecurityService | null = null
+
+/**
+ * The Security service's persistence seam, described through the composition this file ALREADY imports.
+ *
+ * WHY NOT JUST IMPORT THE INTERFACE. It lives in `legacy/services/security/repository`, and the architecture rule
+ * keeps `legacy/` out of the primary website: this file already relies on a suppression for the wiring it genuinely
+ * needs, and that list "may only shrink". Importing a type to describe one parameter would spend a suppression on
+ * convenience, so the type is derived from the composition instead — and it stays in step with it by construction.
+ */
+type SecurityRepositorySeam = Parameters<typeof composeCoreServices>[0]['security']
 
 /**
  * TEST SEAM: substitute the Security service's persistence boundary.
@@ -37,7 +46,7 @@ let composed: SecurityService | null = null
  *
  * `null` restores the real repository.
  */
-export function setSecurityRepositoryForTesting(repository: SecurityRepository | null): void {
+export function setSecurityRepositoryForTesting(repository: SecurityRepositorySeam | null): void {
   securityRepository = repository
   composed = null // the next call rebuilds the kernel around the substitute
 }

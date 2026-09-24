@@ -3,12 +3,13 @@ mod entitlements;
 mod identity_cache;
 pub use entitlements::CasbinAuthorizationPort;
 
-use crate::service_support::{CoreServiceError, audit_result, authorize};
+use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
 use db::{DbResult, SecurityDao};
 use domain::{
-    ActingUser, SecurityIdentityResolution, SecurityPrincipal, resolve_security_level,
+    resolve_security_level,
     security::{RoleEntitlements, SecurityUserRoles},
+    ActingUser, SecurityIdentityResolution, SecurityPrincipal,
 };
 use service::{
     AuthorizationDecision, OperationKind, ServiceContext, ServiceInfrastructure, ServiceOutcome,
@@ -58,7 +59,7 @@ pub trait SecurityRepository: Send {
     ) -> DbResult<bool>;
     async fn list_security_users(&mut self) -> DbResult<Vec<SecurityUserRoles>>;
     async fn set_user_primary_role(&mut self, app_user_id: &str, role_code: &str)
-    -> DbResult<bool>;
+        -> DbResult<bool>;
 }
 
 #[async_trait]

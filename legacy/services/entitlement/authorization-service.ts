@@ -4,7 +4,7 @@ import type {
   AuthorizationRequest,
   ServiceOperationKind,
 } from '@/legacy/services/core'
-import { hasSecurityLevel, type SecurityLevel } from '@/legacy/services/security/level'
+import { type SecurityLevel } from '@/legacy/services/security/level'
 // NOTE: no static import of the Rust client here — it is `server-only` and is loaded lazily in askRustToDecide,
 // so harnesses and scripts that import this module without ever authorizing stay loadable.
 

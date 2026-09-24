@@ -1,24 +1,24 @@
 use super::context::{
-    ResolvedRequestContext, asserted_identity_context, resolve_public_guest_context,
-    resolve_request_context,
+    asserted_identity_context, resolve_public_guest_context, resolve_request_context,
+    ResolvedRequestContext,
 };
-use super::{ApiError, ApiState, diagnostics, engine};
+use super::{diagnostics, engine, ApiError, ApiState};
 use crate::service_support::CoreServiceError;
 use crate::vault::VaultArtifactPort;
 use async_trait::async_trait;
 use axum::{
-    Json, Router,
     body::Body,
     extract::{DefaultBodyLimit, Multipart, Path, Query, State},
-    http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header},
+    http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode},
     response::Response,
     routing::{get, post},
+    Json, Router,
 };
 use domain::{
     AttachPropertyVideoRequest, ClientAdminPageRequest, ClientDirectoryPageRequest,
-    ClientHistoryRequest, GetCommsPanelRequest, GetCommsTimelineRequest, MAX_MEDIA_UPLOAD_BYTES,
-    SearchPeopleRequest, UploadPropertyMediaRequest, VaultActorScope, VaultArtifactFailure,
-    VaultCommandOutcome, VaultRenderRequest, VaultRenderedArtifact,
+    ClientHistoryRequest, GetCommsPanelRequest, GetCommsTimelineRequest, SearchPeopleRequest,
+    UploadPropertyMediaRequest, VaultActorScope, VaultArtifactFailure, VaultCommandOutcome,
+    VaultRenderRequest, VaultRenderedArtifact, MAX_MEDIA_UPLOAD_BYTES,
 };
 use integrations::boldsign::{BoldSignConfig, BoldSignSignatureProvider};
 use integrations::mux::{MuxClient, MuxConfig};
@@ -663,10 +663,7 @@ pub fn router(state: ApiState) -> Router {
             "/v1/vault/public-listing-documents/{id}",
             get(vault_public_listing_document_bytes),
         )
-        .route(
-            "/v1/public/listing-copy",
-            get(public_listing_copy),
-        )
+        .route("/v1/public/listing-copy", get(public_listing_copy))
         .route(
             "/v1/vault/document-bytes/{id}",
             get(vault_private_document_bytes),
@@ -1518,7 +1515,10 @@ async fn create_property_admin(
     let mut service = state.services().property();
     let value = service
         .admin_create(
-            &domain::CreatePropertyAdminRequest { name: body.name, property_type: body.property_type },
+            &domain::CreatePropertyAdminRequest {
+                name: body.name,
+                property_type: body.property_type,
+            },
             &resolved.service,
         )
         .await
