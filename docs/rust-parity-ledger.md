@@ -34,15 +34,27 @@ questions on purpose: a port can be complete and still cut over to nothing.
 
 ## The live Rust surface
 
-38 routes mounted (read from the router, not from this file):
+68 routes mounted (read from the router, not from this file):
 
 - `/healthz` _(infrastructure)_
 - `/readyz` _(infrastructure)_
 - `/v1/whoami` _(infrastructure)_
+- `/v1/security/identity`
+- `/v1/security/authorize`
+- `/v1/security/authorize/public`
+- `/v1/security/role-entitlements`
+- `/v1/security/users`
+- `/v1/cockpit`
+- `/v1/workflows`
+- `/v1/workflows/{id}`
+- `/v1/flight-recorder/{id}`
 - `/v1/projects`
 - `/v1/projects/{id}`
 - `/v1/wbs/project-items`
 - `/v1/wbs/{id}`
+- `/v1/tasks/{id}/complete`
+- `/v1/wbs/{id}/apple-reminder`
+- `/v1/wbs/{id}/route`
 - `/v1/clients`
 - `/v1/clients/agents`
 - `/v1/clients/{person_id}/history`
@@ -50,8 +62,16 @@ questions on purpose: a port can be complete and still cut over to nothing.
 - `/v1/people/search`
 - `/v1/people/{id}`
 - `/v1/people/{id}/properties`
+- `/v1/properties/admin`
+- `/v1/properties/{id}/admin`
 - `/v1/properties/{id}`
 - `/v1/properties/{id}/media`
+- `/v1/properties/{id}/video`
+- `/v1/properties/{id}/video-uploads`
+- `/v1/properties/{id}/video-uploads/{upload_id}/finalize`
+- `/v1/deals`
+- `/v1/deals/{id}`
+- `/v1/deals/{id}/commands`
 - `/v1/contracts`
 - `/v1/contracts/{id}`
 - `/v1/process-instances/{id}/contracts`
@@ -62,9 +82,19 @@ questions on purpose: a port can be complete and still cut over to nothing.
 - `/v1/forms/{id}`
 - `/v1/comms/{person_id}/panel`
 - `/v1/comms/{person_id}/timeline`
+- `/v1/activity`
+- `/v1/accounting/dashboard`
+- `/v1/accounting/receivables`
+- `/v1/accounting/receivables/{id}/paid`
+- `/v1/accounting/expenses`
+- `/v1/accounting/expense-categories`
+- `/v1/accounting/pnl`
 - `/v1/calendar`
 - `/v1/vault/documents`
 - `/v1/vault/documents/{id}`
+- `/v1/vault/public-listing-documents/{id}`
+- `/v1/public/listing-copy`
+- `/v1/vault/document-bytes/{id}`
 - `/v1/diagnostics/db`
 - `/v1/engine/transactions`
 - `/v1/engine/timers/reconcile`
@@ -87,6 +117,36 @@ questions on purpose: a port can be complete and still cut over to nothing.
 
 ## Consistency
 
+- route /v1/security/identity is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/security/authorize is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/security/authorize/public is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/security/role-entitlements is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/security/users is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/cockpit is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/workflows is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/workflows/{id} is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/flight-recorder/{id} is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/tasks/{id}/complete is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/wbs/{id}/apple-reminder is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/wbs/{id}/route is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/properties/admin is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/properties/{id}/admin is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/properties/{id}/video is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/properties/{id}/video-uploads is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/properties/{id}/video-uploads/{upload_id}/finalize is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/deals is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/deals/{id} is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/deals/{id}/commands is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/activity is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/accounting/dashboard is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/accounting/receivables is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/accounting/receivables/{id}/paid is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/accounting/expenses is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/accounting/expense-categories is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/accounting/pnl is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/vault/public-listing-documents/{id} is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/public/listing-copy is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/vault/document-bytes/{id} is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
 - route /v1/diagnostics/db is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
 - route /v1/engine/transactions is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
 - route /v1/engine/timers/reconcile is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
