@@ -1,16 +1,45 @@
-mod identity_cache;
+mod entitlement_catalog;
 mod entitlements;
+mod identity_cache;
 pub use entitlements::CasbinAuthorizationPort;
 
-use crate::service_support::{audit_result, authorize, CoreServiceError};
+use crate::service_support::{CoreServiceError, audit_result, authorize};
 use async_trait::async_trait;
 use db::{DbResult, SecurityDao};
 use domain::{
-    resolve_security_level,
+    ActingUser, SecurityIdentityResolution, SecurityPrincipal, resolve_security_level,
     security::{RoleEntitlements, SecurityUserRoles},
-    ActingUser, SecurityIdentityResolution, SecurityPrincipal,
 };
-use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
+use service::{
+    AuthorizationDecision, OperationKind, ServiceContext, ServiceInfrastructure, ServiceOutcome,
+    ServiceRuntime, ServiceRuntimeError,
+};
+
+/// The action catalog, for the API layer's authorize endpoint.
+///
+/// An action must be KNOWN to be decided, so a caller can only ever name one that exists — and gets back the
+/// catalog's own `&'static str`, which is what the service runtime requires.
+pub fn catalog_action(code: &str) -> Option<(&'static str, &'static str)> {
+    entitlement_catalog::ACTIONS
+        .iter()
+        .copied()
+        .find(|(action, _)| *action == code)
+}
+
+/// The policy domain an action belongs to, derived from the action rather than accepted from the caller.
+///
+/// THE POLICY KEYS TWO RULES ON DOMAIN (`tech` is denied, `contract.execute` has a level floor), so a caller that
+/// could name its own domain could dodge a floor by relabelling itself. Derivation removes that possibility: an
+/// action decides its own domain. Everything outside the special prefixes lands in a neutral domain, which the
+/// grant branch does not read — it decides on the action, the kind, and the principal's grants.
+pub fn policy_domain_for(action: &'static str) -> &'static str {
+    match action.split('.').next().unwrap_or_default() {
+        "security" => "security",
+        "contract" => "contract",
+        "tech" => "tech",
+        _ => "application",
+    }
+}
 
 #[async_trait]
 pub trait SecurityRepository: Send {
@@ -21,9 +50,15 @@ pub trait SecurityRepository: Send {
     ) -> DbResult<Option<String>>;
     async fn get_principal(&mut self, app_user_id: &str) -> DbResult<Option<ActingUser>>;
     async fn list_role_entitlements(&mut self) -> DbResult<Vec<RoleEntitlements>>;
-    async fn set_role_entitlement(&mut self, role_code: &str, action: &str, granted: bool) -> DbResult<bool>;
+    async fn set_role_entitlement(
+        &mut self,
+        role_code: &str,
+        action: &str,
+        granted: bool,
+    ) -> DbResult<bool>;
     async fn list_security_users(&mut self) -> DbResult<Vec<SecurityUserRoles>>;
-    async fn set_user_primary_role(&mut self, app_user_id: &str, role_code: &str) -> DbResult<bool>;
+    async fn set_user_primary_role(&mut self, app_user_id: &str, role_code: &str)
+    -> DbResult<bool>;
 }
 
 #[async_trait]
@@ -42,7 +77,12 @@ impl SecurityRepository for SecurityDao {
     async fn list_role_entitlements(&mut self) -> DbResult<Vec<RoleEntitlements>> {
         SecurityDao::list_role_entitlements(self).await
     }
-    async fn set_role_entitlement(&mut self, role_code: &str, action: &str, granted: bool) -> DbResult<bool> {
+    async fn set_role_entitlement(
+        &mut self,
+        role_code: &str,
+        action: &str,
+        granted: bool,
+    ) -> DbResult<bool> {
         SecurityDao::set_role_entitlement(self, role_code, action, granted).await
     }
 
@@ -50,7 +90,11 @@ impl SecurityRepository for SecurityDao {
         SecurityDao::list_security_users(self).await
     }
 
-    async fn set_user_primary_role(&mut self, app_user_id: &str, role_code: &str) -> DbResult<bool> {
+    async fn set_user_primary_role(
+        &mut self,
+        app_user_id: &str,
+        role_code: &str,
+    ) -> DbResult<bool> {
         SecurityDao::set_user_primary_role(self, app_user_id, role_code).await
     }
 }
@@ -122,16 +166,82 @@ impl<R: SecurityRepository> SecurityService<R> {
         result
     }
 
+    /// THE ONE DECISION, returned rather than enforced.
+    ///
+    /// Every other method here calls `authorize(...)` and fails on Forbidden, because it is about to DO the thing.
+    /// This one is for a caller that has to make its own decision — the TypeScript kernel refuses its own
+    /// operation — so a denial is an ANSWER, not an error: the caller needs the reason and the policy that produced
+    /// it, and a 403 it did not ask for would leave it guessing which rule refused.
+    ///
+    /// The audit trail records the decision either way, so "authorization ran" stays observable from here too.
+    ///
+    /// DOMAIN AND OPERATION ARE DERIVED FROM THE ACTION, never supplied: the policy keys a domain rule (`tech` is
+    /// denied) and an operation rule (the `contract.execute` level floor) on those fields, and a caller able to
+    /// rename them could dodge a floor. `operation` is the action, which is what the audit row wants to name anyway.
+    pub async fn decide(
+        &mut self,
+        action: &'static str,
+        kind: OperationKind,
+        context: &ServiceContext,
+    ) -> Result<AuthorizationDecision, CoreServiceError> {
+        let domain = policy_domain_for(action);
+
+        match self
+            .runtime
+            .authorize(domain, action, action, kind, context)
+            .await
+        {
+            Ok(decision) => {
+                self.runtime
+                    .audit(
+                        domain,
+                        action,
+                        context,
+                        ServiceOutcome::Success,
+                        None,
+                        decision.clone(),
+                    )
+                    .await?;
+                Ok(decision)
+            }
+            // A DENIAL IS THE ANSWER THIS METHOD EXISTS TO RETURN. `authorize` reports a refusal as an error
+            // because most callers should stop; here the refusal IS the result, and it is audited like any other.
+            Err(ServiceRuntimeError::Forbidden { reason, decision }) => {
+                self.runtime
+                    .audit(
+                        domain,
+                        action,
+                        context,
+                        ServiceOutcome::Failure,
+                        Some(reason),
+                        decision.clone(),
+                    )
+                    .await?;
+                Ok(decision)
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
     pub async fn list_role_entitlements(
         &mut self,
         context: &ServiceContext,
     ) -> Result<Vec<RoleEntitlements>, CoreServiceError> {
         const OP: &str = "security.listRoleEntitlements";
         let decision = authorize(
-            &self.runtime, "security", "security.principal.read", OP, OperationKind::Query, context,
-        ).await?;
-        let result: Result<Vec<RoleEntitlements>, CoreServiceError> =
-            self.repository.list_role_entitlements().await.map_err(Into::into);
+            &self.runtime,
+            "security",
+            "security.principal.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+        let result: Result<Vec<RoleEntitlements>, CoreServiceError> = self
+            .repository
+            .list_role_entitlements()
+            .await
+            .map_err(Into::into);
         audit_result(&self.runtime, "security", OP, context, decision, &result).await?;
         result
     }
@@ -145,11 +255,24 @@ impl<R: SecurityRepository> SecurityService<R> {
     ) -> Result<(), CoreServiceError> {
         const OP: &str = "security.setRoleEntitlement";
         let decision = authorize(
-            &self.runtime, "security", "security.entitlement.manage", OP, OperationKind::Command, context,
-        ).await?;
-        let result = match self.repository.set_role_entitlement(role_code, action, granted).await {
+            &self.runtime,
+            "security",
+            "security.entitlement.manage",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+        let result = match self
+            .repository
+            .set_role_entitlement(role_code, action, granted)
+            .await
+        {
             Ok(true) => Ok(()),
-            Ok(false) => Err(CoreServiceError::business("ENTITLEMENT_TARGET_UNKNOWN", "An active internal role and action are required.")),
+            Ok(false) => Err(CoreServiceError::business(
+                "ENTITLEMENT_TARGET_UNKNOWN",
+                "An active internal role and action are required.",
+            )),
             Err(error) => Err(error.into()),
         };
         audit_result(&self.runtime, "security", OP, context, decision, &result).await?;
@@ -170,8 +293,11 @@ impl<R: SecurityRepository> SecurityService<R> {
             context,
         )
         .await?;
-        let result: Result<Vec<SecurityUserRoles>, CoreServiceError> =
-            self.repository.list_security_users().await.map_err(Into::into);
+        let result: Result<Vec<SecurityUserRoles>, CoreServiceError> = self
+            .repository
+            .list_security_users()
+            .await
+            .map_err(Into::into);
         audit_result(&self.runtime, "security", OP, context, decision, &result).await?;
         result
     }
@@ -239,7 +365,6 @@ impl<R: SecurityRepository> SecurityService<R> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -300,14 +425,23 @@ mod tests {
         async fn list_role_entitlements(&mut self) -> DbResult<Vec<RoleEntitlements>> {
             Ok(Vec::new())
         }
-        async fn set_role_entitlement(&mut self, _role_code: &str, _action: &str, _granted: bool) -> DbResult<bool> {
+        async fn set_role_entitlement(
+            &mut self,
+            _role_code: &str,
+            _action: &str,
+            _granted: bool,
+        ) -> DbResult<bool> {
             unreachable!("grant mutation must not run after identity lookup failure")
         }
 
         async fn list_security_users(&mut self) -> DbResult<Vec<SecurityUserRoles>> {
             Ok(Vec::new())
         }
-        async fn set_user_primary_role(&mut self, _app_user_id: &str, _role_code: &str) -> DbResult<bool> {
+        async fn set_user_primary_role(
+            &mut self,
+            _app_user_id: &str,
+            _role_code: &str,
+        ) -> DbResult<bool> {
             unreachable!("role mutation must not run after identity lookup failure")
         }
     }
@@ -330,14 +464,23 @@ mod tests {
         async fn list_role_entitlements(&mut self) -> DbResult<Vec<RoleEntitlements>> {
             Err(transient("security.list_role_entitlements"))
         }
-        async fn set_role_entitlement(&mut self, _role_code: &str, _action: &str, _granted: bool) -> DbResult<bool> {
+        async fn set_role_entitlement(
+            &mut self,
+            _role_code: &str,
+            _action: &str,
+            _granted: bool,
+        ) -> DbResult<bool> {
             Err(transient("security.set_role_entitlement"))
         }
 
         async fn list_security_users(&mut self) -> DbResult<Vec<SecurityUserRoles>> {
             Err(transient("security.list_security_users"))
         }
-        async fn set_user_primary_role(&mut self, _app_user_id: &str, _role_code: &str) -> DbResult<bool> {
+        async fn set_user_primary_role(
+            &mut self,
+            _app_user_id: &str,
+            _role_code: &str,
+        ) -> DbResult<bool> {
             Err(transient("security.set_user_primary_role"))
         }
     }

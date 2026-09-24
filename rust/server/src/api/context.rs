@@ -155,7 +155,7 @@ pub async fn resolve_engine_context(
                 "AUTH_IDENTITY_INCOMPLETE",
                 "Engine commands must present both identity headers or neither.",
             )
-            .with_correlation(correlation_id))
+            .with_correlation(correlation_id));
         }
     }
 
@@ -200,7 +200,8 @@ pub fn asserted_identity_context(
         .map(str::to_owned)
         .unwrap_or_else(|| Uuid::new_v4().to_string());
     let provider = required_identity_header(headers, HEADER_PROVIDER, &correlation_id)?;
-    let provider_subject = required_identity_header(headers, HEADER_PROVIDER_SUBJECT, &correlation_id)?;
+    let provider_subject =
+        required_identity_header(headers, HEADER_PROVIDER_SUBJECT, &correlation_id)?;
 
     let context = ServiceContext {
         actor: ServiceActor {
@@ -212,11 +213,7 @@ pub fn asserted_identity_context(
         principal: None,
     };
 
-    Ok((
-        provider.to_owned(),
-        provider_subject.to_owned(),
-        context,
-    ))
+    Ok((provider.to_owned(), provider_subject.to_owned(), context))
 }
 
 fn validate_internal_key(state: &ApiState, headers: &HeaderMap) -> Result<(), ApiError> {

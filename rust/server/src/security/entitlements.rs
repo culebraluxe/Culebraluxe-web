@@ -5,9 +5,10 @@ use service::{
     ServiceActorKind, ServicePortError,
 };
 
-mod catalog {
-    include!("entitlement_catalog.rs");
-}
+// The catalog is declared by `security` (its parent) so both this adapter and the API layer's authorize endpoint
+// can name an action from the same list: the adapter seeds its policies from it, and the endpoint refuses any action
+// it does not contain. One list, so a decision can never be asked about an action that does not exist.
+use super::entitlement_catalog as catalog;
 
 const MODEL: &str = r#"
 [request_definition]

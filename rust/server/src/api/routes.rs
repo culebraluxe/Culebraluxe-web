@@ -1,31 +1,30 @@
 use super::context::{
-    asserted_identity_context, resolve_public_guest_context, resolve_request_context,
-    ResolvedRequestContext,
+    ResolvedRequestContext, asserted_identity_context, resolve_public_guest_context,
+    resolve_request_context,
 };
-use super::{diagnostics, engine, ApiError, ApiState};
+use super::{ApiError, ApiState, diagnostics, engine};
 use crate::service_support::CoreServiceError;
 use crate::vault::VaultArtifactPort;
 use async_trait::async_trait;
 use axum::{
-    extract::{DefaultBodyLimit, Multipart, Path, Query, State},
+    Json, Router,
     body::Body,
-    http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode},
+    extract::{DefaultBodyLimit, Multipart, Path, Query, State},
+    http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header},
     response::Response,
     routing::{get, post},
-    Json, Router,
 };
 use domain::{
-    ClientAdminPageRequest, ClientDirectoryPageRequest, ClientHistoryRequest, GetCommsPanelRequest,
-    AttachPropertyVideoRequest, GetCommsTimelineRequest, SearchPeopleRequest,
-    UploadPropertyMediaRequest, VaultActorScope,
-    VaultArtifactFailure, VaultCommandOutcome, VaultRenderRequest, VaultRenderedArtifact,
-    MAX_MEDIA_UPLOAD_BYTES,
+    AttachPropertyVideoRequest, ClientAdminPageRequest, ClientDirectoryPageRequest,
+    ClientHistoryRequest, GetCommsPanelRequest, GetCommsTimelineRequest, MAX_MEDIA_UPLOAD_BYTES,
+    SearchPeopleRequest, UploadPropertyMediaRequest, VaultActorScope, VaultArtifactFailure,
+    VaultCommandOutcome, VaultRenderRequest, VaultRenderedArtifact,
 };
 use integrations::boldsign::{BoldSignConfig, BoldSignSignatureProvider};
 use integrations::mux::{MuxClient, MuxConfig};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use service::SignatureProvider;
+use service::{OperationKind, SignatureProvider};
 use std::{collections::BTreeMap, sync::Arc};
 
 #[derive(Debug, Serialize)]
@@ -385,7 +384,10 @@ fn mux_video() -> Result<MuxClient, ApiError> {
         ApiError::from(CoreServiceError::business("MUX_NOT_CONFIGURED", message))
     })?;
     MuxClient::new(config).map_err(|error| {
-        ApiError::from(CoreServiceError::business("MUX_NOT_CONFIGURED", error.message))
+        ApiError::from(CoreServiceError::business(
+            "MUX_NOT_CONFIGURED",
+            error.message,
+        ))
     })
 }
 
@@ -516,8 +518,17 @@ pub fn router(state: ApiState) -> Router {
         // THE LOGIN SEAM'S QUESTION, as opposed to whoami's. Auth.js has proved a Google subject and nobody
         // knows yet whether it maps to an active application user; this answers known / unmapped / inactive.
         .route("/v1/security/identity", get(security_identity))
-        .route("/v1/security/role-entitlements", get(role_entitlements).put(set_role_entitlement))
-        .route("/v1/security/users", get(security_users).put(set_user_primary_role))
+        // THE SINGLE DECISION SURFACE: the TypeScript kernel asks here rather than holding its own copy of the
+        // rule, so "may this principal do this" is answered in one place.
+        .route("/v1/security/authorize", post(authorize_action))
+        .route(
+            "/v1/security/role-entitlements",
+            get(role_entitlements).put(set_role_entitlement),
+        )
+        .route(
+            "/v1/security/users",
+            get(security_users).put(set_user_primary_role),
+        )
         .route("/v1/cockpit", get(cockpit))
         .route("/v1/workflows", get(workflows))
         .route("/v1/workflows/{id}", get(workflow_detail))
@@ -527,10 +538,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/wbs/project-items", get(wbs_project_items))
         .route("/v1/wbs/{id}", get(wbs_item).patch(update_wbs_item))
         .route("/v1/tasks/{id}/complete", post(complete_task))
-        .route(
-            "/v1/wbs/{id}/apple-reminder",
-            post(queue_apple_reminder),
-        )
+        .route("/v1/wbs/{id}/apple-reminder", post(queue_apple_reminder))
         .route("/v1/wbs/{id}/route", post(route_project_work))
         .route("/v1/clients", get(clients))
         .route("/v1/clients/agents", get(client_agents))
@@ -539,8 +547,14 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/people/search", get(search_people))
         .route("/v1/people/{id}", get(person).patch(update_person_admin))
         .route("/v1/people/{id}/properties", get(properties_for_person))
-        .route("/v1/properties/admin", get(property_admin_page).post(create_property_admin))
-        .route("/v1/properties/{id}/admin", get(property_admin_detail).patch(save_property_admin))
+        .route(
+            "/v1/properties/admin",
+            get(property_admin_page).post(create_property_admin),
+        )
+        .route(
+            "/v1/properties/{id}/admin",
+            get(property_admin_detail).patch(save_property_admin),
+        )
         .route("/v1/properties/{id}", get(property))
         .route(
             "/v1/properties/{id}/media",
@@ -586,17 +600,29 @@ pub fn router(state: ApiState) -> Router {
             "/v1/accounting/receivables/{id}/paid",
             post(mark_receivable_paid),
         )
-        .route("/v1/accounting/expenses", get(accounting_expenses).post(create_expense))
+        .route(
+            "/v1/accounting/expenses",
+            get(accounting_expenses).post(create_expense),
+        )
         .route(
             "/v1/accounting/expense-categories",
             get(accounting_expense_categories),
         )
         .route("/v1/accounting/pnl", get(accounting_pnl))
-        .route("/v1/calendar", get(calendar).post(create_apple_calendar_event))
+        .route(
+            "/v1/calendar",
+            get(calendar).post(create_apple_calendar_event),
+        )
         .route("/v1/vault/documents", get(vault_documents))
         .route("/v1/vault/documents/{id}", get(vault_document))
-        .route("/v1/vault/public-listing-documents/{id}", get(vault_public_listing_document_bytes))
-        .route("/v1/vault/document-bytes/{id}", get(vault_private_document_bytes))
+        .route(
+            "/v1/vault/public-listing-documents/{id}",
+            get(vault_public_listing_document_bytes),
+        )
+        .route(
+            "/v1/vault/document-bytes/{id}",
+            get(vault_private_document_bytes),
+        )
         // The workflow engine, served. Same verbs the re-workflow CLI accepted, now behind the internal key and the
         // same identity resolution as every other route, so an engine command is a first-class part of this server
         // instead of a spawned process with its own pool and no error capture.
@@ -640,7 +666,9 @@ async fn role_entitlements(
     headers: HeaderMap,
 ) -> Result<Json<ApiSuccess<Vec<domain::security::RoleEntitlements>>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let value = state.services().security()
+    let value = state
+        .services()
+        .security()
         .list_role_entitlements(&resolved.service)
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
@@ -654,10 +682,19 @@ async fn set_role_entitlement(
 ) -> Result<Json<ApiSuccess<Vec<domain::security::RoleEntitlements>>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
     let mut security = state.services().security();
-    security.set_role_entitlement(&body.role_code, &body.action, body.granted, &resolved.service)
-        .await.map_err(|error| correlate(ApiError::from(error), &resolved))?;
-    let value = security.list_role_entitlements(&resolved.service)
-        .await.map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    security
+        .set_role_entitlement(
+            &body.role_code,
+            &body.action,
+            body.granted,
+            &resolved.service,
+        )
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    let value = security
+        .list_role_entitlements(&resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(value, &resolved))
 }
 
@@ -775,6 +812,93 @@ async fn security_identity(
     // A system context has no acting user, so the envelope carries the correlation id rather than a resolved
     // request context: inventing an actor here would be worse than admitting there is not one.
     Ok(success_with_correlation(value, &context.correlation_id))
+}
+
+/// One action to decide: the action name and its kind. Nothing else — see the handler for why.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct AuthorizeBody {
+    action: String,
+    kind: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AuthorizeResponse {
+    allowed: bool,
+    reason: String,
+    policy_id: String,
+    mode: &'static str,
+}
+
+/// THE ONE DECISION SURFACE.
+///
+/// The TypeScript kernel asks here instead of carrying its own copy of the rule, so "may this principal do this?"
+/// has a single answer — including the ROOT-only rule for `security.entitlement.manage` and `security.role.manage`,
+/// which the TypeScript copy did not carry and therefore disagreed with this one by construction.
+///
+/// THE CALLER NAMES ONLY AN ACTION, and it must be one the catalog knows. Domain and operation are derived from it
+/// inside the service (see `SecurityService::decide`), because the policy keys rules on those fields and a caller
+/// that could rename them could dodge the `contract.execute` level floor. A command asked about as a query is
+/// refused rather than answered: the kind is part of the question.
+async fn authorize_action(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<AuthorizeBody>,
+) -> Result<Json<ApiSuccess<AuthorizeResponse>>, ApiError> {
+    let Some((action, catalog_kind)) = crate::security::catalog_action(&body.action) else {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "SECURITY_ACTION_UNKNOWN",
+            format!("The action catalog does not contain {}.", body.action),
+            false,
+        ));
+    };
+
+    let kind = match body.kind.as_str() {
+        "query" => OperationKind::Query,
+        "command" => OperationKind::Command,
+        other => {
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "SECURITY_ACTION_KIND_INVALID",
+                format!("Unknown operation kind: {other}."),
+                false,
+            ));
+        }
+    };
+    // The catalog decides whether this action is a query or a command; a request that disagrees with it is not
+    // asking the question it thinks it is.
+    let catalog_kind_matches = matches!(
+        (catalog_kind, kind),
+        ("query", OperationKind::Query) | ("command", OperationKind::Command)
+    );
+    if !catalog_kind_matches {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "SECURITY_ACTION_KIND_MISMATCH",
+            format!("{action} is a {catalog_kind}, not a {}.", body.kind),
+            false,
+        ));
+    }
+
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let decision = state
+        .services()
+        .security()
+        .decide(action, kind, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+
+    Ok(success(
+        AuthorizeResponse {
+            allowed: decision.allowed,
+            reason: decision.reason,
+            policy_id: decision.policy_id,
+            mode: decision.mode,
+        },
+        &resolved,
+    ))
 }
 
 async fn whoami(
@@ -953,15 +1077,17 @@ async fn update_project(
                     Some(values) => {
                         let mut parsed = Vec::with_capacity(values.len());
                         for value in values {
-                            parsed.push(domain::WbsCategory::try_from(value.as_str()).map_err(|error| {
-                                correlate(
-                                    ApiError::from(CoreServiceError::business(
-                                        "PROJECT_AREA_INVALID",
-                                        error.to_string(),
-                                    )),
-                                    &resolved,
-                                )
-                            })?);
+                            parsed.push(domain::WbsCategory::try_from(value.as_str()).map_err(
+                                |error| {
+                                    correlate(
+                                        ApiError::from(CoreServiceError::business(
+                                            "PROJECT_AREA_INVALID",
+                                            error.to_string(),
+                                        )),
+                                        &resolved,
+                                    )
+                                },
+                            )?);
                         }
                         Some(parsed)
                     }
@@ -1235,7 +1361,6 @@ async fn person(
     Ok(success(value, &resolved))
 }
 
-
 async fn update_person_admin(
     State(state): State<ApiState>,
     headers: HeaderMap,
@@ -1272,7 +1397,6 @@ async fn properties_for_person(
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(value, &resolved))
 }
-
 
 async fn property_admin_page(
     State(state): State<ApiState>,
@@ -2157,7 +2281,7 @@ async fn route_project_work(
                     "Project work destination must be task or calendar.",
                 )),
                 &resolved,
-            ))
+            ));
         }
     };
 
@@ -2264,16 +2388,41 @@ fn vault_document_response(
     let mut response = Response::new(Body::from(document.bytes));
     let headers = response.headers_mut();
     headers.insert(header::CONTENT_TYPE, content_type);
-    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("private, no-store"));
-    headers.insert(HeaderName::from_static("x-content-type-options"), HeaderValue::from_static("nosniff"));
-    let safe_filename = document.filename
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-store"),
+    );
+    headers.insert(
+        HeaderName::from_static("x-content-type-options"),
+        HeaderValue::from_static("nosniff"),
+    );
+    let safe_filename = document
+        .filename
         .chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_' | ' ') { ch } else { '_' })
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_' | ' ') {
+                ch
+            } else {
+                '_'
+            }
+        })
         .collect::<String>();
-    let disposition = format!("{}; filename=\"{}\"", if download { "attachment" } else { "inline" }, safe_filename);
-    headers.insert(header::CONTENT_DISPOSITION, HeaderValue::from_str(&disposition).map_err(|_| {
-        ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "VAULT_INVALID_FILENAME", "Invalid document filename.", false)
-    })?);
+    let disposition = format!(
+        "{}; filename=\"{}\"",
+        if download { "attachment" } else { "inline" },
+        safe_filename
+    );
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&disposition).map_err(|_| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "VAULT_INVALID_FILENAME",
+                "Invalid document filename.",
+                false,
+            )
+        })?,
+    );
     Ok(response)
 }
 
@@ -2284,8 +2433,11 @@ async fn vault_public_listing_document_bytes(
     Query(query): Query<VaultDownloadQuery>,
 ) -> Result<Response, ApiError> {
     let context = resolve_public_guest_context(&state, &headers)?;
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| ApiError::not_found("VAULT_DOCUMENT_NOT_FOUND", "Document not found."))?;
-    let mut vault = state.services().vault(Arc::new(UnavailableVaultArtifactPort));
+    let id = uuid::Uuid::parse_str(&id)
+        .map_err(|_| ApiError::not_found("VAULT_DOCUMENT_NOT_FOUND", "Document not found."))?;
+    let mut vault = state
+        .services()
+        .vault(Arc::new(UnavailableVaultArtifactPort));
     let document = vault
         .public_listing_document_bytes(&id.to_string(), &context)
         .await
@@ -2301,8 +2453,11 @@ async fn vault_private_document_bytes(
     Query(query): Query<VaultDownloadQuery>,
 ) -> Result<Response, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| ApiError::not_found("VAULT_DOCUMENT_NOT_FOUND", "Document not found."))?;
-    let mut vault = state.services().vault(Arc::new(UnavailableVaultArtifactPort));
+    let id = uuid::Uuid::parse_str(&id)
+        .map_err(|_| ApiError::not_found("VAULT_DOCUMENT_NOT_FOUND", "Document not found."))?;
+    let mut vault = state
+        .services()
+        .vault(Arc::new(UnavailableVaultArtifactPort));
     let document = vault
         .media_bytes(&id.to_string(), &resolved.service)
         .await

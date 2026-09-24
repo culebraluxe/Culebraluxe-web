@@ -15,8 +15,8 @@ pub use authorization::{
     AuthorizationDecision, AuthorizationPort, AuthorizationRequest, DefaultAuthorizationPort,
 };
 pub use context::{
-    OperationKind, ServiceActor, ServiceActorKind, ServiceContext, ServicePrincipal,
-    AUTHJS_EDGE_ACTOR,
+    AUTHJS_EDGE_ACTOR, OperationKind, ServiceActor, ServiceActorKind, ServiceContext,
+    ServicePrincipal,
 };
 pub use events::{CapturingDomainEventPort, DomainEventPort, ServiceDomainEvent};
 pub use runtime::{ServiceInfrastructure, ServicePortError, ServiceRuntime, ServiceRuntimeError};
