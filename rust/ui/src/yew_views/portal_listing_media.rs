@@ -197,6 +197,7 @@ fn selected_workspace(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Ht
                 <h2 class="mt-2 font-serif text-2xl font-light text-[var(--portal-navy)]">{ property.name.clone() }</h2>
                 <p class="mt-1 text-xs font-light text-black/50">{ format!("{} · {} photos on file", property.status, property.image_count) }</p>
             </section>
+            if model.can("property.write") {
             <section class="portal-glass-panel rounded-[var(--portal-panel-radius)] p-4">
                 <h3 class="font-serif text-xl font-light text-[var(--portal-navy)]">{"Add photo"}</h3>
                 <div class="mt-4 grid gap-3 sm:grid-cols-2">
@@ -226,6 +227,7 @@ fn selected_workspace(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Ht
                     </span>
                 </div>
             </section>
+            }
         </div>
     }
 }

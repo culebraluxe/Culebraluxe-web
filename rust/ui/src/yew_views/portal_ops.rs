@@ -200,6 +200,11 @@ fn workbench(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
     let current = data.map(|data| data.page).unwrap_or(1);
     let page_size = data.map(|data| data.page_size.max(1)).unwrap_or(50);
     let pages = ((total + page_size - 1) / page_size).max(1);
+    let write_action = match model.ops.entity.as_str() {
+        "person" => "person.write",
+        "project" => "project.write",
+        _ => "property.write",
+    };
     let rail_class = if model.ops.rail_collapsed {
         "grid min-h-0 gap-3 md:h-[calc(100dvh-8.5rem)] md:grid-cols-[56px_minmax(0,1fr)]"
     } else {
@@ -212,7 +217,9 @@ fn workbench(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
             <div class={rail_class}>
                 { selector_rail(model, on_msg, total, current, pages) }
                 <main class="min-h-0 overflow-hidden">
-                    { editor(model, on_msg) }
+                    <fieldset disabled={!model.can(write_action)}>
+                        { editor(model, on_msg) }
+                    </fieldset>
                 </main>
             </div>
         </div>

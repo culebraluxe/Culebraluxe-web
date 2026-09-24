@@ -87,6 +87,7 @@ impl Security {
                 </div>
                 { self.sections() }
                 { self.status_panel(read.as_ref().map(|read| &read.status)) }
+                { self.entitlement_panel(read.as_ref().map(|read| read.role_entitlements.as_slice())) }
                 { self.break_glass_panel(read.as_ref().map(|read| &read.break_glass)) }
             </div>
         }
@@ -113,6 +114,35 @@ impl Security {
 }
 
 impl Security {
+    fn entitlement_panel(&self, roles: Option<&[crate::model::PortalRoleEntitlements]>) -> Html {
+        html! {
+            <section class={classes!(PANEL, "mt-6", "p-6")}>
+                <h2 class="font-serif text-2xl font-light">{"Role entitlements"}</h2>
+                <p class="mt-2 text-xs font-light text-black/45">
+                    {"Effective service actions by active role. External guest has no portal grants."}
+                </p>
+                if let Some(roles) = roles {
+                    <div class="mt-4 overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead><tr><th class="py-2">{"Role"}</th><th>{"Account"}</th><th>{"Granted actions"}</th></tr></thead>
+                            <tbody>
+                                { for roles.iter().map(|role| html! {
+                                    <tr key={role.role_code.clone()} class="border-t border-black/10 align-top">
+                                        <td class="py-3 pr-4 font-medium">{ role.role_code.clone() }</td>
+                                        <td class="py-3 pr-4">{ role.account_type.clone() }</td>
+                                        <td class="py-3 font-light">{ role.entitlement_codes.join(", ") }</td>
+                                    </tr>
+                                }) }
+                            </tbody>
+                        </table>
+                    </div>
+                } else {
+                    <p class="mt-3 text-sm font-light text-black/40">{"Reading role entitlements…"}</p>
+                }
+            </section>
+        }
+    }
+
     /// The nine counts, or the statement that they have not arrived.
     ///
     /// The owner-assignment badge is the live panel's: amber when nobody holds the owner role, navy when somebody does. That

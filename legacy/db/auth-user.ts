@@ -24,6 +24,7 @@ type SecurityPrincipalRow = {
   person_id: string | null
   role_codes: string[] | null
   authority_codes: string[] | null
+  entitlement_codes: string[] | null
 }
 
 async function usesSecurityRoleTable(): Promise<boolean> {
@@ -71,7 +72,18 @@ export async function getSecurityPrincipal(
                 on a.id = ra.authority_id
               where aur.app_user_id = u.id
             ) authorities
-          ) as authority_codes
+          ) as authority_codes,
+          (
+            select coalesce(jsonb_agg(code order by code), '[]'::jsonb)
+            from (
+              select distinct e.code
+              from app_user_role aur
+              join security_role r on r.id = aur.role_id and r.active = true
+              join role_entitlement re on re.role_id = r.id
+              join entitlement e on e.id = re.entitlement_id and e.active = true
+              where aur.app_user_id = u.id
+            ) grants
+          ) as entitlement_codes
         from app_user u
         where u.id = ${appUserId}
           and u.active = true
@@ -109,7 +121,8 @@ export async function getSecurityPrincipal(
                 on a.id = ra.authority_id
               where aur.app_user_id = u.id
             ) authorities
-          ) as authority_codes
+          ) as authority_codes,
+          '[]'::jsonb as entitlement_codes
         from app_user u
         where u.id = ${appUserId}
           and u.active = true
@@ -131,6 +144,7 @@ export async function getSecurityPrincipal(
     accountType: row.account_type,
     roleCodes: row.role_codes ?? [],
     authorityCodes: row.authority_codes ?? [],
+    entitlementCodes: row.entitlement_codes ?? [],
     personId: row.person_id ?? null,
   }
 }

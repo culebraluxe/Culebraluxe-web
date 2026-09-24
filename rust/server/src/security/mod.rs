@@ -1,9 +1,11 @@
 mod identity_cache;
+mod entitlements;
+pub use entitlements::CasbinAuthorizationPort;
 
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
 use db::{DbResult, SecurityDao};
-use domain::{resolve_security_level, ActingUser, SecurityIdentityResolution, SecurityPrincipal};
+use domain::{resolve_security_level, security::RoleEntitlements, ActingUser, SecurityIdentityResolution, SecurityPrincipal};
 use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
 
 #[async_trait]
@@ -14,6 +16,7 @@ pub trait SecurityRepository: Send {
         provider_subject: &str,
     ) -> DbResult<Option<String>>;
     async fn get_principal(&mut self, app_user_id: &str) -> DbResult<Option<ActingUser>>;
+    async fn list_role_entitlements(&mut self) -> DbResult<Vec<RoleEntitlements>>;
 }
 
 #[async_trait]
@@ -28,6 +31,9 @@ impl SecurityRepository for SecurityDao {
 
     async fn get_principal(&mut self, app_user_id: &str) -> DbResult<Option<ActingUser>> {
         SecurityDao::get_principal(self, app_user_id).await
+    }
+    async fn list_role_entitlements(&mut self) -> DbResult<Vec<RoleEntitlements>> {
+        SecurityDao::list_role_entitlements(self).await
     }
 }
 
@@ -94,6 +100,20 @@ impl<R: SecurityRepository> SecurityService<R> {
             identity_cache::put(provider, provider_subject, principal);
         }
 
+        audit_result(&self.runtime, "security", OP, context, decision, &result).await?;
+        result
+    }
+
+    pub async fn list_role_entitlements(
+        &mut self,
+        context: &ServiceContext,
+    ) -> Result<Vec<RoleEntitlements>, CoreServiceError> {
+        const OP: &str = "security.listRoleEntitlements";
+        let decision = authorize(
+            &self.runtime, "security", "security.principal.read", OP, OperationKind::Query, context,
+        ).await?;
+        let result: Result<Vec<RoleEntitlements>, CoreServiceError> =
+            self.repository.list_role_entitlements().await.map_err(Into::into);
         audit_result(&self.runtime, "security", OP, context, decision, &result).await?;
         result
     }
@@ -187,6 +207,9 @@ mod tests {
         async fn get_principal(&mut self, _app_user_id: &str) -> DbResult<Option<ActingUser>> {
             unreachable!("principal lookup must not run after identity lookup failure")
         }
+        async fn list_role_entitlements(&mut self) -> DbResult<Vec<RoleEntitlements>> {
+            Ok(Vec::new())
+        }
     }
 
     struct PrincipalLookupFailure;
@@ -203,6 +226,9 @@ mod tests {
 
         async fn get_principal(&mut self, _app_user_id: &str) -> DbResult<Option<ActingUser>> {
             Err(transient("security.get_principal"))
+        }
+        async fn list_role_entitlements(&mut self) -> DbResult<Vec<RoleEntitlements>> {
+            Err(transient("security.list_role_entitlements"))
         }
     }
 

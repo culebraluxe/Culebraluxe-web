@@ -45,6 +45,8 @@ fn smoke_context(correlation_id: impl Into<String>) -> ServiceContext {
             app_user_id: "rust-smoke".into(),
             level: "BUSINESS_POWER_USER".into(),
             role_codes: vec!["SYSTEM_SMOKE".into()],
+            account_type: "internal".into(),
+            entitlement_codes: vec![],
         }),
     }
 }

@@ -51,7 +51,9 @@ impl Component for FormRecord {
         let screen = crate::model::screen("form-record").expect("form record exists");
         html! {
             <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
-                { form_editor(&props.model, &props.on_msg) }
+                <fieldset disabled={!props.model.can("form.write")}>
+                    { form_editor(&props.model, &props.on_msg) }
+                </fieldset>
             </PortalShell>
         }
     }

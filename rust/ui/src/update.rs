@@ -686,7 +686,27 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             generation,
         } => {
             model.generation = generation;
-            open(model, screen, scope)
+            model.entitlements = None;
+            model.entitlements_error = false;
+            let mut effects = open(model, screen, scope);
+            if screen.path.starts_with("/portal/") {
+                effects.push(Effect::FetchEntitlements { generation });
+            }
+            effects
+        }
+        Msg::EntitlementsLoaded { generation, grants } => {
+            if model.generation == generation && model.screen.path.starts_with("/portal/") {
+                model.entitlements = Some(grants);
+                model.entitlements_error = false;
+            }
+            Vec::new()
+        }
+        Msg::EntitlementsUnavailable { generation } => {
+            if model.generation == generation {
+                model.entitlements = None;
+                model.entitlements_error = true;
+            }
+            Vec::new()
         }
         Msg::Navigate(screen) => {
             // Already there, and not deep inside a record: nothing to do. Coming *back* from a record with the same
@@ -3482,12 +3502,35 @@ mod tests {
         );
         assert_eq!(
             effects,
-            vec![Effect::FetchDeals {
-                screen: "deal-record",
-                scope: Some("deal-7".into()),
-                generation: 4,
-            }]
+            vec![
+                Effect::FetchDeals {
+                    screen: "deal-record",
+                    scope: Some("deal-7".into()),
+                    generation: 4,
+                },
+                Effect::FetchEntitlements { generation: 4 },
+            ]
         );
+    }
+
+    #[test]
+    fn a_stale_entitlement_answer_cannot_regrant_edit_controls() {
+        let mut model = Model::default();
+        update(&mut model, Msg::MountScoped {
+            screen: target("accounting-expenses"), scope: None, generation: 7,
+        });
+        update(&mut model, Msg::EntitlementsLoaded {
+            generation: 6,
+            grants: crate::model::PortalEntitlements {
+                account_type: "internal".into(),
+                security_level: "ROOT".into(),
+                entitlement_codes: vec!["accounting.write".into()],
+            },
+        });
+        assert!(!model.can("accounting.write"));
+        update(&mut model, Msg::EntitlementsUnavailable { generation: 7 });
+        assert!(!model.can("accounting.write"));
+        assert!(model.entitlements_error);
     }
 
     #[test]

@@ -34,6 +34,8 @@ export type SurfaceNavItem = {
    * only for now; server guards remain authoritative.
    */
   authority?: AuthorityCode
+  /** Service action needed to render this destination. */
+  entitlement?: string
 }
 
 /** One operating surface definition. */

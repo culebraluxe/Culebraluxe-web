@@ -81,6 +81,8 @@ pub async fn resolve_request_context(
             app_user_id: acting_user.app_user_id.clone(),
             level: principal.level.as_str().into(),
             role_codes: acting_user.role_codes.clone(),
+            account_type: acting_user.account_type.clone(),
+            entitlement_codes: acting_user.entitlement_codes.clone(),
         }),
     };
 

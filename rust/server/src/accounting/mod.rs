@@ -443,6 +443,8 @@ mod tests {
                 app_user_id: "user-1".into(),
                 level: "USER".into(),
                 role_codes: vec![],
+                account_type: "internal".into(),
+                entitlement_codes: vec![],
             }),
         }
     }

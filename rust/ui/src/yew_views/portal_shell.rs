@@ -39,6 +39,11 @@ impl Component for PortalShell {
                         { message }
                     </div>
                 }
+                if props.model.entitlements_error {
+                    <div class="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm" role="alert">
+                        {"Permissions could not be loaded. Editing is unavailable."}
+                    </div>
+                }
                 if loading {
                     <p class="mb-4 text-sm text-muted-foreground" data-portal-status="loading">{"Loading…"}</p>
                 }

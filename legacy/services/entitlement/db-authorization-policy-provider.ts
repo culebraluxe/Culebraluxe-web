@@ -4,7 +4,7 @@ import {
   type AuthorizationPolicy,
   type AuthorizationPolicyProvider,
 } from '@/legacy/services/entitlement/authorization-service'
-import type { SecurityLevel } from '@/legacy/services/security/level'
+import { hasSecurityLevel, type SecurityLevel } from '@/legacy/services/security/level'
 
 const LEVELS: ReadonlySet<string> = new Set(['ROOT', 'BUSINESS_POWER_USER', 'USER', 'GUEST'])
 
@@ -43,6 +43,15 @@ export class SqlAuthorizationPolicyProvider implements AuthorizationPolicyProvid
       if (!LEVELS.has(row.min_level)) continue
       const kind = row.kind as AuthorizationPolicy['kind'] | null
       if (kind !== null && kind !== 'query' && kind !== 'command') continue
+      const floor = byId.get(row.id)
+      // A database edit may tighten a built-in safety floor, never lower it.
+      if (floor && (
+        !hasSecurityLevel(row.min_level as SecurityLevel, floor.minLevel) ||
+        row.domain !== floor.domain ||
+        (row.action ?? undefined) !== floor.action ||
+        (row.operation ?? undefined) !== floor.operation ||
+        (kind ?? undefined) !== floor.kind
+      )) continue
       byId.set(row.id, {
         id: row.id,
         domain: row.domain ?? undefined,

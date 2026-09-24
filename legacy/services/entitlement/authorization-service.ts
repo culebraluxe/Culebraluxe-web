@@ -32,6 +32,12 @@ export interface AuthorizationPolicyProvider {
   policies(): Promise<readonly AuthorizationPolicy[]>
 }
 
+/** Exact action grants for a resolved user; the implementation reads the same
+ * role_entitlement rows as the Rust Casbin adapter. */
+export interface EntitlementGrantProvider {
+  hasGrant(appUserId: string, action: string, kind: ServiceOperationKind): Promise<boolean>
+}
+
 /** Built-in rules; the enforce list starts where the open-stub left off. */
 export const DEFAULT_AUTHORIZATION_POLICIES: readonly AuthorizationPolicy[] = [
   {
@@ -49,7 +55,10 @@ const ROOT_POLICY_ID = 'authorization:root'
 export class AuthorizationService implements AuthorizationPort {
   readonly mode = 'enforced' as const
 
-  constructor(private readonly provider: AuthorizationPolicyProvider) {}
+  constructor(
+    private readonly provider: AuthorizationPolicyProvider,
+    private readonly grants?: EntitlementGrantProvider,
+  ) {}
 
   async authorize(request: AuthorizationRequest): Promise<AuthorizationDecision> {
     const level: SecurityLevel = request.principal?.level ?? 'GUEST'
@@ -67,14 +76,31 @@ export class AuthorizationService implements AuthorizationPort {
 
     const rules = await this.provider.policies()
     const rule = this.match(request, rules)
+    // The rule is a minimum-level floor; a role grant is also required. This
+    // keeps the existing high-value rules while making per-action grants real.
+    const levelAllowed = !rule || hasSecurityLevel(level, rule.minLevel)
+    const grantAllowed = this.grants && request.principal
+      ? await this.grants.hasGrant(request.principal.appUserId, request.action, request.kind)
+      : undefined
     if (rule) {
-      const allowed = hasSecurityLevel(level, rule.minLevel)
+      const allowed = levelAllowed && (grantAllowed ?? true)
       return {
         allowed,
-        reason: allowed
-          ? `${rule.id}: ${level} meets required ${rule.minLevel}`
-          : `${rule.id}: ${level} is below required ${rule.minLevel}`,
+        reason: !levelAllowed
+          ? `${rule.id}: ${level} is below required ${rule.minLevel}`
+          : grantAllowed === false
+            ? `${rule.id}: no matching role entitlement`
+            : `${rule.id}: ${level} meets required ${rule.minLevel}`,
         policyId: rule.id,
+        mode: 'enforced',
+      }
+    }
+
+    if (grantAllowed !== undefined) {
+      return {
+        allowed: grantAllowed,
+        reason: grantAllowed ? 'role entitlement granted' : 'no matching role entitlement',
+        policyId: `entitlement:${request.action}`,
         mode: 'enforced',
       }
     }

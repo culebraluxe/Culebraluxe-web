@@ -99,7 +99,9 @@ fn portfolio(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
                 </span>
             </header>
 
-            { create_panel(model, data, on_msg) }
+            if model.can("deal.write") {
+                { create_panel(model, data, on_msg) }
+            }
             { stage_filter(model, on_msg) }
 
             <section class="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">

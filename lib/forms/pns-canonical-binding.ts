@@ -3,22 +3,12 @@ import 'server-only'
 import { randomUUID } from 'node:crypto'
 
 import { sql } from '@/legacy/db/client'
-import { SqlContractRepository } from '@/legacy/db/contract-service-repository'
-import { SqlFirmRepository } from '@/legacy/db/firm-service-repository'
-import { SqlPersonRepository } from '@/legacy/db/person-service-repository'
-import { SqlPropertyRepository } from '@/legacy/db/property-service-repository'
-import { SqlSecurityRepository } from '@/legacy/db/security-service-repository'
-import { SqlShowingRepository } from '@/legacy/db/showing-service-repository'
-import { SqlWbsRepository } from '@/legacy/db/wbs-service-repository'
-import { SqlProjectRepository } from '@/legacy/db/project-service-repository'
-import { composeCoreServices } from '@/legacy/services/composition'
+import { coreServices } from '@/lib/service-runtime'
 import { CONTRACT_OPERATIONS, type ContractDto, type ContractRoleDto } from '@/legacy/services/contract'
 import { FIRM_OPERATIONS, type FirmDto } from '@/legacy/services/firm'
 import { PERSON_OPERATIONS } from '@/legacy/services/person'
 import { PROPERTY_OPERATIONS, type PropertyDto } from '@/legacy/services/property'
 import { FORM_OPERATIONS } from '@/legacy/services/forms'
-import { SqlFormInstanceRepository } from '@/legacy/db/form-service-repository'
-import { appServiceErrorSink } from '@/lib/service-error-sink'
 import {
   toPnsCanonicalValue,
   toPnsWorkingValue,
@@ -31,20 +21,8 @@ import {
 const TEMPLATE_ID = 'PR-PNS'
 const CONTRACT_TYPE = 'purchase_sale'
 
-const core = composeCoreServices(
-  {
-    person: new SqlPersonRepository(),
-    firm: new SqlFirmRepository(),
-    property: new SqlPropertyRepository(),
-    contract: new SqlContractRepository(),
-    showing: new SqlShowingRepository(),
-    security: new SqlSecurityRepository(),
-    wbs: new SqlWbsRepository(),
-    project: new SqlProjectRepository(),
-    form: new SqlFormInstanceRepository(),
-  },
-  { errors: appServiceErrorSink() },
-)
+// The shared kernel already carries the production entitlement port.
+const core = coreServices
 
 /** The Forms domain is composed here; fail fast if that ever stops being true. */
 

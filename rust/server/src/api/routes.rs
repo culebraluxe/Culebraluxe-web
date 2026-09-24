@@ -56,6 +56,7 @@ struct WhoAmI {
     account_type: String,
     role_codes: Vec<String>,
     authority_codes: Vec<String>,
+    entitlement_codes: Vec<String>,
     person_id: Option<String>,
     security_level: String,
 }
@@ -494,6 +495,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/healthz", get(health))
         .route("/readyz", get(ready))
         .route("/v1/whoami", get(whoami))
+        .route("/v1/security/role-entitlements", get(role_entitlements))
         .route("/v1/cockpit", get(cockpit))
         .route("/v1/workflows", get(workflows))
         .route("/v1/workflows/{id}", get(workflow_detail))
@@ -611,6 +613,18 @@ async fn ready(State(state): State<ApiState>) -> Result<Json<ReadyResponse>, Api
     }))
 }
 
+async fn role_entitlements(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<Vec<domain::security::RoleEntitlements>>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let value = state.services().security()
+        .list_role_entitlements(&resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
 async fn whoami(
     State(state): State<ApiState>,
     headers: HeaderMap,
@@ -631,6 +645,7 @@ async fn whoami(
             account_type: actor.account_type,
             role_codes: actor.role_codes,
             authority_codes: actor.authority_codes,
+            entitlement_codes: actor.entitlement_codes,
             person_id: actor.person_id,
             security_level: level,
         },

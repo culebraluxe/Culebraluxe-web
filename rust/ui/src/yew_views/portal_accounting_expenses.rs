@@ -93,7 +93,7 @@ impl Expenses {
         html! {
             <div class="space-y-4">
                 { self.header(rows.len(), model, on_msg) }
-                if model.accounting.expense_open {
+                if model.can("accounting.write") && model.accounting.expense_open {
                     { self.form(model, on_msg) }
                 }
                 // THE ROW IS 40/60, as the live screen was. The ring gets two columns of five and the table three, so the
@@ -118,10 +118,12 @@ impl Expenses {
                 <p class="text-sm font-light text-white/60">
                     { format!("{count} expense{}", if count == 1 { "" } else { "s" }) }
                 </p>
+                if model.can("accounting.write") {
                 <button type="button" {onclick}
                     class="rounded-[var(--portal-panel-radius)] border border-[var(--portal-gold)]/60 bg-[var(--portal-gold)]/15 px-4 py-2 text-xs font-medium uppercase tracking-[0.14em] text-[var(--portal-gold)] transition hover:bg-[var(--portal-gold)]/25">
                     { if open { "Cancel" } else { "+ New Expense" } }
                 </button>
+                }
             </div>
         }
     }

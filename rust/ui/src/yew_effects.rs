@@ -7,7 +7,7 @@ use wasm_bindgen::JsCast;
 use yew::platform::spawn_local;
 use yew::Callback;
 
-use crate::model::{Effect, Msg, PortalDealPeopleSearch, PropertyRecent};
+use crate::model::{Effect, Msg, PortalDealPeopleSearch, PortalEntitlements, PropertyRecent};
 
 const PAGE_PATH: &str = "/api/rust-ui/public-page";
 const ROWS_PATH: &str = "/api/rust-ui/public-rows";
@@ -28,6 +28,9 @@ const LISTING_MEDIA_UPLOAD_PATH: &str = "/api/property-media/upload";
 
 pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
     match effect {
+        Effect::FetchEntitlements { generation } => {
+            fetch_entitlements(generation, dispatch);
+        }
         Effect::PropertyBrowserRead { id, slug, title, valid_slugs } => {
             read_property_browser(id, slug, title, valid_slugs, dispatch);
         }
@@ -1098,6 +1101,20 @@ fn write_property_favorite(id: String, slug: String, title: String, saved: bool,
     dispatch.emit(Msg::PropertyFavoriteStored { id, saved: actual });
 }
 
+fn fetch_entitlements(generation: u64, dispatch: &Callback<Msg>) {
+    let dispatch = dispatch.clone();
+    spawn_local(async move {
+        let grants = match Request::get("/api/portal/rust-ui/entitlements").send().await {
+            Ok(response) if response.ok() => response.json::<PortalEntitlements>().await.ok(),
+            _ => None,
+        };
+        dispatch.emit(match grants {
+            Some(grants) => Msg::EntitlementsLoaded { generation, grants },
+            None => Msg::EntitlementsUnavailable { generation },
+        });
+    });
+}
+
 fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
     let (url, screen, generation, kind) = match effect {
         // A COMMAND IS NOT A READ and cannot arrive here: every command effect has its own runner, matched in `run`
@@ -1280,7 +1297,8 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
         | Effect::RunDealWorkspaceCommand { .. }
         | Effect::UpdateProjectStatus { .. }
         | Effect::SaveProjectWork { .. }
-        | Effect::BrowserNavigate { .. } => return,
+        | Effect::BrowserNavigate { .. }
+        | Effect::FetchEntitlements { .. } => return,
     };
 
     let dispatch = dispatch.clone();

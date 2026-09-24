@@ -56,7 +56,10 @@ export function OperatingShell({
       hasSecurityLevel(actor.securityLevel, item.minSecurityLevel)
     const authorityVisible =
       !item.authority || actor.authorityCodes.includes(item.authority)
-    return levelVisible && authorityVisible
+    const entitlementVisible = actor.accountType === 'internal' &&
+      (!item.entitlement || actor.securityLevel === 'ROOT' ||
+        actor.entitlementCodes.includes(item.entitlement))
+    return levelVisible && authorityVisible && entitlementVisible
   })
 
   // Broad SecurityService levels now have a first-class UI hook. Existing
@@ -83,7 +86,11 @@ export function OperatingShell({
       const authorityVisible =
         !def.accessAuthority ||
         actor.authorityCodes.includes(def.accessAuthority)
-      return levelVisible && authorityVisible
+      const entitlementVisible = actor.accountType === 'internal' &&
+        (actor.securityLevel === 'ROOT' || def.items.some((item) =>
+          item.entitlement && actor.entitlementCodes.includes(item.entitlement),
+        ))
+      return levelVisible && authorityVisible && entitlementVisible
     }).map((s) => ({
       key: s,
       label: OPERATING_SURFACES[s].label,

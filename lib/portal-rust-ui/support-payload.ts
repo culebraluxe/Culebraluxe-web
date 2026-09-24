@@ -5,6 +5,7 @@ import { getEnvironmentReadiness } from '@/lib/environment-readiness'
 import { getSecurityStatus } from '@/legacy/db/auth-status'
 import { getClients } from '@/legacy/db/clients'
 import { getSystemHealth } from '@/legacy/db/system-health'
+import { rustApiRead } from '@/lib/rust-api/client'
 import {
   getWorkflowDiagnosticsSnapshot,
   inspectInstance,
@@ -96,6 +97,7 @@ export type SupportBreakGlassReadiness = {
 export type SupportSecurity = {
   status: SupportSecurityStatus
   breakGlass: SupportBreakGlassReadiness
+  roleEntitlements: Array<{ roleCode: string; accountType: string; entitlementCodes: string[] }>
 }
 
 /**
@@ -258,11 +260,12 @@ export async function supportPayload(
       // BOTH ARE PLAIN `SELECT`s AND A CONFIG PROBE: no writes, no side effects, nothing to trigger. That matters more here
       // than anywhere else on the portal, because the configuration being probed is the one that guards emergency root
       // access.
-      const [status, breakGlass] = await Promise.all([
+      const [status, breakGlass, grants] = await Promise.all([
         getSecurityStatus(),
         getBreakGlassReadiness(),
+        rustApiRead<SupportSecurity['roleEntitlements']>('/v1/security/role-entitlements'),
       ])
-      const security: SupportSecurity = { status, breakGlass }
+      const security: SupportSecurity = { status, breakGlass, roleEntitlements: grants.value }
       return { support: { security } }
     }
     case 'whatsapp-meta': {

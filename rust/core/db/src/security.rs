@@ -1,5 +1,5 @@
 use crate::{Database, DbFailure, DbResult};
-use domain::ActingUser;
+use domain::{ActingUser, security::RoleEntitlements};
 use sqlx::FromRow;
 
 #[derive(Debug, FromRow)]
@@ -11,6 +11,14 @@ struct PrincipalRow {
     person_id: Option<String>,
     role_codes: Vec<String>,
     authority_codes: Vec<String>,
+    entitlement_codes: Vec<String>,
+}
+
+#[derive(Debug, FromRow)]
+struct RoleEntitlementRow {
+    role_code: String,
+    account_type: String,
+    entitlement_codes: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -21,6 +29,31 @@ pub struct SecurityDao {
 impl SecurityDao {
     pub fn new(db: Database) -> Self {
         Self { db }
+    }
+
+    pub async fn list_role_entitlements(&self) -> DbResult<Vec<RoleEntitlements>> {
+        let rows = crate::retrying_read!(async {
+            sqlx::query_as::<_, RoleEntitlementRow>(
+                r#"
+                select r.code as role_code, r.account_type,
+                  coalesce(array_agg(e.code order by e.code) filter (where e.code is not null), '{}'::text[]) as entitlement_codes
+                from security_role r
+                left join role_entitlement re on re.role_id = r.id
+                left join entitlement e on e.id = re.entitlement_id and e.active = true
+                where r.active = true
+                group by r.id
+                order by r.code
+                "#,
+            )
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("security.list_role_entitlements", &error))
+        })?;
+        Ok(rows.into_iter().map(|row| RoleEntitlements {
+            role_code: row.role_code,
+            account_type: row.account_type,
+            entitlement_codes: row.entitlement_codes,
+        }).collect())
     }
 
     pub async fn resolve_provider_subject(
@@ -70,7 +103,16 @@ impl SecurityDao {
                     join authority a on a.id = ra.authority_id
                     where aur.app_user_id = u.id
                     order by a.code
-                  ) as authority_codes
+                  ) as authority_codes,
+                  array(
+                    select distinct e.code
+                    from app_user_role aur
+                    join security_role r on r.id = aur.role_id and r.active = true
+                    join role_entitlement re on re.role_id = r.id
+                    join entitlement e on e.id = re.entitlement_id
+                    where aur.app_user_id = u.id and e.active = true
+                    order by e.code
+                  ) as entitlement_codes
                 from app_user u
                 where u.id = $1::uuid and u.active = true
                 limit 1
@@ -89,6 +131,7 @@ impl SecurityDao {
             account_type: row.account_type,
             role_codes: row.role_codes,
             authority_codes: row.authority_codes,
+            entitlement_codes: row.entitlement_codes,
             person_id: row.person_id,
         }))
     }

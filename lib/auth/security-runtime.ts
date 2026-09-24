@@ -11,18 +11,21 @@ import { SqlProjectRepository } from '@/legacy/db/project-service-repository'
 import { composeCoreServices } from '@/legacy/services/composition'
 import { AuthorizationService } from '@/legacy/services/entitlement'
 import { SqlAuthorizationPolicyProvider } from '@/legacy/services/entitlement/db-authorization-policy-provider'
+import { SqlRoleEntitlementProvider } from '@/legacy/services/entitlement/db-role-entitlement-provider'
 import { SECURITY_OPERATIONS, type SecurityIdentityResolution } from '@/legacy/services/security'
 import { appServiceErrorSink } from '@/lib/service-error-sink'
 
-const authEntitlements = new AuthorizationService(new SqlAuthorizationPolicyProvider())
+const authEntitlements = new AuthorizationService(
+  new SqlAuthorizationPolicyProvider(),
+  new SqlRoleEntitlementProvider(),
+)
 
 /**
  * Server-side application-security composition used by the login seam.
  * Auth.js proves the provider identity; SecurityService owns its application
  * mapping. The Security service comes from the single shared kernel composition
  * (composeCoreServices), so there is exactly one place the kernel is built.
- * EntitlementService is an explicit open stub until the entitlement story
- * defines fine-grained policy.
+ * The authorization port is supplied with the same role grants as the Rust kernel.
  */
 export const applicationSecurityService = composeCoreServices(
   {

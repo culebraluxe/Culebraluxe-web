@@ -70,7 +70,7 @@ impl Receivables {
         html! {
             <div class="space-y-4">
                 { self.header(rows.len(), model, on_msg) }
-                if model.accounting.receivable_open {
+                if model.can("accounting.write") && model.accounting.receivable_open {
                     { self.form(model, on_msg) }
                 }
                 { self.table(&rows, model, on_msg) }
@@ -89,10 +89,12 @@ impl Receivables {
                 <p class="text-sm font-light text-white/60">
                     { format!("{count} receivable{}", if count == 1 { "" } else { "s" }) }
                 </p>
+                if model.can("accounting.write") {
                 <button type="button" {onclick}
                     class="rounded-[var(--portal-panel-radius)] border border-[var(--portal-gold)]/60 bg-[var(--portal-gold)]/15 px-4 py-2 text-xs font-medium uppercase tracking-[0.14em] text-[var(--portal-gold)] transition hover:bg-[var(--portal-gold)]/25">
                     { if open { "Cancel" } else { "+ New Receivable" } }
                 </button>
+                }
             </div>
         }
     }

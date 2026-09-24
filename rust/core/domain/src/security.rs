@@ -27,6 +27,8 @@ pub struct ActingUser {
     pub account_type: String,
     pub role_codes: Vec<String>,
     pub authority_codes: Vec<String>,
+    #[serde(default)]
+    pub entitlement_codes: Vec<String>,
     pub person_id: Option<String>,
 }
 
@@ -34,6 +36,15 @@ pub struct ActingUser {
 pub struct SecurityPrincipal {
     pub acting_user: ActingUser,
     pub level: SecurityLevel,
+}
+
+/// Effective action grants for one named role; no account or identity secrets.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoleEntitlements {
+    pub role_code: String,
+    pub account_type: String,
+    pub entitlement_codes: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

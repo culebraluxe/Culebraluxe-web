@@ -2093,9 +2093,21 @@ pub struct PropertyMediaState {
     pub lightbox_index: usize,
 }
 
+/// UI-only projection of the effective service grants. A missing projection
+/// means controls remain hidden until an authenticated read succeeds.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalEntitlements {
+    pub account_type: String,
+    pub security_level: String,
+    pub entitlement_codes: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Model {
     pub screen: Screen,
+    pub entitlements: Option<PortalEntitlements>,
+    pub entitlements_error: bool,
     pub loading: bool,
     pub error: Option<String>,
     pub rows: Vec<Row>,
@@ -2155,6 +2167,8 @@ impl Default for Model {
             // The first table entry, i.e. what a host that says nothing gets. A host that cares which screen opens
             // says so (the shell's `mount` takes the key), because the URL is the host's business.
             screen: SCREENS[0],
+            entitlements: None,
+            entitlements_error: false,
             loading: false,
             error: None,
             rows: Vec::new(),
@@ -2179,6 +2193,15 @@ impl Default for Model {
 }
 
 impl Model {
+    /// Cosmetic UI capability check. The service port remains the enforcement point.
+    pub fn can(&self, action: &str) -> bool {
+        self.entitlements.as_ref().is_some_and(|grants| {
+            grants.account_type == "internal"
+                && (grants.security_level == "ROOT"
+                    || grants.entitlement_codes.iter().any(|code| code == action))
+        })
+    }
+
     pub fn selected(&self) -> Option<&Row> {
         let id = self.selected_row_id.as_deref()?;
         self.rows.iter().find(|row| row.id == id)
@@ -2188,6 +2211,8 @@ impl Model {
 /// Every intent the shell can receive. This is the whole vocabulary a widget may speak.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Msg {
+    EntitlementsLoaded { generation: u64, grants: PortalEntitlements },
+    EntitlementsUnavailable { generation: u64 },
     /// The screen mounted, or navigation arrived that needs data.
     ScreenOpened(Screen),
     /// A HOST RUN OPENED THIS SCREEN, and this is the generation it belongs to.
@@ -2596,6 +2621,7 @@ impl Msg {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(tag = "effect")]
 pub enum Effect {
+    FetchEntitlements { generation: u64 },
     PropertyBrowserRead { id: String, slug: String, title: String, valid_slugs: Vec<String> },
     PropertyFavoriteWrite { id: String, slug: String, title: String, saved: bool },
     /// Fetch rows for this screen, optionally about one record.
@@ -3169,6 +3195,15 @@ pub struct PortalWhatsAppPhone {
 pub struct PortalSecurity {
     pub status: PortalSecurityStatus,
     pub break_glass: PortalBreakGlassReadiness,
+    pub role_entitlements: Vec<PortalRoleEntitlements>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalRoleEntitlements {
+    pub role_code: String,
+    pub account_type: String,
+    pub entitlement_codes: Vec<String>,
 }
 
 /// The nine counts, each named for what it counts. Counts of things, not values of anything.

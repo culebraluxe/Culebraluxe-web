@@ -15,5 +15,6 @@ export function toPortalActorSnapshot(
     accountType: actor.accountType,
     securityLevel: resolveSecurityLevel(actor.roleCodes),
     authorityCodes: actor.authorityCodes,
+    entitlementCodes: actor.entitlementCodes ?? [],
   }
 }

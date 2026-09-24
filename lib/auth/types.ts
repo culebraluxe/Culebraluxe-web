@@ -33,6 +33,8 @@ export type ActingUser = {
   accountType: AccountType
   roleCodes: string[]
   authorityCodes: string[]
+  /** Effective role grants. Empty for legacy or unmigrated projections. */
+  entitlementCodes?: string[]
   personId: string | null
 }
 
@@ -51,4 +53,5 @@ export type PortalActorSnapshot = {
   accountType: AccountType
   securityLevel: SecurityLevel
   authorityCodes: string[]
+  entitlementCodes: string[]
 }
