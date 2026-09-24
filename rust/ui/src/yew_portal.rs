@@ -14,6 +14,7 @@ use crate::yew_views::portal_accounting_receivables::Receivables as AccountingRe
 use crate::yew_views::portal_support_db_test::DbTest as SupportDbTest;
 use crate::yew_views::portal_support_security::Security as SupportSecurity;
 use crate::yew_views::portal_support_system_health::SystemHealth as SupportSystemHealth;
+use crate::yew_views::portal_support_users::SecurityUsers as SupportSecurityUsers;
 use crate::yew_views::portal_support_whatsapp_meta::WhatsAppMeta as SupportWhatsAppMeta;
 use crate::yew_views::portal_activity::Activity;
 use crate::yew_views::portal_cabinet::Cabinet;
@@ -103,6 +104,9 @@ impl Component for PortalApp {
             // SUPPORT — a bespoke component per screen, never the generic renderer.
             "db-test" => html! { <SupportDbTest model={self.model.clone()} on_msg={on_msg} /> },
             "security" => html! { <SupportSecurity model={self.model.clone()} on_msg={on_msg} /> },
+            "settings-users" => {
+                html! { <SupportSecurityUsers model={self.model.clone()} on_msg={on_msg} /> }
+            }
             "whatsapp-meta" => {
                 html! { <SupportWhatsAppMeta model={self.model.clone()} on_msg={on_msg} /> }
             }
