@@ -12,7 +12,7 @@ import {
 } from '@/legacy/workflow_app/diagnostics'
 
 // ---------------------------------------------------------------------------
-// SUPPORT PAYLOADS — the four diagnostic screens' reads, in one place.
+// SUPPORT PAYLOADS — SUPPORT reads, in one place.
 //
 // WHERE THE PROJECTION LIVES, AND WHY IT STAYS THERE. These screens' numbers come from reads that already exist and already
 // define what the numbers MEAN: `legacy/db/clients.ts`, `legacy/db/auth-status.ts`, `lib/auth/break-glass-readiness.ts`,
@@ -30,12 +30,13 @@ import {
 // looking example, because a diagnostic that invents its own numbers is worse than one that is visibly broken.
 // ---------------------------------------------------------------------------
 
-/** The four SUPPORT screens this module serves, exactly as the registry keys them. */
+/** SUPPORT screens served through typed portal payloads, exactly as the registry keys them. */
 export const SUPPORT_SCREENS = [
   'system-health',
   'db-test',
   'whatsapp-meta',
   'security',
+  'settings-users',
 ] as const
 
 export type SupportScreen = (typeof SUPPORT_SCREENS)[number]
@@ -98,6 +99,16 @@ export type SupportSecurity = {
   status: SupportSecurityStatus
   breakGlass: SupportBreakGlassReadiness
   roleEntitlements: Array<{ roleCode: string; accountType: string; entitlementCodes: string[] }>
+}
+
+export type SupportSecurityUser = {
+  appUserId: string
+  displayName: string
+  email: string | null
+  accountType: string
+  active: boolean
+  roleCodes: string[]
+  primaryRoleCode: string | null
 }
 
 /**
@@ -251,6 +262,12 @@ export async function supportPayload(
         })),
       }
       return { support: { dbTest } }
+    }
+    case 'settings-users': {
+      // This is a typed Security-service read, not the legacy settings SQL. The
+      // command path for this same screen writes through that service as well.
+      const users = await rustApiRead<SupportSecurityUser[]>('/v1/security/users')
+      return { support: { securityUsers: users.value } }
     }
     case 'security': {
       // THE PRE-CUTOVER SCREEN'S TWO READS, unchanged and unmoved. `getSecurityStatus()` counts actors, roles and mappings;
