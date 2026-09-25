@@ -1,6 +1,7 @@
 //! Port of lib/forge-decision.ts injection + db/forge-decision.ts active read.
 
-use crate::engine::vendor_session::{psql_query, sql_literal};
+use crate::engine::vendor_session::with_shared;
+use db::ForgeEngineDao;
 
 pub const DECISION_INJECTION_CAP: usize = 20;
 pub const DECISION_STORE_UNAVAILABLE: &str =
@@ -91,35 +92,26 @@ pub fn with_decision_context(
 }
 
 pub fn list_active_decisions(domain: &str, limit: usize) -> Result<Vec<DecisionSource>, String> {
-    let cap = limit.clamp(1, DECISION_INJECTION_CAP);
-    let sql = format!(
-        "SELECT key, statement, COALESCE(owner,'') \
-         FROM forge_decision \
-         WHERE status = 'active' AND domain = {} \
-         ORDER BY promoted_at DESC NULLS LAST, key \
-         LIMIT {cap}",
-        sql_literal(domain)
-    );
-    let raw = psql_query(&sql)?;
-    if raw.is_empty() {
-        return Ok(vec![]);
-    }
-    Ok(raw
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .map(|line| {
-            let mut cols = line.splitn(3, '|');
-            DecisionSource {
-                key: cols.next().unwrap_or("").trim().to_string(),
-                statement: cols.next().unwrap_or("").trim().to_string(),
-                owner: cols
-                    .next()
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty()),
-            }
+    let cap = limit.clamp(1, DECISION_INJECTION_CAP) as i64;
+    with_shared(|db, rt| {
+        let dao = ForgeEngineDao::new(db.clone());
+        rt.block_on(async {
+            dao.active_decisions(domain, cap)
+                .await
+                .map(|rows| {
+                    rows.into_iter()
+                        .map(|row| DecisionSource {
+                            key: row.key,
+                            statement: row.statement,
+                            owner: row.owner,
+                        })
+                        .collect()
+                })
+                .map_err(|error| error.to_string())
         })
-        .collect())
+    })?
 }
+
 
 #[cfg(test)]
 mod tests {
