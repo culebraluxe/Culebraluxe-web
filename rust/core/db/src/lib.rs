@@ -92,6 +92,8 @@ pub use transaction::DbTransaction;
 pub use vault::VaultDao;
 pub use wbs::WbsDao;
 pub use website_lead::WebsiteLeadDao;
-pub use whatsapp::{WhatsAppCanonicalInput, WhatsAppDao, WhatsAppLandingInput, WhatsAppProcessOutcome};
+pub use whatsapp::{
+    WhatsAppCanonicalInput, WhatsAppDao, WhatsAppLandingInput, WhatsAppProcessOutcome,
+};
 pub use workflow_ops::{PendingTimerJobRow, WorkflowOpsDao, WorkflowStatusRow};
 pub use workflow_portal::WorkflowPortalDao;
