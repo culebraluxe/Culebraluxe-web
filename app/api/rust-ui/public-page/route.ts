@@ -1,5 +1,12 @@
 import { NextResponse, type NextRequest } from 'next/server'
 
+// NEVER CACHED. This route answers with the live public record of a Property — its page, its listing, its similar
+// listings. A cached answer here is a Property that was edited in OPS and still reads as it did yesterday, which is
+// the class of bug that made a published listing look invisible. `force-dynamic` is the difference between "the site
+// reflects the record" and "the site reflects the last build".
+export const dynamic = 'force-dynamic'
+
+
 import { getGuideItems } from '@/legacy/db/guide'
 import { getMarketingContent } from '@/legacy/db/marketing-content'
 import { getPropertyBySlug, getPublicPropertySlugs, getSimilarProperties } from '@/lib/property-reads'

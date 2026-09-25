@@ -892,10 +892,34 @@ impl PropertyDao {
         request: &CreatePropertyAdminRequest,
     ) -> DbResult<PropertyAdminRecord> {
         let id = uuid::Uuid::new_v4().to_string();
+        // THE SLUG IS GENERATED HERE BECAUSE NOTHING ELSE SHOULD HAVE TO KNOW IT EXISTS.
+        //
+        // A listing without a slug is invisible to buyers: the public rows route drops any row whose slug is null,
+        // because a listing nobody can open must not be offered as one. This insert used to omit the column
+        // entirely, so every Property created in OPS was born unreachable — correct on screen, absent from the site,
+        // and nothing said why. Deriving it from the name means a new Property has an address before anyone looks
+        // for one, and the URL is still editable afterwards.
+        //
+        // A name that is already taken gets the row's own id appended rather than failing the insert: two listings
+        // can legitimately share a name, and colliding URLs are worse than an ugly one.
         sqlx::query(
             r#"
-            insert into property (id, name, property_type, status, is_active_listing, is_published)
-            values ($1::uuid, $2, $3, 'prospect', false, false)
+            with candidate as (
+                select nullif(trim(both '-' from regexp_replace(lower($2), '[^a-z0-9]+', '-', 'g')), '') as base
+            )
+            insert into property (id, name, property_type, status, is_active_listing, is_published, slug)
+            values (
+                $1::uuid, $2, $3, 'prospect', false, false,
+                (
+                    select case
+                        when candidate.base is null then null
+                        when exists (select 1 from property p where p.slug = candidate.base)
+                            then candidate.base || '-' || substr($1, 1, 6)
+                        else candidate.base
+                    end
+                    from candidate
+                )
+            )
             "#,
         )
         .bind(&id)
