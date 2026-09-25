@@ -4,7 +4,7 @@
 //! slug — the predicate the public inventory and the public document route use. A draft's tagline is not public copy.
 
 use crate::{Database, DbFailure, DbResult};
-use domain::{PublicListing, PublicListingCopy, PublicProperty};
+use domain::{PublicListing, PublicListingCopy, PublicProperty, PublicPropertyMedia};
 
 /// One row of the public inventory, with its hero already resolved by the query.
 #[derive(sqlx::FromRow)]
@@ -232,14 +232,27 @@ impl PublicListingDao {
             return Ok(None);
         };
 
-        // The marked hero sorts first, then gallery order — so `first()` IS the hero whether or not one was flagged.
-        let media = sqlx::query_as::<_, (String, String)>(
+        // THE FULL MEDIA LIST, not just the hero. Photographs, Mux videos and documents are all `media` rows, and the
+        // surface is what sorts them into a gallery, a video strip and a document list. The hero is resolved here —
+        // the marked one first, otherwise the first photograph — so no surface has to remember that rule.
+        let media_rows = sqlx::query_as::<_, (String, String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<f64>, i32, Option<String>, Option<String>, Option<f64>)>(
             r#"
-            select m.id::text, pm.role
+            select
+                m.id::text,
+                pm.role,
+                m.media_type,
+                m.alt_text,
+                m.caption,
+                m.filename,
+                m.mime_type,
+                m.file_size::float8,
+                pm.sort_order,
+                m.mux_playback_id,
+                m.aspect_ratio,
+                m.duration_seconds::float8
               from property_media pm
               join media m on m.id = pm.media_id
              where pm.property_id = $1::uuid
-               and m.media_type = 'image'
              order by case when pm.role = 'hero' then 0 else 1 end, pm.sort_order, m.created_at
             "#,
         )
@@ -248,8 +261,44 @@ impl PublicListingDao {
         .await
         .map_err(|error| DbFailure::from_sqlx("public_listing.property_media", &error))?;
 
-        let hero_media_id = media.first().map(|(media_id, _)| media_id.clone());
-        let gallery_media_ids = media.iter().map(|(media_id, _)| media_id.clone()).collect();
+        let media: Vec<PublicPropertyMedia> = media_rows
+            .into_iter()
+            .map(
+                |(
+                    id,
+                    role,
+                    media_type,
+                    alt_text,
+                    caption,
+                    filename,
+                    mime_type,
+                    file_size,
+                    sort_order,
+                    mux_playback_id,
+                    aspect_ratio,
+                    duration_seconds,
+                )| PublicPropertyMedia {
+                    id,
+                    role,
+                    media_type,
+                    alt_text,
+                    caption,
+                    filename,
+                    mime_type,
+                    file_size,
+                    sort_order,
+                    mux_playback_id,
+                    aspect_ratio,
+                    duration_seconds,
+                },
+            )
+            .collect();
+
+        let hero_media_id = media
+            .iter()
+            .find(|item| item.media_type == "image" && item.role == "hero")
+            .or_else(|| media.iter().find(|item| item.media_type == "image"))
+            .map(|item| item.id.clone());
 
         Ok(Some(PublicProperty {
             key: row.row_key,
@@ -270,7 +319,7 @@ impl PublicListingDao {
             short_description: row.short_description,
             editorial_description: row.editorial_description,
             hero_media_id,
-            gallery_media_ids,
+            media,
             video_count: row.video_count,
         }))
     }

@@ -54,6 +54,26 @@ pub struct PublicPropertyImage {
     pub role: String,
 }
 
+/// One attached asset, as the site needs it — a photograph, a Mux video, or a document. All three are `media` rows,
+/// which is why they travel together: the surface decides which are gallery, which are videos, which are documents.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicPropertyMedia {
+    pub id: String,
+    pub role: String,
+    pub media_type: String,
+    pub alt_text: Option<String>,
+    pub caption: Option<String>,
+    pub filename: Option<String>,
+    pub mime_type: Option<String>,
+    pub file_size: Option<f64>,
+    pub sort_order: i32,
+    /// Present on Mux videos: the site links out to Mux with this, which is why no video file is stored here.
+    pub mux_playback_id: Option<String>,
+    pub aspect_ratio: Option<String>,
+    pub duration_seconds: Option<f64>,
+}
+
 /// One Property as the public site shows it: the key that opens it, its facts, and its photographs.
 ///
 /// Every field is optional except the identity and the status, deliberately — a listing with no price, no year and no
@@ -81,8 +101,9 @@ pub struct PublicProperty {
     pub editorial_description: Option<String>,
     /// The hero: the marked one, or the first photograph. A page always has a picture.
     pub hero_media_id: Option<String>,
-    pub gallery_media_ids: Vec<String>,
-    /// Videos attached to the listing — Mux assets the page links out to. A count, not a URL: the playable link is
-    /// Mux's, and the page asks Mux directly.
+    /// Everything attached to the Property — photographs, Mux videos, documents — in gallery order. The surface sorts
+    /// them into the gallery, the video strip and the document list; the service does not decide what a surface shows.
+    pub media: Vec<PublicPropertyMedia>,
+    /// Videos attached to the listing — Mux assets the page links out to.
     pub video_count: i64,
 }

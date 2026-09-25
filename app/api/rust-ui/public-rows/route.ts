@@ -93,7 +93,12 @@ async function recordRows(scope: string | null): Promise<RustUiRow[]> {
     // The hero is the marked photograph or the first one, so this is only ever "missing" for a Property with no
     // photographs at all.
     facts('Hero image', property.heroMediaId ? 'present' : 'missing'),
-    facts('Gallery', property.galleryMediaIds.length ? `${property.galleryMediaIds.length} image(s)` : null),
+    facts(
+      'Gallery',
+      property.media.filter((item) => item.mediaType === 'image' && item.role !== 'hero').length
+        ? `${property.media.filter((item) => item.mediaType === 'image' && item.role !== 'hero').length} image(s)`
+        : null,
+    ),
     facts('Videos', property.videoCount ? `${property.videoCount} video(s)` : null),
     facts('Description', property.shortDescription ?? property.editorialDescription),
   ].filter((row): row is RustUiRow => row !== null)

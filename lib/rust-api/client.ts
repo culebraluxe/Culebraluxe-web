@@ -411,6 +411,22 @@ export async function rustApiPublicGuide(): Promise<RustGuideItem[]> {
   return payload.value
 }
 
+export type RustPublicPropertyMedia = {
+  id: string
+  role: string
+  mediaType: string
+  altText: string | null
+  caption: string | null
+  filename: string | null
+  mimeType: string | null
+  fileSize: number | null
+  sortOrder: number
+  /** Present on Mux videos: the site links out to Mux with this. */
+  muxPlaybackId: string | null
+  aspectRatio: string | null
+  durationSeconds: number | null
+}
+
 /**
  * One Property from the Rust public service (`GET /v1/public/property?key=…`).
  *
@@ -436,7 +452,8 @@ export type RustPublicProperty = {
   shortDescription: string | null
   editorialDescription: string | null
   heroMediaId: string | null
-  galleryMediaIds: string[]
+  /** Photographs, Mux videos and documents together — the surface sorts them. */
+  media: RustPublicPropertyMedia[]
   videoCount: number
 }
 
