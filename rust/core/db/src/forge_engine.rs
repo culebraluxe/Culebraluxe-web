@@ -57,7 +57,10 @@ impl ForgeEngineDao {
         work_item_id: &str,
         worker_id: &str,
     ) -> DbResult<Option<ForgeAgentWorkRow>> {
-        let mut tx = self.db.begin("forge_engine.claim_specific_agent_work").await?;
+        let mut tx = self
+            .db
+            .begin("forge_engine.claim_specific_agent_work")
+            .await?;
         sqlx::query("select pg_advisory_xact_lock($1)")
             .bind(AGENT_CLAIM_LOCK)
             .execute(tx.connection())
@@ -95,7 +98,9 @@ impl ForgeEngineDao {
             .bind(work_item_id)
             .fetch_optional(tx.connection())
             .await
-            .map_err(|error| DbFailure::from_sqlx("forge_engine.claim_specific.active_group", &error))?
+            .map_err(|error| {
+                DbFailure::from_sqlx("forge_engine.claim_specific.active_group", &error)
+            })?
         };
 
         if active.is_some() {
@@ -186,7 +191,9 @@ impl ForgeEngineDao {
         .bind(evidence)
         .execute(self.db.pool())
         .await
-        .map_err(|error| DbFailure::from_sqlx("forge_engine.reject_agent_work_configuration", &error))?;
+        .map_err(|error| {
+            DbFailure::from_sqlx("forge_engine.reject_agent_work_configuration", &error)
+        })?;
         Ok(())
     }
 
@@ -439,12 +446,7 @@ impl ForgeEngineDao {
         Ok(result.rows_affected() > 0)
     }
 
-    pub async fn set_deal_field(
-        &self,
-        deal_id: &str,
-        field: &str,
-        value: &str,
-    ) -> DbResult<bool> {
+    pub async fn set_deal_field(&self, deal_id: &str, field: &str, value: &str) -> DbResult<bool> {
         let result = match field {
             "closing_date" => sqlx::query("update deal set closing_date=$2::date,updated_at=now() where id=$1::uuid")
                 .bind(deal_id).bind(value).execute(self.db.pool()).await,
@@ -502,7 +504,6 @@ impl ForgeEngineDao {
         Ok(())
     }
 }
-
 
 #[derive(Debug, Clone, Default)]
 pub struct ForgeEvidencePatch {
@@ -641,7 +642,10 @@ impl ForgeEngineDao {
         .map_err(|error| DbFailure::from_sqlx("forge_engine.deal_id_for_contract", &error))
     }
 
-    pub async fn deal_workflow_facts(&self, deal_id: &str) -> DbResult<Option<DealWorkflowFactRow>> {
+    pub async fn deal_workflow_facts(
+        &self,
+        deal_id: &str,
+    ) -> DbResult<Option<DealWorkflowFactRow>> {
         sqlx::query_as::<_, DealWorkflowFactRow>(
             "select
                 d.stage,

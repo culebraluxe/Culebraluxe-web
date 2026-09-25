@@ -1,9 +1,9 @@
 //! Port of workflow_app/definitions/deploy.ts. Same process_definitions table.
 
 use crate::engine::vendor_session::with_shared;
-use db::ForgeEngineDao;
 use crate::engine::version_policy::{classify_deploy, DeployDecision};
 use crate::engine::xml::definition_from_xml;
+use db::ForgeEngineDao;
 use workflow::json_codec::{graph_from_json, graph_to_json};
 
 #[derive(Debug, Clone)]
@@ -79,7 +79,6 @@ pub fn upsert_process_definition(
         })
     })?
 }
-
 
 pub fn deploy_xml(xml: &str, created_by: Option<&str>) -> Result<DeployDefinitionResult, String> {
     let parsed = definition_from_xml(xml).map_err(|e| e.to_string())?;

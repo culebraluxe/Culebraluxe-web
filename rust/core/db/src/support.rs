@@ -247,13 +247,22 @@ impl SupportDiagnosticsDao {
             active_internal_users: base.active_internal_users,
             external_users: base.external_users,
             users_with_no_role: role.as_ref().map(|row| row.users_with_no_role).unwrap_or(0),
-            users_with_multiple_roles: role.as_ref().map(|row| row.users_with_multiple_roles).unwrap_or(0),
-            mapped_auth_identities: identity.as_ref().map(|row| row.mapped_auth_identities).unwrap_or(0),
+            users_with_multiple_roles: role
+                .as_ref()
+                .map(|row| row.users_with_multiple_roles)
+                .unwrap_or(0),
+            mapped_auth_identities: identity
+                .as_ref()
+                .map(|row| row.mapped_auth_identities)
+                .unwrap_or(0),
             unmapped_app_users: identity
                 .as_ref()
                 .map(|row| row.unmapped_app_users)
                 .unwrap_or(base.active_internal_users),
-            owner_role_assignments: role.as_ref().map(|row| row.owner_role_assignments).unwrap_or(0),
+            owner_role_assignments: role
+                .as_ref()
+                .map(|row| row.owner_role_assignments)
+                .unwrap_or(0),
             inactive_users_with_active_role_mappings: role
                 .as_ref()
                 .map(|row| row.inactive_users_with_active_role_mappings)
@@ -383,13 +392,23 @@ impl SupportDiagnosticsDao {
             other_participants_missing_role_label: base.other_participants_missing_role_label,
             offers_with_cross_deal_parent: base.offers_with_cross_deal_parent,
             showings_with_deal_property_mismatch: base.showings_with_deal_property_mismatch,
-            completed_showings_missing_showing_interaction: base.completed_showings_missing_showing_interaction,
+            completed_showings_missing_showing_interaction: base
+                .completed_showings_missing_showing_interaction,
             inactive_participants_without_ended_at: base.inactive_participants_without_ended_at,
             public_properties_with_multiple_heroes: base.public_properties_with_multiple_heroes,
             hero_media_not_image: base.hero_media_not_image,
-            account_type_mismatch_count: role.as_ref().map(|row| row.account_type_mismatch_count).unwrap_or(0),
-            active_app_users_without_role: role.as_ref().map(|row| row.active_app_users_without_role).unwrap_or(0),
-            auth_identity_inactive_app_user: identity.as_ref().map(|row| row.auth_identity_inactive_app_user).unwrap_or(0),
+            account_type_mismatch_count: role
+                .as_ref()
+                .map(|row| row.account_type_mismatch_count)
+                .unwrap_or(0),
+            active_app_users_without_role: role
+                .as_ref()
+                .map(|row| row.active_app_users_without_role)
+                .unwrap_or(0),
+            auth_identity_inactive_app_user: identity
+                .as_ref()
+                .map(|row| row.auth_identity_inactive_app_user)
+                .unwrap_or(0),
             owner_assignments,
             multiple_owners: if owner_assignments > 1 { 1 } else { 0 },
             auth_identity_without_usable_app_user: identity
@@ -460,8 +479,14 @@ impl SupportDiagnosticsDao {
         .map_err(|error| DbFailure::from_sqlx("support.workflow.counts", &error))?;
 
         let anomalies = self.workflow_anomalies().await?;
-        let instance_active = instances.iter().filter(|row| row.status == "active").count() as i64;
-        let instance_completed = instances.iter().filter(|row| row.status == "completed").count() as i64;
+        let instance_active = instances
+            .iter()
+            .filter(|row| row.status == "active")
+            .count() as i64;
+        let instance_completed = instances
+            .iter()
+            .filter(|row| row.status == "completed")
+            .count() as i64;
         let instance_failed = instances
             .iter()
             .filter(|row| row.status == "error" || row.outcome.as_deref() == Some("failed"))
@@ -476,7 +501,10 @@ impl SupportDiagnosticsDao {
                 instance_active,
                 instance_completed,
                 instance_failed,
-                instance_other: instance_total - instance_active - instance_completed - instance_failed,
+                instance_other: instance_total
+                    - instance_active
+                    - instance_completed
+                    - instance_failed,
                 ready_engine_tasks: counts.ready_engine_tasks,
                 correlated_open_canonical_tasks: counts.correlated_open_canonical_tasks,
                 pending_jobs: counts.pending_jobs,
@@ -579,7 +607,10 @@ impl SupportDiagnosticsDao {
             .collect())
     }
 
-    pub async fn workflow_detail(&self, instance_id: &str) -> DbResult<Option<WorkflowDiagnosticsDetail>> {
+    pub async fn workflow_detail(
+        &self,
+        instance_id: &str,
+    ) -> DbResult<Option<WorkflowDiagnosticsDetail>> {
         let summary = sqlx::query_as::<_, InstanceRow>(
             r#"
             select

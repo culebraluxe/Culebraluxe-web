@@ -10,7 +10,6 @@ pub struct PublicListingCopy {
     pub tagline: String,
 }
 
-
 /// One listing as the public site shows it: the key that opens it, and the facts the grid renders.
 ///
 /// `key` is the slug when the listing has one and the row's id when it does not — the public resolver accepts either
@@ -44,7 +43,6 @@ pub struct PublicListing {
     pub hero_media_id: Option<String>,
     pub hero_alt: Option<String>,
 }
-
 
 /// One photograph on a public listing: the id the site serves it by, and the role that explains why it is there.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

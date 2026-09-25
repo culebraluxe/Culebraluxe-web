@@ -39,7 +39,9 @@ impl StoryPacket {
             goal: row.goal.filter(|value| !value.trim().is_empty()),
             special_instructions: None,
             architect_brief: row.architect_brief.filter(|value| !value.trim().is_empty()),
-            acceptance_criteria: row.acceptance_criteria.filter(|value| !value.trim().is_empty()),
+            acceptance_criteria: row
+                .acceptance_criteria
+                .filter(|value| !value.trim().is_empty()),
             assay_commands: row
                 .assay_commands
                 .map(|value| {

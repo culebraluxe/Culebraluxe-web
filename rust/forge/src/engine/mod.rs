@@ -68,9 +68,9 @@ pub mod validate;
 pub mod vendor_session;
 pub mod verification;
 pub mod version_policy;
+pub mod worker;
 pub mod workspace_id;
 pub mod worktree;
-pub mod worker;
 pub mod writer;
 pub mod xml;
 

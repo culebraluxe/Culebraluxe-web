@@ -147,13 +147,20 @@ impl<R: PublicListingRepository> PublicListingService<R> {
         // A limit from a caller is a request, not an instruction: the page shows a strip, so it can never ask for a
         // report. Clamped rather than trusted.
         let limit = limit.clamp(1, 24);
-        let result = self.repository.similar(key, limit).await.map_err(Into::into);
+        let result = self
+            .repository
+            .similar(key, limit)
+            .await
+            .map_err(Into::into);
         audit_result(&self.runtime, "property", OP, context, decision, &result).await?;
         result
     }
 
     /// Every slug the site can serve, for the sitemap.
-    pub async fn slugs(&mut self, context: &ServiceContext) -> Result<Vec<String>, CoreServiceError> {
+    pub async fn slugs(
+        &mut self,
+        context: &ServiceContext,
+    ) -> Result<Vec<String>, CoreServiceError> {
         const OP: &str = "property.publicSlugs";
         let decision = authorize(
             &self.runtime,

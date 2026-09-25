@@ -42,7 +42,10 @@ impl ForgeControlDao {
         Self { db }
     }
 
-    pub async fn stale_agent_work(&self, stale_after_minutes: i64) -> DbResult<Vec<StaleAgentWorkRow>> {
+    pub async fn stale_agent_work(
+        &self,
+        stale_after_minutes: i64,
+    ) -> DbResult<Vec<StaleAgentWorkRow>> {
         sqlx::query_as::<_, StaleAgentWorkRow>(
             "select id::text as id, story_id, role, attempts, max_attempts, story_run_id::text as story_run_id, updated_at::text as updated_at
              from agent_work_item
@@ -155,14 +158,13 @@ impl ForgeControlDao {
     }
 
     pub async fn fire_flight(&self, batch_id: &str) -> DbResult<FlightFireResult> {
-        let policy: Option<String> = sqlx::query_scalar(
-            "select model_policy from forge_batch where id=$1::uuid",
-        )
-        .bind(batch_id)
-        .fetch_optional(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("forge_control.flight_policy", &error))?
-        .flatten();
+        let policy: Option<String> =
+            sqlx::query_scalar("select model_policy from forge_batch where id=$1::uuid")
+                .bind(batch_id)
+                .fetch_optional(self.db.pool())
+                .await
+                .map_err(|error| DbFailure::from_sqlx("forge_control.flight_policy", &error))?
+                .flatten();
         let policy = policy.unwrap_or_else(|| "cheap".into());
 
         let rows = sqlx::query(
@@ -178,16 +180,20 @@ impl ForgeControlDao {
         let mut stamped = 0u64;
         let mut skipped = 0u64;
         for row in rows {
-            let story: String = row
-                .try_get("story_id")
-                .map_err(|error| DbFailure::schema_mismatch("forge_control.flight_member.story", error.to_string()))?;
+            let story: String = row.try_get("story_id").map_err(|error| {
+                DbFailure::schema_mismatch("forge_control.flight_member.story", error.to_string())
+            })?;
             let kind: String = row.try_get("kind").unwrap_or_else(|_| "normal".into());
             let member = async {
-                sqlx::query("update storyboard_story set status='Ready', updated_at=now() where id=$1")
-                    .bind(&story)
-                    .execute(self.db.pool())
-                    .await
-                    .map_err(|error| DbFailure::from_sqlx("forge_control.flight_member.story_ready", &error))?;
+                sqlx::query(
+                    "update storyboard_story set status='Ready', updated_at=now() where id=$1",
+                )
+                .bind(&story)
+                .execute(self.db.pool())
+                .await
+                .map_err(|error| {
+                    DbFailure::from_sqlx("forge_control.flight_member.story_ready", &error)
+                })?;
                 sqlx::query(
                     "update forge_batch_item set state='Queued', queued_at=now(), error_text=null
                      where batch_id=$1::uuid and story_id=$2",
@@ -196,7 +202,9 @@ impl ForgeControlDao {
                 .bind(&story)
                 .execute(self.db.pool())
                 .await
-                .map_err(|error| DbFailure::from_sqlx("forge_control.flight_member.queued", &error))?;
+                .map_err(|error| {
+                    DbFailure::from_sqlx("forge_control.flight_member.queued", &error)
+                })?;
                 let affected = sqlx::query(
                     "update agent_work_item set kind=$2, model_policy=$3, updated_at=now()
                      where story_id=$1 and state='Ready'",
@@ -206,7 +214,9 @@ impl ForgeControlDao {
                 .bind(&policy)
                 .execute(self.db.pool())
                 .await
-                .map_err(|error| DbFailure::from_sqlx("forge_control.flight_member.routing", &error))?
+                .map_err(|error| {
+                    DbFailure::from_sqlx("forge_control.flight_member.routing", &error)
+                })?
                 .rows_affected();
                 Ok::<u64, DbFailure>(affected)
             }
@@ -228,7 +238,9 @@ impl ForgeControlDao {
                     .bind(error.to_string().chars().take(2000).collect::<String>())
                     .execute(self.db.pool())
                     .await
-                    .map_err(|sql_error| DbFailure::from_sqlx("forge_control.flight_member.skipped", &sql_error))?;
+                    .map_err(|sql_error| {
+                        DbFailure::from_sqlx("forge_control.flight_member.skipped", &sql_error)
+                    })?;
                 }
             }
         }
@@ -261,7 +273,10 @@ impl ForgeControlDao {
         .map_err(|error| DbFailure::from_sqlx("forge_control.next_ready_work", &error))
     }
 
-    pub async fn stale_learn_claims(&self, stale_after_minutes: i64) -> DbResult<Vec<LearnStaleClaimRow>> {
+    pub async fn stale_learn_claims(
+        &self,
+        stale_after_minutes: i64,
+    ) -> DbResult<Vec<LearnStaleClaimRow>> {
         sqlx::query_as::<_, LearnStaleClaimRow>(
             "select id::text as id, updated_at::text as updated_at
              from agent_work_item
@@ -375,11 +390,13 @@ impl ForgeControlDao {
     ) -> DbResult<()> {
         let mut tx = self.db.begin("forge_control.stage_learn_item").await?;
         let result = async {
-            sqlx::query("update storyboard_story set status='Batched',updated_at=now() where id=$1")
-                .bind(story_id)
-                .execute(tx.connection())
-                .await
-                .map_err(|error| DbFailure::from_sqlx("forge_control.learn_story.batched", &error))?;
+            sqlx::query(
+                "update storyboard_story set status='Batched',updated_at=now() where id=$1",
+            )
+            .bind(story_id)
+            .execute(tx.connection())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_control.learn_story.batched", &error))?;
             sqlx::query(
                 "insert into forge_batch_item(batch_id,story_id,state,kind,learn_pattern_key)
                  values($1::uuid,$2,'Staged','learn',$3)

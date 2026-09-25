@@ -18,7 +18,10 @@ const MAX_FILES: usize = 40;
 const WINDOW_HOURS: u64 = 24;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Severity { P0, Normal }
+enum Severity {
+    P0,
+    Normal,
+}
 
 #[derive(Debug, Clone)]
 struct Candidate {
@@ -33,7 +36,10 @@ struct Candidate {
 }
 
 fn now_secs() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 fn anchor_path(root: &Path) -> PathBuf {
@@ -44,55 +50,83 @@ fn read_anchor_secs(root: &Path) -> Option<u64> {
     let raw = fs::read_to_string(anchor_path(root)).ok()?;
     let key = "\"unix\":";
     let pos = raw.find(key)? + key.len();
-    raw[pos..].trim_start().split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()
+    raw[pos..]
+        .trim_start()
+        .split(|c: char| !c.is_ascii_digit())
+        .next()?
+        .parse()
+        .ok()
 }
 
 fn write_anchor(root: &Path, key: Option<&str>) -> Result<(), String> {
     let path = anchor_path(root);
-    if let Some(parent) = path.parent() { fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
     let safe = key.unwrap_or("").replace('\\', "\\\\").replace('"', "\\\"");
-    fs::write(path, format!("{{\"unix\":{},\"lastKey\":\"{}\"}}\n", now_secs(), safe))
-        .map_err(|e| e.to_string())
+    fs::write(
+        path,
+        format!("{{\"unix\":{},\"lastKey\":\"{}\"}}\n", now_secs(), safe),
+    )
+    .map_err(|e| e.to_string())
 }
 
 fn code_path(path: &str) -> bool {
-    let good = path.ends_with(".ts") || path.ends_with(".tsx") || path.ends_with(".js") ||
-        path.ends_with(".mjs") || path.ends_with(".rs");
-    good &&
-        !path.starts_with("docs/") &&
-        !path.starts_with("node_modules/") &&
-        !path.starts_with(".next/") &&
-        !path.starts_with(".vercel/") &&
-        !path.starts_with(".forge/") &&
-        !path.starts_with("testv2/") &&
-        !path.contains(".test.") &&
-        !path.contains(".spec.") &&
-        path != "agent-runtime/silent-failure-patterns.ts"
+    let good = path.ends_with(".ts")
+        || path.ends_with(".tsx")
+        || path.ends_with(".js")
+        || path.ends_with(".mjs")
+        || path.ends_with(".rs");
+    good && !path.starts_with("docs/")
+        && !path.starts_with("node_modules/")
+        && !path.starts_with(".next/")
+        && !path.starts_with(".vercel/")
+        && !path.starts_with(".forge/")
+        && !path.starts_with("testv2/")
+        && !path.contains(".test.")
+        && !path.contains(".spec.")
+        && path != "agent-runtime/silent-failure-patterns.ts"
 }
 
 fn changed_files(root: &Path, since: u64) -> Vec<(String, String)> {
     let since_arg = format!("@{since}");
     let out = Command::new("git")
         .current_dir(root)
-        .args(["log", "--since", &since_arg, "--name-only", "--pretty=format:"])
+        .args([
+            "log",
+            "--since",
+            &since_arg,
+            "--name-only",
+            "--pretty=format:",
+        ])
         .output();
     let Ok(out) = out else { return vec![] };
-    if !out.status.success() { return vec![]; }
+    if !out.status.success() {
+        return vec![];
+    }
     let mut seen = BTreeSet::new();
     let mut files = vec![];
     for line in String::from_utf8_lossy(&out.stdout).lines() {
         let p = line.trim();
-        if p.is_empty() || !code_path(p) || !seen.insert(p.to_string()) { continue; }
+        if p.is_empty() || !code_path(p) || !seen.insert(p.to_string()) {
+            continue;
+        }
         if let Ok(content) = fs::read_to_string(root.join(p)) {
             files.push((p.to_string(), content));
-            if files.len() >= MAX_FILES { break; }
+            if files.len() >= MAX_FILES {
+                break;
+            }
         }
     }
     files
 }
 
 fn line_of(content: &str, byte: usize) -> usize {
-    content[..byte.min(content.len())].bytes().filter(|b| *b == b'\n').count() + 1
+    content[..byte.min(content.len())]
+        .bytes()
+        .filter(|b| *b == b'\n')
+        .count()
+        + 1
 }
 
 fn push_candidate(map: &mut BTreeMap<String, Candidate>, pattern: &str, path: &str, line: usize) {
@@ -109,11 +143,20 @@ fn push_candidate(map: &mut BTreeMap<String, Candidate>, pattern: &str, path: &s
         last_seen: "recent-window".into(),
     });
     entry.hit_count += 1;
-    if entry.evidence.len() < 5 { entry.evidence.push(evidence); }
+    if entry.evidence.len() < 5 {
+        entry.evidence.push(evidence);
+    }
 }
 
 fn scan_silent_failures(files: &[(String, String)]) -> Vec<Candidate> {
-    let captures = ["captureServerError", "captureServerLog", "captureError", "recordError", "withApiHandler", "withServerErrorCapture"];
+    let captures = [
+        "captureServerError",
+        "captureServerLog",
+        "captureError",
+        "recordError",
+        "withApiHandler",
+        "withServerErrorCapture",
+    ];
     let mut map = BTreeMap::new();
 
     for (path, content) in files {
@@ -121,24 +164,45 @@ fn scan_silent_failures(files: &[(String, String)]) -> Vec<Candidate> {
         for needle in ["catch {}", "catch{}", "catch (_) {}", "catch(_){ }"] {
             let mut from = 0;
             while let Some(i) = compact[from..].find(needle) {
-                let at = from + i; push_candidate(&mut map, "empty-catch", path, line_of(&compact, at)); from = at + needle.len();
+                let at = from + i;
+                push_candidate(&mut map, "empty-catch", path, line_of(&compact, at));
+                from = at + needle.len();
             }
         }
-        for needle in ["=> []", "=> null", "=> undefined", "=> 0", "=> ''", "=> \"\""] {
+        for needle in [
+            "=> []",
+            "=> null",
+            "=> undefined",
+            "=> 0",
+            "=> ''",
+            "=> \"\"",
+        ] {
             let mut from = 0;
             while let Some(i) = compact[from..].find(".catch(") {
                 let at = from + i;
                 let tail = &compact[at..compact.len().min(at + 180)];
-                if tail.contains(needle) { push_candidate(&mut map, "swallowed-catch", path, line_of(&compact, at)); }
+                if tail.contains(needle) {
+                    push_candidate(&mut map, "swallowed-catch", path, line_of(&compact, at));
+                }
                 from = at + 7;
             }
         }
-        let server = path.starts_with("app/") || path.starts_with("services/") || path.contains("/app/") || path.contains("/services/");
+        let server = path.starts_with("app/")
+            || path.starts_with("services/")
+            || path.contains("/app/")
+            || path.contains("/services/");
         let captured = captures.iter().any(|m| compact.contains(m));
         if server && !captured {
             let mut from = 0;
             while let Some(i) = compact[from..].find("console.error(") {
-                let at = from + i; push_candidate(&mut map, "console-error-without-capture", path, line_of(&compact, at)); from = at + 14;
+                let at = from + i;
+                push_candidate(
+                    &mut map,
+                    "console-error-without-capture",
+                    path,
+                    line_of(&compact, at),
+                );
+                from = at + 14;
             }
         }
         if compact.contains("catch") && compact.contains("status: 500") && !captured {
@@ -261,24 +325,31 @@ fn file_candidate(candidate: &Candidate) -> Result<String, String> {
     })?
 }
 
-pub fn run_learn_pass(root:&Path, stale_after_minutes:i64)->Result<Option<String>,String>{
-    let now=now_secs();
-    let floor=now.saturating_sub(WINDOW_HOURS*3600);
-    let since=read_anchor_secs(root).unwrap_or(floor).max(floor);
-    let files=changed_files(root,since);
-    let mut candidates=scan_silent_failures(&files);
-    if let Some(stale)=stale_candidate(stale_after_minutes)? { candidates.push(stale); }
-    let open=open_keys()?;
-    candidates.retain(|c|!open.contains(&c.key));
-    candidates.sort_by(|a,b|{
-        match (&a.severity,&b.severity) {
-            (Severity::P0,Severity::Normal)=>std::cmp::Ordering::Less,
-            (Severity::Normal,Severity::P0)=>std::cmp::Ordering::Greater,
-            _=>b.hit_count.cmp(&a.hit_count).then_with(||a.key.cmp(&b.key)),
-        }
+pub fn run_learn_pass(root: &Path, stale_after_minutes: i64) -> Result<Option<String>, String> {
+    let now = now_secs();
+    let floor = now.saturating_sub(WINDOW_HOURS * 3600);
+    let since = read_anchor_secs(root).unwrap_or(floor).max(floor);
+    let files = changed_files(root, since);
+    let mut candidates = scan_silent_failures(&files);
+    if let Some(stale) = stale_candidate(stale_after_minutes)? {
+        candidates.push(stale);
+    }
+    let open = open_keys()?;
+    candidates.retain(|c| !open.contains(&c.key));
+    candidates.sort_by(|a, b| match (&a.severity, &b.severity) {
+        (Severity::P0, Severity::Normal) => std::cmp::Ordering::Less,
+        (Severity::Normal, Severity::P0) => std::cmp::Ordering::Greater,
+        _ => b
+            .hit_count
+            .cmp(&a.hit_count)
+            .then_with(|| a.key.cmp(&b.key)),
     });
-    let filed=if let Some(c)=candidates.first(){Some(file_candidate(c)?)}else{None};
-    write_anchor(root,candidates.first().map(|c|c.key.as_str()))?;
+    let filed = if let Some(c) = candidates.first() {
+        Some(file_candidate(c)?)
+    } else {
+        None
+    };
+    write_anchor(root, candidates.first().map(|c| c.key.as_str()))?;
     Ok(filed)
 }
 
@@ -287,11 +358,33 @@ mod tests {
     use super::*;
     #[test]
     fn learn_sort_prefers_p0() {
-        let mut v=vec![
-            Candidate{pattern:"x".into(),key:"x".into(),severity:Severity::Normal,title:"x".into(),evidence:vec![],hit_count:99,first_seen:"".into(),last_seen:"".into()},
-            Candidate{pattern:"stale-claim".into(),key:"stale-claim".into(),severity:Severity::P0,title:"x".into(),evidence:vec![],hit_count:1,first_seen:"".into(),last_seen:"".into()},
+        let mut v = vec![
+            Candidate {
+                pattern: "x".into(),
+                key: "x".into(),
+                severity: Severity::Normal,
+                title: "x".into(),
+                evidence: vec![],
+                hit_count: 99,
+                first_seen: "".into(),
+                last_seen: "".into(),
+            },
+            Candidate {
+                pattern: "stale-claim".into(),
+                key: "stale-claim".into(),
+                severity: Severity::P0,
+                title: "x".into(),
+                evidence: vec![],
+                hit_count: 1,
+                first_seen: "".into(),
+                last_seen: "".into(),
+            },
         ];
-        v.sort_by(|a,b|match(&a.severity,&b.severity){(Severity::P0,Severity::Normal)=>std::cmp::Ordering::Less,(Severity::Normal,Severity::P0)=>std::cmp::Ordering::Greater,_=>b.hit_count.cmp(&a.hit_count)});
-        assert_eq!(v[0].key,"stale-claim");
+        v.sort_by(|a, b| match (&a.severity, &b.severity) {
+            (Severity::P0, Severity::Normal) => std::cmp::Ordering::Less,
+            (Severity::Normal, Severity::P0) => std::cmp::Ordering::Greater,
+            _ => b.hit_count.cmp(&a.hit_count),
+        });
+        assert_eq!(v[0].key, "stale-claim");
     }
 }

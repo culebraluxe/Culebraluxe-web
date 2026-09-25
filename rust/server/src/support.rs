@@ -12,8 +12,10 @@ pub trait SupportDiagnosticsRepository: Send {
     async fn security_status(&mut self) -> DbResult<SupportSecurityStatus>;
     async fn system_health(&mut self) -> DbResult<SupportSystemHealth>;
     async fn workflow_diagnostics(&mut self) -> DbResult<WorkflowDiagnosticsSnapshot>;
-    async fn workflow_detail(&mut self, instance_id: &str)
-        -> DbResult<Option<WorkflowDiagnosticsDetail>>;
+    async fn workflow_detail(
+        &mut self,
+        instance_id: &str,
+    ) -> DbResult<Option<WorkflowDiagnosticsDetail>>;
 }
 
 #[async_trait]

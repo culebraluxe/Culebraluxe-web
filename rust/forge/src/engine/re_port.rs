@@ -81,7 +81,6 @@ fn current_stage(deal_id: &str) -> Option<String> {
     .flatten()
 }
 
-
 fn set_stage(deal_id: &str, from: &str, to: &str) -> Result<(), String> {
     with_shared(|db, rt| {
         let dao = ForgeEngineDao::new(db.clone());
@@ -94,7 +93,6 @@ fn set_stage(deal_id: &str, from: &str, to: &str) -> Result<(), String> {
     })?
 }
 
-
 fn set_column(deal_id: &str, column: &str, value: &str) -> Result<(), String> {
     with_shared(|db, rt| {
         let dao = ForgeEngineDao::new(db.clone());
@@ -102,11 +100,16 @@ fn set_column(deal_id: &str, column: &str, value: &str) -> Result<(), String> {
             dao.set_deal_field(deal_id, column, value)
                 .await
                 .map_err(|error| error.to_string())
-                .and_then(|changed| if changed { Ok(()) } else { Err("missing".into()) })
+                .and_then(|changed| {
+                    if changed {
+                        Ok(())
+                    } else {
+                        Err("missing".into())
+                    }
+                })
         })
     })?
 }
-
 
 impl ApplicationPort for ReApplicationPort {
     fn execute_command(&self, req: &ApplicationCommandRequest) -> ApplicationCommandResult {

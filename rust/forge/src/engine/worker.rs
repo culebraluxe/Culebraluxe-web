@@ -44,7 +44,8 @@ pub fn recover_stale_agent_work(stale_after_minutes: i64) -> Result<u64, String>
                     "stale worker: no heartbeat since {}; process/host presumed terminated",
                     row.updated_at
                 );
-                let hold = assay_terminal_role(row.role.as_deref()) || row.attempts >= row.max_attempts;
+                let hold =
+                    assay_terminal_role(row.role.as_deref()) || row.attempts >= row.max_attempts;
                 let failure_code = match row
                     .role
                     .as_deref()

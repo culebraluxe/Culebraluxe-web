@@ -235,7 +235,23 @@ impl PublicListingDao {
         // THE FULL MEDIA LIST, not just the hero. Photographs, Mux videos and documents are all `media` rows, and the
         // surface is what sorts them into a gallery, a video strip and a document list. The hero is resolved here —
         // the marked one first, otherwise the first photograph — so no surface has to remember that rule.
-        let media_rows = sqlx::query_as::<_, (String, String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<f64>, i32, Option<String>, Option<String>, Option<f64>)>(
+        let media_rows = sqlx::query_as::<
+            _,
+            (
+                String,
+                String,
+                String,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<f64>,
+                i32,
+                Option<String>,
+                Option<String>,
+                Option<f64>,
+            ),
+        >(
             r#"
             select
                 m.id::text,

@@ -10,8 +10,8 @@ use crate::engine::re_facts::{contract_workflow_facts, deal_workflow_facts};
 use crate::engine::re_port::ReApplicationPort;
 
 use crate::engine::vendor_session::with_shared;
-use db::WorkflowOpsDao;
 use crate::engine::xml::{parse_re_supermodel, RE_SUPERMODEL_KEY, RE_SUPERMODEL_VERSION};
+use db::WorkflowOpsDao;
 
 pub const RESIDENTIAL_TRANSACTION_KEY: &str = RE_SUPERMODEL_KEY;
 pub const RESIDENTIAL_TRANSACTION_VERSION: i32 = RE_SUPERMODEL_VERSION;
@@ -91,8 +91,6 @@ pub fn find_active_instance(subject_type: &str, subject_id: &str) -> Result<Opti
     })
     .map_err(WorkflowError::generic)?
 }
-
-
 pub struct StartResult {
     pub instance_id: String,
     pub started: bool,
@@ -173,7 +171,6 @@ pub fn reconcile_deadline_timer(
     Ok("rescheduled")
 }
 
-
 pub fn reconcile_closing_timer(
     instance_id: &str,
     closing_date: Option<&str>,
@@ -211,7 +208,6 @@ pub fn complete_workflow_task(
     Ok(workflow_task_id)
 }
 
-
 fn parse_iso_millis(s: &str) -> Option<i64> {
     // Accept unix millis or YYYY-MM-DD.
     if let Ok(n) = s.parse::<i64>() {
@@ -245,7 +241,6 @@ pub fn complete_engine_task(task_id: &str, user_id: &str, transition: Option<&st
         transition_name: transition.map(str::to_string),
     })
 }
-
 
 #[derive(Debug, Clone, Default)]
 pub struct WorkflowStatus {
@@ -282,8 +277,6 @@ pub fn workflow_status() -> Result<WorkflowStatus> {
     })
 }
 
-
-
 #[derive(Debug, Clone, Default)]
 pub struct ReconcileReport {
     pub started_instances: usize,
@@ -302,11 +295,13 @@ pub fn materialize_open_workflow_tasks() -> Result<u64> {
     .map_err(WorkflowError::generic)?
 }
 
-
 pub fn reconcile_workflows() -> Result<ReconcileReport> {
     let started_instances = reconcile_residential_transactions()?;
     let materialized_tasks = materialize_open_workflow_tasks()?;
-    Ok(ReconcileReport { started_instances, materialized_tasks })
+    Ok(ReconcileReport {
+        started_instances,
+        materialized_tasks,
+    })
 }
 
 pub fn reconcile_residential_transactions() -> Result<usize> {
@@ -330,7 +325,6 @@ pub fn reconcile_residential_transactions() -> Result<usize> {
     }
     Ok(started)
 }
-
 
 pub fn run_due_jobs(worker_id: &str, batch: usize) -> Result<workflow::DueJobReport> {
     re_engine()?.run_due_jobs(worker_id, batch)

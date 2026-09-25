@@ -25,10 +25,16 @@ pub struct GuideService<R> {
 
 impl<R: GuideRepository> GuideService<R> {
     pub fn new(repository: R, infrastructure: ServiceInfrastructure) -> Self {
-        Self { repository, runtime: ServiceRuntime::new(infrastructure) }
+        Self {
+            repository,
+            runtime: ServiceRuntime::new(infrastructure),
+        }
     }
 
-    pub async fn items(&mut self, context: &ServiceContext) -> Result<Vec<GuideItem>, CoreServiceError> {
+    pub async fn items(
+        &mut self,
+        context: &ServiceContext,
+    ) -> Result<Vec<GuideItem>, CoreServiceError> {
         const OP: &str = "guide.publicItems";
         let decision = authorize(
             &self.runtime,
@@ -37,7 +43,8 @@ impl<R: GuideRepository> GuideService<R> {
             OP,
             OperationKind::Query,
             context,
-        ).await?;
+        )
+        .await?;
         let result = self.repository.items().await.map_err(Into::into);
         audit_result(&self.runtime, "guide", OP, context, decision, &result).await?;
         result

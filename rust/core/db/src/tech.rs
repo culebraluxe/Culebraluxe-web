@@ -4,30 +4,41 @@ use serde_json::Value;
 use sqlx::FromRow;
 
 #[derive(Debug, FromRow)]
-struct JsonRow { value: Value }
+struct JsonRow {
+    value: Value,
+}
 
 #[derive(Clone)]
-pub struct TechCockpitDao { db: Database }
+pub struct TechCockpitDao {
+    db: Database,
+}
 
 impl TechCockpitDao {
-    pub fn new(db: Database) -> Self { Self { db } }
+    pub fn new(db: Database) -> Self {
+        Self { db }
+    }
 
     async fn many(&self, op: &'static str, sql: &'static str) -> DbResult<Vec<Value>> {
         let rows = sqlx::query_as::<_, JsonRow>(sql)
-            .fetch_all(self.db.pool()).await
+            .fetch_all(self.db.pool())
+            .await
             .map_err(|e| DbFailure::from_sqlx(op, &e))?;
         Ok(rows.into_iter().map(|r| r.value).collect())
     }
 
     async fn one(&self, op: &'static str, sql: &'static str) -> DbResult<Option<Value>> {
         let row = sqlx::query_as::<_, JsonRow>(sql)
-            .fetch_optional(self.db.pool()).await
+            .fetch_optional(self.db.pool())
+            .await
             .map_err(|e| DbFailure::from_sqlx(op, &e))?;
         Ok(row.map(|r| r.value))
     }
 
     pub async fn snapshot(&self, selected: Option<&str>) -> DbResult<TechCockpitSnapshot> {
-        let stories = self.many("tech.stories", r#"
+        let stories = self
+            .many(
+                "tech.stories",
+                r#"
           select jsonb_build_object(
             'id', id, 'workstream', workstream, 'operatingSurface', operating_surface,
             'title', title, 'priority', priority, 'status', status, 'notes', notes,
@@ -37,9 +48,14 @@ impl TechCockpitDao {
             'postconditions', postconditions, 'completion', completion,
             'updatedAt', updated_at::text
           ) value from storyboard_story order by workstream, id
-        "#).await?;
+        "#,
+            )
+            .await?;
 
-        let executions = self.many("tech.executions", r#"
+        let executions = self
+            .many(
+                "tech.executions",
+                r#"
           with work as (
             select distinct on (story_id) story_id, state
             from agent_work_item where story_id is not null
@@ -53,9 +69,14 @@ impl TechCockpitDao {
             'workItemState', w.state, 'latestRunResult', r.result_status,
             'latestRunAt', r.started_at::text
           ) value from work w full join runs r on r.story_id = w.story_id
-        "#).await?;
+        "#,
+            )
+            .await?;
 
-        let active_work = self.many("tech.active_work", r#"
+        let active_work = self
+            .many(
+                "tech.active_work",
+                r#"
           select jsonb_build_object(
             'id', s.id, 'workstream', s.workstream, 'operatingSurface', s.operating_surface,
             'title', s.title, 'priority', s.priority, 'status', s.status, 'notes', s.notes,
@@ -67,7 +88,9 @@ impl TechCockpitDao {
           ) value
           from storyboard_active_work aw join storyboard_story s on s.id=aw.story_id
           order by aw.work_order, aw.story_id
-        "#).await?;
+        "#,
+            )
+            .await?;
 
         let engine_runs = self.many("tech.engine_runs", r#"
           select jsonb_build_object(
@@ -87,13 +110,19 @@ impl TechCockpitDao {
           ) latest order by latest.at desc limit 30
         "#).await.unwrap_or_default();
 
-        let queued_cards = self.many("tech.queued", r#"
+        let queued_cards = self
+            .many(
+                "tech.queued",
+                r#"
           select jsonb_build_object('storyId',w.story_id,'title',coalesce(s.title,w.story_id),
             'state',w.state,'since',w.updated_at::text) value
           from agent_work_item w left join storyboard_story s on s.id=w.story_id
           where w.story_id is not null and w.state not in ('Done','Error','Cancelled')
           order by w.updated_at desc limit 30
-        "#).await.unwrap_or_default();
+        "#,
+            )
+            .await
+            .unwrap_or_default();
 
         let ledger = self.one("tech.ledger", r#"
           with totals as (
@@ -138,18 +167,35 @@ impl TechCockpitDao {
           ) value from forge_batch b where b.status='Staged' order by b.created_at desc limit 1
         "#).await.ok().flatten();
 
-        let staging_items = self.many("tech.staging_items", r#"
+        let staging_items = self
+            .many(
+                "tech.staging_items",
+                r#"
           select jsonb_build_object('storyId',i.story_id,'kind',i.kind) value
           from forge_batch_item i join forge_batch b on b.id=i.batch_id
           where b.status='Staged' and i.state='Staged' order by i.story_id
-        "#).await.unwrap_or_default();
+        "#,
+            )
+            .await
+            .unwrap_or_default();
 
-        let selected_id = selected.filter(|id| stories.iter().any(|s| s["id"].as_str()==Some(*id)))
+        let selected_id = selected
+            .filter(|id| stories.iter().any(|s| s["id"].as_str() == Some(*id)))
             .map(str::to_owned)
-            .or_else(|| active_work.first().and_then(|s| s["id"].as_str()).map(str::to_owned))
-            .or_else(|| stories.first().and_then(|s| s["id"].as_str()).map(str::to_owned));
+            .or_else(|| {
+                active_work
+                    .first()
+                    .and_then(|s| s["id"].as_str())
+                    .map(str::to_owned)
+            })
+            .or_else(|| {
+                stories
+                    .first()
+                    .and_then(|s| s["id"].as_str())
+                    .map(str::to_owned)
+            });
 
-        let (selected_runs, recorder_instance_id, hold) = if let Some(id)=selected_id.as_deref() {
+        let (selected_runs, recorder_instance_id, hold) = if let Some(id) = selected_id.as_deref() {
             let runs = sqlx::query_as::<_,JsonRow>(r#"
               select jsonb_build_object('id',id,'startedAt',started_at::text,'endedAt',ended_at::text,
                 'resultStatus',result_status,'runType',run_type,'agentRuntime',agent_runtime,
@@ -160,33 +206,64 @@ impl TechCockpitDao {
             "#).bind(id).fetch_all(self.db.pool()).await
               .map_err(|e|DbFailure::from_sqlx("tech.selected_runs",&e))?
               .into_iter().map(|r|r.value).collect();
-            let instance = sqlx::query_scalar::<_,String>(r#"
+            let instance = sqlx::query_scalar::<_, String>(
+                r#"
               select process_instance_id::text from forge_engine_task_execution
               where story_id=$1 order by created_at desc limit 1
-            "#).bind(id).fetch_optional(self.db.pool()).await
-              .map_err(|e|DbFailure::from_sqlx("tech.instance",&e))?;
-            let hold = sqlx::query_as::<_,JsonRow>(r#"
+            "#,
+            )
+            .bind(id)
+            .fetch_optional(self.db.pool())
+            .await
+            .map_err(|e| DbFailure::from_sqlx("tech.instance", &e))?;
+            let hold = sqlx::query_as::<_, JsonRow>(
+                r#"
               select jsonb_build_object('reason',reason,'originatingNode',originating_node,
                 'failureClass',failure_class,'resumeTarget',resume_target,'since',created_at::text,
                 'processInstanceId',process_instance_id::text) value
               from forge_hold_record where story_id=$1 and resolved_at is null
               order by created_at desc limit 1
-            "#).bind(id).fetch_optional(self.db.pool()).await
-              .map_err(|e|DbFailure::from_sqlx("tech.hold",&e))?.map(|r|r.value);
-            (runs,instance,hold)
-        } else {(vec![],None,None)};
+            "#,
+            )
+            .bind(id)
+            .fetch_optional(self.db.pool())
+            .await
+            .map_err(|e| DbFailure::from_sqlx("tech.hold", &e))?
+            .map(|r| r.value);
+            (runs, instance, hold)
+        } else {
+            (vec![], None, None)
+        };
 
-        Ok(TechCockpitSnapshot { stories, executions, active_work, engine_runs, queued_cards,
-          ledger, recent_flights, staging_flight, staging_items, selected_runs,
-          recorder_instance_id, hold })
+        Ok(TechCockpitSnapshot {
+            stories,
+            executions,
+            active_work,
+            engine_runs,
+            queued_cards,
+            ledger,
+            recent_flights,
+            staging_flight,
+            staging_items,
+            selected_runs,
+            recorder_instance_id,
+            hold,
+        })
     }
     pub async fn clear_active_work(&self) -> DbResult<u64> {
-        let result = sqlx::query("delete from storyboard_active_work").execute(self.db.pool()).await
+        let result = sqlx::query("delete from storyboard_active_work")
+            .execute(self.db.pool())
+            .await
             .map_err(|e| DbFailure::from_sqlx("tech.clear_active_work", &e))?;
         Ok(result.rows_affected())
     }
 
-    pub async fn set_active_work(&self, story_id: &str, active: bool, actor_id: &str) -> DbResult<()> {
+    pub async fn set_active_work(
+        &self,
+        story_id: &str,
+        active: bool,
+        actor_id: &str,
+    ) -> DbResult<()> {
         if active {
             sqlx::query(r#"insert into storyboard_active_work(story_id,work_order,selected_at,selected_by_app_user_id)
                 values($1,coalesce((select max(work_order)+1 from storyboard_active_work),1),now(),$2)
@@ -194,8 +271,11 @@ impl TechCockpitDao {
                 .bind(story_id).bind(actor_id).execute(self.db.pool()).await
                 .map_err(|e|DbFailure::from_sqlx("tech.set_active_work",&e))?;
         } else {
-            sqlx::query("delete from storyboard_active_work where story_id=$1").bind(story_id)
-                .execute(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.set_active_work",&e))?;
+            sqlx::query("delete from storyboard_active_work where story_id=$1")
+                .bind(story_id)
+                .execute(self.db.pool())
+                .await
+                .map_err(|e| DbFailure::from_sqlx("tech.set_active_work", &e))?;
         }
         Ok(())
     }
@@ -208,47 +288,64 @@ impl TechCockpitDao {
     }
 
     pub async fn active_agent_work(&self, story_id: &str) -> DbResult<Vec<Value>> {
-        let rows=sqlx::query_as::<_,JsonRow>(r#"select jsonb_build_object('id',id,'state',state) value
+        let rows = sqlx::query_as::<_, JsonRow>(
+            r#"select jsonb_build_object('id',id,'state',state) value
           from agent_work_item where story_id=$1 and state in ('Ready','Claimed','Running','Paused')
-          order by updated_at desc"#).bind(story_id).fetch_all(self.db.pool()).await
-          .map_err(|e|DbFailure::from_sqlx("tech.active_agent_work",&e))?;
-        Ok(rows.into_iter().map(|r|r.value).collect())
+          order by updated_at desc"#,
+        )
+        .bind(story_id)
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(|e| DbFailure::from_sqlx("tech.active_agent_work", &e))?;
+        Ok(rows.into_iter().map(|r| r.value).collect())
     }
 
-    pub async fn set_dispatch_options(&self, story_id:&str, stop_after:Option<&str>) -> DbResult<u64> {
-        let result=sqlx::query(r#"update agent_work_item set stop_after=$2,launch_intent=null,updated_at=now()
-          where story_id=$1 and state='Ready'"#).bind(story_id).bind(stop_after).execute(self.db.pool()).await
-          .map_err(|e|DbFailure::from_sqlx("tech.set_dispatch_options",&e))?;
+    pub async fn set_dispatch_options(
+        &self,
+        story_id: &str,
+        stop_after: Option<&str>,
+    ) -> DbResult<u64> {
+        let result = sqlx::query(
+            r#"update agent_work_item set stop_after=$2,launch_intent=null,updated_at=now()
+          where story_id=$1 and state='Ready'"#,
+        )
+        .bind(story_id)
+        .bind(stop_after)
+        .execute(self.db.pool())
+        .await
+        .map_err(|e| DbFailure::from_sqlx("tech.set_dispatch_options", &e))?;
         Ok(result.rows_affected())
     }
 
-    pub async fn withdraw_ready(&self, story_id:&str) -> DbResult<(u64,i64)> {
+    pub async fn withdraw_ready(&self, story_id: &str) -> DbResult<(u64, i64)> {
         let withdrawn=sqlx::query("update agent_work_item set state='Cancelled',updated_at=now() where story_id=$1 and state='Ready'")
           .bind(story_id).execute(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.withdraw_ready",&e))?.rows_affected();
         let live=sqlx::query_scalar::<_,i64>("select count(*) from agent_work_item where story_id=$1 and state in ('Claimed','Running','Paused')")
           .bind(story_id).fetch_one(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.withdraw_live",&e))?;
-        Ok((withdrawn,live))
+        Ok((withdrawn, live))
     }
 
     pub async fn staged_story_ids(&self) -> DbResult<Vec<String>> {
         sqlx::query_scalar("select id from storyboard_story where status='Batched' order by id")
-          .fetch_all(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.staged_story_ids",&e))
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(|e| DbFailure::from_sqlx("tech.staged_story_ids", &e))
     }
 
-    pub async fn cancel_batch(&self,batch_id:&str)->DbResult<u64>{
+    pub async fn cancel_batch(&self, batch_id: &str) -> DbResult<u64> {
         let r=sqlx::query("update forge_batch set status='Cancelled',updated_at=now() where id=$1 and status in ('Staged','Scheduled')")
           .bind(batch_id).execute(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.cancel_batch",&e))?;
         Ok(r.rows_affected())
     }
 
-    async fn ensure_staging_batch(&self, actor:&str)->DbResult<String>{
+    async fn ensure_staging_batch(&self, actor: &str) -> DbResult<String> {
         if let Some(id)=sqlx::query_scalar::<_,String>("select id::text from forge_batch where status='Staged' order by created_at desc limit 1").fetch_optional(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.staging_batch",&e))?{return Ok(id)}
         sqlx::query_scalar::<_,String>(r#"insert into forge_batch(label,status,created_by,note)
           values('staging','Staged',$1,'built by the Cockpit ENGINE BATCH column') returning id::text"#)
           .bind(actor).fetch_one(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.create_batch",&e))
     }
 
-    async fn backfill_batch(&self,batch:&str)->DbResult<()>{
+    async fn backfill_batch(&self, batch: &str) -> DbResult<()> {
         sqlx::query(r#"insert into forge_batch_item(batch_id,story_id,state)
           select $1::uuid,s.id,'Staged' from storyboard_story s where s.status='Batched'
           and not exists(select 1 from forge_batch_item i where i.batch_id=$1::uuid and i.story_id=s.id)"#)
@@ -256,35 +353,50 @@ impl TechCockpitDao {
         Ok(())
     }
 
-    pub async fn schedule_flight(&self,when:&str,actor:&str)->DbResult<i64>{
-        let batch=self.ensure_staging_batch(actor).await?; self.backfill_batch(&batch).await?;
+    pub async fn schedule_flight(&self, when: &str, actor: &str) -> DbResult<i64> {
+        let batch = self.ensure_staging_batch(actor).await?;
+        self.backfill_batch(&batch).await?;
         sqlx::query("update forge_batch set status='Scheduled',scheduled_for=$2::timestamptz,label=$3 where id=$1::uuid")
           .bind(&batch).bind(when).bind(format!("night run {}",when.chars().take(16).collect::<String>()))
           .execute(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.schedule_flight",&e))?;
-        sqlx::query_scalar::<_,i64>("select count(*) from forge_batch_item where batch_id=$1::uuid")
-          .bind(batch).fetch_one(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.schedule_count",&e))
+        sqlx::query_scalar::<_, i64>(
+            "select count(*) from forge_batch_item where batch_id=$1::uuid",
+        )
+        .bind(batch)
+        .fetch_one(self.db.pool())
+        .await
+        .map_err(|e| DbFailure::from_sqlx("tech.schedule_count", &e))
     }
 
-    pub async fn launch_flight(&self,actor:&str)->DbResult<Option<(i64,i64)>>{
-        let staged=self.staged_story_ids().await?; if staged.is_empty(){return Ok(None)}
-        let batch=self.ensure_staging_batch(actor).await?; self.backfill_batch(&batch).await?;
-        let policy=sqlx::query_scalar::<_,Option<String>>("select model_policy from forge_batch where id=$1::uuid")
-          .bind(&batch).fetch_one(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.batch_policy",&e))?
-          .unwrap_or_else(||"cheap".into());
+    pub async fn launch_flight(&self, actor: &str) -> DbResult<Option<(i64, i64)>> {
+        let staged = self.staged_story_ids().await?;
+        if staged.is_empty() {
+            return Ok(None);
+        }
+        let batch = self.ensure_staging_batch(actor).await?;
+        self.backfill_batch(&batch).await?;
+        let policy = sqlx::query_scalar::<_, Option<String>>(
+            "select model_policy from forge_batch where id=$1::uuid",
+        )
+        .bind(&batch)
+        .fetch_one(self.db.pool())
+        .await
+        .map_err(|e| DbFailure::from_sqlx("tech.batch_policy", &e))?
+        .unwrap_or_else(|| "cheap".into());
         let members=sqlx::query_as::<_,(String,String)>("select story_id,coalesce(kind,'normal') from forge_batch_item where batch_id=$1::uuid and state='Staged' order by story_id")
           .bind(&batch).fetch_all(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.batch_members",&e))?;
-        let mut queued=0i64; let mut stamped=0i64;
-        for (story,kind) in members {
-          self.story_status(&story,"Ready").await?;
-          sqlx::query("update forge_batch_item set state='Queued',queued_at=now(),error_text=null where batch_id=$1::uuid and story_id=$2")
+        let mut queued = 0i64;
+        let mut stamped = 0i64;
+        for (story, kind) in members {
+            self.story_status(&story, "Ready").await?;
+            sqlx::query("update forge_batch_item set state='Queued',queued_at=now(),error_text=null where batch_id=$1::uuid and story_id=$2")
             .bind(&batch).bind(&story).execute(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.queue_batch_item",&e))?;
-          stamped += sqlx::query("update agent_work_item set kind=$2,model_policy=$3,updated_at=now() where story_id=$1 and state='Ready'")
+            stamped += sqlx::query("update agent_work_item set kind=$2,model_policy=$3,updated_at=now() where story_id=$1 and state='Ready'")
             .bind(&story).bind(kind).bind(&policy).execute(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.route_batch_item",&e))?.rows_affected() as i64;
-          queued+=1;
+            queued += 1;
         }
         sqlx::query("update forge_batch set status='Fired',fired_at=now() where id=$1::uuid and status<>'Fired'")
           .bind(batch).execute(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.fire_batch",&e))?;
-        Ok(Some((queued,stamped)))
+        Ok(Some((queued, stamped)))
     }
-
 }

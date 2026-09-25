@@ -112,7 +112,6 @@ pub fn list_active_decisions(domain: &str, limit: usize) -> Result<Vec<DecisionS
     })?
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

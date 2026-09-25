@@ -590,7 +590,6 @@ async fn signature_refresh(
     Ok(success(value, &resolved))
 }
 
-
 async fn support_security_status(
     State(state): State<ApiState>,
     headers: HeaderMap,
@@ -685,8 +684,14 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/tech/cockpit", get(tech_cockpit).post(tech_command))
         .route("/v1/support/security-status", get(support_security_status))
         .route("/v1/support/system-health", get(support_system_health))
-        .route("/v1/support/workflow-diagnostics", get(support_workflow_diagnostics))
-        .route("/v1/support/workflow-diagnostics/{id}", get(support_workflow_detail))
+        .route(
+            "/v1/support/workflow-diagnostics",
+            get(support_workflow_diagnostics),
+        )
+        .route(
+            "/v1/support/workflow-diagnostics/{id}",
+            get(support_workflow_detail),
+        )
         .route("/v1/workflows", get(workflows))
         .route("/v1/workflows/{id}", get(workflow_detail))
         .route("/v1/flight-recorder/{id}", get(flight_recorder))
@@ -2989,7 +2994,9 @@ async fn tech_cockpit(
     Query(query): Query<TechCockpitQuery>,
 ) -> Result<Json<ApiSuccess<domain::TechCockpitSnapshot>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let snapshot = state.services().tech()
+    let snapshot = state
+        .services()
+        .tech()
         .snapshot(query.selected.as_deref(), &resolved.service)
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
@@ -2997,13 +3004,18 @@ async fn tech_cockpit(
 }
 
 async fn tech_command(
-    State(state): State<ApiState>, headers: HeaderMap,
+    State(state): State<ApiState>,
+    headers: HeaderMap,
     Json(body): Json<domain::TechCommandRequest>,
 ) -> Result<Json<ApiSuccess<domain::TechCommandResult>>, ApiError> {
-    let resolved=resolve_request_context(&state,&headers).await?;
-    let result=state.services().tech().command(body,&resolved.service).await
-        .map_err(|error|correlate(ApiError::from(error),&resolved))?;
-    Ok(success(result,&resolved))
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let result = state
+        .services()
+        .tech()
+        .command(body, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(result, &resolved))
 }
 
 async fn public_guide(

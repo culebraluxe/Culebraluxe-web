@@ -590,11 +590,15 @@ fn run_ops_media_upload(
             || init.append_with_str("role", &role).is_err()
             || init.append_with_str("filename", &file.name()).is_err()
             || init.append_with_str("mimeType", &file.type_()).is_err()
-            || init.append_with_str("byteSize", &format!("{size}")).is_err()
+            || init
+                .append_with_str("byteSize", &format!("{size}"))
+                .is_err()
             || init
                 .append_with_str("chunkCount", &chunk_count.to_string())
                 .is_err()
-            || init.append_with_str("chunkSize", &format!("{CHUNK_BYTES}")).is_err()
+            || init
+                .append_with_str("chunkSize", &format!("{CHUNK_BYTES}"))
+                .is_err()
             || (!alt.trim().is_empty() && init.append_with_str("altText", alt.trim()).is_err())
         {
             dispatch.emit(fail(

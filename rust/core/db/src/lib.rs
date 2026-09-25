@@ -14,9 +14,9 @@ mod contract;
 mod deal_portal;
 mod error;
 mod firm;
+mod flight_recorder;
 mod forge_control;
 mod forge_engine;
-mod flight_recorder;
 mod forms;
 mod guest;
 mod guide;
@@ -43,8 +43,8 @@ mod support;
 mod transaction;
 mod vault;
 mod wbs;
-mod workflow_portal;
 mod workflow_ops;
+mod workflow_portal;
 
 pub use accounting::AccountingDao;
 pub use calendar::CalendarDao;
@@ -57,9 +57,14 @@ pub use deal_portal::DealPortalDao;
 pub use domain;
 pub use error::{DbFailure, DbFailureKind, DbResult};
 pub use firm::FirmDao;
-pub use forge_control::{FlightFireResult, ForgeControlDao, LearnStaleClaimRow, ReadyAgentWorkRow, StaleAgentWorkRow};
-pub use forge_engine::{DealWorkflowFactRow, ForgeAgentWorkRow, ForgeDecisionRow, ForgeEngineDao, ForgeEvidencePatch, ForgeHoldRow, ProcessDefinitionRow, StoryPacketRow, WorkflowCommandReceiptRow};
 pub use flight_recorder::FlightRecorderDao;
+pub use forge_control::{
+    FlightFireResult, ForgeControlDao, LearnStaleClaimRow, ReadyAgentWorkRow, StaleAgentWorkRow,
+};
+pub use forge_engine::{
+    DealWorkflowFactRow, ForgeAgentWorkRow, ForgeDecisionRow, ForgeEngineDao, ForgeEvidencePatch,
+    ForgeHoldRow, ProcessDefinitionRow, StoryPacketRow, WorkflowCommandReceiptRow,
+};
 pub use forms::FormDao;
 pub use guest::{GuestDao, GUEST_CODE_MAX_ATTEMPTS};
 pub use guide::GuideDao;
@@ -82,5 +87,5 @@ pub use transaction::DbTransaction;
 pub use vault::VaultDao;
 pub use wbs::WbsDao;
 pub use website_lead::WebsiteLeadDao;
-pub use workflow_portal::WorkflowPortalDao;
 pub use workflow_ops::{PendingTimerJobRow, WorkflowOpsDao, WorkflowStatusRow};
+pub use workflow_portal::WorkflowPortalDao;

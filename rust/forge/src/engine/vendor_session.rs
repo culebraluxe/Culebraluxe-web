@@ -39,7 +39,11 @@ pub fn with_shared<R>(f: impl FnOnce(&Database, &Runtime) -> R) -> Result<R, Str
 pub fn database_url() -> Option<String> {
     ["DATABASE_URL_PROD", "DATABASE_URL_DEV", "DATABASE_URL"]
         .iter()
-        .find_map(|key| std::env::var(key).ok().filter(|value| !value.trim().is_empty()))
+        .find_map(|key| {
+            std::env::var(key)
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+        })
 }
 
 pub fn read_vendor_session_id(story_id: &str, lane: &str) -> Result<Option<String>, String> {

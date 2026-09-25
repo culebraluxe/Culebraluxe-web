@@ -13,11 +13,28 @@ impl GuideDao {
     }
 
     pub async fn items(&self) -> DbResult<Vec<GuideItem>> {
-        let rows = sqlx::query_as::<_, (
-            String, String, String, Option<String>, Option<String>, Option<String>, String,
-            Option<String>, Option<String>, Option<String>, Option<String>, Option<f64>, Option<f64>,
-            i32, Option<String>, Option<String>
-        )>(r#"
+        let rows = sqlx::query_as::<
+            _,
+            (
+                String,
+                String,
+                String,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                String,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<f64>,
+                Option<f64>,
+                i32,
+                Option<String>,
+                Option<String>,
+            ),
+        >(
+            r#"
             select
                 gi.slug,
                 gi.section,
@@ -62,28 +79,32 @@ impl GuideDao {
                 end,
                 gi.sort_order asc,
                 gi.name asc
-        "#)
+        "#,
+        )
         .fetch_all(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("guide.items", &error))?;
 
-        Ok(rows.into_iter().map(|row| GuideItem {
-            slug: row.0,
-            section: row.1,
-            name: row.2,
-            eyebrow: row.3,
-            subtitle: row.4,
-            area: row.5,
-            description: row.6,
-            note: row.7,
-            address: row.8,
-            phone: row.9,
-            website_url: row.10,
-            latitude: row.11,
-            longitude: row.12,
-            sort_order: row.13,
-            image_path: row.14.map(|id| format!("/api/media/{id}")),
-            image_alt: row.15,
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|row| GuideItem {
+                slug: row.0,
+                section: row.1,
+                name: row.2,
+                eyebrow: row.3,
+                subtitle: row.4,
+                area: row.5,
+                description: row.6,
+                note: row.7,
+                address: row.8,
+                phone: row.9,
+                website_url: row.10,
+                latitude: row.11,
+                longitude: row.12,
+                sort_order: row.13,
+                image_path: row.14.map(|id| format!("/api/media/{id}")),
+                image_alt: row.15,
+            })
+            .collect())
     }
 }

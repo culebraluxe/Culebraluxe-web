@@ -28,8 +28,8 @@ use crate::workflow_portal::WorkflowPortalService;
 use db::{
     AccountingDao, CalendarDao, ClientDao, CockpitDao, CommsDao, ContractDao, Database,
     DealPortalDao, FirmDao, FlightRecorderDao, FormDao, GuideDao, MediaDao, PersonDao, ProjectDao,
-    PropertyDao, SecurityDao, ShowingDao, SignatureDao, SupportDiagnosticsDao, TaskDao, TechCockpitDao, VaultDao, WbsDao,
-    WorkflowPortalDao,
+    PropertyDao, SecurityDao, ShowingDao, SignatureDao, SupportDiagnosticsDao, TaskDao,
+    TechCockpitDao, VaultDao, WbsDao, WorkflowPortalDao,
 };
 use service::{ServiceInfrastructure, SignatureProvider};
 use std::sync::Arc;
@@ -218,7 +218,10 @@ impl CoreServices {
     }
 
     pub fn tech(&self) -> TechCockpitService<TechCockpitDao> {
-        TechCockpitService::new(TechCockpitDao::new(self.db.clone()), self.infrastructure.clone())
+        TechCockpitService::new(
+            TechCockpitDao::new(self.db.clone()),
+            self.infrastructure.clone(),
+        )
     }
 
     pub fn accounting(&self) -> AccountingService<AccountingDao> {

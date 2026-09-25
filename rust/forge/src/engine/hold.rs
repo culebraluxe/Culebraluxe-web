@@ -39,12 +39,7 @@ pub fn latest_open_forge_hold(story_id: &str) -> Result<Option<(String, String)>
             dao.latest_open_hold(story_id)
                 .await
                 .map(|row| {
-                    row.map(|value| {
-                        (
-                            value.reason,
-                            value.originating_node.unwrap_or_default(),
-                        )
-                    })
+                    row.map(|value| (value.reason, value.originating_node.unwrap_or_default()))
                 })
                 .map_err(|error| error.to_string())
         })

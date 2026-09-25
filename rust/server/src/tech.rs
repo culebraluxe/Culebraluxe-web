@@ -8,54 +8,104 @@ use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRunti
 #[async_trait]
 pub trait TechCockpitRepository: Send {
     async fn snapshot(&mut self, selected: Option<&str>) -> DbResult<TechCockpitSnapshot>;
-    async fn clear_active_work(&mut self)->DbResult<u64>;
-    async fn set_active_work(&mut self,id:&str,active:bool,actor:&str)->DbResult<()>;
-    async fn story_status(&mut self,id:&str,status:&str)->DbResult<()>;
-    async fn active_agent_work(&mut self,id:&str)->DbResult<Vec<Value>>;
-    async fn set_dispatch_options(&mut self,id:&str,stop:Option<&str>)->DbResult<u64>;
-    async fn withdraw_ready(&mut self,id:&str)->DbResult<(u64,i64)>;
-    async fn staged_story_ids(&mut self)->DbResult<Vec<String>>;
-    async fn cancel_batch(&mut self,id:&str)->DbResult<u64>;
-    async fn schedule_flight(&mut self,when:&str,actor:&str)->DbResult<i64>;
-    async fn launch_flight(&mut self,actor:&str)->DbResult<Option<(i64,i64)>>;
+    async fn clear_active_work(&mut self) -> DbResult<u64>;
+    async fn set_active_work(&mut self, id: &str, active: bool, actor: &str) -> DbResult<()>;
+    async fn story_status(&mut self, id: &str, status: &str) -> DbResult<()>;
+    async fn active_agent_work(&mut self, id: &str) -> DbResult<Vec<Value>>;
+    async fn set_dispatch_options(&mut self, id: &str, stop: Option<&str>) -> DbResult<u64>;
+    async fn withdraw_ready(&mut self, id: &str) -> DbResult<(u64, i64)>;
+    async fn staged_story_ids(&mut self) -> DbResult<Vec<String>>;
+    async fn cancel_batch(&mut self, id: &str) -> DbResult<u64>;
+    async fn schedule_flight(&mut self, when: &str, actor: &str) -> DbResult<i64>;
+    async fn launch_flight(&mut self, actor: &str) -> DbResult<Option<(i64, i64)>>;
 }
 
 #[async_trait]
 impl TechCockpitRepository for TechCockpitDao {
-    async fn snapshot(&mut self, selected: Option<&str>) -> DbResult<TechCockpitSnapshot> { TechCockpitDao::snapshot(self, selected).await }
-    async fn clear_active_work(&mut self)->DbResult<u64>{TechCockpitDao::clear_active_work(self).await}
-    async fn set_active_work(&mut self,id:&str,active:bool,actor:&str)->DbResult<()>{TechCockpitDao::set_active_work(self,id,active,actor).await}
-    async fn story_status(&mut self,id:&str,status:&str)->DbResult<()>{TechCockpitDao::story_status(self,id,status).await}
-    async fn active_agent_work(&mut self,id:&str)->DbResult<Vec<Value>>{TechCockpitDao::active_agent_work(self,id).await}
-    async fn set_dispatch_options(&mut self,id:&str,stop:Option<&str>)->DbResult<u64>{TechCockpitDao::set_dispatch_options(self,id,stop).await}
-    async fn withdraw_ready(&mut self,id:&str)->DbResult<(u64,i64)>{TechCockpitDao::withdraw_ready(self,id).await}
-    async fn staged_story_ids(&mut self)->DbResult<Vec<String>>{TechCockpitDao::staged_story_ids(self).await}
-    async fn cancel_batch(&mut self,id:&str)->DbResult<u64>{TechCockpitDao::cancel_batch(self,id).await}
-    async fn schedule_flight(&mut self,when:&str,actor:&str)->DbResult<i64>{TechCockpitDao::schedule_flight(self,when,actor).await}
-    async fn launch_flight(&mut self,actor:&str)->DbResult<Option<(i64,i64)>>{TechCockpitDao::launch_flight(self,actor).await}
+    async fn snapshot(&mut self, selected: Option<&str>) -> DbResult<TechCockpitSnapshot> {
+        TechCockpitDao::snapshot(self, selected).await
+    }
+    async fn clear_active_work(&mut self) -> DbResult<u64> {
+        TechCockpitDao::clear_active_work(self).await
+    }
+    async fn set_active_work(&mut self, id: &str, active: bool, actor: &str) -> DbResult<()> {
+        TechCockpitDao::set_active_work(self, id, active, actor).await
+    }
+    async fn story_status(&mut self, id: &str, status: &str) -> DbResult<()> {
+        TechCockpitDao::story_status(self, id, status).await
+    }
+    async fn active_agent_work(&mut self, id: &str) -> DbResult<Vec<Value>> {
+        TechCockpitDao::active_agent_work(self, id).await
+    }
+    async fn set_dispatch_options(&mut self, id: &str, stop: Option<&str>) -> DbResult<u64> {
+        TechCockpitDao::set_dispatch_options(self, id, stop).await
+    }
+    async fn withdraw_ready(&mut self, id: &str) -> DbResult<(u64, i64)> {
+        TechCockpitDao::withdraw_ready(self, id).await
+    }
+    async fn staged_story_ids(&mut self) -> DbResult<Vec<String>> {
+        TechCockpitDao::staged_story_ids(self).await
+    }
+    async fn cancel_batch(&mut self, id: &str) -> DbResult<u64> {
+        TechCockpitDao::cancel_batch(self, id).await
+    }
+    async fn schedule_flight(&mut self, when: &str, actor: &str) -> DbResult<i64> {
+        TechCockpitDao::schedule_flight(self, when, actor).await
+    }
+    async fn launch_flight(&mut self, actor: &str) -> DbResult<Option<(i64, i64)>> {
+        TechCockpitDao::launch_flight(self, actor).await
+    }
 }
 
-pub struct TechCockpitService<R> { repository: R, runtime: ServiceRuntime }
+pub struct TechCockpitService<R> {
+    repository: R,
+    runtime: ServiceRuntime,
+}
 
 impl<R: TechCockpitRepository> TechCockpitService<R> {
     pub fn new(repository: R, infrastructure: ServiceInfrastructure) -> Self {
-        Self { repository, runtime: ServiceRuntime::new(infrastructure) }
+        Self {
+            repository,
+            runtime: ServiceRuntime::new(infrastructure),
+        }
     }
 
-    pub async fn snapshot(&mut self, selected: Option<&str>, context: &ServiceContext)
-        -> Result<TechCockpitSnapshot, CoreServiceError> {
+    pub async fn snapshot(
+        &mut self,
+        selected: Option<&str>,
+        context: &ServiceContext,
+    ) -> Result<TechCockpitSnapshot, CoreServiceError> {
         const OP: &str = "tech.cockpitSnapshot";
-        let decision = authorize(&self.runtime, "tech", "tech.access", OP, OperationKind::Query, context).await?;
+        let decision = authorize(
+            &self.runtime,
+            "tech",
+            "tech.access",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
         let result = self.repository.snapshot(selected).await.map_err(Into::into);
         audit_result(&self.runtime, "tech", OP, context, decision, &result).await?;
         result
     }
-    pub async fn command(&mut self, request: TechCommandRequest, context: &ServiceContext)
-        -> Result<TechCommandResult, CoreServiceError> {
-        const OP:&str="tech.command";
-        let decision=authorize(&self.runtime,"tech","tech.operate",OP,OperationKind::Command,context).await?;
-        let actor=context.actor.id.as_deref().unwrap_or("tech-operator");
-        let id=request.story_id.as_deref().unwrap_or("").trim();
+    pub async fn command(
+        &mut self,
+        request: TechCommandRequest,
+        context: &ServiceContext,
+    ) -> Result<TechCommandResult, CoreServiceError> {
+        const OP: &str = "tech.command";
+        let decision = authorize(
+            &self.runtime,
+            "tech",
+            "tech.operate",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+        let actor = context.actor.id.as_deref().unwrap_or("tech-operator");
+        let id = request.story_id.as_deref().unwrap_or("").trim();
         let result:Result<TechCommandResult,CoreServiceError>=async {
             let ok=|message:String| Ok(TechCommandResult{ok:true,message});
             match request.action.as_str() {
@@ -111,8 +161,7 @@ impl<R: TechCockpitRepository> TechCockpitService<R> {
               other=>Err(CoreServiceError::business("VALIDATION", format!("Unknown TECH Cockpit command: {other}")))
             }
         }.await;
-        audit_result(&self.runtime,"tech",OP,context,decision,&result).await?;
+        audit_result(&self.runtime, "tech", OP, context, decision, &result).await?;
         result
     }
-
 }
