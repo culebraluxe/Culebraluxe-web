@@ -1039,6 +1039,10 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/public/similar", get(public_similar))
         .route("/v1/public/slugs", get(public_slugs))
         .route("/v1/public/guide", get(public_guide))
+        .route(
+            "/v1/public/marketing-content",
+            get(public_marketing_content),
+        )
         .route("/v1/website-intake", post(submit_website_intake))
         .route("/v1/catchup/leads", post(submit_catchup_lead))
         .route("/v1/website-intake/{id}/notify", post(notify_website_lead))
@@ -3560,6 +3564,20 @@ async fn tech_command(
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(result, &resolved))
+}
+
+async fn public_marketing_content(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<Vec<domain::MarketingContentBlock>>>, ApiError> {
+    let context = resolve_public_guest_context(&state, &headers)?;
+    let value = state
+        .services()
+        .marketing()
+        .public_content(&context)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(success_with_correlation(value, &context.correlation_id))
 }
 
 async fn public_guide(
