@@ -8,7 +8,7 @@ import { OperatingShell } from "@/components/portal/operating-shell"
 import {
   getPortalPaletteClients,
   getPortalPaletteDeals,
-} from "@/legacy/db/portal-palette"
+} from "@/lib/portal-palette"
 
 export const dynamic = "force-dynamic"
 
