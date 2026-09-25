@@ -34,7 +34,7 @@ questions on purpose: a port can be complete and still cut over to nothing.
 
 ## The live Rust surface
 
-75 routes mounted (read from the router, not from this file):
+79 routes mounted (read from the router, not from this file):
 
 - `/healthz` _(infrastructure)_
 - `/readyz` _(infrastructure)_
@@ -100,6 +100,10 @@ questions on purpose: a port can be complete and still cut over to nothing.
 - `/v1/vault/documents/{id}`
 - `/v1/vault/public-listing-documents/{id}`
 - `/v1/public/listing-copy`
+- `/v1/public/listings`
+- `/v1/public/property`
+- `/v1/public/media/{id}`
+- `/v1/public/guide`
 - `/v1/website-intake/{id}/notify`
 - `/v1/vault/document-bytes/{id}`
 - `/v1/diagnostics/db`
@@ -159,6 +163,10 @@ questions on purpose: a port can be complete and still cut over to nothing.
 - route /v1/accounting/pnl is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
 - route /v1/vault/public-listing-documents/{id} is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
 - route /v1/public/listing-copy is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/public/listings is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/public/property is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/public/media/{id} is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/public/guide is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
 - route /v1/website-intake/{id}/notify is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
 - route /v1/vault/document-bytes/{id} is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
 - route /v1/diagnostics/db is mounted but belongs to no capability — add it to scripts/rust-parity-map.json

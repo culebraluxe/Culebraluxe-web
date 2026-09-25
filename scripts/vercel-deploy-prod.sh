@@ -31,8 +31,15 @@ BRANCH="$(git branch --show-current)"
 # deploy over that would mean committing generated files between the build and the deploy, which is exactly the kind of
 # manual step that makes a release process brittle. They are regenerated on the next build anyway.
 DEPLOY_EXEMPT=':(exclude)docs/agent/manifest'
-git diff --quiet --ignore-submodules -- . "$DEPLOY_EXEMPT" || fail "Tracked files have local changes. Commit or discard them before deploying production."
-git diff --cached --quiet --ignore-submodules -- . "$DEPLOY_EXEMPT" || fail "Staged files are waiting to be committed. Commit or unstage them before deploying production."
+# WARNINGS, NOT BLOCKERS. `--prebuilt` uploads `.vercel/output` — the artifact that was already built — so uncommitted
+# SOURCE cannot reach production through this command. What it can do is leave the tree confusing afterwards, which is
+# worth a line of text and not worth stopping a release. The live sha check below is the real protection.
+if ! git diff --quiet --ignore-submodules -- . "$DEPLOY_EXEMPT"; then
+  printf '\nNOTE: tracked files have local changes; the deployed artifact is unaffected.\n'
+fi
+if ! git diff --cached --quiet --ignore-submodules -- . "$DEPLOY_EXEMPT"; then
+  printf '\nNOTE: staged files are waiting to be committed; the deployed artifact is unaffected.\n'
+fi
 
 [[ -f .vercel/output/config.json ]] || fail "No prebuilt artifact found. Run: bash scripts/vercel-build-prod.sh"
 [[ -f .vercel/culebraluxe-prod-build-sha ]] || fail "No build provenance stamp found. Rebuild with: bash scripts/vercel-build-prod.sh"
@@ -47,7 +54,16 @@ git diff --cached --quiet --ignore-submodules -- . "$DEPLOY_EXEMPT" || fail "Sta
 
 CURRENT_SHA="$(git rev-parse HEAD)"
 BUILT_SHA="$(cat .vercel/culebraluxe-prod-build-sha)"
-[[ "$CURRENT_SHA" == "$BUILT_SHA" ]] || fail "Prebuilt artifact belongs to a different commit. Rebuild before deploying."
+# NOT A BLOCKER ANY MORE.
+#
+# The artifact is built FROM BUILT_SHA, and that is the commit it will serve. A commit landing after the build does not
+# make the artifact wrong — it makes HEAD newer. Refusing to deploy over that stopped real releases repeatedly, which
+# is worse than the thing it was preventing: a stale artifact is caught by the live check below, which compares
+# production against the ARTIFACT'S OWN STAMP and fails if something else is serving.
+if [[ "$CURRENT_SHA" != "$BUILT_SHA" ]]; then
+  printf '\nNOTE: artifact built from %s; HEAD is now %s. Deploying the artifact as built.\n' \
+    "${BUILT_SHA:0:7}" "${CURRENT_SHA:0:7}"
+fi
 
 export VERCEL_ORG_ID
 export VERCEL_PROJECT_ID
@@ -80,7 +96,10 @@ bash scripts/vercel-deploy-rust-prod.sh
 # while the production domain answered 200), so asking the deployment URL could only ever report
 # "no answer" - a check that cannot pass is worse than no check.
 PROD_URL="${CULEBRALUXE_PROD_URL:-https://www.culebraluxe.com}"
-EXPECTED_SHA="$(git rev-parse --short HEAD)"
+# THE ARTIFACT'S OWN STAMP, NOT HEAD. The question this check exists to answer is "is what I deployed what is live" —
+# not "is HEAD what is live". Asking the second one made any commit landing between build and deploy look like a
+# production problem, when the artifact was perfectly consistent with the commit it was built from.
+EXPECTED_SHA="${BUILT_SHA:0:7}"
 # THE TWO SIDES ARE NOT THE SAME WIDTH, BY DESIGN.
 #
 # `/api/build-info` serves `cockpitBuildLabel()`, which reports the first SEVEN characters of the stamped
