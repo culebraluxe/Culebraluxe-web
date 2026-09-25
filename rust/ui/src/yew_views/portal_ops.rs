@@ -1722,7 +1722,11 @@ fn media_editor(
     let file_change = media_file_change(on_msg);
 
     html! {
-        <div class="space-y-4">
+        // `min-w-0` IS THE FIX FOR "IT GOES PAST THE LEFT WIDGET". This column is a flex/grid child, and such a child
+        // defaults to `min-width: auto` — it refuses to shrink below its content's intrinsic width. A 6000px
+        // photograph therefore widened the column past the sidebar instead of being scaled into it. With `min-w-0`
+        // the column can be no wider than the space it was given, and `max-w-full` keeps the media inside it.
+        <div class="min-w-0 max-w-full space-y-4">
             // NO SECTION INTRO HERE. It said "Review the Property photography in-place, then add the next photo
             // without leaving the canonical record" — a sentence that describes the screen to someone who has not
             // seen it, placed on a screen only reached by someone who already knows why they are there. The tab is
@@ -1752,7 +1756,10 @@ fn media_editor(
 
             <section class="overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-[var(--portal-navy)]">
                 if let Some(image) = active {
-                    <div class="relative h-[300px] sm:h-[390px] xl:h-[460px]">
+                    // SMALLER, AND IT STAYS INSIDE THE COLUMN. This box was 300/390/460px tall — a wall of navy with a
+                    // photograph inside it, which is what "that blue square is too big" was about. A preview needs to
+                    // be big enough to judge a photograph and no bigger; the full size is what the listing page is for.
+                    <div class="relative h-[200px] w-full max-w-full overflow-hidden sm:h-[260px] xl:h-[300px]">
                         <img
                             src={image.url.clone()}
                             alt={image.alt_text.clone().unwrap_or_else(|| property.name.clone())}
@@ -1796,8 +1803,11 @@ fn media_editor(
                     </div>
 
                     if images.len() > 1 {
-                        <div class="grid grid-cols-4 gap-1 bg-black/30 p-1 sm:grid-cols-6 xl:grid-cols-8">
-                            {for images.iter().enumerate().take(8).map(|(index, image)| {
+                        // A SLIDER, NOT A CAPPED GRID. This was a static 4/6/8-column grid that took the first eight
+                        // photographs and silently dropped the rest — a Property with twelve photos had four that
+                        // could not be reached at all. It scrolls now, and every photograph is in it.
+                        <div class="flex snap-x snap-mandatory gap-1 overflow-x-auto bg-black/30 p-1">
+                            {for images.iter().enumerate().map(|(index, image)| {
                                 let onclick = {
                                     let on_msg = on_msg.clone();
                                     Callback::from(move |_: MouseEvent| on_msg.emit(Msg::OpsMediaSelected(index)))
@@ -1808,7 +1818,7 @@ fn media_editor(
                                         {onclick}
                                         aria-current={(index == active_index).to_string()}
                                         class={classes!(
-                                            "relative","h-16","overflow-hidden","border","transition","sm:h-20",
+                                            "relative","h-14","w-20","shrink-0","snap-start","overflow-hidden","border","transition",
                                             if index == active_index { "border-[var(--portal-gold)] opacity-100" } else { "border-transparent opacity-70 hover:opacity-100" }
                                         )}
                                     >
@@ -1913,15 +1923,36 @@ fn ops_media_uploader(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Ht
     let choose_again = Callback::from(move |_: MouseEvent| open_file_picker());
 
     html! {
-        <section class="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/35 p-4">
-            <div class="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--portal-gold-muted)]">{"Add photo"}</div>
-            <div class="mt-3 grid gap-3 sm:grid-cols-2">
+        <section class="min-w-0 max-w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/35 p-3">
+            // THE BUTTON IS FIRST, AND THE FIELDS FOLLOW — the ordering is the point.
+            //
+            // This panel is why the screen felt broken: it appeared only after a click, then rendered under the
+            // gallery, so the one control that does the job sat below the fold beneath two fields that describe a file
+            // which does not exist yet. Now the button is the first thing in the panel, so it is on screen the moment
+            // the tab opens, and Role and Alt text — which only describe a photograph that has already been chosen —
+            // come after it.
+            <div class="flex flex-wrap items-center gap-3">
+                <button
+                    type="button"
+                    onclick={choose_again}
+                    class="inline-flex h-9 shrink-0 items-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-4 text-[10px] font-semibold uppercase tracking-[0.12em] text-white"
+                >
+                    {"Add photo"}
+                </button>
+                <span class="min-w-0 flex-1 truncate text-[11px] font-light text-black/45">
+                    {model.ops.media_file_name.clone().unwrap_or_else(|| "Choose a photo — the upload starts by itself".into())}
+                </span>
+                if model.ops.media_uploading {
+                    <span class="shrink-0 text-[11px] font-light text-[var(--portal-gold-muted)]">{"Uploading…"}</span>
+                }
+            </div>
+            <div class="mt-2 grid gap-2 sm:grid-cols-2">
                 <label class="text-[10px] font-semibold uppercase tracking-[0.11em] text-[var(--portal-blue-gray)]">
                     {"Image role"}
                     <select
                         value={model.ops.media_role.clone()}
                         onchange={role_change}
-                        class="mt-1.5 h-10 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 px-3 text-[13px] font-light"
+                        class="mt-1 h-9 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 px-3 text-[13px] font-light"
                     >
                         <option value="gallery">{"Gallery"}</option>
                         <option value="hero">{"Hero"}</option>
@@ -1933,29 +1964,9 @@ fn ops_media_uploader(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Ht
                         value={model.ops.media_alt.clone()}
                         oninput={alt_change}
                         placeholder="Oceanfront villa overlooking Culebra"
-                        class="mt-1.5 h-10 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 px-3 text-[13px] font-light"
+                        class="mt-1 h-9 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 px-3 text-[13px] font-light"
                     />
                 </label>
-            </div>
-            <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
-                <div class="flex items-center gap-3">
-                    <button
-                        type="button"
-                        onclick={choose_again}
-                        class="inline-flex h-9 items-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--portal-navy)]"
-                    >
-                        {"Choose file"}
-                    </button>
-                    <span class="text-[11px] font-light text-black/45">
-                        {model.ops.media_file_name.clone().unwrap_or_else(|| "No file chosen".into())}
-                    </span>
-                </div>
-                // NO SECOND BUTTON. There is no decision left after choosing a file: the role defaults to gallery and
-                // the title is derived from the Property, so the upload starts the moment the file is chosen. What
-                // used to be "Upload & assign" is now this line, which only reports progress.
-                if model.ops.media_uploading {
-                    <span class="text-[11px] font-light text-[var(--portal-gold-muted)]">{"Uploading…"}</span>
-                }
             </div>
         </section>
     }
