@@ -110,7 +110,6 @@ fn encode_jpeg(image: &image::DynamicImage, quality: u8) -> Result<Vec<u8>, Stri
     Ok(out)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -127,7 +126,10 @@ mod tests {
     fn refuses_bytes_that_are_not_an_image() {
         // The sentence is the product here: whoever chose the file has to be able to act on it.
         let error = derive_web_and_thumb(b"this is not a photograph").expect_err("no image");
-        assert!(error.contains("not an image"), "unexpected message: {error}");
+        assert!(
+            error.contains("not an image"),
+            "unexpected message: {error}"
+        );
     }
 
     #[test]
