@@ -6,6 +6,80 @@
 use crate::{Database, DbFailure, DbResult};
 use domain::{PublicListing, PublicListingCopy, PublicProperty};
 
+/// One row of the public inventory, with its hero already resolved by the query.
+#[derive(sqlx::FromRow)]
+struct ListingRow {
+    id: String,
+    row_key: String,
+    name: String,
+    property_type: Option<String>,
+    status: String,
+    list_price: Option<f64>,
+    featured: bool,
+    city: Option<String>,
+    state_or_province: Option<String>,
+    neighborhood: Option<String>,
+    bedrooms: Option<i32>,
+    bathrooms: Option<f64>,
+    square_feet: Option<i32>,
+    lot_size: Option<f64>,
+    lot_size_units: Option<String>,
+    has_ocean_view: bool,
+    has_bay_view: bool,
+    has_beach_view: bool,
+    has_harbor_view: bool,
+    has_island_view: bool,
+    has_mountain_view: bool,
+    has_sunrise_view: bool,
+    has_sunset_view: bool,
+    beach_access: bool,
+    hero_media_id: Option<String>,
+    hero_alt: Option<String>,
+}
+
+impl ListingRow {
+    /// The eight view flags become the words a card shows, in the same order the site has always used.
+    fn into_listing(self) -> PublicListing {
+        let mut views = Vec::new();
+        for (flag, label) in [
+            (self.has_ocean_view, "Ocean"),
+            (self.has_bay_view, "Bay"),
+            (self.has_beach_view, "Beach"),
+            (self.has_harbor_view, "Harbor"),
+            (self.has_island_view, "Island"),
+            (self.has_mountain_view, "Mountain"),
+            (self.has_sunrise_view, "Sunrise"),
+            (self.has_sunset_view, "Sunset"),
+        ] {
+            if flag {
+                views.push(label.to_string());
+            }
+        }
+
+        PublicListing {
+            key: self.row_key,
+            id: self.id,
+            name: self.name,
+            property_type: self.property_type,
+            status: self.status,
+            list_price: self.list_price,
+            featured: self.featured,
+            city: self.city,
+            state_or_province: self.state_or_province,
+            neighborhood: self.neighborhood,
+            bedrooms: self.bedrooms,
+            bathrooms: self.bathrooms,
+            square_feet: self.square_feet,
+            lot_size: self.lot_size,
+            lot_size_units: self.lot_size_units,
+            views,
+            beach_access: self.beach_access,
+            hero_media_id: self.hero_media_id,
+            hero_alt: self.hero_alt,
+        }
+    }
+}
+
 pub struct PublicListingDao {
     db: Database,
 }
@@ -40,23 +114,54 @@ impl PublicListingDao {
         Self { db }
     }
 
-    /// The taglines of published listings, for the anonymous public site: the same guest door the public document route
-    /// uses (no identity headers), authorized as the published `property.public.read`.
+    /// Every listing the public site shows: the visibility rule, and nothing else required.
+    ///
+    /// The view LABELS are spelled here rather than exposed as eight booleans, because every surface wants the same
+    /// words and none of them wants the storage shape. The hero comes with the row: a card without a picture is a card
+    /// nobody clicks, and the marked hero or the first photograph is always one of them.
     pub async fn listings(&self) -> DbResult<Vec<PublicListing>> {
-        // THE VISIBILITY RULE, AND NOTHING ELSE. No slug requirement (the row's key is its slug or its id, and the
-        // public resolver accepts the name too), no price requirement (zero is a price), no hero requirement (the
-        // first photograph is the hero). Every extra condition here is a way for a listing that exists to be missing
-        // from the site, which is the failure this read exists to end.
-        let rows = sqlx::query_as::<_, (String, String, Option<String>, String, Option<f64>, bool)>(
+        let rows = sqlx::query_as::<_, ListingRow>(
             r#"
             select
+                p.id::text as id,
                 coalesce(p.slug, p.id::text) as row_key,
                 p.name,
-                nullif(btrim(coalesce(p.property_type, '')), ''),
+                nullif(btrim(coalesce(p.property_type, '')), '') as property_type,
                 p.status,
-                p.list_price::float8,
-                coalesce(p.featured, false)
+                p.list_price::float8 as list_price,
+                coalesce(p.featured, false) as featured,
+                p.city,
+                p.state_or_province,
+                p.neighborhood,
+                p.bedrooms::int as bedrooms,
+                p.bathrooms::float8 as bathrooms,
+                p.square_feet::int as square_feet,
+                coalesce(p.lot_size_acres, p.lot_size)::float8 as lot_size,
+                p.lot_size_units,
+                coalesce(p.has_ocean_view, false) as has_ocean_view,
+                coalesce(p.has_bay_view, false) as has_bay_view,
+                coalesce(p.has_beach_view, false) as has_beach_view,
+                coalesce(p.has_harbor_view, false) as has_harbor_view,
+                coalesce(p.has_island_view, false) as has_island_view,
+                coalesce(p.has_mountain_view, false) as has_mountain_view,
+                coalesce(p.has_sunrise_view, false) as has_sunrise_view,
+                coalesce(p.has_sunset_view, false) as has_sunset_view,
+                coalesce(p.has_beach_access, false) as beach_access,
+                hero.media_id as hero_media_id,
+                hero.alt_text as hero_alt
             from property p
+            left join lateral (
+                select m.id as media_id, m.alt_text
+                  from property_media pm
+                  join media m on m.id = pm.media_id
+                 where pm.property_id = p.id
+                   and pm.role in ('hero', 'gallery')
+                   and m.media_type = 'image'
+                 order by case when pm.role = 'hero' then 0 else 1 end asc,
+                          pm.sort_order asc,
+                          pm.created_at asc
+                 limit 1
+            ) hero on true
             where p.archived_at is null
               and p.status in ('active', 'under_contract', 'sold')
               and p.name is not null
@@ -67,19 +172,7 @@ impl PublicListingDao {
         .await
         .map_err(|error| DbFailure::from_sqlx("public_listing.listings", &error))?;
 
-        Ok(rows
-            .into_iter()
-            .map(
-                |(key, name, property_type, status, list_price, featured)| PublicListing {
-                    key,
-                    name,
-                    property_type,
-                    status,
-                    list_price,
-                    featured,
-                },
-            )
-            .collect())
+        Ok(rows.into_iter().map(ListingRow::into_listing).collect())
     }
 
     /// One Property, resolved by whatever identifies it: its slug, its name (any case, spaces or dashes), or its id.

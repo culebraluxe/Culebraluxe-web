@@ -17,7 +17,12 @@ import {
   MARKETING_SLOTS,
 } from '@/lib/marketing-content'
 import { formatArea, formatPrice, propertyLocation } from '@/lib/property'
-import { getProperties } from '@/lib/property-reads'
+// THE PUBLIC INVENTORY COMES FROM RUST. This route used to read the published properties through the TypeScript
+// kernel — the same data the buyers grid reached for through a different door, which is how the two could disagree
+// about what "on the site" means. One read now, in one language.
+import { rustApiPublicListings, type RustPublicListing } from '@/lib/rust-api/client'
+// STILL TYPESCRIPT, FOR NOW: the similar-listings read is the last public property read on the old path, and it is the
+// next slice. It only feeds the "similar listings" strip on a property page — see `legacyListing` below.
 import type { PropertySummary } from '@/legacy/services/property'
 import { withApiHandler, withServerErrorCapture } from '@/lib/error-capture-seam'
 import { rustApiPublicGuide, rustApiPublicListingCopy } from '@/lib/rust-api/client'
@@ -85,7 +90,41 @@ async function taglinesBySlug(): Promise<Map<string, string>> {
   return new Map(copy.map((entry) => [entry.slug, entry.tagline]))
 }
 
-function listing(source: PropertySummary, taglines: Map<string, string> = new Map()) {
+function listing(source: RustPublicListing, taglines: Map<string, string> = new Map()) {
+  // EVERY PROPERTY WE SELL IS ON CULEBRA, so a missing city is the only answer there is, not a gap to report.
+  const location =
+    [source.city, source.stateOrProvince].filter(Boolean).join(', ') ||
+    source.neighborhood ||
+    'Culebra, PR'
+  return {
+    id: source.id,
+    slug: source.key,
+    name: source.name,
+    location,
+    price: source.listPrice == null ? null : formatPrice(source.listPrice),
+    kind: source.propertyType ?? null,
+    // THE CARD'S PICTURE COMES FROM THE SERVICE, which resolved the hero: the marked photograph, or the first one.
+    imagePath: source.heroMediaId ? `/api/media/${source.heroMediaId}` : null,
+    imageAlt: source.heroAlt ?? null,
+    beds: source.bedrooms ?? null,
+    baths: source.bathrooms ?? null,
+    area: formatArea(source.lotSize, source.lotSizeUnits) ?? null,
+    // `area` is the LOT. A house is bought by its interior first, and without this a 6,000 sq ft residence read as "1 Acre"
+    // on its card. Formatted by the same helper, so "6,399 SF" matches the detail page.
+    interiorArea: source.squareFeet ? formatArea(source.squareFeet, 'SF') : null,
+    views: source.views ?? [],
+    beachAccess: source.beachAccess === true,
+    tagline: taglines.get(source.key) ?? null,
+    featured: source.featured === true,
+  }
+}
+
+/**
+ * THE LAST TYPESCRIPT LISTING MAPPER. Similar listings still arrive as `PropertySummary` through the service kernel, and
+ * this turns them into the same card shape the Rust rows produce. It exists so the property page keeps working while
+ * that read is migrated — and it is the only reason `getSimilarProperties` is still imported here.
+ */
+function legacyListing(source: PropertySummary, taglines: Map<string, string> = new Map()) {
   return {
     id: source.id ?? '',
     slug: source.slug ?? '',
@@ -98,8 +137,6 @@ function listing(source: PropertySummary, taglines: Map<string, string> = new Ma
     beds: source.bedrooms ?? null,
     baths: source.bathrooms ?? null,
     area: formatArea(source.lotSize, source.lotSizeUnits) ?? null,
-    // `area` is the LOT. A house is bought by its interior first, and without this a 6,000 sq ft residence read as "1 Acre"
-    // on its card. Formatted by the same helper, so "6,399 SF" matches the detail page.
     interiorArea: source.squareFeet ? formatArea(source.squareFeet, 'SF') : null,
     views: source.views ?? [],
     beachAccess: source.beachAccess === true,
@@ -113,13 +150,13 @@ async function GETHandler(req: NextRequest): Promise<Response> {
 
   switch (screen) {
     case 'site-home': {
-      // The same two reads the live homepage made, at the same time, each with its own failure.
-      const [propertiesResult, contentResult, taglines] = await Promise.all([
-        getProperties({ publicOnly: true }),
+      // The live homepage's reads, at the same time, each with its own failure. The inventory comes from the Rust
+      // service now; a failure leaves the page without listings rather than without a page.
+      const [properties, contentResult, taglines] = await Promise.all([
+        rustApiPublicListings().catch(() => [] as RustPublicListing[]),
         getMarketingContent(),
         taglinesBySlug(),
       ])
-      const properties = propertiesResult.ok ? propertiesResult.data : []
       const home = contentResult.ok ? buildHomeContent(contentResult.data) : undefined
       return NextResponse.json({
         hero: block(home?.hero),
@@ -155,8 +192,7 @@ async function GETHandler(req: NextRequest): Promise<Response> {
       // same read model and the same formatting. The marketing `buyers` block is the *homepage's* summary of buying, and
       // serving it here is how the site's most important page ended up with the wrong words on it — the same mistake
       // that put "For Buyers" on the Services page.
-      const result = await getProperties({ publicOnly: true })
-      const properties = result.ok ? result.data : []
+      const properties = await rustApiPublicListings().catch(() => [] as RustPublicListing[])
       return NextResponse.json({
         listings: properties.map((property) => listing(property)),
         featured: properties.filter((property) => property.featured === true).map((property) => listing(property)),
@@ -165,8 +201,8 @@ async function GETHandler(req: NextRequest): Promise<Response> {
     case 'site-favorites': {
       // SAVED PROPERTIES LIVE IN THE BROWSER, so the page is the published inventory and the browser picks the saved
       // ones out of it. A saved listing that has since been unpublished is simply not in this list, so it cannot show.
-      const result = await getProperties({ publicOnly: true })
-      return NextResponse.json({ listings: result.ok ? result.data.map((property) => listing(property)) : [] })
+      const properties = await rustApiPublicListings().catch(() => [] as RustPublicListing[])
+      return NextResponse.json({ listings: properties.map((property) => listing(property)) })
     }
     case 'site-about': {
       const result = await getMarketingContent()
@@ -196,10 +232,8 @@ async function GETHandler(req: NextRequest): Promise<Response> {
       const propertyId = req.nextUrl.searchParams.get('scope')
       let enquiryProperty: string | null = null
       if (propertyId) {
-        const listings = await getProperties({ publicOnly: true })
-        enquiryProperty = listings.ok
-          ? (listings.data.find((property) => property.id === propertyId)?.name ?? null)
-          : null
+        const listings = await rustApiPublicListings().catch(() => [] as RustPublicListing[])
+        enquiryProperty = listings.find((property) => property.id === propertyId)?.name ?? null
       }
       return NextResponse.json({
         hero: block(contact.hero),
@@ -319,7 +353,7 @@ async function GETHandler(req: NextRequest): Promise<Response> {
           gallery: galleryImages ?? [],
           videos: videos ?? [],
           documents: documents ?? [],
-          similar: similarResult.ok ? similarResult.data.map((property) => listing(property)) : [],
+          similar: similarResult.ok ? similarResult.data.map((property) => legacyListing(property)) : [],
           publicSlugs: slugsResult.ok ? slugsResult.data : [],
         },
       })

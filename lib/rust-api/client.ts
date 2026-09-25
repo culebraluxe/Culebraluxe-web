@@ -268,11 +268,26 @@ export type RustPublicListingCopy = { slug: string; tagline: string }
  */
 export type RustPublicListing = {
   key: string
+  id: string
   name: string
   propertyType: string | null
   status: string
   listPrice: number | null
   featured: boolean
+  city: string | null
+  stateOrProvince: string | null
+  neighborhood: string | null
+  bedrooms: number | null
+  bathrooms: number | null
+  squareFeet: number | null
+  lotSize: number | null
+  lotSizeUnits: string | null
+  /** The view labels, already spelled: "Ocean", "Sunset". */
+  views: string[]
+  beachAccess: boolean
+  /** The marked hero, or the first photograph. A card always has a picture. */
+  heroMediaId: string | null
+  heroAlt: string | null
 }
 
 /**

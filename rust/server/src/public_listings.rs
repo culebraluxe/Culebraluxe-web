@@ -149,11 +149,14 @@ mod tests {
         async fn listings(&mut self) -> DbResult<Vec<PublicListing>> {
             Ok(vec![PublicListing {
                 key: "estate".into(),
+                id: "estate-id".into(),
                 name: "Estate".into(),
                 property_type: Some("Villa".into()),
                 status: "active".into(),
                 list_price: Some(1_000_000.0),
                 featured: true,
+                hero_media_id: Some("media-1".into()),
+                ..Default::default()
             }])
         }
 

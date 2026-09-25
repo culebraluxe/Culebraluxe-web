@@ -22,11 +22,27 @@ pub struct PublicListingCopy {
 #[serde(rename_all = "camelCase")]
 pub struct PublicListing {
     pub key: String,
+    pub id: String,
     pub name: String,
     pub property_type: Option<String>,
     pub status: String,
     pub list_price: Option<f64>,
     pub featured: bool,
+    pub city: Option<String>,
+    pub state_or_province: Option<String>,
+    pub neighborhood: Option<String>,
+    pub bedrooms: Option<i32>,
+    pub bathrooms: Option<f64>,
+    pub square_feet: Option<i32>,
+    pub lot_size: Option<f64>,
+    pub lot_size_units: Option<String>,
+    /// The view labels a card shows, spelled out — "Ocean", "Sunset" — because the eight booleans they come from are
+    /// a storage detail and every surface wants the same words.
+    pub views: Vec<String>,
+    pub beach_access: bool,
+    /// The hero: the marked photograph, or the first one. A card always has a picture.
+    pub hero_media_id: Option<String>,
+    pub hero_alt: Option<String>,
 }
 
 
