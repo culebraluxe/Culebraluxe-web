@@ -55,6 +55,33 @@ pub struct MediaUploadStatus {
     pub status: String,
 }
 
+/// An assembled upload: checked against what the client declared, and ready to be written.
+pub struct MediaUploadAssembly {
+    pub upload_id: String,
+    pub property_id: String,
+    pub filename: String,
+    pub mime_type: String,
+    pub role: String,
+    pub alt_text: Option<String>,
+    pub bytes: Vec<u8>,
+}
+
+/// One downscaled copy on its way into `media`. `kind` is `web` or `thumb` (migration 222's constraint is the check
+/// that keeps that honest).
+pub struct MediaDerivativeInput {
+    pub kind: &'static str,
+    pub bytes: Vec<u8>,
+}
+
+/// `ZoniBluff_1.jpg` + `web` -> `ZoniBluff_1-web.jpg`. Named so that a person looking at the storage can tell a copy
+/// from the original without joining a table.
+fn derivative_filename(original: &str, kind: &str) -> String {
+    match original.rsplit_once('.') {
+        Some((stem, _extension)) if !stem.is_empty() => format!("{stem}-{kind}.jpg"),
+        _ => format!("{original}-{kind}.jpg"),
+    }
+}
+
 pub struct MediaDao {
     db: Database,
 }
@@ -361,16 +388,16 @@ impl MediaDao {
         Ok(progress)
     }
 
-    /// Assembles the chunks and writes the photograph — through the same `insert into media (...)` every other upload
-    /// path uses, so nothing downstream can tell that the bytes arrived in pieces.
+    /// Reads and checks the staged chunks, and returns the assembled photograph — WITHOUT writing anything.
+    ///
+    /// Split from the write deliberately. Decoding a 13 MB photograph and building its derivatives takes real time,
+    /// and a database transaction held open across that work is a transaction every other upload waits behind. Check
+    /// here; write in `commit_media_upload`.
     ///
     /// EVERY DECLARED CHUNK MUST BE PRESENT AND THE TOTAL MUST MATCH. That is what the manifest is for: a missing
     /// chunk would otherwise be stored as a shorter photograph, and a partial upload would look complete to every
     /// reader downstream.
-    pub async fn complete_media_upload(
-        &self,
-        upload_id: &str,
-    ) -> DbResult<UploadPropertyMediaResult> {
+    pub async fn assemble_media_upload(&self, upload_id: &str) -> DbResult<MediaUploadAssembly> {
         let status = self.media_upload_status(upload_id).await?;
         if status.status != "uploading" {
             return Err(DbFailure::configuration(
@@ -429,7 +456,35 @@ impl MediaDao {
             ));
         }
 
-        let mut tx = self.db.begin("media.upload.complete").await?;
+        Ok(MediaUploadAssembly {
+            upload_id: upload_id.to_string(),
+            property_id,
+            filename,
+            mime_type,
+            role,
+            alt_text,
+            bytes: assembled,
+        })
+    }
+
+    /// Writes the photograph and its derivatives, links it, and drops the staged bytes — in ONE transaction.
+    ///
+    /// The copies are written here rather than by their own call so that a photograph can never exist without the copy
+    /// that makes it servable: a reader either sees the photo and its copies, or sees nothing.
+    pub async fn commit_media_upload(
+        &self,
+        upload_id: &str,
+        assembly: &MediaUploadAssembly,
+        derivatives: &[MediaDerivativeInput],
+    ) -> DbResult<UploadPropertyMediaResult> {
+        let property_id = assembly.property_id.clone();
+        let filename = assembly.filename.clone();
+        let mime_type = assembly.mime_type.clone();
+        let alt_text = assembly.alt_text.clone();
+        let role = assembly.role.clone();
+        let assembled = &assembly.bytes;
+
+        let mut tx = self.db.begin("media.upload.commit").await?;
 
         let media_id = sqlx::query_scalar::<_, String>(
             r#"
@@ -440,7 +495,7 @@ impl MediaDao {
             returning id::text
             "#,
         )
-        .bind(&assembled)
+        .bind(assembled)
         .bind(&filename)
         .bind(&mime_type)
         .bind(assembled.len() as i64)
@@ -448,6 +503,25 @@ impl MediaDao {
         .fetch_one(tx.connection())
         .await
         .map_err(|error| DbFailure::from_sqlx("media.upload.complete_insert", &error))?;
+
+        for derivative in derivatives {
+            sqlx::query(
+                r#"
+                insert into media (
+                    file_data, filename, mime_type, file_size, media_type, derivative_of, derivative_kind
+                )
+                values ($1, $2, 'image/jpeg', $3, 'image', $4::uuid, $5)
+                "#,
+            )
+            .bind(&derivative.bytes)
+            .bind(derivative_filename(&filename, derivative.kind))
+            .bind(derivative.bytes.len() as i64)
+            .bind(&media_id)
+            .bind(derivative.kind)
+            .execute(tx.connection())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("media.upload.commit_derivative", &error))?;
+        }
 
         if role == "hero" {
             sqlx::query(
