@@ -151,6 +151,7 @@ impl WhatsAppDao {
         .await
         .map_err(|error| DbFailure::from_sqlx("whatsapp.inbox.insert", &error))?;
 
+        let was_created = created.is_some();
         let state = match created {
             Some(row) => row,
             None => sqlx::query_as::<_, InboxState>(
@@ -170,7 +171,7 @@ impl WhatsAppDao {
             .map_err(|error| DbFailure::from_sqlx("whatsapp.inbox.read", &error))?,
         };
 
-        if created.is_none() {
+        if !was_created {
             if let Some(outcome) = replay_outcome(&state) {
                 tx.commit().await?;
                 return Ok(outcome);
