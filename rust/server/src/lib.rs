@@ -18,6 +18,7 @@ pub mod forms;
 pub mod guide;
 pub mod intake;
 pub mod issues;
+pub mod marketing;
 pub mod lookup;
 pub mod media;
 pub mod people;
