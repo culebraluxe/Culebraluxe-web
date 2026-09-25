@@ -1,25 +1,11 @@
 'use server'
 
-import { randomUUID } from 'node:crypto'
-
-import { findDealById, findPropertyById, findPropertyBySlug } from '@/legacy/db/intake-context'
-import { getInteractionBySourceIdentity } from '@/legacy/db/interactions'
-import {
-  createPersonWithIdentities,
-  findIdentityMatch,
-  findIdentityOwnership,
-  personExists,
-} from '@/legacy/db/person-identities'
-import {
-  claimWebsiteIntakeReceipt,
-  insertOrReadWebsiteIntakeReceipt,
-  persistCanonicalWebsiteIntake,
-  transitionWebsiteIntakeReceipt,
-} from '@/legacy/db/website-intake'
 import {
   parseWebsiteIntakeFormData,
-  processWebsiteIntake,
 } from '@/lib/website-intake'
+import {
+  rustApiSubmitWebsiteIntake,
+} from '@/lib/rust-api/client'
 import type { WebsiteIntakeResult } from '@/lib/website-intake-types'
 
 const unavailable: WebsiteIntakeResult = {
@@ -36,30 +22,20 @@ export async function submitWebsiteIntake(
   } catch {
     return { accepted: false, status: 'invalid' }
   }
-  // A filled honeypot gets the same non-enumerating success response and no writes.
-  if (parsed.honeypot) return { accepted: true, status: 'accepted' }
-  const { payload } = parsed
 
+  // Preserve the non-enumerating honeypot behavior: accepted, no persistence.
+  if (parsed.honeypot) return { accepted: true, status: 'accepted' }
+
+  const { payload } = parsed
   try {
-    return await processWebsiteIntake(payload, {
-      createId: randomUUID,
-      repositories: {
-        findActiveProperty: findPropertyById,
-        insertOrReadReceipt: insertOrReadWebsiteIntakeReceipt,
-        claimReceipt: claimWebsiteIntakeReceipt,
-        transitionReceipt: transitionWebsiteIntakeReceipt,
-        persistCanonical: persistCanonicalWebsiteIntake,
-        crm: {
-          findInteractionBySourceIdentity: getInteractionBySourceIdentity,
-          personExists,
-          findIdentityMatch,
-          findIdentityOwnership,
-          createPersonWithIdentities,
-          findPropertyById,
-          findPropertyBySlug,
-          findDealById,
-        },
-      },
+    return await rustApiSubmitWebsiteIntake({
+      submissionId: payload.submissionId,
+      requestType: payload.requestType,
+      propertyId: payload.propertyId ?? null,
+      displayName: payload.displayName,
+      email: payload.email,
+      message: payload.message ?? null,
+      service: payload.service ?? null,
     })
   } catch (error) {
     console.error('Website intake could not be completed.', {
@@ -72,8 +48,7 @@ export async function submitWebsiteIntake(
 
 /**
  * @deprecated Renamed to `submitWebsiteIntake` — this action handles the
- * property-less general enquiry path too. Kept as a non-breaking alias so
- * existing callers keep working.
+ * property-less general enquiry path too. Kept as a non-breaking alias.
  */
 export async function submitWebsitePropertyIntake(
   formData: FormData,
