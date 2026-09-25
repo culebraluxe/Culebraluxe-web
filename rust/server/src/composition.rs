@@ -9,6 +9,7 @@ use crate::firms::FirmService;
 use crate::flight_recorder::FlightRecorderService;
 use crate::forms::FormService;
 use crate::guide::GuideService;
+use crate::issues::IssueService;
 use crate::lookup::ServiceDirectory;
 use crate::media::MediaService;
 use crate::people::PersonService;
@@ -28,7 +29,7 @@ use crate::whatsapp::WhatsAppService;
 use crate::workflow_portal::WorkflowPortalService;
 use db::{
     AccountingDao, CalendarDao, ClientDao, CockpitDao, CommsDao, ContractDao, Database,
-    DealPortalDao, FirmDao, FlightRecorderDao, FormDao, GuideDao, MediaDao, PersonDao, ProjectDao,
+    DealPortalDao, FirmDao, FlightRecorderDao, FormDao, GuideDao, IssueDao, MediaDao, PersonDao, ProjectDao,
     PropertyDao, SecurityDao, ShowingDao, SignatureDao, SupportDiagnosticsDao, TaskDao,
     TechCockpitDao, VaultDao, WbsDao, WhatsAppDao, WorkflowPortalDao,
 };
@@ -71,6 +72,10 @@ impl CoreServices {
 
     pub fn guide(&self) -> GuideService<GuideDao> {
         GuideService::new(GuideDao::new(self.db.clone()), self.infrastructure.clone())
+    }
+
+    pub fn issues(&self) -> IssueService<IssueDao> {
+        IssueService::new(IssueDao::new(self.db.clone()), self.infrastructure.clone())
     }
 
     pub fn media(&self) -> MediaService<MediaDao> {
