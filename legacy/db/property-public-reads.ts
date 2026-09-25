@@ -451,7 +451,6 @@ export async function getFilteredProperties(
 
     where p.archived_at is null
       and p.status in ('active', 'under_contract', 'sold')
-      and p.is_active_listing = true
 
       and (${category !== 'land'} or lower(coalesce(p.property_type, '')) = 'land')
       and (${category !== 'homes'} or lower(coalesce(p.property_type, '')) <> 'land')
@@ -519,7 +518,6 @@ export async function getFilteredProperties(
     where archived_at is null
       and slug is not null
       and status in ('active', 'under_contract', 'sold')
-      and is_active_listing = true
   `
   if (!viewRowsR.ok) return viewRowsR
   const viewRows = viewRowsR.data
@@ -613,7 +611,6 @@ export async function getSimilarProperties(
     where p.id <> ${propertyId}
       and p.archived_at is null
       and p.status in ('active', 'under_contract', 'sold')
-      and p.is_active_listing = true
 
     order by
       case when p.property_type = ${current.propertyType} then 0 else 1 end,
@@ -652,7 +649,6 @@ export async function getPublicPropertySlugs(
     where archived_at is null
       and slug is not null
       and status in ('active', 'under_contract', 'sold')
-      and is_active_listing = true
     order by created_at asc
   `
   if (!r.ok) return r

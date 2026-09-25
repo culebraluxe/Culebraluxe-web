@@ -233,7 +233,6 @@ impl PublicListingDao {
             select p.slug, btrim(p.tagline) as tagline
             from property p
             where p.status in ('active', 'under_contract', 'sold')
-              and p.is_active_listing = true
               and p.archived_at is null
               and p.slug is not null
               and nullif(btrim(p.tagline), '') is not null

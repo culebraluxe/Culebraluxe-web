@@ -961,8 +961,12 @@ impl PropertyDao {
                 slug = nullif($3::text, ''),
                 status = $4,
                 featured = $5,
-                is_active_listing = $6,
-                is_published = $7,
+                -- STATUS IS THE ONLY SWITCH. These two columns mirror it rather than deciding anything, so a form can no
+                -- longer set "active listing" and "published" independently of the status and quietly create a Property
+                -- that is active and invisible, or archived and published. Nothing on the website reads them; they are
+                -- kept in step here only so the data cannot contradict itself.
+                is_active_listing = ($4 in ('active', 'under_contract', 'sold')),
+                is_published = ($4 in ('active', 'under_contract', 'sold')),
                 property_type = nullif($8::text, ''),
                 list_price = nullif($9::text, '')::numeric,
                 location = nullif($10::text, ''),

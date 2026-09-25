@@ -1024,7 +1024,6 @@ impl VaultDao {
                   where pm.media_id = m.id
                     and pm.role = 'document'
                     and p.status in ('active', 'under_contract', 'sold')
-                    and p.is_active_listing = true
                     and p.archived_at is null
               )
               and not exists (
