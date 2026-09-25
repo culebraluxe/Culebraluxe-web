@@ -308,6 +308,24 @@ struct UpdateFormBody {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct CreateProjectBody {
+    id: String,
+    name: String,
+    owner: Option<String>,
+    description: Option<String>,
+    areas: Option<Vec<String>>,
+    starts_at: Option<String>,
+    ends_at: Option<String>,
+    project_type: Option<String>,
+    playbook_id: Option<String>,
+    playbook_version: Option<i32>,
+    person_id: Option<String>,
+    property_id: Option<String>,
+    contract_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct UpdateProjectBody {
     name: Option<String>,
     owner: Option<String>,
@@ -457,6 +475,20 @@ struct UpdatePersonAdminBody {
     display_name: String,
     status: String,
     company: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateWbsBody {
+    id: String,
+    title: String,
+    notes: Option<String>,
+    category: String,
+    project_id: Option<String>,
+    parent_id: Option<String>,
+    due_at: Option<String>,
+    owner: Option<String>,
+    order: Option<i32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -910,8 +942,9 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/workflows", get(workflows))
         .route("/v1/workflows/{id}", get(workflow_detail))
         .route("/v1/flight-recorder/{id}", get(flight_recorder))
-        .route("/v1/projects", get(projects))
+        .route("/v1/projects", get(projects).post(create_project))
         .route("/v1/projects/{id}", get(project).patch(update_project))
+        .route("/v1/wbs", post(create_wbs_item))
         .route("/v1/wbs/project-items", get(wbs_project_items))
         .route("/v1/wbs/{id}", get(wbs_item).patch(update_wbs_item))
         .route("/v1/tasks/{id}/complete", post(complete_task))
@@ -1572,6 +1605,68 @@ async fn projects(
     Ok(success(value, &resolved))
 }
 
+async fn create_project(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<CreateProjectBody>,
+) -> Result<Json<ApiSuccess<domain::Project>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut areas = Vec::with_capacity(body.areas.as_ref().map(Vec::len).unwrap_or(0));
+    for value in body.areas.unwrap_or_default() {
+        areas.push(domain::WbsCategory::try_from(value.as_str()).map_err(|error| {
+            correlate(
+                ApiError::from(CoreServiceError::business(
+                    "PROJECT_AREA_INVALID",
+                    error.to_string(),
+                )),
+                &resolved,
+            )
+        })?);
+    }
+
+    let parse_time = |raw: Option<String>, field: &'static str| {
+        raw.map(|value| {
+            chrono::DateTime::parse_from_rfc3339(&value)
+                .map(|parsed| parsed.with_timezone(&chrono::Utc))
+                .map_err(|_| {
+                    correlate(
+                        ApiError::from(CoreServiceError::business(
+                            "PROJECT_TIME_INVALID",
+                            format!("{field} must be an RFC3339 timestamp."),
+                        )),
+                        &resolved,
+                    )
+                })
+        })
+        .transpose()
+    };
+
+    let value = state
+        .services()
+        .project()
+        .create(
+            &domain::CreateProjectRequest {
+                id: body.id,
+                name: body.name,
+                owner: body.owner,
+                description: body.description.unwrap_or_default(),
+                areas,
+                starts_at: parse_time(body.starts_at, "startsAt")?,
+                ends_at: parse_time(body.ends_at, "endsAt")?,
+                project_type: body.project_type,
+                playbook_id: body.playbook_id,
+                playbook_version: body.playbook_version,
+                person_id: body.person_id,
+                property_id: body.property_id,
+                contract_id: body.contract_id,
+            },
+            &resolved.service,
+        )
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
 async fn project(
     State(state): State<ApiState>,
     headers: HeaderMap,
@@ -1665,6 +1760,44 @@ async fn complete_task(
     let mut service = state.services().task();
     let value = service
         .complete(&id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn create_wbs_item(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<CreateWbsBody>,
+) -> Result<Json<ApiSuccess<domain::WbsItem>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let category = domain::WbsCategory::try_from(body.category.as_str()).map_err(|error| {
+        correlate(
+            ApiError::from(CoreServiceError::business(
+                "WBS_CATEGORY_INVALID",
+                error.to_string(),
+            )),
+            &resolved,
+        )
+    })?;
+    let value = state
+        .services()
+        .wbs()
+        .create(
+            &domain::CreateWbsItemRequest {
+                id: body.id,
+                title: body.title,
+                notes: body.notes,
+                category,
+                project_id: body.project_id,
+                parent_id: body.parent_id,
+                due_at: body.due_at,
+                owner: body.owner,
+                order: body.order,
+                entity: None,
+            },
+            &resolved.service,
+        )
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(value, &resolved))
