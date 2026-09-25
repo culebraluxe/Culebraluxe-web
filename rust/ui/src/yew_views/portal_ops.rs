@@ -1933,10 +1933,6 @@ fn ops_media_uploader(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Ht
         })
     };
     let file_change = media_file_change(on_msg);
-    let upload = {
-        let on_msg = on_msg.clone();
-        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::OpsMediaUploadRequested))
-    };
     let choose_again = Callback::from(move |_: MouseEvent| open_file_picker());
 
     html! {
@@ -1977,14 +1973,12 @@ fn ops_media_uploader(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Ht
                         {model.ops.media_file_name.clone().unwrap_or_else(|| "No file chosen".into())}
                     </span>
                 </div>
-                <button
-                    type="button"
-                    onclick={upload}
-                    disabled={model.ops.media_uploading}
-                    class="inline-flex h-10 items-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-4 text-[10px] font-semibold uppercase tracking-[0.12em] text-white disabled:opacity-40"
-                >
-                    {if model.ops.media_uploading { "Uploading…" } else { "Upload & assign" }}
-                </button>
+                // NO SECOND BUTTON. There is no decision left after choosing a file: the role defaults to gallery and
+                // the title is derived from the Property, so the upload starts the moment the file is chosen. What
+                // used to be "Upload & assign" is now this line, which only reports progress.
+                if model.ops.media_uploading {
+                    <span class="text-[11px] font-light text-[var(--portal-gold-muted)]">{"Uploading…"}</span>
+                }
             </div>
         </section>
     }

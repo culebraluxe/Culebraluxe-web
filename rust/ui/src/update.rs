@@ -151,6 +151,58 @@ fn ops_effect(model: &Model) -> Effect {
     }
 }
 
+/// `ZoniBluff_1`, `ZoniBluff_2` — the title a photo gets when nobody typed one, derived from the Property it is
+/// being attached to and the next photo number. A photographer does not name files, and a listing photo's title is
+/// almost never read by a visitor: it is alt text for search engines and screen readers, and the property's own name
+/// plus its position is both accurate and free.
+fn ops_media_title(model: &Model) -> String {
+    let Some(property) = model
+        .page
+        .as_ref()
+        .and_then(|page| page.portal.as_ref())
+        .and_then(|portal| portal.listing_media.as_ref())
+        .and_then(|media| media.selected.as_ref())
+    else {
+        return String::new();
+    };
+    let stem: String = property.name.chars().filter(|c| !c.is_whitespace()).collect();
+    if stem.is_empty() {
+        return String::new();
+    }
+    format!("{}_{}", stem, property.image_count + 1)
+}
+
+/// Starts the upload for the file that is already chosen — the ONE path both the picker and any retry take.
+///
+/// It refuses rather than guessing when there is no Property selected or no file, and it says so: an upload that
+/// cannot start has to explain itself, because "nothing happened" is what made this screen look broken for a day.
+fn ops_media_start_upload(model: &mut Model) -> Vec<Effect> {
+    if model.screen.key != "property-admin"
+        || model.ops.entity != "property"
+        || model.ops.media_uploading
+    {
+        return Vec::new();
+    }
+    let Some(property_id) = model.selected_row_id.clone() else {
+        model.error = Some("Select a Property before uploading.".into());
+        return Vec::new();
+    };
+    if model.ops.media_file_name.is_none() {
+        model.error = Some("Choose an image before uploading.".into());
+        return Vec::new();
+    }
+
+    model.ops.media_uploading = true;
+    model.error = None;
+    vec![Effect::UploadOpsMedia {
+        screen: model.screen.key,
+        property_id,
+        role: model.ops.media_role.clone(),
+        alt: model.ops.media_alt.clone(),
+        generation: model.generation,
+    }]
+}
+
 fn ops_default_section(entity: &str) -> String {
     match entity {
         "person" => "identity".into(),
@@ -2232,37 +2284,20 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
         }
         Msg::OpsMediaFileChosen(name) => {
             if model.screen.key == "property-admin" && model.ops.entity == "property" {
-                model.ops.media_file_name = (!name.trim().is_empty()).then_some(name);
+                let chosen = !name.trim().is_empty();
+                model.ops.media_file_name = chosen.then_some(name);
+                // ONE BUTTON: choosing IS uploading. Everything the second button used to ask for is either a sane
+                // default (gallery) or derived (the title), so there is nothing left to decide before the file goes.
+                model.ops.media_role = "gallery".into();
+                model.ops.media_alt = if chosen { ops_media_title(model) } else { String::new() };
                 model.error = None;
+                if chosen {
+                    return ops_media_start_upload(model);
+                }
             }
             Vec::new()
         }
-        Msg::OpsMediaUploadRequested => {
-            if model.screen.key != "property-admin"
-                || model.ops.entity != "property"
-                || model.ops.media_uploading
-            {
-                return Vec::new();
-            }
-            let Some(property_id) = model.selected_row_id.clone() else {
-                model.error = Some("Select a Property before uploading.".into());
-                return Vec::new();
-            };
-            if model.ops.media_file_name.is_none() {
-                model.error = Some("Choose an image before uploading.".into());
-                return Vec::new();
-            }
-
-            model.ops.media_uploading = true;
-            model.error = None;
-            vec![Effect::UploadOpsMedia {
-                screen: model.screen.key,
-                property_id,
-                role: model.ops.media_role.clone(),
-                alt: model.ops.media_alt.clone(),
-                generation: model.generation,
-            }]
-        }
+        Msg::OpsMediaUploadRequested => ops_media_start_upload(model),
         Msg::OpsMediaUploadCompleted { screen, generation } => {
             if !owns(model, &screen, generation) {
                 return Vec::new();
