@@ -22,6 +22,24 @@ pub trait MediaRepository: Send {
         &mut self,
         request: &AttachPropertyVideoRequest,
     ) -> DbResult<AttachPropertyVideoResult>;
+    async fn begin_media_upload(
+        &mut self,
+        request: &db::BeginMediaUpload,
+    ) -> DbResult<BeginMediaUploadResult>;
+    async fn stage_media_chunk(
+        &mut self,
+        upload_id: &str,
+        chunk_index: i32,
+        bytes: &[u8],
+    ) -> DbResult<db::MediaUploadStatus>;
+    async fn assemble_media_upload(&mut self, upload_id: &str)
+        -> DbResult<db::MediaUploadAssembly>;
+    async fn commit_media_upload(
+        &mut self,
+        upload_id: &str,
+        assembly: &db::MediaUploadAssembly,
+        derivatives: &[db::MediaDerivativeInput],
+    ) -> DbResult<UploadPropertyMediaResult>;
 }
 
 #[async_trait]
@@ -43,6 +61,60 @@ impl MediaRepository for MediaDao {
     ) -> DbResult<AttachPropertyVideoResult> {
         MediaDao::attach_property_video(self, request).await
     }
+
+    async fn begin_media_upload(
+        &mut self,
+        request: &db::BeginMediaUpload,
+    ) -> DbResult<BeginMediaUploadResult> {
+        let status = MediaDao::begin_media_upload(self, request).await?;
+        Ok(BeginMediaUploadResult {
+            upload_id: status.upload_id,
+            chunk_size: request.chunk_size,
+            chunk_count: status.chunk_count,
+            byte_size: status.byte_size,
+        })
+    }
+
+    async fn stage_media_chunk(
+        &mut self,
+        upload_id: &str,
+        chunk_index: i32,
+        bytes: &[u8],
+    ) -> DbResult<db::MediaUploadStatus> {
+        MediaDao::stage_media_chunk(self, upload_id, chunk_index, bytes).await
+    }
+
+    async fn assemble_media_upload(
+        &mut self,
+        upload_id: &str,
+    ) -> DbResult<db::MediaUploadAssembly> {
+        MediaDao::assemble_media_upload(self, upload_id).await
+    }
+
+    async fn commit_media_upload(
+        &mut self,
+        upload_id: &str,
+        assembly: &db::MediaUploadAssembly,
+        derivatives: &[db::MediaDerivativeInput],
+    ) -> DbResult<UploadPropertyMediaResult> {
+        MediaDao::commit_media_upload(self, upload_id, assembly, derivatives).await
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BeginMediaUploadResult {
+    pub upload_id: String,
+    pub chunk_size: i32,
+    pub chunk_count: i32,
+    pub byte_size: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaUploadProgress {
+    pub received_chunks: i32,
+    pub chunk_count: i32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -272,6 +344,139 @@ impl<R: MediaRepository> MediaService<R> {
                 mux_asset_id: Some(attached.mux_asset_id),
                 mux_playback_id: Some(attached.mux_playback_id),
             })
+        }
+        .await;
+
+        audit_result(&self.runtime, "media", OP, context, decision, &result).await?;
+        result
+    }
+
+    /// Opens a chunked upload. The browser calls this before it sends any bytes, so the destination Property, the
+    /// role and the declared size are all known by the time the first chunk lands.
+    pub async fn begin_media_upload(
+        &mut self,
+        request: db::BeginMediaUpload,
+        context: &ServiceContext,
+    ) -> Result<BeginMediaUploadResult, CoreServiceError> {
+        const OP: &str = "media.beginMediaUpload";
+        let decision = authorize(
+            &self.runtime,
+            "media",
+            "property.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+
+        let result = async {
+            let repository = &mut self.repository;
+            repository
+                .begin_media_upload(&request)
+                .await
+                .map_err(CoreServiceError::from)
+        }
+        .await;
+
+        audit_result(&self.runtime, "media", OP, context, decision, &result).await?;
+        result
+    }
+
+    /// Stages one piece of the file.
+    ///
+    /// Authorized like any other media write, but deliberately NOT audited: bytes arriving is transport, not a
+    /// business event. Auditing each of them would bury the events that are. The `init` and the `complete` are the
+    /// two moments worth recording.
+    pub async fn stage_media_chunk(
+        &mut self,
+        upload_id: &str,
+        chunk_index: i32,
+        bytes: Vec<u8>,
+        context: &ServiceContext,
+    ) -> Result<MediaUploadProgress, CoreServiceError> {
+        const OP: &str = "media.stageMediaChunk";
+        let _decision = authorize(
+            &self.runtime,
+            "media",
+            "property.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+
+        let repository = &mut self.repository;
+        let progress = repository
+            .stage_media_chunk(upload_id, chunk_index, &bytes)
+            .await
+            .map_err(CoreServiceError::from)?;
+
+        Ok(MediaUploadProgress {
+            received_chunks: progress.received_chunks,
+            chunk_count: progress.chunk_count,
+        })
+    }
+
+    /// Completes a chunked upload: assembles it, makes the copies that make it servable, and writes the photograph.
+    ///
+    /// The expensive part runs OFF the async runtime. Decoding a 13 MB photograph and re-encoding two copies is
+    /// hundreds of milliseconds of straight CPU, and doing that on the runtime stalls every other request this
+    /// container is serving while it runs.
+    ///
+    /// A failure here leaves the staged bytes in place on purpose: the upload is unfinished rather than broken, the
+    /// browser can retry `complete`, and the sweep collects it if nobody does.
+    pub async fn complete_media_upload(
+        &mut self,
+        upload_id: &str,
+        context: &ServiceContext,
+    ) -> Result<UploadPropertyMediaResult, CoreServiceError> {
+        const OP: &str = "media.completeMediaUpload";
+        let decision = authorize(
+            &self.runtime,
+            "media",
+            "property.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+
+        let result = async {
+            let repository = &mut self.repository;
+            let assembly = repository
+                .assemble_media_upload(upload_id)
+                .await
+                .map_err(CoreServiceError::from)?;
+
+            let (assembly, derivatives) = tokio::task::spawn_blocking(move || {
+                match imaging::derive_web_and_thumb(&assembly.bytes) {
+                    Ok(derived) => {
+                        let inputs = derived
+                            .into_iter()
+                            .map(|copy| db::MediaDerivativeInput {
+                                kind: copy.kind,
+                                bytes: copy.bytes,
+                            })
+                            .collect::<Vec<_>>();
+                        Ok((assembly, inputs))
+                    }
+                    // The message is written for a person: whoever chose the file needs to know why it was refused.
+                    Err(message) => Err(message),
+                }
+            })
+            .await
+            .map_err(|error| {
+                CoreServiceError::business(
+                    "MEDIA_DERIVATIVE_FAILED",
+                    format!("the photograph could not be processed ({error})"),
+                )
+            })?
+            .map_err(|message| CoreServiceError::business("MEDIA_DERIVATIVE_FAILED", message))?;
+
+            repository
+                .commit_media_upload(upload_id, &assembly, &derivatives)
+                .await
+                .map_err(CoreServiceError::from)
         }
         .await;
 

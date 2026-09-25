@@ -54,7 +54,9 @@ pub use firm::FirmDao;
 pub use flight_recorder::FlightRecorderDao;
 pub use forms::FormDao;
 pub use guest::{GuestDao, GUEST_CODE_MAX_ATTEMPTS};
-pub use media::MediaDao;
+pub use media::{
+    BeginMediaUpload, MediaDao, MediaDerivativeInput, MediaUploadAssembly, MediaUploadStatus,
+};
 pub use person::PersonDao;
 pub use pool::{resolve_declared_target, Database, DbTarget};
 pub use project::{ProjectDao, ProjectTxDao};

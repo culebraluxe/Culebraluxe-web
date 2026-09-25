@@ -40,10 +40,15 @@ async function GETHandler(
 
   let result: Array<Record<string, unknown>>
   try {
+    // THE COPY, NOT THE ORIGINAL. A photograph from a phone is 8–13 MB and the gateway refuses a response body over
+    // ~4.5 MB — the same cap that refused the upload. Serving `m.file_data` for a large original would upload a photo
+    // successfully and then show a broken image, which is worse than the original failure: the photo looks lost.
+    // The `web` derivative (migration 222) is what a browser is handed; the original stays stored as the record.
+    // The publication gate below still keys on the ORIGINAL, because the copies hang off it by `derivative_of`.
     result = await sql`
       SELECT
-        m.file_data,
-        m.mime_type,
+        COALESCE(copy.file_data, m.file_data) AS file_data,
+        COALESCE(copy.mime_type, m.mime_type) AS mime_type,
         COALESCE(
           (
             SELECT BOOL_AND(p.is_published = true AND p.archived_at IS NULL)
@@ -54,6 +59,12 @@ async function GETHandler(
           true
         ) AS publicly_allowed
       FROM media m
+      LEFT JOIN LATERAL (
+        SELECT d.file_data, d.mime_type
+        FROM media d
+        WHERE d.derivative_of = m.id AND d.derivative_kind = 'web'
+        LIMIT 1
+      ) AS copy ON true
       WHERE m.id = ${id}
       LIMIT 1
     `

@@ -1721,18 +1721,6 @@ fn media_editor(
     };
     let file_change = media_file_change(on_msg);
 
-    let toggle_uploader = {
-        let on_msg = on_msg.clone();
-        Callback::from(move |_: MouseEvent| {
-            on_msg.emit(Msg::OpsMediaUploaderToggled);
-            // AND OPEN THE PICKER IN THE SAME CLICK, because a file input may only be opened from a real user
-            // gesture: this click is the only chance. It turns "open the panel, then find the file" into "pick the
-            // file", which is the whole job — the panel's remaining fields (role, alt) describe a file that already
-            // exists rather than gate the choosing of it.
-            open_file_picker();
-        })
-    };
-
     html! {
         <div class="space-y-4">
             // NO SECTION INTRO HERE. It said "Review the Property photography in-place, then add the next photo
@@ -1757,12 +1745,10 @@ fn media_editor(
                 <span>{format!("{} documents", property.document_count)}</span>
             </div>
 
-            // THE UPLOADER SITS ABOVE THE GALLERY, because it is what you opened. It used to render after a 460px
-            // viewer, so clicking "+ Add new photo" put the panel below the fold where it could not be seen or
-            // reached — a live control with an invisible result reads exactly like a broken one.
-            if model.ops.media_uploader_open {
-                {ops_media_uploader(model, on_msg)}
-            }
+            // THE UPLOADER IS ALWAYS HERE, not behind a toggle. It used to need a "+ Add new photo" click to appear,
+            // which made a second control for a job the panel's own button already does. One screen, one upload
+            // button: the one inside this panel.
+            {ops_media_uploader(model, on_msg)}
 
             <section class="overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-[var(--portal-navy)]">
                 if let Some(image) = active {
@@ -1854,19 +1840,10 @@ fn media_editor(
                 class="hidden"
             />
 
-            <div class="flex items-center justify-between gap-3 border-t border-[var(--portal-panel-border)] pt-4">
-                <p class="text-[11px] font-light text-black/40">
-                    {"Uploads write through the existing Rust Property → Media mapping."}
-                </p>
-                <button
-                    type="button"
-                    onclick={toggle_uploader}
-                    disabled={model.ops.media_uploading}
-                    class="inline-flex h-10 items-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-4 text-[10px] font-semibold uppercase tracking-[0.12em] text-white disabled:opacity-40"
-                >
-                    {if model.ops.media_uploader_open { "Close uploader" } else { "+ Add new photo" }}
-                </button>
-            </div>
+            // NO SECOND BUTTON HERE. This row carried a caption and a "+ Add new photo" / "Close uploader" button —
+            // a duplicate of the control inside the uploader panel, which is the one upload button on this screen. A
+            // row whose only job is to duplicate a control above it is how a screen ends up with three buttons for
+            // one action, and the extra two are what made this look broken.
         </div>
     }
 }

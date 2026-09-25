@@ -30,6 +30,9 @@ const OPPS_PATH: &str = "/api/portal/rust-ui/opps";
 const RECORDS_PATH: &str = "/api/portal/rust-ui/records";
 const LISTING_MEDIA_PATH: &str = "/api/portal/rust-ui/listing-media";
 const LISTING_MEDIA_UPLOAD_PATH: &str = "/api/property-media/upload";
+/// The chunked path, for photographs too large for one request. The browser cannot hold the Rust API's bridge key, so
+/// every step goes through the server route, which resolves the acting user and requires `listing.write` first.
+const OPS_MEDIA_CHUNKED_PATH: &str = "/api/property-media/chunked";
 
 pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
     match effect {
@@ -567,23 +570,32 @@ fn run_ops_media_upload(
             return;
         };
 
-        let form = match web_sys::FormData::new() {
+        // 3 MB per request: comfortably under the gateway's ~4.5 MB cap, so no single request can reach the ceiling
+        // that made a 13 MB photograph impossible to upload. The container reassembles the pieces.
+        const CHUNK_BYTES: f64 = 3.0 * 1024.0 * 1024.0;
+        let size = file.size();
+        let chunk_count = ((size / CHUNK_BYTES).ceil() as i32).max(1);
+
+        // STEP ONE — declare the file. Everything the container needs to check the bytes later is settled here, while
+        // `media` still has no row to point at.
+        let init = match web_sys::FormData::new() {
             Ok(form) => form,
             Err(_) => {
                 dispatch.emit(fail("the browser could not create the upload form.".into()));
                 return;
             }
         };
-        if form.append_with_str("propertyId", &property_id).is_err()
-            || form.append_with_str("role", &role).is_err()
-            || (!alt.trim().is_empty() && form.append_with_str("altText", alt.trim()).is_err())
-            || form
-                .append_with_blob_and_filename(
-                    "file",
-                    file.unchecked_ref::<web_sys::Blob>(),
-                    &file.name(),
-                )
+        if init.append_with_str("step", "init").is_err()
+            || init.append_with_str("propertyId", &property_id).is_err()
+            || init.append_with_str("role", &role).is_err()
+            || init.append_with_str("filename", &file.name()).is_err()
+            || init.append_with_str("mimeType", &file.type_()).is_err()
+            || init.append_with_str("byteSize", &format!("{size}")).is_err()
+            || init
+                .append_with_str("chunkCount", &chunk_count.to_string())
                 .is_err()
+            || init.append_with_str("chunkSize", &format!("{CHUNK_BYTES}")).is_err()
+            || (!alt.trim().is_empty() && init.append_with_str("altText", alt.trim()).is_err())
         {
             dispatch.emit(fail(
                 "the browser could not prepare the selected image.".into(),
@@ -591,12 +603,150 @@ fn run_ops_media_upload(
             return;
         }
 
-        let request = match Request::post(LISTING_MEDIA_UPLOAD_PATH).body(form) {
+        let request = match Request::post(OPS_MEDIA_CHUNKED_PATH).body(init) {
             Ok(request) => request,
             Err(error) => {
+                dispatch.emit(fail(format!("the upload could not be built: {error}")));
+                return;
+            }
+        };
+        let upload_id = match request.send().await {
+            Ok(response) if response.ok() => {
+                let body = response.text().await.unwrap_or_default();
+                match serde_json::from_str::<serde_json::Value>(&body)
+                    .ok()
+                    .and_then(|value| {
+                        value
+                            .get("uploadId")
+                            .and_then(|id| id.as_str())
+                            .map(|id| id.to_string())
+                    }) {
+                    Some(upload_id) => upload_id,
+                    None => {
+                        dispatch.emit(fail(
+                            "the upload was opened but no upload id came back.".into(),
+                        ));
+                        return;
+                    }
+                }
+            }
+            Ok(response) => {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                dispatch.emit(fail(bridge_error_message(&body, status)));
+                return;
+            }
+            Err(error) => {
                 dispatch.emit(fail(format!(
-                    "the OPPS Media upload could not be built: {error}"
+                    "the OPPS Media upload could not be started: {error}"
                 )));
+                return;
+            }
+        };
+
+        // STEP TWO — the pieces, in order. Sequential on purpose: the container refuses a chunk index beyond the
+        // declared count, so racing them would turn a retry into an error.
+        let mut index = 0;
+        while index < chunk_count {
+            let start = index as f64 * CHUNK_BYTES;
+            let end = (start + CHUNK_BYTES).min(size);
+            let chunk = match file
+                .unchecked_ref::<web_sys::Blob>()
+                .slice_with_f64_and_f64(start, end)
+            {
+                Ok(chunk) => chunk,
+                Err(_) => {
+                    dispatch.emit(fail(format!(
+                        "part {} of {chunk_count} could not be read.",
+                        index + 1
+                    )));
+                    return;
+                }
+            };
+
+            let form = match web_sys::FormData::new() {
+                Ok(form) => form,
+                Err(_) => {
+                    dispatch.emit(fail("the browser could not create the upload form.".into()));
+                    return;
+                }
+            };
+            if form.append_with_str("step", "chunk").is_err()
+                || form.append_with_str("propertyId", &property_id).is_err()
+                || form.append_with_str("uploadId", &upload_id).is_err()
+                || form
+                    .append_with_str("chunkIndex", &index.to_string())
+                    .is_err()
+                || form
+                    .append_with_blob_and_filename("chunk", &chunk, &file.name())
+                    .is_err()
+            {
+                dispatch.emit(fail(format!(
+                    "part {} of {chunk_count} could not be prepared.",
+                    index + 1
+                )));
+                return;
+            }
+
+            let request = match Request::post(OPS_MEDIA_CHUNKED_PATH).body(form) {
+                Ok(request) => request,
+                Err(error) => {
+                    dispatch.emit(fail(format!(
+                        "part {} of {chunk_count} could not be built: {error}",
+                        index + 1
+                    )));
+                    return;
+                }
+            };
+            match request.send().await {
+                Ok(response) if response.ok() => {}
+                Ok(response) => {
+                    let status = response.status();
+                    let body = response.text().await.unwrap_or_default();
+                    dispatch.emit(fail(format!(
+                        "part {} of {chunk_count} was refused: {}",
+                        index + 1,
+                        bridge_error_message(&body, status)
+                    )));
+                    return;
+                }
+                Err(error) => {
+                    dispatch.emit(fail(format!(
+                        "part {} of {chunk_count} could not be sent: {error}",
+                        index + 1
+                    )));
+                    return;
+                }
+            }
+
+            index += 1;
+        }
+
+        // STEP THREE — assemble, make it servable, attach it. This is the slow one: the container decodes and
+        // re-encodes the photograph, so a large file pauses here for a moment before the gallery refreshes.
+        let complete = match web_sys::FormData::new() {
+            Ok(form) => form,
+            Err(_) => {
+                dispatch.emit(fail("the browser could not create the upload form.".into()));
+                return;
+            }
+        };
+        if complete.append_with_str("step", "complete").is_err()
+            || complete
+                .append_with_str("propertyId", &property_id)
+                .is_err()
+            || complete.append_with_str("uploadId", &upload_id).is_err()
+        {
+            dispatch.emit(fail(
+                "the upload could not be finished in the browser.".into(),
+            ));
+            return;
+        }
+
+        let request = match Request::post(OPS_MEDIA_CHUNKED_PATH).body(complete) {
+            Ok(request) => request,
+            Err(error) => {
+                dispatch.emit(fail(format!("the upload could not be completed: {error}")));
                 return;
             }
         };
@@ -614,7 +764,7 @@ fn run_ops_media_upload(
                     message: bridge_error_message(&body, status),
                 }
             }
-            Err(error) => fail(format!("the OPPS Media upload could not be sent: {error}")),
+            Err(error) => fail(format!("the upload could not be completed: {error}")),
         };
         dispatch.emit(msg);
     });

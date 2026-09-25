@@ -647,6 +647,21 @@ pub fn router(state: ApiState) -> Router {
                 .layer(DefaultBodyLimit::max(MAX_MEDIA_UPLOAD_BYTES + 1024 * 1024)),
         )
         .route("/v1/properties/{id}/video", post(attach_property_video))
+        // The chunked upload, for the photographs too large for one request. The per-chunk limit is deliberately a
+        // few megabytes rather than the whole-file limit: a chunk is a fragment by definition, and the gateway
+        // refuses anything past ~4.5 MB anyway.
+        .route(
+            "/v1/properties/{id}/media/uploads",
+            post(begin_media_upload),
+        )
+        .route(
+            "/v1/properties/{id}/media/uploads/{upload_id}/chunks/{index}",
+            post(stage_media_chunk).layer(DefaultBodyLimit::max(8 * 1024 * 1024)),
+        )
+        .route(
+            "/v1/properties/{id}/media/uploads/{upload_id}/complete",
+            post(complete_media_upload),
+        )
         .route(
             "/v1/properties/{id}/video-uploads",
             post(create_property_video_upload),
@@ -1873,6 +1888,190 @@ async fn attach_property_video(
         )
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+/// Finishes a chunked upload. Everything expensive happens here: the chunks are checked, assembled, and turned into
+/// the copies that make the photograph servable.
+async fn complete_media_upload(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path((_property_id, upload_id)): Path<(String, String)>,
+) -> Result<Json<ApiSuccess<domain::UploadPropertyMediaResult>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().media();
+    let value = service
+        .complete_media_upload(&upload_id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+
+    Ok(success(value, &resolved))
+}
+
+/// One shape of failure for every step of a chunked upload, so the browser gets a message it can show.
+fn media_upload_error(
+    correlation: &str,
+    status: StatusCode,
+    code: &str,
+    message: String,
+) -> ApiError {
+    ApiError::new(status, code, message, false).with_correlation(correlation.to_owned())
+}
+
+/// Opens a chunked upload: declares the file, the destination Property and the role before any bytes are sent.
+async fn begin_media_upload(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(property_id): Path<String>,
+    mut multipart: Multipart,
+) -> Result<Json<ApiSuccess<crate::media::BeginMediaUploadResult>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let correlation = resolved.service.correlation_id.clone();
+
+    let mut filename: Option<String> = None;
+    let mut mime_type = String::new();
+    let mut alt_text: Option<String> = None;
+    let mut sha256: Option<String> = None;
+    let mut role = String::from("gallery");
+    let mut byte_size: i64 = 0;
+    let mut chunk_count: i32 = 0;
+    let mut chunk_size: i32 = 0;
+
+    while let Some(field) = multipart.next_field().await.map_err(|error| {
+        media_upload_error(
+            &correlation,
+            StatusCode::BAD_REQUEST,
+            "MEDIA_MULTIPART_INVALID",
+            format!("Invalid media upload: {error}"),
+        )
+    })? {
+        let name = field.name().unwrap_or_default().to_owned();
+        let value = field.text().await.map_err(|error| {
+            media_upload_error(
+                &correlation,
+                StatusCode::BAD_REQUEST,
+                "MEDIA_MULTIPART_INVALID",
+                format!("Invalid media upload: {error}"),
+            )
+        })?;
+        match name.as_str() {
+            "filename" => filename = Some(value),
+            "mimeType" => mime_type = value,
+            "altText" => alt_text = Some(value),
+            "sha256" => sha256 = Some(value),
+            "role" => role = value,
+            "byteSize" => byte_size = value.parse().unwrap_or(0),
+            "chunkCount" => chunk_count = value.parse().unwrap_or(0),
+            "chunkSize" => chunk_size = value.parse().unwrap_or(0),
+            _ => {}
+        }
+    }
+
+    let filename = filename
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            media_upload_error(
+                &correlation,
+                StatusCode::BAD_REQUEST,
+                "MEDIA_FILENAME_REQUIRED",
+                "An image filename is required.".to_owned(),
+            )
+        })?;
+
+    // The declared shape is checked here as well as in the database, so an obviously wrong declaration is refused
+    // with a sentence rather than a constraint violation.
+    if byte_size <= 0 || chunk_count <= 0 || chunk_size <= 0 {
+        return Err(media_upload_error(
+            &correlation,
+            StatusCode::BAD_REQUEST,
+            "MEDIA_UPLOAD_SHAPE_INVALID",
+            "The upload must declare a positive size, chunk count and chunk size.".to_owned(),
+        ));
+    }
+    if byte_size > MAX_MEDIA_UPLOAD_BYTES as i64 {
+        return Err(media_upload_error(
+            &correlation,
+            StatusCode::BAD_REQUEST,
+            "MEDIA_UPLOAD_TOO_LARGE",
+            "Image is too large (max 50 MB).".to_owned(),
+        ));
+    }
+
+    let mut service = state.services().media();
+    let value = service
+        .begin_media_upload(
+            db::BeginMediaUpload {
+                upload_id: uuid::Uuid::new_v4().to_string(),
+                property_id,
+                filename,
+                mime_type,
+                byte_size,
+                chunk_count,
+                chunk_size,
+                sha256,
+                role,
+                alt_text,
+            },
+            &resolved.service,
+        )
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+
+    Ok(success(value, &resolved))
+}
+
+/// Accepts one piece of the file. The bytes are opaque here: nothing inspects a partial upload.
+async fn stage_media_chunk(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path((_property_id, upload_id, chunk_index)): Path<(String, String, i32)>,
+    mut multipart: Multipart,
+) -> Result<Json<ApiSuccess<crate::media::MediaUploadProgress>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let correlation = resolved.service.correlation_id.clone();
+
+    let mut bytes: Option<Vec<u8>> = None;
+    while let Some(field) = multipart.next_field().await.map_err(|error| {
+        media_upload_error(
+            &correlation,
+            StatusCode::BAD_REQUEST,
+            "MEDIA_MULTIPART_INVALID",
+            format!("Invalid media upload: {error}"),
+        )
+    })? {
+        if field.name().unwrap_or_default() == "chunk" {
+            bytes = Some(
+                field
+                    .bytes()
+                    .await
+                    .map_err(|error| {
+                        media_upload_error(
+                            &correlation,
+                            StatusCode::BAD_REQUEST,
+                            "MEDIA_CHUNK_INVALID",
+                            format!("Invalid media chunk: {error}"),
+                        )
+                    })?
+                    .to_vec(),
+            );
+        }
+    }
+
+    let bytes = bytes.ok_or_else(|| {
+        media_upload_error(
+            &correlation,
+            StatusCode::BAD_REQUEST,
+            "MEDIA_CHUNK_REQUIRED",
+            "An image chunk is required.".to_owned(),
+        )
+    })?;
+
+    let mut service = state.services().media();
+    let value = service
+        .stage_media_chunk(&upload_id, chunk_index, bytes, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+
     Ok(success(value, &resolved))
 }
 
