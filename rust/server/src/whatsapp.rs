@@ -1,11 +1,9 @@
 use async_trait::async_trait;
 use db::{
-    DbResult, WhatsAppCanonicalInput, WhatsAppDao, WhatsAppLandingInput,
-    WhatsAppProcessOutcome,
+    DbResult, WhatsAppCanonicalInput, WhatsAppDao, WhatsAppLandingInput, WhatsAppProcessOutcome,
 };
 use integrations::whatsapp::{
-    parse_webhook, verify_handshake, verify_signature, MetaWhatsAppConfig,
-    WhatsAppDirection,
+    parse_webhook, verify_handshake, verify_signature, MetaWhatsAppConfig, WhatsAppDirection,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -71,7 +69,12 @@ impl<R: WhatsAppRepository> WhatsAppService<R> {
         challenge: Option<&str>,
     ) -> Result<Option<String>, String> {
         let config = MetaWhatsAppConfig::from_env()?;
-        Ok(verify_handshake(mode, token, challenge, &config.verify_token))
+        Ok(verify_handshake(
+            mode,
+            token,
+            challenge,
+            &config.verify_token,
+        ))
     }
 
     pub async fn handle_webhook(
