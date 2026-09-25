@@ -97,15 +97,48 @@ struct PropertyRow {
     city: Option<String>,
     state_or_province: Option<String>,
     neighborhood: Option<String>,
+    latitude: Option<f64>,
+    longitude: Option<f64>,
     bedrooms: Option<i32>,
     bathrooms: Option<f64>,
+    bathrooms_full: Option<f64>,
+    bathrooms_half: Option<f64>,
     square_feet: Option<i32>,
     lot_size: Option<f64>,
     lot_size_units: Option<String>,
+    lot_size_sqft: Option<f64>,
+    road_frontage_feet: Option<f64>,
+    road_surface_type: Option<String>,
+    lot_description: Option<String>,
+    utilities_notes: Option<String>,
     year_built: Option<i32>,
+    stories: Option<f64>,
+    parking_spaces: Option<f64>,
+    has_ocean_view: bool,
+    has_bay_view: bool,
+    has_beach_view: bool,
+    has_harbor_view: bool,
+    has_island_view: bool,
+    has_mountain_view: bool,
+    has_sunrise_view: bool,
+    has_sunset_view: bool,
+    has_water_access: bool,
+    has_beach_access: bool,
+    has_pool: bool,
+    has_generator: bool,
+    has_solar: bool,
+    is_furnished: bool,
+    is_gated: bool,
     architecture_notes: Option<String>,
+    amenities_notes: Option<String>,
+    lifestyle_notes: Option<String>,
     short_description: Option<String>,
     editorial_description: Option<String>,
+    listing_agent_name: Option<String>,
+    listing_agent_email: Option<String>,
+    listing_agent_phone: Option<String>,
+    listing_office: Option<String>,
+    listing_identifier: Option<String>,
     video_count: i64,
 }
 
@@ -194,15 +227,48 @@ impl PublicListingDao {
                 p.city,
                 p.state_or_province,
                 p.neighborhood,
+                p.latitude::float8 as latitude,
+                p.longitude::float8 as longitude,
                 p.bedrooms::int as bedrooms,
                 p.bathrooms::float8 as bathrooms,
+                p.bathrooms_full::float8 as bathrooms_full,
+                p.bathrooms_half::float8 as bathrooms_half,
                 p.square_feet::int as square_feet,
                 coalesce(p.lot_size_acres, p.lot_size)::float8 as lot_size,
                 p.lot_size_units,
+                p.lot_size_sqft::float8 as lot_size_sqft,
+                p.road_frontage_feet::float8 as road_frontage_feet,
+                p.road_surface_type,
+                p.lot_description,
+                p.utilities_notes,
                 (p.year_built::text)::int as year_built,
+                p.stories::float8 as stories,
+                p.parking_spaces::float8 as parking_spaces,
+                coalesce(p.has_ocean_view, false) as has_ocean_view,
+                coalesce(p.has_bay_view, false) as has_bay_view,
+                coalesce(p.has_beach_view, false) as has_beach_view,
+                coalesce(p.has_harbor_view, false) as has_harbor_view,
+                coalesce(p.has_island_view, false) as has_island_view,
+                coalesce(p.has_mountain_view, false) as has_mountain_view,
+                coalesce(p.has_sunrise_view, false) as has_sunrise_view,
+                coalesce(p.has_sunset_view, false) as has_sunset_view,
+                coalesce(p.has_water_access, false) as has_water_access,
+                coalesce(p.has_beach_access, false) as has_beach_access,
+                coalesce(p.has_pool, false) as has_pool,
+                coalesce(p.has_generator, false) as has_generator,
+                coalesce(p.has_solar, false) as has_solar,
+                coalesce(p.is_furnished, false) as is_furnished,
+                coalesce(p.is_gated, false) as is_gated,
                 p.architecture_notes,
+                p.amenities_notes,
+                p.lifestyle_notes,
                 p.short_description,
                 p.editorial_description,
+                p.listing_agent_name,
+                p.listing_agent_email,
+                p.listing_agent_phone,
+                p.listing_office,
+                p.listing_identifier,
                 -- Videos are Mux assets attached as media: either the media says video, or the role does.
                 (
                     select count(*)::bigint
@@ -316,7 +382,60 @@ impl PublicListingDao {
             .or_else(|| media.iter().find(|item| item.media_type == "image"))
             .map(|item| item.id.clone());
 
+        let mut view_type = Vec::new();
+        for (flag, label) in [
+            (row.has_ocean_view, "Ocean"),
+            (row.has_bay_view, "Bay"),
+            (row.has_beach_view, "Beach"),
+            (row.has_harbor_view, "Harbor"),
+            (row.has_island_view, "Island"),
+            (row.has_mountain_view, "Mountain"),
+            (row.has_sunrise_view, "Sunrise"),
+            (row.has_sunset_view, "Sunset"),
+        ] {
+            if flag {
+                view_type.push(label.to_owned());
+            }
+        }
+
+        let mut amenities = Vec::new();
+        for (flag, label) in [
+            (row.has_pool, "Pool"),
+            (row.has_generator, "Whole-Home Generator"),
+            (row.has_solar, "Solar Power"),
+            (row.is_furnished, "Furnished"),
+            (row.is_gated, "Gated"),
+            (row.has_water_access, "Water Access"),
+            (row.has_beach_access, "Beach Access"),
+        ] {
+            if flag {
+                amenities.push(label.to_owned());
+            }
+        }
+        if let Some(notes) = row.amenities_notes.clone().filter(|value| !value.trim().is_empty()) {
+            amenities.push(notes);
+        }
+
+        let mut lifestyle_tags = Vec::new();
+        for (flag, label) in [
+            (row.has_ocean_view, "Ocean View"),
+            (row.has_sunset_view, "Sunset View"),
+            (row.has_sunrise_view, "Sunrise View"),
+            (row.has_beach_access, "Beach Access"),
+            (row.has_water_access, "Water Access"),
+            (row.has_pool, "Pool"),
+            (row.is_gated, "Private Estate"),
+        ] {
+            if flag {
+                lifestyle_tags.push(label.to_owned());
+            }
+        }
+        if let Some(notes) = row.lifestyle_notes.clone().filter(|value| !value.trim().is_empty()) {
+            lifestyle_tags.push(notes);
+        }
+
         Ok(Some(PublicProperty {
+            id: row.id,
             key: row.row_key,
             name: row.name,
             status: row.status,
@@ -325,15 +444,36 @@ impl PublicListingDao {
             city: row.city,
             state_or_province: row.state_or_province,
             neighborhood: row.neighborhood,
+            latitude: row.latitude,
+            longitude: row.longitude,
             bedrooms: row.bedrooms,
             bathrooms: row.bathrooms,
+            bathrooms_full: row.bathrooms_full,
+            bathrooms_half: row.bathrooms_half,
             square_feet: row.square_feet,
             lot_size: row.lot_size,
             lot_size_units: row.lot_size_units,
+            lot_size_sqft: row.lot_size_sqft,
+            road_frontage_feet: row.road_frontage_feet,
+            road_surface_type: row.road_surface_type,
+            lot_description: row.lot_description,
+            utilities_notes: row.utilities_notes,
             year_built: row.year_built,
+            stories: row.stories,
+            parking_spaces: row.parking_spaces,
+            view_type,
+            water_access: row.has_water_access,
+            beach_access: row.has_beach_access,
+            amenities,
             architecture_notes: row.architecture_notes,
+            lifestyle_tags,
             short_description: row.short_description,
             editorial_description: row.editorial_description,
+            listing_agent_name: row.listing_agent_name,
+            listing_agent_email: row.listing_agent_email,
+            listing_agent_phone: row.listing_agent_phone,
+            listing_office: row.listing_office,
+            listing_identifier: row.listing_identifier,
             hero_media_id,
             media,
             video_count: row.video_count,
