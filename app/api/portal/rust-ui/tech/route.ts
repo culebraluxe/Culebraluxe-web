@@ -6,29 +6,15 @@ import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 import { withApiHandler } from '@/lib/error-capture-seam'
 import {
   clearActiveWork,
-  listActiveWork,
-  listStoryExecutionSummaries,
   listStoryIdsWithStatus,
-  listStoryRuns,
-  listStoryboardStories,
   setActiveWork,
   setStoryboardStatus,
 } from '@/legacy/db/storyboard'
 import {
-  latestForgeInstanceForStory,
-  listEngineLedgerStats,
-  listEngineQueuedCards,
-  listEngineRunCards,
-} from '@/legacy/db/forge-engine-task-execution'
-import {
   cancelForgeBatch,
   fireStagingBatch,
-  getStagingBatch,
-  listForgeBatches,
-  listStagingBatchItems,
   scheduleStagingBatch,
 } from '@/legacy/db/forge-batch'
-import { latestOpenForgeHold } from '@/legacy/db/forge-hold'
 import {
   listAgentWorkForStory,
   setAgentWorkDispatchOptions,
