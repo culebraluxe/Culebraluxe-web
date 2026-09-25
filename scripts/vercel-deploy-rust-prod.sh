@@ -51,6 +51,11 @@ RUST_PROJECT_ID="$(
 printf '  project: %s (%s)\n' "$RUST_PROJECT_NAME" "$RUST_PROJECT_ID"
 
 printf '\nDeploying rust/Dockerfile.vercel...\n'
+# THE DEPLOY RUNS FROM rust/, AND THAT IS NOT COSMETIC. Vercel looks for a Dockerfile in the directory being deployed;
+# run this from the repository root and the only thing it can find is the Next app, so it refuses with
+# "Container service must specify an entrypoint". The project link is passed as an id, so no `.vercel` directory is
+# needed here — only the right working directory.
+cd "$ROOT_DIR/rust"
 if ! VERCEL_ORG_ID="$TEAM_ID" VERCEL_PROJECT_ID="$RUST_PROJECT_ID" vc deploy --prod --yes; then
   fail "The container deploy failed. Nothing was shipped."
 fi
