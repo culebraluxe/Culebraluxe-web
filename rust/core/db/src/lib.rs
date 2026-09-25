@@ -21,6 +21,7 @@ mod forge_engine;
 mod forms;
 mod guest;
 mod guide;
+mod issue;
 mod media;
 mod person;
 mod pool;
@@ -72,6 +73,7 @@ pub use forge_engine::{
 pub use forms::FormDao;
 pub use guest::{GuestDao, GUEST_CODE_MAX_ATTEMPTS};
 pub use guide::GuideDao;
+pub use issue::IssueDao;
 pub use media::{
     BeginMediaUpload, MediaDao, MediaDerivativeInput, MediaUploadAssembly, MediaUploadStatus,
 };
