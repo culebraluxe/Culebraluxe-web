@@ -33,6 +33,7 @@ pub mod accounting;
 pub mod metrics;
 pub mod retry;
 mod security;
+mod security_audit;
 mod task;
 mod tech;
 // The one pool per process. Public because it is how the composition root hands its pool to components that cannot be
@@ -80,6 +81,7 @@ pub use property::PropertyDao;
 pub use public_listing::PublicListingDao;
 pub use retry::{retry, RetryPolicy};
 pub use security::SecurityDao;
+pub use security_audit::SecurityAuditDao;
 pub use showing::ShowingDao;
 pub use signature::SignatureDao;
 pub use support::SupportDiagnosticsDao;
