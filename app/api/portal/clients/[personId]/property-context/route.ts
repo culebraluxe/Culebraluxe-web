@@ -1,64 +1,26 @@
-import { randomUUID } from 'node:crypto'
-import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
-import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse, type NextRequest } from 'next/server'
 
-import { SqlPropertyRepository } from '@/legacy/db/property-service-repository'
-import {
-  PROPERTY_OPERATIONS,
-  PropertyService,
-} from '@/legacy/services/property'
-import { AuthorizationService } from '@/legacy/services/entitlement'
-import { appServiceErrorSink } from '@/lib/service-error-sink'
 import { withApiHandler } from '@/lib/error-capture-seam'
+import { rustApiRead } from '@/lib/rust-api/client'
 
-// Sidecar composition root for the new service architecture. The route owns
-// transport only; PropertyService owns the operation contract and repository
-// boundary. Forms can consume the same Property DTOs without depending on this
-// HTTP adapter.
-const propertyService = new PropertyService(new SqlPropertyRepository(), {
-  authorization: new AuthorizationService(),
-  errors: appServiceErrorSink(),
-})
-
+// Compatibility edge only. Property data and authorization are both owned by
+// Rust; this route preserves the browser URL while the remaining Next API shell
+// is being removed.
 async function GETHandler(
   _request: NextRequest,
   { params }: { params: Promise<{ personId: string }> },
 ) {
-  // Authority matches the screen: portal.read.
-  const access = await resolvePortalAccess(createAuthJsSessionAdapter(), 'portal.read')
-  if (!access.ok) {
-    return NextResponse.json(
-      {
-        error: 'unauthorized',
-        detail: 'This portal data requires portal.read.',
-      },
-      { status: 401 },
-    )
-  }
   const { personId } = await params
-  const result = await propertyService.execute({
-    operation: PROPERTY_OPERATIONS.FOR_PERSON,
-    payload: { personId },
-    context: {
-      actor: { id: null, kind: 'system' },
-      correlationId: randomUUID(),
-    },
-  })
-
-  if (!result.ok) {
-    console.error('[property-context] PropertyService failed:', result.error.code, result.error.message)
-    return NextResponse.json(
-      { error: result.error.code, personId, properties: [] },
-      { status: 500 },
-    )
-  }
-
+  const result = await rustApiRead<unknown>(
+    (`/v1/people/${encodeURIComponent(personId)}/properties`) as `/v1/${string}`,
+  )
   return NextResponse.json(result.value)
 }
 
-// ENG-FORGE error-capture: a throw is recorded durably and returns a 500.
 export const GET = withApiHandler(
-  { label: '/api/portal/clients/[personId]/property-context', route: '/api/portal/clients/[personId]/property-context' },
+  {
+    label: '/api/portal/clients/[personId]/property-context',
+    route: '/api/portal/clients/[personId]/property-context',
+  },
   GETHandler,
 )
