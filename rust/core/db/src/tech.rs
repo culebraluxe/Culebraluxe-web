@@ -180,4 +180,65 @@ impl TechCockpitDao {
           ledger, recent_flights, staging_flight, staging_items, selected_runs,
           recorder_instance_id, hold })
     }
+    pub async fn clear_active_work(&self) -> DbResult<u64> {
+        let result = sqlx::query("delete from storyboard_active_work").execute(self.db.pool()).await
+            .map_err(|e| DbFailure::from_sqlx("tech.clear_active_work", &e))?;
+        Ok(result.rows_affected())
+    }
+
+    pub async fn set_active_work(&self, story_id: &str, active: bool, actor_id: &str) -> DbResult<()> {
+        if active {
+            sqlx::query(r#"insert into storyboard_active_work(story_id,work_order,added_by,added_at)
+                values($1,coalesce((select max(work_order)+1 from storyboard_active_work),1),$2,now())
+                on conflict(story_id) do update set added_by=excluded.added_by,added_at=excluded.added_at"#)
+                .bind(story_id).bind(actor_id).execute(self.db.pool()).await
+                .map_err(|e|DbFailure::from_sqlx("tech.set_active_work",&e))?;
+        } else {
+            sqlx::query("delete from storyboard_active_work where story_id=$1").bind(story_id)
+                .execute(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.set_active_work",&e))?;
+        }
+        Ok(())
+    }
+
+    pub async fn story_status(&self, story_id: &str, status: &str) -> DbResult<()> {
+        sqlx::query("update storyboard_story set status=$2,updated_at=now() where id=$1")
+            .bind(story_id).bind(status).execute(self.db.pool()).await
+            .map_err(|e|DbFailure::from_sqlx("tech.story_status",&e))?;
+        Ok(())
+    }
+
+    pub async fn active_agent_work(&self, story_id: &str) -> DbResult<Vec<Value>> {
+        let rows=sqlx::query_as::<_,JsonRow>(r#"select jsonb_build_object('id',id,'state',state) value
+          from agent_work_item where story_id=$1 and state in ('Ready','Claimed','Running','Paused')
+          order by updated_at desc"#).bind(story_id).fetch_all(self.db.pool()).await
+          .map_err(|e|DbFailure::from_sqlx("tech.active_agent_work",&e))?;
+        Ok(rows.into_iter().map(|r|r.value).collect())
+    }
+
+    pub async fn set_dispatch_options(&self, story_id:&str, stop_after:Option<&str>) -> DbResult<u64> {
+        let result=sqlx::query(r#"update agent_work_item set stop_after=$2,launch_intent=null,updated_at=now()
+          where story_id=$1 and state='Ready'"#).bind(story_id).bind(stop_after).execute(self.db.pool()).await
+          .map_err(|e|DbFailure::from_sqlx("tech.set_dispatch_options",&e))?;
+        Ok(result.rows_affected())
+    }
+
+    pub async fn withdraw_ready(&self, story_id:&str) -> DbResult<(u64,i64)> {
+        let withdrawn=sqlx::query("update agent_work_item set state='Cancelled',updated_at=now() where story_id=$1 and state='Ready'")
+          .bind(story_id).execute(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.withdraw_ready",&e))?.rows_affected();
+        let live=sqlx::query_scalar::<_,i64>("select count(*) from agent_work_item where story_id=$1 and state in ('Claimed','Running','Paused')")
+          .bind(story_id).fetch_one(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.withdraw_live",&e))?;
+        Ok((withdrawn,live))
+    }
+
+    pub async fn staged_story_ids(&self) -> DbResult<Vec<String>> {
+        sqlx::query_scalar("select id from storyboard_story where status='Batched' order by id")
+          .fetch_all(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.staged_story_ids",&e))
+    }
+
+    pub async fn cancel_batch(&self,batch_id:&str)->DbResult<u64>{
+        let r=sqlx::query("update forge_batch set status='Cancelled',updated_at=now() where id=$1 and status in ('Staged','Scheduled')")
+          .bind(batch_id).execute(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.cancel_batch",&e))?;
+        Ok(r.rows_affected())
+    }
+
 }
