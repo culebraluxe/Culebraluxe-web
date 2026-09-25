@@ -722,6 +722,7 @@ pub fn router(state: ApiState) -> Router {
         // THE PUBLIC INVENTORY, served by the Rust service the way every other read is. The site's own thin proxy
         // shapes this for the buyers grid, so the grid stops reaching into the database itself.
         .route("/v1/public/listings", get(public_listings))
+        .route("/v1/public/guide", get(public_guide))
         .route("/v1/website-intake/{id}/notify", post(notify_website_lead))
         .route(
             "/v1/vault/document-bytes/{id}",
@@ -2898,6 +2899,21 @@ async fn notify_website_lead(
         .await
         .map_err(ApiError::from)?;
     Ok(success_with_correlation(notice, &context.correlation_id))
+}
+
+/// The Island Guide, through its own Rust service and the anonymous public security door.
+async fn public_guide(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<Vec<domain::GuideItem>>>, ApiError> {
+    let context = resolve_public_guest_context(&state, &headers)?;
+    let items = state
+        .services()
+        .guide()
+        .items(&context)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(success_with_correlation(items, &context.correlation_id))
 }
 
 /// The inventory of the public site, for the anonymous buyer: the same guest door and the same published action as
