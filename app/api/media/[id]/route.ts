@@ -2,6 +2,7 @@ import { sql } from "@/legacy/db/client"
 
 import { captureServerError } from '@/lib/server-error-capture'
 import { getToken } from "next-auth/jwt"
+import { rustApiPublicMedia } from '@/lib/rust-api/client'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
 // ---------------------------------------------------------------------------
@@ -45,6 +46,24 @@ async function GETHandler(
   const fallbackToken =
     secret && !token ? await getToken({ req: request, secret }).catch(() => null) : null
   const authed = Boolean(token?.sub ?? fallbackToken?.sub)
+
+  // THE PUBLIC PATH GOES THROUGH RUST. The service owns "is this photograph published" now — the same rule, in one
+  // language — and it serves the web copy rather than the original, so a 13 MB photograph never crosses a 4.5 MB
+  // gateway. The TypeScript query below is what remains for the PORTAL: a signed-in reader may need media whose
+  // Property is not published, which is precisely what the public service refuses.
+  const viaRust = await rustApiPublicMedia(id).catch(() => null)
+  if (viaRust) {
+    return new Response(viaRust.bytes, {
+      headers: {
+        'Content-Type': viaRust.contentType,
+        'Cache-Control': 'public, max-age=3600',
+      },
+    })
+  }
+  if (!authed) {
+    // Not published, or no such media — indistinguishable to an anonymous visitor, which is the point.
+    return new Response('Not found', { status: 404 })
+  }
 
   let result: Array<Record<string, unknown>>
   try {

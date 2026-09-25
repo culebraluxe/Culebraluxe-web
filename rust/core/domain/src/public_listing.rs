@@ -66,4 +66,7 @@ pub struct PublicProperty {
     /// The hero: the marked one, or the first photograph. A page always has a picture.
     pub hero_media_id: Option<String>,
     pub gallery_media_ids: Vec<String>,
+    /// Videos attached to the listing — Mux assets the page links out to. A count, not a URL: the playable link is
+    /// Mux's, and the page asks Mux directly.
+    pub video_count: i64,
 }

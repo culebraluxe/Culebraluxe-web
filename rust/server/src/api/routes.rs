@@ -724,6 +724,9 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/public/listings", get(public_listings))
         // ONE PROPERTY, by any key that names it: slug, name, or id. The property page reads this.
         .route("/v1/public/property", get(public_property))
+        // ONE PHOTOGRAPH'S BYTES. The web copy when there is one, the original otherwise — the site never sends a
+        // 13 MB original through a 4.5 MB gateway, and never reads Postgres itself to find out.
+        .route("/v1/public/media/{id}", get(public_media))
         .route("/v1/public/guide", get(public_guide))
         .route("/v1/website-intake/{id}/notify", post(notify_website_lead))
         .route(
@@ -2922,6 +2925,42 @@ async fn public_guide(
 struct PublicPropertyQuery {
     /// Whatever names the Property: its slug, its name in any case, or its id.
     key: String,
+}
+
+/// One photograph's bytes for the public site: the web copy if there is one, the original otherwise.
+///
+/// The bytes are returned as they are stored. An id that is unknown, or that belongs to media which is not published,
+/// answers 404 either way — an anonymous visitor must not be able to tell those apart.
+async fn public_media(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<axum::response::Response, ApiError> {
+    let context = resolve_public_guest_context(&state, &headers)?;
+    let found = state
+        .services()
+        .public_listings()
+        .media_bytes(&id, &context)
+        .await
+        .map_err(ApiError::from)?;
+
+    let Some((mime_type, bytes)) = found else {
+        return Err(ApiError::not_found("MEDIA_NOT_FOUND", "Not found."));
+    };
+
+    axum::response::Response::builder()
+        .header(axum::http::header::CONTENT_TYPE, mime_type)
+        // Photograph bytes do not change under an id: a replacement upload is a new row.
+        .header(axum::http::header::CACHE_CONTROL, "public, max-age=3600")
+        .body(axum::body::Body::from(bytes))
+        .map_err(|error| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "MEDIA_RESPONSE_FAILED",
+                error.to_string(),
+                false,
+            )
+        })
 }
 
 /// One Property, for the public page. Anonymous, the same guest door as the inventory, the same published action.

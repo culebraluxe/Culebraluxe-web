@@ -407,6 +407,7 @@ export type RustPublicProperty = {
   editorialDescription: string | null
   heroMediaId: string | null
   galleryMediaIds: string[]
+  videoCount: number
 }
 
 /**
@@ -458,6 +459,52 @@ export async function rustApiPublicProperty(key: string): Promise<RustPublicProp
   }
 
   return payload.value
+}
+
+/**
+ * ONE PHOTOGRAPH'S BYTES, from the public service (`GET /v1/public/media/{id}`).
+ *
+ * ANSI: this returns raw bytes, not JSON, because that is what a photograph is. `null` means not-found or
+ * not-published — the service deliberately does not distinguish, and neither does this.
+ */
+export async function rustApiPublicMedia(
+  id: string,
+): Promise<{ contentType: string; bytes: Uint8Array } | null> {
+  const correlationId = randomUUID()
+  const headers = buildRustPublicBridgeHeaders({ internalApiKey: internalApiKey(), correlationId })
+
+  let response: Response
+  try {
+    response = await fetch(`${rustApiBaseUrl()}/v1/public/media/${encodeURIComponent(id)}`, {
+      headers,
+      cache: 'no-store',
+    })
+  } catch (cause) {
+    throw new RustApiError({
+      status: 503,
+      code: 'RUST_API_UNAVAILABLE',
+      message: cause instanceof Error ? cause.message : 'Rust API request failed.',
+      retryable: true,
+      correlationId,
+    })
+  }
+
+  if (response.status === 404) return null
+
+  if (!response.ok) {
+    throw new RustApiError({
+      status: response.status,
+      code: 'RUST_API_FAILURE',
+      message: 'The public media read failed.',
+      retryable: true,
+      correlationId,
+    })
+  }
+
+  return {
+    contentType: response.headers.get('content-type') ?? 'application/octet-stream',
+    bytes: new Uint8Array(await response.arrayBuffer()),
+  }
 }
 
 export async function rustApiPublicListingCopy(): Promise<RustPublicListingCopy[]> {

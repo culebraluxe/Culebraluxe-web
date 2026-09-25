@@ -32,6 +32,7 @@ struct PropertyRow {
     architecture_notes: Option<String>,
     short_description: Option<String>,
     editorial_description: Option<String>,
+    video_count: i64,
 }
 
 impl PublicListingDao {
@@ -108,7 +109,15 @@ impl PublicListingDao {
                 (p.year_built::text)::int as year_built,
                 p.architecture_notes,
                 p.short_description,
-                p.editorial_description
+                p.editorial_description,
+                -- Videos are Mux assets attached as media: either the media says video, or the role does.
+                (
+                    select count(*)::bigint
+                      from property_media vpm
+                      join media vm on vm.id = vpm.media_id
+                     where vpm.property_id = p.id
+                       and (vm.media_type = 'video' or vpm.role in ('video', 'short'))
+                ) as video_count
             from property p
             where (
                     p.slug = $1
@@ -169,7 +178,52 @@ impl PublicListingDao {
             editorial_description: row.editorial_description,
             hero_media_id,
             gallery_media_ids,
+            video_count: row.video_count,
         }))
+    }
+
+    /// The servable bytes for one photograph: the web copy when there is one, the original otherwise.
+    ///
+    /// THE GATE IS EVALUATED ON THE ORIGINAL. A copy has no `property_media` link of its own, so asking whether the
+    /// COPY is published would answer "no links, therefore fine" and expose every copy of every unpublished Property.
+    /// Media with no Property link at all stays reachable — it is not listing media.
+    ///
+    /// `None` covers both "no such media" and "not published": an anonymous visitor must not be able to tell those
+    /// apart, which is why this returns one thing rather than an error.
+    pub async fn media_bytes(&self, id: &str) -> DbResult<Option<(String, Vec<u8>)>> {
+        let row = sqlx::query_as::<_, (String, Vec<u8>)>(
+            r#"
+            select
+                coalesce(copy.mime_type, m.mime_type),
+                coalesce(copy.file_data, m.file_data)
+            from media m
+            join media root on root.id = coalesce(m.derivative_of, m.id)
+            left join lateral (
+                select d.file_data, d.mime_type
+                  from media d
+                 where d.derivative_of = root.id and d.derivative_kind = 'web'
+                 limit 1
+            ) as copy on true
+            where m.id = $1::uuid
+              and not exists (
+                    select 1
+                      from property_media pm
+                      join property p on p.id = pm.property_id
+                     where pm.media_id = root.id
+                       and not (
+                             p.archived_at is null
+                             and p.status in ('active', 'under_contract', 'sold')
+                           )
+                  )
+            limit 1
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("public_listing.media_bytes", &error))?;
+
+        Ok(row)
     }
 
     /// Taglines for every published listing that has one. A listing with none is simply absent.

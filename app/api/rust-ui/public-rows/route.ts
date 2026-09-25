@@ -94,6 +94,7 @@ async function recordRows(scope: string | null): Promise<RustUiRow[]> {
     // photographs at all.
     facts('Hero image', property.heroMediaId ? 'present' : 'missing'),
     facts('Gallery', property.galleryMediaIds.length ? `${property.galleryMediaIds.length} image(s)` : null),
+    facts('Videos', property.videoCount ? `${property.videoCount} video(s)` : null),
     facts('Description', property.shortDescription ?? property.editorialDescription),
   ].filter((row): row is RustUiRow => row !== null)
 }
