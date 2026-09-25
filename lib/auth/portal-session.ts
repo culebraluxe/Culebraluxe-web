@@ -18,7 +18,8 @@
 
 import { createAuthJsSessionAdapter } from './authjs-session-adapter'
 import { getActingUser } from './get-acting-user'
-import { requireAuthority } from './authority'
+import { authorizeApplicationAction } from './security-runtime'
+import { isPortalAuthBypass } from './dev-bypass'
 import { AuthError } from './errors'
 import type { SessionAdapter } from './session-adapter'
 import type { ActingUser, AuthorityCode } from './types'
@@ -52,7 +53,12 @@ export async function guardPortalRoute(
 ): Promise<PortalUploadGuardResult> {
   try {
     const actor = await getActingUser(adapter)
-    requireAuthority(actor, authority)
+    if (!isPortalAuthBypass()) {
+      const decision = await authorizeApplicationAction(authority)
+      if (!decision.allowed) {
+        return { ok: false, status: 403, error: 'Unauthorized.' }
+      }
+    }
     return { ok: true, actor }
   } catch (error) {
     if (error instanceof AuthError) {
