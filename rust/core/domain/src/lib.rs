@@ -12,6 +12,7 @@ pub mod deal_portal;
 pub mod firm;
 pub mod flight_recorder;
 pub mod forms;
+pub mod guide;
 pub mod media;
 pub mod person;
 pub mod project;
@@ -78,6 +79,7 @@ pub use comms::{
 };
 
 pub use flight_recorder::*;
+pub use guide::GuideItem;
 
 pub use forms::{
     BindFormInstanceToDirectContextRequest, BindFormInstanceToShowingRequest,
