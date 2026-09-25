@@ -3,6 +3,7 @@ import 'server-only'
 import { randomUUID } from 'node:crypto'
 
 import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
+import type { AccountType, SecurityLevel } from '@/lib/auth/types'
 import { bypassBridgeIdentity } from '@/lib/rust-api/dev-identity'
 import {
   buildRustBridgeHeaders,
@@ -81,13 +82,13 @@ export type RustIdentityResolution =
         appUserId: string
         displayName: string
         email: string | null
-        accountType: string
+        accountType: AccountType
         roleCodes: string[]
         authorityCodes: string[]
         entitlementCodes: string[]
         personId: string | null
       }
-      securityLevel: string
+      securityLevel: SecurityLevel
     }
   | { kind: 'unmapped' }
   | { kind: 'inactive' }
