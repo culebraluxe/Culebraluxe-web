@@ -2,8 +2,8 @@ use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
 use db::{DbResult, SupportDiagnosticsDao};
 use domain::{
-    SupportBreakGlassReadiness, SupportSecurityStatus, SupportSystemHealth, WorkflowDiagnosticsDetail,
-    WorkflowDiagnosticsSnapshot,
+    SupportBreakGlassReadiness, SupportSecurityStatus, SupportSystemHealth,
+    WorkflowDiagnosticsDetail, WorkflowDiagnosticsSnapshot,
 };
 use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
 
@@ -85,16 +85,18 @@ impl<R: SupportDiagnosticsRepository> SupportDiagnosticsService<R> {
             .repository
             .break_glass_probe(app_user_id)
             .await
-            .map(|(root_resolvable, root_active, owner_role_present, audit_table_available)| {
-                SupportBreakGlassReadiness {
-                    configured,
-                    enabled,
-                    root_resolvable,
-                    root_active,
-                    owner_role_present,
-                    audit_table_available,
-                }
-            })
+            .map(
+                |(root_resolvable, root_active, owner_role_present, audit_table_available)| {
+                    SupportBreakGlassReadiness {
+                        configured,
+                        enabled,
+                        root_resolvable,
+                        root_active,
+                        owner_role_present,
+                        audit_table_available,
+                    }
+                },
+            )
             .map_err(Into::into);
         audit_result(&self.runtime, "support", OP, context, decision, &result).await?;
         result

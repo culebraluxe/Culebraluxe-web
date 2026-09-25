@@ -1,9 +1,7 @@
 use async_trait::async_trait;
 use db::SecurityAuditDao;
 use serde_json::json;
-use service::{
-    AuditPort, ServiceActorKind, ServiceAuditEvent, ServiceOutcome, ServicePortError,
-};
+use service::{AuditPort, ServiceActorKind, ServiceAuditEvent, ServiceOutcome, ServicePortError};
 
 #[derive(Clone)]
 pub struct DurableSecurityAuditPort {
