@@ -129,6 +129,14 @@ struct DetailRow {
     commands: Json<Vec<Value>>,
 }
 
+#[derive(Debug, FromRow)]
+struct BreakGlassProbeRow {
+    root_resolvable: bool,
+    root_active: bool,
+    owner_role_present: bool,
+    audit_table_available: bool,
+}
+
 #[derive(Clone)]
 pub struct SupportDiagnosticsDao {
     db: Database,
@@ -137,6 +145,40 @@ pub struct SupportDiagnosticsDao {
 impl SupportDiagnosticsDao {
     pub fn new(db: Database) -> Self {
         Self { db }
+    }
+
+    pub async fn break_glass_probe(
+        &self,
+        app_user_id: Option<&str>,
+    ) -> DbResult<(bool, bool, bool, bool)> {
+        let row = sqlx::query_as::<_, BreakGlassProbeRow>(
+            r#"
+            select
+              case when $1::uuid is null then false else exists(
+                select 1 from app_user u where u.id=$1::uuid
+              ) end as root_resolvable,
+              case when $1::uuid is null then false else exists(
+                select 1 from app_user u where u.id=$1::uuid and u.active=true
+              ) end as root_active,
+              case when $1::uuid is null or to_regclass('app_user_role') is null then false else exists(
+                select 1
+                from app_user_role aur
+                join security_role r on r.id=aur.role_id
+                where aur.app_user_id=$1::uuid and r.code='owner'
+              ) end as owner_role_present,
+              to_regclass('security_audit_event') is not null as audit_table_available
+            "#,
+        )
+        .bind(app_user_id)
+        .fetch_one(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("support.break_glass_probe", &error))?;
+        Ok((
+            row.root_resolvable,
+            row.root_active,
+            row.owner_role_present,
+            row.audit_table_available,
+        ))
     }
 
     pub async fn security_status(&self) -> DbResult<SupportSecurityStatus> {
