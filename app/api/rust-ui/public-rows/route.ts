@@ -37,11 +37,16 @@ async function listingRows(): Promise<RustUiRow[]> {
   if (!result.ok) throw new Error(`public inventory is unavailable: ${result.error.kind}`)
   return (
     result.data
-      // A row with no slug cannot be opened, so it is not offered as one. Publishing a listing without a URL is a
-      // data problem, and hiding it here would hide it forever.
-      .filter((property) => Boolean(property.slug))
+      // NOTHING IS DROPPED FOR WANT OF A URL.
+      //
+      // This filtered out every Property without a slug — "a row with no slug cannot be opened, so it is not offered
+      // as one" — which was true when a slug was the only way in. It is not true now: the detail resolver accepts the
+      // slug, the name, or the id, so a Property that exists can always be opened, and hiding it was the reason a
+      // published listing could be missing from the grid while looking correct in OPS.
+      //
+      // The row's key is its slug when it has one and its id when it does not. Neither is a precondition.
       .map((property) => ({
-        id: property.slug as string,
+        id: property.slug ?? property.id,
         cells: [
           property.name,
           property.propertyType ?? '—',
