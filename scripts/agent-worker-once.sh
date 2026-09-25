@@ -3,9 +3,9 @@
 # scripts/agent-worker-once.sh — bounded Forge wake/run wrapper.
 #
 # ONE scheduled wake => fast-forward the local control-plane checkout, then
-# repeatedly invokes `pnpm agent:work` until Forge is idle or a run fails.
+# repeatedly invokes the Rust `forge-worker` binary until Forge is idle or a run fails.
 # Recovery, queue semantics, orchestration, Smith, Assay, publication and
-# durable state all belong to Forge behind `pnpm agent:work`.
+# durable state all belong to Forge behind the Rust `forge-worker` binary.
 #
 # This file is intentionally boring and stable because launchd executes a
 # deployed copy outside ~/Documents (macOS TCC). The only Git responsibility
@@ -99,14 +99,14 @@ fi
 trap release_lock EXIT
 
 if [ "${AGENT_WORKER_DRY_RUN:-0}" = "1" ]; then
-  echo "[agent-worker] dry-run: pnpm agent:work not invoked"
+  echo "[agent-worker] dry-run: cargo run --manifest-path rust/Cargo.toml -p forge --bin forge-worker -- not invoked"
   inv_log "dry-run"
   exit 0
 fi
 
-if ! command -v pnpm >/dev/null 2>&1; then
-  echo "agent-worker: pnpm not found on PATH=$PATH" >&2
-  inv_log "end: exit=127 pnpm-missing"
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "agent-worker: cargo not found on PATH=$PATH" >&2
+  inv_log "end: exit=127 cargo-missing"
   exit 127
 fi
 
@@ -142,7 +142,7 @@ inv_log "start: cwd=$REPO_ROOT max_passes=$MAX_PASSES"
 # tick since 2026-09-03 (463 invocations) because macOS TCC denies a launchd-spawned process access to
 # ~/Documents: git could not read its own working directory ("fatal: Unable to read current working
 # directory: Operation not permitted") and printed an empty branch, so the worker never reached
-# `pnpm agent:work` and Forge was silently dead for twelve days. Print what git said, and say out loud that
+# the Rust `forge-worker` binary and Forge was silently dead for twelve days. Print what git said, and say out loud that
 # a permission failure is the likely cause.
 branch_err_file="$(mktemp -t culebraluxe-branch.XXXXXX)"
 branch="$(git branch --show-current 2>"$branch_err_file" || true)"
@@ -181,10 +181,10 @@ inv_log "git-sync: complete head=$(git rev-parse --short HEAD 2>/dev/null || ech
 
 pass=1
 while [ "$pass" -le "$MAX_PASSES" ]; do
-  inv_log "pass=$pass start cmd=\"pnpm agent:work\""
+  inv_log "pass=$pass start cmd=\"cargo run --manifest-path rust/Cargo.toml -p forge --bin forge-worker --\""
 
   output_file="$(mktemp -t culebraluxe-forge-worker.XXXXXX)"
-  pnpm agent:work 2>&1 | tee "$output_file"
+  cargo run --manifest-path rust/Cargo.toml -p forge --bin forge-worker -- 2>&1 | tee "$output_file"
   rc=${PIPESTATUS[0]}
 
   inv_log "pass=$pass end exit=$rc"
