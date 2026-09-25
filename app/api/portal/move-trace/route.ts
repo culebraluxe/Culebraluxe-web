@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { recordError } from '@/legacy/db/app-error'
-import { sql as errorSql } from '@/legacy/db/client'
+import { recordRustAppDiagnostic } from '@/lib/rust-api/diagnostics'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
 import {
@@ -65,7 +64,15 @@ async function POSTHandler(req: NextRequest): Promise<Response> {
       endpoint: 'api/portal/move-trace',
       now,
       status,
-      record: (record) => recordError(record, errorSql),
+      record: (record) => recordRustAppDiagnostic({
+        kind: record.kind ?? 'diagnostic-refusal',
+        operation: record.operation ?? 'cockpit.move-trace',
+        message: record.message,
+        route: record.route ?? '/portal/tech',
+        level: record.level ?? 'info',
+        code: record.code ?? null,
+        meta: record.meta ?? {},
+      }),
     })
 
   // Refuse an oversized body BEFORE reading it into memory.
@@ -92,25 +99,17 @@ async function POSTHandler(req: NextRequest): Promise<Response> {
   const to = clip(body.to)
   const detail = clip(body.detail)
 
-  // RECORDED WITH AN EXPLICIT EXECUTOR. `captureServerLog` depends on the registered seam, and in this
-  // route's context that was not registered - so the endpoint answered 200 and wrote NOTHING, which is
-  // exactly the silence this whole trace was built to end (measured: a probe POST returned 200 and left
-  // no row). An explicit executor cannot be unregistered.
-  await recordError(
-    {
-      kind: 'INFO',
-      operation: 'cockpit.move-trace',
-      message:
-        `${phase}` +
-        (cardId ? ` card=${cardId}` : '') +
-        (from || to ? ` ${from} -> ${to}` : '') +
-        (detail ? ` (${detail})` : ''),
-      route: '/portal/tech',
-      level: 'info',
-    },
-    errorSql,
-  ).catch(() => {
-    // A failure to trace must never fail the board.
+  await recordRustAppDiagnostic({
+    kind: 'INFO',
+    operation: 'cockpit.move-trace',
+    message:
+      `${phase}` +
+      (cardId ? ` card=${cardId}` : '') +
+      (from || to ? ` ${from} -> ${to}` : '') +
+      (detail ? ` (${detail})` : ''),
+    route: '/portal/tech',
+    level: 'info',
+    meta: {},
   })
 
   return NextResponse.json({ ok: true })
