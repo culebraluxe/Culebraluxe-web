@@ -26,6 +26,22 @@ jobs:
         run: cargo check --workspace --all-targets
       # Yew's browser module is feature-gated. The host workspace check above never
       # compiled it, which let the production WASM build fail after the Rust API was live.
+
+      # BOTTOM-UP PERSISTENCE GATE: application/domain/runtime crates do not own SQL.
+      # SQL is confined to named persistence adapters. If a new path needs an exception,
+      # it must become a repository/store first rather than expanding this list casually.
+      - name: Rust persistence boundary
+        run: |
+          set -euo pipefail
+          violations="$(
+            grep -RInE 'sqlx::(query|query_as|query_scalar)|\.pool\(\)' rust --include='*.rs'               | grep -v '^rust/core/db/'               | grep -v '^rust/core/workflow/src/neon.rs:'               | grep -v '^rust/integrations/src/boldsign/store.rs:'               | grep -v '^rust/core/db/tests/'               || true
+          )"
+          if [ -n "$violations" ]; then
+            echo "Raw database access escaped the approved Rust persistence boundaries:"
+            echo "$violations"
+            exit 1
+          fi
+
       - name: Rust UI browser compile
         working-directory: rust
         run: |
