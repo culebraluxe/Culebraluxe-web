@@ -8,6 +8,7 @@
 //! this diagnostic write succeeding.
 
 use crate::engine::vendor_session::with_shared;
+use db::ForgeEngineDao;
 
 const INSERT_OBSERVER_SQL: &str = "
     INSERT INTO workflow_execution_trace_event (
@@ -36,19 +37,19 @@ pub fn record_forge_observer(
 ) -> Result<(), String> {
     let event_id = observer_source_event_id(process_instance_id, task_id, event_type);
     with_shared(|db, rt| {
+        let dao = ForgeEngineDao::new(db.clone());
         rt.block_on(async {
-            sqlx::query(INSERT_OBSERVER_SQL)
-                .bind(event_type)
-                .bind(summary)
-                .bind(&event_id)
-                .bind(process_instance_id)
-                .bind(node_id)
-                .bind(task_id)
-                .bind(story_id)
-                .execute(db.pool())
-                .await
-                .map(|_| ())
-                .map_err(|error| error.to_string())
+            dao.record_observer(
+                event_type,
+                summary,
+                &event_id,
+                process_instance_id,
+                node_id,
+                task_id,
+                story_id,
+            )
+            .await
+            .map_err(|error| error.to_string())
         })
     })?
 }
