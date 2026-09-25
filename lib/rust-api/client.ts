@@ -109,6 +109,22 @@ export type RustAuthorizationDecision = {
   mode: string
 }
 
+export type RustBreakGlassReadiness = {
+  configured: boolean
+  enabled: boolean
+  rootResolvable: boolean
+  rootActive: boolean
+  ownerRolePresent: boolean
+  auditTableAvailable: boolean
+}
+
+export async function rustApiBreakGlassReadiness(): Promise<RustBreakGlassReadiness> {
+  const result = await rustApiRead<RustBreakGlassReadiness>(
+    '/v1/support/break-glass-readiness',
+  )
+  return result.value
+}
+
 /**
  * Ask the security service to DECIDE one action for the signed-in principal.
  *
