@@ -23,6 +23,7 @@ mod guest;
 mod guide;
 mod intake;
 mod issue;
+mod marketing;
 mod media;
 mod person;
 mod pool;
@@ -77,6 +78,7 @@ pub use guest::{GuestDao, GUEST_CODE_MAX_ATTEMPTS};
 pub use guide::GuideDao;
 pub use intake::IntakeDao;
 pub use issue::IssueDao;
+pub use marketing::MarketingDao;
 pub use media::{
     BeginMediaUpload, MediaDao, MediaDerivativeInput, MediaUploadAssembly, MediaUploadStatus,
 };
