@@ -1,48 +1,17 @@
-import { NextResponse } from "next/server"
-import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
-import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
+import { NextResponse } from 'next/server'
 
-import { dbTargetInfo } from "@/legacy/db/database-gateway"
-import { sql } from "@/legacy/db/client"
 import { withApiHandler } from '@/lib/error-capture-seam'
+import { rustApiRead } from '@/lib/rust-api/client'
 
-// Safe, credential-free DB-target diagnostic. Reports the resolved database
-// TARGET (prod/dev), the Vercel/APP env signals, the Neon host token (never the
-// password/user/full URL), and — as proof of what this deployment would render —
-// the live mv_client_directory and active-person counts on that target.
-export const dynamic = "force-dynamic"
+export const dynamic = 'force-dynamic'
 
 async function GETHandler() {
-  // Authority matches the screen: tech.access.
-  const access = await resolvePortalAccess(createAuthJsSessionAdapter(), 'tech.access')
-  if (!access.ok) {
-    return NextResponse.json(
-      {
-        error: 'unauthorized',
-        detail: 'This portal data requires tech.access.',
-      },
-      { status: 401 },
-    )
-  }
-  const info = dbTargetInfo()
-  let directoryCount: number | null = null
-  let personCount: number | null = null
-  let error: string | null = null
-  try {
-    const dir = await sql`select count(*)::int as n from mv_client_directory`
-    directoryCount = Number((dir[0] as { n?: unknown } | undefined)?.n ?? 0)
-    const persons = await sql`select count(*)::int as n from person where archived_at is null`
-    personCount = Number((persons[0] as { n?: unknown } | undefined)?.n ?? 0)
-  } catch (e) {
-    error = e instanceof Error ? e.message.slice(0, 120) : "unknown"
-  }
-  return NextResponse.json({
-    db: info,
-    read: { directoryCount, personCount, error },
-  })
+  const result = await rustApiRead<Record<string, unknown>>(
+    '/v1/diagnostics/db',
+  )
+  return NextResponse.json(result.value)
 }
 
-// ENG-FORGE error-capture: a throw is recorded durably and returns a 500.
 export const GET = withApiHandler(
   { label: '/api/portal/db-diag', route: '/api/portal/db-diag' },
   GETHandler,
