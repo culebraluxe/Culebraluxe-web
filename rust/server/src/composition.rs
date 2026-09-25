@@ -16,6 +16,7 @@ use crate::people::PersonService;
 use crate::projects::ProjectService;
 use crate::properties::PropertyService;
 use crate::public_listings::PublicListingService;
+use crate::relationship_evidence::RelationshipEvidenceService;
 use crate::security::SecurityService;
 use crate::showings::ShowingService;
 use crate::signature::SignatureService;
@@ -30,7 +31,7 @@ use crate::workflow_portal::WorkflowPortalService;
 use db::{
     AccountingDao, CalendarDao, ClientDao, CockpitDao, CommsDao, ContractDao, Database,
     DealPortalDao, FirmDao, FlightRecorderDao, FormDao, GuideDao, IssueDao, MediaDao, PersonDao, ProjectDao,
-    PropertyDao, SecurityDao, ShowingDao, SignatureDao, SupportDiagnosticsDao, TaskDao,
+    PropertyDao, RelationshipEvidenceDao, SecurityDao, ShowingDao, SignatureDao, SupportDiagnosticsDao, TaskDao,
     TechCockpitDao, VaultDao, WbsDao, WhatsAppDao, WorkflowPortalDao,
 };
 use service::{ServiceInfrastructure, SignatureProvider};
@@ -116,6 +117,13 @@ impl CoreServices {
         WebsiteLeadService::new(
             db::WebsiteLeadDao::new(self.db.clone()),
             crate::website_leads::mail_from_env(),
+            self.infrastructure.clone(),
+        )
+    }
+
+    pub fn relationship_evidence(&self) -> RelationshipEvidenceService<RelationshipEvidenceDao> {
+        RelationshipEvidenceService::new(
+            RelationshipEvidenceDao::new(self.db.clone()),
             self.infrastructure.clone(),
         )
     }
