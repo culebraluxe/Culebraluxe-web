@@ -1,6 +1,6 @@
 use crate::{Database, DbFailure, DbResult};
 use domain::TechCockpitSnapshot;
-use serde_json::{json, Value};
+use serde_json::Value;
 use sqlx::FromRow;
 
 #[derive(Debug, FromRow)]
@@ -12,14 +12,14 @@ pub struct TechCockpitDao { db: Database }
 impl TechCockpitDao {
     pub fn new(db: Database) -> Self { Self { db } }
 
-    async fn many(&self, op: &'static str, sql: &str) -> DbResult<Vec<Value>> {
+    async fn many(&self, op: &'static str, sql: &'static str) -> DbResult<Vec<Value>> {
         let rows = sqlx::query_as::<_, JsonRow>(sql)
             .fetch_all(self.db.pool()).await
             .map_err(|e| DbFailure::from_sqlx(op, &e))?;
         Ok(rows.into_iter().map(|r| r.value).collect())
     }
 
-    async fn one(&self, op: &'static str, sql: &str) -> DbResult<Option<Value>> {
+    async fn one(&self, op: &'static str, sql: &'static str) -> DbResult<Option<Value>> {
         let row = sqlx::query_as::<_, JsonRow>(sql)
             .fetch_optional(self.db.pool()).await
             .map_err(|e| DbFailure::from_sqlx(op, &e))?;
