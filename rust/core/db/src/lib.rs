@@ -42,6 +42,7 @@ mod transaction;
 mod vault;
 mod wbs;
 mod workflow_portal;
+mod workflow_ops;
 
 pub use accounting::AccountingDao;
 pub use calendar::CalendarDao;
@@ -78,3 +79,4 @@ pub use vault::VaultDao;
 pub use wbs::WbsDao;
 pub use website_lead::WebsiteLeadDao;
 pub use workflow_portal::WorkflowPortalDao;
+pub use workflow_ops::{PendingTimerJobRow, WorkflowOpsDao, WorkflowStatusRow};
