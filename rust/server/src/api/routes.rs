@@ -167,6 +167,11 @@ struct ActivityQuery {
     limit: Option<i64>,
 }
 
+#[derive(Debug, Deserialize)]
+struct TechCockpitQuery {
+    selected: Option<String>,
+}
+
 /// The P&L's period. Both ends are required: see the handler for why there is no default.
 #[derive(Debug, Deserialize)]
 struct AccountingPnlQuery {
@@ -614,6 +619,7 @@ pub fn router(state: ApiState) -> Router {
             get(security_users).put(set_user_primary_role),
         )
         .route("/v1/cockpit", get(cockpit))
+        .route("/v1/tech/cockpit", get(tech_cockpit))
         .route("/v1/workflows", get(workflows))
         .route("/v1/workflows/{id}", get(workflow_detail))
         .route("/v1/flight-recorder/{id}", get(flight_recorder))
@@ -2910,6 +2916,19 @@ async fn notify_website_lead(
 }
 
 /// The Island Guide, through its own Rust service and the anonymous public security door.
+async fn tech_cockpit(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Query(query): Query<TechCockpitQuery>,
+) -> Result<Json<ApiSuccess<domain::TechCockpitSnapshot>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let snapshot = state.services().tech()
+        .snapshot(query.selected.as_deref(), &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(snapshot, &resolved))
+}
+
 async fn public_guide(
     State(state): State<ApiState>,
     headers: HeaderMap,
