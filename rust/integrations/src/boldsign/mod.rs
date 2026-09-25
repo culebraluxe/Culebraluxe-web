@@ -16,7 +16,6 @@ use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::Sha256;
-use sqlx::FromRow;
 
 pub const BOLD_SIGN_PROVIDER: &str = "bold-sign";
 
@@ -87,11 +86,6 @@ pub struct BoldSignWebhookEvent {
     pub event_type: String,
     pub envelope_id: String,
     pub document_status: Option<String>,
-}
-
-#[derive(Debug, FromRow)]
-struct BoldSignRequestRow {
-    signature_request_id: String,
 }
 
 type HmacSha256 = Hmac<Sha256>;
@@ -258,13 +252,16 @@ fn decode_hex_32(value: &str) -> Option<[u8; 32]> {
 
 #[derive(Clone)]
 pub struct BoldSignWebhookAdapter {
-    db: Database,
+    store: store::BoldSignStore,
     config: BoldSignConfig,
 }
 
 impl BoldSignWebhookAdapter {
     pub fn new(db: Database, config: BoldSignConfig) -> Self {
-        Self { db, config }
+        Self {
+            store: store::BoldSignStore::new(db),
+            config,
+        }
     }
 
     pub async fn verify_and_record(
@@ -287,59 +284,42 @@ impl BoldSignWebhookAdapter {
         let neutral = map_webhook_event(&event.event_type, event.document_status.as_deref())
             .map_err(|message| DbFailure::schema_mismatch("boldsign.webhook.map", message))?;
 
-        let request = sqlx::query_as::<_, BoldSignRequestRow>(
-            r#"
-            select signature_request_id::text as signature_request_id
-            from bold_sign_request
-            where envelope_id = $1
-            limit 1
-            "#,
-        )
-        .bind(&event.envelope_id)
-        .fetch_optional(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("boldsign.webhook.resolve_envelope", &error))?
-        .ok_or_else(|| {
-            DbFailure::schema_mismatch(
-                "boldsign.webhook.resolve_envelope",
-                format!(
-                    "BoldSign webhook for unknown envelope {}.",
-                    event.envelope_id
-                ),
-            )
-        })?;
+        let request = self
+            .store
+            .get_by_envelope(&event.envelope_id)
+            .await?
+            .ok_or_else(|| {
+                DbFailure::schema_mismatch(
+                    "boldsign.webhook.resolve_envelope",
+                    format!(
+                        "BoldSign webhook for unknown envelope {}.",
+                        event.envelope_id
+                    ),
+                )
+            })?;
 
         let payload: Value = serde_json::from_str(raw_body).map_err(|error| {
             DbFailure::schema_mismatch("boldsign.webhook.payload", error.to_string())
         })?;
-        sqlx::query(
-            r#"
-            insert into bold_sign_webhook_event (
-                provider_event_id, envelope_id, signature_request_id,
-                provider_event_type, neutral_event, payload
+        self.store
+            .record_webhook(
+                &event.provider_event_id,
+                &event.envelope_id,
+                &request.signature_request_id,
+                &event.event_type,
+                match neutral {
+                    SignatureProviderEvent::Sent => "sent",
+                    SignatureProviderEvent::Viewed => "viewed",
+                    SignatureProviderEvent::Signed => "signed",
+                    SignatureProviderEvent::Completed => "completed",
+                    SignatureProviderEvent::Declined => "declined",
+                    SignatureProviderEvent::Voided => "voided",
+                    SignatureProviderEvent::Expired => "expired",
+                    SignatureProviderEvent::Error => "error",
+                },
+                &payload,
             )
-            values ($1,$2,$3::uuid,$4,$5,$6)
-            on conflict (provider_event_id) do nothing
-            "#,
-        )
-        .bind(&event.provider_event_id)
-        .bind(&event.envelope_id)
-        .bind(&request.signature_request_id)
-        .bind(&event.event_type)
-        .bind(match neutral {
-            SignatureProviderEvent::Sent => "sent",
-            SignatureProviderEvent::Viewed => "viewed",
-            SignatureProviderEvent::Signed => "signed",
-            SignatureProviderEvent::Completed => "completed",
-            SignatureProviderEvent::Declined => "declined",
-            SignatureProviderEvent::Voided => "voided",
-            SignatureProviderEvent::Expired => "expired",
-            SignatureProviderEvent::Error => "error",
-        })
-        .bind(payload)
-        .execute(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("boldsign.webhook.record", &error))?;
+            .await?;
 
         Ok(SignatureWebhookVerification {
             event: neutral,
