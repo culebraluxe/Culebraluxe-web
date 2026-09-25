@@ -45,5 +45,6 @@ export function portalAuthBypassActor(): ActingUser {
     roleCodes: ['owner'],
     authorityCodes: [...TEMP_BYPASS_ALL_AUTHORITIES],
     personId: null,
+    securityLevel: 'ROOT',
   }
 }
