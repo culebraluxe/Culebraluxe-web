@@ -142,7 +142,7 @@ if [[ -z "$LIVE_SHA" ]]; then
   fail "Deployed, but ${PROD_URL}/api/build-info did not answer - cannot confirm what is live."
 fi
 if ! shasAgree "$LIVE_SHA" "$EXPECTED_SHA"; then
-  fail "Deployed artifact reports sha ${LIVE_SHA} but HEAD is ${EXPECTED_SHA}. Something else is serving production."
+  fail "Deployed artifact reports sha ${LIVE_SHA} but the artifact was built from ${EXPECTED_SHA}. Something else is serving production."
 fi
 printf '\nVERIFIED: production is serving %s.\n' "$LIVE_SHA"
 printf 'In the Cockpit, the corner reads V2 · %s.\n' "$LIVE_SHA"
