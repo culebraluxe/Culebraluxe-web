@@ -901,6 +901,12 @@ pub fn router(state: ApiState) -> Router {
             get(property_admin_detail).patch(save_property_admin),
         )
         .route("/v1/properties/{id}", get(property))
+        .route("/v1/media/{id}", get(private_media))
+        .route(
+            "/v1/media/upload",
+            post(upload_standalone_media)
+                .layer(DefaultBodyLimit::max(MAX_MEDIA_UPLOAD_BYTES + 1024 * 1024)),
+        )
         .route(
             "/v1/properties/{id}/media",
             get(property_media)
@@ -2074,6 +2080,115 @@ async fn property(
             )
         })?;
     Ok(success(value, &resolved))
+}
+
+async fn private_media(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let found = state
+        .services()
+        .media()
+        .media_bytes(&id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+
+    let Some((mime_type, bytes)) = found else {
+        return Err(correlate(
+            ApiError::not_found("MEDIA_NOT_FOUND", "Not found."),
+            &resolved,
+        ));
+    };
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, mime_type)
+        .header(header::CACHE_CONTROL, "private, no-store")
+        .body(Body::from(bytes))
+        .map_err(|error| {
+            correlate(
+                ApiError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "MEDIA_RESPONSE_FAILED",
+                    error.to_string(),
+                    false,
+                ),
+                &resolved,
+            )
+        })
+}
+
+async fn upload_standalone_media(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    mut multipart: Multipart,
+) -> Result<Json<ApiSuccess<serde_json::Value>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut file: Option<(String, String, Vec<u8>)> = None;
+
+    while let Some(field) = multipart.next_field().await.map_err(|error| {
+        correlate(
+            ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "MEDIA_MULTIPART_INVALID",
+                format!("Invalid media upload: {error}"),
+                false,
+            ),
+            &resolved,
+        )
+    })? {
+        if field.name() != Some("file") {
+            continue;
+        }
+        let filename = field.file_name().unwrap_or("upload").to_owned();
+        let mime_type = field
+            .content_type()
+            .unwrap_or("application/octet-stream")
+            .to_owned();
+        let bytes = field.bytes().await.map_err(|error| {
+            correlate(
+                ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    "MEDIA_FILE_INVALID",
+                    format!("Invalid media file: {error}"),
+                    false,
+                ),
+                &resolved,
+            )
+        })?;
+        file = Some((filename, mime_type, bytes.to_vec()));
+    }
+
+    let (filename, mime_type, bytes) = file.ok_or_else(|| {
+        correlate(
+            ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "MEDIA_FILE_REQUIRED",
+                "Image file is required.",
+                false,
+            ),
+            &resolved,
+        )
+    })?;
+
+    let value = state
+        .services()
+        .media()
+        .upload_standalone(&filename, &mime_type, bytes, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+
+    Ok(success(
+        json!({
+            "id": value.0,
+            "filename": value.1,
+            "mime_type": value.2,
+            "file_size": value.3,
+        }),
+        &resolved,
+    ))
 }
 
 async fn property_media(
