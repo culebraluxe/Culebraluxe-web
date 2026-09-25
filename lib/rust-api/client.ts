@@ -254,6 +254,12 @@ export async function rustApiNotifyWebsiteLead(submissionId: string): Promise<Ru
   return payload.value
 }
 
+
+export async function rustApiTechCockpit(selected?: string | null): Promise<any> {
+  const suffix = selected ? '?selected=' + encodeURIComponent(selected) : ''
+  return (await rustApiRead<any>('/v1/tech/cockpit' + suffix)).value
+}
+
 export type RustPublicListingCopy = { slug: string; tagline: string }
 
 /**
