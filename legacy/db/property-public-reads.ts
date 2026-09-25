@@ -317,7 +317,6 @@ export async function getProperties(opts: {
     ) hero on true
 
     where p.archived_at is null
-      and p.slug is not null
       and (
         (${publicOnly}::boolean and p.status in ('active', 'under_contract', 'sold'))
         or (${!publicOnly}::boolean and p.status in ('active', 'coming_soon', 'under_contract'))
@@ -449,7 +448,6 @@ export async function getFilteredProperties(
     ) hero on true
 
     where p.archived_at is null
-      and p.slug is not null
       and p.status in ('active', 'under_contract', 'sold')
       and p.is_active_listing = true
 
@@ -611,7 +609,6 @@ export async function getSimilarProperties(
 
     where p.id <> ${propertyId}
       and p.archived_at is null
-      and p.slug is not null
       and p.status in ('active', 'under_contract', 'sold')
       and p.is_active_listing = true
 
