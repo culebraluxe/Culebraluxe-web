@@ -4,10 +4,34 @@
 //! slug — the predicate the public inventory and the public document route use. A draft's tagline is not public copy.
 
 use crate::{Database, DbFailure, DbResult};
-use domain::{PublicListing, PublicListingCopy};
+use domain::{PublicListing, PublicListingCopy, PublicProperty};
 
 pub struct PublicListingDao {
     db: Database,
+}
+
+/// The row this read returns, named rather than positional: sqlx implements `FromRow` for tuples up to sixteen
+/// fields and this read needs eighteen, and named fields make the mapping below readable anyway.
+#[derive(sqlx::FromRow)]
+struct PropertyRow {
+    id: String,
+    row_key: String,
+    name: String,
+    status: String,
+    property_type: Option<String>,
+    list_price: Option<f64>,
+    city: Option<String>,
+    state_or_province: Option<String>,
+    neighborhood: Option<String>,
+    bedrooms: Option<i32>,
+    bathrooms: Option<f64>,
+    square_feet: Option<i32>,
+    lot_size: Option<f64>,
+    lot_size_units: Option<String>,
+    year_built: Option<i32>,
+    architecture_notes: Option<String>,
+    short_description: Option<String>,
+    editorial_description: Option<String>,
 }
 
 impl PublicListingDao {
@@ -55,6 +79,97 @@ impl PublicListingDao {
                 },
             )
             .collect())
+    }
+
+    /// One Property, resolved by whatever identifies it: its slug, its name (any case, spaces or dashes), or its id.
+    ///
+    /// The public site used to resolve this in TypeScript against the legacy SQL module. It lives here now, so the
+    /// property page and the buyers grid read the same way — through the service, in one language, with one rule.
+    ///
+    /// The hero is the marked photograph or the first one: a listing whose hero was never flagged still has a picture.
+    pub async fn property(&self, key: &str) -> DbResult<Option<PublicProperty>> {
+        let row = sqlx::query_as::<_, PropertyRow>(
+            r#"
+            select
+                p.id::text as id,
+                coalesce(p.slug, p.id::text) as row_key,
+                p.name,
+                p.status,
+                nullif(btrim(coalesce(p.property_type, '')), '') as property_type,
+                p.list_price::float8 as list_price,
+                p.city,
+                p.state_or_province,
+                p.neighborhood,
+                p.bedrooms::int as bedrooms,
+                p.bathrooms::float8 as bathrooms,
+                p.square_feet::int as square_feet,
+                coalesce(p.lot_size_acres, p.lot_size)::float8 as lot_size,
+                p.lot_size_units,
+                (p.year_built::text)::int as year_built,
+                p.architecture_notes,
+                p.short_description,
+                p.editorial_description
+            from property p
+            where (
+                    p.slug = $1
+                    or lower(p.name) = lower($1)
+                    or lower(replace($1, '-', ' ')) = lower(p.name)
+                    or p.id::text = $1
+                  )
+              and p.archived_at is null
+              and p.status in ('active', 'under_contract', 'sold')
+            limit 1
+            "#,
+        )
+        .bind(key)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("public_listing.property", &error))?;
+
+        let Some(row) = row else {
+            return Ok(None);
+        };
+
+        // The marked hero sorts first, then gallery order — so `first()` IS the hero whether or not one was flagged.
+        let media = sqlx::query_as::<_, (String, String)>(
+            r#"
+            select m.id::text, pm.role
+              from property_media pm
+              join media m on m.id = pm.media_id
+             where pm.property_id = $1::uuid
+               and m.media_type = 'image'
+             order by case when pm.role = 'hero' then 0 else 1 end, pm.sort_order, m.created_at
+            "#,
+        )
+        .bind(&row.id)
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("public_listing.property_media", &error))?;
+
+        let hero_media_id = media.first().map(|(media_id, _)| media_id.clone());
+        let gallery_media_ids = media.iter().map(|(media_id, _)| media_id.clone()).collect();
+
+        Ok(Some(PublicProperty {
+            key: row.row_key,
+            name: row.name,
+            status: row.status,
+            property_type: row.property_type,
+            list_price: row.list_price,
+            city: row.city,
+            state_or_province: row.state_or_province,
+            neighborhood: row.neighborhood,
+            bedrooms: row.bedrooms,
+            bathrooms: row.bathrooms,
+            square_feet: row.square_feet,
+            lot_size: row.lot_size,
+            lot_size_units: row.lot_size_units,
+            year_built: row.year_built,
+            architecture_notes: row.architecture_notes,
+            short_description: row.short_description,
+            editorial_description: row.editorial_description,
+            hero_media_id,
+            gallery_media_ids,
+        }))
     }
 
     /// Taglines for every published listing that has one. A listing with none is simply absent.

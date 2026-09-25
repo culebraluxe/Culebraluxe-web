@@ -381,6 +381,85 @@ export async function rustApiPublicGuide(): Promise<RustGuideItem[]> {
   return payload.value
 }
 
+/**
+ * One Property from the Rust public service (`GET /v1/public/property?key=…`).
+ *
+ * `key` is whatever names the row — the slug, the name in any case, the name with spaces, or the id — because the
+ * service resolves all of them. `null` means no such listing, which the page turns into a 404.
+ */
+export type RustPublicProperty = {
+  key: string
+  name: string
+  status: string
+  propertyType: string | null
+  listPrice: number | null
+  city: string | null
+  stateOrProvince: string | null
+  neighborhood: string | null
+  bedrooms: number | null
+  bathrooms: number | null
+  squareFeet: number | null
+  lotSize: number | null
+  lotSizeUnits: string | null
+  yearBuilt: number | null
+  architectureNotes: string | null
+  shortDescription: string | null
+  editorialDescription: string | null
+  heroMediaId: string | null
+  galleryMediaIds: string[]
+}
+
+/**
+ * THE PROPERTY PAGE'S READ, from Rust. The page used to get this through the TypeScript service kernel — the same
+ * data, but in the other language, which is how the two drifted apart in the first place.
+ */
+export async function rustApiPublicProperty(key: string): Promise<RustPublicProperty | null> {
+  const correlationId = randomUUID()
+  const headers = buildRustPublicBridgeHeaders({ internalApiKey: internalApiKey(), correlationId })
+
+  let response: Response
+  try {
+    response = await fetch(
+      `${rustApiBaseUrl()}/v1/public/property?key=${encodeURIComponent(key)}`,
+      { headers, cache: 'no-store' },
+    )
+  } catch (cause) {
+    throw new RustApiError({
+      status: 503,
+      code: 'RUST_API_UNAVAILABLE',
+      message: cause instanceof Error ? cause.message : 'Rust API request failed.',
+      retryable: true,
+      correlationId,
+    })
+  }
+
+  let payload: RustApiSuccess<RustPublicProperty | null> | RustApiFailure
+  try {
+    payload = (await response.json()) as RustApiSuccess<RustPublicProperty | null> | RustApiFailure
+  } catch {
+    throw new RustApiError({
+      status: 502,
+      code: 'RUST_API_INVALID_RESPONSE',
+      message: 'Rust API returned a non-JSON response.',
+      retryable: true,
+      correlationId,
+    })
+  }
+
+  if (!response.ok || !payload.ok) {
+    const failure = payload as RustApiFailure
+    throw new RustApiError({
+      status: response.status,
+      code: failure.error?.code ?? 'RUST_API_FAILURE',
+      message: failure.error?.message ?? 'Rust API request failed.',
+      retryable: failure.error?.retryable ?? false,
+      correlationId,
+    })
+  }
+
+  return payload.value
+}
+
 export async function rustApiPublicListingCopy(): Promise<RustPublicListingCopy[]> {
   const correlationId = randomUUID()
   const headers = buildRustPublicBridgeHeaders({ internalApiKey: internalApiKey(), correlationId })

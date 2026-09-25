@@ -47,7 +47,7 @@ pub use property::{
     PropertyStellarDetails, SavePropertyAdminRequest, SetPropertyDisplayNameRequest,
     SetPropertyStatusRequest, UpsertPropertyForPersonRequest,
 };
-pub use public_listing::{PublicListing, PublicListingCopy};
+pub use public_listing::{PublicListing, PublicListingCopy, PublicProperty, PublicPropertyImage};
 pub use website_lead::{WebsiteLead, WebsiteLeadNotice};
 
 pub use security::{

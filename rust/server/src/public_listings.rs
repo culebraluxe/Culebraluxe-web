@@ -6,12 +6,14 @@
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
 use db::{DbResult, PublicListingDao};
-use domain::{PublicListing, PublicListingCopy};
+use domain::{PublicListing, PublicListingCopy, PublicProperty};
 use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
 
 #[async_trait]
 pub trait PublicListingRepository: Send {
     async fn listings(&mut self) -> DbResult<Vec<PublicListing>>;
+    /// `None` means no such Property — a genuine not-found, not a failure.
+    async fn property(&mut self, key: &str) -> DbResult<Option<PublicProperty>>;
     async fn listing_copy(&mut self) -> DbResult<Vec<PublicListingCopy>>;
 }
 
@@ -19,6 +21,11 @@ pub trait PublicListingRepository: Send {
 impl PublicListingRepository for PublicListingDao {
     async fn listings(&mut self) -> DbResult<Vec<PublicListing>> {
         db::retrying_read!(PublicListingDao::listings(self))
+    }
+
+    async fn property(&mut self, key: &str) -> DbResult<Option<PublicProperty>> {
+        let key = key.to_owned();
+        db::retrying_read!(PublicListingDao::property(self, &key))
     }
 
     async fn listing_copy(&mut self) -> DbResult<Vec<PublicListingCopy>> {
@@ -54,6 +61,27 @@ impl<R: PublicListingRepository> PublicListingService<R> {
         )
         .await?;
         let result = self.repository.listings().await.map_err(Into::into);
+        audit_result(&self.runtime, "property", OP, context, decision, &result).await?;
+        result
+    }
+
+    /// One Property for the public site, resolved by any identifier that names it.
+    pub async fn property(
+        &mut self,
+        key: &str,
+        context: &ServiceContext,
+    ) -> Result<Option<PublicProperty>, CoreServiceError> {
+        const OP: &str = "property.publicProperty";
+        let decision = authorize(
+            &self.runtime,
+            "property",
+            "property.public.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+        let result = self.repository.property(key).await.map_err(Into::into);
         audit_result(&self.runtime, "property", OP, context, decision, &result).await?;
         result
     }
@@ -99,6 +127,21 @@ mod tests {
                 list_price: Some(1_000_000.0),
                 featured: true,
             }])
+        }
+
+        async fn property(&mut self, key: &str) -> DbResult<Option<PublicProperty>> {
+            if key == "estate" {
+                Ok(Some(PublicProperty {
+                    key: "estate".into(),
+                    name: "Estate".into(),
+                    status: "active".into(),
+                    hero_media_id: Some("media-1".into()),
+                    gallery_media_ids: vec!["media-1".into()],
+                    ..Default::default()
+                }))
+            } else {
+                Ok(None)
+            }
         }
 
         async fn listing_copy(&mut self) -> DbResult<Vec<PublicListingCopy>> {

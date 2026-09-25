@@ -722,6 +722,8 @@ pub fn router(state: ApiState) -> Router {
         // THE PUBLIC INVENTORY, served by the Rust service the way every other read is. The site's own thin proxy
         // shapes this for the buyers grid, so the grid stops reaching into the database itself.
         .route("/v1/public/listings", get(public_listings))
+        // ONE PROPERTY, by any key that names it: slug, name, or id. The property page reads this.
+        .route("/v1/public/property", get(public_property))
         .route("/v1/public/guide", get(public_guide))
         .route("/v1/website-intake/{id}/notify", post(notify_website_lead))
         .route(
@@ -2914,6 +2916,31 @@ async fn public_guide(
         .await
         .map_err(ApiError::from)?;
     Ok(success_with_correlation(items, &context.correlation_id))
+}
+
+#[derive(serde::Deserialize)]
+struct PublicPropertyQuery {
+    /// Whatever names the Property: its slug, its name in any case, or its id.
+    key: String,
+}
+
+/// One Property, for the public page. Anonymous, the same guest door as the inventory, the same published action.
+///
+/// A key that resolves to nothing answers `null`, not an error: "no such listing" is a 404 for the page, not a fault
+/// in the service.
+async fn public_property(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Query(query): Query<PublicPropertyQuery>,
+) -> Result<Json<ApiSuccess<Option<domain::PublicProperty>>>, ApiError> {
+    let context = resolve_public_guest_context(&state, &headers)?;
+    let property = state
+        .services()
+        .public_listings()
+        .property(query.key.trim(), &context)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(success_with_correlation(property, &context.correlation_id))
 }
 
 /// The inventory of the public site, for the anonymous buyer: the same guest door and the same published action as

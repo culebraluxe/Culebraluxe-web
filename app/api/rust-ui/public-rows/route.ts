@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { getMarketingContent } from '@/legacy/db/marketing-content'
-// THE DETAIL READ GOES THROUGH THE SERVICE TOO. It used to reach the legacy SQL module directly; the service kernel
-// (lib/property-reads → property.bySlug → the repository) exposes the same function, and using it here means the
-// public site has one path to property data instead of two.
-import { getPropertyBySlug } from '@/lib/property-reads'
-import { rustApiPublicListings } from '@/lib/rust-api/client'
+// THE PUBLIC PROPERTY READS COME FROM RUST. The grid and the record page used to reach the TypeScript kernel for this
+// data; both go through the public service now — one door, one rule, for either surface.
+import { rustApiPublicListings, rustApiPublicProperty } from '@/lib/rust-api/client'
 import { MARKETING_SLOTS } from '@/lib/marketing-content'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
@@ -62,41 +60,40 @@ async function listingRows(): Promise<RustUiRow[]> {
  */
 async function recordRows(scope: string | null): Promise<RustUiRow[]> {
   if (!scope) {
-    throw new Error('a property record needs a slug, and none was given')
+    throw new Error('a property record needs a key, and none was given')
   }
-  const result = await getPropertyBySlug(scope)
-  if (!result.ok) throw new Error(`the property could not be read: ${result.error.kind}`)
-  const record = result.data
-  if (!record) return []
+  // FROM THE RUST SERVICE. This used to go through the TypeScript kernel for the same facts; now the property page
+  // reads the same way the grid does. A key that resolves to nothing is an empty page, not an error.
+  const property = await rustApiPublicProperty(scope)
+  if (!property) return []
 
-  const { property } = record
-  // EVERY PROPERTY WE SELL IS ON CULEBRA, so a missing city is not a problem to report — it is the only answer there
-  // is. Defaulting it removes a precondition that could never have failed for a real reason.
+  // EVERY PROPERTY WE SELL IS ON CULEBRA, so a missing city is the only answer there is, not a gap to report.
   const location =
     [property.city, property.stateOrProvince].filter(Boolean).join(', ') ||
     property.neighborhood ||
     'Culebra, PR'
   const bedsBaths = [
-    property.bedroomsTotal ? `${property.bedroomsTotal} bed` : null,
-    property.bathroomsTotal ? `${property.bathroomsTotal} bath` : null,
+    property.bedrooms ? `${property.bedrooms} bed` : null,
+    property.bathrooms ? `${property.bathrooms} bath` : null,
   ]
     .filter(Boolean)
     .join(' · ')
 
   return [
-    facts('Price', property.listPrice ? money(property.listPrice) : null),
-    facts('Status', property.standardStatus),
+    // A price is a number. Blank is zero.
+    facts('Price', money(property.listPrice ?? 0)),
+    facts('Status', property.status),
     facts('Type', property.propertyType),
     facts('Location', location),
     facts('Bedrooms and baths', bedsBaths),
-    facts('Living area', property.livingArea ? `${property.livingArea} sq ft` : null),
-    facts('Lot', property.lotSizeArea ? `${property.lotSizeArea} ${property.lotSizeUnits ?? ''}`.trim() : null),
+    facts('Living area', property.squareFeet ? `${property.squareFeet} sq ft` : null),
+    facts('Lot', property.lotSize ? `${property.lotSize} ${property.lotSizeUnits ?? ''}`.trim() : null),
     facts('Year built', property.yearBuilt),
-    facts('Architecture', property.architecture),
-    facts('Hero image', record.heroUrl ? 'present' : 'missing'),
-    facts('Gallery', record.galleryImages.length ? `${record.galleryImages.length} image(s)` : null),
-    facts('Videos', record.videos.length ? `${record.videos.length} video(s)` : null),
-    facts('Documents', record.documents.length ? `${record.documents.length} document(s)` : null),
+    facts('Architecture', property.architectureNotes),
+    // The hero is the marked photograph or the first one, so this is only ever "missing" for a Property with no
+    // photographs at all.
+    facts('Hero image', property.heroMediaId ? 'present' : 'missing'),
+    facts('Gallery', property.galleryMediaIds.length ? `${property.galleryMediaIds.length} image(s)` : null),
     facts('Description', property.shortDescription ?? property.editorialDescription),
   ].filter((row): row is RustUiRow => row !== null)
 }
