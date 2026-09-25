@@ -24,9 +24,13 @@ pub struct TechCommandRequest {
     pub action: String,
     pub story_id: Option<String>,
     pub stop_after: Option<String>,
+    pub launch_intent: Option<String>,
     pub scheduled_for: Option<String>,
+    pub label: Option<String>,
     pub batch_id: Option<String>,
+    pub source: Option<String>,
     pub target: Option<String>,
+    pub active: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,4 +38,6 @@ pub struct TechCommandRequest {
 pub struct TechCommandResult {
     pub ok: bool,
     pub message: String,
+    #[serde(default)]
+    pub data: Value,
 }
