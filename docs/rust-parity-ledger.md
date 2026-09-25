@@ -34,7 +34,7 @@ questions on purpose: a port can be complete and still cut over to nothing.
 
 ## The live Rust surface
 
-72 routes mounted (read from the router, not from this file):
+75 routes mounted (read from the router, not from this file):
 
 - `/healthz` _(infrastructure)_
 - `/readyz` _(infrastructure)_
@@ -70,6 +70,9 @@ questions on purpose: a port can be complete and still cut over to nothing.
 - `/v1/properties/{id}`
 - `/v1/properties/{id}/media`
 - `/v1/properties/{id}/video`
+- `/v1/properties/{id}/media/uploads`
+- `/v1/properties/{id}/media/uploads/{upload_id}/chunks/{index}`
+- `/v1/properties/{id}/media/uploads/{upload_id}/complete`
 - `/v1/properties/{id}/video-uploads`
 - `/v1/properties/{id}/video-uploads/{upload_id}/finalize`
 - `/v1/deals`
@@ -139,6 +142,9 @@ questions on purpose: a port can be complete and still cut over to nothing.
 - route /v1/properties/admin is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
 - route /v1/properties/{id}/admin is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
 - route /v1/properties/{id}/video is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/properties/{id}/media/uploads is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/properties/{id}/media/uploads/{upload_id}/chunks/{index} is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+- route /v1/properties/{id}/media/uploads/{upload_id}/complete is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
 - route /v1/properties/{id}/video-uploads is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
 - route /v1/properties/{id}/video-uploads/{upload_id}/finalize is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
 - route /v1/deals is mounted but belongs to no capability — add it to scripts/rust-parity-map.json

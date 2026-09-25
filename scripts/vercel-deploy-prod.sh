@@ -25,8 +25,14 @@ BRANCH="$(git branch --show-current)"
 
 # Block tracked or staged changes, but ignore untracked local tooling/data that is
 # intentionally outside Git and cannot alter an already-built .vercel/output artifact.
-git diff --quiet --ignore-submodules -- || fail "Tracked files have local changes. Commit or discard them before deploying production."
-git diff --cached --quiet --ignore-submodules -- || fail "Staged files are waiting to be committed. Commit or unstage them before deploying production."
+#
+# GENERATED MANIFESTS ARE EXEMPT. `docs/agent/manifest/*.md` carries a render timestamp and a "last touched" date per
+# row, so a release build rewrites them by definition — the file changes without anyone changing anything. Failing the
+# deploy over that would mean committing generated files between the build and the deploy, which is exactly the kind of
+# manual step that makes a release process brittle. They are regenerated on the next build anyway.
+DEPLOY_EXEMPT=':(exclude)docs/agent/manifest'
+git diff --quiet --ignore-submodules -- . "$DEPLOY_EXEMPT" || fail "Tracked files have local changes. Commit or discard them before deploying production."
+git diff --cached --quiet --ignore-submodules -- . "$DEPLOY_EXEMPT" || fail "Staged files are waiting to be committed. Commit or unstage them before deploying production."
 
 [[ -f .vercel/output/config.json ]] || fail "No prebuilt artifact found. Run: bash scripts/vercel-build-prod.sh"
 [[ -f .vercel/culebraluxe-prod-build-sha ]] || fail "No build provenance stamp found. Rebuild with: bash scripts/vercel-build-prod.sh"

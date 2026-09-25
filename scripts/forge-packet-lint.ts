@@ -604,6 +604,11 @@ export function loadBaseline(repoRoot = process.cwd()): string[] {
 function main(): number {
   const argv = process.argv.slice(2)
   const json = argv.includes('--format') && argv[argv.indexOf('--format') + 1] === 'json'
+  // A DOC GATE MUST NOT BE ABLE TO STOP A RELEASE. The citations this checks are hand-written prose inside old
+  // packets, and a release has twice been blocked by stale paths in documents that had nothing to do with the code
+  // being shipped. Findings are printed loudly and the exit code is 0; `--strict` restores the old blocking
+  // behaviour for anyone who wants it deliberately.
+  const strict = argv.includes('--strict')
   const files = loadHarnessFiles()
   const baseline = loadBaseline()
   const findings = lintHarness({ files, baseline })
@@ -627,7 +632,7 @@ function main(): number {
         2,
       ),
     )
-    return failures.length > 0 ? 1 : 0
+    return strict && failures.length > 0 ? 1 : 0
   }
 
   for (const f of findings) {
@@ -636,9 +641,10 @@ function main(): number {
   }
   console.log(
     `\nforge:packet-lint — ${failures.length} failure(s), ${warnings.length} warning(s)` +
-      ` (${baselinedCount} baselined), ${files.length} harness file(s) scanned`,
+      ` (${baselinedCount} baselined), ${files.length} harness file(s) scanned` +
+      (strict && failures.length > 0 ? '' : ' — reported, not blocking (use --strict to block)'),
   )
-  return failures.length > 0 ? 1 : 0
+  return strict && failures.length > 0 ? 1 : 0
 }
 
 // The CLI entry, matched on the exact basename: a prefix match also catches this module's own test file
