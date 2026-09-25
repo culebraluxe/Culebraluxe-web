@@ -7,16 +7,16 @@ import { NextResponse, type NextRequest } from 'next/server'
 export const dynamic = 'force-dynamic'
 
 
-import { getMarketingContent } from '@/legacy/db/marketing-content'
-import { getPropertyBySlug, getPublicPropertySlugs, getSimilarProperties } from '@/lib/property-reads'
 import {
   blockById,
   buildContactPageContent,
   buildFaqPageContent,
   buildHomeContent,
   MARKETING_SLOTS,
+  type MarketingContentBlock,
 } from '@/lib/marketing-content'
 import { formatArea, formatPrice } from '@/lib/property'
+import type { PropertyDetailResult } from '@/lib/property-types'
 // THE PUBLIC INVENTORY COMES FROM RUST. This route used to read the published properties through the TypeScript
 // kernel — the same data the buyers grid reached for through a different door, which is how the two could disagree
 // about what "on the site" means. One read now, in one language.
@@ -28,9 +28,129 @@ import {
 } from '@/lib/rust-api/client'
 // STILL TYPESCRIPT, FOR NOW: `getPropertyBySlug` feeds the property page's RECORD — hero, gallery, videos, documents —
 // which is a bigger object than the detail facts. The inventory, the cards, the strip and the sitemap are all Rust now.
-import type { PropertySummary } from '@/legacy/services/property'
 import { withApiHandler, withServerErrorCapture } from '@/lib/error-capture-seam'
-import { rustApiPublicGuide, rustApiPublicListingCopy } from '@/lib/rust-api/client'
+import {
+  rustApiPublicGuide,
+  rustApiPublicListingCopy,
+  rustApiPublicMarketingContent,
+  rustApiPublicProperty,
+  type RustPublicProperty,
+} from '@/lib/rust-api/client'
+
+async function getMarketingContent(): Promise<
+  | { ok: true; data: MarketingContentBlock[] }
+  | { ok: false; error: { kind: 'UNKNOWN' } }
+> {
+  try {
+    return {
+      ok: true,
+      data: (await rustApiPublicMarketingContent()) as MarketingContentBlock[],
+    }
+  } catch {
+    return { ok: false, error: { kind: 'UNKNOWN' } }
+  }
+}
+
+function propertyDetailFromRust(property: RustPublicProperty): PropertyDetailResult {
+  const images = property.media.filter((item) => item.mediaType === 'image')
+  const hero = property.heroMediaId
+    ? images.find((item) => item.id === property.heroMediaId) ?? null
+    : images[0] ?? null
+
+  return {
+    property: {
+      _id: property.id,
+      title: property.name,
+      listingId: property.listingIdentifier,
+      standardStatus: property.status,
+      propertyType: property.propertyType,
+      listPrice: property.listPrice,
+      city: property.city,
+      stateOrProvince: property.stateOrProvince,
+      neighborhood: property.neighborhood,
+      latitude: property.latitude,
+      longitude: property.longitude,
+      bedroomsTotal: property.bedrooms,
+      bathroomsFull: property.bathroomsFull,
+      bathroomsHalf: property.bathroomsHalf,
+      bathroomsTotal: property.bathrooms,
+      livingArea: property.squareFeet,
+      lotSizeArea: property.lotSize,
+      lotSizeUnits: property.lotSizeUnits,
+      lotSizeSqft: property.lotSizeSqft,
+      roadFrontageFeet: property.roadFrontageFeet,
+      roadSurfaceType: property.roadSurfaceType,
+      lotDescription: property.lotDescription,
+      utilitiesNotes: property.utilitiesNotes,
+      yearBuilt: property.yearBuilt,
+      stories: property.stories,
+      parkingSpaces: property.parkingSpaces,
+      viewType: property.viewType,
+      waterAccess: property.waterAccess,
+      beachAccess: property.beachAccess,
+      amenities: property.amenities,
+      shortDescription: property.shortDescription,
+      editorialDescription: property.editorialDescription,
+      architecture: property.architectureNotes,
+      lifestyleTags: property.lifestyleTags,
+      listingAgentName: property.listingAgentName,
+      listingAgentEmail: property.listingAgentEmail,
+      listingAgentPhone: property.listingAgentPhone,
+      listingOffice: property.listingOffice,
+    },
+    heroUrl: hero ? `/api/media/${hero.id}` : null,
+    galleryImages: images
+      .filter((item) => item.id !== hero?.id)
+      .map((item) => ({
+        url: `/api/media/${item.id}`,
+        alt: item.altText ?? property.name,
+        caption: item.caption,
+      })),
+    videos: property.media
+      .filter(
+        (item) =>
+          item.mediaType === 'video' &&
+          typeof item.muxPlaybackId === 'string' &&
+          item.muxPlaybackId.length > 0,
+      )
+      .map((item) => ({
+        id: item.id,
+        playbackId: item.muxPlaybackId as string,
+        role: item.role === 'short' ? ('short' as const) : ('video' as const),
+        title: item.filename ?? item.caption ?? property.name,
+        caption: item.caption,
+        aspectRatio: item.aspectRatio,
+        durationSeconds: item.durationSeconds,
+      })),
+    documents: property.media
+      .filter((item) => item.mediaType === 'document')
+      .map((item) => ({
+        id: item.id,
+        title: item.caption ?? item.filename ?? 'Document',
+        filename: item.filename ?? 'document',
+        mimeType: item.mimeType ?? 'application/octet-stream',
+        fileSize: item.fileSize,
+        sortOrder: item.sortOrder,
+      })),
+  }
+}
+
+async function getPropertyBySlug(
+  slug: string,
+): Promise<
+  | { ok: true; data: PropertyDetailResult | null }
+  | { ok: false; error: { kind: 'UNKNOWN' } }
+> {
+  try {
+    const property = await rustApiPublicProperty(slug)
+    return {
+      ok: true,
+      data: property ? propertyDetailFromRust(property) : null,
+    }
+  } catch {
+    return { ok: false, error: { kind: 'UNKNOWN' } }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // PAGE CONTENT FOR THE RUST UI ON THE PUBLIC SITE.
