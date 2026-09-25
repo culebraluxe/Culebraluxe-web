@@ -2,9 +2,10 @@
 // Narrow on purpose: only what authorization needs. No tokens, no connection
 // details, no provider credentials.
 
-import type { SecurityLevel } from '@/legacy/services/security/level'
-
 export type AccountType = 'internal' | 'external'
+
+// Rust SecurityService is the canonical owner of this projection.
+export type SecurityLevel = 'GUEST' | 'USER' | 'BUSINESS_POWER_USER' | 'ROOT'
 
 export type RoleCode =
   | 'owner'
@@ -36,6 +37,8 @@ export type ActingUser = {
   /** Effective role grants. Empty for legacy or unmigrated projections. */
   entitlementCodes?: string[]
   personId: string | null
+  /** Resolved by Rust SecurityService. Optional only for old test fixtures. */
+  securityLevel?: SecurityLevel
 }
 
 // A provider-verified identity claim, extracted from the session by an adapter.
