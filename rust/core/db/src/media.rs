@@ -91,6 +91,52 @@ impl MediaDao {
         Self { db }
     }
 
+    pub async fn media_bytes(&self, id: &str) -> DbResult<Option<(String, Vec<u8>)>> {
+        sqlx::query_as::<_, (String, Vec<u8>)>(
+            r#"
+            select coalesce(copy.mime_type, m.mime_type),
+                   coalesce(copy.file_data, m.file_data)
+              from media m
+              join media root on root.id = coalesce(m.derivative_of, m.id)
+              left join lateral (
+                  select d.file_data, d.mime_type
+                    from media d
+                   where d.derivative_of = root.id
+                     and d.derivative_kind = 'web'
+                   limit 1
+              ) copy on true
+             where m.id = $1::uuid
+             limit 1
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("media.bytes", &error))
+    }
+
+    pub async fn upload_standalone(
+        &self,
+        filename: &str,
+        mime_type: &str,
+        bytes: &[u8],
+    ) -> DbResult<(String, String, String, i64)> {
+        sqlx::query_as::<_, (String, String, String, i64)>(
+            r#"
+            insert into media (file_data, filename, mime_type, file_size, media_type)
+            values ($1, $2, $3, $4, 'image')
+            returning id::text, filename, mime_type, file_size
+            "#,
+        )
+        .bind(bytes)
+        .bind(filename)
+        .bind(mime_type)
+        .bind(bytes.len() as i64)
+        .fetch_one(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("media.upload_standalone", &error))
+    }
+
     pub async fn for_property(&self, property_id: &str) -> DbResult<Vec<MediaAsset>> {
         let rows = sqlx::query_as::<_, MediaRow>(
             r#"
