@@ -4,7 +4,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
-import type { PortalActorSnapshot } from '@/lib/auth/types'
+import type { PortalActorSnapshot, SecurityLevel } from '@/lib/auth/types'
 import {
   CommandPalette,
   type PaletteClient,
@@ -17,7 +17,19 @@ import {
   surfaceForPathname,
   surfaceHome,
 } from '@/lib/navigation'
-import { hasSecurityLevel } from '@/legacy/services/security/level'
+
+// Cosmetic display ordering only. This is not an authorization decision: every
+// destination is independently authorized by Rust at its server boundary.
+const DISPLAY_LEVEL: Record<SecurityLevel, number> = {
+  GUEST: 0,
+  USER: 1,
+  BUSINESS_POWER_USER: 2,
+  ROOT: 3,
+}
+
+function canDisplayLevel(current: SecurityLevel, required: SecurityLevel): boolean {
+  return DISPLAY_LEVEL[current] >= DISPLAY_LEVEL[required]
+}
 
 // ---------------------------------------------------------------------------
 // UI-01 — Operating shell: one application, five operating worlds, ONE
@@ -53,7 +65,7 @@ export function OperatingShell({
   const visibleItems = navigationForSurface(activeSurface).filter((item) => {
     const levelVisible =
       !item.minSecurityLevel ||
-      hasSecurityLevel(actor.securityLevel, item.minSecurityLevel)
+      canDisplayLevel(actor.securityLevel, item.minSecurityLevel)
     const authorityVisible =
       !item.authority || actor.authorityCodes.includes(item.authority)
     const entitlementVisible = actor.accountType === 'internal' &&
@@ -82,7 +94,7 @@ export function OperatingShell({
       const def = OPERATING_SURFACES[s]
       const levelVisible =
         !def.minSecurityLevel ||
-        hasSecurityLevel(actor.securityLevel, def.minSecurityLevel)
+        canDisplayLevel(actor.securityLevel, def.minSecurityLevel)
       const authorityVisible =
         !def.accessAuthority ||
         actor.authorityCodes.includes(def.accessAuthority)
