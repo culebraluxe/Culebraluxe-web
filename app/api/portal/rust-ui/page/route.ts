@@ -1,12 +1,10 @@
 import { NextResponse, type NextRequest } from 'next/server'
 
-import { getActivityFeed } from '@/legacy/db/activity-feed'
 import { getPortalActingUser } from '@/lib/auth/portal-session'
 import { withApiHandler } from '@/lib/error-capture-seam'
 import { accountingPayload, isAccountingScreen } from '@/lib/portal-rust-ui/accounting-payload'
 import { isSupportScreen, supportPayload } from '@/lib/portal-rust-ui/support-payload'
-import { rustApiRead } from '@/lib/rust-api/client'
-import { listStoryboardStories } from '@/lib/storyboard-reads'
+import { rustApiRead, rustApiTechCockpit } from '@/lib/rust-api/client'
 import { buildStoryBoardCockpit, buildStoryBoardModel } from '@/lib/storyboard-data'
 
 // A portal screen's payload in the screen's own shape — never flattened generic cells.
@@ -32,13 +30,8 @@ async function GETHandler(req: NextRequest): Promise<Response> {
   }
   switch (screen) {
     case 'storyboard': {
-      const stories = await listStoryboardStories()
-      if (!stories) {
-        return NextResponse.json({ storyboard: null })
-      }
-
-      // Reuse the canonical TypeScript projection that powers the production Story Board. Rust receives only the
-      // display contract, not a second interpretation of lifecycle status or subgroup taxonomy.
+      const snapshot = await rustApiTechCockpit()
+      const stories = Array.isArray(snapshot?.stories) ? snapshot.stories : []
       const cockpit = buildStoryBoardCockpit(buildStoryBoardModel(stories))
       const panel = (bucket: 'open' | 'backlog' | 'closed' | 'next-version') => {
         const source = cockpit.panels[bucket]
@@ -71,9 +64,21 @@ async function GETHandler(req: NextRequest): Promise<Response> {
       })
     }
     case 'activity': {
-      const entries = await getActivityFeed(50)
+      const entries = await rustApiRead<Array<{
+        id: string
+        channel: string
+        direction: string | null
+        occurredAtLabel: string
+        title: string | null
+        summary: string | null
+        personId: string | null
+        personName: string | null
+        propertyName: string | null
+        dealId: string | null
+        dealPropertyName: string | null
+      }>>('/v1/activity?limit=50' as `/v1/${string}`)
       return NextResponse.json({
-        activity: entries.map((entry) => ({
+        activity: entries.value.map((entry) => ({
           id: entry.id,
           channel: entry.channel,
           direction: entry.direction,
