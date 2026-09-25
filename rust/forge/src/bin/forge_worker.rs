@@ -1,6 +1,6 @@
 //! Scheduled production worker. Replaces scripts/agent-work-entry.ts.
 fn main() {
-    if (std::env::var("APP_ENV").unwrap_or_else(|_| "development".into()) != "production" {
+    if std::env::var("APP_ENV").unwrap_or_else(|_| "development".into()) != "production" {
         eprintln!("forge-worker must target production; set APP_ENV=production");
         std::process::exit(2);
     }
