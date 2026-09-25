@@ -22,6 +22,7 @@ pub mod security;
 pub mod showing;
 pub mod signature;
 pub mod task;
+pub mod tech;
 pub mod vault;
 pub mod wbs;
 pub mod website_lead;
@@ -117,6 +118,7 @@ pub use signature::{
 };
 
 pub use task::TaskCompletion;
+pub use tech::*;
 
 pub use workflow_portal::*;
 
