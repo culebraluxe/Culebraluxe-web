@@ -23,6 +23,7 @@ pub mod people;
 pub mod projects;
 pub mod properties;
 pub mod public_listings;
+pub mod relationship_evidence;
 pub mod security;
 pub mod service_support;
 pub mod showings;
