@@ -25,6 +25,7 @@ pub mod graph;
 pub mod hold;
 pub mod hold_resolve;
 pub mod integration;
+pub mod learn;
 pub mod migration_guard;
 pub mod neon_sql;
 pub mod observer;
