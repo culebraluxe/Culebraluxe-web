@@ -101,8 +101,8 @@ export async function createExpenseAction(
   const vendor = String(formData.get('vendor') ?? '').trim()
   const amount = parseAmount(String(formData.get('amount') ?? ''))
   if (!vendor) return { ok: false, error: 'Vendor is required.' }
-  if (amount === null || amount < 0)
-    return { ok: false, error: 'Amount must be a non-negative number.' }
+  if (amount === null)
+    return { ok: false, error: 'Amount must be a number.' }
 
   try {
     const result = await rustApiCreateExpense<{ id: string }>({
