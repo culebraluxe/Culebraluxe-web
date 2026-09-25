@@ -542,6 +542,134 @@ export async function rustApiPublicProperty(key: string): Promise<RustPublicProp
  * ANSI: this returns raw bytes, not JSON, because that is what a photograph is. `null` means not-found or
  * not-published — the service deliberately does not distinguish, and neither does this.
  */
+export async function rustApiPrivateMedia(
+  id: string,
+): Promise<{ contentType: string; bytes: Uint8Array } | null> {
+  const identity =
+    (await createAuthJsSessionAdapter().getSession()) ??
+    (await bypassBridgeIdentity())
+  if (!identity) {
+    throw new RustApiError({
+      status: 401,
+      code: 'AUTH_IDENTITY_REQUIRED',
+      message: 'An authenticated provider identity is required.',
+    })
+  }
+
+  const correlationId = randomUUID()
+  const headers = buildRustBridgeHeaders({
+    identity,
+    internalApiKey: internalApiKey(),
+    correlationId,
+  })
+
+  let response: Response
+  try {
+    response = await fetch(
+      `${rustApiBaseUrl()}/v1/media/${encodeURIComponent(id)}`,
+      { headers, cache: 'no-store' },
+    )
+  } catch (cause) {
+    throw new RustApiError({
+      status: 503,
+      code: 'RUST_API_UNAVAILABLE',
+      message: cause instanceof Error ? cause.message : 'Rust API request failed.',
+      retryable: true,
+      correlationId,
+    })
+  }
+
+  if (response.status === 404) return null
+  if (!response.ok) {
+    throw new RustApiError({
+      status: response.status,
+      code: 'RUST_API_FAILURE',
+      message: 'The private media read failed.',
+      retryable: response.status >= 500,
+      correlationId,
+    })
+  }
+
+  return {
+    contentType: response.headers.get('content-type') ?? 'application/octet-stream',
+    bytes: new Uint8Array(await response.arrayBuffer()),
+  }
+}
+
+export async function rustApiStandaloneMediaUpload(
+  file: File,
+): Promise<{ id: string; filename: string; mime_type: string; file_size: number }> {
+  const identity =
+    (await createAuthJsSessionAdapter().getSession()) ??
+    (await bypassBridgeIdentity())
+  if (!identity) {
+    throw new RustApiError({
+      status: 401,
+      code: 'AUTH_IDENTITY_REQUIRED',
+      message: 'An authenticated provider identity is required.',
+    })
+  }
+
+  const correlationId = randomUUID()
+  const headers = buildRustBridgeHeaders({
+    identity,
+    internalApiKey: internalApiKey(),
+    correlationId,
+  })
+  const body = new FormData()
+  body.set('file', file)
+
+  let response: Response
+  try {
+    response = await fetch(`${rustApiBaseUrl()}/v1/media/upload`, {
+      method: 'POST',
+      headers,
+      body,
+      cache: 'no-store',
+    })
+  } catch (cause) {
+    throw new RustApiError({
+      status: 503,
+      code: 'RUST_API_UNAVAILABLE',
+      message: cause instanceof Error ? cause.message : 'Rust API request failed.',
+      retryable: true,
+      correlationId,
+    })
+  }
+
+  const payload = (await response.json().catch(() => null)) as
+    | RustApiSuccess<{
+        id: string
+        filename: string
+        mime_type: string
+        file_size: number
+      }>
+    | RustApiFailure
+    | null
+  if (!payload) {
+    throw new RustApiError({
+      status: 502,
+      code: 'RUST_API_INVALID_RESPONSE',
+      message: 'Rust API returned a non-JSON response.',
+      retryable: true,
+      correlationId,
+    })
+  }
+  if (!response.ok || !payload.ok) {
+    const failure = payload as RustApiFailure
+    throw new RustApiError({
+      status: response.status,
+      code: failure.error?.code ?? 'RUST_API_FAILURE',
+      message: failure.error?.message ?? 'Rust API request failed.',
+      retryable: failure.error?.retryable ?? response.status >= 500,
+      correlationId: failure.correlationId ?? correlationId,
+      incidentId: failure.error?.incidentId ?? null,
+    })
+  }
+
+  return payload.value
+}
+
 export async function rustApiPublicMedia(
   id: string,
 ): Promise<{ contentType: string; bytes: Uint8Array } | null> {
