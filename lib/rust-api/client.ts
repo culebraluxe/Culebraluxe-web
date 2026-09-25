@@ -328,6 +328,59 @@ export async function rustApiPublicListings(): Promise<RustPublicListing[]> {
   return payload.value
 }
 
+export type RustGuideItem = {
+  slug: string
+  section: string
+  name: string
+  eyebrow: string | null
+  subtitle: string | null
+  area: string | null
+  description: string
+  note: string | null
+  address: string | null
+  phone: string | null
+  websiteUrl: string | null
+  latitude: number | null
+  longitude: number | null
+  sortOrder: number
+  imagePath: string | null
+  imageAlt: string | null
+}
+
+/** Published Island Guide from the Rust Guide service. */
+export async function rustApiPublicGuide(): Promise<RustGuideItem[]> {
+  const correlationId = randomUUID()
+  const headers = buildRustPublicBridgeHeaders({ internalApiKey: internalApiKey(), correlationId })
+  let response: Response
+  try {
+    response = await fetch(\`${rustApiBaseUrl()}/v1/public/guide\`, { headers, cache: 'no-store' })
+  } catch (cause) {
+    throw new RustApiError({
+      status: 503,
+      code: 'RUST_API_UNAVAILABLE',
+      message: cause instanceof Error ? cause.message : 'Rust API request failed.',
+      retryable: true,
+      correlationId,
+    })
+  }
+  const payload = (await response.json().catch(() => null)) as RustApiSuccess<RustGuideItem[]> | RustApiFailure | null
+  if (!payload) {
+    throw new RustApiError({ status: 502, code: 'RUST_API_INVALID_RESPONSE', message: 'Rust API returned a non-JSON response.', retryable: true, correlationId })
+  }
+  if (!response.ok || !payload.ok) {
+    const failure = payload as RustApiFailure
+    throw new RustApiError({
+      status: response.status,
+      code: failure.error?.code ?? 'RUST_API_FAILURE',
+      message: failure.error?.message ?? 'Rust API request failed.',
+      retryable: failure.error?.retryable ?? response.status >= 500,
+      correlationId: failure.correlationId ?? correlationId,
+      incidentId: failure.error?.incidentId ?? null,
+    })
+  }
+  return payload.value
+}
+
 export async function rustApiPublicListingCopy(): Promise<RustPublicListingCopy[]> {
   const correlationId = randomUUID()
   const headers = buildRustPublicBridgeHeaders({ internalApiKey: internalApiKey(), correlationId })
