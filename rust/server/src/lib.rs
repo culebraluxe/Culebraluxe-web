@@ -27,6 +27,7 @@ pub mod service_support;
 pub mod showings;
 pub mod signature;
 pub mod task;
+pub mod tech;
 pub mod vault;
 pub mod wbs;
 pub mod website_leads;
