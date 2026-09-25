@@ -308,9 +308,10 @@ export async function getProperties(opts: {
       join media m
         on m.id = pm.media_id
       where pm.property_id = p.id
-        and pm.role = 'hero'
+        and pm.role in ('hero', 'gallery')
         and m.media_type = 'image'
       order by
+        case when pm.role = 'hero' then 0 else 1 end asc,
         pm.sort_order asc,
         pm.created_at asc
       limit 1
@@ -439,9 +440,10 @@ export async function getFilteredProperties(
       join media m
         on m.id = pm.media_id
       where pm.property_id = p.id
-        and pm.role = 'hero'
+        and pm.role in ('hero', 'gallery')
         and m.media_type = 'image'
       order by
+        case when pm.role = 'hero' then 0 else 1 end asc,
         pm.sort_order asc,
         pm.created_at asc
       limit 1
@@ -599,9 +601,10 @@ export async function getSimilarProperties(
       join media m
         on m.id = pm.media_id
       where pm.property_id = p.id
-        and pm.role = 'hero'
+        and pm.role in ('hero', 'gallery')
         and m.media_type = 'image'
       order by
+        case when pm.role = 'hero' then 0 else 1 end asc,
         pm.sort_order asc,
         pm.created_at asc
       limit 1
