@@ -28,6 +28,7 @@ mod pool;
 mod project;
 mod property;
 mod public_listing;
+mod relationship_evidence;
 mod website_lead;
 mod whatsapp;
 // Public because the `retrying_read!` macro expands inside other crates and has to name these helpers there.
@@ -82,6 +83,7 @@ pub use pool::{resolve_declared_target, Database, DbTarget};
 pub use project::{ProjectDao, ProjectTxDao};
 pub use property::PropertyDao;
 pub use public_listing::PublicListingDao;
+pub use relationship_evidence::RelationshipEvidenceDao;
 pub use retry::{retry, RetryPolicy};
 pub use security::SecurityDao;
 pub use security_audit::SecurityAuditDao;
