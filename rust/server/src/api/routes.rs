@@ -727,6 +727,9 @@ pub fn router(state: ApiState) -> Router {
         // ONE PHOTOGRAPH'S BYTES. The web copy when there is one, the original otherwise — the site never sends a
         // 13 MB original through a 4.5 MB gateway, and never reads Postgres itself to find out.
         .route("/v1/public/media/{id}", get(public_media))
+        // THE PROPERTY PAGE'S STRIP, and the sitemap's list. Both by the same rule as the inventory.
+        .route("/v1/public/similar", get(public_similar))
+        .route("/v1/public/slugs", get(public_slugs))
         .route("/v1/public/guide", get(public_guide))
         .route("/v1/website-intake/{id}/notify", post(notify_website_lead))
         .route(
@@ -2925,6 +2928,44 @@ async fn public_guide(
 struct PublicPropertyQuery {
     /// Whatever names the Property: its slug, its name in any case, or its id.
     key: String,
+}
+
+#[derive(serde::Deserialize)]
+struct PublicSimilarQuery {
+    key: String,
+    /// The page shows a strip; the service clamps whatever arrives.
+    limit: Option<i64>,
+}
+
+/// Listings like this one, for the property page.
+async fn public_similar(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Query(query): Query<PublicSimilarQuery>,
+) -> Result<Json<ApiSuccess<Vec<domain::PublicListing>>>, ApiError> {
+    let context = resolve_public_guest_context(&state, &headers)?;
+    let listings = state
+        .services()
+        .public_listings()
+        .similar(query.key.trim(), query.limit.unwrap_or(3), &context)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(success_with_correlation(listings, &context.correlation_id))
+}
+
+/// Every slug the site can serve, for the sitemap.
+async fn public_slugs(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<Vec<String>>>, ApiError> {
+    let context = resolve_public_guest_context(&state, &headers)?;
+    let slugs = state
+        .services()
+        .public_listings()
+        .slugs(&context)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(success_with_correlation(slugs, &context.correlation_id))
 }
 
 /// One photograph's bytes for the public site: the web copy if there is one, the original otherwise.

@@ -16,13 +16,18 @@ import {
   buildHomeContent,
   MARKETING_SLOTS,
 } from '@/lib/marketing-content'
-import { formatArea, formatPrice, propertyLocation } from '@/lib/property'
+import { formatArea, formatPrice } from '@/lib/property'
 // THE PUBLIC INVENTORY COMES FROM RUST. This route used to read the published properties through the TypeScript
 // kernel — the same data the buyers grid reached for through a different door, which is how the two could disagree
 // about what "on the site" means. One read now, in one language.
-import { rustApiPublicListings, type RustPublicListing } from '@/lib/rust-api/client'
-// STILL TYPESCRIPT, FOR NOW: the similar-listings read is the last public property read on the old path, and it is the
-// next slice. It only feeds the "similar listings" strip on a property page — see `legacyListing` below.
+import {
+  rustApiPublicListings,
+  rustApiPublicSimilar,
+  rustApiPublicSlugs,
+  type RustPublicListing,
+} from '@/lib/rust-api/client'
+// STILL TYPESCRIPT, FOR NOW: `getPropertyBySlug` feeds the property page's RECORD — hero, gallery, videos, documents —
+// which is a bigger object than the detail facts. The inventory, the cards, the strip and the sitemap are all Rust now.
 import type { PropertySummary } from '@/legacy/services/property'
 import { withApiHandler, withServerErrorCapture } from '@/lib/error-capture-seam'
 import { rustApiPublicGuide, rustApiPublicListingCopy } from '@/lib/rust-api/client'
@@ -115,32 +120,6 @@ function listing(source: RustPublicListing, taglines: Map<string, string> = new 
     views: source.views ?? [],
     beachAccess: source.beachAccess === true,
     tagline: taglines.get(source.key) ?? null,
-    featured: source.featured === true,
-  }
-}
-
-/**
- * THE LAST TYPESCRIPT LISTING MAPPER. Similar listings still arrive as `PropertySummary` through the service kernel, and
- * this turns them into the same card shape the Rust rows produce. It exists so the property page keeps working while
- * that read is migrated — and it is the only reason `getSimilarProperties` is still imported here.
- */
-function legacyListing(source: PropertySummary, taglines: Map<string, string> = new Map()) {
-  return {
-    id: source.id ?? '',
-    slug: source.slug ?? '',
-    name: source.name ?? '',
-    location: propertyLocation(source) ?? null,
-    price: source.listPrice == null ? null : formatPrice(source.listPrice),
-    kind: source.propertyType ?? null,
-    imagePath: source.heroUrl ?? null,
-    imageAlt: source.heroAlt ?? null,
-    beds: source.bedrooms ?? null,
-    baths: source.bathrooms ?? null,
-    area: formatArea(source.lotSize, source.lotSizeUnits) ?? null,
-    interiorArea: source.squareFeet ? formatArea(source.squareFeet, 'SF') : null,
-    views: source.views ?? [],
-    beachAccess: source.beachAccess === true,
-    tagline: taglines.get(source.slug ?? '') ?? null,
     featured: source.featured === true,
   }
 }
@@ -289,14 +268,9 @@ async function GETHandler(req: NextRequest): Promise<Response> {
         return NextResponse.json({ error: `no property with the slug '${slug}'` }, { status: 404 })
       }
       const { property, heroUrl, galleryImages, videos, documents } = result.data
-      const [similarResult, slugsResult] = await Promise.all([
-        getSimilarProperties(property._id, {
-          propertyType: property.propertyType ?? null,
-          city: property.city ?? null,
-          neighborhood: property.neighborhood ?? null,
-          listPrice: property.listPrice ?? null,
-        }),
-        getPublicPropertySlugs(),
+      const [similar, publicSlugs] = await Promise.all([
+        rustApiPublicSimilar(slug, 3),
+        rustApiPublicSlugs(),
       ])
       // THE FIELD NAMES ARE THE READ MODEL'S, NOT GUESSED — which is the lesson this route already carries in its header
       // and which I ignored once: `slug`, `name`, `bedrooms`, `bathrooms` and `lotSize` do not exist on a PropertyDetail.
@@ -353,8 +327,8 @@ async function GETHandler(req: NextRequest): Promise<Response> {
           gallery: galleryImages ?? [],
           videos: videos ?? [],
           documents: documents ?? [],
-          similar: similarResult.ok ? similarResult.data.map((property) => legacyListing(property)) : [],
-          publicSlugs: slugsResult.ok ? slugsResult.data : [],
+          similar: similar.map((property) => listing(property)),
+          publicSlugs,
         },
       })
     }

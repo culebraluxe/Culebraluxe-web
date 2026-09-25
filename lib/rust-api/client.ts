@@ -266,6 +266,21 @@ export type RustPublicListingCopy = { slug: string; tagline: string }
 /**
  * One listing as the Rust public service returns it: the key that opens it, and the facts the grid renders.
  */
+/** Shared reader for the public endpoints that answer with a list of listings. A failure is an empty list, not a
+ *  broken page: a strip of similar properties is never worth failing a page over. */
+async function readListings(response: Response, correlationId: string): Promise<RustPublicListing[]> {
+  if (!response.ok) return []
+  try {
+    const payload = (await response.json()) as RustApiSuccess<RustPublicListing[]> | RustApiFailure
+    return payload.ok ? payload.value : []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * One listing as the Rust public service returns it: the key that opens it, and the facts the grid renders.
+ */
 export type RustPublicListing = {
   key: string
   id: string
@@ -520,6 +535,31 @@ export async function rustApiPublicMedia(
     contentType: response.headers.get('content-type') ?? 'application/octet-stream',
     bytes: new Uint8Array(await response.arrayBuffer()),
   }
+}
+
+/**
+ * LISTINGS LIKE THIS ONE (`GET /v1/public/similar`) — the strip on a property page.
+ */
+export async function rustApiPublicSimilar(key: string, limit = 3): Promise<RustPublicListing[]> {
+  const correlationId = randomUUID()
+  const headers = buildRustPublicBridgeHeaders({ internalApiKey: internalApiKey(), correlationId })
+  const response = await fetch(
+    `${rustApiBaseUrl()}/v1/public/similar?key=${encodeURIComponent(key)}&limit=${limit}`,
+    { headers, cache: 'no-store' },
+  )
+  return readListings(response, correlationId)
+}
+
+/**
+ * EVERY SLUG THE SITE CAN SERVE (`GET /v1/public/slugs`) — for the sitemap.
+ */
+export async function rustApiPublicSlugs(): Promise<string[]> {
+  const correlationId = randomUUID()
+  const headers = buildRustPublicBridgeHeaders({ internalApiKey: internalApiKey(), correlationId })
+  const response = await fetch(`${rustApiBaseUrl()}/v1/public/slugs`, { headers, cache: 'no-store' })
+  if (!response.ok) return []
+  const payload = (await response.json()) as RustApiSuccess<string[]> | RustApiFailure
+  return payload.ok ? payload.value : []
 }
 
 export async function rustApiPublicListingCopy(): Promise<RustPublicListingCopy[]> {

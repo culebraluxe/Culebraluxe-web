@@ -275,6 +275,105 @@ impl PublicListingDao {
         }))
     }
 
+    /// Listings like this one: same kind of Property, visible, not itself.
+    ///
+    /// "Similar" is deliberately simple — same `property_type`, most expensive first — because the previous definition
+    /// lived in TypeScript with its own filters and drifted from the inventory rule. What matters is that it uses the
+    /// SAME visibility rule as everything else: a similar listing is a listing the site is showing.
+    pub async fn similar(&self, key: &str, limit: i64) -> DbResult<Vec<PublicListing>> {
+        let rows = sqlx::query_as::<_, ListingRow>(
+            r#"
+            with subject as (
+                select p.id, nullif(btrim(coalesce(p.property_type, '')), '') as property_type
+                  from property p
+                 where (
+                         p.slug = $1
+                         or lower(p.name) = lower($1)
+                         or lower(replace($1, '-', ' ')) = lower(p.name)
+                         or p.id::text = $1
+                       )
+                   and p.archived_at is null
+                   and p.status in ('active', 'under_contract', 'sold')
+                 limit 1
+            )
+            select
+                p.id::text as id,
+                coalesce(p.slug, p.id::text) as row_key,
+                p.name,
+                nullif(btrim(coalesce(p.property_type, '')), '') as property_type,
+                p.status,
+                p.list_price::float8 as list_price,
+                coalesce(p.featured, false) as featured,
+                p.city,
+                p.state_or_province,
+                p.neighborhood,
+                p.bedrooms::int as bedrooms,
+                p.bathrooms::float8 as bathrooms,
+                p.square_feet::int as square_feet,
+                coalesce(p.lot_size_acres, p.lot_size)::float8 as lot_size,
+                p.lot_size_units,
+                coalesce(p.has_ocean_view, false) as has_ocean_view,
+                coalesce(p.has_bay_view, false) as has_bay_view,
+                coalesce(p.has_beach_view, false) as has_beach_view,
+                coalesce(p.has_harbor_view, false) as has_harbor_view,
+                coalesce(p.has_island_view, false) as has_island_view,
+                coalesce(p.has_mountain_view, false) as has_mountain_view,
+                coalesce(p.has_sunrise_view, false) as has_sunrise_view,
+                coalesce(p.has_sunset_view, false) as has_sunset_view,
+                coalesce(p.has_beach_access, false) as beach_access,
+                hero.media_id as hero_media_id,
+                hero.alt_text as hero_alt
+            from property p
+            join subject on true
+            left join lateral (
+                select m.id as media_id, m.alt_text
+                  from property_media pm
+                  join media m on m.id = pm.media_id
+                 where pm.property_id = p.id
+                   and pm.role in ('hero', 'gallery')
+                   and m.media_type = 'image'
+                 order by case when pm.role = 'hero' then 0 else 1 end asc,
+                          pm.sort_order asc,
+                          pm.created_at asc
+                 limit 1
+            ) hero on true
+            where p.archived_at is null
+              and p.status in ('active', 'under_contract', 'sold')
+              and p.id <> subject.id
+              and p.name is not null
+              and (subject.property_type is null or p.property_type = subject.property_type)
+            order by p.list_price desc nulls last, p.name asc
+            limit $2
+            "#,
+        )
+        .bind(key)
+        .bind(limit)
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("public_listing.similar", &error))?;
+
+        Ok(rows.into_iter().map(ListingRow::into_listing).collect())
+    }
+
+    /// Every slug the public site can serve, for the sitemap. Rows without a slug are absent rather than null: a
+    /// sitemap entry with no URL is not an entry.
+    pub async fn slugs(&self) -> DbResult<Vec<String>> {
+        let rows = sqlx::query_scalar::<_, String>(
+            r#"
+            select p.slug
+              from property p
+             where p.archived_at is null
+               and p.status in ('active', 'under_contract', 'sold')
+               and p.slug is not null
+             order by p.slug
+            "#,
+        )
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("public_listing.slugs", &error))?;
+        Ok(rows)
+    }
+
     /// The servable bytes for one photograph: the web copy when there is one, the original otherwise.
     ///
     /// THE GATE IS EVALUATED ON THE ORIGINAL. A copy has no `property_media` link of its own, so asking whether the
