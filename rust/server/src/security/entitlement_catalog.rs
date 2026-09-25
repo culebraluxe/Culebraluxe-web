@@ -46,4 +46,5 @@ pub(super) const ACTIONS: &[(&str, &str)] = &[
     ("vault.write", "command"),
     ("wbs.read", "query"),
     ("wbs.write", "command"),
+    ("website.intake.submit", "command"),
 ];
