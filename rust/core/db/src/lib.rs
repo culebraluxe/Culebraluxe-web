@@ -28,6 +28,7 @@ mod project;
 mod property;
 mod public_listing;
 mod website_lead;
+mod whatsapp;
 // Public because the `retrying_read!` macro expands inside other crates and has to name these helpers there.
 pub mod accounting;
 pub mod metrics;
@@ -91,5 +92,6 @@ pub use transaction::DbTransaction;
 pub use vault::VaultDao;
 pub use wbs::WbsDao;
 pub use website_lead::WebsiteLeadDao;
+pub use whatsapp::{WhatsAppCanonicalInput, WhatsAppDao, WhatsAppLandingInput, WhatsAppProcessOutcome};
 pub use workflow_ops::{PendingTimerJobRow, WorkflowOpsDao, WorkflowStatusRow};
 pub use workflow_portal::WorkflowPortalDao;
