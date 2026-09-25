@@ -10,7 +10,7 @@
 //!   2. NO RECURSION. `core/db` runs the sink under a thread-local guard, so the `insert` below failing cannot
 //!      announce another failure. Without that guard this file would be an infinite loop on a dead database.
 
-use db::{Database, DbFailure};
+use db::{AppErrorDao, Database, DbFailure};
 use std::sync::OnceLock;
 
 static POOL: OnceLock<Database> = OnceLock::new();
@@ -30,15 +30,11 @@ pub fn install(database: Database) -> bool {
 /// them. `route` carries the operation, `meta` carries the taxonomy that has no column of its own.
 fn sink(failure: &DbFailure) {
     let Some(database) = POOL.get() else { return };
-    let pool = database.pool().clone();
+    let dao = AppErrorDao::new(database.clone());
     // Copy everything the spawned thread needs BEFORE spawning it: `failure` is borrowed, and the capture must not
     // hold a reference into the operation that is already failing.
+    let failure = failure.clone();
     let kind = format!("db:{:?}", failure.kind);
-    let operation: &'static str = failure.operation;
-    let incident_id = failure.incident_id.to_string();
-    let code = failure.code.clone();
-    let detail = failure.detail.clone();
-    let retryable = failure.retryable;
     let meta = serde_json::json!({
         "kind": format!("{:?}", failure.kind),
         "detail": failure.detail,
@@ -53,20 +49,7 @@ fn sink(failure: &DbFailure) {
             .build();
         let Ok(runtime) = runtime else { return };
         let _ = runtime.block_on(async move {
-            sqlx::query(
-                "insert into app_error (kind, operation, incident_id, code, message, retryable, route, level, meta)
-                 values ($1, $2, $3::uuid, $4, $5, $6, $7, 'error', $8::jsonb)",
-            )
-            .bind(&kind)
-            .bind(operation)
-            .bind(&incident_id)
-            .bind(code.as_deref())
-            .bind(detail.as_deref().unwrap_or("database failure"))
-            .bind(retryable)
-            .bind("rust/db")
-            .bind(meta)
-            .execute(&pool)
-            .await
+            dao.record_db_failure(&failure, &kind, &meta).await
         });
     });
 }
@@ -89,7 +72,7 @@ pub fn record(
     meta: serde_json::Value,
 ) {
     let Some(database) = POOL.get() else { return };
-    let pool = database.pool().clone();
+    let dao = AppErrorDao::new(database.clone());
     let kind = kind.to_owned();
     let operation = operation.to_owned();
     let message = message.to_owned();
@@ -105,17 +88,14 @@ pub fn record(
             return;
         };
         let _ = runtime.block_on(async move {
-            sqlx::query(
-                "insert into app_error (kind, operation, message, stack, route, level, retryable, meta)
-                 values ($1, $2, $3, $4, 'rust', $5, false, $6::jsonb)",
+            dao.record_runtime_error(
+                &kind,
+                &operation,
+                &message,
+                &level,
+                stack.as_deref(),
+                &meta,
             )
-            .bind(&kind)
-            .bind(&operation)
-            .bind(&message)
-            .bind(stack.as_deref())
-            .bind(&level)
-            .bind(meta)
-            .execute(&pool)
             .await
         });
     });
