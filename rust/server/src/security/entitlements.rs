@@ -81,6 +81,11 @@ impl AuthorizationPort for CasbinAuthorizationPort {
             && request.operation == "website.notifyLead"
             && request.action == "website.lead.notify"
             && request.kind == OperationKind::Command;
+        let website_intake = system
+            && request.actor.id.as_deref() == Some("public-website")
+            && request.operation == "website.submitIntake"
+            && request.action == "website.intake.submit"
+            && request.kind == OperationKind::Command;
         // GUEST SIGN-IN (security/guest.rs). The public website asks for and checks emailed codes for a visitor who
         // has no principal yet; the Auth.js edge provisions the external guest behind an identity it has proved.
         // A guest is an external account, so the principal branch below refuses it every grant.
@@ -116,8 +121,13 @@ impl AuthorizationPort for CasbinAuthorizationPort {
         let identity_resolution = request.action == "security.identity.resolve"
             && request.kind == OperationKind::Query
             && request.actor.kind == ServiceActorKind::User;
-        let explicit =
-            bootstrap || public || lead_notice || guest_code || guest_provision || published;
+        let explicit = bootstrap
+            || public
+            || lead_notice
+            || website_intake
+            || guest_code
+            || guest_provision
+            || published;
         let (allowed, policy_id) = if explicit {
             (true, "system:explicit")
         } else if identity_resolution {
@@ -125,6 +135,7 @@ impl AuthorizationPort for CasbinAuthorizationPort {
         } else if request.action == "security.identity.resolve"
             || request.action == "vault.publicListingDocument.read"
             || request.action == "website.lead.notify"
+            || request.action == "website.intake.submit"
             || request.action.starts_with("security.guestCode.")
             || request.action == "security.guest.provision"
         {
