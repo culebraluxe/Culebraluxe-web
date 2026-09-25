@@ -10,16 +10,16 @@
 // Session strategy: JWT (no Auth.js database adapter). The provider `sub` is the
 // stable identity key; email is never used as an identity key.
 //
-// Break-glass is TEMPORARILY kept out of this baseline (restored later as a
-// separate provider path with authorization after authentication, same as
-// Google). The pure helper exports below remain so the auth persistence tests
-// still compile; no break-glass provider is registered.
+// Break-glass is a separate credentials provider. Its secret is verified at
+// the Auth.js edge, then the configured recovery identity is resolved through
+// the same Rust SecurityService identity path as every other portal session.
 
 import NextAuth from 'next-auth'
 import Credentials from 'next-auth/providers/credentials'
 import Google from 'next-auth/providers/google'
 import type { DefaultSession } from 'next-auth'
 
+import { authenticateBreakGlass } from '@/lib/auth/break-glass-authenticate'
 import { devAuthLog } from '@/lib/auth/dev-auth-log'
 
 // Stable provider identifiers surfaced through the session adapter.
@@ -33,9 +33,8 @@ export const AUTH_PROVIDER_EMAIL_CODE = 'email-code'
 // JWT session expiry. Signed-out users clear the cookie via /api/auth/signout.
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7 // 7 days
 
-// Stable subject for a future break-glass session (matches the auth_identity
-// mapping in db/manual/2026-08-20_v7_break_glass_identity.sql). Not used while
-// the break-glass provider is out of the baseline.
+// Stable subject for the break-glass session. It matches the canonical
+// auth_identity mapping and never uses email as an identity key.
 export function breakGlassSubject(appUserId: string): string {
   return `${AUTH_PROVIDER_BREAK_GLASS}:${appUserId}`
 }
@@ -69,6 +68,24 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     Google({
       clientId: process.env.AUTH_GOOGLE_ID,
       clientSecret: process.env.AUTH_GOOGLE_SECRET,
+    }),
+    Credentials({
+      id: AUTH_PROVIDER_BREAK_GLASS,
+      name: 'Break-glass recovery',
+      credentials: {
+        secret: { label: 'Recovery credential', type: 'password' },
+      },
+      async authorize(credentials) {
+        const secret = credentials?.secret
+        if (typeof secret !== 'string' || secret.length === 0) return null
+        const result = await authenticateBreakGlass(secret)
+        if (!result.ok) return null
+        return {
+          id: breakGlassSubject(result.actingUser.appUserId),
+          name: result.actingUser.displayName,
+          email: result.actingUser.email ?? undefined,
+        }
+      },
     }),
     Credentials({
       id: AUTH_PROVIDER_EMAIL_CODE,
@@ -107,17 +124,24 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     // crypto.randomUUID() minted per sign-in (see @auth/core oauth/callback),
     // so it is NOT stable. The provider subject is the durable identity key;
     // email is never an identity key.
-    jwt({ token, account, profile }) {
-      const stableSubject = account?.providerAccountId
+    jwt({ token, user, account, profile }) {
+      const stableSubject =
+        account?.providerAccountId ??
+        (user?.id?.startsWith(`${AUTH_PROVIDER_BREAK_GLASS}:`) ? user.id : undefined)
       if (stableSubject) {
         token.sub = stableSubject
-        devAuthLog('AUTH_GOOGLE_CALLBACK_RECEIVED')
         devAuthLog('AUTH_SESSION_CREATED')
       }
       if (account?.provider) {
         token.provider = account.provider
+        if (account.provider === AUTH_PROVIDER_GOOGLE) {
+          devAuthLog('AUTH_GOOGLE_CALLBACK_RECEIVED')
+        }
         // Rust links a guest's Google and email-code sign-ins only on a VERIFIED email.
         token.emailIsVerified = account.provider === AUTH_PROVIDER_EMAIL_CODE || profile?.email_verified === true
+      } else if (user?.id?.startsWith(`${AUTH_PROVIDER_BREAK_GLASS}:`)) {
+        token.provider = AUTH_PROVIDER_BREAK_GLASS
+        token.emailIsVerified = false
       }
       return token
     },
