@@ -603,6 +603,36 @@ async fn support_security_status(
     Ok(success(value, &resolved))
 }
 
+async fn support_break_glass_readiness(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<domain::SupportBreakGlassReadiness>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let app_user_id = std::env::var("AUTH_BREAK_GLASS_APP_USER_ID")
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
+    let secret_hash_configured = std::env::var("AUTH_BREAK_GLASS_SECRET_HASH")
+        .ok()
+        .is_some_and(|value| !value.trim().is_empty());
+    let enabled = std::env::var("AUTH_BREAK_GLASS_ENABLED")
+        .ok()
+        .is_some_and(|value| value.trim() == "true");
+    let configured = app_user_id.is_some() && secret_hash_configured;
+
+    let mut service = state.services().support();
+    let value = service
+        .break_glass_readiness(
+            configured,
+            enabled,
+            app_user_id.as_deref(),
+            &resolved.service,
+        )
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
 async fn support_system_health(
     State(state): State<ApiState>,
     headers: HeaderMap,
@@ -683,6 +713,10 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/cockpit", get(cockpit))
         .route("/v1/tech/cockpit", get(tech_cockpit).post(tech_command))
         .route("/v1/support/security-status", get(support_security_status))
+        .route(
+            "/v1/support/break-glass-readiness",
+            get(support_break_glass_readiness),
+        )
         .route("/v1/support/system-health", get(support_system_health))
         .route(
             "/v1/support/workflow-diagnostics",
