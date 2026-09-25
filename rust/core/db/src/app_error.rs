@@ -34,6 +34,36 @@ impl AppErrorDao {
         .map_err(|_| ())
     }
 
+    /// Best-effort diagnostic event from a trusted application edge. Unlike
+    /// record_runtime_error, the route/code are supplied by the caller because
+    /// browser boundary reports need to preserve the page that failed.
+    pub async fn record_application_event(
+        &self,
+        kind: &str,
+        operation: &str,
+        message: &str,
+        route: &str,
+        level: &str,
+        code: Option<&str>,
+        meta: &str,
+    ) -> Result<(), ()> {
+        sqlx::query(
+            "insert into app_error (kind, operation, code, message, route, level, retryable, meta)
+             values ($1, $2, $3, $4, $5, $6, false, $7::jsonb)",
+        )
+        .bind(kind)
+        .bind(operation)
+        .bind(code)
+        .bind(message)
+        .bind(route)
+        .bind(level)
+        .bind(meta)
+        .execute(self.db.pool())
+        .await
+        .map(|_| ())
+        .map_err(|_| ())
+    }
+
     /// Best-effort sink: deliberately does not construct a DbFailure if this insert fails.
     pub async fn record_runtime_error(
         &self,
