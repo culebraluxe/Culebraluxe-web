@@ -8,9 +8,9 @@ use workflow::{
 use crate::engine::re_commands::{assert_command_nodes_routed, XML_COMMAND_NODE_TYPES};
 use crate::engine::re_facts::{contract_workflow_facts, deal_workflow_facts};
 use crate::engine::re_port::ReApplicationPort;
-use sqlx::Row;
 
 use crate::engine::vendor_session::with_shared;
+use db::WorkflowOpsDao;
 use crate::engine::xml::{parse_re_supermodel, RE_SUPERMODEL_KEY, RE_SUPERMODEL_VERSION};
 
 pub const RESIDENTIAL_TRANSACTION_KEY: &str = RE_SUPERMODEL_KEY;
@@ -81,29 +81,17 @@ fn build_re_engine() -> Result<WorkflowEngine<NeonStore>> {
 }
 
 pub fn find_active_instance(subject_type: &str, subject_id: &str) -> Result<Option<String>> {
-    // Binds instead of `sql_literal`, and the workspace pool instead of a text-mode psql round trip. The old form built
-    // the statement with `format!` and escaped each value by hand, which is one missed escape away from a wrong answer.
-    let id = with_shared(|db, rt| {
+    with_shared(|db, rt| {
+        let dao = WorkflowOpsDao::new(db.clone());
         rt.block_on(async {
-            sqlx::query_scalar::<_, String>(
-                "SELECT pi.id::text FROM process_instances pi \
-                 JOIN process_definitions pd ON pd.id = pi.definition_id \
-                 WHERE pi.subject_type = $1 AND pi.subject_id = $2 \
-                   AND pi.status = 'active' AND pd.key = $3 \
-                 LIMIT 1",
-            )
-            .bind(subject_type)
-            .bind(subject_id)
-            .bind(RESIDENTIAL_TRANSACTION_KEY)
-            .fetch_optional(db.pool())
-            .await
-            .map_err(|error| error.to_string())
+            dao.find_active_instance(subject_type, subject_id, RESIDENTIAL_TRANSACTION_KEY)
+                .await
+                .map_err(|error| WorkflowError::generic(error.to_string()))
         })
     })
     .map_err(WorkflowError::generic)?
-    .map_err(WorkflowError::generic)?;
-    Ok(id)
 }
+
 
 pub struct StartResult {
     pub instance_id: String,
@@ -158,47 +146,33 @@ pub fn reconcile_deadline_timer(
     timer_node_id: &str,
     deadline: Option<&str>,
 ) -> Result<&'static str> {
-    let Some(deadline) = deadline.map(str::trim).filter(|s| !s.is_empty()) else {
+    let Some(deadline) = deadline.map(str::trim).filter(|value| !value.is_empty()) else {
         return Ok("unchanged");
     };
+
     let row = with_shared(|db, rt| {
+        let dao = WorkflowOpsDao::new(db.clone());
         rt.block_on(async {
-            sqlx::query(
-                "SELECT id::text AS id, due_at::text AS due_at FROM jobs \
-                 WHERE process_instance_id = $1::uuid AND status = 'pending' AND type = 'timer' \
-                   AND payload->>'nodeId' = $2 LIMIT 1",
-            )
-            .bind(instance_id)
-            .bind(timer_node_id)
-            .fetch_optional(db.pool())
-            .await
-            .map_err(|error| error.to_string())
+            dao.pending_timer_job(instance_id, timer_node_id)
+                .await
+                .map_err(|error| WorkflowError::generic(error.to_string()))
         })
     })
-    .map_err(WorkflowError::generic)?
-    .map_err(WorkflowError::generic)?;
+    .map_err(WorkflowError::generic)??;
+
     let Some(row) = row else {
         return Ok("unchanged");
     };
-    let job_id: String = row
-        .try_get("id")
-        .map_err(|error| WorkflowError::generic(error.to_string()))?;
-    let due_at: Option<String> = row
-        .try_get("due_at")
-        .map_err(|error| WorkflowError::generic(error.to_string()))?;
-    let due_at = due_at.unwrap_or_default();
-    // NOTE: `due_at` comes back in Postgres's text format (`2026-09-21 14:54:04.734+00`) and `deadline` is an ISO-8601
-    // string, so this comparison may never be true and the timer may be rescheduled on every pass. That predates this
-    // change and is preserved deliberately rather than silently altered: rescheduling to the same time is idempotent,
-    // so the cost is a wasted round trip, not a wrong deadline. Worth confirming against real data before touching it.
-    if due_at == deadline || job_id.is_empty() {
+    let due_at = row.due_at.unwrap_or_default();
+    if due_at == deadline || row.id.is_empty() {
         return Ok("unchanged");
     }
     let due_ms =
         parse_iso_millis(deadline).ok_or_else(|| WorkflowError::generic("invalid deadline"))?;
-    re_engine()?.reschedule_timer(&job_id, due_ms, "system")?;
+    re_engine()?.reschedule_timer(&row.id, due_ms, "system")?;
     Ok("rescheduled")
 }
+
 
 pub fn reconcile_closing_timer(
     instance_id: &str,
@@ -213,23 +187,21 @@ pub fn complete_workflow_task(
     transition: Option<&str>,
 ) -> Result<String> {
     let workflow_task_id = with_shared(|db, rt| {
+        let dao = WorkflowOpsDao::new(db.clone());
         rt.block_on(async {
-            sqlx::query_scalar::<_, String>(
-                "SELECT workflow_task_id FROM workflow_task_correlation WHERE application_task_id = $1::uuid LIMIT 1",
-            )
-            .bind(application_task_id)
-            .fetch_optional(db.pool())
-            .await
-            .map_err(|error| error.to_string())
+            dao.correlated_workflow_task(application_task_id)
+                .await
+                .map_err(|error| WorkflowError::generic(error.to_string()))
         })
     })
-    .map_err(WorkflowError::generic)?
-    .map_err(WorkflowError::generic)?;
+    .map_err(WorkflowError::generic)??;
+
     let Some(workflow_task_id) = workflow_task_id else {
         return Err(WorkflowError::generic(format!(
             "No workflow task correlates to application task {application_task_id}"
         )));
     };
+
     re_engine()?.complete_task(CompleteTaskParams {
         task_id: workflow_task_id.clone(),
         user_id: user_id.into(),
@@ -238,6 +210,7 @@ pub fn complete_workflow_task(
     })?;
     Ok(workflow_task_id)
 }
+
 
 fn parse_iso_millis(s: &str) -> Option<i64> {
     // Accept unix millis or YYYY-MM-DD.
@@ -288,35 +261,27 @@ pub struct WorkflowStatus {
 
 pub fn workflow_status() -> Result<WorkflowStatus> {
     let row = with_shared(|db, rt| {
+        let dao = WorkflowOpsDao::new(db.clone());
         rt.block_on(async {
-            sqlx::query(
-                "select
-                   (select count(*)::bigint from process_definitions) definition_count,
-                   (select count(*)::bigint from process_instances) instance_total,
-                   (select count(*)::bigint from process_instances where status='active') instance_active,
-                   (select count(*)::bigint from process_instances where status='completed') instance_completed,
-                   (select count(*)::bigint from process_instances where status='error' or outcome='failed') instance_failed,
-                   (select count(*)::bigint from tasks where status in ('ready','reserved','in_progress')) ready_engine_tasks,
-                   (select count(*)::bigint from jobs where status in ('pending','locked')) pending_jobs,
-                   (select count(*)::bigint from workflow_command_receipt where outcome='pending') pending_receipts"
-            )
-            .fetch_one(db.pool())
-            .await
-            .map_err(|e| e.to_string())
+            dao.status()
+                .await
+                .map_err(|error| WorkflowError::generic(error.to_string()))
         })
-    }).map_err(WorkflowError::generic)?.map_err(WorkflowError::generic)?;
+    })
+    .map_err(WorkflowError::generic)??;
 
     Ok(WorkflowStatus {
-        definition_count: row.try_get("definition_count").unwrap_or(0),
-        instance_total: row.try_get("instance_total").unwrap_or(0),
-        instance_active: row.try_get("instance_active").unwrap_or(0),
-        instance_completed: row.try_get("instance_completed").unwrap_or(0),
-        instance_failed: row.try_get("instance_failed").unwrap_or(0),
-        ready_engine_tasks: row.try_get("ready_engine_tasks").unwrap_or(0),
-        pending_jobs: row.try_get("pending_jobs").unwrap_or(0),
-        pending_receipts: row.try_get("pending_receipts").unwrap_or(0),
+        definition_count: row.definition_count,
+        instance_total: row.instance_total,
+        instance_active: row.instance_active,
+        instance_completed: row.instance_completed,
+        instance_failed: row.instance_failed,
+        ready_engine_tasks: row.ready_engine_tasks,
+        pending_jobs: row.pending_jobs,
+        pending_receipts: row.pending_receipts,
     })
 }
+
 
 
 #[derive(Debug, Clone, Default)]
@@ -326,76 +291,17 @@ pub struct ReconcileReport {
 }
 
 pub fn materialize_open_workflow_tasks() -> Result<u64> {
-    let inserted = with_shared(|db, rt| {
+    with_shared(|db, rt| {
+        let dao = WorkflowOpsDao::new(db.clone());
         rt.block_on(async {
-            let row = sqlx::query(
-                r#"
-                with candidates as (
-                  select
-                    t.id::text as workflow_task_id,
-                    gen_random_uuid() as application_task_id,
-                    t.name as title,
-                    pi.subject_type,
-                    pi.subject_id,
-                    case
-                      when pd.definition->'nodes'->tok.node_id->>'responsibility' = 'buyer' then (
-                        select dp.person_id from deal_participant dp
-                        where dp.deal_id = pi.subject_id::uuid and dp.active = true and dp.role = 'client'
-                        order by dp.started_at asc, dp.created_at asc limit 1
-                      )
-                      when pd.definition->'nodes'->tok.node_id->>'responsibility' = 'seller' then (
-                        select dp.person_id from deal_participant dp
-                        where dp.deal_id = pi.subject_id::uuid and dp.active = true and dp.role = 'seller'
-                        order by dp.started_at asc, dp.created_at asc limit 1
-                      )
-                      when pd.definition->'nodes'->tok.node_id->>'responsibility' in ('lender','inspector','appraiser','notario','title_company') then (
-                        select dp.person_id from deal_participant dp
-                        where dp.deal_id = pi.subject_id::uuid and dp.active = true and dp.role = 'other'
-                          and lower(coalesce(dp.role_label,'')) =
-                            case pd.definition->'nodes'->tok.node_id->>'responsibility'
-                              when 'title_company' then 'title'
-                              else pd.definition->'nodes'->tok.node_id->>'responsibility'
-                            end
-                        order by dp.started_at asc, dp.created_at asc limit 1
-                      )
-                      else null
-                    end as person_id
-                  from tasks t
-                  join process_instances pi on pi.id=t.process_instance_id
-                  join tokens tok on tok.id=t.token_id
-                  join process_definitions pd on pd.id=pi.definition_id
-                  where pi.subject_type='deal'
-                    and t.status in ('ready','reserved','in_progress')
-                    and pi.subject_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-                    and not exists (
-                      select 1 from workflow_task_correlation c where c.workflow_task_id=t.id::text
-                    )
-                ),
-                created as (
-                  insert into task (id, title, person_id, deal_id, task_kind, priority)
-                  select application_task_id, title, person_id, subject_id::uuid, 'human', 0
-                  from candidates
-                  returning id
-                ),
-                correlated as (
-                  insert into workflow_task_correlation(workflow_task_id,application_task_id,subject_type,subject_id)
-                  select c.workflow_task_id,c.application_task_id,c.subject_type,c.subject_id
-                  from candidates c
-                  join created x on x.id=c.application_task_id
-                  on conflict(workflow_task_id) do nothing
-                  returning application_task_id
-                )
-                select count(*)::bigint as n from correlated
-                "#,
-            )
-            .fetch_one(db.pool())
-            .await
-            .map_err(|e| e.to_string())?;
-            Ok::<u64, String>(row.try_get::<i64,_>("n").unwrap_or(0).max(0) as u64)
+            dao.materialize_open_tasks()
+                .await
+                .map_err(|error| WorkflowError::generic(error.to_string()))
         })
-    }).map_err(WorkflowError::generic)?.map_err(WorkflowError::generic)?;
-    Ok(inserted)
+    })
+    .map_err(WorkflowError::generic)?
 }
+
 
 pub fn reconcile_workflows() -> Result<ReconcileReport> {
     let started_instances = reconcile_residential_transactions()?;
@@ -405,26 +311,26 @@ pub fn reconcile_workflows() -> Result<ReconcileReport> {
 
 pub fn reconcile_residential_transactions() -> Result<usize> {
     let deal_ids = with_shared(|db, rt| {
+        let dao = WorkflowOpsDao::new(db.clone());
         rt.block_on(async {
-            sqlx::query_scalar::<_, String>(
-                "select distinct o.deal_id::text from offer o where o.status='accepted' order by o.deal_id::text"
-            )
-            .fetch_all(db.pool())
-            .await
-            .map_err(|e| e.to_string())
+            dao.accepted_deal_ids()
+                .await
+                .map_err(|error| WorkflowError::generic(error.to_string()))
         })
-    }).map_err(WorkflowError::generic)?.map_err(WorkflowError::generic)?;
+    })
+    .map_err(WorkflowError::generic)??;
 
     let mut started = 0usize;
     for deal_id in deal_ids {
-        if find_active_instance("deal", &deal_id)?.is_none() {
-            if start_residential_transaction("deal", &deal_id)?.started {
-                started += 1;
-            }
+        if find_active_instance("deal", &deal_id)?.is_none()
+            && start_residential_transaction("deal", &deal_id)?.started
+        {
+            started += 1;
         }
     }
     Ok(started)
 }
+
 
 pub fn run_due_jobs(worker_id: &str, batch: usize) -> Result<workflow::DueJobReport> {
     re_engine()?.run_due_jobs(worker_id, batch)
@@ -432,27 +338,18 @@ pub fn run_due_jobs(worker_id: &str, batch: usize) -> Result<workflow::DueJobRep
 
 pub fn reset_dev_workflows() -> Result<Vec<(String, u64)>> {
     if std::env::var("APP_ENV").unwrap_or_default() != "development" {
-        return Err(WorkflowError::generic("Workflow reset is DEV-only; APP_ENV must be development."));
+        return Err(WorkflowError::generic(
+            "Workflow reset is DEV-only; APP_ENV must be development.",
+        ));
     }
-    let steps = [
-        ("task (materialized canonical)", "delete from task where id in (select application_task_id from workflow_task_correlation)"),
-        ("workflow_task_correlation", "delete from workflow_task_correlation"),
-        ("workflow_command_receipt", "delete from workflow_command_receipt"),
-        ("process_events", "delete from process_events"),
-        ("process_commands", "delete from process_commands"),
-        ("jobs", "delete from jobs"),
-        ("tasks", "delete from tasks"),
-        ("tokens", "delete from tokens"),
-        ("process_instances", "delete from process_instances"),
-    ];
-    let mut out = Vec::new();
-    for (name, sql) in steps {
-        let deleted = with_shared(|db, rt| {
-            rt.block_on(async {
-                sqlx::query(sql).execute(db.pool()).await.map(|r| r.rows_affected()).map_err(|e| e.to_string())
-            })
-        }).map_err(WorkflowError::generic)?.map_err(WorkflowError::generic)?;
-        out.push((name.to_string(), deleted));
-    }
-    Ok(out)
+    with_shared(|db, rt| {
+        let dao = WorkflowOpsDao::new(db.clone());
+        rt.block_on(async {
+            dao.reset_dev()
+                .await
+                .map_err(|error| WorkflowError::generic(error.to_string()))
+        })
+    })
+    .map_err(WorkflowError::generic)?
 }
+
