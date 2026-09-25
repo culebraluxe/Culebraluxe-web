@@ -60,6 +60,16 @@ printf '  project: %s\n\n' "$VERCEL_PROJECT_ID"
 
 DEPLOYMENT_URL="$(vc deploy --prebuilt --prod)"
 
+# THE RUST CONTAINER GOES WITH IT — one build, one deploy.
+#
+# This was briefly a second command, because the container is a separate Vercel project. That meant two things to
+# remember for one release, and before that it meant something worse: the frontend shipped while the container kept
+# serving the previous code, so the upload button called routes that did not exist and the screen said the upload
+# failed with no reason. The server ships with the site. The container build is slower than the frontend's; that wait
+# is the price of not having to remember a second command.
+printf '\nDeploying the Rust API container...\n'
+bash scripts/vercel-deploy-rust-prod.sh
+
 # VERIFY WHAT WENT LIVE. The artifact stamps its own commit (`NEXT_PUBLIC_COCKPIT_SHA`, set by the build
 # script and compiled in by next.config) and serves it from /api/build-info. Comparing that against HEAD
 # is the only check that catches "the deploy succeeded but the OLD artifact is serving" - which is exactly
