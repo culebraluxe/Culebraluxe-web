@@ -45,8 +45,8 @@ export async function createReceivableAction(
   const description = String(formData.get('description') ?? '').trim()
   const amount = parseAmount(String(formData.get('amount') ?? ''))
   if (!description) return { ok: false, error: 'Description is required.' }
-  if (amount === null || amount < 0)
-    return { ok: false, error: 'Amount must be a non-negative number.' }
+  if (amount === null)
+    return { ok: false, error: 'Amount must be a number.' }
 
   try {
     const result = await rustApiCreateReceivable<{ id: string }>({
