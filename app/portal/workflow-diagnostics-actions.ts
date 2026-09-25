@@ -1,19 +1,31 @@
 'use server'
+
 import { withServerErrorCapture } from '@/lib/error-capture-seam'
+import { rustApiRead } from '@/lib/rust-api/client'
 
-import { inspectInstance } from '@/legacy/workflow_app/diagnostics'
-import type { InstanceDetail } from '@/legacy/workflow_app/diagnostics'
-
-// Read-only workflow diagnostics detail loader for the IT support page
-// (CRM-14N). The snapshot is rendered server-side; individual instance
-// technical detail is fetched lazily when a support operator expands a row.
-// No engine changes, no XML changes, no workflow mutation.
-
-async function loadWorkflowInstanceDetailHandler(
-  instanceId: string
-): Promise<InstanceDetail | null> {
-  return inspectInstance(instanceId)
+export type WorkflowDiagnosticsDetail = {
+  instance: Record<string, unknown>
+  variables: unknown | null
+  nodeLabels: Record<string, string>
+  tokens: unknown[]
+  tasks: unknown[]
+  jobs: unknown[]
+  events: unknown[]
+  correlations: unknown[]
+  commands: unknown[]
 }
 
-// ENG-FORGE error-capture: a throw is recorded durably, then rethrown.
-export const loadWorkflowInstanceDetail = withServerErrorCapture('portal/workflow-diagnostics-actions.loadWorkflowInstanceDetail', loadWorkflowInstanceDetailHandler)
+async function loadWorkflowInstanceDetailHandler(
+  instanceId: string,
+): Promise<WorkflowDiagnosticsDetail | null> {
+  if (!instanceId.trim()) return null
+  const result = await rustApiRead<WorkflowDiagnosticsDetail>(
+    (`/v1/support/workflow-diagnostics/${encodeURIComponent(instanceId)}`) as `/v1/${string}`,
+  )
+  return result.value
+}
+
+export const loadWorkflowInstanceDetail = withServerErrorCapture(
+  'portal/workflow-diagnostics-actions.loadWorkflowInstanceDetail',
+  loadWorkflowInstanceDetailHandler,
+)
