@@ -26,6 +26,7 @@ pub mod security;
 pub mod service_support;
 pub mod showings;
 pub mod signature;
+pub mod support;
 pub mod task;
 pub mod tech;
 pub mod vault;
