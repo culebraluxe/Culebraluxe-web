@@ -6,8 +6,7 @@
 // navigation. "Portal" is no longer the user-facing shell concept.
 // ---------------------------------------------------------------------------
 
-import type { AuthorityCode } from '../auth/types'
-import type { SecurityLevel } from '@/legacy/services/security/level'
+import type { AuthorityCode, SecurityLevel } from '../auth/types'
 
 /** The stable operating surfaces. */
 export type OperatingSurface =
