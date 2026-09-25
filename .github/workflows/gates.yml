@@ -76,6 +76,9 @@ jobs:
       - name: typecheck
         run: pnpm typecheck
 
+      - name: app runtime has no legacy TypeScript
+        run: node scripts/app-runtime-boundary.mjs
+
       - name: lint
         run: pnpm lint
 
