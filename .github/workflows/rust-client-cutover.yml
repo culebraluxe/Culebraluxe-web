@@ -37,3 +37,12 @@ jobs:
       - name: Rust workspace tests
         working-directory: rust
         run: cargo test --workspace
+
+      # BOTTOM-UP CUTOVER GATE: Forge/workflow must not merely avoid importing legacy by convention.
+      # Remove the directory from the checkout and prove the scheduled runtime crates still compile/test.
+      - name: Forge and workflow run with legacy physically unavailable
+        run: |
+          mv legacy /tmp/culebraluxe-legacy-disabled
+          test ! -e legacy
+          cargo test --manifest-path rust/Cargo.toml -p workflow -p forge --all-targets
+          bash -n scripts/agent-worker-once.sh
