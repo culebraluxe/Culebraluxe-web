@@ -1,11 +1,16 @@
 'use server'
 
 import { normalizeLeadInput } from '@/lib/catchup/lead-intake'
-import { createWebsiteLead } from '@/legacy/db/catchup-lead'
+import { rustApiCreateCatchupLead } from '@/lib/rust-api/client'
 
-// CATCH-UP — website lead intake server action. Accepts Name + (Email OR Phone)
-// and returns the canonical write result. Long questionnaires are never
-// required. Ambiguous identity is never silently merged.
+type CatchupLeadResult = {
+  status: 'created' | 'resolved' | 'resolution_required'
+  personId: string | null
+  interactionId: string | null
+}
+
+// CATCH-UP — validation remains a pure UI-edge concern. Canonical identity
+// resolution, Person creation and Interaction persistence are Rust-owned.
 export async function createWebsiteLeadAction(input: {
   name?: unknown
   email?: unknown
@@ -16,9 +21,10 @@ export async function createWebsiteLeadAction(input: {
   if (!parsed.ok) {
     return { ok: false, errors: parsed.errors }
   }
+
   try {
-    const data = await createWebsiteLead(parsed.value)
-    return { ok: true, data }
+    const result = await rustApiCreateCatchupLead<CatchupLeadResult>(parsed.value)
+    return { ok: true, data: result.value }
   } catch (error) {
     return {
       ok: false,
