@@ -1,76 +1,34 @@
-import { NextResponse } from "next/server"
+import { NextResponse } from 'next/server'
 
-import { captureServerError } from '@/lib/server-error-capture'
-import { guardPortalUpload } from "@/lib/auth/portal-session"
-import { sql } from "@/legacy/db/client"
-import {
-  sanitizeUploadFilename,
-  validateMediaUpload,
-} from "@/lib/media/upload-policy"
+import { guardPortalUpload } from '@/lib/auth/portal-session'
+import { rustApiStandaloneMediaUpload } from '@/lib/rust-api/client'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
-// AUTH-03: media uploads are authenticated Portal writes. Resolve the acting
-// user and require listing.write BEFORE any multipart/work — an unauthenticated
-// or unauthorized caller must never reach the insert. Fail closed on any
-// unexpected guard failure (500) rather than proceeding.
 async function POSTHandler(request: Request) {
-  let guard
-  try {
-    guard = await guardPortalUpload("listing.write")
-  } catch (error) {
-    captureServerError('/api/media/upload', error, { route: '/api/media/upload' })
-    return NextResponse.json(
-      { error: "Media upload failed." },
-      { status: 500 }
-    )
-  }
+  const guard = await guardPortalUpload('listing.write')
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error }, { status: guard.status })
   }
 
   const formData = await request.formData()
-
-  const file = formData.get("file")
-
+  const file = formData.get('file')
   if (!(file instanceof File)) {
+    return NextResponse.json({ error: 'No file uploaded' }, { status: 400 })
+  }
+
+  try {
+    return NextResponse.json(await rustApiStandaloneMediaUpload(file))
+  } catch (error) {
     return NextResponse.json(
-      { error: "No file uploaded" },
-      { status: 400 }
+      {
+        error:
+          error instanceof Error ? error.message : 'Media upload failed.',
+      },
+      { status: 400 },
     )
   }
-
-  // HARDEN-06: bounded size, allowed MIME families, sanitized filename.
-  const validation = validateMediaUpload({
-    size: file.size,
-    type: file.type,
-    name: file.name,
-  })
-  if (!validation.ok) {
-    return NextResponse.json({ error: validation.error }, { status: 400 })
-  }
-
-  const bytes = new Uint8Array(await file.arrayBuffer())
-
-  const result = await sql`
-    INSERT INTO media (
-      file_data,
-      filename,
-      mime_type,
-      file_size
-    )
-    VALUES (
-      ${bytes},
-      ${sanitizeUploadFilename(file.name)},
-      ${file.type || "application/octet-stream"},
-      ${file.size}
-    )
-    RETURNING id, filename, mime_type, file_size
-  `
-
-  return NextResponse.json(result[0])
 }
 
-// ENG-FORGE error-capture: a throw is recorded durably and returns a 500.
 export const POST = withApiHandler(
   { label: '/api/media/upload', route: '/api/media/upload' },
   POSTHandler,
