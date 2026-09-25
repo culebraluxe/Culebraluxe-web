@@ -318,6 +318,98 @@ pub fn workflow_status() -> Result<WorkflowStatus> {
     })
 }
 
+
+#[derive(Debug, Clone, Default)]
+pub struct ReconcileReport {
+    pub started_instances: usize,
+    pub materialized_tasks: u64,
+}
+
+pub fn materialize_open_workflow_tasks() -> Result<u64> {
+    let inserted = with_shared(|db, rt| {
+        rt.block_on(async {
+            let row = sqlx::query(
+                r#"
+                with candidates as (
+                  select
+                    t.id::text as workflow_task_id,
+                    t.name as title,
+                    pi.subject_type,
+                    pi.subject_id,
+                    case
+                      when pd.definition->'nodes'->tok.node_id->>'responsibility' = 'buyer' then (
+                        select dp.person_id from deal_participant dp
+                        where dp.deal_id = pi.subject_id::uuid and dp.active = true and dp.role = 'client'
+                        order by dp.started_at asc, dp.created_at asc limit 1
+                      )
+                      when pd.definition->'nodes'->tok.node_id->>'responsibility' = 'seller' then (
+                        select dp.person_id from deal_participant dp
+                        where dp.deal_id = pi.subject_id::uuid and dp.active = true and dp.role = 'seller'
+                        order by dp.started_at asc, dp.created_at asc limit 1
+                      )
+                      when pd.definition->'nodes'->tok.node_id->>'responsibility' in ('lender','inspector','appraiser','notario','title_company') then (
+                        select dp.person_id from deal_participant dp
+                        where dp.deal_id = pi.subject_id::uuid and dp.active = true and dp.role = 'other'
+                          and lower(coalesce(dp.role_label,'')) =
+                            case pd.definition->'nodes'->tok.node_id->>'responsibility'
+                              when 'title_company' then 'title'
+                              else pd.definition->'nodes'->tok.node_id->>'responsibility'
+                            end
+                        order by dp.started_at asc, dp.created_at asc limit 1
+                      )
+                      else null
+                    end as person_id
+                  from tasks t
+                  join process_instances pi on pi.id=t.process_instance_id
+                  join tokens tok on tok.id=t.token_id
+                  join process_definitions pd on pd.id=pi.definition_id
+                  where pi.subject_type='deal'
+                    and t.status in ('ready','reserved','in_progress')
+                    and pi.subject_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                    and not exists (
+                      select 1 from workflow_task_correlation c where c.workflow_task_id=t.id::text
+                    )
+                ),
+                created as (
+                  insert into task (title, person_id, deal_id, task_kind, priority)
+                  select title, person_id, subject_id::uuid, 'human', 0
+                  from candidates
+                  order by workflow_task_id
+                  returning id, deal_id
+                ),
+                paired as (
+                  select c.workflow_task_id, c.subject_type, c.subject_id, x.id application_task_id
+                  from (
+                    select candidates.*, row_number() over(order by workflow_task_id) rn from candidates
+                  ) c
+                  join (
+                    select created.*, row_number() over(order by id) rn from created
+                  ) x using(rn)
+                ),
+                correlated as (
+                  insert into workflow_task_correlation(workflow_task_id,application_task_id,subject_type,subject_id)
+                  select workflow_task_id,application_task_id,subject_type,subject_id from paired
+                  on conflict(workflow_task_id) do nothing
+                  returning application_task_id
+                )
+                select count(*)::bigint as n from correlated
+                "#,
+            )
+            .fetch_one(db.pool())
+            .await
+            .map_err(|e| e.to_string())?;
+            Ok::<u64, String>(row.try_get::<i64,_>("n").unwrap_or(0).max(0) as u64)
+        })
+    }).map_err(WorkflowError::generic)?.map_err(WorkflowError::generic)?;
+    Ok(inserted)
+}
+
+pub fn reconcile_workflows() -> Result<ReconcileReport> {
+    let started_instances = reconcile_residential_transactions()?;
+    let materialized_tasks = materialize_open_workflow_tasks()?;
+    Ok(ReconcileReport { started_instances, materialized_tasks })
+}
+
 pub fn reconcile_residential_transactions() -> Result<usize> {
     let deal_ids = with_shared(|db, rt| {
         rt.block_on(async {
