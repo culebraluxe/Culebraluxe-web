@@ -19,6 +19,7 @@ use crate::security::SecurityService;
 use crate::showings::ShowingService;
 use crate::signature::SignatureService;
 use crate::task::TaskService;
+use crate::tech::TechCockpitService;
 use crate::vault::{VaultArtifactPort, VaultService};
 use crate::wbs::WbsService;
 use crate::website_leads::WebsiteLeadService;
@@ -26,7 +27,7 @@ use crate::workflow_portal::WorkflowPortalService;
 use db::{
     AccountingDao, CalendarDao, ClientDao, CockpitDao, CommsDao, ContractDao, Database,
     DealPortalDao, FirmDao, FlightRecorderDao, FormDao, GuideDao, MediaDao, PersonDao, ProjectDao,
-    PropertyDao, SecurityDao, ShowingDao, SignatureDao, TaskDao, VaultDao, WbsDao,
+    PropertyDao, SecurityDao, ShowingDao, SignatureDao, TaskDao, TechCockpitDao, VaultDao, WbsDao,
     WorkflowPortalDao,
 };
 use service::{ServiceInfrastructure, SignatureProvider};
@@ -206,6 +207,10 @@ impl CoreServices {
             ProjectDao::new(self.db.clone()),
             self.infrastructure.clone(),
         )
+    }
+
+    pub fn tech(&self) -> TechCockpitService<TechCockpitDao> {
+        TechCockpitService::new(TechCockpitDao::new(self.db.clone()), self.infrastructure.clone())
     }
 
     pub fn accounting(&self) -> AccountingService<AccountingDao> {
