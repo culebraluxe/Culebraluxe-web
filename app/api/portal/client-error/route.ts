@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { sql } from '@/legacy/db/client'
-import { recordError } from '@/legacy/db/app-error'
+import { recordRustAppDiagnostic } from '@/lib/rust-api/diagnostics'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
 import {
@@ -64,7 +63,15 @@ async function POSTHandler(req: NextRequest): Promise<Response> {
       endpoint: 'api/portal/client-error',
       now,
       status,
-      record: (record) => recordError(record, sql),
+      record: (record) => recordRustAppDiagnostic({
+        kind: record.kind ?? 'diagnostic-refusal',
+        operation: record.operation ?? 'api/portal/client-error',
+        message: record.message,
+        route: record.route ?? '/api/portal/client-error',
+        level: record.level ?? 'warn',
+        code: record.code ?? null,
+        meta: record.meta ?? {},
+      }),
     })
 
   // Refuse an oversized body BEFORE reading it into memory.
@@ -91,24 +98,14 @@ async function POSTHandler(req: NextRequest): Promise<Response> {
   const digest = typeof body.digest === 'string' ? body.digest.slice(0, 120) : null
   const path = typeof body.path === 'string' ? body.path.slice(0, 300) : null
 
-  // The executor is passed EXPLICITLY. `app_error` keeps its writer injected to avoid an import
-  // cycle, and `recordError` throws when nothing registered one — but `captureError` swallows
-  // throws by design (it must never break the operation it observes), so a capture call in a
-  // bundle whose module graph lacks `legacy/db/client` records NOTHING, silently. Measured while building
-  // this route: the same capture wrote zero rows. Passing `sql` removes the dependency on load
-  // order entirely, and the catch below keeps the best-effort contract for the reporter.
-  await recordError(
-    {
-      kind: 'portal-boundary',
-      route: path ?? '/portal',
-      code: digest,
-      message: message ?? 'portal route failed with no message',
-      level: 'warn',
-      meta: { digest, reportedBy: 'app/portal/error.tsx' },
-    },
-    sql,
-  ).catch(() => {
-    /* reporting is best-effort: a failure to record must not become a failure of the boundary */
+  await recordRustAppDiagnostic({
+    kind: 'portal-boundary',
+    operation: 'portal.boundary',
+    route: path ?? '/portal',
+    code: digest,
+    message: message ?? 'portal route failed with no message',
+    level: 'warn',
+    meta: { digest, reportedBy: 'app/portal/error.tsx' },
   })
 
   return NextResponse.json({ ok: true })
