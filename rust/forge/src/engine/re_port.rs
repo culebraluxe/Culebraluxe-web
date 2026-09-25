@@ -10,7 +10,8 @@ use crate::engine::re_facts::{
     contract_workflow_facts, deal_workflow_facts, resolve_legacy_deal_id_for_contract,
 };
 use crate::engine::re_receipt::{claim_receipt, finalize_receipt};
-use crate::engine::vendor_session::{psql_query, sql_literal};
+use crate::engine::vendor_session::with_shared;
+use db::ForgeEngineDao;
 
 pub struct ReApplicationPort;
 
@@ -67,55 +68,45 @@ fn resolve_deal_id(req: &ApplicationCommandRequest) -> Result<String, Applicatio
 }
 
 fn current_stage(deal_id: &str) -> Option<String> {
-    psql_query(&format!(
-        "SELECT stage FROM deal WHERE id = {} LIMIT 1",
-        sql_literal(deal_id)
-    ))
+    with_shared(|db, rt| {
+        let dao = ForgeEngineDao::new(db.clone());
+        rt.block_on(async {
+            dao.current_deal_stage(deal_id)
+                .await
+                .map_err(|error| error.to_string())
+        })
+    })
     .ok()
-    .map(|s| s.trim().to_string())
-    .filter(|s| !s.is_empty())
+    .and_then(Result::ok)
+    .flatten()
 }
+
 
 fn set_stage(deal_id: &str, from: &str, to: &str) -> Result<(), String> {
-    let sql = format!(
-        "UPDATE deal SET stage = {to}, closed_at = CASE WHEN {to} = 'closed' THEN now() ELSE closed_at END, updated_at = now() \
-         WHERE id = {id} AND stage = {from} RETURNING id",
-        to = sql_literal(to),
-        from = sql_literal(from),
-        id = sql_literal(deal_id),
-    );
-    let raw = psql_query(&sql)?;
-    if raw.trim().is_empty() {
-        Err("cas".into())
-    } else {
-        Ok(())
-    }
+    with_shared(|db, rt| {
+        let dao = ForgeEngineDao::new(db.clone());
+        rt.block_on(async {
+            dao.compare_and_set_deal_stage(deal_id, from, to)
+                .await
+                .map_err(|error| error.to_string())
+                .and_then(|changed| if changed { Ok(()) } else { Err("cas".into()) })
+        })
+    })?
 }
 
+
 fn set_column(deal_id: &str, column: &str, value: &str) -> Result<(), String> {
-    let allowed = [
-        "closing_date",
-        "inspection_deadline",
-        "financing_deadline",
-        "financing_type",
-        "appraisal_required",
-        "lender_clear_to_close",
-    ];
-    if !allowed.contains(&column) {
-        return Err("bad column".into());
-    }
-    let sql = format!(
-        "UPDATE deal SET {column} = {}, updated_at = now() WHERE id = {} RETURNING id",
-        sql_literal(value),
-        sql_literal(deal_id)
-    );
-    let raw = psql_query(&sql)?;
-    if raw.trim().is_empty() {
-        Err("missing".into())
-    } else {
-        Ok(())
-    }
+    with_shared(|db, rt| {
+        let dao = ForgeEngineDao::new(db.clone());
+        rt.block_on(async {
+            dao.set_deal_field(deal_id, column, value)
+                .await
+                .map_err(|error| error.to_string())
+                .and_then(|changed| if changed { Ok(()) } else { Err("missing".into()) })
+        })
+    })?
 }
+
 
 impl ApplicationPort for ReApplicationPort {
     fn execute_command(&self, req: &ApplicationCommandRequest) -> ApplicationCommandResult {
