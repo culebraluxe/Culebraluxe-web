@@ -136,12 +136,12 @@ export async function rustApiBreakGlassReadiness(): Promise<RustBreakGlassReadin
  */
 export async function rustApiAuthorize(
   action: string,
-  kind: 'query' | 'command',
+  _legacyKind?: 'query' | 'command',
 ): Promise<RustAuthorizationDecision> {
   const result = await rustApiJsonWrite<RustAuthorizationDecision>(
     '/v1/security/authorize',
     'POST',
-    { action, kind },
+    { action },
   )
   return result.value
 }
@@ -157,7 +157,7 @@ export async function rustApiAuthorize(
  */
 export async function rustApiAuthorizePublic(
   action: string,
-  kind: 'query' | 'command',
+  _legacyKind?: 'query' | 'command',
 ): Promise<RustAuthorizationDecision> {
   const correlationId = randomUUID()
   const headers = {
@@ -173,7 +173,7 @@ export async function rustApiAuthorizePublic(
     response = await fetch(`${rustApiBaseUrl()}/v1/security/authorize/public`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ action, kind }),
+      body: JSON.stringify({ action }),
       cache: 'no-store',
     })
   } catch (cause) {
