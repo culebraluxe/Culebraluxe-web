@@ -1,7 +1,7 @@
 use db::Database;
 use server::api::{build_router, error_capture, ApiConfig};
-use server::security::CasbinAuthorizationPort;
-use service::{CapturingAuditPort, CapturingDomainEventPort, ServiceInfrastructure};
+use server::security::{CasbinAuthorizationPort, DurableSecurityAuditPort};
+use service::{CapturingDomainEventPort, ServiceInfrastructure};
 use std::{error::Error, sync::Arc};
 use tokio::net::TcpListener;
 
@@ -18,7 +18,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     error_capture::install(db.clone());
     let infrastructure = ServiceInfrastructure::new(
         Arc::new(CasbinAuthorizationPort::new().await?),
-        Arc::new(CapturingAuditPort::default()),
+        Arc::new(DurableSecurityAuditPort::new(db::SecurityAuditDao::new(
+            db.clone(),
+        ))),
         Arc::new(CapturingDomainEventPort::default()),
     );
     let app = build_router(db.clone(), infrastructure, config);
