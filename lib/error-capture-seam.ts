@@ -97,6 +97,32 @@ export function withApiHandler<A extends unknown[]>(
         route: opts.route ?? null,
         level,
       })
+      // A REFUSAL IS NOT AN INTERNAL ERROR.
+      //
+      // This answered `{ ok: false, error: 'internal_error' }` with a 500 for EVERY throw, including the ones a Service
+      // deliberately raises to explain itself — "Under-contract and sold status are owned by the transaction workflow",
+      // "Property status is invalid.", "Image is too large". The reason existed, was logged, and was thrown away on the
+      // way to the screen: all the person clicking saw was `internal_error`, so they had to ask someone. That is the
+      // single most expensive line in this file.
+      //
+      // Errors that describe themselves (a code, a message, a 4xx status) are now returned as they were raised. Only a
+      // genuine crash — no code, no status, or a 5xx — stays a generic 500.
+      const described = err as { code?: unknown; message?: unknown; status?: unknown } | null
+      const code = described && typeof described.code === 'string' ? described.code : null
+      const status =
+        described && typeof described.status === 'number' && described.status >= 400 && described.status < 500
+          ? described.status
+          : null
+      if (code && status !== null) {
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            error: code,
+            message: typeof described?.message === 'string' ? described.message : undefined,
+          }),
+          { status, headers: { 'content-type': 'application/json' } },
+        )
+      }
       return new Response(
         JSON.stringify({ ok: false, error: 'internal_error' }),
         { status: 500, headers: { 'content-type': 'application/json' } },
