@@ -121,7 +121,7 @@ pub fn recover_stale_agent_work(stale_after_minutes: i64) -> Result<u64, String>
     })?
 }
 
-async fn fire_batch(db: &db::Database, batch_id: &str) -> Result<(u64, u64), String> {
+async fn fire_batch(db: &db::Database, batch_id: &str) -> Result<(u64, u64, u64), String> {
     let policy: Option<String> = sqlx::query_scalar(
         "select model_policy from forge_batch where id=$1::uuid",
     )
@@ -143,40 +143,65 @@ async fn fire_batch(db: &db::Database, batch_id: &str) -> Result<(u64, u64), Str
 
     let mut queued = 0u64;
     let mut stamped = 0u64;
+    let mut skipped = 0u64;
+
     for row in rows {
         let story: String = row.try_get("story_id").map_err(|e| e.to_string())?;
         let kind: String = row.try_get("kind").unwrap_or_else(|_| "normal".into());
 
-        sqlx::query(
-            "update storyboard_story set status='Ready', updated_at=now() where id=$1",
-        )
-        .bind(&story)
-        .execute(db.pool())
-        .await
-        .map_err(|e| e.to_string())?;
+        let member = async {
+            sqlx::query(
+                "update storyboard_story set status='Ready', updated_at=now() where id=$1",
+            )
+            .bind(&story)
+            .execute(db.pool())
+            .await
+            .map_err(|e| e.to_string())?;
 
-        sqlx::query(
-            "update forge_batch_item set state='Queued', queued_at=now(), error_text=null
-             where batch_id=$1::uuid and story_id=$2",
-        )
-        .bind(batch_id)
-        .bind(&story)
-        .execute(db.pool())
-        .await
-        .map_err(|e| e.to_string())?;
+            sqlx::query(
+                "update forge_batch_item set state='Queued', queued_at=now(), error_text=null
+                 where batch_id=$1::uuid and story_id=$2",
+            )
+            .bind(batch_id)
+            .bind(&story)
+            .execute(db.pool())
+            .await
+            .map_err(|e| e.to_string())?;
 
-        stamped += sqlx::query(
-            "update agent_work_item set kind=$2, model_policy=$3, updated_at=now()
-             where story_id=$1 and state='Ready'",
-        )
-        .bind(&story)
-        .bind(&kind)
-        .bind(&policy)
-        .execute(db.pool())
-        .await
-        .map_err(|e| e.to_string())?
-        .rows_affected();
-        queued += 1;
+            let n = sqlx::query(
+                "update agent_work_item set kind=$2, model_policy=$3, updated_at=now()
+                 where story_id=$1 and state='Ready'",
+            )
+            .bind(&story)
+            .bind(&kind)
+            .bind(&policy)
+            .execute(db.pool())
+            .await
+            .map_err(|e| e.to_string())?
+            .rows_affected();
+            Ok::<u64, String>(n)
+        }
+        .await;
+
+        match member {
+            Ok(n) => {
+                queued += 1;
+                stamped += n;
+            }
+            Err(error) => {
+                skipped += 1;
+                sqlx::query(
+                    "update forge_batch_item set state='Skipped', error_text=$3
+                     where batch_id=$1::uuid and story_id=$2",
+                )
+                .bind(batch_id)
+                .bind(&story)
+                .bind(error.chars().take(2000).collect::<String>())
+                .execute(db.pool())
+                .await
+                .map_err(|e| e.to_string())?;
+            }
+        }
     }
 
     sqlx::query(
@@ -186,7 +211,7 @@ async fn fire_batch(db: &db::Database, batch_id: &str) -> Result<(u64, u64), Str
     .execute(db.pool())
     .await
     .map_err(|e| e.to_string())?;
-    Ok((queued, stamped))
+    Ok((queued, stamped, skipped))
 }
 
 pub fn fire_due_flights() -> Result<u64, String> {
@@ -201,8 +226,8 @@ pub fn fire_due_flights() -> Result<u64, String> {
             .await
             .map_err(|e| e.to_string())?;
             for id in &due {
-                let (queued, stamped) = fire_batch(db, id).await?;
-                eprintln!("flight {id}: queued={queued} stamped={stamped}");
+                let (queued, stamped, skipped) = fire_batch(db, id).await?;
+                eprintln!("flight {id}: queued={queued} stamped={stamped} skipped={skipped}");
             }
             Ok::<u64, String>(due.len() as u64)
         })
