@@ -2,13 +2,17 @@ use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
 use db::{DbResult, SupportDiagnosticsDao};
 use domain::{
-    SupportSecurityStatus, SupportSystemHealth, WorkflowDiagnosticsDetail,
+    SupportBreakGlassReadiness, SupportSecurityStatus, SupportSystemHealth, WorkflowDiagnosticsDetail,
     WorkflowDiagnosticsSnapshot,
 };
 use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
 
 #[async_trait]
 pub trait SupportDiagnosticsRepository: Send {
+    async fn break_glass_probe(
+        &mut self,
+        app_user_id: Option<&str>,
+    ) -> DbResult<(bool, bool, bool, bool)>;
     async fn security_status(&mut self) -> DbResult<SupportSecurityStatus>;
     async fn system_health(&mut self) -> DbResult<SupportSystemHealth>;
     async fn workflow_diagnostics(&mut self) -> DbResult<WorkflowDiagnosticsSnapshot>;
@@ -20,6 +24,13 @@ pub trait SupportDiagnosticsRepository: Send {
 
 #[async_trait]
 impl SupportDiagnosticsRepository for SupportDiagnosticsDao {
+    async fn break_glass_probe(
+        &mut self,
+        app_user_id: Option<&str>,
+    ) -> DbResult<(bool, bool, bool, bool)> {
+        SupportDiagnosticsDao::break_glass_probe(self, app_user_id).await
+    }
+
     async fn security_status(&mut self) -> DbResult<SupportSecurityStatus> {
         SupportDiagnosticsDao::security_status(self).await
     }
@@ -51,6 +62,42 @@ impl<R: SupportDiagnosticsRepository> SupportDiagnosticsService<R> {
             repository,
             runtime: ServiceRuntime::new(infrastructure),
         }
+    }
+
+    pub async fn break_glass_readiness(
+        &mut self,
+        configured: bool,
+        enabled: bool,
+        app_user_id: Option<&str>,
+        context: &ServiceContext,
+    ) -> Result<SupportBreakGlassReadiness, CoreServiceError> {
+        const OP: &str = "support.breakGlassReadiness";
+        let decision = authorize(
+            &self.runtime,
+            "support",
+            "portal.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+        let result = self
+            .repository
+            .break_glass_probe(app_user_id)
+            .await
+            .map(|(root_resolvable, root_active, owner_role_present, audit_table_available)| {
+                SupportBreakGlassReadiness {
+                    configured,
+                    enabled,
+                    root_resolvable,
+                    root_active,
+                    owner_role_present,
+                    audit_table_available,
+                }
+            })
+            .map_err(Into::into);
+        audit_result(&self.runtime, "support", OP, context, decision, &result).await?;
+        result
     }
 
     pub async fn security_status(
