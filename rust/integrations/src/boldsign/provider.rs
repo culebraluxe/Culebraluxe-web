@@ -67,10 +67,10 @@ impl BoldSignSignatureProvider {
             .await
             .map_err(|error| error.to_string())?
             .ok_or_else(|| {
-            format!(
+                format!(
                 "Transaction document {transaction_document_id} has no unsigned PDF media to send."
             )
-        })?;
+            })?;
 
         let bytes = row.file_data.ok_or_else(|| {
             format!(

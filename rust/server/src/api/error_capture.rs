@@ -48,9 +48,8 @@ fn sink(failure: &DbFailure) {
             .enable_all()
             .build();
         let Ok(runtime) = runtime else { return };
-        let _ = runtime.block_on(async move {
-            dao.record_db_failure(&failure, &kind, &meta).await
-        });
+        let _ =
+            runtime.block_on(async move { dao.record_db_failure(&failure, &kind, &meta).await });
     });
 }
 
@@ -88,15 +87,8 @@ pub fn record(
             return;
         };
         let _ = runtime.block_on(async move {
-            dao.record_runtime_error(
-                &kind,
-                &operation,
-                &message,
-                &level,
-                stack.as_deref(),
-                &meta,
-            )
-            .await
+            dao.record_runtime_error(&kind, &operation, &message, &level, stack.as_deref(), &meta)
+                .await
         });
     });
 }

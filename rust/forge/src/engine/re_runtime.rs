@@ -294,7 +294,6 @@ pub fn materialize_open_workflow_tasks() -> Result<u64> {
     })
     .map_err(WorkflowError::generic)?
 }
-
 pub fn reconcile_workflows() -> Result<ReconcileReport> {
     let started_instances = reconcile_residential_transactions()?;
     let materialized_tasks = materialize_open_workflow_tasks()?;
