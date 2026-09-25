@@ -217,6 +217,74 @@ export async function rustApiAuthorizePublic(
   return payload.value
 }
 
+export type RustWebsiteIntakeResult = {
+  accepted: boolean
+  status: 'accepted' | 'invalid' | 'unavailable'
+}
+
+export async function rustApiSubmitWebsiteIntake(
+  body: Record<string, unknown>,
+): Promise<RustWebsiteIntakeResult> {
+  const correlationId = randomUUID()
+  const headers = {
+    ...buildRustPublicBridgeHeaders({
+      internalApiKey: internalApiKey(),
+      correlationId,
+    }),
+    'content-type': 'application/json',
+  }
+
+  let response: Response
+  try {
+    response = await fetch(`${rustApiBaseUrl()}/v1/website-intake`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      cache: 'no-store',
+    })
+  } catch (cause) {
+    throw new RustApiError({
+      status: 503,
+      code: 'RUST_API_UNAVAILABLE',
+      message: cause instanceof Error ? cause.message : 'Rust API request failed.',
+      retryable: true,
+      correlationId,
+    })
+  }
+
+  const payload = (await response.json().catch(() => null)) as
+    | RustApiSuccess<RustWebsiteIntakeResult>
+    | RustApiFailure
+    | null
+  if (!payload) {
+    throw new RustApiError({
+      status: 502,
+      code: 'RUST_API_INVALID_RESPONSE',
+      message: 'Rust API returned a non-JSON response.',
+      retryable: true,
+      correlationId,
+    })
+  }
+  if (!response.ok || !payload.ok) {
+    const failure = payload as RustApiFailure
+    throw new RustApiError({
+      status: response.status,
+      code: failure.error?.code ?? 'RUST_API_FAILURE',
+      message: failure.error?.message ?? 'Rust API request failed.',
+      retryable: failure.error?.retryable ?? response.status >= 500,
+      correlationId: failure.correlationId ?? correlationId,
+      incidentId: failure.error?.incidentId ?? null,
+    })
+  }
+  return payload.value
+}
+
+export async function rustApiCreateCatchupLead<T>(
+  body: Record<string, unknown>,
+): Promise<RustApiSuccess<T>> {
+  return rustApiJsonWrite<T>('/v1/catchup/leads', 'POST', body)
+}
+
 export type RustWebsiteLeadNotice = 'sent' | 'already_handled'
 
 /**
