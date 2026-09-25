@@ -1467,6 +1467,40 @@ export async function rustApiUpdatePersonAdmin<T>(
   )
 }
 
+export async function rustApiCreateProject<T>(
+  body: Record<string, unknown>,
+  options: RustApiJsonWriteOptions = {},
+): Promise<RustApiSuccess<T>> {
+  return rustApiJsonWrite<T>('/v1/projects', 'POST', body, options)
+}
+
+export async function rustApiCreateWbs<T>(
+  body: Record<string, unknown>,
+  options: RustApiJsonWriteOptions = {},
+): Promise<RustApiSuccess<T>> {
+  return rustApiJsonWrite<T>('/v1/wbs', 'POST', body, options)
+}
+
+export async function rustApiQueueAppleReminder<T>(
+  itemId: string,
+  body: { alert?: boolean } = {},
+  options: RustApiJsonWriteOptions = {},
+): Promise<RustApiSuccess<T>> {
+  return rustApiJsonWrite<T>(
+    (`/v1/wbs/${encodeURIComponent(itemId)}/apple-reminder`) as `/v1/${string}`,
+    'POST',
+    body,
+    options,
+  )
+}
+
+export async function rustApiCreateAppleCalendarEvent<T>(
+  body: Record<string, unknown>,
+  options: RustApiJsonWriteOptions = {},
+): Promise<RustApiSuccess<T>> {
+  return rustApiJsonWrite<T>('/v1/calendar', 'POST', body, options)
+}
+
 export async function rustApiUpdateProject<T>(
   projectId: string,
   body: Record<string, unknown>,
