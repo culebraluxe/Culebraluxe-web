@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
+import { rustApiTechCockpit } from '@/lib/rust-api/client'
 
 import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
 import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
@@ -106,18 +107,16 @@ async function GETHandler(req: NextRequest): Promise<Response> {
 
   const selectedRequested = new URL(req.url).searchParams.get('selected')
 
-  const [stories, executions, activeWork, engineRuns, ledger, queuedCards, flights, stagingFlight, stagingItems] =
-    await Promise.all([
-      listStoryboardStories(),
-      listStoryExecutionSummaries(),
-      listActiveWork(),
-      listEngineRunCards(30).catch(() => null),
-      listEngineLedgerStats().catch(() => null),
-      listEngineQueuedCards(30).catch(() => null),
-      listForgeBatches(4).catch(() => []),
-      getStagingBatch().catch(() => null),
-      listStagingBatchItems().catch(() => []),
-    ])
+  const snapshot = await rustApiTechCockpit(selectedRequested)
+  const stories = snapshot.stories ?? []
+  const executions = snapshot.executions ?? []
+  const activeWork = snapshot.activeWork ?? []
+  const engineRuns = snapshot.engineRuns ?? []
+  const ledger = snapshot.ledger ?? null
+  const queuedCards = snapshot.queuedCards ?? []
+  const flights = snapshot.recentFlights ?? []
+  const stagingFlight = snapshot.stagingFlight ?? null
+  const stagingItems = snapshot.stagingItems ?? []
 
   if (!stories) {
     return NextResponse.json({
@@ -152,11 +151,9 @@ async function GETHandler(req: NextRequest): Promise<Response> {
     ? withExecution.find((story) => story.id === selectedId) ?? null
     : null
 
-  const selectedRuns = selectedId ? await listStoryRuns(selectedId).catch(() => []) : []
-  const recorderInstanceId = selectedId
-    ? await latestForgeInstanceForStory(selectedId).catch(() => null)
-    : null
-  const hold = selectedId ? await latestOpenForgeHold(selectedId).catch(() => null) : null
+  const selectedRuns = snapshot.selectedRuns ?? []
+  const recorderInstanceId = snapshot.recorderInstanceId ?? null
+  const hold = snapshot.hold ?? null
 
   const kindByStory = new Map(stagingItems.map((item) => [item.storyId, item.kind]))
   const batchStories = stories
