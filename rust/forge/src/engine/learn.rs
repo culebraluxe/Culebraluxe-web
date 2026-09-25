@@ -5,7 +5,7 @@
 //! dedupes against open learn work, and never fixes/merges/promotes its own finding.
 
 use crate::engine::vendor_session::with_shared;
-use sqlx::Row;
+use db::ForgeControlDao;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
@@ -151,101 +151,113 @@ fn scan_silent_failures(files: &[(String, String)]) -> Vec<Candidate> {
 }
 
 fn stale_candidate(minutes: i64) -> Result<Option<Candidate>, String> {
-    with_shared(|db, rt| rt.block_on(async move {
-        let rows = sqlx::query(
-            "select id::text, updated_at::text from agent_work_item
-             where state in ('Claimed','Running','Paused')
-               and updated_at < now() - ($1::text || ' minutes')::interval
-             order by updated_at asc"
-        ).bind(minutes.max(0).to_string()).fetch_all(db.pool()).await.map_err(|e| e.to_string())?;
-        if rows.is_empty() { return Ok(None); }
-        let mut evidence = vec![]; let mut first = String::new(); let mut last = String::new();
-        for (i,row) in rows.iter().enumerate() {
-            let id:String=row.try_get(0).map_err(|e|e.to_string())?;
-            let at:String=row.try_get(1).unwrap_or_default();
-            if i==0 { first=at.clone(); } last=at;
-            if evidence.len()<5 { evidence.push(format!("agent_work_item:{id}")); }
-        }
-        Ok(Some(Candidate{
-            pattern:"stale-claim".into(), key:"stale-claim".into(), severity:Severity::P0,
-            title:format!("{} abandoned work claim(s)", rows.len()), evidence, hit_count:rows.len(),
-            first_seen:first,last_seen:last,
-        }))
-    }))?
+    with_shared(|db, rt| {
+        let dao = ForgeControlDao::new(db.clone());
+        rt.block_on(async {
+            let rows = dao
+                .stale_learn_claims(minutes)
+                .await
+                .map_err(|error| error.to_string())?;
+            if rows.is_empty() {
+                return Ok(None);
+            }
+            let mut evidence = Vec::new();
+            let mut first = String::new();
+            let mut last = String::new();
+            for (index, row) in rows.iter().enumerate() {
+                if index == 0 {
+                    first = row.updated_at.clone();
+                }
+                last = row.updated_at.clone();
+                if evidence.len() < 5 {
+                    evidence.push(format!("agent_work_item:{}", row.id));
+                }
+            }
+            Ok(Some(Candidate {
+                pattern: "stale-claim".into(),
+                key: "stale-claim".into(),
+                severity: Severity::P0,
+                title: format!("{} abandoned work claim(s)", rows.len()),
+                evidence,
+                hit_count: rows.len(),
+                first_seen: first,
+                last_seen: last,
+            }))
+        })
+    })?
 }
 
 fn open_keys() -> Result<BTreeSet<String>, String> {
-    with_shared(|db, rt| rt.block_on(async {
-        let rows:Vec<String>=sqlx::query_scalar(
-            "select learn_pattern_key from agent_work_item
-             where learn_pattern_key is not null and state in ('Ready','Claimed','Running','Paused')
-             union
-             select learn_pattern_key from forge_batch_item
-             where learn_pattern_key is not null and state='Staged'"
-        ).fetch_all(db.pool()).await.map_err(|e|e.to_string())?;
-        Ok(rows.into_iter().collect())
-    }))?
+    with_shared(|db, rt| {
+        let dao = ForgeControlDao::new(db.clone());
+        rt.block_on(async {
+            dao.open_learn_pattern_keys()
+                .await
+                .map(|rows| rows.into_iter().collect())
+                .map_err(|error| error.to_string())
+        })
+    })?
 }
 
-fn story_id(key:&str)->String {
-    let slug:String=key.chars().map(|c| if c.is_ascii_alphanumeric(){c.to_ascii_uppercase()}else{'-'}).collect();
-    let slug=slug.trim_matches('-').chars().take(60).collect::<String>();
+fn story_id(key: &str) -> String {
+    let slug: String = key
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_uppercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let slug = slug.trim_matches('-').chars().take(60).collect::<String>();
     format!("LEARN-{slug}-{}", now_secs())
 }
 
-fn instructions(c:&Candidate)->String {
+fn instructions(candidate: &Candidate) -> String {
     format!(
         "Filed by the Rust learn loop: pattern {} ({} hit(s)). Lead and Architect decide SMITH or HOLD; the loop does not choose the fix. Assay does not ship code. Never auto-merge, never auto-promote a decision. Evidence: {}.",
-        c.key,c.hit_count,c.evidence.join(", ")
+        candidate.key,
+        candidate.hit_count,
+        candidate.evidence.join(", ")
     )
 }
 
-fn ensure_staging(db:&db::Database, rt:&tokio::runtime::Runtime)->Result<String,String>{
-    rt.block_on(async{
-        if let Some(id)=sqlx::query_scalar::<_,String>("select id::text from forge_batch where status='Staged' order by created_at desc limit 1")
-            .fetch_optional(db.pool()).await.map_err(|e|e.to_string())? { return Ok(id); }
-        sqlx::query_scalar::<_,String>(
-            "insert into forge_batch(label,status,note) values('staging','Staged','built by Rust learn loop') returning id::text"
-        ).fetch_one(db.pool()).await.map_err(|e|e.to_string())
-    })
-}
+fn file_candidate(candidate: &Candidate) -> Result<String, String> {
+    let id = story_id(&candidate.key);
+    let notes = instructions(candidate);
+    with_shared(|db, rt| {
+        let dao = ForgeControlDao::new(db.clone());
+        rt.block_on(async {
+            dao.create_learn_story(
+                &id,
+                &format!("learn: {}", candidate.key),
+                if candidate.severity == Severity::P0 {
+                    "High"
+                } else {
+                    "Medium"
+                },
+                &notes,
+                &format!("Verify and resolve {}", candidate.key),
+            )
+            .await
+            .map_err(|error| error.to_string())?;
 
-fn file_candidate(c:&Candidate)->Result<String,String>{
-    let id=story_id(&c.key); let notes=instructions(c);
-    with_shared(|db,rt|{
-        rt.block_on(async{
-            sqlx::query(
-                "insert into storyboard_story(id,workstream,title,priority,status,notes,goal,completion,rollup)
-                 values($1,'ENGINEERING',$2,$3,'Planned',$4,$5,0,true)
-                 on conflict(id) do nothing"
-            ).bind(&id).bind(format!("learn: {}",c.key)).bind(if c.severity==Severity::P0{"High"}else{"Medium"})
-             .bind(&notes).bind(format!("Verify and resolve {}",c.key)).execute(db.pool()).await.map_err(|e|e.to_string())?;
-            Ok::<(),String>(())
-        })?;
-
-        if c.severity==Severity::P0 {
-            rt.block_on(async{
-                sqlx::query("update storyboard_story set status='Ready',updated_at=now() where id=$1").bind(&id)
-                    .execute(db.pool()).await.map_err(|e|e.to_string())?;
-                sqlx::query(
-                    "update agent_work_item set kind='learn',learn_pattern_key=$2,special_instructions=$3,updated_at=now()
-                     where story_id=$1 and state='Ready'"
-                ).bind(&id).bind(&c.key).bind(&notes).execute(db.pool()).await.map_err(|e|e.to_string())?;
-                Ok::<(),String>(())
-            })?;
-        } else {
-            let batch=ensure_staging(db,rt)?;
-            rt.block_on(async{
-                sqlx::query("update storyboard_story set status='Batched',updated_at=now() where id=$1").bind(&id)
-                    .execute(db.pool()).await.map_err(|e|e.to_string())?;
-                sqlx::query(
-                    "insert into forge_batch_item(batch_id,story_id,state,kind,learn_pattern_key)
-                     values($1::uuid,$2,'Staged','learn',$3) on conflict(batch_id,story_id) do nothing"
-                ).bind(batch).bind(&id).bind(&c.key).execute(db.pool()).await.map_err(|e|e.to_string())?;
-                Ok::<(),String>(())
-            })?;
-        }
-        Ok::<String,String>(id)
+            if candidate.severity == Severity::P0 {
+                dao.open_ready_learn_item(&id, &candidate.key, &notes)
+                    .await
+                    .map_err(|error| error.to_string())?;
+            } else {
+                let batch = dao
+                    .ensure_staging_batch()
+                    .await
+                    .map_err(|error| error.to_string())?;
+                dao.stage_learn_item(&batch, &id, &candidate.key)
+                    .await
+                    .map_err(|error| error.to_string())?;
+            }
+            Ok::<String, String>(id)
+        })
     })?
 }
 
