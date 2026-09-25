@@ -2,16 +2,25 @@
 
 import { randomUUID } from "node:crypto"
 
-import { enqueueAppleReminderUpsert } from "@/legacy/db/apple-gateway-outbox"
-import { getActingUser } from "@/lib/auth/get-acting-user"
-import { getPortalSessionAdapter } from "@/lib/auth/portal-session"
-import { SqlWbsRepository } from "@/legacy/db/wbs-service-repository"
-import { resolveSecurityLevel } from "@/legacy/services/security"
-import { WbsService } from "@/legacy/services/wbs"
-import type { WbsCategoryId } from "@/legacy/services/wbs"
-import { appServiceErrorSink } from "@/lib/service-error-sink"
-import { AuthorizationService } from "@/legacy/services/entitlement"
-import type { ServiceContext } from "@/legacy/services/core"
+import {
+  RustApiError,
+  rustApiCreateWbs,
+  rustApiQueueAppleReminder,
+  rustApiUpdateWbs,
+} from "@/lib/rust-api/client"
+
+export type WbsCategoryId =
+  | "clients"
+  | "contracts"
+  | "properties"
+  | "media"
+  | "marketing"
+  | "accounting"
+  | "management"
+
+type RustWbsItem = {
+  id: string
+}
 
 export type WbsActionResult =
   | { ok: true; id: string }
@@ -21,24 +30,11 @@ export type AppleReminderActionResult =
   | { ok: true; commandId: string; state: "queued" }
   | { ok: false; code: string; message: string }
 
-function wbsService(): WbsService {
-  return new WbsService(new SqlWbsRepository(), {
-    authorization: new AuthorizationService(),
-    errors: appServiceErrorSink(),
-  })
-}
-
-/** Resolve the acting user to an authorized principal (edge resolution). */
-async function runContext(): Promise<ServiceContext> {
-  const acting = await getActingUser(getPortalSessionAdapter())
+function failure(error: unknown, fallback: string): WbsActionResult {
   return {
-    actor: { id: acting.appUserId, kind: "user" },
-    correlationId: randomUUID(),
-    principal: {
-      appUserId: acting.appUserId,
-      level: resolveSecurityLevel(acting.roleCodes),
-      roleCodes: acting.roleCodes,
-    },
+    ok: false,
+    code: error instanceof RustApiError ? error.code : "auth",
+    message: error instanceof Error ? error.message : fallback,
   }
 }
 
@@ -48,95 +44,78 @@ export async function createWbsItemAction(input: {
   projectId?: string | null
 }): Promise<WbsActionResult> {
   try {
-    const context = await runContext()
-    const res = await wbsService().execute({
-      operation: "wbs.create",
-      payload: { id: randomUUID(), title: input.title, category: input.category, projectId: input.projectId ?? null },
-      context,
+    const result = await rustApiCreateWbs<RustWbsItem>({
+      id: randomUUID(),
+      title: input.title,
+      category: input.category,
+      projectId: input.projectId ?? null,
     })
-    if (!res.ok) return { ok: false, code: res.error.code, message: res.error.message }
-    return { ok: true, id: res.value.id }
-  } catch (caught) {
-    return { ok: false, code: "auth", message: caught instanceof Error ? caught.message : "Could not create follow-up." }
+    return { ok: true, id: result.value.id }
+  } catch (error) {
+    return failure(error, "Could not create follow-up.")
   }
 }
 
 export async function completeWbsItemAction(id: string): Promise<WbsActionResult> {
   try {
-    const context = await runContext()
-    const res = await wbsService().execute({ operation: "wbs.complete", payload: { id }, context })
-    if (!res.ok) return { ok: false, code: res.error.code, message: res.error.message }
-    return { ok: true, id: res.value.id }
-  } catch (caught) {
-    return { ok: false, code: "auth", message: caught instanceof Error ? caught.message : "Could not complete follow-up." }
+    const result = await rustApiUpdateWbs<RustWbsItem>(id, { status: "done" })
+    return { ok: true, id: result.value.id }
+  } catch (error) {
+    return failure(error, "Could not complete follow-up.")
   }
 }
 
 export async function dismissWbsItemAction(id: string): Promise<WbsActionResult> {
   try {
-    const context = await runContext()
-    const res = await wbsService().execute({ operation: "wbs.dismiss", payload: { id }, context })
-    if (!res.ok) return { ok: false, code: res.error.code, message: res.error.message }
-    return { ok: true, id: res.value.id }
-  } catch (caught) {
-    return { ok: false, code: "auth", message: caught instanceof Error ? caught.message : "Could not dismiss follow-up." }
+    const result = await rustApiUpdateWbs<RustWbsItem>(id, {
+      status: "dismissed",
+    })
+    return { ok: true, id: result.value.id }
+  } catch (error) {
+    return failure(error, "Could not dismiss follow-up.")
   }
 }
 
 export async function updateWbsItemAction(input: {
   id: string
   title?: string
-  status?: 'open' | 'doing' | 'done' | 'dismissed'
+  status?: "open" | "doing" | "done" | "dismissed"
   dueAt?: string | null
   owner?: string | null
   notes?: string
 }): Promise<WbsActionResult> {
   try {
-    const context = await runContext()
-    const service = wbsService()
-    const current = await service.execute({ operation: "wbs.get", payload: { id: input.id }, context })
-    if (!current.ok) return { ok: false, code: current.error.code, message: current.error.message }
-    if (!current.value) return { ok: false, code: "WBS_NOT_FOUND", message: "That work item no longer exists." }
-    const res = await service.execute({
-      operation: "wbs.save",
-      payload: { id: current.value.id, title: input.title?.trim() || current.value.title, category: current.value.category, projectId: current.value.projectId, parentId: current.value.parentId, order: current.value.order, entity: current.value.entity, dueAt: input.dueAt === undefined ? current.value.dueAt : input.dueAt, owner: input.owner === undefined ? current.value.owner : input.owner, notes: input.notes === undefined ? current.value.notes : input.notes, status: input.status ?? current.value.status },
-      context,
-    })
-    if (!res.ok) return { ok: false, code: res.error.code, message: res.error.message }
-    return { ok: true, id: res.value.id }
-  } catch (caught) {
-    return { ok: false, code: "auth", message: caught instanceof Error ? caught.message : "Could not update work item." }
+    const body: Record<string, unknown> = {}
+    if (input.title !== undefined) body.title = input.title
+    if (input.status !== undefined) body.status = input.status
+    if (input.dueAt !== undefined) body.dueAt = input.dueAt
+    if (input.owner !== undefined) body.owner = input.owner
+    if (input.notes !== undefined) body.notes = input.notes
+    const result = await rustApiUpdateWbs<RustWbsItem>(input.id, body)
+    return { ok: true, id: result.value.id }
+  } catch (error) {
+    return failure(error, "Could not update work item.")
   }
 }
 
-/** Mirror one canonical WBS item to Apple Reminders. The WBS row remains the
- * source of truth; Apple is the external execution surface. */
 export async function queueAppleReminderForWbsAction(
   id: string,
   options?: { alert?: boolean },
 ): Promise<AppleReminderActionResult> {
   try {
-    const context = await runContext()
-    const current = await wbsService().execute({ operation: "wbs.get", payload: { id }, context })
-    if (!current.ok) return { ok: false, code: current.error.code, message: current.error.message }
-    if (!current.value) return { ok: false, code: "WBS_NOT_FOUND", message: "That work item no longer exists." }
-
-    const commandId = await enqueueAppleReminderUpsert(
-      {
-        wbsId: current.value.id,
-        title: current.value.title,
-        dueAt: current.value.dueAt,
-        completed: current.value.status === "done",
-        notes: current.value.notes || null,
-        alert: options?.alert ?? false,
-      },
-      {
-        actorAppUserId: context.principal?.appUserId ?? context.actor.id,
-        correlationId: context.correlationId,
-      },
-    )
-    return { ok: true, commandId, state: "queued" }
-  } catch (caught) {
-    return { ok: false, code: "apple_gateway", message: caught instanceof Error ? caught.message : "Could not queue Apple Reminder." }
+    const result = await rustApiQueueAppleReminder<{
+      commandId: string
+      state: "queued"
+    }>(id, { alert: options?.alert ?? false })
+    return { ok: true, ...result.value }
+  } catch (error) {
+    return {
+      ok: false,
+      code: error instanceof RustApiError ? error.code : "apple_gateway",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Could not queue Apple Reminder.",
+    }
   }
 }
