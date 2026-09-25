@@ -4,6 +4,7 @@
 //! stale runtime recovery -> due Flight fire -> oldest Ready story -> Rust Forge engine.
 //! No legacy/workflow_app, agent-runtime, or TypeScript execution path is involved.
 
+use crate::engine::learn::run_learn_pass;
 use crate::engine::routing_brain::{parse_forge_routing_brain, ForgeRoutingBrain};
 use crate::engine::vendor_session::with_shared;
 use sqlx::Row;
@@ -271,6 +272,14 @@ pub fn run_worker_pass() -> Result<i32, String> {
     let recovered = recover_stale_agent_work(stale)?;
     let flights = fire_due_flights()?;
     eprintln!("forge-worker: recovered={recovered} due_flights={flights}");
+
+    // Learning is observational and fail-open: the worker was woken to execute work,
+    // so a learn-pass defect is reported but never blocks dispatch.
+    match run_learn_pass(std::path::Path::new("."), stale) {
+        Ok(Some(story)) => eprintln!("learn: filed {story}"),
+        Ok(None) => {}
+        Err(error) => eprintln!("forge-learn-pass-failed: {error}"),
+    }
 
     let Some(dispatch) = next_ready_story()? else {
         println!("no work");
