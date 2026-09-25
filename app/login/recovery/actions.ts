@@ -2,7 +2,6 @@
 
 import { signIn } from '@/auth'
 import { authenticateBreakGlass } from '@/lib/auth/break-glass-authenticate'
-import { recordSecurityAuditEvent } from '@/legacy/db/security-audit'
 
 export type BreakGlassLoginResult = { ok: boolean }
 
@@ -10,8 +9,8 @@ export type BreakGlassLoginResult = { ok: boolean }
 // canonical authenticateBreakGlass() projection, then establishes an Auth.js
 // Credentials session via signIn('break-glass', ...) so the rest of the
 // application sees the SAME AuthenticatedIdentity → getActingUser pipeline as a
-// normal provider login. Success is audited; failures stay generic — no
-// root-identifier enumeration, no reason surfaced.
+// normal provider login. The Rust identity resolution is durably audited by the
+// production AuditPort; failures stay generic — no root-identifier enumeration.
 export async function breakGlassLoginAction(
   secret: string,
 ): Promise<BreakGlassLoginResult> {
@@ -29,13 +28,6 @@ export async function breakGlassLoginAction(
   } catch {
     return { ok: false }
   }
-
-  await recordSecurityAuditEvent({
-    appUserId: result.actingUser.appUserId,
-    eventType: 'BREAK_GLASS_LOGIN_SUCCESS',
-    authenticationMethod: 'break-glass',
-    metadata: { accountType: result.actingUser.accountType },
-  })
 
   return { ok: true }
 }
