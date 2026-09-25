@@ -353,7 +353,7 @@ export async function rustApiPublicGuide(): Promise<RustGuideItem[]> {
   const headers = buildRustPublicBridgeHeaders({ internalApiKey: internalApiKey(), correlationId })
   let response: Response
   try {
-    response = await fetch(\`${rustApiBaseUrl()}/v1/public/guide\`, { headers, cache: 'no-store' })
+    response = await fetch(`${rustApiBaseUrl()}/v1/public/guide`, { headers, cache: 'no-store' })
   } catch (cause) {
     throw new RustApiError({
       status: 503,
