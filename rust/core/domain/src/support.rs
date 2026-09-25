@@ -1,3 +1,14 @@
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SupportBreakGlassReadiness {
+    pub configured: bool,
+    pub enabled: bool,
+    pub root_resolvable: bool,
+    pub root_active: bool,
+    pub owner_role_present: bool,
+    pub audit_table_available: bool,
+}
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
