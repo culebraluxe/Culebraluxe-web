@@ -5,6 +5,7 @@
 //! PostgreSQL pool or transaction. Domain-specific DAOs receive database
 //! capability from here; callers never construct raw pools or SQLx transactions.
 
+mod app_error;
 mod calendar;
 mod capture;
 mod client;
@@ -47,6 +48,7 @@ mod workflow_ops;
 mod workflow_portal;
 
 pub use accounting::AccountingDao;
+pub use app_error::AppErrorDao;
 pub use calendar::CalendarDao;
 pub use capture::{has_sink, on_failure};
 pub use client::ClientDao;
