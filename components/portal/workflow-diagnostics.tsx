@@ -13,7 +13,7 @@ import type {
   WorkflowAnomaly,
   WorkflowDiagnosticsSnapshot,
   WorkflowInstanceRow,
-} from "@/legacy/workflow_app/diagnostics"
+} from "@/lib/workflow-diagnostics-types"
 import {
   PortalTable,
   PortalTableBody,
