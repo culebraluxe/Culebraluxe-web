@@ -914,7 +914,11 @@ impl PropertyDao {
                     select case
                         when candidate.base is null then null
                         when exists (select 1 from property p where p.slug = candidate.base)
-                            then candidate.base || '-' || substr($1, 1, 6)
+                            -- $1 IS A UUID, AND substr() HAS NO uuid OVERLOAD. Without the cast this expression
+                            -- raises "function substr(uuid, integer, integer) does not exist" — which would have
+                            -- failed the INSERT for any Property whose name collides with an existing slug. Caught by
+                            -- running the statement against the real database instead of trusting the shape of it.
+                            then candidate.base || '-' || substr($1::text, 1, 6)
                         else candidate.base
                     end
                     from candidate
