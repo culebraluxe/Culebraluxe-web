@@ -260,6 +260,10 @@ export async function rustApiTechCockpit(selected?: string | null): Promise<any>
   return (await rustApiRead<any>('/v1/tech/cockpit' + suffix)).value
 }
 
+export async function rustApiTechCommand(body: Record<string, unknown>): Promise<any> {
+  return (await rustApiJsonWrite<any>('/v1/tech/cockpit', 'POST', body)).value
+}
+
 export type RustPublicListingCopy = { slug: string; tagline: string }
 
 /**
