@@ -6,10 +6,10 @@ import { redirect } from 'next/navigation'
 import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
 import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 import {
-  createExpense,
-  createReceivable,
-  markReceivablePaid,
-} from '@/legacy/db/accounting'
+  rustApiCreateExpense,
+  rustApiCreateReceivable,
+  rustApiMarkReceivablePaid,
+} from '@/lib/rust-api/client'
 
 // ACCOUNTING V1 — server actions (UI command layer). Reuse the canonical
 // accounting write seams; the React client never touches SQL. All actions are
@@ -30,9 +30,10 @@ async function requireRead(): Promise<void> {
   if (!access.ok) redirect(access.redirectTo)
 }
 
-function parseAmount(raw: string): number | null {
-  const value = Number(raw)
-  return Number.isFinite(value) ? value : null
+function parseAmount(raw: string): string | null {
+  const value = raw.trim()
+  const numeric = Number(value)
+  return value && Number.isFinite(numeric) ? value : null
 }
 
 export async function createReceivableAction(
@@ -48,7 +49,7 @@ export async function createReceivableAction(
     return { ok: false, error: 'Amount must be a non-negative number.' }
 
   try {
-    const { id } = await createReceivable({
+    const result = await rustApiCreateReceivable<{ id: string }>({
       reference: String(formData.get('reference') ?? '').trim() || null,
       description,
       category: String(formData.get('category') ?? 'COMMISSION').trim() || 'COMMISSION',
@@ -56,6 +57,7 @@ export async function createReceivableAction(
       issuedOn: String(formData.get('issuedOn') ?? new Date().toISOString().slice(0, 10)),
       dueOn: String(formData.get('dueOn') ?? '').trim() || null,
     })
+    const { id } = result.value
     revalidatePath('/portal/accounting')
     revalidatePath('/portal/accounting/receivables')
     return { ok: true, id }
@@ -78,7 +80,7 @@ export async function markReceivablePaidAction(
   if (!id) return { ok: false, error: 'Missing receivable.' }
 
   try {
-    await markReceivablePaid(id, paidOn)
+    await rustApiMarkReceivablePaid(id, { paidOn })
     revalidatePath('/portal/accounting')
     revalidatePath('/portal/accounting/receivables')
     return { ok: true, id }
@@ -103,13 +105,14 @@ export async function createExpenseAction(
     return { ok: false, error: 'Amount must be a non-negative number.' }
 
   try {
-    const { id } = await createExpense({
+    const result = await rustApiCreateExpense<{ id: string }>({
       vendor,
       category: String(formData.get('category') ?? '').trim(),
       amount,
       expenseOn: String(formData.get('expenseOn') ?? new Date().toISOString().slice(0, 10)),
       memo: String(formData.get('memo') ?? '').trim() || null,
     })
+    const { id } = result.value
     revalidatePath('/portal/accounting')
     revalidatePath('/portal/accounting/expenses')
     return { ok: true, id }
