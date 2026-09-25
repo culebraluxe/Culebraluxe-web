@@ -198,11 +198,34 @@ impl<R: MediaRepository> MediaService<R> {
             context,
         )
         .await?;
-        let result = self
-            .repository
-            .upload_standalone(filename, mime_type, &bytes)
-            .await
-            .map_err(Into::into);
+
+        let result = async {
+            if bytes.is_empty() {
+                return Err(CoreServiceError::business(
+                    "MEDIA_EMPTY",
+                    "Image file is required.",
+                ));
+            }
+            if bytes.len() > MAX_MEDIA_UPLOAD_BYTES {
+                return Err(CoreServiceError::business(
+                    "MEDIA_TOO_LARGE",
+                    "Image is too large (max 50 MB).",
+                ));
+            }
+            if !mime_type.to_ascii_lowercase().starts_with("image/") {
+                return Err(CoreServiceError::business(
+                    "MEDIA_TYPE_INVALID",
+                    "Only image uploads are supported.",
+                ));
+            }
+            let filename = sanitize_media_filename(filename);
+            self.repository
+                .upload_standalone(&filename, mime_type, &bytes)
+                .await
+                .map_err(Into::into)
+        }
+        .await;
+
         audit_result(&self.runtime, "media", OP, context, decision, &result).await?;
         result
     }
