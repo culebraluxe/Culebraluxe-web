@@ -34,8 +34,6 @@ async function POSTHandler(request: Request) {
       return NextResponse.json({ error: 'Property is required.' }, { status: 400 })
     }
 
-    const propertyPath = `/v1/properties/${encodeURIComponent(propertyId)}/media/uploads`
-
     if (step === 'init') {
       const filename = formData.get('filename')
       const mimeType = formData.get('mimeType')
@@ -93,7 +91,7 @@ async function POSTHandler(request: Request) {
         chunkSize: number
         chunkCount: number
         byteSize: number
-      }>(propertyPath, rustFormData)
+      }>(`/v1/properties/${encodeURIComponent(propertyId)}/media/uploads`, rustFormData)
 
       return NextResponse.json(result.value)
     }
@@ -118,7 +116,7 @@ async function POSTHandler(request: Request) {
         receivedChunks: number
         chunkCount: number
       }>(
-        `${propertyPath}/${encodeURIComponent(uploadId)}/chunks/${chunkIndex}`,
+        `/v1/properties/${encodeURIComponent(propertyId)}/media/uploads/${encodeURIComponent(uploadId)}/chunks/${chunkIndex}`,
         rustFormData,
       )
 
@@ -131,7 +129,10 @@ async function POSTHandler(request: Request) {
         mediaId: string
         propertyId: string
         role: 'hero' | 'gallery'
-      }>(`${propertyPath}/${encodeURIComponent(uploadId)}/complete`, new FormData())
+      }>(
+        `/v1/properties/${encodeURIComponent(propertyId)}/media/uploads/${encodeURIComponent(uploadId)}/complete`,
+        new FormData(),
+      )
 
       return NextResponse.json(result.value)
     }
