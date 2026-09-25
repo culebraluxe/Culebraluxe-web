@@ -1193,6 +1193,12 @@ async function rustApiJsonWrite<T>(
   return payload
 }
 
+export async function rustApiRelationshipAction<T>(
+  body: Record<string, unknown>,
+): Promise<RustApiSuccess<T>> {
+  return rustApiJsonWrite<T>('/v1/relationship-evidence/actions', 'POST', body)
+}
+
 export async function rustApiSetRoleEntitlement<T>(
   body: { roleCode: string; action: string; granted: boolean },
 ): Promise<RustApiSuccess<T>> {
