@@ -1304,8 +1304,19 @@ fn header_metrics(data: &PortalOpsWorkbenchPage) -> Html {
         .count();
 
     html! {
+        // ONE PHOTOGRAPH COUNT, AND IT LIVES HERE.
+        //
+        // The Photos tab used to print "6 photos · 0 hero · 0 documents" one line above the uploader, while this
+        // header already carried "MEDIA — 6 images": the same number twice, and the copy in the reading path was the
+        // wrong one. These are the counts, once each, where the other Property facts already sit.
         <div class="hidden shrink-0 gap-5 xl:flex">
             { metric("Media", &format!("{} images", property.image_count)) }
+            // HERO IS NOT HERE YET, DELIBERATELY. `PortalOpsProperty` carries `image_count` and `document_count`
+            // but no hero count, and no field on it can be filtered into one — so printing "0 hero" from a guess
+            // would be a number that looks authoritative and is wrong. It needs one field on the read model
+            // (`hero_count`, or the media list with roles), which is a service-layer change rather than a header
+            // change. Until then the header says what it knows.
+            { metric("Documents", &property.document_count.to_string()) }
             { metric("MLS details", &format!("{filled}/15 filled")) }
         </div>
     }
@@ -1741,13 +1752,10 @@ fn media_editor(
                 </div>
             }
 
-            // THE COUNTS ARE A LINE, NOT THREE CARDS. Three panels of numbers sat above the gallery and pushed the
-            // photograph — the thing this tab exists for — down the screen; the numbers are reference, not content.
-            <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-light text-black/45">
-                <span>{format!("{} photos", property.image_count)}</span>
-                <span>{format!("{} hero", images.iter().filter(|image| image.role == "hero").count())}</span>
-                <span>{format!("{} documents", property.document_count)}</span>
-            </div>
+            // NO COUNT STRIP HERE. It printed "6 photos · 0 hero · 0 documents" one line above the uploader while the
+            // Property header already carried "MEDIA — 6 images": the same number, twice, and the second copy was the
+            // one in the reading path. The counts live in the header (Media, Hero, Documents) — once each. This tab
+            // is for the photographs.
 
             // THE UPLOADER IS ALWAYS HERE, not behind a toggle. It used to need a "+ Add new photo" click to appear,
             // which made a second control for a job the panel's own button already does. One screen, one upload
@@ -1756,14 +1764,20 @@ fn media_editor(
 
             <section class="overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-[var(--portal-navy)]">
                 if let Some(image) = active {
-                    // SIZED FOR A PREVIEW, NOT A BILLBOARD — but a hair taller than the first attempt, which was a
-                    // little tight. The full-size photograph is what a listing page is for; this only has to be big
-                    // enough to judge lighting and composition at a glance.
-                    <div class="relative h-[240px] w-full max-w-full overflow-hidden sm:h-[300px] xl:h-[360px]">
+                    // A MEDIA MANAGER, NOT A CAROUSEL.
+                    //
+                    // This was one photograph stretched edge to edge and cropped to fill a full-width band — which
+                    // misrepresents the picture (a portrait shot became a slice of its middle) and made the panel's
+                    // height jump between photographs. Now the selected photograph is large on the LEFT, contained
+                    // (`object-contain`) so its proportions are its own, in a box of stable height; and every uploaded
+                    // photograph is a thumbnail on the RIGHT. The bottom filmstrip is gone — it duplicated that grid.
+                    <div class="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,190px)]">
+                        <div class="min-w-0">
+                    <div class="relative h-[300px] w-full max-w-full overflow-hidden rounded-[var(--portal-tab-radius)] bg-black/85 sm:h-[380px] xl:h-[440px]">
                         <img
                             src={image.url.clone()}
                             alt={image.alt_text.clone().unwrap_or_else(|| property.name.clone())}
-                            class="h-full w-full object-cover"
+                            class="h-full w-full object-contain"
                         />
                         <div class="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-black/10"></div>
                         <div class="absolute left-4 top-4 flex gap-2">
@@ -1802,32 +1816,41 @@ fn media_editor(
                         </div>
                     </div>
 
-                    if images.len() > 1 {
-                        // A SLIDER, NOT A CAPPED GRID. This was a static 4/6/8-column grid that took the first eight
-                        // photographs and silently dropped the rest — a Property with twelve photos had four that
-                        // could not be reached at all. It scrolls now, and every photograph is in it.
-                        <div class="flex snap-x snap-mandatory gap-1 overflow-x-auto bg-black/30 p-1">
-                            {for images.iter().enumerate().map(|(index, image)| {
-                                let onclick = {
-                                    let on_msg = on_msg.clone();
-                                    Callback::from(move |_: MouseEvent| on_msg.emit(Msg::OpsMediaSelected(index)))
-                                };
-                                html! {
-                                    <button
-                                        type="button"
-                                        {onclick}
-                                        aria-current={(index == active_index).to_string()}
-                                        class={classes!(
-                                            "relative","h-14","w-20","shrink-0","snap-start","overflow-hidden","border","transition",
-                                            if index == active_index { "border-[var(--portal-gold)] opacity-100" } else { "border-transparent opacity-70 hover:opacity-100" }
-                                        )}
-                                    >
-                                        <img src={image.url.clone()} alt="" class="h-full w-full object-cover" />
-                                    </button>
-                                }
-                            })}
                         </div>
-                    }
+
+                        // THE UPLOADED PHOTOGRAPHS, BESIDE THE SELECTED ONE. Two columns where there is room, one
+                        // where there is not, scrolling inside the panel — a media manager instead of a strip that
+                        // ran off the bottom and capped itself at eight. `object-contain` on a fixed-ratio frame,
+                        // because a thumbnail that crops or stretches is a thumbnail you cannot judge.
+                        <div class="min-w-0">
+                            <div class="grid max-h-[440px] grid-cols-2 gap-1.5 overflow-y-auto pr-0.5 max-lg:grid-cols-3 max-sm:grid-cols-2">
+                                {for images.iter().enumerate().map(|(index, image)| {
+                                    let onclick = {
+                                        let on_msg = on_msg.clone();
+                                        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::OpsMediaSelected(index)))
+                                    };
+                                    html! {
+                                        <button
+                                            type="button"
+                                            {onclick}
+                                            aria-current={(index == active_index).to_string()}
+                                            class={classes!(
+                                                "relative","aspect-[4/3]","w-full","overflow-hidden","rounded-[var(--portal-tab-radius)]","border","bg-black/70","transition",
+                                                if index == active_index { "border-[var(--portal-gold)] opacity-100" } else { "border-transparent opacity-65 hover:opacity-100" }
+                                            )}
+                                        >
+                                            <img src={image.url.clone()} alt="" class="h-full w-full object-contain" />
+                                            if image.role == "hero" {
+                                                <span class="absolute left-1 top-1 rounded-full bg-black/55 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-[0.1em] text-white">
+                                                    {"Hero"}
+                                                </span>
+                                            }
+                                        </button>
+                                    }
+                                })}
+                            </div>
+                        </div>
+                    </div>
                 } else {
                     <div class="grid h-[300px] place-items-center p-8 text-center sm:h-[390px]">
                         <div>
