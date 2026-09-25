@@ -1,0 +1,26 @@
+# What the Vercel CLI must NOT upload.
+#
+# WHY THIS FILE EXISTS. `vc deploy --prebuilt` walks the project and decides for itself what to send. A local
+# `rust/target` is gigabytes of build output that nothing in the deployed artifact needs — the wasm the browser
+# fetches is the committed `public/rust-ui/ui_bg.wasm`, and the server is built inside its own Linux container from
+# `rust/Dockerfile.vercel`. Letting the CLI consider 20 GB it does not need is how a deploy turns into
+# "Upload aborted / fetch failed" with a retry storm, which is exactly what happened.
+#
+# These are all local-only trees: build output and personal data exports. None of them is referenced by the app at
+# runtime, and none is in Git.
+
+# Rust build output. The deploy ships the COMMITTED wasm, never anything from here.
+rust/target
+
+# Local data exports / working trees that live outside Git.
+contact-export
+apple-messages-export
+gsd-core
+praxis
+.venv
+data
+
+# Build/type-check caches that are regenerated locally.
+.next/cache
+.turbo
+coverage
