@@ -1756,10 +1756,10 @@ fn media_editor(
 
             <section class="overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-[var(--portal-navy)]">
                 if let Some(image) = active {
-                    // SMALLER, AND IT STAYS INSIDE THE COLUMN. This box was 300/390/460px tall — a wall of navy with a
-                    // photograph inside it, which is what "that blue square is too big" was about. A preview needs to
-                    // be big enough to judge a photograph and no bigger; the full size is what the listing page is for.
-                    <div class="relative h-[200px] w-full max-w-full overflow-hidden sm:h-[260px] xl:h-[300px]">
+                    // SIZED FOR A PREVIEW, NOT A BILLBOARD — but a hair taller than the first attempt, which was a
+                    // little tight. The full-size photograph is what a listing page is for; this only has to be big
+                    // enough to judge lighting and composition at a glance.
+                    <div class="relative h-[240px] w-full max-w-full overflow-hidden sm:h-[300px] xl:h-[360px]">
                         <img
                             src={image.url.clone()}
                             alt={image.alt_text.clone().unwrap_or_else(|| property.name.clone())}
