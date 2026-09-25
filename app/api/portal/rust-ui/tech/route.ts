@@ -199,11 +199,11 @@ async function GETHandler(req: NextRequest): Promise<Response> {
         ? {
             totalAttempts: ledger.totalAttempts,
             stories: ledger.stories,
-            completed: ledger.latest.completed,
-            failed: ledger.latest.failed,
-            interrupted: ledger.latest.interrupted,
-            worstStoryId: ledger.worstOffender?.storyId ?? null,
-            worstAttempts: ledger.worstOffender?.attempts ?? null,
+            completed: ledger.completed ?? 0,
+            failed: ledger.failed ?? 0,
+            interrupted: ledger.interrupted ?? 0,
+            worstStoryId: ledger.worstStoryId ?? null,
+            worstAttempts: ledger.worstAttempts ?? null,
             asOf: ledger.asOf,
           }
         : null,
