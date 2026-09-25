@@ -108,14 +108,29 @@ function ownerActor(overrides: Partial<ActingUser> = {}): ActingUser {
 function resolveAs(
   resolution: SecurityRepositoryIdentityResolution | Error,
 ): void {
-  setAuthorizationPortForTesting(permitAuthorization)
+  setAuthorizationPortForTesting({
+    ...permitAuthorization,
+    authorize: async (input?: unknown) => {
+      const action =
+        input && typeof input === 'object' && 'action' in input
+          ? String((input as { action?: unknown }).action ?? '')
+          : ''
+      const allowed =
+        !(resolution instanceof Error) &&
+        resolution.kind === 'known' &&
+        resolution.actingUser.authorityCodes.includes(action)
+      return {
+        allowed,
+        reason: allowed ? 'test: staged actor grant' : 'test: staged actor denial',
+        policyId: 'test:staged',
+        mode: 'enforced' as const,
+      }
+    },
+  })
   setSecurityRepositoryForTesting({
     async resolveProviderSubject() {
       if (resolution instanceof Error) throw resolution
       return resolution
-    },
-    async getPrincipal() {
-      return null
     },
   })
 }
