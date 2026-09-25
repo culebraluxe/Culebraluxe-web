@@ -147,6 +147,24 @@ impl SupportDiagnosticsDao {
         Self { db }
     }
 
+    pub async fn db_diagnostic_counts(&self) -> DbResult<(i64, i64)> {
+        let directory_count =
+            sqlx::query_scalar::<_, i64>("select count(*)::bigint from mv_client_directory")
+                .fetch_one(self.db.pool())
+                .await
+                .map_err(|error| {
+                    DbFailure::from_sqlx("diagnostics.directory_count", &error)
+                })?;
+        let person_count =
+            sqlx::query_scalar::<_, i64>(
+                "select count(*)::bigint from person where archived_at is null",
+            )
+            .fetch_one(self.db.pool())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("diagnostics.person_count", &error))?;
+        Ok((directory_count, person_count))
+    }
+
     pub async fn break_glass_probe(
         &self,
         app_user_id: Option<&str>,
