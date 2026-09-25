@@ -272,3 +272,102 @@ pub fn complete_engine_task(task_id: &str, user_id: &str, transition: Option<&st
         transition_name: transition.map(str::to_string),
     })
 }
+
+
+#[derive(Debug, Clone, Default)]
+pub struct WorkflowStatus {
+    pub definition_count: i64,
+    pub instance_total: i64,
+    pub instance_active: i64,
+    pub instance_completed: i64,
+    pub instance_failed: i64,
+    pub ready_engine_tasks: i64,
+    pub pending_jobs: i64,
+    pub pending_receipts: i64,
+}
+
+pub fn workflow_status() -> Result<WorkflowStatus> {
+    let row = with_shared(|db, rt| {
+        rt.block_on(async {
+            sqlx::query(
+                "select
+                   (select count(*)::bigint from process_definitions) definition_count,
+                   (select count(*)::bigint from process_instances) instance_total,
+                   (select count(*)::bigint from process_instances where status='active') instance_active,
+                   (select count(*)::bigint from process_instances where status='completed') instance_completed,
+                   (select count(*)::bigint from process_instances where status='error' or outcome='failed') instance_failed,
+                   (select count(*)::bigint from tasks where status in ('ready','reserved','in_progress')) ready_engine_tasks,
+                   (select count(*)::bigint from jobs where status in ('pending','locked')) pending_jobs,
+                   (select count(*)::bigint from workflow_command_receipt where outcome='pending') pending_receipts"
+            )
+            .fetch_one(db.pool())
+            .await
+            .map_err(|e| e.to_string())
+        })
+    }).map_err(WorkflowError::generic)?.map_err(WorkflowError::generic)?;
+
+    Ok(WorkflowStatus {
+        definition_count: row.try_get("definition_count").unwrap_or(0),
+        instance_total: row.try_get("instance_total").unwrap_or(0),
+        instance_active: row.try_get("instance_active").unwrap_or(0),
+        instance_completed: row.try_get("instance_completed").unwrap_or(0),
+        instance_failed: row.try_get("instance_failed").unwrap_or(0),
+        ready_engine_tasks: row.try_get("ready_engine_tasks").unwrap_or(0),
+        pending_jobs: row.try_get("pending_jobs").unwrap_or(0),
+        pending_receipts: row.try_get("pending_receipts").unwrap_or(0),
+    })
+}
+
+pub fn reconcile_residential_transactions() -> Result<usize> {
+    let deal_ids = with_shared(|db, rt| {
+        rt.block_on(async {
+            sqlx::query_scalar::<_, String>(
+                "select distinct o.deal_id::text from offer o where o.status='accepted' order by o.deal_id::text"
+            )
+            .fetch_all(db.pool())
+            .await
+            .map_err(|e| e.to_string())
+        })
+    }).map_err(WorkflowError::generic)?.map_err(WorkflowError::generic)?;
+
+    let mut started = 0usize;
+    for deal_id in deal_ids {
+        if find_active_instance("deal", &deal_id)?.is_none() {
+            if start_residential_transaction("deal", &deal_id)?.started {
+                started += 1;
+            }
+        }
+    }
+    Ok(started)
+}
+
+pub fn run_due_jobs(worker_id: &str, batch: usize) -> Result<workflow::DueJobReport> {
+    re_engine()?.run_due_jobs(worker_id, batch)
+}
+
+pub fn reset_dev_workflows() -> Result<Vec<(String, u64)>> {
+    if std::env::var("APP_ENV").unwrap_or_default() != "development" {
+        return Err(WorkflowError::generic("Workflow reset is DEV-only; APP_ENV must be development."));
+    }
+    let steps = [
+        ("task (materialized canonical)", "delete from task where id in (select application_task_id from workflow_task_correlation)"),
+        ("workflow_task_correlation", "delete from workflow_task_correlation"),
+        ("workflow_command_receipt", "delete from workflow_command_receipt"),
+        ("process_events", "delete from process_events"),
+        ("process_commands", "delete from process_commands"),
+        ("jobs", "delete from jobs"),
+        ("tasks", "delete from tasks"),
+        ("tokens", "delete from tokens"),
+        ("process_instances", "delete from process_instances"),
+    ];
+    let mut out = Vec::new();
+    for (name, sql) in steps {
+        let deleted = with_shared(|db, rt| {
+            rt.block_on(async {
+                sqlx::query(sql).execute(db.pool()).await.map(|r| r.rows_affected()).map_err(|e| e.to_string())
+            })
+        }).map_err(WorkflowError::generic)?.map_err(WorkflowError::generic)?;
+        out.push((name.to_string(), deleted));
+    }
+    Ok(out)
+}
