@@ -1,23 +1,17 @@
-// AUTH-02 authoritative Portal access guard (server-side).
+// AUTH-02 authoritative Portal access guard.
 //
-// ONE authoritative seam for Portal route protection: resolve the acting user
-// through the canonical projection and require the given authority. Failure is
-// mapped to a deterministic redirect target:
-//   - unauthenticated            → /login
-//   - unmapped / inactive /      → /login/unauthorized
-//     missing-authority
-//
-// The layout/page turns the result into a Next redirect; this module stays
-// framework-free so the decision logic is unit-testable with any SessionAdapter
-// stub. Business pages must never re-implement this mapping.
+// Authentication is Auth.js. Identity mapping and authorization are Rust-owned.
+// TypeScript only translates the Rust decision into the existing redirect
+// contract. DEV's deliberate local bypass remains separate and cannot run in
+// production.
 
 import { getActingUser } from './get-acting-user'
-import { requireAuthority } from './authority'
 import { AuthError } from './errors'
 import { devAuthLog } from './dev-auth-log'
 import type { SessionAdapter } from './session-adapter'
 import type { ActingUser, AuthorityCode } from './types'
 import { isPortalAuthBypass, portalAuthBypassActor } from './dev-bypass'
+import { authorizeApplicationAction } from './security-runtime'
 
 export type PortalAccessResult =
   | { ok: true; actor: ActingUser }
@@ -27,14 +21,17 @@ export async function resolvePortalAccess(
   adapter: SessionAdapter,
   authority: AuthorityCode,
 ): Promise<PortalAccessResult> {
-  // ⚠️ TEMP STARTUP AUTH BYPASS — REMOVE ME. See note above.
   if (isPortalAuthBypass()) {
     return { ok: true, actor: portalAuthBypassActor() }
   }
 
   try {
     const actor = await getActingUser(adapter)
-    requireAuthority(actor, authority)
+    const decision = await authorizeApplicationAction(authority)
+    if (!decision.allowed) {
+      devAuthLog('APPLICATION_AUTHORIZATION', 'missing-authority')
+      return { ok: false, redirectTo: '/login/unauthorized' }
+    }
     devAuthLog('AUTH_PORTAL_AUTHORIZED')
     return { ok: true, actor }
   } catch (error) {
