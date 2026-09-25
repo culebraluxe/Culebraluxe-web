@@ -69,8 +69,8 @@ async function POSTHandler(req: NextRequest): Promise<Response> {
         message: record.message,
         route: record.route ?? '/api/portal/client-error',
         level: record.level ?? 'warn',
-        code: record.code ?? null,
-        meta: record.meta ?? {},
+        code: null,
+        meta: {},
       }),
     })
 
