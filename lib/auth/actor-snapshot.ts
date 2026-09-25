@@ -1,10 +1,9 @@
 // AUTH-02 serializable actor snapshot for client components.
 //
-// Server components pass this narrow projection (never the full ActingUser or
-// the session) into client components purely so UI can hide controls. UI
-// hiding is cosmetic — every server boundary still re-checks authorities.
+// Rust already resolved the security level. This projection only serializes it
+// for cosmetic UI hiding; it does not infer roles or make an authorization
+// decision.
 
-import { resolveSecurityLevel } from '@/legacy/services/security/level'
 import type { ActingUser, PortalActorSnapshot } from './types'
 
 export function toPortalActorSnapshot(
@@ -13,7 +12,7 @@ export function toPortalActorSnapshot(
   return {
     displayName: actor.displayName,
     accountType: actor.accountType,
-    securityLevel: resolveSecurityLevel(actor.roleCodes),
+    securityLevel: actor.securityLevel ?? 'GUEST',
     authorityCodes: actor.authorityCodes,
     entitlementCodes: actor.entitlementCodes ?? [],
   }
