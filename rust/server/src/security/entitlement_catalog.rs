@@ -22,6 +22,7 @@ pub(super) const ACTIONS: &[(&str, &str)] = &[
     ("firm.write", "command"),
     ("form.read", "query"),
     ("form.write", "command"),
+    ("guide.public.read", "query"),
     ("person.read", "query"),
     ("person.write", "command"),
     ("portal.read", "query"),
