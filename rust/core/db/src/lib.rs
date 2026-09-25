@@ -17,6 +17,7 @@ mod firm;
 mod flight_recorder;
 mod forms;
 mod guest;
+mod guide;
 mod media;
 mod person;
 mod pool;
@@ -54,6 +55,7 @@ pub use firm::FirmDao;
 pub use flight_recorder::FlightRecorderDao;
 pub use forms::FormDao;
 pub use guest::{GuestDao, GUEST_CODE_MAX_ATTEMPTS};
+pub use guide::GuideDao;
 pub use media::{
     BeginMediaUpload, MediaDao, MediaDerivativeInput, MediaUploadAssembly, MediaUploadStatus,
 };
