@@ -172,6 +172,17 @@ struct TechCockpitQuery {
     selected: Option<String>,
 }
 
+
+#[derive(Debug, Deserialize)]
+struct WhatsAppHandshakeQuery {
+    #[serde(rename = "hub.mode")]
+    mode: Option<String>,
+    #[serde(rename = "hub.verify_token")]
+    verify_token: Option<String>,
+    #[serde(rename = "hub.challenge")]
+    challenge: Option<String>,
+}
+
 /// The P&L's period. Both ends are required: see the handler for why there is no default.
 #[derive(Debug, Deserialize)]
 struct AccountingPnlQuery {
@@ -494,6 +505,108 @@ fn bold_sign(state: &ApiState) -> Result<Arc<dyn SignatureProvider>, ApiError> {
 /// key: `resolve_request_context` demands an application principal that a webhook cannot have, and the signature
 /// check inside the service is the real gate. The context is a System actor with no principal — the same shape
 /// `context.rs` builds before it resolves an identity.
+async fn whatsapp_handshake(
+    State(state): State<ApiState>,
+    Query(query): Query<WhatsAppHandshakeQuery>,
+) -> Result<Response, ApiError> {
+    let service = state.services().whatsapp();
+    match service.verify_handshake(
+        query.mode.as_deref(),
+        query.verify_token.as_deref(),
+        query.challenge.as_deref(),
+    ) {
+        Ok(Some(challenge)) => Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
+            .body(Body::from(challenge))
+            .map_err(|error| {
+                ApiError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "WHATSAPP_RESPONSE_FAILED",
+                    error.to_string(),
+                    false,
+                )
+            }),
+        Ok(None) => Response::builder()
+            .status(StatusCode::FORBIDDEN)
+            .body(Body::from("forbidden"))
+            .map_err(|error| {
+                ApiError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "WHATSAPP_RESPONSE_FAILED",
+                    error.to_string(),
+                    false,
+                )
+            }),
+        Err(_) => Err(ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "WHATSAPP_NOT_CONFIGURED",
+            "WhatsApp webhook is not configured.",
+            false,
+        )),
+    }
+}
+
+async fn whatsapp_webhook(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    body: String,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let signature = headers
+        .get("x-hub-signature-256")
+        .and_then(|value| value.to_str().ok());
+
+    let mut service = state.services().whatsapp();
+    let result = service
+        .handle_webhook(&body, signature)
+        .await
+        .map_err(|error| {
+            if error == "WHATSAPP_SIGNATURE_INVALID" {
+                ApiError::unauthorized(
+                    "WHATSAPP_SIGNATURE_INVALID",
+                    "Invalid WhatsApp signature.",
+                )
+            } else if error == "WHATSAPP_PAYLOAD_INVALID" {
+                ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    "WHATSAPP_PAYLOAD_INVALID",
+                    "Invalid WhatsApp payload.",
+                    false,
+                )
+            } else if error.contains("not configured") {
+                ApiError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "WHATSAPP_NOT_CONFIGURED",
+                    "WhatsApp webhook is not configured.",
+                    false,
+                )
+            } else {
+                ApiError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "WHATSAPP_PROCESSING_FAILED",
+                    "Webhook processing failed.",
+                    true,
+                )
+            }
+        })?;
+
+    if result.retryable_failure {
+        return Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "WHATSAPP_RETRYABLE_FAILURE",
+            "Webhook processing is temporarily unavailable.",
+            true,
+        ));
+    }
+
+    Ok(Json(json!({
+        "ok": true,
+        "accepted": result.accepted,
+        "relationshipProjected": result.relationship_projected,
+        "outcomes": result.outcomes,
+    })))
+}
+
 async fn signature_webhook(
     State(state): State<ApiState>,
     headers: HeaderMap,
@@ -690,6 +803,10 @@ pub fn router(state: ApiState) -> Router {
         // THE LOGIN SEAM'S QUESTION, as opposed to whoami's. Auth.js has proved a Google subject and nobody
         // knows yet whether it maps to an active application user; this answers known / unmapped / inactive.
         .route("/v1/security/identity", get(security_identity))
+        .route(
+            "/api/integrations/whatsapp/webhook",
+            get(whatsapp_handshake).post(whatsapp_webhook),
+        )
         .route("/v1/security/guests", post(provision_guest))
         .route("/v1/security/guest-code", post(request_guest_code))
         .route("/v1/security/guest-code/verify", post(verify_guest_code))
