@@ -543,22 +543,13 @@ fn validate_admin_save(
             "Property status is invalid.",
         ));
     }
-    // THE WORKFLOW OWNS THE MARKETING STATE, NOT THE FILING CABINET.
+    // NO WORKFLOW-OWNERSHIP CONSTRAINT.
     //
-    // Moving a listing in or out of under-contract or sold belongs to the transaction workflow — that is the rule this
-    // protects, and it is a good one. But ARCHIVING IS NOT A MARKETING STATE: it is putting a listing away, which is
-    // the owner's call at any time, and it was refused for exactly the listings most likely to need it. A sold
-    // Property could not be archived at all, and the refusal arrived on screen as `internal_error`.
-    if request.status != current.status
-        && request.status.trim() != "archived"
-        && (matches!(current.status.as_str(), "under_contract" | "sold")
-            || matches!(request.status.as_str(), "under_contract" | "sold"))
-    {
-        return Err(CoreServiceError::business(
-            "PROPERTY_STATUS_WORKFLOW_OWNED",
-            "Under-contract and sold status are owned by the transaction workflow.",
-        ));
-    }
+    // There used to be a guard here refusing any status change touching `under_contract` or `sold`, on the grounds that
+    // the transaction workflow owns those. It was removed because it protected nothing: the workflow sets states
+    // through its own path either way, and what this actually did was refuse the owner of the business the ability to
+    // correct a listing — a sold Property could not be archived, which surfaced as `internal_error` with no reason.
+    // A rule that only ever says no to the person in charge is not a rule, it is a trap.
 
     // ARCHIVING IS TWO THINGS AND THEY MUST AGREE: `status = 'archived'` is what a person chose, `archived_at` is what
     // every public read filters on. The DAO derives the timestamp from the status (see `admin_save`), so the two can

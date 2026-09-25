@@ -60,8 +60,10 @@ const PROPERTY_STATUS: &[(&str, &str)] = &[
     ("coming_soon", "Coming soon"),
     ("active", "Active"),
     ("off_market", "Off market"),
-    ("under_contract", "Under contract - workflow owned"),
-    ("sold", "Sold - workflow owned"),
+    // No "workflow owned" notes any more: the service no longer refuses these transitions, so the label would be
+    // describing a rule that does not exist.
+    ("under_contract", "Under contract"),
+    ("sold", "Sold"),
     ("archived", "Archived"),
 ];
 
@@ -762,13 +764,14 @@ const MLS_FIELDS: &[FieldSpec] = &[
     },
 ];
 
-const PROPERTY_ADMIN_FIELDS: &[FieldSpec] = &[FieldSpec {
-    key: "archived",
-    label: "Archived record",
-    kind: FieldKind::Toggle,
-    wide: false,
-    hint: Some("Archives the record without rewriting transaction-owned listing status."),
-}];
+// NO SEPARATE ARCHIVE CONTROL. This held a lone toggle, "Archived record", with the hint "Archives the record without
+// rewriting transaction-owned listing status" — a second way to archive a Property, sitting alongside the Status
+// dropdown that also offers Archived. Two controls for one state is how a listing ends up archived in one field and
+// published in the other, which is exactly what happened: `status = 'archived'` was set while the column every public
+// read filters on (`archived_at`) stayed null.
+//
+// The Status dropdown is the one control now, and the server derives `archived_at` from it, so the two cannot
+// disagree. There is nothing left for this panel to do.
 
 const PERSON_FIELDS: &[FieldSpec] = &[
     FieldSpec {
@@ -1404,7 +1407,7 @@ fn property_editor(
                 {section_intro("Legal and listing details", "Add identifiers and representation details as they become available.")}
                 {field_panel(model, on_msg, "Legal owner and listing ID", PROPERTY_LEGAL)}
                 {field_panel(model, on_msg, "Listing representation", PROPERTY_AGENT)}
-                {field_panel(model, on_msg, "Administration", PROPERTY_ADMIN_FIELDS)}
+                // The Administration panel is gone with its toggle: Status owns archiving now.
             </div>
         },
         "sources" => html! {
