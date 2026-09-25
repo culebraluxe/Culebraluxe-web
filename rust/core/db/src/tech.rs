@@ -241,4 +241,50 @@ impl TechCockpitDao {
         Ok(r.rows_affected())
     }
 
+    async fn ensure_staging_batch(&self, actor:&str)->DbResult<String>{
+        if let Some(id)=sqlx::query_scalar::<_,String>("select id::text from forge_batch where status='Staged' order by created_at desc limit 1").fetch_optional(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.staging_batch",&e))?{return Ok(id)}
+        sqlx::query_scalar::<_,String>(r#"insert into forge_batch(label,status,created_by,note)
+          values('staging','Staged',$1,'built by the Cockpit ENGINE BATCH column') returning id::text"#)
+          .bind(actor).fetch_one(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.create_batch",&e))
+    }
+
+    async fn backfill_batch(&self,batch:&str)->DbResult<()>{
+        sqlx::query(r#"insert into forge_batch_item(batch_id,story_id,state)
+          select $1::uuid,s.id,'Staged' from storyboard_story s where s.status='Batched'
+          and not exists(select 1 from forge_batch_item i where i.batch_id=$1::uuid and i.story_id=s.id)"#)
+          .bind(batch).execute(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.backfill_batch",&e))?;
+        Ok(())
+    }
+
+    pub async fn schedule_flight(&self,when:&str,actor:&str)->DbResult<i64>{
+        let batch=self.ensure_staging_batch(actor).await?; self.backfill_batch(&batch).await?;
+        sqlx::query("update forge_batch set status='Scheduled',scheduled_for=$2::timestamptz,label=$3 where id=$1::uuid")
+          .bind(&batch).bind(when).bind(format!("night run {}",when.chars().take(16).collect::<String>()))
+          .execute(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.schedule_flight",&e))?;
+        sqlx::query_scalar::<_,i64>("select count(*) from forge_batch_item where batch_id=$1::uuid")
+          .bind(batch).fetch_one(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.schedule_count",&e))
+    }
+
+    pub async fn launch_flight(&self,actor:&str)->DbResult<Option<(i64,i64)>>{
+        let staged=self.staged_story_ids().await?; if staged.is_empty(){return Ok(None)}
+        let batch=self.ensure_staging_batch(actor).await?; self.backfill_batch(&batch).await?;
+        let policy=sqlx::query_scalar::<_,Option<String>>("select model_policy from forge_batch where id=$1::uuid")
+          .bind(&batch).fetch_one(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.batch_policy",&e))?
+          .unwrap_or_else(||"cheap".into());
+        let members=sqlx::query_as::<_,(String,String)>("select story_id,coalesce(kind,'normal') from forge_batch_item where batch_id=$1::uuid and state='Staged' order by story_id")
+          .bind(&batch).fetch_all(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.batch_members",&e))?;
+        let mut queued=0i64; let mut stamped=0i64;
+        for (story,kind) in members {
+          self.story_status(&story,"Ready").await?;
+          sqlx::query("update forge_batch_item set state='Queued',queued_at=now(),error_text=null where batch_id=$1::uuid and story_id=$2")
+            .bind(&batch).bind(&story).execute(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.queue_batch_item",&e))?;
+          stamped += sqlx::query("update agent_work_item set kind=$2,model_policy=$3,updated_at=now() where story_id=$1 and state='Ready'")
+            .bind(&story).bind(kind).bind(&policy).execute(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.route_batch_item",&e))?.rows_affected() as i64;
+          queued+=1;
+        }
+        sqlx::query("update forge_batch set status='Fired',fired_at=now() where id=$1::uuid and status<>'Fired'")
+          .bind(batch).execute(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.fire_batch",&e))?;
+        Ok(Some((queued,stamped)))
+    }
+
 }
