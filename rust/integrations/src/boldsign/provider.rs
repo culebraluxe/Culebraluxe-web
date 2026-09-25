@@ -7,7 +7,7 @@ use super::{
     BOLD_SIGN_PROVIDER,
 };
 use async_trait::async_trait;
-use db::{Database, DbFailure};
+use db::Database;
 use domain::{
     SignatureArtifactDownload, SignatureProviderActionResult, SignatureProviderEvent,
     SignatureProviderSendRequest, SignatureProviderSendResult, SignatureProviderStatusResult,
@@ -15,7 +15,6 @@ use domain::{
 };
 use serde_json::Value;
 use service::SignatureProvider;
-use sqlx::FromRow;
 use std::collections::BTreeSet;
 
 const INITIAL_ENVELOPE_STATUS: &str = "InProgress";
@@ -41,14 +40,6 @@ enum AnchorKind {
     Date,
 }
 
-#[derive(Debug, FromRow)]
-struct DocumentPdfRow {
-    file_data: Option<Vec<u8>>,
-    filename: String,
-    mime_type: String,
-    source_snapshot: Option<Value>,
-}
-
 #[derive(Clone)]
 pub struct BoldSignSignatureProvider {
     config: BoldSignConfig,
@@ -70,24 +61,12 @@ impl BoldSignSignatureProvider {
         &self,
         transaction_document_id: &str,
     ) -> Result<(Vec<u8>, String, String, Vec<SignatureAnchor>), String> {
-        let database = self.store.database();
-        let row = sqlx::query_as::<_, DocumentPdfRow>(
-            r#"
-            select m.file_data,
-                   m.filename,
-                   m.mime_type,
-                   d.source_snapshot
-            from transaction_document d
-            join media m on m.id = d.media_id
-            where d.id = $1::uuid
-            limit 1
-            "#,
-        )
-        .bind(transaction_document_id)
-        .fetch_optional(database.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("boldsign.provider.load_pdf", &error).to_string())?
-        .ok_or_else(|| {
+        let row = self
+            .store
+            .load_document_pdf(transaction_document_id)
+            .await
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| {
             format!(
                 "Transaction document {transaction_document_id} has no unsigned PDF media to send."
             )
