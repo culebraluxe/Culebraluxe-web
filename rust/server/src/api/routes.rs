@@ -619,7 +619,7 @@ pub fn router(state: ApiState) -> Router {
             get(security_users).put(set_user_primary_role),
         )
         .route("/v1/cockpit", get(cockpit))
-        .route("/v1/tech/cockpit", get(tech_cockpit))
+        .route("/v1/tech/cockpit", get(tech_cockpit).post(tech_command))
         .route("/v1/workflows", get(workflows))
         .route("/v1/workflows/{id}", get(workflow_detail))
         .route("/v1/flight-recorder/{id}", get(flight_recorder))
@@ -2927,6 +2927,16 @@ async fn tech_cockpit(
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(snapshot, &resolved))
+}
+
+async fn tech_command(
+    State(state): State<ApiState>, headers: HeaderMap,
+    Json(body): Json<domain::TechCommandRequest>,
+) -> Result<Json<ApiSuccess<domain::TechCommandResult>>, ApiError> {
+    let resolved=resolve_request_context(&state,&headers).await?;
+    let result=state.services().tech().command(body,&resolved.service).await
+        .map_err(|error|correlate(ApiError::from(error),&resolved))?;
+    Ok(success(result,&resolved))
 }
 
 async fn public_guide(
