@@ -1,15 +1,15 @@
 // AUTH-03 reusable server-side authorization boundary.
 //
-//   server action → resolve ActingUser → requireAuthority → call business service
-//
-// PREPARED, not activated — no existing server action is wired yet, because
-// provider auth + owner bootstrap must exist first (otherwise the currently
-// unprotected Portal would lock everyone out).
+// Auth.js resolves the actor; Rust SecurityService makes the authorization
+// decision. TypeScript does not inspect role, authority, entitlement, or
+// security-level data to decide whether the handler may run.
 
 import type { SessionAdapter } from './session-adapter'
 import type { ActingUser, AuthorityCode } from './types'
 import { getActingUser } from './get-acting-user'
-import { requireAuthority as assertAuthority } from './authority'
+import { MissingAuthorityError } from './errors'
+import { isPortalAuthBypass } from './dev-bypass'
+import { authorizeApplicationAction } from './security-runtime'
 
 export type AuthorizedHandler<T> = (actor: ActingUser) => Promise<T> | T
 
@@ -19,6 +19,9 @@ export async function runAuthorized<T>(
   handler: AuthorizedHandler<T>,
 ): Promise<T> {
   const actor = await getActingUser(adapter)
-  assertAuthority(actor, authority)
+  if (!isPortalAuthBypass()) {
+    const decision = await authorizeApplicationAction(authority)
+    if (!decision.allowed) throw new MissingAuthorityError(authority)
+  }
   return handler(actor)
 }
