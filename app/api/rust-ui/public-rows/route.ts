@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { getGuideItems } from '@/legacy/db/guide'
 import { getMarketingContent } from '@/legacy/db/marketing-content'
 // THE DETAIL READ GOES THROUGH THE SERVICE TOO. It used to reach the legacy SQL module directly; the service kernel
 // (lib/property-reads → property.bySlug → the repository) exposes the same function, and using it here means the
@@ -117,15 +116,6 @@ async function contentRows(slot: string | null): Promise<RustUiRow[]> {
   ])
 }
 
-async function guideRows(): Promise<RustUiRow[]> {
-  const items = await getGuideItems()
-  return items.map((item, index) => ({
-    id: `guide-${index}`,
-    cells: Object.values(item as Record<string, unknown>)
-      .filter((value) => value !== null && value !== undefined && typeof value !== 'object')
-      .map((value) => String(value)),
-  }))
-}
 
 async function GETHandler(req: NextRequest): Promise<Response> {
   const screen = req.nextUrl.searchParams.get('screen') ?? ''
@@ -149,8 +139,6 @@ async function GETHandler(req: NextRequest): Promise<Response> {
       return NextResponse.json(await contentRows(MARKETING_SLOTS.faqList))
     case 'site-contact':
       return NextResponse.json(await contentRows(MARKETING_SLOTS.contact))
-    case 'site-guide':
-      return NextResponse.json(await guideRows())
     default:
       return NextResponse.json([])
   }
