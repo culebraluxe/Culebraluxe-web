@@ -222,7 +222,12 @@ mod tests {
                     name: "Estate".into(),
                     status: "active".into(),
                     hero_media_id: Some("media-1".into()),
-                    gallery_media_ids: vec!["media-1".into()],
+                    media: vec![domain::PublicPropertyMedia {
+                        id: "media-1".into(),
+                        role: "hero".into(),
+                        media_type: "image".into(),
+                        ..Default::default()
+                    }],
                     ..Default::default()
                 }))
             } else {
