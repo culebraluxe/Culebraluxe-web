@@ -21,6 +21,7 @@ pub mod public_listing;
 pub mod security;
 pub mod showing;
 pub mod signature;
+pub mod support;
 pub mod task;
 pub mod tech;
 pub mod vault;
@@ -57,6 +58,7 @@ pub use security::{
 };
 
 pub use showing::{SaveShowingReportRequest, Showing, ShowingReportOutcome};
+pub use support::*;
 
 pub use wbs::{
     AppleReminderCommandReceipt, AppleReminderUpsertRequest, CreateWbsItemRequest,
