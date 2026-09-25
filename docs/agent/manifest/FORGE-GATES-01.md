@@ -3,8 +3,8 @@
 <!-- GENERATED FILE. Do not hand-edit. The freshness gate compares the structural rows
      (handbook, packet, cited, commit, index); the lexical tail is informational. -->
 
-- generated: 2026-09-25 01:57:55Z
-- commit: `d5da511e` (working tree dirty) on `main`
+- generated: 2026-09-25 04:17:47Z
+- commit: `20bc3baa` (working tree dirty) on `main`
 - regenerate: `pnpm forge:manifest FORGE-GATES-01`
 - rows: 28 — packet, cited paths and story commits first, lexical matches after
 
@@ -21,7 +21,7 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `agent-runtime/repo-context.ts` — cited · cited by FORGE-GATES-01 · last touched untracked
 - `docs/agent/VENDOR-ADAPTERS.md` — cited · cited by FORGE-GATES-01 · last touched untracked
 - `docs/agent/packets/ENG-FORGE-V6-SPEND.md` — cited · cited by FORGE-GATES-01 · last touched untracked
-- `scripts/forge-packet-lint.ts` — cited · cited by FORGE-GATES-01 · last touched untracked
+- `scripts/forge-packet-lint.ts` — cited · cited by FORGE-GATES-01 · last touched 2026-09-24
 - `agent-runtime/silent-failure-patterns.ts` — cited · cited by FORGE-GATES-01 · last touched untracked
 - `packets/README.md` — cited · cited by FORGE-GATES-01 · last touched untracked
 - `scripts/forge-packet-lint.test.ts` — cited · cited by FORGE-GATES-01 · last touched untracked

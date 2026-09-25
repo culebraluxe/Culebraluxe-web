@@ -31,12 +31,20 @@ async function GETHandler(
   // and does not hit the DB, so it cannot affect public media when the Portal
   // auth subsystem is broken. Any authenticated session (portal.read holder)
   // may fetch internal-Property media; anonymous requests use the gate below.
+  //
+  // `secureCookie` MATTERS AND IS NOT A DETAIL. Over HTTPS the session cookie is named
+  // `__Secure-authjs.session-token`; `getToken` reads the UNPREFIXED name unless told otherwise. So in production this
+  // escape hatch silently never fired: `token` came back null, `authed` stayed false, and every photograph on an
+  // unpublished Property 404'd inside the Portal — where the whole point is to see photographs before publishing.
+  // In development it worked, because http carries the unprefixed name. Both names are tried so a secure and an
+  // insecure environment are both correct, and `AUTH_SECRET` absent still fails closed to the public gate.
   const secret = process.env.AUTH_SECRET
-  let authed = false
-  if (secret) {
-    const token = await getToken({ req: request, secret }).catch(() => null)
-    authed = Boolean(token?.sub)
-  }
+  const token = secret
+    ? await getToken({ req: request, secret, secureCookie: true }).catch(() => null)
+    : null
+  const fallbackToken =
+    secret && !token ? await getToken({ req: request, secret }).catch(() => null) : null
+  const authed = Boolean(token?.sub ?? fallbackToken?.sub)
 
   let result: Array<Record<string, unknown>>
   try {

@@ -3,8 +3,8 @@
 <!-- GENERATED FILE. Do not hand-edit. The freshness gate compares the structural rows
      (handbook, packet, cited, commit, index); the lexical tail is informational. -->
 
-- generated: 2026-09-25 01:57:55Z
-- commit: `d5da511e` (working tree dirty) on `main`
+- generated: 2026-09-25 04:17:47Z
+- commit: `20bc3baa` (working tree dirty) on `main`
 - regenerate: `pnpm forge:manifest PIRATE-01`
 - rows: 26 — packet, cited paths and story commits first, lexical matches after
 
@@ -15,19 +15,19 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/MEMORY.md` — handbook · always-read handbook · last touched untracked
 - `docs/agent/CURRENT.md` — handbook · always-read handbook · last touched untracked
 - `docs/agent/packets/PIRATE-01.md` — packet · the packet for PIRATE-01 · last touched untracked
-- `scripts/forge-manifest.ts` — cited · cited by PIRATE-01 · last touched untracked
+- `scripts/forge-manifest.ts` — cited · cited by PIRATE-01 · last touched 2026-09-24
 - `scripts/forge-sync-agents.ts` — cited · cited by PIRATE-01 · last touched untracked
 - `scripts/prod-smoke.ts` — cited · cited by PIRATE-01 · last touched 2026-09-23
 - `lib/scope-manifest.ts` — cited · cited by PIRATE-01 · last touched untracked
 - `lib/agent-vendor-block.ts` — cited · cited by PIRATE-01 · last touched untracked
-- `scripts/forge-packet-lint.ts` — cited · cited by PIRATE-01 · last touched untracked
+- `scripts/forge-packet-lint.ts` — cited · cited by PIRATE-01 · last touched 2026-09-24
 - `scripts/forge-batch-status.ts` — cited · cited by PIRATE-01 · last touched untracked
 - `docs/agent/VENDOR-ADAPTERS.md` — cited · cited by PIRATE-01 · last touched untracked
 - `lib/story-moves.ts` — cited · cited by PIRATE-01 · last touched untracked
 - `scripts/forge-packet-lint.test.ts` — cited · cited by PIRATE-01 · last touched untracked
-- `scripts/vercel-deploy-prod.sh` — cited · cited by PIRATE-01 · last touched 2026-09-23
+- `scripts/vercel-deploy-prod.sh` — cited · cited by PIRATE-01 · last touched 2026-09-24
 - `agent-runtime/repo-context.ts` — cited · cited by PIRATE-01 · last touched untracked
-- `docs/agent/manifest/PIRATE-01.md` — cited · cited by PIRATE-01 · last touched untracked
+- `docs/agent/manifest/PIRATE-01.md` — cited · cited by PIRATE-01 · last touched 2026-09-24
 - `docs/agent/RUNLOG.md` — lexical · term match: agent, story, every, one · last touched untracked
 - `docs/agent/ARCH-HANDOFF.md` — lexical · term match: story, row, false, generated · last touched untracked
 - `docs/agent/preserved/arch-handoff/ARCH-HANDOFF-pre-cleanup-2026-09-12.md` — lexical · term match: read, first, query, fresh · last touched untracked

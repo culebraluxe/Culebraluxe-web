@@ -1931,7 +1931,15 @@ fn ops_media_uploader(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Ht
             // which does not exist yet. Now the button is the first thing in the panel, so it is on screen the moment
             // the tab opens, and Role and Alt text — which only describe a photograph that has already been chosen —
             // come after it.
-            <div class="flex flex-wrap items-center gap-3">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <span class="min-w-0 flex-1 truncate text-[11px] font-light text-black/45">
+                    {model.ops.media_file_name.clone().unwrap_or_else(|| "Choose a photo — the upload starts by itself".into())}
+                </span>
+                // RIGHT-ALIGNED, because every other action on this screen is. A single button sitting on the left while
+                // Save, Revert and the rest sit on the right reads as a different kind of control than it is.
+                if model.ops.media_uploading {
+                    <span class="shrink-0 text-[11px] font-light text-[var(--portal-gold-muted)]">{"Uploading…"}</span>
+                }
                 <button
                     type="button"
                     onclick={choose_again}
@@ -1939,12 +1947,6 @@ fn ops_media_uploader(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Ht
                 >
                     {"Add photo"}
                 </button>
-                <span class="min-w-0 flex-1 truncate text-[11px] font-light text-black/45">
-                    {model.ops.media_file_name.clone().unwrap_or_else(|| "Choose a photo — the upload starts by itself".into())}
-                </span>
-                if model.ops.media_uploading {
-                    <span class="shrink-0 text-[11px] font-light text-[var(--portal-gold-muted)]">{"Uploading…"}</span>
-                }
             </div>
             <div class="mt-2 grid gap-2 sm:grid-cols-2">
                 <label class="text-[10px] font-semibold uppercase tracking-[0.11em] text-[var(--portal-blue-gray)]">
