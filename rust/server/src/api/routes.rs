@@ -1145,32 +1145,20 @@ async fn authorize_decision(
         ));
     };
 
-    let kind = match body.kind.as_str() {
+    // Rust's catalog owns the operation kind. The caller names only the
+    // action; it cannot reinterpret a command as a query (or vice versa).
+    let kind = match catalog_kind {
         "query" => OperationKind::Query,
         "command" => OperationKind::Command,
         other => {
             return Err(ApiError::new(
-                StatusCode::BAD_REQUEST,
-                "SECURITY_ACTION_KIND_INVALID",
-                format!("Unknown operation kind: {other}."),
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "SECURITY_CATALOG_KIND_INVALID",
+                format!("The action catalog contains an invalid kind for {action}: {other}."),
                 false,
             ));
         }
     };
-    // The catalog decides whether this action is a query or a command; a request that disagrees with it is not
-    // asking the question it thinks it is.
-    let catalog_kind_matches = matches!(
-        (catalog_kind, kind),
-        ("query", OperationKind::Query) | ("command", OperationKind::Command)
-    );
-    if !catalog_kind_matches {
-        return Err(ApiError::new(
-            StatusCode::BAD_REQUEST,
-            "SECURITY_ACTION_KIND_MISMATCH",
-            format!("{action} is a {catalog_kind}, not a {}.", body.kind),
-            false,
-        ));
-    }
 
     let decision = state
         .services()
@@ -1235,12 +1223,15 @@ async fn authorize_public_action(
     Ok(success_with_correlation(decision, &correlation_id))
 }
 
-/// One action to decide: the action name and its kind. Nothing else — see the handler for why.
+/// One action to decide. Rust derives its operation kind from the catalog.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct AuthorizeBody {
     action: String,
-    kind: String,
+    // Compatibility input only. Older edges may still send it during a rolling
+    // deploy, but it is ignored; the Rust action catalog is authoritative.
+    #[serde(default, rename = "kind")]
+    _legacy_kind: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
