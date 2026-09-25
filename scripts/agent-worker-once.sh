@@ -59,6 +59,10 @@ if [ -z "${HOME:-}" ]; then
   export HOME
 fi
 
+# rustup installs cargo here on macOS; launchd does not inherit the interactive shell PATH.
+PATH="$HOME/.cargo/bin:$PATH"
+export PATH
+
 export AGENT_WORKER_ID="${AGENT_WORKER_ID:-scheduler}"
 MAX_PASSES="${AGENT_WORKER_MAX_PASSES:-20}"
 
