@@ -1,4 +1,4 @@
-use crate::{Database, DbFailure, DbResult};
+use crate::{Database, DbFailure};
 
 #[derive(Clone)]
 pub struct AppErrorDao {
@@ -10,12 +10,13 @@ impl AppErrorDao {
         Self { db }
     }
 
+    /// Best-effort sink: deliberately does not construct a DbFailure if this insert fails.
     pub async fn record_db_failure(
         &self,
         failure: &DbFailure,
         kind: &str,
         meta: &str,
-    ) -> DbResult<()> {
+    ) -> Result<(), ()> {
         sqlx::query(
             "insert into app_error (kind, operation, incident_id, code, message, retryable, route, level, meta)
              values ($1, $2, $3::uuid, $4, $5, $6, 'rust/db', 'error', $7::jsonb)",
@@ -29,10 +30,11 @@ impl AppErrorDao {
         .bind(meta)
         .execute(self.db.pool())
         .await
-        .map_err(|error| DbFailure::from_sqlx("app_error.record_db_failure", &error))?;
-        Ok(())
+        .map(|_| ())
+        .map_err(|_| ())
     }
 
+    /// Best-effort sink: deliberately does not construct a DbFailure if this insert fails.
     pub async fn record_runtime_error(
         &self,
         kind: &str,
@@ -41,7 +43,7 @@ impl AppErrorDao {
         level: &str,
         stack: Option<&str>,
         meta: &str,
-    ) -> DbResult<()> {
+    ) -> Result<(), ()> {
         sqlx::query(
             "insert into app_error (kind, operation, message, stack, route, level, retryable, meta)
              values ($1, $2, $3, $4, 'rust', $5, false, $6::jsonb)",
@@ -54,7 +56,7 @@ impl AppErrorDao {
         .bind(meta)
         .execute(self.db.pool())
         .await
-        .map_err(|error| DbFailure::from_sqlx("app_error.record_runtime_error", &error))?;
-        Ok(())
+        .map(|_| ())
+        .map_err(|_| ())
     }
 }
