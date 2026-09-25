@@ -590,6 +590,69 @@ async fn signature_refresh(
     Ok(success(value, &resolved))
 }
 
+
+async fn support_security_status(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<domain::SupportSecurityStatus>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().support();
+    let value = service
+        .security_status(&resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn support_system_health(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<domain::SupportSystemHealth>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().support();
+    let value = service
+        .system_health(&resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn support_workflow_diagnostics(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<domain::WorkflowDiagnosticsSnapshot>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().support();
+    let value = service
+        .workflow_diagnostics(&resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn support_workflow_detail(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<ApiSuccess<domain::WorkflowDiagnosticsDetail>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().support();
+    let value = service
+        .workflow_detail(&id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?
+        .ok_or_else(|| {
+            correlate(
+                ApiError::not_found(
+                    "WORKFLOW_DIAGNOSTICS_NOT_FOUND",
+                    format!("Workflow diagnostics instance not found: {id}"),
+                ),
+                &resolved,
+            )
+        })?;
+    Ok(success(value, &resolved))
+}
+
 pub fn router(state: ApiState) -> Router {
     Router::new()
         .route("/healthz", get(health))
@@ -620,6 +683,10 @@ pub fn router(state: ApiState) -> Router {
         )
         .route("/v1/cockpit", get(cockpit))
         .route("/v1/tech/cockpit", get(tech_cockpit).post(tech_command))
+        .route("/v1/support/security-status", get(support_security_status))
+        .route("/v1/support/system-health", get(support_system_health))
+        .route("/v1/support/workflow-diagnostics", get(support_workflow_diagnostics))
+        .route("/v1/support/workflow-diagnostics/{id}", get(support_workflow_detail))
         .route("/v1/workflows", get(workflows))
         .route("/v1/workflows/{id}", get(workflow_detail))
         .route("/v1/flight-recorder/{id}", get(flight_recorder))
