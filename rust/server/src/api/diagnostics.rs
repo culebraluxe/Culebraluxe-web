@@ -21,18 +21,24 @@ pub async fn db_metrics(
     let snapshot = state.db().metrics();
     let target = state.db().target().as_str();
 
-    let directory_count = sqlx::query_scalar::<_, i64>(
-        "select count(*)::bigint from mv_client_directory",
-    )
-    .fetch_one(state.db().pool())
-    .await
-    .map_err(|error| ApiError::from_db(db::DbFailure::from_sqlx("diagnostics.directory_count", &error)))?;
+    let directory_count =
+        sqlx::query_scalar::<_, i64>("select count(*)::bigint from mv_client_directory")
+            .fetch_one(state.db().pool())
+            .await
+            .map_err(|error| {
+                ApiError::from_db(db::DbFailure::from_sqlx(
+                    "diagnostics.directory_count",
+                    &error,
+                ))
+            })?;
     let person_count = sqlx::query_scalar::<_, i64>(
         "select count(*)::bigint from person where archived_at is null",
     )
     .fetch_one(state.db().pool())
     .await
-    .map_err(|error| ApiError::from_db(db::DbFailure::from_sqlx("diagnostics.person_count", &error)))?;
+    .map_err(|error| {
+        ApiError::from_db(db::DbFailure::from_sqlx("diagnostics.person_count", &error))
+    })?;
 
     let declared_by = if std::env::var("VERCEL_ENV").ok().as_deref().is_some() {
         Some("VERCEL_ENV")
@@ -53,12 +59,7 @@ pub async fn db_metrics(
             .next()?
             .split(':')
             .next()?;
-        Some(
-            host.split("--")
-                .next()
-                .unwrap_or(host)
-                .to_owned(),
-        )
+        Some(host.split("--").next().unwrap_or(host).to_owned())
     });
 
     let value = serde_json::json!({
