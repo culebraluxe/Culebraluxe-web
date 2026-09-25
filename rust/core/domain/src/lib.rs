@@ -19,6 +19,7 @@ pub mod person;
 pub mod project;
 pub mod property;
 pub mod public_listing;
+pub mod relationship_evidence;
 pub mod security;
 pub mod showing;
 pub mod signature;
@@ -50,6 +51,8 @@ pub use property::{
     PropertyStellarDetails, SavePropertyAdminRequest, SetPropertyDisplayNameRequest,
     SetPropertyStatusRequest, UpsertPropertyForPersonRequest,
 };
+pub use relationship_evidence::{RelationshipDecision, RelationshipEvidenceReview, RelationshipEvidenceRow, RelationshipReconcileResult};
+
 pub use public_listing::{
     PublicListing, PublicListingCopy, PublicProperty, PublicPropertyImage, PublicPropertyMedia,
 };
