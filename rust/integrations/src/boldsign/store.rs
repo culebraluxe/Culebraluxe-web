@@ -3,6 +3,14 @@ use serde_json::Value;
 use sqlx::FromRow;
 
 #[derive(Debug, Clone)]
+pub struct BoldSignDocumentPdf {
+    pub file_data: Option<Vec<u8>>,
+    pub filename: String,
+    pub mime_type: String,
+    pub source_snapshot: Option<Value>,
+}
+
+#[derive(Debug, Clone)]
 pub struct BoldSignRequest {
     pub signature_request_id: String,
     pub envelope_id: Option<String>,
@@ -10,6 +18,25 @@ pub struct BoldSignRequest {
     pub status: String,
     pub last_error: Option<String>,
     pub error_retryable: Option<bool>,
+}
+
+#[derive(Debug, FromRow)]
+struct BoldSignDocumentPdfRow {
+    file_data: Option<Vec<u8>>,
+    filename: String,
+    mime_type: String,
+    source_snapshot: Option<Value>,
+}
+
+impl From<BoldSignDocumentPdfRow> for BoldSignDocumentPdf {
+    fn from(row: BoldSignDocumentPdfRow) -> Self {
+        Self {
+            file_data: row.file_data,
+            filename: row.filename,
+            mime_type: row.mime_type,
+            source_snapshot: row.source_snapshot,
+        }
+    }
 }
 
 #[derive(Debug, FromRow)]
@@ -55,6 +82,29 @@ impl BoldSignStore {
 
     pub fn database(&self) -> Database {
         self.db.clone()
+    }
+
+    pub async fn load_document_pdf(
+        &self,
+        transaction_document_id: &str,
+    ) -> DbResult<Option<BoldSignDocumentPdf>> {
+        sqlx::query_as::<_, BoldSignDocumentPdfRow>(
+            r#"
+            select m.file_data,
+                   m.filename,
+                   m.mime_type,
+                   d.source_snapshot
+            from transaction_document d
+            join media m on m.id = d.media_id
+            where d.id = $1::uuid
+            limit 1
+            "#,
+        )
+        .bind(transaction_document_id)
+        .fetch_optional(self.db.pool())
+        .await
+        .map(|row| row.map(Into::into))
+        .map_err(|error| DbFailure::from_sqlx("boldsign.store.load_pdf", &error))
     }
 
     pub async fn get_by_signature_request(
