@@ -333,6 +333,7 @@ pub fn materialize_open_workflow_tasks() -> Result<u64> {
                 with candidates as (
                   select
                     t.id::text as workflow_task_id,
+                    gen_random_uuid() as application_task_id,
                     t.name as title,
                     pi.subject_type,
                     pi.subject_id,
@@ -371,24 +372,16 @@ pub fn materialize_open_workflow_tasks() -> Result<u64> {
                     )
                 ),
                 created as (
-                  insert into task (title, person_id, deal_id, task_kind, priority)
-                  select title, person_id, subject_id::uuid, 'human', 0
+                  insert into task (id, title, person_id, deal_id, task_kind, priority)
+                  select application_task_id, title, person_id, subject_id::uuid, 'human', 0
                   from candidates
-                  order by workflow_task_id
-                  returning id, deal_id
-                ),
-                paired as (
-                  select c.workflow_task_id, c.subject_type, c.subject_id, x.id application_task_id
-                  from (
-                    select candidates.*, row_number() over(order by workflow_task_id) rn from candidates
-                  ) c
-                  join (
-                    select created.*, row_number() over(order by id) rn from created
-                  ) x using(rn)
+                  returning id
                 ),
                 correlated as (
                   insert into workflow_task_correlation(workflow_task_id,application_task_id,subject_type,subject_id)
-                  select workflow_task_id,application_task_id,subject_type,subject_id from paired
+                  select c.workflow_task_id,c.application_task_id,c.subject_type,c.subject_id
+                  from candidates c
+                  join created x on x.id=c.application_task_id
                   on conflict(workflow_task_id) do nothing
                   returning application_task_id
                 )
