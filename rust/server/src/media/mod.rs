@@ -1,3 +1,5 @@
+pub mod imaging;
+
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
 use db::{DbResult, MediaDao};
