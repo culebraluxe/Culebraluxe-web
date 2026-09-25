@@ -7,7 +7,6 @@ import { NextResponse, type NextRequest } from 'next/server'
 export const dynamic = 'force-dynamic'
 
 
-import { getGuideItems } from '@/legacy/db/guide'
 import { getMarketingContent } from '@/legacy/db/marketing-content'
 import { getPropertyBySlug, getPublicPropertySlugs, getSimilarProperties } from '@/lib/property-reads'
 import {
@@ -21,7 +20,7 @@ import { formatArea, formatPrice, propertyLocation } from '@/lib/property'
 import { getProperties } from '@/lib/property-reads'
 import type { PropertySummary } from '@/legacy/services/property'
 import { withApiHandler, withServerErrorCapture } from '@/lib/error-capture-seam'
-import { rustApiPublicListingCopy } from '@/lib/rust-api/client'
+import { rustApiPublicGuide, rustApiPublicListingCopy } from '@/lib/rust-api/client'
 
 // ---------------------------------------------------------------------------
 // PAGE CONTENT FOR THE RUST UI ON THE PUBLIC SITE.
@@ -217,7 +216,7 @@ async function GETHandler(req: NextRequest): Promise<Response> {
       // Served as `guide` rather than as a `Block`: a place has a photograph, a section and a description, and forcing
       // that into `cells` is the abstraction this whole route exists to avoid. `PageContent` ignores the field until the
       // Rust type grows one, which is the renderer's commit.
-      const items = await getGuideItems()
+      const items = await rustApiPublicGuide()
       return NextResponse.json({
         guide: items.map((item) => ({
           slug: item.slug,
@@ -231,7 +230,7 @@ async function GETHandler(req: NextRequest): Promise<Response> {
           address: item.address,
           phone: item.phone,
           websiteUrl: item.websiteUrl,
-          imagePath: item.imageUrl,
+          imagePath: item.imagePath,
           imageAlt: item.imageAlt,
         })),
       })
