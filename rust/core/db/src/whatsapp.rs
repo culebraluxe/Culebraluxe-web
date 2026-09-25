@@ -37,13 +37,23 @@ pub struct WhatsAppLandingInput {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WhatsAppProcessOutcome {
-    Completed { person_id: String, interaction_id: String, created: bool },
-    Duplicate { interaction_id: Option<String> },
+    Completed {
+        person_id: String,
+        interaction_id: String,
+        created: bool,
+    },
+    Duplicate {
+        interaction_id: Option<String>,
+    },
     ResolutionRequired,
     Rejected,
     InFlight,
-    FailedRetryable { attempts: i32 },
-    Poisoned { attempts: i32 },
+    FailedRetryable {
+        attempts: i32,
+    },
+    Poisoned {
+        attempts: i32,
+    },
 }
 
 #[derive(Debug, FromRow)]
@@ -233,7 +243,12 @@ impl WhatsAppDao {
             return Ok(WhatsAppProcessOutcome::ResolutionRequired);
         }
         if people.len() > 1 {
-            let outcome = fail_claim(tx.connection(), &claimed, "ambiguous canonical phone ownership").await?;
+            let outcome = fail_claim(
+                tx.connection(),
+                &claimed,
+                "ambiguous canonical phone ownership",
+            )
+            .await?;
             tx.commit().await?;
             return Ok(outcome);
         }
@@ -244,10 +259,7 @@ impl WhatsAppDao {
             source_token(&input.source_account)
         );
         let source_external_id = format!("whatsapp:{}", input.external_event_id);
-        let command_id = format!(
-            "integration-inbox:{}:{}",
-            source_system, source_external_id
-        );
+        let command_id = format!("integration-inbox:{}:{}", source_system, source_external_id);
 
         let command_claimed = sqlx::query_scalar::<_, String>(
             r#"
@@ -287,7 +299,11 @@ impl WhatsAppDao {
                 "#,
             )
             .bind(&person_id)
-            .bind(if input.direction == "inbound" { "whatsapp_received" } else { "whatsapp_sent" })
+            .bind(if input.direction == "inbound" {
+                "whatsapp_received"
+            } else {
+                "whatsapp_sent"
+            })
             .bind(&input.direction)
             .bind(&input.occurred_at)
             .bind(&input.summary)
@@ -392,12 +408,7 @@ impl WhatsAppDao {
             return Ok(WhatsAppProcessOutcome::InFlight);
         }
 
-        project_relationship(
-            tx.connection(),
-            input,
-            &person_id,
-        )
-        .await?;
+        project_relationship(tx.connection(), input, &person_id).await?;
 
         tx.commit().await?;
         Ok(WhatsAppProcessOutcome::Completed {
@@ -555,10 +566,17 @@ async fn project_relationship(
         ));
     }
 
-    let aggregate = sqlx::query_as::<_, (
-        Option<DateTime<Utc>>, Option<DateTime<Utc>>, Option<DateTime<Utc>>,
-        Option<DateTime<Utc>>, i64, i64
-    )>(
+    let aggregate = sqlx::query_as::<
+        _,
+        (
+            Option<DateTime<Utc>>,
+            Option<DateTime<Utc>>,
+            Option<DateTime<Utc>>,
+            Option<DateTime<Utc>>,
+            i64,
+            i64,
+        ),
+    >(
         r#"
         select min(occurred_at), max(occurred_at),
           max(occurred_at) filter (where direction = 'inbound'),
