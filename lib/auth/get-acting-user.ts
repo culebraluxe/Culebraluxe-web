@@ -46,5 +46,8 @@ export async function getActingUser(
   }
 
   devAuthLog('AUTH_APP_IDENTITY_MAPPED')
-  return resolution.principal.actingUser
+  return {
+    ...resolution.actingUser,
+    securityLevel: resolution.securityLevel as ActingUser['securityLevel'],
+  }
 }
