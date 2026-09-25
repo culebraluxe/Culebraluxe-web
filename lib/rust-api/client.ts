@@ -350,6 +350,54 @@ export async function rustApiTechCommand(body: Record<string, unknown>): Promise
   return (await rustApiJsonWrite<any>('/v1/tech/cockpit', 'POST', body)).value
 }
 
+export type RustMarketingContentItem = {
+  key: string
+  label: string | null
+  value: string | null
+}
+
+export type RustMarketingContentBlock = {
+  id: string
+  kind: string
+  title: string | null
+  subtitle: string | null
+  eyebrow: string | null
+  body: string | null
+  ctaLabel: string | null
+  ctaHref: string | null
+  imagePath: string | null
+  imageAlt: string | null
+  items: RustMarketingContentItem[]
+}
+
+export async function rustApiPublicMarketingContent(): Promise<RustMarketingContentBlock[]> {
+  const correlationId = randomUUID()
+  const headers = buildRustPublicBridgeHeaders({
+    internalApiKey: internalApiKey(),
+    correlationId,
+  })
+
+  const response = await fetch(`${rustApiBaseUrl()}/v1/public/marketing-content`, {
+    headers,
+    cache: 'no-store',
+  })
+  const payload = (await response.json()) as
+    | RustApiSuccess<RustMarketingContentBlock[]>
+    | RustApiFailure
+  if (!response.ok || !payload.ok) {
+    const failure = payload as RustApiFailure
+    throw new RustApiError({
+      status: response.status,
+      code: failure.error?.code ?? 'RUST_API_FAILURE',
+      message: failure.error?.message ?? 'Rust API request failed.',
+      retryable: failure.error?.retryable ?? response.status >= 500,
+      correlationId: failure.correlationId ?? correlationId,
+      incidentId: failure.error?.incidentId ?? null,
+    })
+  }
+  return payload.value
+}
+
 export type RustPublicListingCopy = { slug: string; tagline: string }
 
 /**
