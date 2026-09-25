@@ -24,12 +24,13 @@ use crate::tech::TechCockpitService;
 use crate::vault::{VaultArtifactPort, VaultService};
 use crate::wbs::WbsService;
 use crate::website_leads::WebsiteLeadService;
+use crate::whatsapp::WhatsAppService;
 use crate::workflow_portal::WorkflowPortalService;
 use db::{
     AccountingDao, CalendarDao, ClientDao, CockpitDao, CommsDao, ContractDao, Database,
     DealPortalDao, FirmDao, FlightRecorderDao, FormDao, GuideDao, MediaDao, PersonDao, ProjectDao,
     PropertyDao, SecurityDao, ShowingDao, SignatureDao, SupportDiagnosticsDao, TaskDao,
-    TechCockpitDao, VaultDao, WbsDao, WorkflowPortalDao,
+    TechCockpitDao, VaultDao, WbsDao, WhatsAppDao, WorkflowPortalDao,
 };
 use service::{ServiceInfrastructure, SignatureProvider};
 use std::sync::Arc;
@@ -222,6 +223,10 @@ impl CoreServices {
             TechCockpitDao::new(self.db.clone()),
             self.infrastructure.clone(),
         )
+    }
+
+    pub fn whatsapp(&self) -> WhatsAppService<WhatsAppDao> {
+        WhatsAppService::new(WhatsAppDao::new(self.db.clone()))
     }
 
     pub fn accounting(&self) -> AccountingService<AccountingDao> {
