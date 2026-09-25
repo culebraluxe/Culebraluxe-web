@@ -35,7 +35,7 @@ m = r.sub == p.sub && r.obj == p.obj && r.act == p.act
 /// WHY "ANYONE" RATHER THAN "THE PUBLIC ACTOR". An action on this list is published, so being signed in does not
 /// remove the right to read it: an internal picker may read what an anonymous visitor may read. The public DOOR still
 /// exists, because a visitor has no session and the identified door requires one.
-const PUBLIC_READ_ACTIONS: &[&str] = &["property.public.read"];
+const PUBLIC_READ_ACTIONS: &[&str] = &["property.public.read", "guide.public.read"];
 
 /// Evaluates the grants supplied by the active user's DB roles against an explicit
 /// Casbin action catalog. The database remains the source of truth for grants.
