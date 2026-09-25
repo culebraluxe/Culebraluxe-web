@@ -78,26 +78,6 @@ impl From<EvidenceDbRow> for RelationshipEvidenceRow {
     }
 }
 
-fn select_columns() -> &'static str {
-    r#"
-      id::text as id, source, source_account, source_identity_key, source_label,
-      display_name, organization, emails, phones,
-      first_observed_at::text as first_observed_at,
-      last_observed_at::text as last_observed_at,
-      last_inbound_at::text as last_inbound_at,
-      last_outbound_at::text as last_outbound_at,
-      inbound_count::bigint as inbound_count,
-      outbound_count::bigint as outbound_count,
-      is_two_way, is_owner_initiated, is_automated_or_bulk,
-      is_organization_or_service, known_apple_contact,
-      has_email, has_phone, coverage_note,
-      canonical_person_id::text as canonical_person_id,
-      match_method, match_confidence, review_state,
-      match_reason, rule_version, evidence_fingerprint,
-      updated_at::text as updated_at
-    "#
-}
-
 #[derive(Clone)]
 pub struct RelationshipEvidenceDao {
     db: Database,
@@ -109,26 +89,60 @@ impl RelationshipEvidenceDao {
     }
 
     async fn recent_rows(&self, source: Option<&str>) -> DbResult<Vec<RelationshipEvidenceRow>> {
-        let sql = if source.is_some() {
-            format!(
-                "select {} from integration_relationship_evidence where source = $1 order by coalesce(last_observed_at, created_at) desc nulls last limit 10000",
-                select_columns()
-            )
-        } else {
-            format!(
-                "select {} from integration_relationship_evidence order by coalesce(last_observed_at, created_at) desc nulls last limit 10000",
-                select_columns()
-            )
-        };
         let rows = if let Some(source) = source {
-            sqlx::query_as::<_, EvidenceDbRow>(&sql)
-                .bind(source)
-                .fetch_all(self.db.pool())
-                .await
+            sqlx::query_as::<_, EvidenceDbRow>(
+                r#"
+                select
+                  id::text as id, source, source_account, source_identity_key, source_label,
+                  display_name, organization, emails, phones,
+                  first_observed_at::text as first_observed_at,
+                  last_observed_at::text as last_observed_at,
+                  last_inbound_at::text as last_inbound_at,
+                  last_outbound_at::text as last_outbound_at,
+                  inbound_count::bigint as inbound_count,
+                  outbound_count::bigint as outbound_count,
+                  is_two_way, is_owner_initiated, is_automated_or_bulk,
+                  is_organization_or_service, known_apple_contact,
+                  has_email, has_phone, coverage_note,
+                  canonical_person_id::text as canonical_person_id,
+                  match_method, match_confidence, review_state,
+                  match_reason, rule_version, evidence_fingerprint,
+                  updated_at::text as updated_at
+                from integration_relationship_evidence
+                where source = $1
+                order by coalesce(last_observed_at, created_at) desc nulls last
+                limit 10000
+                "#,
+            )
+            .bind(source)
+            .fetch_all(self.db.pool())
+            .await
         } else {
-            sqlx::query_as::<_, EvidenceDbRow>(&sql)
-                .fetch_all(self.db.pool())
-                .await
+            sqlx::query_as::<_, EvidenceDbRow>(
+                r#"
+                select
+                  id::text as id, source, source_account, source_identity_key, source_label,
+                  display_name, organization, emails, phones,
+                  first_observed_at::text as first_observed_at,
+                  last_observed_at::text as last_observed_at,
+                  last_inbound_at::text as last_inbound_at,
+                  last_outbound_at::text as last_outbound_at,
+                  inbound_count::bigint as inbound_count,
+                  outbound_count::bigint as outbound_count,
+                  is_two_way, is_owner_initiated, is_automated_or_bulk,
+                  is_organization_or_service, known_apple_contact,
+                  has_email, has_phone, coverage_note,
+                  canonical_person_id::text as canonical_person_id,
+                  match_method, match_confidence, review_state,
+                  match_reason, rule_version, evidence_fingerprint,
+                  updated_at::text as updated_at
+                from integration_relationship_evidence
+                order by coalesce(last_observed_at, created_at) desc nulls last
+                limit 10000
+                "#,
+            )
+            .fetch_all(self.db.pool())
+            .await
         }
         .map_err(|error| DbFailure::from_sqlx("relationship_evidence.recent_rows", &error))?;
         Ok(rows.into_iter().map(Into::into).collect())
@@ -172,15 +186,33 @@ impl RelationshipEvidenceDao {
     }
 
     pub async fn by_id(&self, id: &str) -> DbResult<Option<RelationshipEvidenceRow>> {
-        let sql = format!(
-            "select {} from integration_relationship_evidence where id = $1::uuid limit 1",
-            select_columns()
-        );
-        let row = sqlx::query_as::<_, EvidenceDbRow>(&sql)
-            .bind(id)
-            .fetch_optional(self.db.pool())
-            .await
-            .map_err(|error| DbFailure::from_sqlx("relationship_evidence.by_id", &error))?;
+        let row = sqlx::query_as::<_, EvidenceDbRow>(
+            r#"
+            select
+              id::text as id, source, source_account, source_identity_key, source_label,
+              display_name, organization, emails, phones,
+              first_observed_at::text as first_observed_at,
+              last_observed_at::text as last_observed_at,
+              last_inbound_at::text as last_inbound_at,
+              last_outbound_at::text as last_outbound_at,
+              inbound_count::bigint as inbound_count,
+              outbound_count::bigint as outbound_count,
+              is_two_way, is_owner_initiated, is_automated_or_bulk,
+              is_organization_or_service, known_apple_contact,
+              has_email, has_phone, coverage_note,
+              canonical_person_id::text as canonical_person_id,
+              match_method, match_confidence, review_state,
+              match_reason, rule_version, evidence_fingerprint,
+              updated_at::text as updated_at
+            from integration_relationship_evidence
+            where id = $1::uuid
+            limit 1
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("relationship_evidence.by_id", &error))?;
         Ok(row.map(Into::into))
     }
 
