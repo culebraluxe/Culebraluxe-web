@@ -61,26 +61,26 @@ impl<R: TechCockpitRepository> TechCockpitService<R> {
             match request.action.as_str() {
               "clearWorkbench" => { let n=self.repository.clear_active_work().await?; ok(format!("Cleared {n} stories from the Workbench. Story statuses were not changed.")) }
               "goodToGo" => {
-                if id.is_empty(){return Err(CoreServiceError::business("VALIDATION", "Missing story id.".into()))}
+                if id.is_empty(){return Err(CoreServiceError::business("VALIDATION", "Missing story id."))}
                 let active=self.repository.active_agent_work(id).await?;
                 if let Some(w)=active.first(){return Err(CoreServiceError::business("CONFLICT", format!("{id} is already with Forge ({}).",w["state"].as_str().unwrap_or("active"))))}
                 self.repository.set_active_work(id,false,actor).await?;
                 self.repository.story_status(id,"Ready").await?;
-                if self.repository.set_dispatch_options(id,None).await?==0{return Err(CoreServiceError::business("CONFLICT", "No queued work item to hand off — this story is already running.".into()))}
+                if self.repository.set_dispatch_options(id,None).await?==0{return Err(CoreServiceError::business("CONFLICT", "No queued work item to hand off — this story is already running."))}
                 ok(format!("{id} handed to Forge for the full chain. Ready queued a real work item."))
               }
               "scopedRun" => {
-                if id.is_empty(){return Err(CoreServiceError::business("VALIDATION", "Missing story id.".into()))}
+                if id.is_empty(){return Err(CoreServiceError::business("VALIDATION", "Missing story id."))}
                 let stop=request.stop_after.as_deref().unwrap_or("");
                 if !matches!(stop,"scout"|"architect"|"lead"){return Err(CoreServiceError::business("VALIDATION", format!("Unsupported scoped stop: {stop}")))}
                 let active=self.repository.active_agent_work(id).await?;
                 if let Some(w)=active.iter().find(|w|matches!(w["state"].as_str(),Some("Claimed"|"Running"|"Paused"))){return Err(CoreServiceError::business("CONFLICT", format!("{id} is already executing ({}); a live run cannot be re-scoped.",w["state"].as_str().unwrap_or("active"))))}
                 if !active.iter().any(|w|w["state"]=="Ready"){self.repository.story_status(id,"Ready").await?}
-                if self.repository.set_dispatch_options(id,Some(stop)).await?==0{return Err(CoreServiceError::business("CONFLICT", "No queued work item to scope — this story is already running.".into()))}
+                if self.repository.set_dispatch_options(id,Some(stop)).await?==0{return Err(CoreServiceError::business("CONFLICT", "No queued work item to scope — this story is already running."))}
                 ok(format!("{id} queued through {stop}; it remains on the Workbench for review."))
               }
               "moveWorkbench" => {
-                if id.is_empty(){return Err(CoreServiceError::business("VALIDATION", "Missing story id.".into()))}
+                if id.is_empty(){return Err(CoreServiceError::business("VALIDATION", "Missing story id."))}
                 let target=request.target.as_deref().unwrap_or("");
                 let status=match target{"backlog"=>"Backlog","closed"=>"Closed","next"=>"Next Version",_=>return Err(CoreServiceError::business("VALIDATION", format!("Unsupported Workbench destination: {target}")))};
                 let (withdrawn,live)=self.repository.withdraw_ready(id).await?;
@@ -91,8 +91,8 @@ impl<R: TechCockpitRepository> TechCockpitService<R> {
               }
               "cancelFlight" => {
                 let batch=request.batch_id.as_deref().unwrap_or("").trim();
-                if batch.is_empty(){return Err(CoreServiceError::business("VALIDATION", "Missing Flight id.".into()))}
-                if self.repository.cancel_batch(batch).await?==0{return Err(CoreServiceError::business("CONFLICT", "That Flight is not waiting to fire.".into()))}
+                if batch.is_empty(){return Err(CoreServiceError::business("VALIDATION", "Missing Flight id."))}
+                if self.repository.cancel_batch(batch).await?==0{return Err(CoreServiceError::business("CONFLICT", "That Flight is not waiting to fire."))}
                 ok("Scheduled Flight cancelled. Nothing was dispatched.".into())
               }
               "launchFlight" => {
