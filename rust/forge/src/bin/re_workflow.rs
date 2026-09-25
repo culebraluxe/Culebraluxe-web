@@ -3,7 +3,7 @@
 use forge::engine::re_runtime::{
     complete_engine_task, complete_workflow_task, reclaim_stale_jobs,
     reclaim_stale_jobs_for_instance, reconcile_closing_timer, reconcile_deadline_timer,
-    reconcile_residential_transactions, reset_dev_workflows, run_due_jobs,
+    reconcile_workflows, reset_dev_workflows, run_due_jobs,
     start_residential_transaction, workflow_status,
 };
 use std::env;
@@ -49,8 +49,9 @@ fn main() {
         }
         "reclaim" => {
             let batch = flag(&args, "--batch")
+                .or_else(|| args.get(2).cloned())
                 .and_then(|s| s.parse().ok())
-                .unwrap_or(50);
+                .unwrap_or(20);
             reclaim_stale_jobs(batch).map(|n| format!("reclaimed={n}"))
         }
         "reclaim-instance" => {
@@ -64,11 +65,16 @@ fn main() {
                 s.instance_failed, s.ready_engine_tasks, s.pending_jobs, s.pending_receipts
             )
         }),
-        "reconcile" => reconcile_residential_transactions()
-            .map(|n| format!("reconcile pass:\n  started instances: {n}")),
+        "reconcile" => reconcile_workflows().map(|r| format!(
+            "reconcile pass:\n  started instances: {}\n  materialized tasks: {}",
+            r.started_instances, r.materialized_tasks
+        )),
         "poll" => {
-            let worker = flag(&args, "--worker").unwrap_or_else(|| "workflow-cli".into());
-            let batch = flag(&args, "--batch").and_then(|s| s.parse().ok()).unwrap_or(10);
+            let worker = flag(&args, "--worker")
+                .or_else(|| args.get(2).filter(|s| !s.starts_with('-')).cloned())
+                .unwrap_or_else(|| "workflow-cli".into());
+            let positional_batch = args.get(3).filter(|s| !s.starts_with('-')).cloned();
+            let batch = flag(&args, "--batch").or(positional_batch).and_then(|s| s.parse().ok()).unwrap_or(10);
             run_due_jobs(&worker, batch).map(|r| {
                 format!(
                     "poll pass (worker {worker}, batch {batch}):\n  reclaimed stale leases: {}\n  claimed jobs: {}\n  fired timers: {}\n  completed jobs: {}\n  failed jobs: {}",
@@ -76,7 +82,7 @@ fn main() {
                 )
             })
         }
-        "reset-dev" => {
+        "reset-dev" | "reset:dev" => {
             if !args.iter().any(|a| a == "--yes") {
                 Err(workflow::WorkflowError::generic("reset-dev is destructive; pass --yes"))
             } else {
