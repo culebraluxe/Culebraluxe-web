@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { getGuideItems } from '@/legacy/db/guide'
 import { getMarketingContent } from '@/legacy/db/marketing-content'
-import { getProperties, getPropertyBySlug } from '@/legacy/db/property-public-reads'
+// THE DETAIL READ GOES THROUGH THE SERVICE TOO. It used to reach the legacy SQL module directly; the service kernel
+// (lib/property-reads → property.bySlug → the repository) exposes the same function, and using it here means the
+// public site has one path to property data instead of two.
+import { getPropertyBySlug } from '@/lib/property-reads'
+import { rustApiPublicListings } from '@/lib/rust-api/client'
 import { MARKETING_SLOTS } from '@/lib/marketing-content'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
@@ -33,31 +37,23 @@ const facts = (label: string, value: string | number | null | undefined): RustUi
   value === null || value === undefined || value === '' ? null : { id: label, cells: [label, String(value)] }
 
 async function listingRows(): Promise<RustUiRow[]> {
-  const result = await getProperties({ publicOnly: true })
-  if (!result.ok) throw new Error(`public inventory is unavailable: ${result.error.kind}`)
-  return (
-    result.data
-      // NOTHING IS DROPPED FOR WANT OF A URL.
-      //
-      // This filtered out every Property without a slug — "a row with no slug cannot be opened, so it is not offered
-      // as one" — which was true when a slug was the only way in. It is not true now: the detail resolver accepts the
-      // slug, the name, or the id, so a Property that exists can always be opened, and hiding it was the reason a
-      // published listing could be missing from the grid while looking correct in OPS.
-      //
-      // The row's key is its slug when it has one and its id when it does not. Neither is a precondition.
-      .map((property) => ({
-        id: property.slug ?? property.id,
-        cells: [
-          property.name,
-          property.propertyType ?? '—',
-          // A PRICE IS A NUMBER. Blank is zero, not a warning and not "price on request" — there is no such thing as
-          // a listing whose price is unknown, only one whose price has not been filled in yet.
-          money(property.listPrice ?? 0),
-          property.featured ? 'Featured' : '—',
-        ],
-        badge: property.status,
-      }))
-  )
+  // THE INVENTORY COMES FROM THE RUST SERVICE. This route used to read Postgres itself through the legacy TS db
+  // layer — the shortcut the service kernel calls "a surface that missed the service-layer refactor", and the reason
+  // the public visibility rule had to be written twice. It is now a thin proxy: ask Rust, shape the rows for the
+  // screen, and nothing else. The shape (id, cells, badge) is unchanged, so the grid renders exactly as before.
+  const listings = await rustApiPublicListings()
+  return listings.map((listing) => ({
+    // The URL key: the slug when the listing has one, its id when it does not. Nothing is dropped for want of a URL.
+    id: listing.key,
+    cells: [
+      listing.name,
+      listing.propertyType ?? '—',
+      // A price is a number. Blank is zero.
+      money(listing.listPrice ?? 0),
+      listing.featured ? 'Featured' : '—',
+    ],
+    badge: listing.status,
+  }))
 }
 
 /**

@@ -6,16 +6,21 @@
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
 use db::{DbResult, PublicListingDao};
-use domain::PublicListingCopy;
+use domain::{PublicListing, PublicListingCopy};
 use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
 
 #[async_trait]
 pub trait PublicListingRepository: Send {
+    async fn listings(&mut self) -> DbResult<Vec<PublicListing>>;
     async fn listing_copy(&mut self) -> DbResult<Vec<PublicListingCopy>>;
 }
 
 #[async_trait]
 impl PublicListingRepository for PublicListingDao {
+    async fn listings(&mut self) -> DbResult<Vec<PublicListing>> {
+        db::retrying_read!(PublicListingDao::listings(self))
+    }
+
     async fn listing_copy(&mut self) -> DbResult<Vec<PublicListingCopy>> {
         db::retrying_read!(PublicListingDao::listing_copy(self))
     }
@@ -32,6 +37,25 @@ impl<R: PublicListingRepository> PublicListingService<R> {
             repository,
             runtime: ServiceRuntime::new(infrastructure),
         }
+    }
+
+    pub async fn listings(
+        &mut self,
+        context: &ServiceContext,
+    ) -> Result<Vec<PublicListing>, CoreServiceError> {
+        const OP: &str = "property.publicListings";
+        let decision = authorize(
+            &self.runtime,
+            "property",
+            "property.public.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+        let result = self.repository.listings().await.map_err(Into::into);
+        audit_result(&self.runtime, "property", OP, context, decision, &result).await?;
+        result
     }
 
     pub async fn listing_copy(
@@ -66,6 +90,17 @@ mod tests {
 
     #[async_trait]
     impl PublicListingRepository for FakeRepository {
+        async fn listings(&mut self) -> DbResult<Vec<PublicListing>> {
+            Ok(vec![PublicListing {
+                key: "estate".into(),
+                name: "Estate".into(),
+                property_type: Some("Villa".into()),
+                status: "active".into(),
+                list_price: Some(1_000_000.0),
+                featured: true,
+            }])
+        }
+
         async fn listing_copy(&mut self) -> DbResult<Vec<PublicListingCopy>> {
             Ok(vec![PublicListingCopy {
                 slug: "estate".into(),

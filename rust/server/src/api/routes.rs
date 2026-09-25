@@ -719,6 +719,9 @@ pub fn router(state: ApiState) -> Router {
             get(vault_public_listing_document_bytes),
         )
         .route("/v1/public/listing-copy", get(public_listing_copy))
+        // THE PUBLIC INVENTORY, served by the Rust service the way every other read is. The site's own thin proxy
+        // shapes this for the buyers grid, so the grid stops reaching into the database itself.
+        .route("/v1/public/listings", get(public_listings))
         .route("/v1/website-intake/{id}/notify", post(notify_website_lead))
         .route(
             "/v1/vault/document-bytes/{id}",
@@ -2895,6 +2898,22 @@ async fn notify_website_lead(
         .await
         .map_err(ApiError::from)?;
     Ok(success_with_correlation(notice, &context.correlation_id))
+}
+
+/// The inventory of the public site, for the anonymous buyer: the same guest door and the same published action as
+/// the listing copy above. This is the read the buyers grid renders.
+async fn public_listings(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<Vec<domain::PublicListing>>>, ApiError> {
+    let context = resolve_public_guest_context(&state, &headers)?;
+    let listings = state
+        .services()
+        .public_listings()
+        .listings(&context)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(success_with_correlation(listings, &context.correlation_id))
 }
 
 /// The taglines of published listings, for the anonymous public site: the same guest door the public document route

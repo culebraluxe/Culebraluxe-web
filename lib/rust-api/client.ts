@@ -263,6 +263,71 @@ export type RustPublicListingCopy = { slug: string; tagline: string }
  * published `property.public.read`. A failure throws a RustApiError like every other call here; the caller decides
  * whether the page can live without the copy.
  */
+/**
+ * One listing as the Rust public service returns it: the key that opens it, and the facts the grid renders.
+ */
+export type RustPublicListing = {
+  key: string
+  name: string
+  propertyType: string | null
+  status: string
+  listPrice: number | null
+  featured: boolean
+}
+
+/**
+ * THE PUBLIC INVENTORY, from the Rust service (`GET /v1/public/listings`).
+ *
+ * Why this exists: the buyers grid read Postgres directly through the legacy TS db layer, which is the one thing the
+ * service kernel says nothing outside a repository should do — "a surface that missed the service-layer refactor".
+ * That shortcut is why the public visibility rule had to be maintained in two languages at once. The read lives in
+ * Rust now, authorized as the published `property.public.read` and served through the same anonymous public door as
+ * the listing copy; this function is the thin bridge, and the caller below it only shapes rows for the screen.
+ */
+export async function rustApiPublicListings(): Promise<RustPublicListing[]> {
+  const correlationId = randomUUID()
+  const headers = buildRustPublicBridgeHeaders({ internalApiKey: internalApiKey(), correlationId })
+
+  let response: Response
+  try {
+    response = await fetch(`${rustApiBaseUrl()}/v1/public/listings`, { headers, cache: 'no-store' })
+  } catch (cause) {
+    throw new RustApiError({
+      status: 503,
+      code: 'RUST_API_UNAVAILABLE',
+      message: cause instanceof Error ? cause.message : 'Rust API request failed.',
+      retryable: true,
+      correlationId,
+    })
+  }
+
+  let payload: RustApiSuccess<RustPublicListing[]> | RustApiFailure
+  try {
+    payload = (await response.json()) as RustApiSuccess<RustPublicListing[]> | RustApiFailure
+  } catch {
+    throw new RustApiError({
+      status: 502,
+      code: 'RUST_API_INVALID_RESPONSE',
+      message: 'Rust API returned a non-JSON response.',
+      retryable: true,
+      correlationId,
+    })
+  }
+
+  if (!response.ok || !payload.ok) {
+    const failure = payload as RustApiFailure
+    throw new RustApiError({
+      status: response.status,
+      code: failure.error?.code ?? 'RUST_API_FAILURE',
+      message: failure.error?.message ?? 'Rust API request failed.',
+      retryable: failure.error?.retryable ?? false,
+      correlationId,
+    })
+  }
+
+  return payload.value
+}
+
 export async function rustApiPublicListingCopy(): Promise<RustPublicListingCopy[]> {
   const correlationId = randomUUID()
   const headers = buildRustPublicBridgeHeaders({ internalApiKey: internalApiKey(), correlationId })
