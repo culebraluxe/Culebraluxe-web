@@ -1,17 +1,6 @@
-// -----------------------------------------------------------------------------
-// Capture seam helpers — low-friction wrappers so the sweep is mechanical.
-//
-//   withServerErrorCapture(label, asyncFn)         — wraps a server action /
-//     async fn: on throw it captures durably then rethrows (caller decides).
-//     SINGLE CALL: the curried form cannot infer the handler's argument types.
-//   withApiHandler({ label, route }, handler)      — for Next route handlers:
-//     on throw it captures and returns a 500 Response instead of letting a raw
-//     error escape to a client.
-//
-// Errors are captured with severity + context and rethrown/handled — they never
-// silently vanish, and never break the operation being recorded.
-// -----------------------------------------------------------------------------
-import { captureError, type ErrorLevel } from '@/legacy/db/app-error'
+import { recordRustAppDiagnostic } from '@/lib/rust-api/diagnostics'
+
+export type ErrorLevel = 'info' | 'warn' | 'error' | 'fatal'
 
 export type CaptureOpts = {
   level?: ErrorLevel
@@ -31,15 +20,30 @@ function messageOf(err: unknown, label: string): string {
   return String(err)
 }
 
-/**
- * Wrap an async server function: capture durably on throw, then rethrow.
- *
- * SINGLE CALL, deliberately. The curried form `withServerErrorCapture(label)(fn)`
- * cannot infer the handler's argument types — TypeScript pins TArgs to unknown[]
- * at the first call and the second call then fails to accept a typed handler.
- * `withApiHandler` was made single-call for exactly this reason (commit dca591b);
- * this now matches it.
- */
+function capture(
+  label: string,
+  err: unknown,
+  opts: CaptureOpts,
+  level: ErrorLevel,
+): void {
+  const error = err instanceof Error ? err : new Error(String(err))
+  void recordRustAppDiagnostic({
+    kind: error.name || 'Error',
+    operation: label,
+    message: messageOf(err, label),
+    route: opts.route ?? '',
+    level,
+    code:
+      err && typeof err === 'object' && 'code' in err
+        ? String((err as { code?: unknown }).code ?? '')
+        : null,
+    meta: {
+      storyId: opts.storyId ?? null,
+      stack: error.stack ?? null,
+    },
+  })
+}
+
 export function withServerErrorCapture<TArgs extends unknown[], TResult>(
   label: string,
   fn: (...args: TArgs) => Promise<TResult>,
@@ -49,22 +53,12 @@ export function withServerErrorCapture<TArgs extends unknown[], TResult>(
     try {
       return await fn(...args)
     } catch (err) {
-      const level = opts.level ?? levelOf(err)
-      captureError({
-        kind: err instanceof Error ? err.name || 'Error' : 'Error',
-        operation: label,
-        message: messageOf(err, label),
-        stack: err instanceof Error ? err.stack ?? null : null,
-        storyId: opts.storyId ?? null,
-        route: opts.route ?? null,
-        level,
-      })
+      capture(label, err, opts, opts.level ?? levelOf(err))
       throw err
     }
   }
 }
 
-/** Wrap a Next route handler: capture durably on throw, return a 500 Response. */
 export function withApiHandler<A extends unknown[]>(
   opts: { label: string; route?: string | null },
   handler: (...args: A) => Promise<Response>,
@@ -74,9 +68,6 @@ export function withApiHandler<A extends unknown[]>(
       return await handler(...args)
     } catch (err) {
       const level = levelOf(err)
-      // ALWAYS emit the primary failure before attempting durable capture. During an outage the
-      // app_error database write can fail too; without this line the runtime log contains only the
-      // secondary capture failure and hides the exception that actually broke the request.
       console.error('[api] request failed', {
         label: opts.label,
         route: opts.route ?? null,
@@ -89,28 +80,18 @@ export function withApiHandler<A extends unknown[]>(
           ? { status: Number((err as { status?: unknown }).status ?? 0) }
           : {}),
       })
-      captureError({
-        kind: err instanceof Error ? err.name || 'Error' : 'Error',
-        operation: opts.label,
-        message: messageOf(err, opts.label),
-        stack: err instanceof Error ? err.stack ?? null : null,
-        route: opts.route ?? null,
-        level,
-      })
-      // A REFUSAL IS NOT AN INTERNAL ERROR.
-      //
-      // This answered `{ ok: false, error: 'internal_error' }` with a 500 for EVERY throw, including the ones a Service
-      // deliberately raises to explain itself — "Under-contract and sold status are owned by the transaction workflow",
-      // "Property status is invalid.", "Image is too large". The reason existed, was logged, and was thrown away on the
-      // way to the screen: all the person clicking saw was `internal_error`, so they had to ask someone. That is the
-      // single most expensive line in this file.
-      //
-      // Errors that describe themselves (a code, a message, a 4xx status) are now returned as they were raised. Only a
-      // genuine crash — no code, no status, or a 5xx — stays a generic 500.
-      const described = err as { code?: unknown; message?: unknown; status?: unknown } | null
-      const code = described && typeof described.code === 'string' ? described.code : null
+      capture(opts.label, err, { route: opts.route }, level)
+
+      const described = err as
+        | { code?: unknown; message?: unknown; status?: unknown }
+        | null
+      const code =
+        described && typeof described.code === 'string' ? described.code : null
       const status =
-        described && typeof described.status === 'number' && described.status >= 400 && described.status < 500
+        described &&
+        typeof described.status === 'number' &&
+        described.status >= 400 &&
+        described.status < 500
           ? described.status
           : null
       if (code && status !== null) {
@@ -118,7 +99,10 @@ export function withApiHandler<A extends unknown[]>(
           JSON.stringify({
             ok: false,
             error: code,
-            message: typeof described?.message === 'string' ? described.message : undefined,
+            message:
+              typeof described?.message === 'string'
+                ? described.message
+                : undefined,
           }),
           { status, headers: { 'content-type': 'application/json' } },
         )
