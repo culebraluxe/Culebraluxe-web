@@ -243,7 +243,7 @@ pub fn run_worker_pass() -> Result<i32, String> {
     eprintln!("forge-worker: recovered={recovered} due_flights={flights}");
 
     let Some(dispatch) = next_ready_story()? else {
-        eprintln!("forge-worker: idle (no Ready work item)");
+        println!("no work");
         return Ok(0);
     };
     eprintln!(
