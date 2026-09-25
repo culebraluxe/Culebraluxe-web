@@ -543,7 +543,14 @@ fn validate_admin_save(
             "Property status is invalid.",
         ));
     }
+    // THE WORKFLOW OWNS THE MARKETING STATE, NOT THE FILING CABINET.
+    //
+    // Moving a listing in or out of under-contract or sold belongs to the transaction workflow — that is the rule this
+    // protects, and it is a good one. But ARCHIVING IS NOT A MARKETING STATE: it is putting a listing away, which is
+    // the owner's call at any time, and it was refused for exactly the listings most likely to need it. A sold
+    // Property could not be archived at all, and the refusal arrived on screen as `internal_error`.
     if request.status != current.status
+        && request.status.trim() != "archived"
         && (matches!(current.status.as_str(), "under_contract" | "sold")
             || matches!(request.status.as_str(), "under_contract" | "sold"))
     {
@@ -552,6 +559,10 @@ fn validate_admin_save(
             "Under-contract and sold status are owned by the transaction workflow.",
         ));
     }
+
+    // ARCHIVING IS TWO THINGS AND THEY MUST AGREE: `status = 'archived'` is what a person chose, `archived_at` is what
+    // every public read filters on. The DAO derives the timestamp from the status (see `admin_save`), so the two can
+    // never disagree — a listing cannot say archived and stay published.
 
     if let Some(slug) = compact_text(request.slug.as_deref()) {
         let valid = slug

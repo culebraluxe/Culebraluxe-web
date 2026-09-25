@@ -1001,7 +1001,7 @@ impl PropertyDao {
                 finca_number = nullif($43::text, ''),
                 registry_section = nullif($44::text, ''),
                 seller_person_id = nullif($45::text, '')::uuid,
-                archived_at = case when $46 then coalesce(archived_at, now()) else null end,
+                archived_at = case when $4 = 'archived' or $46 then coalesce(archived_at, now()) else null end,
                 updated_at = now(),
                 has_ocean_view = $47,
                 has_bay_view = $48,
