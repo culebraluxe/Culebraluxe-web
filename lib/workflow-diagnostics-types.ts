@@ -21,6 +21,7 @@ export type WorkflowInstanceRow = {
   activeTokenCount: number
   taskCount: number
   eventCount: number
+  propertyName?: string | null
 }
 
 export type TokenRow = {
