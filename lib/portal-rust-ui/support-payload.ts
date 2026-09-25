@@ -2,14 +2,7 @@ import 'server-only'
 
 import { getBreakGlassReadiness } from '@/lib/auth/break-glass-readiness'
 import { getEnvironmentReadiness } from '@/lib/environment-readiness'
-import { getSecurityStatus } from '@/legacy/db/auth-status'
-import { getClients } from '@/legacy/db/clients'
-import { getSystemHealth } from '@/legacy/db/system-health'
 import { rustApiRead } from '@/lib/rust-api/client'
-import {
-  getWorkflowDiagnosticsSnapshot,
-  inspectInstance,
-} from '@/legacy/workflow_app/diagnostics'
 
 // ---------------------------------------------------------------------------
 // SUPPORT PAYLOADS — SUPPORT reads, in one place.
@@ -246,20 +239,27 @@ export async function supportPayload(
       // THE PRE-CUTOVER SCREEN, PORTED. It read `getClients()` and showed `connected`, `clientCount` and the rows. The read
       // is the same one; what changes is the shape: a diagnostic carries the identity columns it prints and not the CRM
       // fields it never showed.
-      const clients = await getClients()
+      type ClientPage = {
+        rows: SupportDbTestClient[]
+        total: number
+        page: number
+        pageSize: number
+      }
+      const first = await rustApiRead<ClientPage>(
+        '/v1/clients?page=1&pageSize=100&sort=name' as `/v1/${string}`,
+      )
+      const clients = [...first.value.rows]
+      const pages = Math.ceil(first.value.total / Math.max(1, first.value.pageSize))
+      for (let page = 2; page <= pages; page += 1) {
+        const next = await rustApiRead<ClientPage>(
+          (`/v1/clients?page=${page}&pageSize=${first.value.pageSize}&sort=name`) as `/v1/${string}`,
+        )
+        clients.push(...next.value.rows)
+      }
       const dbTest: SupportDbTest = {
-        // Reaching this line IS the connectivity answer: a database that could not be reached would have thrown here, and
-        // the screen would be showing the failure instead. `true` is not a hopeful constant.
         connected: true,
-        clientCount: clients.length,
-        clients: clients.map((client) => ({
-          id: client.id,
-          displayName: client.displayName,
-          role: client.role,
-          status: client.status,
-          email: client.email ?? null,
-          phone: client.phone ?? null,
-        })),
+        clientCount: first.value.total,
+        clients,
       }
       return { support: { dbTest } }
     }
@@ -278,11 +278,15 @@ export async function supportPayload(
       // than anywhere else on the portal, because the configuration being probed is the one that guards emergency root
       // access.
       const [status, breakGlass, grants] = await Promise.all([
-        getSecurityStatus(),
+        rustApiRead<SupportSecurityStatus>('/v1/support/security-status'),
         getBreakGlassReadiness(),
         rustApiRead<SupportSecurity['roleEntitlements']>('/v1/security/role-entitlements'),
       ])
-      const security: SupportSecurity = { status, breakGlass, roleEntitlements: grants.value }
+      const security: SupportSecurity = {
+        status: status.value,
+        breakGlass,
+        roleEntitlements: grants.value,
+      }
       return { support: { security } }
     }
     case 'whatsapp-meta': {
@@ -303,17 +307,23 @@ export async function supportPayload(
       // tasks, jobs, events, correlations and commands up front would move the whole engine's history to the browser to
       // answer a question about one row.
       const [health, diagnostics] = await Promise.all([
-        getSystemHealth(),
-        getWorkflowDiagnosticsSnapshot(),
+        rustApiRead<Record<string, unknown>>('/v1/support/system-health'),
+        rustApiRead<Record<string, unknown>>('/v1/support/workflow-diagnostics'),
       ])
       // ONE INSTANCE'S DETAIL, WHEN A ROW WAS OPENED. `scope` is the instance id the operator clicked, which is what the
       // pre-cutover component loaded on demand through `loadWorkflowInstanceDetail`. Absent on a plain load, and the list
       // above is still the list — which is what lets the screen re-render the row it opened without a second request.
-      const detail = scope?.trim() ? await inspectInstance(scope.trim()) : null
+      const detail = scope?.trim()
+        ? (
+            await rustApiRead<Record<string, unknown>>(
+              (`/v1/support/workflow-diagnostics/${encodeURIComponent(scope.trim())}`) as `/v1/${string}`,
+            )
+          ).value
+        : null
       const systemHealth: SupportSystemHealth = {
-        health,
+        health: health.value,
         environment: getEnvironmentReadiness(),
-        diagnostics: { ...diagnostics, detail },
+        diagnostics: { ...diagnostics.value, detail },
       }
       return { support: { systemHealth } }
     }
