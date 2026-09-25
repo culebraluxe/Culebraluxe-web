@@ -17,35 +17,37 @@ pub struct StoryPacket {
 
 impl StoryPacket {
     pub fn load_from_neon(story_id: &str) -> Result<Self, String> {
-        use crate::engine::vendor_session::{psql_query, sql_literal};
-        let sql = format!(
-            "SELECT id, COALESCE(title,''), COALESCE(goal,''), COALESCE(architect_brief,''), \
-             COALESCE(acceptance_criteria,''), COALESCE(assay_commands,'') \
-             FROM storyboard_story WHERE id = {} LIMIT 1",
-            sql_literal(story_id)
-        );
-        let raw = psql_query(&sql)?;
-        if raw.is_empty() {
+        use crate::engine::vendor_session::with_shared;
+        use db::ForgeEngineDao;
+
+        let row = with_shared(|db, rt| {
+            let dao = ForgeEngineDao::new(db.clone());
+            rt.block_on(async {
+                dao.story_packet(story_id)
+                    .await
+                    .map_err(|error| error.to_string())
+            })
+        })??;
+
+        let Some(row) = row else {
             return Err(format!("storyboard_story {story_id} not found"));
-        }
-        let cols: Vec<&str> = raw.split('|').collect();
-        let get = |i: usize| {
-            cols.get(i)
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty() && *s != "\\N")
         };
+
         Ok(Self {
-            id: get(0).unwrap_or_else(|| story_id.to_string()),
-            title: get(1).unwrap_or_default(),
-            goal: get(2),
+            id: row.id,
+            title: row.title,
+            goal: row.goal.filter(|value| !value.trim().is_empty()),
             special_instructions: None,
-            architect_brief: get(3),
-            acceptance_criteria: get(4),
-            assay_commands: get(5)
-                .map(|s| {
-                    s.split('\n')
-                        .map(|l| l.trim().to_string())
-                        .filter(|l| !l.is_empty())
+            architect_brief: row.architect_brief.filter(|value| !value.trim().is_empty()),
+            acceptance_criteria: row.acceptance_criteria.filter(|value| !value.trim().is_empty()),
+            assay_commands: row
+                .assay_commands
+                .map(|value| {
+                    value
+                        .lines()
+                        .map(str::trim)
+                        .filter(|line| !line.is_empty())
+                        .map(str::to_owned)
                         .collect()
                 })
                 .unwrap_or_default(),
