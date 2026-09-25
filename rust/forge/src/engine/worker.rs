@@ -4,6 +4,7 @@
 //! stale runtime recovery -> due Flight fire -> oldest Ready story -> Rust Forge engine.
 //! No legacy/workflow_app, agent-runtime, or TypeScript execution path is involved.
 
+use crate::engine::routing_brain::{parse_forge_routing_brain, ForgeRoutingBrain};
 use crate::engine::vendor_session::with_shared;
 use sqlx::Row;
 use std::process::Command;
@@ -259,6 +260,10 @@ pub fn next_ready_story() -> Result<Option<WorkerDispatch>, String> {
 }
 
 pub fn run_worker_pass() -> Result<i32, String> {
+    let brain = parse_forge_routing_brain(std::env::var("FORGE_ROUTING_BRAIN").ok().as_deref());
+    if brain == ForgeRoutingBrain::Reducer {
+        eprintln!("forge-worker: FORGE_ROUTING_BRAIN=reducer is retired for unattended execution; Rust engine owns this pass");
+    }
     let stale = std::env::var("AGENT_WORKER_STALE_AFTER_MINUTES")
         .ok()
         .and_then(|v| v.parse::<i64>().ok())
