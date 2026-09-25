@@ -40,6 +40,7 @@ pub(super) const ACTIONS: &[(&str, &str)] = &[
     ("signature.read", "query"),
     ("signature.write", "command"),
     ("tech.access", "query"),
+    ("tech.operate", "command"),
     ("vault.issue", "command"),
     ("vault.read", "query"),
     ("vault.write", "command"),
