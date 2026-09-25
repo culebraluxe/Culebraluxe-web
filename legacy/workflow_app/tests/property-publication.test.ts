@@ -48,7 +48,7 @@ function makeExecutor(
   }
 }
 
-test('HARDEN-05: getFilteredProperties (public buyers) gates on is_published', async () => {
+test('HARDEN-05: getFilteredProperties (public buyers) gates on the visibility rule', async () => {
   const captured: Captured[] = []
   setDatabaseTestExecutor(makeExecutor([[], []], captured))
   await getFilteredProperties({ category: 'all' })
@@ -58,13 +58,13 @@ test('HARDEN-05: getFilteredProperties (public buyers) gates on is_published', a
   )
   for (const c of captured) {
     assert.ok(
-      c.sql.toLowerCase().includes('is_published = true'),
+      c.sql.toLowerCase().includes("status in ('active', 'under_contract', 'sold')"),
       `public filter present: ${c.sql.slice(0, 80)}`,
     )
   }
 })
 
-test('HARDEN-05: getSimilarProperties (public) gates on is_published', async () => {
+test('HARDEN-05: getSimilarProperties (public) gates on the visibility rule', async () => {
   const captured: Captured[] = []
   setDatabaseTestExecutor(makeExecutor([[]], captured))
   await getSimilarProperties(
@@ -72,23 +72,23 @@ test('HARDEN-05: getSimilarProperties (public) gates on is_published', async () 
     { propertyType: null, city: null, neighborhood: null, listPrice: null },
     3,
   )
-  assert.ok(captured[0].sql.toLowerCase().includes('is_published = true'))
+  assert.ok(captured[0].sql.toLowerCase().includes("status in ('active', 'under_contract', 'sold')"))
 })
 
-test('HARDEN-05: getPublicPropertySlugs gates on is_published', async () => {
+test('HARDEN-05: getPublicPropertySlugs gates on the visibility rule', async () => {
   const captured: Captured[] = []
   setDatabaseTestExecutor(makeExecutor([[]], captured))
   await getPublicPropertySlugs()
-  assert.ok(captured[0].sql.toLowerCase().includes('is_published = true'))
+  assert.ok(captured[0].sql.toLowerCase().includes("status in ('active', 'under_contract', 'sold')"))
 })
 
-test('HARDEN-05: getPropertyBySlug (public detail) gates on is_published (direct URL 404 for internal)', async () => {
+test('HARDEN-05: getPropertyBySlug (public detail) gates on the visibility rule (direct URL 404 for internal)', async () => {
   const captured: Captured[] = []
   setDatabaseTestExecutor(makeExecutor([[]], captured))
   const result = await getPropertyBySlug('some-slug')
   assert.ok(result.ok, 'query ran')
   if (result.ok) assert.equal(result.data, null, 'zero rows -> null (page calls notFound())')
-  assert.ok(captured[0].sql.toLowerCase().includes('is_published = true'))
+  assert.ok(captured[0].sql.toLowerCase().includes("status in ('active', 'under_contract', 'sold')"))
 })
 
 test('HARDEN-05: setPropertyPublished is the canonical idempotent publication mutation', async () => {
@@ -123,7 +123,7 @@ test('HARDEN-05: setPropertyPublished is the canonical idempotent publication mu
   )
 })
 
-test('HARDEN-05: legacy status predicate confined to the internal getProperties default; public reads use is_published', async () => {
+test('HARDEN-05: legacy status predicate confined to the internal getProperties default; public reads use the visibility rule', async () => {
   // The public read path moved out of the retired db/properties.ts into
   // db/property-public-reads.ts (the module the Property service consumes).
   const source = await readFile(
@@ -137,5 +137,5 @@ test('HARDEN-05: legacy status predicate confined to the internal getProperties 
     `legacy public predicate only in the internal getProperties default (found ${legacyCount})`,
   )
   assert.ok(source.includes('publicOnly'), 'getProperties exposes publicOnly')
-  assert.ok(source.includes('is_published = true'))
+  assert.ok(source.includes("status in ('active', 'under_contract', 'sold')"))
 })

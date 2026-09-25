@@ -319,7 +319,7 @@ export async function getProperties(opts: {
     where p.archived_at is null
       and p.slug is not null
       and (
-        (${publicOnly}::boolean and p.is_published = true and p.is_active_listing = true)
+        (${publicOnly}::boolean and p.status in ('active', 'under_contract', 'sold'))
         or (${!publicOnly}::boolean and p.status in ('active', 'coming_soon', 'under_contract'))
       )
 
@@ -450,7 +450,7 @@ export async function getFilteredProperties(
 
     where p.archived_at is null
       and p.slug is not null
-      and p.is_published = true
+      and p.status in ('active', 'under_contract', 'sold')
       and p.is_active_listing = true
 
       and (${category !== 'land'} or lower(coalesce(p.property_type, '')) = 'land')
@@ -518,7 +518,7 @@ export async function getFilteredProperties(
     from property
     where archived_at is null
       and slug is not null
-      and is_published = true
+      and status in ('active', 'under_contract', 'sold')
       and is_active_listing = true
   `
   if (!viewRowsR.ok) return viewRowsR
@@ -612,7 +612,7 @@ export async function getSimilarProperties(
     where p.id <> ${propertyId}
       and p.archived_at is null
       and p.slug is not null
-      and p.is_published = true
+      and p.status in ('active', 'under_contract', 'sold')
       and p.is_active_listing = true
 
     order by
@@ -651,7 +651,7 @@ export async function getPublicPropertySlugs(
     from property
     where archived_at is null
       and slug is not null
-      and is_published = true
+      and status in ('active', 'under_contract', 'sold')
       and is_active_listing = true
     order by created_at asc
   `
@@ -774,7 +774,7 @@ export async function getPropertyBySlug(
 
     where p.slug = ${slug}
       and p.archived_at is null
-      and p.is_published = true
+      and p.status in ('active', 'under_contract', 'sold')
       and p.is_active_listing = true
 
     limit 1

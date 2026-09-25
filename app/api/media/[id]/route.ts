@@ -9,7 +9,7 @@ import { withApiHandler } from '@/lib/error-capture-seam'
 //
 // PROPERTY OWNS PUBLICATION STATE; listing media does not carry independent
 // public state. A media asset is publicly reachable only when every Property
-// it is linked to (via property_media) is published (is_published = true) and
+// it is linked to (via property_media) is published (status in ('active', 'under_contract', 'sold')) and
 // not archived. Media with no Property link is not listing media and remains
 // reachable.
 //
@@ -64,7 +64,7 @@ async function GETHandler(
         COALESCE(copy.mime_type, m.mime_type) AS mime_type,
         COALESCE(
           (
-            SELECT BOOL_AND(p.is_published = true AND p.archived_at IS NULL)
+            SELECT BOOL_AND(p.status in ('active', 'under_contract', 'sold') AND p.archived_at IS NULL)
             FROM property_media pm
             JOIN property p ON p.id = pm.property_id
             WHERE pm.media_id = root.id
