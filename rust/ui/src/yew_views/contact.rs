@@ -211,7 +211,7 @@ fn enquiry_form(model: &Model, on_msg: &Callback<Msg>) -> Html {
 
 /// A form control's current value, by id. The fields are uncontrolled, as they were in the live form: the reducer holds
 /// the submission's state, not every keystroke.
-fn field_value(id: &str) -> String {
+pub(crate) fn field_value(id: &str) -> String {
     let Some(element) = web_sys::window()
         .and_then(|window| window.document())
         .and_then(|doc| doc.get_element_by_id(id))

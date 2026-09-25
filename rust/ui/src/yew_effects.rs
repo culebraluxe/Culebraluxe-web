@@ -73,6 +73,8 @@ pub fn run(effect: Effect, dispatch: &Callback<Msg>) {
         } => {
             submit_contact(submission, submission_id, dispatch);
         }
+        Effect::GuestRead => guest_read(dispatch),
+        Effect::GuestRequestCode { email } => guest_request_code(email, dispatch),
         Effect::BuyerToolsRead => {
             let read = |key: &str| {
                 browser_storage()
@@ -1279,6 +1281,78 @@ fn submit_contact(
     });
 }
 
+const GUEST_PATH: &str = "/api/rust-ui/guest";
+
+/// Who is signed in (the host provisions an external guest on a first sign-in), and Auth.js's form token, which the
+/// screen's Google and code forms post with. A failed read shows the sign-in forms: signing in again is the remedy.
+fn guest_read(dispatch: &Callback<Msg>) {
+    let dispatch = dispatch.clone();
+    spawn_local(async move {
+        let csrf_token = match Request::get("/api/auth/csrf").send().await {
+            Ok(response) if response.ok() => response
+                .json::<serde_json::Value>()
+                .await
+                .ok()
+                .and_then(|value| value.get("csrfToken")?.as_str().map(str::to_owned)),
+            _ => None,
+        };
+        let who = match Request::get(GUEST_PATH).send().await {
+            Ok(response) if response.ok() => response.json::<serde_json::Value>().await.ok(),
+            _ => None,
+        };
+        let session = match who {
+            Some(value)
+                if value.get("signedIn").and_then(serde_json::Value::as_bool) == Some(true) =>
+            {
+                crate::model::GuestSession::SignedIn {
+                    display_name: value
+                        .get("displayName")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned(),
+                    email: value
+                        .get("email")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned),
+                }
+            }
+            _ => crate::model::GuestSession::SignedOut,
+        };
+        dispatch.emit(Msg::GuestLoaded {
+            session,
+            csrf_token,
+        });
+    });
+}
+
+/// Ask for a sign-in code. A refusal carries Rust's own words (a bad address, too many codes).
+fn guest_request_code(email: String, dispatch: &Callback<Msg>) {
+    let dispatch = dispatch.clone();
+    spawn_local(async move {
+        const FAILED: &str = "The code could not be sent just now. Please try again in a moment.";
+        let result = match Request::post(GUEST_PATH).json(&serde_json::json!({ "email": email })) {
+            Ok(request) => match request.send().await {
+                Ok(response) => {
+                    let body = response.json::<serde_json::Value>().await.ok();
+                    let sent =
+                        body.as_ref().and_then(|value| value.get("sent")?.as_bool()) == Some(true);
+                    if response.ok() && sent {
+                        Ok(email.trim().to_lowercase())
+                    } else {
+                        Err(body
+                            .as_ref()
+                            .and_then(|value| value.get("message")?.as_str().map(str::to_owned))
+                            .unwrap_or_else(|| FAILED.to_owned()))
+                    }
+                }
+                Err(_) => Err(FAILED.to_owned()),
+            },
+            Err(_) => Err(FAILED.to_owned()),
+        };
+        dispatch.emit(Msg::GuestCodeResult(result));
+    });
+}
+
 fn fetch_entitlements(generation: u64, dispatch: &Callback<Msg>) {
     let dispatch = dispatch.clone();
     spawn_local(async move {
@@ -1434,7 +1508,9 @@ fn run_read(effect: Effect, dispatch: &Callback<Msg>) {
         | Effect::BuyerToolsRead
         | Effect::CompareWrite(_)
         | Effect::SavedSearchesWrite(_)
-        | Effect::SubmitContact { .. } => {
+        | Effect::SubmitContact { .. }
+        | Effect::GuestRead
+        | Effect::GuestRequestCode { .. } => {
             unreachable!("Property browser effects are run before network reads")
         }
         Effect::SaveOps { .. } | Effect::CreateOpsProperty { .. } => {

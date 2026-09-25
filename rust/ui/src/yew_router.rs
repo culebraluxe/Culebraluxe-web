@@ -13,6 +13,7 @@ use yew_router::prelude::*;
 
 use crate::model::{screen, Msg, Screen};
 use crate::yew_views::about::About;
+use crate::yew_views::account::Account;
 use crate::yew_views::buyers::Buyers;
 use crate::yew_views::contact::Contact;
 use crate::yew_views::faq::Faq;
@@ -44,6 +45,8 @@ pub enum Route {
     Contact,
     #[at("/favorites")]
     Favorites,
+    #[at("/account")]
+    Account,
     #[at("/properties/:slug")]
     Property { slug: String },
     /// A URL this app does not serve. It renders a message rather than a blank page, and the reader is offered the way
@@ -66,6 +69,7 @@ impl Route {
             Route::Faq => screen("site-faq"),
             Route::Contact => screen("site-contact"),
             Route::Favorites => screen("site-favorites"),
+            Route::Account => screen("site-account"),
             Route::Property { .. } => screen("site-property-detail"),
             Route::NotFound => None,
         }
@@ -136,6 +140,7 @@ impl Component for Shell {
                         Route::Faq => html! { <Faq model={model.clone()} on_msg={on_msg.clone()} /> },
                         Route::Contact => html! { <Contact model={model.clone()} on_msg={on_msg.clone()} /> },
                         Route::Favorites => html! { <Favorites model={model.clone()} on_msg={on_msg.clone()} /> },
+                        Route::Account => html! { <Account model={model.clone()} on_msg={on_msg.clone()} /> },
                         Route::Property { .. } => html! {
                             <PropertyDetail model={model.clone()} on_msg={on_msg.clone()} />
                         },

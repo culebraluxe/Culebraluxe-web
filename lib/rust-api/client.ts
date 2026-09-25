@@ -312,6 +312,70 @@ export async function rustApiPublicListingCopy(): Promise<RustPublicListingCopy[
   )
 }
 
+// ---- External guests (Rust security/guest.rs) -----------------------------------------------------------------------
+
+/** Email a guest a sign-in code (public door). Rust rate-limits per address and per IP. */
+export async function rustApiRequestGuestCode(email: string, clientIp: string | null): Promise<void> {
+  const correlationId = randomUUID()
+  await rustApiPost('/v1/security/guest-code', buildRustPublicBridgeHeaders({ internalApiKey: internalApiKey(), correlationId }), correlationId, { email, clientIp })
+}
+
+/** Check a guest's code (public door). On success the guest exists, and the answer is the email to sign in as. */
+export async function rustApiVerifyGuestCode(email: string, code: string): Promise<{ email: string }> {
+  const correlationId = randomUUID()
+  return rustApiPost('/v1/security/guest-code/verify', buildRustPublicBridgeHeaders({ internalApiKey: internalApiKey(), correlationId }), correlationId, { email, code })
+}
+
+/**
+ * Provision (first sign-in) and resolve the guest behind a signed-in identity, answered like `rustApiResolveIdentity`.
+ * A staff identity that already maps is only resolved; Rust creates EXTERNAL guests only.
+ */
+export async function rustApiProvisionGuest(
+  identity: { provider: string; providerSubject: string },
+  claim: { email: string | null; emailVerified: boolean; displayName: string | null },
+): Promise<RustIdentityResolution> {
+  const correlationId = randomUUID()
+  const headers = buildRustBridgeHeaders({ identity, internalApiKey: internalApiKey(), correlationId })
+  return rustApiPost('/v1/security/guests', headers, correlationId, claim)
+}
+
+/** POST JSON to Rust; a refusal (bad code, rate limit) arrives as a RustApiError with Rust's code and a 4xx status. */
+async function rustApiPost<T>(path: string, headers: Record<string, string>, correlationId: string, body: unknown): Promise<T> {
+  let response: Response
+  try {
+    response = await fetch(`${rustApiBaseUrl()}${path}`, {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      cache: 'no-store',
+    })
+  } catch (cause) {
+    throw new RustApiError({
+      status: 503,
+      code: 'RUST_API_UNAVAILABLE',
+      message: cause instanceof Error ? cause.message : 'Rust API request failed.',
+      retryable: true,
+      correlationId,
+    })
+  }
+  const payload = (await response.json().catch(() => null)) as RustApiSuccess<T> | RustApiFailure | null
+  if (!payload) {
+    throw new RustApiError({ status: 502, code: 'RUST_API_INVALID_RESPONSE', message: 'Rust API returned a non-JSON response.', retryable: true, correlationId })
+  }
+  if (!response.ok || !payload.ok) {
+    const failure = payload as RustApiFailure
+    throw new RustApiError({
+      status: response.status,
+      code: failure.error?.code ?? 'RUST_API_FAILURE',
+      message: failure.error?.message ?? 'Rust API request failed.',
+      retryable: failure.error?.retryable ?? response.status >= 500,
+      correlationId: failure.correlationId ?? correlationId,
+      incidentId: failure.error?.incidentId ?? null,
+    })
+  }
+  return payload.value
+}
+
 function rustApiBaseUrl(): string {
   const value = resolveRustApiBaseUrl(process.env.RUST_API_BASE_URL, process.env.NODE_ENV)
   if (value) return value

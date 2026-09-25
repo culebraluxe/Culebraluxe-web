@@ -16,6 +16,7 @@
 // still compile; no break-glass provider is registered.
 
 import NextAuth from 'next-auth'
+import Credentials from 'next-auth/providers/credentials'
 import Google from 'next-auth/providers/google'
 import type { DefaultSession } from 'next-auth'
 
@@ -24,6 +25,10 @@ import { devAuthLog } from '@/lib/auth/dev-auth-log'
 // Stable provider identifiers surfaced through the session adapter.
 export const AUTH_PROVIDER_GOOGLE = 'google'
 export const AUTH_PROVIDER_BREAK_GLASS = 'break-glass'
+// EXTERNAL GUESTS of the public website may also sign in with a code emailed to them. Rust checks the code and
+// provisions the guest (security/guest.rs); the session's subject is the verified email. Guests are external
+// accounts, which the Rust policy refuses every portal grant.
+export const AUTH_PROVIDER_EMAIL_CODE = 'email-code'
 
 // JWT session expiry. Signed-out users clear the cookie via /api/auth/signout.
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7 // 7 days
@@ -65,10 +70,34 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       clientId: process.env.AUTH_GOOGLE_ID,
       clientSecret: process.env.AUTH_GOOGLE_SECRET,
     }),
+    Credentials({
+      id: AUTH_PROVIDER_EMAIL_CODE,
+      credentials: { email: {}, code: {} },
+      // Loaded lazily: the Rust client imports the session adapter, which imports this module.
+      // A refused code (4xx) is the visitor's mistake: null sends them back to /account?error=CredentialsSignin. Any
+      // other failure is captured durably and rethrown, so an outage is seen rather than shown as "wrong code".
+      async authorize(credentials) {
+        const [{ rustApiVerifyGuestCode, RustApiError }, { withServerErrorCapture }] = await Promise.all([
+          import('@/lib/rust-api/client'),
+          import('@/lib/error-capture-seam'),
+        ])
+        const verify = withServerErrorCapture('auth:email-code', async () => {
+          try {
+            return await rustApiVerifyGuestCode(String(credentials.email ?? ''), String(credentials.code ?? ''))
+          } catch (error) {
+            if (error instanceof RustApiError && error.status < 500) return null
+            throw error
+          }
+        }, { route: '/account' })
+        const verified = await verify()
+        return verified ? { id: verified.email, email: verified.email } : null
+      },
+    }),
   ],
   session: { strategy: 'jwt', maxAge: SESSION_MAX_AGE_SECONDS },
   // Custom safe error page (DEV shows a diagnostic; PROD stays generic).
-  pages: { error: '/auth/error' },
+  // A refused email code returns to the guest sign-in screen (`/account?error=...`), not Auth.js's built-in page.
+  pages: { error: '/auth/error', signIn: '/account' },
   callbacks: {
     // Minimal: stamp only the stable subject + provider. NO DB, NO authorities.
     //
@@ -78,19 +107,24 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     // crypto.randomUUID() minted per sign-in (see @auth/core oauth/callback),
     // so it is NOT stable. The provider subject is the durable identity key;
     // email is never an identity key.
-    jwt({ token, account }) {
+    jwt({ token, account, profile }) {
       const stableSubject = account?.providerAccountId
       if (stableSubject) {
         token.sub = stableSubject
         devAuthLog('AUTH_GOOGLE_CALLBACK_RECEIVED')
         devAuthLog('AUTH_SESSION_CREATED')
       }
-      if (account?.provider) token.provider = account.provider
+      if (account?.provider) {
+        token.provider = account.provider
+        // Rust links a guest's Google and email-code sign-ins only on a VERIFIED email.
+        token.emailIsVerified = account.provider === AUTH_PROVIDER_EMAIL_CODE || profile?.email_verified === true
+      }
       return token
     },
     session({ session, token }) {
       session.user.sub = (token.sub as string | undefined) ?? null
       session.user.provider = (token.provider as string | undefined) ?? null
+      session.user.emailIsVerified = token.emailIsVerified === true
       return session
     },
   },
@@ -101,6 +135,7 @@ declare module 'next-auth' {
     user: {
       sub: string | null
       provider: string | null
+      emailIsVerified: boolean
     } & DefaultSession['user']
   }
 }

@@ -5,6 +5,7 @@
 //! page. The chrome lives here too, because the header and footer belong to every one of them.
 
 pub mod about;
+pub mod account;
 pub mod buyers;
 pub mod chrome;
 pub mod contact;

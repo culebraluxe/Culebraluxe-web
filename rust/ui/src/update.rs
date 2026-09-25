@@ -165,7 +165,11 @@ fn ops_media_title(model: &Model) -> String {
     else {
         return String::new();
     };
-    let stem: String = property.name.chars().filter(|c| !c.is_whitespace()).collect();
+    let stem: String = property
+        .name
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
     if stem.is_empty() {
         return String::new();
     }
@@ -761,6 +765,13 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
 
     // Local screens own deterministic browser-only state and do not ask the server for a payload.
     // Seller Strategy resets its calculator model; UI Lab owns its comparison/demo model inside its Yew component.
+    // The guest sign-in screen has no page payload: it asks who is signed in, and renders its forms from that.
+    if screen.key == "site-account" {
+        model.loading = false;
+        model.guest = crate::model::GuestState::default();
+        return vec![Effect::GuestRead];
+    }
+
     if matches!(screen.key, "seller-strategy" | "design-lab") {
         if screen.key == "seller-strategy" {
             model.seller_strategy = crate::seller_strategy::SellerStrategyState::default();
@@ -1868,6 +1879,40 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             }
             Vec::new()
         }
+        Msg::GuestLoaded {
+            session,
+            csrf_token,
+        } => {
+            if model.screen.key == "site-account" {
+                model.guest.session = session;
+                model.guest.csrf_token = csrf_token;
+            }
+            Vec::new()
+        }
+        Msg::GuestCodeRequested(email) => {
+            let email = email.trim().to_string();
+            if model.screen.key != "site-account" || model.guest.sending || email.is_empty() {
+                return Vec::new();
+            }
+            model.guest.sending = true;
+            model.guest.message = None;
+            vec![Effect::GuestRequestCode { email }]
+        }
+        Msg::GuestCodeResult(result) => {
+            if model.screen.key == "site-account" && model.guest.sending {
+                model.guest.sending = false;
+                match result {
+                    Ok(email) => model.guest.code_sent_to = Some(email),
+                    Err(message) => model.guest.message = Some(message),
+                }
+            }
+            Vec::new()
+        }
+        Msg::GuestCodeReset => {
+            model.guest.code_sent_to = None;
+            model.guest.message = None;
+            Vec::new()
+        }
         Msg::BuyerToolsLoaded { compare, searches } => {
             let listings = model
                 .page
@@ -2289,7 +2334,11 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 // ONE BUTTON: choosing IS uploading. Everything the second button used to ask for is either a sane
                 // default (gallery) or derived (the title), so there is nothing left to decide before the file goes.
                 model.ops.media_role = "gallery".into();
-                model.ops.media_alt = if chosen { ops_media_title(model) } else { String::new() };
+                model.ops.media_alt = if chosen {
+                    ops_media_title(model)
+                } else {
+                    String::new()
+                };
                 model.error = None;
                 if chosen {
                     return ops_media_start_upload(model);
@@ -4751,6 +4800,74 @@ mod tests {
         assert!(
             matches!(update(&mut model, Msg::SavedSearchRemoved("ss-1".into())).as_slice(), [Effect::SavedSearchesWrite(v)] if v.is_empty())
         );
+    }
+
+    #[test]
+    fn the_account_screen_asks_who_is_signed_in_and_sends_one_code_at_a_time() {
+        use crate::model::GuestSession;
+        let mut model = Model::default();
+        assert_eq!(
+            update(&mut model, Msg::Navigate(target("site-account"))),
+            vec![Effect::GuestRead]
+        );
+        assert!(!model.loading, "no page payload to wait for");
+
+        update(
+            &mut model,
+            Msg::GuestLoaded {
+                session: GuestSession::SignedOut,
+                csrf_token: Some("token".into()),
+            },
+        );
+        assert_eq!(model.guest.csrf_token.as_deref(), Some("token"));
+
+        let sent = update(
+            &mut model,
+            Msg::GuestCodeRequested(" ada@example.com ".into()),
+        );
+        assert_eq!(
+            sent,
+            vec![Effect::GuestRequestCode {
+                email: "ada@example.com".into()
+            }]
+        );
+        assert!(
+            update(
+                &mut model,
+                Msg::GuestCodeRequested("ada@example.com".into())
+            )
+            .is_empty(),
+            "one request at a time"
+        );
+
+        update(
+            &mut model,
+            Msg::GuestCodeResult(Err("Too many codes".into())),
+        );
+        assert_eq!(model.guest.message.as_deref(), Some("Too many codes"));
+        assert_eq!(model.guest.code_sent_to, None);
+
+        update(
+            &mut model,
+            Msg::GuestCodeRequested("ada@example.com".into()),
+        );
+        update(
+            &mut model,
+            Msg::GuestCodeResult(Ok("ada@example.com".into())),
+        );
+        assert_eq!(model.guest.code_sent_to.as_deref(), Some("ada@example.com"));
+        assert_eq!(model.guest.message, None);
+
+        update(&mut model, Msg::GuestCodeReset);
+        assert_eq!(model.guest.code_sent_to, None);
+
+        // Elsewhere, the guest messages do nothing.
+        update(&mut model, Msg::Navigate(target("site-home")));
+        assert!(update(
+            &mut model,
+            Msg::GuestCodeRequested("ada@example.com".into())
+        )
+        .is_empty());
     }
 
     #[test]
