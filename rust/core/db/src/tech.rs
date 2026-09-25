@@ -280,6 +280,22 @@ impl TechCockpitDao {
         Ok(())
     }
 
+    pub async fn story_location(&self, story_id: &str) -> DbResult<Option<(String, bool)>> {
+        sqlx::query_as::<_, (String, bool)>(
+            r#"
+            select s.status,
+                   exists(select 1 from storyboard_active_work aw where aw.story_id=s.id) as active
+              from storyboard_story s
+             where s.id=$1
+             limit 1
+            "#,
+        )
+        .bind(story_id)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|e| DbFailure::from_sqlx("tech.story_location", &e))
+    }
+
     pub async fn story_status(&self, story_id: &str, status: &str) -> DbResult<()> {
         sqlx::query("update storyboard_story set status=$2, completion=case when $2='Complete' then 100 else completion end, updated_at=now() where id=$1")
             .bind(story_id).bind(status).execute(self.db.pool()).await
@@ -304,13 +320,16 @@ impl TechCockpitDao {
         &self,
         story_id: &str,
         stop_after: Option<&str>,
+        launch_intent: Option<&str>,
     ) -> DbResult<u64> {
         let result = sqlx::query(
-            r#"update agent_work_item set stop_after=$2,launch_intent=null,updated_at=now()
-          where story_id=$1 and state='Ready'"#,
+            r#"update agent_work_item
+                  set stop_after=$2,launch_intent=$3,updated_at=now()
+                where story_id=$1 and state='Ready'"#,
         )
         .bind(story_id)
         .bind(stop_after)
+        .bind(launch_intent)
         .execute(self.db.pool())
         .await
         .map_err(|e| DbFailure::from_sqlx("tech.set_dispatch_options", &e))?;
@@ -345,6 +364,45 @@ impl TechCockpitDao {
           .bind(actor).fetch_one(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.create_batch",&e))
     }
 
+    pub async fn stage_story_for_batch(
+        &self,
+        story_id: &str,
+        actor: &str,
+    ) -> DbResult<(String, i64)> {
+        let batch = self.ensure_staging_batch(actor).await?;
+        sqlx::query(
+            r#"
+            insert into forge_batch_item(batch_id,story_id,state)
+            values($1::uuid,$2,'Staged')
+            on conflict(batch_id,story_id) do nothing
+            "#,
+        )
+        .bind(&batch)
+        .bind(story_id)
+        .execute(self.db.pool())
+        .await
+        .map_err(|e| DbFailure::from_sqlx("tech.stage_story", &e))?;
+        let members = sqlx::query_scalar::<_, i64>(
+            "select count(*) from forge_batch_item where batch_id=$1::uuid and state='Staged'",
+        )
+        .bind(&batch)
+        .fetch_one(self.db.pool())
+        .await
+        .map_err(|e| DbFailure::from_sqlx("tech.stage_story.count", &e))?;
+        Ok((batch, members))
+    }
+
+    pub async fn unstage_story_from_batch(&self, story_id: &str) -> DbResult<u64> {
+        let result = sqlx::query(
+            "delete from forge_batch_item where story_id=$1 and state='Staged'",
+        )
+        .bind(story_id)
+        .execute(self.db.pool())
+        .await
+        .map_err(|e| DbFailure::from_sqlx("tech.unstage_story", &e))?;
+        Ok(result.rows_affected())
+    }
+
     async fn backfill_batch(&self, batch: &str) -> DbResult<()> {
         sqlx::query(r#"insert into forge_batch_item(batch_id,story_id,state)
           select $1::uuid,s.id,'Staged' from storyboard_story s where s.status='Batched'
@@ -353,22 +411,38 @@ impl TechCockpitDao {
         Ok(())
     }
 
-    pub async fn schedule_flight(&self, when: &str, actor: &str) -> DbResult<i64> {
+    pub async fn schedule_flight(
+        &self,
+        when: &str,
+        actor: &str,
+        label: Option<&str>,
+    ) -> DbResult<(String, i64)> {
         let batch = self.ensure_staging_batch(actor).await?;
         self.backfill_batch(&batch).await?;
-        sqlx::query("update forge_batch set status='Scheduled',scheduled_for=$2::timestamptz,label=$3 where id=$1::uuid")
-          .bind(&batch).bind(when).bind(format!("night run {}",when.chars().take(16).collect::<String>()))
-          .execute(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.schedule_flight",&e))?;
-        sqlx::query_scalar::<_, i64>(
+        let label = label
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("night run {}", when.chars().take(16).collect::<String>()));
+        sqlx::query(
+            "update forge_batch set status='Scheduled',scheduled_for=$2::timestamptz,label=$3 where id=$1::uuid",
+        )
+        .bind(&batch)
+        .bind(when)
+        .bind(label)
+        .execute(self.db.pool())
+        .await
+        .map_err(|e| DbFailure::from_sqlx("tech.schedule_flight", &e))?;
+        let count = sqlx::query_scalar::<_, i64>(
             "select count(*) from forge_batch_item where batch_id=$1::uuid",
         )
-        .bind(batch)
+        .bind(&batch)
         .fetch_one(self.db.pool())
         .await
-        .map_err(|e| DbFailure::from_sqlx("tech.schedule_count", &e))
+        .map_err(|e| DbFailure::from_sqlx("tech.schedule_count", &e))?;
+        Ok((batch, count))
     }
 
-    pub async fn launch_flight(&self, actor: &str) -> DbResult<Option<(i64, i64)>> {
+    pub async fn launch_flight(&self, actor: &str) -> DbResult<Option<(String, i64, i64)>> {
         let staged = self.staged_story_ids().await?;
         if staged.is_empty() {
             return Ok(None);
@@ -397,6 +471,6 @@ impl TechCockpitDao {
         }
         sqlx::query("update forge_batch set status='Fired',fired_at=now() where id=$1::uuid and status<>'Fired'")
           .bind(batch).execute(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.fire_batch",&e))?;
-        Ok(Some((queued, stamped)))
+        Ok(Some((batch, queued, stamped)))
     }
 }
