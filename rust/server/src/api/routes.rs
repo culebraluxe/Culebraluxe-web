@@ -172,7 +172,6 @@ struct TechCockpitQuery {
     selected: Option<String>,
 }
 
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AppDiagnosticEventBody {
@@ -185,7 +184,6 @@ struct AppDiagnosticEventBody {
     #[serde(default)]
     meta: serde_json::Value,
 }
-
 
 #[derive(Debug, Deserialize)]
 struct WhatsAppHandshakeQuery {
@@ -598,10 +596,7 @@ async fn whatsapp_webhook(
         .await
         .map_err(|error| {
             if error == "WHATSAPP_SIGNATURE_INVALID" {
-                ApiError::unauthorized(
-                    "WHATSAPP_SIGNATURE_INVALID",
-                    "Invalid WhatsApp signature.",
-                )
+                ApiError::unauthorized("WHATSAPP_SIGNATURE_INVALID", "Invalid WhatsApp signature.")
             } else if error == "WHATSAPP_PAYLOAD_INVALID" {
                 ApiError::new(
                     StatusCode::BAD_REQUEST,
