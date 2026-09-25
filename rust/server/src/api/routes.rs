@@ -177,6 +177,28 @@ struct IssuesQuery {
     page_size: Option<i64>,
 }
 
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RelationshipReviewQuery {
+    review_state: Option<String>,
+    search: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RelationshipActionBody {
+    action: String,
+    id: Option<String>,
+    person_id: Option<String>,
+    confirm: Option<bool>,
+    source: Option<String>,
+    review_state: Option<String>,
+    limit: Option<i64>,
+}
+
 #[derive(Debug, Deserialize)]
 struct TechCockpitQuery {
     selected: Option<String>,
@@ -965,6 +987,14 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/comms/{person_id}/timeline", get(comms_timeline))
         .route("/v1/activity", get(activity))
         .route("/v1/issues", get(issues))
+        .route(
+            "/v1/relationship-evidence/review",
+            get(relationship_evidence_review),
+        )
+        .route(
+            "/v1/relationship-evidence/actions",
+            post(relationship_evidence_action),
+        )
         // Accounting V1: the two canonical tables, read as lists and as the projections over them, plus the three
         // commands. The P&L takes its period from the query string — the range is the caller's, and a route that invented
         // one would be the reason a filter could not be honoured.
@@ -2886,6 +2916,167 @@ async fn issues(
         )
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn relationship_evidence_review(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Query(query): Query<RelationshipReviewQuery>,
+) -> Result<Json<ApiSuccess<domain::RelationshipEvidenceReview>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let value = state
+        .services()
+        .relationship_evidence()
+        .review(
+            query.review_state.as_deref().unwrap_or("all"),
+            query.search.as_deref().unwrap_or(""),
+            query.limit.unwrap_or(50),
+            query.offset.unwrap_or(0),
+            &resolved.service,
+        )
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn relationship_evidence_action(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<RelationshipActionBody>,
+) -> Result<Json<ApiSuccess<serde_json::Value>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().relationship_evidence();
+
+    let value = match body.action.as_str() {
+        "inspect" => {
+            let id = body.id.as_deref().ok_or_else(|| {
+                correlate(
+                    ApiError::new(
+                        StatusCode::BAD_REQUEST,
+                        "RELATIONSHIP_ID_REQUIRED",
+                        "id is required.",
+                        false,
+                    ),
+                    &resolved,
+                )
+            })?;
+            let row = service
+                .inspect(id, &resolved.service)
+                .await
+                .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+            json!({ "ok": true, "row": row })
+        }
+        "classify_automated" | "classify_service" => {
+            let id = body.id.as_deref().ok_or_else(|| {
+                correlate(
+                    ApiError::new(
+                        StatusCode::BAD_REQUEST,
+                        "RELATIONSHIP_ID_REQUIRED",
+                        "id is required.",
+                        false,
+                    ),
+                    &resolved,
+                )
+            })?;
+            let result = service
+                .classify_and_rerun(
+                    id,
+                    body.action == "classify_automated",
+                    body.action == "classify_service",
+                    &resolved.service,
+                )
+                .await
+                .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+            json!({
+                "ok": true,
+                "tally": result.tally,
+                "canonicalLinked": result.canonical_linked,
+                "row": result.rows.first(),
+            })
+        }
+        "link" => {
+            let id = body.id.as_deref().ok_or_else(|| {
+                correlate(
+                    ApiError::new(
+                        StatusCode::BAD_REQUEST,
+                        "RELATIONSHIP_ID_REQUIRED",
+                        "id is required.",
+                        false,
+                    ),
+                    &resolved,
+                )
+            })?;
+            let person_id = body.person_id.as_deref().ok_or_else(|| {
+                correlate(
+                    ApiError::new(
+                        StatusCode::BAD_REQUEST,
+                        "PERSON_ID_REQUIRED",
+                        "personId is required.",
+                        false,
+                    ),
+                    &resolved,
+                )
+            })?;
+            let row = service
+                .link(
+                    id,
+                    person_id,
+                    body.confirm.unwrap_or(false),
+                    &resolved.service,
+                )
+                .await
+                .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+            json!({ "ok": true, "row": row })
+        }
+        "reject" => {
+            let id = body.id.as_deref().ok_or_else(|| {
+                correlate(
+                    ApiError::new(
+                        StatusCode::BAD_REQUEST,
+                        "RELATIONSHIP_ID_REQUIRED",
+                        "id is required.",
+                        false,
+                    ),
+                    &resolved,
+                )
+            })?;
+            let row = service
+                .reject(id, body.confirm.unwrap_or(false), &resolved.service)
+                .await
+                .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+            json!({ "ok": true, "row": row })
+        }
+        "rerun" => {
+            let result = service
+                .rerun(
+                    body.source.as_deref(),
+                    body.review_state.as_deref(),
+                    body.limit.unwrap_or(200),
+                    &resolved.service,
+                )
+                .await
+                .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+            json!({
+                "ok": true,
+                "rows": result.rows,
+                "tally": result.tally,
+                "canonicalLinked": result.canonical_linked,
+            })
+        }
+        _ => {
+            return Err(correlate(
+                ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    "RELATIONSHIP_ACTION_INVALID",
+                    format!("Unknown action: {}", body.action),
+                    false,
+                ),
+                &resolved,
+            ));
+        }
+    };
+
     Ok(success(value, &resolved))
 }
 
