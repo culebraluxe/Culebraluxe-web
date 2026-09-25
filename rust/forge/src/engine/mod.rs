@@ -69,6 +69,7 @@ pub mod verification;
 pub mod version_policy;
 pub mod workspace_id;
 pub mod worktree;
+pub mod worker;
 pub mod writer;
 pub mod xml;
 
