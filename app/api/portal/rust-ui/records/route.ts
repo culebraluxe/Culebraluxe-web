@@ -1,84 +1,103 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import {
-  archivePropertyAction,
-  restorePropertyAction,
-} from '@/app/portal/actions'
 import { withApiHandler } from '@/lib/error-capture-seam'
-import { guardPortalRoute } from '@/lib/auth/portal-session'
-import { getPropertyAdmin, type PropertyAdminRow } from '@/legacy/db/property-admin'
+import { rustApiRead, rustApiUpdatePropertyAdmin } from '@/lib/rust-api/client'
 
 const PAGE_SIZE = 50
 
-function money(amount: number | null): string | null {
-  if (amount == null) return null
+type PropertySummary = {
+  id: string
+  name: string
+  status: string
+  location: string | null
+  listPrice: string | null
+  slug?: string | null
+  archived: boolean
+  imageCount: number
+  videoCount: number
+}
+
+type PropertyPage = {
+  rows: PropertySummary[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+type PropertyAdminRecord = PropertySummary & Record<string, unknown>
+
+function money(amount: string | null): string | null {
+  if (amount == null || amount.trim() === '') return null
+  const numeric = Number(amount)
+  if (!Number.isFinite(numeric)) return amount
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
     maximumFractionDigits: 0,
-  }).format(amount)
+  }).format(numeric)
 }
 
-function mapRow(row: PropertyAdminRow) {
+function mapRow(row: PropertySummary) {
   return {
     id: row.id,
     name: row.name,
     status: row.status,
     location: row.location ?? '',
     listPrice: money(row.listPrice),
-    slug: row.slug,
+    slug: row.slug ?? null,
     archived: row.archived,
     imageCount: row.imageCount,
     videoCount: row.videoCount,
   }
 }
 
-function pagePayload(req: NextRequest, rows: PropertyAdminRow[]) {
-  const search = req.nextUrl.searchParams.get('search')?.trim().toLowerCase() ?? ''
-  const pageIndex = Math.max(0, Number.parseInt(req.nextUrl.searchParams.get('page') ?? '0', 10) || 0)
+async function pagePayload(req: NextRequest) {
+  const search = req.nextUrl.searchParams.get('search')?.trim() ?? ''
+  const pageIndex = Math.max(
+    0,
+    Number.parseInt(req.nextUrl.searchParams.get('page') ?? '0', 10) || 0,
+  )
   const selected = req.nextUrl.searchParams.get('selected')?.trim() || null
-  const filtered = search
-    ? rows.filter((row) =>
-        [row.name, row.location, row.slug, row.status]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase()
-          .includes(search),
-      )
-    : rows
-  const total = filtered.length
-  const pageRows = filtered.slice(pageIndex * PAGE_SIZE, pageIndex * PAGE_SIZE + PAGE_SIZE)
-  const selectedId =
-    (selected && pageRows.some((row) => row.id === selected) ? selected : null) ??
-    pageRows[0]?.id ??
-    null
-  const selectedRow = rows.find((row) => row.id === selectedId) ?? null
+  const params = new URLSearchParams({
+    search,
+    page: String(pageIndex + 1),
+    pageSize: String(PAGE_SIZE),
+  })
+  const page = await rustApiRead<PropertyPage>(
+    ('/v1/properties/admin?' + params.toString()) as `/v1/${string}`,
+  )
+  const selectedId = selected ?? page.value.rows[0]?.id ?? null
+  let selectedRow =
+    page.value.rows.find((row) => row.id === selectedId) ?? null
+  if (selectedId && !selectedRow) {
+    try {
+      selectedRow = (
+        await rustApiRead<PropertyAdminRecord>(
+          (`/v1/properties/${encodeURIComponent(selectedId)}/admin`) as `/v1/${string}`,
+        )
+      ).value
+    } catch {
+      selectedRow = null
+    }
+  }
+
   return {
     records: {
-      rows: pageRows.map(mapRow),
-      total,
-      page: pageIndex + 1,
-      pageSize: PAGE_SIZE,
-      selectedId,
+      rows: page.value.rows.map(mapRow),
+      total: page.value.total,
+      page: page.value.page,
+      pageSize: page.value.pageSize,
+      selectedId: selectedRow?.id ?? page.value.rows[0]?.id ?? null,
       selected: selectedRow ? mapRow(selectedRow) : null,
     },
   }
 }
 
 async function GETHandler(req: NextRequest): Promise<Response> {
-  const guard = await guardPortalRoute('portal.read')
-  if (!guard.ok) {
-    return NextResponse.json({ error: guard.error }, { status: guard.status })
-  }
-  const rows = await getPropertyAdmin()
-  return NextResponse.json(pagePayload(req, rows))
+  return NextResponse.json(await pagePayload(req))
 }
 
 async function POSTHandler(req: NextRequest): Promise<Response> {
-  const guard = await guardPortalRoute('listing.write')
-  if (!guard.ok) {
-    return NextResponse.json({ error: guard.error }, { status: guard.status })
-  }
   const body = (await req.json().catch(() => null)) as {
     action?: string
     propertyId?: string
@@ -86,20 +105,23 @@ async function POSTHandler(req: NextRequest): Promise<Response> {
   const action = body?.action
   const propertyId = body?.propertyId?.trim()
   if (!propertyId || (action !== 'archive' && action !== 'restore')) {
-    return NextResponse.json({ error: 'action and propertyId are required.' }, { status: 400 })
+    return NextResponse.json(
+      { error: 'action and propertyId are required.' },
+      { status: 400 },
+    )
   }
-  const result =
-    action === 'archive'
-      ? await archivePropertyAction(propertyId)
-      : await restorePropertyAction(propertyId)
-  if (!result.ok) {
-    return NextResponse.json({ error: result.message }, { status: 400 })
-  }
-  const rows = await getPropertyAdmin()
+
+  const current = await rustApiRead<PropertyAdminRecord>(
+    (`/v1/properties/${encodeURIComponent(propertyId)}/admin`) as `/v1/${string}`,
+  )
+  await rustApiUpdatePropertyAdmin<PropertyAdminRecord>(propertyId, {
+    ...current.value,
+    archived: action === 'archive',
+  })
+
   const url = new URL(req.url)
   url.searchParams.set('selected', propertyId)
-  const refresh = new NextRequest(url, req)
-  return NextResponse.json(pagePayload(refresh, rows))
+  return NextResponse.json(await pagePayload(new NextRequest(url, req)))
 }
 
 export const GET = withApiHandler(
