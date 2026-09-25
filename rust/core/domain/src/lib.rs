@@ -15,6 +15,7 @@ pub mod forms;
 pub mod guide;
 pub mod intake;
 pub mod issue;
+pub mod marketing;
 pub mod media;
 pub mod person;
 pub mod project;
@@ -92,6 +93,7 @@ pub use flight_recorder::*;
 pub use guide::GuideItem;
 pub use intake::{CatchupLeadRequest, CatchupLeadResult, WebsiteIntakeRequest, WebsiteIntakeResult};
 pub use issue::{IssueQueueRow, IssuesPage};
+pub use marketing::{MarketingContentBlock, MarketingContentItem};
 
 pub use forms::{
     BindFormInstanceToDirectContextRequest, BindFormInstanceToShowingRequest,
