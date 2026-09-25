@@ -48,10 +48,10 @@ pub fn recover_stale_agent_work(stale_after_minutes: i64) -> Result<u64, String>
             for row in rows {
                 let id: String = row.try_get(0).map_err(|e| e.to_string())?;
                 let story: String = row.try_get(1).map_err(|e| e.to_string())?;
-                let role: Option<String> = row.try_get(2).ok();
+                let role: Option<String> = row.try_get::<Option<String>, _>(2).map_err(|e| e.to_string())?;
                 let attempts: i32 = row.try_get(3).unwrap_or(0);
                 let max_attempts: i32 = row.try_get(4).unwrap_or(3);
-                let run_id: Option<String> = row.try_get(5).ok();
+                let run_id: Option<String> = row.try_get::<Option<String>, _>(5).map_err(|e| e.to_string())?;
                 let updated_at: String = row.try_get(6).unwrap_or_else(|_| "unknown".into());
                 let reason = format!("stale worker: no heartbeat since {updated_at}; process/host presumed terminated");
                 let hold = assay_terminal_role(role.as_deref()) || attempts >= max_attempts;
@@ -224,7 +224,7 @@ pub fn next_ready_story() -> Result<Option<WorkerDispatch>, String> {
             .map_err(|e| e.to_string())?;
             let Some(row) = row else { return Ok(None) };
             let story_id: String = row.try_get("story_id").map_err(|e| e.to_string())?;
-            let kind: Option<String> = row.try_get("kind").ok();
+            let kind: Option<String> = row.try_get::<Option<String>, _>("kind").map_err(|e| e.to_string())?;
             Ok::<Option<WorkerDispatch>, String>(Some(WorkerDispatch {
                 story_id,
                 work_type: work_type_for_kind(kind.as_deref()).into(),
