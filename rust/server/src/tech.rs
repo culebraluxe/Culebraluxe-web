@@ -16,6 +16,8 @@ pub trait TechCockpitRepository: Send {
     async fn withdraw_ready(&mut self,id:&str)->DbResult<(u64,i64)>;
     async fn staged_story_ids(&mut self)->DbResult<Vec<String>>;
     async fn cancel_batch(&mut self,id:&str)->DbResult<u64>;
+    async fn schedule_flight(&mut self,when:&str,actor:&str)->DbResult<i64>;
+    async fn launch_flight(&mut self,actor:&str)->DbResult<Option<(i64,i64)>>;
 }
 
 #[async_trait]
@@ -29,6 +31,8 @@ impl TechCockpitRepository for TechCockpitDao {
     async fn withdraw_ready(&mut self,id:&str)->DbResult<(u64,i64)>{TechCockpitDao::withdraw_ready(self,id).await}
     async fn staged_story_ids(&mut self)->DbResult<Vec<String>>{TechCockpitDao::staged_story_ids(self).await}
     async fn cancel_batch(&mut self,id:&str)->DbResult<u64>{TechCockpitDao::cancel_batch(self,id).await}
+    async fn schedule_flight(&mut self,when:&str,actor:&str)->DbResult<i64>{TechCockpitDao::schedule_flight(self,when,actor).await}
+    async fn launch_flight(&mut self,actor:&str)->DbResult<Option<(i64,i64)>>{TechCockpitDao::launch_flight(self,actor).await}
 }
 
 pub struct TechCockpitService<R> { repository: R, runtime: ServiceRuntime }
@@ -91,7 +95,19 @@ impl<R: TechCockpitRepository> TechCockpitService<R> {
                 if self.repository.cancel_batch(batch).await?==0{return Err(CoreServiceError::business("CONFLICT", "That Flight is not waiting to fire.".into()))}
                 ok("Scheduled Flight cancelled. Nothing was dispatched.".into())
               }
-              "launchFlight"|"scheduleFlight" => Err(CoreServiceError::business("VALIDATION", "Flight dispatch is owned by the Rust Forge engine and is not available through this compatibility command.".into())),
+              "launchFlight" => {
+                match self.repository.launch_flight(actor).await? {
+                  None=>ok("Nothing is staged in the current Flight.".into()),
+                  Some((queued,stamped))=>ok(format!("Flight launched: {queued} stories queued for Forge; {stamped} routing stamps applied."))
+                }
+              }
+              "scheduleFlight" => {
+                let when=request.scheduled_for.as_deref().unwrap_or("").trim();
+                if when.is_empty(){return Err(CoreServiceError::business("VALIDATION","The Flight time could not be read."))}
+                if self.repository.staged_story_ids().await?.is_empty(){return Err(CoreServiceError::business("VALIDATION","Nothing is staged in the current Flight."))}
+                let count=self.repository.schedule_flight(when,actor).await?;
+                ok(format!("Scheduled {count} stories for {when}."))
+              }
               other=>Err(CoreServiceError::business("VALIDATION", format!("Unknown TECH Cockpit command: {other}")))
             }
         }.await;
