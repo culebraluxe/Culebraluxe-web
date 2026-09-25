@@ -772,10 +772,28 @@ export async function getPropertyBySlug(
 
     from property p
 
-    where p.slug = ${slug}
+    -- THE URL IS A KEY, NOT A PRECONDITION.
+    --
+    -- This matched 'p.slug = key' and nothing else, so a Property was only reachable at the address someone
+    -- remembered to give it, and any other spelling of the same Property 404'd. A report does not require you to
+    -- invent an identifier before it can show you the row: the identifier IS the row. So the key is resolved against
+    -- everything a person might reasonably type or link —
+    --
+    --   /properties/casa-luar    the slug
+    --   /properties/Casa Luar    the name, any case
+    --   /properties/casa luar    the name with spaces
+    --   /properties/<uuid>       the id, for anything that stores it
+    --
+    -- Dashes and spaces are the same separator to a person reading a URL, which is why the third form is compared
+    -- with its dashes turned back into spaces.
+    where (
+        p.slug = ${slug}
+        or lower(p.name) = lower(${slug})
+        or lower(replace(${slug}, '-', ' ')) = lower(p.name)
+        or p.id::text = ${slug}
+      )
       and p.archived_at is null
       and p.status in ('active', 'under_contract', 'sold')
-      and p.is_active_listing = true
 
     limit 1
   `
