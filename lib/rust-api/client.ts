@@ -257,7 +257,8 @@ export async function rustApiNotifyWebsiteLead(submissionId: string): Promise<Ru
 
 export async function rustApiTechCockpit(selected?: string | null): Promise<any> {
   const suffix = selected ? '?selected=' + encodeURIComponent(selected) : ''
-  return (await rustApiRead<any>('/v1/tech/cockpit' + suffix)).value
+  const path = `/v1/tech/cockpit${suffix}` as `/v1/${string}`
+  return (await rustApiRead<any>(path)).value
 }
 
 export async function rustApiTechCommand(body: Record<string, unknown>): Promise<any> {
