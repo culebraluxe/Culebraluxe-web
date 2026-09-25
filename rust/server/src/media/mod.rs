@@ -13,6 +13,13 @@ use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRunti
 
 #[async_trait]
 pub trait MediaRepository: Send {
+    async fn media_bytes(&mut self, id: &str) -> DbResult<Option<(String, Vec<u8>)>>;
+    async fn upload_standalone(
+        &mut self,
+        filename: &str,
+        mime_type: &str,
+        bytes: &[u8],
+    ) -> DbResult<(String, String, String, i64)>;
     async fn for_property(&mut self, property_id: &str) -> DbResult<Vec<MediaAsset>>;
     async fn upload_property_media(
         &mut self,
@@ -44,6 +51,20 @@ pub trait MediaRepository: Send {
 
 #[async_trait]
 impl MediaRepository for MediaDao {
+    async fn media_bytes(&mut self, id: &str) -> DbResult<Option<(String, Vec<u8>)>> {
+        let id = id.to_owned();
+        db::retrying_read!(MediaDao::media_bytes(self, &id))
+    }
+
+    async fn upload_standalone(
+        &mut self,
+        filename: &str,
+        mime_type: &str,
+        bytes: &[u8],
+    ) -> DbResult<(String, String, String, i64)> {
+        MediaDao::upload_standalone(self, filename, mime_type, bytes).await
+    }
+
     async fn for_property(&mut self, property_id: &str) -> DbResult<Vec<MediaAsset>> {
         MediaDao::for_property(self, property_id).await
     }
@@ -140,6 +161,52 @@ pub struct MediaService<R> {
 }
 
 impl<R: MediaRepository> MediaService<R> {
+    pub async fn media_bytes(
+        &mut self,
+        id: &str,
+        context: &ServiceContext,
+    ) -> Result<Option<(String, Vec<u8>)>, CoreServiceError> {
+        const OP: &str = "media.bytes";
+        let decision = authorize(
+            &self.runtime,
+            "media",
+            "property.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+        let result = self.repository.media_bytes(id).await.map_err(Into::into);
+        audit_result(&self.runtime, "media", OP, context, decision, &result).await?;
+        result
+    }
+
+    pub async fn upload_standalone(
+        &mut self,
+        filename: &str,
+        mime_type: &str,
+        bytes: Vec<u8>,
+        context: &ServiceContext,
+    ) -> Result<(String, String, String, i64), CoreServiceError> {
+        const OP: &str = "media.uploadStandalone";
+        let decision = authorize(
+            &self.runtime,
+            "media",
+            "listing.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+        let result = self
+            .repository
+            .upload_standalone(filename, mime_type, &bytes)
+            .await
+            .map_err(Into::into);
+        audit_result(&self.runtime, "media", OP, context, decision, &result).await?;
+        result
+    }
+
     pub fn new(repository: R, infrastructure: ServiceInfrastructure) -> Self {
         Self {
             repository,
