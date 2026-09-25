@@ -174,6 +174,20 @@ struct TechCockpitQuery {
 
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AppDiagnosticEventBody {
+    kind: String,
+    operation: String,
+    message: String,
+    route: String,
+    level: String,
+    code: Option<String>,
+    #[serde(default)]
+    meta: serde_json::Value,
+}
+
+
+#[derive(Debug, Deserialize)]
 struct WhatsAppHandshakeQuery {
     #[serde(rename = "hub.mode")]
     mode: Option<String>,
@@ -505,6 +519,28 @@ fn bold_sign(state: &ApiState) -> Result<Arc<dyn SignatureProvider>, ApiError> {
 /// key: `resolve_request_context` demands an application principal that a webhook cannot have, and the signature
 /// check inside the service is the real gate. The context is a System actor with no principal — the same shape
 /// `context.rs` builds before it resolves an identity.
+async fn record_app_diagnostic(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<AppDiagnosticEventBody>,
+) -> Result<StatusCode, ApiError> {
+    let _context = super::context::resolve_engine_context(&state, &headers).await?;
+    let dao = db::AppErrorDao::new(state.db().clone());
+    let meta = body.meta.to_string();
+    let _ = dao
+        .record_application_event(
+            &body.kind,
+            &body.operation,
+            &body.message,
+            &body.route,
+            &body.level,
+            body.code.as_deref(),
+            &meta,
+        )
+        .await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn whatsapp_handshake(
     State(state): State<ApiState>,
     Query(query): Query<WhatsAppHandshakeQuery>,
@@ -803,6 +839,7 @@ pub fn router(state: ApiState) -> Router {
         // THE LOGIN SEAM'S QUESTION, as opposed to whoami's. Auth.js has proved a Google subject and nobody
         // knows yet whether it maps to an active application user; this answers known / unmapped / inactive.
         .route("/v1/security/identity", get(security_identity))
+        .route("/v1/diagnostics/app-error", post(record_app_diagnostic))
         .route(
             "/api/integrations/whatsapp/webhook",
             get(whatsapp_handshake).post(whatsapp_webhook),
