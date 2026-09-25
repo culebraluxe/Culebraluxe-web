@@ -578,6 +578,7 @@ export type RustPublicPropertyMedia = {
  * service resolves all of them. `null` means no such listing, which the page turns into a 404.
  */
 export type RustPublicProperty = {
+  id: string
   key: string
   name: string
   status: string
@@ -586,15 +587,36 @@ export type RustPublicProperty = {
   city: string | null
   stateOrProvince: string | null
   neighborhood: string | null
+  latitude: number | null
+  longitude: number | null
   bedrooms: number | null
   bathrooms: number | null
+  bathroomsFull: number | null
+  bathroomsHalf: number | null
   squareFeet: number | null
   lotSize: number | null
   lotSizeUnits: string | null
+  lotSizeSqft: number | null
+  roadFrontageFeet: number | null
+  roadSurfaceType: string | null
+  lotDescription: string | null
+  utilitiesNotes: string | null
   yearBuilt: number | null
+  stories: number | null
+  parkingSpaces: number | null
+  viewType: string[]
+  waterAccess: boolean
+  beachAccess: boolean
+  amenities: string[]
   architectureNotes: string | null
+  lifestyleTags: string[]
   shortDescription: string | null
   editorialDescription: string | null
+  listingAgentName: string | null
+  listingAgentEmail: string | null
+  listingAgentPhone: string | null
+  listingOffice: string | null
+  listingIdentifier: string | null
   heroMediaId: string | null
   /** Photographs, Mux videos and documents together — the surface sorts them. */
   media: RustPublicPropertyMedia[]
