@@ -58,7 +58,10 @@ export async function resolveApplicationSecurityIdentity(
       if (resolution.kind !== 'known') return resolution
       return {
         kind: 'known',
-        actingUser: resolution.actingUser,
+        actingUser: {
+          ...resolution.actingUser,
+          entitlementCodes: resolution.actingUser.entitlementCodes ?? [],
+        },
         securityLevel:
           resolution.securityLevel ??
           resolution.actingUser.securityLevel ??
