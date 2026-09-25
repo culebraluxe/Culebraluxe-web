@@ -167,6 +167,16 @@ struct ActivityQuery {
     limit: Option<i64>,
 }
 
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IssuesQuery {
+    scope: Option<String>,
+    state: Option<String>,
+    page: Option<i64>,
+    page_size: Option<i64>,
+}
+
 #[derive(Debug, Deserialize)]
 struct TechCockpitQuery {
     selected: Option<String>,
@@ -954,6 +964,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/comms/{person_id}/panel", get(comms_panel))
         .route("/v1/comms/{person_id}/timeline", get(comms_timeline))
         .route("/v1/activity", get(activity))
+        .route("/v1/issues", get(issues))
         // Accounting V1: the two canonical tables, read as lists and as the projections over them, plus the three
         // commands. The P&L takes its period from the query string — the range is the caller's, and a route that invented
         // one would be the reason a filter could not be honoured.
@@ -2857,6 +2868,27 @@ async fn activity(
 }
 
 /// The Accounting dashboard: every figure a projection over the two canonical tables.
+async fn issues(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Query(query): Query<IssuesQuery>,
+) -> Result<Json<ApiSuccess<domain::IssuesPage>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let value = state
+        .services()
+        .issues()
+        .page(
+            query.scope.as_deref().unwrap_or("OPERATIONS_EXCEPTION"),
+            query.state.as_deref().unwrap_or("OPEN"),
+            query.page.unwrap_or(1),
+            query.page_size.unwrap_or(50),
+            &resolved.service,
+        )
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
 async fn accounting_dashboard(
     State(state): State<ApiState>,
     headers: HeaderMap,
