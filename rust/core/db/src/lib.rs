@@ -57,7 +57,7 @@ pub use domain;
 pub use error::{DbFailure, DbFailureKind, DbResult};
 pub use firm::FirmDao;
 pub use forge_control::{FlightFireResult, ForgeControlDao, LearnStaleClaimRow, ReadyAgentWorkRow, StaleAgentWorkRow};
-pub use forge_engine::{ForgeAgentWorkRow, ForgeDecisionRow, ForgeEngineDao, ForgeHoldRow, ProcessDefinitionRow, StoryPacketRow};
+pub use forge_engine::{DealWorkflowFactRow, ForgeAgentWorkRow, ForgeDecisionRow, ForgeEngineDao, ForgeEvidencePatch, ForgeHoldRow, ProcessDefinitionRow, StoryPacketRow, WorkflowCommandReceiptRow};
 pub use flight_recorder::FlightRecorderDao;
 pub use forms::FormDao;
 pub use guest::{GuestDao, GUEST_CODE_MAX_ATTEMPTS};
