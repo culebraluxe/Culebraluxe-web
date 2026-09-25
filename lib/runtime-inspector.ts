@@ -12,7 +12,18 @@
 // VISUAL REPLAY ONLY — it never re-executes business logic.
 // ---------------------------------------------------------------------------
 
-import type { ProcessGraph } from '../workflow_engine/lib/workflow/types'
+export type RuntimeGraphTransition = { to: string }
+export type RuntimeGraphNode = {
+  id?: string
+  name?: string
+  description?: string
+  type?: string
+  transitions?: RuntimeGraphTransition[]
+}
+export type ProcessGraph = {
+  startNodeId: string
+  nodes: Record<string, RuntimeGraphNode>
+}
 import type { TraceEvent } from './workflow-trace'
 
 export type NodeRuntimeState =
