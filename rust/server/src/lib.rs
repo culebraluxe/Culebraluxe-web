@@ -32,6 +32,7 @@ pub mod tech;
 pub mod vault;
 pub mod wbs;
 pub mod website_leads;
+pub mod whatsapp;
 pub mod workflow_portal;
 
 pub use composition::CoreServices;
