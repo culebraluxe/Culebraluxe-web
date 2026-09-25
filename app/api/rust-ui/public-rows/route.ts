@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { getMarketingContent } from '@/legacy/db/marketing-content'
 // THE PUBLIC PROPERTY READS COME FROM RUST. The grid and the record page used to reach the TypeScript kernel for this
 // data; both go through the public service now — one door, one rule, for either surface.
-import { rustApiPublicListings, rustApiPublicProperty } from '@/lib/rust-api/client'
+import {
+  rustApiPublicListings,
+  rustApiPublicMarketingContent,
+  rustApiPublicProperty,
+} from '@/lib/rust-api/client'
 import { MARKETING_SLOTS } from '@/lib/marketing-content'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
@@ -105,12 +108,8 @@ async function recordRows(scope: string | null): Promise<RustUiRow[]> {
 }
 
 async function contentRows(slot: string | null): Promise<RustUiRow[]> {
-  const result = await getMarketingContent()
-  if (!result.ok) throw new Error(`marketing content is unavailable: ${result.error.kind}`)
-  // The block's own `id` is the slot key (`home.hero`, `home.services.buyers`, …) — that is how the live pages address
-  // their copy. ASSUMPTION, stated rather than hidden: if a block id is not the slot string, this returns nothing and
-  // the screen says there is nothing to show, instead of showing another page's words.
-  const blocks = slot ? result.data.filter((block) => block.id === slot) : result.data
+  const content = await rustApiPublicMarketingContent()
+  const blocks = slot ? content.filter((block) => block.id === slot) : content
   return blocks.flatMap((block) => [
     { id: `${block.id}:title`, cells: [block.eyebrow ?? '—', block.title ?? '(untitled)'], badge: block.kind },
     ...(block.subtitle ? [{ id: `${block.id}:subtitle`, cells: ['Subtitle', block.subtitle] }] : []),
