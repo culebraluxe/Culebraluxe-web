@@ -3,7 +3,8 @@
 use forge::engine::re_runtime::{
     complete_engine_task, complete_workflow_task, reclaim_stale_jobs,
     reclaim_stale_jobs_for_instance, reconcile_closing_timer, reconcile_deadline_timer,
-    start_residential_transaction,
+    reconcile_residential_transactions, reset_dev_workflows, run_due_jobs,
+    start_residential_transaction, workflow_status,
 };
 use std::env;
 
@@ -56,6 +57,36 @@ fn main() {
             let id = flag(&args, "--instance").expect("--instance");
             reclaim_stale_jobs_for_instance(&id).map(|n| format!("reclaimed={n}"))
         }
+        "status" => workflow_status().map(|s| {
+            format!(
+                "workflow status (Rust):\n  definitions: {}\n  instances: {} ({} active, {} completed, {} failed)\n  engine tasks ready: {}\n  pending jobs: {}\n  pending receipts: {}",
+                s.definition_count, s.instance_total, s.instance_active, s.instance_completed,
+                s.instance_failed, s.ready_engine_tasks, s.pending_jobs, s.pending_receipts
+            )
+        }),
+        "reconcile" => reconcile_residential_transactions()
+            .map(|n| format!("reconcile pass:\n  started instances: {n}")),
+        "poll" => {
+            let worker = flag(&args, "--worker").unwrap_or_else(|| "workflow-cli".into());
+            let batch = flag(&args, "--batch").and_then(|s| s.parse().ok()).unwrap_or(10);
+            run_due_jobs(&worker, batch).map(|r| {
+                format!(
+                    "poll pass (worker {worker}, batch {batch}):\n  reclaimed stale leases: {}\n  claimed jobs: {}\n  fired timers: {}\n  completed jobs: {}\n  failed jobs: {}",
+                    r.reclaimed, r.claimed.len(), r.fired, r.completed, r.failed
+                )
+            })
+        }
+        "reset-dev" => {
+            if !args.iter().any(|a| a == "--yes") {
+                Err(workflow::WorkflowError::generic("reset-dev is destructive; pass --yes"))
+            } else {
+                reset_dev_workflows().map(|rows| {
+                    let mut out = String::from("DEV workflow reset complete:");
+                    for (table, n) in rows { out.push_str(&format!("\n  {table}: {n} row(s) deleted")); }
+                    out
+                })
+            }
+        }
         _ => {
             eprintln!("usage: re-workflow start-deal --id <dealId>");
             eprintln!("       re-workflow start-contract --id <contractId>");
@@ -66,6 +97,10 @@ fn main() {
             eprintln!("       re-workflow complete-engine-task --task <id> [--user id]");
             eprintln!("       re-workflow reclaim [--batch N]");
             eprintln!("       re-workflow reclaim-instance --instance <id>");
+            eprintln!("       re-workflow status");
+            eprintln!("       re-workflow reconcile");
+            eprintln!("       re-workflow poll [--worker id] [--batch N]");
+            eprintln!("       re-workflow reset-dev --yes");
             std::process::exit(2);
         }
     };
