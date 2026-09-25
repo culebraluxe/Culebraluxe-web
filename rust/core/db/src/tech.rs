@@ -188,9 +188,9 @@ impl TechCockpitDao {
 
     pub async fn set_active_work(&self, story_id: &str, active: bool, actor_id: &str) -> DbResult<()> {
         if active {
-            sqlx::query(r#"insert into storyboard_active_work(story_id,work_order,added_by,added_at)
-                values($1,coalesce((select max(work_order)+1 from storyboard_active_work),1),$2,now())
-                on conflict(story_id) do update set added_by=excluded.added_by,added_at=excluded.added_at"#)
+            sqlx::query(r#"insert into storyboard_active_work(story_id,work_order,selected_at,selected_by_app_user_id)
+                values($1,coalesce((select max(work_order)+1 from storyboard_active_work),1),now(),$2)
+                on conflict(story_id) do nothing"#)
                 .bind(story_id).bind(actor_id).execute(self.db.pool()).await
                 .map_err(|e|DbFailure::from_sqlx("tech.set_active_work",&e))?;
         } else {
@@ -201,7 +201,7 @@ impl TechCockpitDao {
     }
 
     pub async fn story_status(&self, story_id: &str, status: &str) -> DbResult<()> {
-        sqlx::query("update storyboard_story set status=$2,updated_at=now() where id=$1")
+        sqlx::query("update storyboard_story set status=$2, completion=case when $2='Complete' then 100 else completion end, updated_at=now() where id=$1")
             .bind(story_id).bind(status).execute(self.db.pool()).await
             .map_err(|e|DbFailure::from_sqlx("tech.story_status",&e))?;
         Ok(())
