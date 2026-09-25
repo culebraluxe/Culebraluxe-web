@@ -106,7 +106,7 @@ export async function authenticateBreakGlass(
       appUserId: principal.actingUser.appUserId,
       displayName: principal.actingUser.displayName,
       email: principal.actingUser.email,
-      accountType: principal.actingUser.accountType,
+      accountType: 'internal',
       roleCodes: principal.actingUser.roleCodes,
       authorityCodes: principal.actingUser.authorityCodes,
       entitlementCodes: principal.actingUser.entitlementCodes,
