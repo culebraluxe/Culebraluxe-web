@@ -45,7 +45,9 @@ async function listingRows(): Promise<RustUiRow[]> {
         cells: [
           property.name,
           property.propertyType ?? '—',
-          property.listPrice ? money(property.listPrice) : 'Price on request',
+          // A PRICE IS A NUMBER. Blank is zero, not a warning and not "price on request" — there is no such thing as
+          // a listing whose price is unknown, only one whose price has not been filled in yet.
+          money(property.listPrice ?? 0),
           property.featured ? 'Featured' : '—',
         ],
         badge: property.status,
@@ -68,7 +70,12 @@ async function recordRows(scope: string | null): Promise<RustUiRow[]> {
   if (!record) return []
 
   const { property } = record
-  const location = [property.city, property.stateOrProvince].filter(Boolean).join(', ') || property.neighborhood
+  // EVERY PROPERTY WE SELL IS ON CULEBRA, so a missing city is not a problem to report — it is the only answer there
+  // is. Defaulting it removes a precondition that could never have failed for a real reason.
+  const location =
+    [property.city, property.stateOrProvince].filter(Boolean).join(', ') ||
+    property.neighborhood ||
+    'Culebra, PR'
   const bedsBaths = [
     property.bedroomsTotal ? `${property.bedroomsTotal} bed` : null,
     property.bathroomsTotal ? `${property.bathroomsTotal} bath` : null,

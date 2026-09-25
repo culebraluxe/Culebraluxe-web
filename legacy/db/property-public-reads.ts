@@ -808,11 +808,17 @@ export async function getPropertyBySlug(
   const row = rows[0] as PropertyRow
   const media = row.media ?? []
 
-  const hero = media.find(
-    (item) =>
-      item.media_type === "image" &&
-      item.role === "hero"
-  )
+  // THE HERO IS THE FIRST PHOTOGRAPH UNLESS ONE IS MARKED.
+  //
+  // A missing hero used to mean a page with no picture at all — a listing that looks broken for a reason nobody can
+  // see, which then gets "fixed" by a precondition nobody wants to maintain. There is always a first picture: if a
+  // hero is marked, that is the hero; if none is marked, the first image is. One rule, no precondition.
+  const hero =
+    media.find(
+      (item) =>
+        item.media_type === "image" &&
+        item.role === "hero"
+    ) ?? media.find((item) => item.media_type === "image")
 
   const galleryImages: GalleryImage[] = media
     .filter(
