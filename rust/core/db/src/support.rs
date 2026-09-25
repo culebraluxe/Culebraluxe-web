@@ -164,7 +164,7 @@ impl SupportDiagnosticsDao {
                 select 1
                 from app_user_role aur
                 join security_role r on r.id=aur.role_id
-                where aur.app_user_id=$1::uuid and r.code='owner'
+                where aur.app_user_id=$1::uuid and r.code in ('owner','root')
               ) end as owner_role_present,
               to_regclass('security_audit_event') is not null as audit_table_available
             "#,
