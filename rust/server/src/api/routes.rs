@@ -1039,6 +1039,8 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/public/similar", get(public_similar))
         .route("/v1/public/slugs", get(public_slugs))
         .route("/v1/public/guide", get(public_guide))
+        .route("/v1/website-intake", post(submit_website_intake))
+        .route("/v1/catchup/leads", post(submit_catchup_lead))
         .route("/v1/website-intake/{id}/notify", post(notify_website_lead))
         .route(
             "/v1/vault/document-bytes/{id}",
@@ -3480,6 +3482,36 @@ fn vault_document_response(
         })?,
     );
     Ok(response)
+}
+
+async fn submit_website_intake(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<domain::WebsiteIntakeRequest>,
+) -> Result<Json<ApiSuccess<domain::WebsiteIntakeResult>>, ApiError> {
+    let context = resolve_public_guest_context(&state, &headers)?;
+    let value = state
+        .services()
+        .intake()
+        .submit_website(&body, &context)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(success_with_correlation(value, &context.correlation_id))
+}
+
+async fn submit_catchup_lead(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<domain::CatchupLeadRequest>,
+) -> Result<Json<ApiSuccess<domain::CatchupLeadResult>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let value = state
+        .services()
+        .intake()
+        .submit_catchup(&body, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
 }
 
 /// Email the team and the visitor about one website lead the public site has just saved. The body is empty: the id is
