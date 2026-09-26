@@ -105,11 +105,9 @@ fn core_error(error: CoreServiceError) -> ServiceDispatchError {
                     service::ServiceFailureClass::Infrastructure,
                     true,
                 ),
-                service::ServiceRuntimeError::Forbidden { .. } => (
-                    "FORBIDDEN",
-                    service::ServiceFailureClass::Business,
-                    false,
-                ),
+                service::ServiceRuntimeError::Forbidden { .. } => {
+                    ("FORBIDDEN", service::ServiceFailureClass::Business, false)
+                }
                 service::ServiceRuntimeError::Audit(_) => (
                     "AUDIT_UNAVAILABLE",
                     service::ServiceFailureClass::Infrastructure,

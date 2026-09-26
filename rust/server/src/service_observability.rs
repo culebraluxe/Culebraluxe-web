@@ -85,14 +85,7 @@ impl ServiceAlertPort for DurableServiceAlertPort {
         .to_string();
 
         self.dao
-            .record_runtime_error(
-                &kind,
-                &operation,
-                &alert.message,
-                level,
-                None,
-                &meta,
-            )
+            .record_runtime_error(&kind, &operation, &alert.message, level, None, &meta)
             .await
             .map_err(|_| ServicePortError::new("durable service alert write failed"))
     }

@@ -6,13 +6,13 @@ use crate::properties::PropertyService;
 use crate::service_support::CoreServiceError;
 use async_trait::async_trait;
 use db::{ContractDao, Database, FirmDao, PersonDao, PropertyDao};
-use service::{
-    AbstractService, DeferredServiceRouter, ServiceContext, ServiceControlCommand,
-    OperationKind, ServiceControlResult, ServiceDescriptor, ServiceDispatchError, ServiceEnvelope,
-    ServiceHealth, ServiceInfrastructure, ServiceLifecycle, ServiceMailbox, ServiceMailboxConfig,
-    ServiceRouter, ServiceRuntime, ServiceStatus,
-};
 use serde::{Deserialize, Serialize};
+use service::{
+    AbstractService, DeferredServiceRouter, OperationKind, ServiceContext, ServiceControlCommand,
+    ServiceControlResult, ServiceDescriptor, ServiceDispatchError, ServiceEnvelope, ServiceHealth,
+    ServiceInfrastructure, ServiceLifecycle, ServiceMailbox, ServiceMailboxConfig, ServiceRouter,
+    ServiceRuntime, ServiceStatus,
+};
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
@@ -161,13 +161,9 @@ impl ServiceRegistry {
             .ok_or_else(|| ServiceDispatchError::ServiceNotFound(domain.to_owned()))?;
 
         match command {
-            ServiceControlCommand::Start => entry
-                .mailbox
-                .start()
-                .await
-                .map_err(|error| {
-                    ServiceDispatchError::infrastructure(error.code, error.message, false)
-                })?,
+            ServiceControlCommand::Start => entry.mailbox.start().await.map_err(|error| {
+                ServiceDispatchError::infrastructure(error.code, error.message, false)
+            })?,
             ServiceControlCommand::Drain => entry.mailbox.drain().await?,
             ServiceControlCommand::Stop => entry.mailbox.stop().await?,
             ServiceControlCommand::Status | ServiceControlCommand::Health => {}
@@ -208,7 +204,12 @@ impl ServiceRegistry {
 
         entry
             .mailbox
-            .submit_task(operation.to_owned(), capability.execution.clone(), payload, work)
+            .submit_task(
+                operation.to_owned(),
+                capability.execution.clone(),
+                payload,
+                work,
+            )
             .await
     }
 
@@ -255,7 +256,8 @@ impl ServiceRegistry {
             actor_id = ?context.actor.id,
             actor_kind = ?context.actor.kind,
         );
-        let work = async move { service.dispatch(&request, &service_context).await }.instrument(span);
+        let work =
+            async move { service.dispatch(&request, &service_context).await }.instrument(span);
         let result = entry
             .mailbox
             .submit(
@@ -268,12 +270,7 @@ impl ServiceRegistry {
 
         if let Err(error) = &result {
             self.observer
-                .observe_dispatch_failure(
-                    &envelope.domain,
-                    &envelope.operation,
-                    context,
-                    error,
-                )
+                .observe_dispatch_failure(&envelope.domain, &envelope.operation, context, error)
                 .await;
         }
 
