@@ -12,6 +12,7 @@ pub struct CommandReceiptRow {
     pub created_at: DateTime<Utc>,
     pub actor_app_user_id: Option<String>,
     pub command_type: Option<String>,
+    pub request_fingerprint: Option<String>,
     pub correlation_id: Option<String>,
     pub causation_id: Option<String>,
     pub aggregate_type: Option<String>,
@@ -36,7 +37,7 @@ impl CommandReceiptDao {
             r#"
             select command_id, outcome, aggregate_id, message, created_at,
                    actor_app_user_id::text as actor_app_user_id,
-                   command_type, correlation_id, causation_id, aggregate_type,
+                   command_type, request_fingerprint, correlation_id, causation_id, aggregate_type,
                    requested_at, result_payload, error_code, error_message
             from workflow_command_receipt
             where command_id=$1
@@ -58,7 +59,7 @@ impl CommandReceiptDao {
             r#"
             select command_id, outcome, aggregate_id, message, created_at,
                    actor_app_user_id::text as actor_app_user_id,
-                   command_type, correlation_id, causation_id, aggregate_type,
+                   command_type, request_fingerprint, correlation_id, causation_id, aggregate_type,
                    requested_at, result_payload, error_code, error_message
             from workflow_command_receipt
             where command_id=$1
@@ -77,6 +78,7 @@ impl CommandReceiptDao {
         tx: &mut DbTransaction,
         command_id: &str,
         command_type: &str,
+        request_fingerprint: &str,
         actor_app_user_id: Option<&str>,
         aggregate_type: &str,
         aggregate_id: Option<&str>,
@@ -101,6 +103,7 @@ impl CommandReceiptDao {
         )
         .bind(command_id)
         .bind(command_type)
+        .bind(request_fingerprint)
         .bind(actor_app_user_id)
         .bind(aggregate_type)
         .bind(aggregate_id)
