@@ -1059,10 +1059,19 @@ pub fn router(state: ApiState) -> Router {
         )
         .route("/v1/vault/documents", get(vault_documents))
         .route("/v1/vault/documents/{id}", get(vault_document))
-        .route("/v1/vault/deals/{id}/documents", get(vault_documents_by_deal))
+        .route(
+            "/v1/vault/deals/{id}/documents",
+            get(vault_documents_by_deal),
+        )
         .route("/v1/vault/forms/{id}/contract", get(vault_form_contract))
-        .route("/v1/vault/forms/{id}/bind-contract", post(vault_bind_form_contract))
-        .route("/v1/vault/contracts/{contract_id}/templates/{template_id}/prior", get(vault_prior_contract_document))
+        .route(
+            "/v1/vault/forms/{id}/bind-contract",
+            post(vault_bind_form_contract),
+        )
+        .route(
+            "/v1/vault/contracts/{contract_id}/templates/{template_id}/prior",
+            get(vault_prior_contract_document),
+        )
         .route(
             "/v1/vault/public-listing-documents/{id}",
             get(vault_public_listing_document_bytes),

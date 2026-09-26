@@ -2,11 +2,11 @@ use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
 use db::{DbResult, VaultDao};
 use domain::{
-    ContractIssuedLineage, CreateTransactionDocumentRequest, IssueDocumentRequest, IssuedDocumentForFormInstance,
-    IssuedDocumentListItem, NextIssuedVersionRequest, TransactionDocument,
-    TransitionTransactionDocumentRequest, VaultActorScope, VaultArtifactFailure,
-    VaultCommandOutcome, VaultCommandResult, VaultMediaBytes, VaultRenderRequest,
-    VaultRenderedArtifact,
+    ContractIssuedLineage, CreateTransactionDocumentRequest, IssueDocumentRequest,
+    IssuedDocumentForFormInstance, IssuedDocumentListItem, NextIssuedVersionRequest,
+    TransactionDocument, TransitionTransactionDocumentRequest, VaultActorScope,
+    VaultArtifactFailure, VaultCommandOutcome, VaultCommandResult, VaultMediaBytes,
+    VaultRenderRequest, VaultRenderedArtifact,
 };
 use serde_json::json;
 use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
