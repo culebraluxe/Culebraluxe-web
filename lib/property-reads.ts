@@ -157,8 +157,7 @@ function locationOf(value: {
 }) {
   return (
     value.location ??
-    [value.neighborhood, value.city].filter(Boolean).join(', ') ||
-    null
+    ([value.neighborhood, value.city].filter(Boolean).join(', ') || null)
   )
 }
 
