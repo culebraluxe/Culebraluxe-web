@@ -33,6 +33,7 @@ pub fn router() -> Router<ApiState> {
         .route("/api/portal/rust-ui/page", get(page))
         .route("/api/portal/rust-ui/cabinet", get(cabinet))
         .route("/api/portal/rust-ui/deals", get(deals).post(deals_write))
+        .route("/api/portal/rust-ui/forms", get(forms).post(forms_write))
         .route("/api/portal/rust-ui/projects", get(projects).post(projects_act))
         .route("/api/portal/rust-ui/accounting", axum::routing::post(accounting_act))
         .route("/api/portal/rust-ui/opps", get(opps).post(opps_act))
@@ -488,6 +489,717 @@ async fn deals_write(
     let created = service.create(&request, &resolved.service).await.map_err(failed(&resolved))?;
     Ok(Json(json!({ "id": created.id })))
 }
+
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FormsBridgeQuery {
+    #[serde(default = "default_forms_screen")]
+    screen: String,
+    scope: Option<String>,
+    deal_id: Option<String>,
+    person_id: Option<String>,
+    property_id: Option<String>,
+}
+
+fn default_forms_screen() -> String {
+    "forms".into()
+}
+
+fn load_form_templates(resolved: &ResolvedRequestContext) -> Result<domain::forms_template::TemplateLibrary, ApiError> {
+    domain::forms_template::TemplateLibrary::load_default().map_err(|error| {
+        correlate(
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "FORM_TEMPLATE_LOAD_FAILED",
+                error.to_string(),
+                false,
+            ),
+            resolved,
+        )
+    })
+}
+
+fn form_presentation(value: domain::forms_template::TemplatePresentation) -> &'static str {
+    match value {
+        domain::forms_template::TemplatePresentation::Agreement => "agreement",
+        domain::forms_template::TemplatePresentation::Letter => "letter",
+        domain::forms_template::TemplatePresentation::Information => "information",
+        domain::forms_template::TemplatePresentation::Report => "report",
+    }
+}
+
+fn form_field_type(value: domain::forms_template::TemplateFieldType) -> &'static str {
+    match value {
+        domain::forms_template::TemplateFieldType::Text => "text",
+        domain::forms_template::TemplateFieldType::Money => "money",
+        domain::forms_template::TemplateFieldType::Date => "date",
+        domain::forms_template::TemplateFieldType::Textarea => "textarea",
+        domain::forms_template::TemplateFieldType::Select => "select",
+    }
+}
+
+fn when_payload(when: Option<&domain::forms_template::TemplateWhen>) -> Value {
+    when.map_or(Value::Null, |when| {
+        json!({ "field": when.field, "values": when.values })
+    })
+}
+
+fn form_template_payload(
+    template: &domain::forms_template::TemplateDefinition,
+    library: &domain::forms_template::TemplateLibrary,
+) -> Value {
+    let fields: Vec<Value> = template
+        .fields
+        .iter()
+        .map(|field| {
+            json!({
+                "name": field.name,
+                "label": field.label,
+                "type": form_field_type(field.field_type),
+                "required": field.required,
+                "options": field.options,
+                "when": when_payload(field.when.as_ref()),
+            })
+        })
+        .collect();
+    let sections: Vec<Value> = template
+        .sections
+        .iter()
+        .map(|section| {
+            let segments: Vec<Value> = section
+                .segments
+                .iter()
+                .map(|segment| match segment {
+                    domain::forms_template::TemplateSectionSegment::Text(text) => {
+                        json!({ "kind": "text", "text": text })
+                    }
+                    domain::forms_template::TemplateSectionSegment::Value(field) => {
+                        json!({ "kind": "value", "field": field })
+                    }
+                })
+                .collect();
+            json!({
+                "name": section.name,
+                "label": section.label,
+                "editable": section.editable,
+                "segments": segments,
+                "when": when_payload(section.when.as_ref()),
+            })
+        })
+        .collect();
+    let signature_groups: Vec<Value> = template
+        .signature_groups
+        .iter()
+        .map(|group| {
+            json!({
+                "role": group.role,
+                "label": group.label,
+                "field": group.field,
+                "initials": group.initials,
+            })
+        })
+        .collect();
+    json!({
+        "id": template.id,
+        "version": template.version,
+        "activeVersion": library.newest(&template.id).map(|item| item.version).unwrap_or(template.version),
+        "displayName": template.display_name,
+        "documentTypeLabel": template.document_type_label,
+        "renderingTitle": template.rendering.title,
+        "presentation": form_presentation(template.rendering.presentation),
+        "fields": fields,
+        "sections": sections,
+        "signatureGroups": signature_groups,
+    })
+}
+
+fn form_template_choices(library: &domain::forms_template::TemplateLibrary) -> Vec<Value> {
+    library
+        .families()
+        .into_iter()
+        .filter_map(|(id, _)| library.newest(id))
+        .map(|template| {
+            json!({
+                "id": template.id,
+                "displayName": template.display_name,
+                "activeVersion": template.version,
+            })
+        })
+        .collect()
+}
+
+fn form_item_payload(
+    item: &domain::FormInstanceListItem,
+    library: &domain::forms_template::TemplateLibrary,
+) -> Value {
+    let mut value = to_json(item);
+    if let Some(object) = value.as_object_mut() {
+        let name = library
+            .version(&item.instance.template_id, item.instance.template_version)
+            .map(|template| template.display_name.clone())
+            .unwrap_or_else(|| item.instance.template_id.clone());
+        let active = library
+            .newest(&item.instance.template_id)
+            .map(|template| template.version)
+            .unwrap_or(item.instance.template_version);
+        object.insert("templateName".into(), json!(name));
+        object.insert("activeVersion".into(), json!(active));
+    }
+    value
+}
+
+fn selected_form_payload(
+    form: &domain::FormInstance,
+    field_values: std::collections::BTreeMap<String, String>,
+    library: &domain::forms_template::TemplateLibrary,
+) -> Value {
+    let mut value = to_json(form);
+    if let Some(object) = value.as_object_mut() {
+        let name = library
+            .version(&form.template_id, form.template_version)
+            .map(|template| template.display_name.clone())
+            .unwrap_or_else(|| form.template_id.clone());
+        let active = library
+            .newest(&form.template_id)
+            .map(|template| template.version)
+            .unwrap_or(form.template_version);
+        object.insert("templateName".into(), json!(name));
+        object.insert("activeVersion".into(), json!(active));
+        object.insert("dealLabel".into(), Value::Null);
+        object.insert("propertyLabel".into(), Value::Null);
+        object.insert("clientName".into(), Value::Null);
+        object.insert("fieldValues".into(), json!(field_values));
+    }
+    value
+}
+
+async fn forms_page(
+    state: &ApiState,
+    resolved: &ResolvedRequestContext,
+    record: Option<&str>,
+    deal_id: Option<&str>,
+    person_id: Option<&str>,
+) -> Result<Value, ApiError> {
+    let services = state.services();
+    let forms = services.forms();
+    let library = load_form_templates(resolved)?;
+    let mut items = forms
+        .list_instances(&resolved.service)
+        .await
+        .map_err(failed(resolved))?;
+
+    if record.is_none() {
+        if let Some(deal_id) = deal_id.map(str::trim).filter(|value| !value.is_empty()) {
+            items.retain(|item| item.instance.deal_id.as_deref() == Some(deal_id));
+        }
+        if let Some(person_id) = person_id.map(str::trim).filter(|value| !value.is_empty()) {
+            items.retain(|item| item.instance.person_id.as_deref() == Some(person_id));
+        }
+    }
+
+    let item_payloads = items
+        .iter()
+        .map(|item| form_item_payload(item, &library))
+        .collect::<Vec<_>>();
+
+    let Some(form_id) = record.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(json!({
+            "items": item_payloads,
+            "selected": Value::Null,
+            "template": Value::Null,
+            "issued": Value::Null,
+            "signers": [],
+            "templateChoices": form_template_choices(&library),
+        }));
+    };
+
+    let form = forms
+        .get_instance(form_id, &resolved.service)
+        .await
+        .map_err(failed(resolved))?
+        .ok_or_else(|| {
+            correlate(
+                ApiError::not_found("FORM_NOT_FOUND", format!("Form instance not found: {form_id}")),
+                resolved,
+            )
+        })?;
+    let template = library
+        .version(&form.template_id, form.template_version)
+        .ok_or_else(|| {
+            correlate(
+                ApiError::not_found(
+                    "FORM_TEMPLATE_NOT_FOUND",
+                    format!(
+                        "Template {} v{} is not available.",
+                        form.template_id, form.template_version
+                    ),
+                ),
+                resolved,
+            )
+        })?;
+
+    let mut field_values = form.field_values.clone();
+    if template.field("sellerCivilStatus").is_some()
+        && field_values
+            .get("sellerCivilStatus")
+            .is_none_or(|value| value.trim().is_empty())
+    {
+        if let Some(person_id) = form.person_id.as_deref() {
+            if let Some(person) = services
+                .person()
+                .get(person_id, &resolved.service)
+                .await
+                .map_err(failed(resolved))?
+            {
+                if let Some(civil_status) = person.civil_status.filter(|value| !value.trim().is_empty()) {
+                    field_values.insert("sellerCivilStatus".into(), civil_status);
+                }
+            }
+        }
+    }
+
+    let signers = forms
+        .list_signer_people(form_id, &resolved.service)
+        .await
+        .map_err(failed(resolved))?;
+    let issued = services
+        .vault()
+        .issued_for_form_instance(form_id, &resolved.service)
+        .await
+        .map_err(failed(resolved))?;
+
+    Ok(json!({
+        "items": item_payloads,
+        "selected": selected_form_payload(&form, field_values, &library),
+        "template": form_template_payload(template, &library),
+        "issued": issued,
+        "signers": signers,
+        "templateChoices": form_template_choices(&library),
+    }))
+}
+
+fn form_default(template_id: &str, field_name: &str) -> Option<&'static str> {
+    match (template_id, field_name) {
+        ("LISTING-01", "brokerName") => Some("Lisa Penfield"),
+        ("LISTING-01", "sellerCivilStatus") => Some("Single"),
+        ("LISTING-01", "commission") => Some("4%"),
+        ("LISTING-01", "listingType") => Some("Exclusive Right to Sell"),
+        ("PR-PNS", "sellerBrokerName") => Some("Lisa Penfield"),
+        ("OFFER-01", "brokerName") => Some("Lisa Penfield"),
+        ("SHOW-RPT", "agentName") => Some("Lisa Penfield"),
+        _ => None,
+    }
+}
+
+fn date_default(field_name: &str) -> String {
+    let today = chrono::Utc::now().date_naive();
+    let days = if field_name.to_ascii_lowercase().contains("expir") {
+        14
+    } else if field_name.to_ascii_lowercase().contains("end") {
+        90
+    } else {
+        0
+    };
+    (today + chrono::Duration::days(days)).format("%Y-%m-%d").to_string()
+}
+
+fn binding_value(
+    binding: &str,
+    facts: Option<&domain::DealFormFacts>,
+    person: Option<&domain::Person>,
+    property: Option<&domain::Property>,
+) -> Option<String> {
+    match binding {
+        "deal.client.name" => facts.and_then(|facts| facts.client_name.clone()),
+        "deal.property.label" => facts.and_then(|facts| facts.property_label.clone()),
+        "deal.offer.amount" => facts.and_then(|facts| facts.offer_amount.clone()),
+        "deal.financing.type" => facts.and_then(|facts| facts.financing_type.clone()),
+        "deal.closing.date" => facts.and_then(|facts| facts.closing_date.clone()),
+        "person.displayName" => person
+            .map(|person| person.display_name.clone())
+            .or_else(|| facts.and_then(|facts| facts.person_display_name.clone()))
+            .or_else(|| facts.and_then(|facts| facts.client_name.clone())),
+        "property.name" => property
+            .map(|property| property.display_name.clone())
+            .or_else(|| facts.and_then(|facts| facts.property_name.clone()))
+            .or_else(|| facts.and_then(|facts| facts.property_label.clone())),
+        "property.location" => property
+            .and_then(|property| {
+                property
+                    .address_line1
+                    .clone()
+                    .or_else(|| property.address.city.clone())
+                    .or_else(|| property.municipality.clone())
+            })
+            .or_else(|| facts.and_then(|facts| facts.property_location.clone())),
+        _ => None,
+    }
+}
+
+fn prefill_form_values(
+    template: &domain::forms_template::TemplateDefinition,
+    facts: Option<&domain::DealFormFacts>,
+    person: Option<&domain::Person>,
+    property: Option<&domain::Property>,
+) -> std::collections::BTreeMap<String, String> {
+    let mut values = std::collections::BTreeMap::new();
+    for field in &template.fields {
+        let mut value = field
+            .binding
+            .as_deref()
+            .and_then(|binding| binding_value(binding, facts, person, property))
+            .or_else(|| form_default(&template.id, &field.name).map(str::to_owned))
+            .unwrap_or_default();
+
+        if field.name == "sellerCivilStatus" {
+            if let Some(civil_status) = person
+                .and_then(|person| person.civil_status.as_deref())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                value = civil_status.to_owned();
+            }
+        }
+
+        if value.trim().is_empty()
+            && matches!(field.field_type, domain::forms_template::TemplateFieldType::Date)
+        {
+            value = date_default(&field.name);
+        }
+        values.insert(field.name.clone(), value);
+    }
+    values
+}
+
+fn empty_form_sections(
+    template: &domain::forms_template::TemplateDefinition,
+) -> std::collections::BTreeMap<String, String> {
+    template
+        .sections
+        .iter()
+        .map(|section| (section.name.clone(), String::new()))
+        .collect()
+}
+
+async fn save_form_values(
+    state: &ApiState,
+    resolved: &ResolvedRequestContext,
+    form_id: &str,
+    field_values: std::collections::BTreeMap<String, String>,
+    sections: std::collections::BTreeMap<String, String>,
+) -> Result<domain::FormInstance, ApiError> {
+    let services = state.services();
+    let forms = services.forms();
+    let current = forms
+        .get_instance(form_id, &resolved.service)
+        .await
+        .map_err(failed(resolved))?
+        .ok_or_else(|| {
+            correlate(
+                ApiError::not_found("FORM_NOT_FOUND", format!("Form instance not found: {form_id}")),
+                resolved,
+            )
+        })?;
+
+    let library = load_form_templates(resolved)?;
+    let template = library
+        .version(&current.template_id, current.template_version)
+        .ok_or_else(|| {
+            correlate(
+                ApiError::not_found(
+                    "FORM_TEMPLATE_NOT_FOUND",
+                    format!(
+                        "Template {} v{} is not available.",
+                        current.template_id, current.template_version
+                    ),
+                ),
+                resolved,
+            )
+        })?;
+
+    let updated = forms
+        .update_instance(
+            &domain::UpdateFormInstanceRequest {
+                form_instance_id: form_id.to_owned(),
+                input: domain::UpdateFormInstanceInput {
+                    field_values: Some(field_values.clone()),
+                    sections: Some(sections),
+                    status: None,
+                    contract_id: None,
+                },
+            },
+            &resolved.service,
+        )
+        .await
+        .map_err(failed(resolved))?
+        .ok_or_else(|| {
+            correlate(
+                ApiError::not_found("FORM_NOT_FOUND", format!("Form instance not found: {form_id}")),
+                resolved,
+            )
+        })?;
+
+    if template.field("sellerCivilStatus").is_some() {
+        if let (Some(person_id), Some(civil_status)) = (
+            current.person_id.as_deref(),
+            field_values
+                .get("sellerCivilStatus")
+                .map(String::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty()),
+        ) {
+            if let Some(person) = services
+                .person()
+                .get(person_id, &resolved.service)
+                .await
+                .map_err(failed(resolved))?
+            {
+                if person.civil_status.as_deref() != Some(civil_status) {
+                    services
+                        .person()
+                        .update_admin(
+                            &domain::UpdatePersonAdminRequest {
+                                person_id: person.id,
+                                display_name: person.display_name,
+                                civil_status: Some(civil_status.to_owned()),
+                                status: person.status,
+                                company: person.company,
+                            },
+                            &resolved.service,
+                        )
+                        .await
+                        .map_err(failed(resolved))?;
+                }
+            }
+        }
+    }
+
+    Ok(updated)
+}
+
+async fn forms(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Query(query): Query<FormsBridgeQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    let scope = query.scope.as_deref().map(str::trim).filter(|value| !value.is_empty());
+    let record = match query.screen.as_str() {
+        "forms" => None,
+        "form-record" => Some(scope.ok_or_else(|| {
+            correlate(
+                ApiError::bad_request("FORM_SCOPE_REQUIRED", "form-record requires scope."),
+                &resolved,
+            )
+        })?),
+        _ => {
+            return Err(correlate(
+                ApiError::bad_request(
+                    "FORM_SCREEN_UNSUPPORTED",
+                    format!("Unsupported forms screen '{}'.", query.screen),
+                ),
+                &resolved,
+            ))
+        }
+    };
+    let page = forms_page(
+        &state,
+        &resolved,
+        record,
+        query.deal_id.as_deref(),
+        query.person_id.as_deref(),
+    )
+    .await?;
+    Ok(Json(json!({ "forms": page })))
+}
+
+async fn forms_write(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    let action = str_at(&body, "action").unwrap_or_default();
+    let form_id = str_at(&body, "formId").map(str::trim).filter(|value| !value.is_empty());
+
+    match action {
+        "create" => {
+            let template_id = str_at(&body, "templateId")
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    correlate(
+                        ApiError::bad_request("FORM_TEMPLATE_REQUIRED", "templateId is required."),
+                        &resolved,
+                    )
+                })?;
+            let deal_id = str_at(&body, "dealId").map(str::trim).filter(|value| !value.is_empty()).map(str::to_owned);
+            let person_id = str_at(&body, "personId").map(str::trim).filter(|value| !value.is_empty()).map(str::to_owned);
+            let property_id = str_at(&body, "propertyId").map(str::trim).filter(|value| !value.is_empty()).map(str::to_owned);
+            if deal_id.is_none() && person_id.is_none() && property_id.is_none() {
+                return Err(correlate(
+                    ApiError::bad_request(
+                        "FORM_CONTEXT_REQUIRED",
+                        "Select a deal, client, or property before creating a form.",
+                    ),
+                    &resolved,
+                ));
+            }
+
+            let services = state.services();
+            let forms = services.forms();
+            let library = load_form_templates(&resolved)?;
+            let template = library.newest(template_id).ok_or_else(|| {
+                correlate(
+                    ApiError::not_found("FORM_TEMPLATE_NOT_FOUND", "Template not found."),
+                    &resolved,
+                )
+            })?;
+            let facts = if let Some(deal_id) = deal_id.as_deref() {
+                forms
+                    .deal_facts(deal_id, &resolved.service)
+                    .await
+                    .map_err(failed(&resolved))?
+            } else {
+                None
+            };
+            let person = if let Some(person_id) = person_id.as_deref() {
+                services
+                    .person()
+                    .get(person_id, &resolved.service)
+                    .await
+                    .map_err(failed(&resolved))?
+            } else {
+                None
+            };
+            let property = if let Some(property_id) = property_id.as_deref() {
+                services
+                    .property()
+                    .get(property_id, &resolved.service)
+                    .await
+                    .map_err(failed(&resolved))?
+            } else {
+                None
+            };
+            let created = forms
+                .create_instance(
+                    &domain::CreateFormInstanceRequest {
+                        template_id: template.id.clone(),
+                        template_version: template.version,
+                        deal_id: deal_id.clone(),
+                        person_id: person_id.clone(),
+                        property_id: property_id.clone(),
+                        field_values: prefill_form_values(
+                            template,
+                            facts.as_ref(),
+                            person.as_ref(),
+                            property.as_ref(),
+                        ),
+                        sections: empty_form_sections(template),
+                        created_by_user_id: Some(resolved.acting_user.app_user_id.clone()),
+                    },
+                    &resolved.service,
+                )
+                .await
+                .map_err(failed(&resolved))?;
+            if let Some(deal_id) = deal_id.as_deref() {
+                forms
+                    .seed_participants_from_deal(&created.id, deal_id, &resolved.service)
+                    .await
+                    .map_err(failed(&resolved))?;
+            }
+            let page = forms_page(&state, &resolved, Some(&created.id), None, None).await?;
+            Ok(Json(json!({ "formId": created.id, "forms": page })))
+        }
+        "save" | "issue" => {
+            let form_id = form_id.ok_or_else(|| {
+                correlate(
+                    ApiError::bad_request("FORM_ID_REQUIRED", "formId is required."),
+                    &resolved,
+                )
+            })?;
+            let field_values: std::collections::BTreeMap<String, String> =
+                serde_json::from_value(body.get("fieldValues").cloned().unwrap_or_else(|| json!({})))
+                    .map_err(|error| {
+                        correlate(
+                            ApiError::bad_request(
+                                "FORM_FIELDS_INVALID",
+                                format!("Invalid form fields: {error}"),
+                            ),
+                            &resolved,
+                        )
+                    })?;
+            let sections: std::collections::BTreeMap<String, String> =
+                serde_json::from_value(body.get("sections").cloned().unwrap_or_else(|| json!({})))
+                    .map_err(|error| {
+                        correlate(
+                            ApiError::bad_request(
+                                "FORM_SECTIONS_INVALID",
+                                format!("Invalid form sections: {error}"),
+                            ),
+                            &resolved,
+                        )
+                    })?;
+
+            save_form_values(
+                &state,
+                &resolved,
+                form_id,
+                field_values,
+                sections,
+            )
+            .await?;
+
+            if action == "issue" {
+                let command = state
+                    .services()
+                    .vault()
+                    .issue_from_form_instance(
+                        &domain::IssueDocumentRequest {
+                            command_id: uuid::Uuid::new_v4().to_string(),
+                            form_instance_id: form_id.to_owned(),
+                            actor_app_user_id: Some(resolved.acting_user.app_user_id.clone()),
+                            issued_at: None,
+                        },
+                        &resolved.service,
+                    )
+                    .await
+                    .map_err(failed(&resolved))?;
+
+                if command.outcome != domain::VaultCommandOutcome::Success {
+                    let status = match command.outcome {
+                        domain::VaultCommandOutcome::NotFound => StatusCode::NOT_FOUND,
+                        domain::VaultCommandOutcome::Conflict => StatusCode::CONFLICT,
+                        domain::VaultCommandOutcome::Unauthorized => StatusCode::FORBIDDEN,
+                        domain::VaultCommandOutcome::ValidationFailure
+                        | domain::VaultCommandOutcome::PreconditionFailure => StatusCode::BAD_REQUEST,
+                        domain::VaultCommandOutcome::Success => StatusCode::OK,
+                    };
+                    return Err(correlate(
+                        ApiError::new(
+                            status,
+                            "FORM_ISSUE_FAILED",
+                            command
+                                .message
+                                .unwrap_or_else(|| "Could not issue the form PDF.".into()),
+                            false,
+                        ),
+                        &resolved,
+                    ));
+                }
+            }
+
+            let page = forms_page(&state, &resolved, Some(form_id), None, None).await?;
+            Ok(Json(json!({ "formId": form_id, "forms": page })))
+        }
+        _ => Err(correlate(
+            ApiError::bad_request("FORM_ACTION_UNSUPPORTED", "Unsupported Forms action."),
+            &resolved,
+        )),
+    }
+}
+
 
 /// snake_case keys to camelCase, all the way down: the project and work-item records are serialized snake_case by the
 /// domain, and the Projects screen reads them camelCase (as the relay renamed them field by field).
