@@ -7,10 +7,14 @@ use crate::service_support::CoreServiceError;
 use async_trait::async_trait;
 use db::{ContractDao, Database, FirmDao, PersonDao, PropertyDao};
 use service::{
-    AbstractService, ServiceDescriptor, ServiceDispatchError, ServiceEnvelope, ServiceHealth,
-    ServiceMailbox, ServiceMailboxConfig, ServiceContext, ServiceInfrastructure,
+    AbstractService, DeferredServiceRouter, ServiceDescriptor, ServiceDispatchError,
+    ServiceEnvelope, ServiceHealth, ServiceMailbox, ServiceMailboxConfig, ServiceContext,
+    ServiceInfrastructure, ServiceRouter, ServiceRuntime,
 };
-use std::{collections::{BTreeMap, HashMap}, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 use tokio_util::sync::CancellationToken;
 
 #[derive(Clone)]
@@ -146,11 +150,20 @@ impl ServiceRegistry {
     }
 }
 
+#[async_trait]
+impl ServiceRouter for ServiceRegistry {
+    async fn dispatch(
+        &self,
+        envelope: &ServiceEnvelope,
+        context: &ServiceContext,
+    ) -> Result<serde_json::Value, ServiceDispatchError> {
+        ServiceRegistry::dispatch(self, envelope, context).await
+    }
+}
+
 #[derive(Clone)]
 struct KernelEntityLookup {
-    person: Arc<PersonService<PersonDao>>,
-    firm: Arc<FirmService<FirmDao>>,
-    property: Arc<PropertyService<PropertyDao>>,
+    runtime: ServiceRuntime,
 }
 
 #[async_trait]
@@ -160,7 +173,16 @@ impl CoreEntityLookup for KernelEntityLookup {
         person_id: &str,
         context: &ServiceContext,
     ) -> Result<bool, CoreServiceError> {
-        Ok(self.person.get(person_id, context).await?.is_some())
+        let value = self
+            .runtime
+            .call_service(
+                "person",
+                "person.get",
+                serde_json::json!({ "personId": person_id }),
+                context,
+            )
+            .await?;
+        Ok(!value.is_null())
     }
 
     async fn firm_exists(
@@ -168,7 +190,16 @@ impl CoreEntityLookup for KernelEntityLookup {
         firm_id: &str,
         context: &ServiceContext,
     ) -> Result<bool, CoreServiceError> {
-        Ok(self.firm.get(firm_id, context).await?.is_some())
+        let value = self
+            .runtime
+            .call_service(
+                "firm",
+                "firm.get",
+                serde_json::json!({ "firmId": firm_id }),
+                context,
+            )
+            .await?;
+        Ok(!value.is_null())
     }
 
     async fn property_exists(
@@ -176,13 +207,22 @@ impl CoreEntityLookup for KernelEntityLookup {
         property_id: &str,
         context: &ServiceContext,
     ) -> Result<bool, CoreServiceError> {
-        Ok(self.property.get(property_id, context).await?.is_some())
+        let value = self
+            .runtime
+            .call_service(
+                "property",
+                "property.get",
+                serde_json::json!({ "propertyId": property_id }),
+                context,
+            )
+            .await?;
+        Ok(!value.is_null())
     }
 }
 
 #[derive(Clone)]
 pub struct ServiceKernel {
-    registry: ServiceRegistry,
+    registry: Arc<ServiceRegistry>,
     person: Arc<PersonService<PersonDao>>,
     firm: Arc<FirmService<FirmDao>>,
     property: Arc<PropertyService<PropertyDao>>,
@@ -195,6 +235,9 @@ impl ServiceKernel {
         infrastructure: ServiceInfrastructure,
     ) -> Result<Self, ServiceDispatchError> {
         let root_cancel = CancellationToken::new();
+        let deferred_router = Arc::new(DeferredServiceRouter::new());
+        let router_port: Arc<dyn ServiceRouter> = deferred_router.clone();
+        let infrastructure = infrastructure.with_router(router_port);
 
         let person = Arc::new(PersonService::new(
             PersonDao::new(db.clone()),
@@ -210,9 +253,7 @@ impl ServiceKernel {
         ));
 
         let lookup: Arc<dyn CoreEntityLookup> = Arc::new(KernelEntityLookup {
-            person: person.clone(),
-            firm: firm.clone(),
-            property: property.clone(),
+            runtime: ServiceRuntime::new(infrastructure.clone()),
         });
         let contract = Arc::new(ContractService::new(
             ContractDao::new(db),
@@ -226,7 +267,9 @@ impl ServiceKernel {
             property.clone(),
             contract.clone(),
         ];
-        let registry = ServiceRegistry::new(root_cancel, services)?;
+        let registry = Arc::new(ServiceRegistry::new(root_cancel, services)?);
+        let registry_port: Arc<dyn ServiceRouter> = registry.clone();
+        deferred_router.install(&registry_port)?;
 
         Ok(Self {
             registry,
@@ -237,7 +280,7 @@ impl ServiceKernel {
         })
     }
 
-    pub fn registry(&self) -> ServiceRegistry {
+    pub fn registry(&self) -> Arc<ServiceRegistry> {
         self.registry.clone()
     }
 

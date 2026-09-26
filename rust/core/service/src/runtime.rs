@@ -1,7 +1,9 @@
 use crate::{
     AuditPort, AuthorizationDecision, AuthorizationPort, AuthorizationRequest, DomainEventPort,
-    OperationKind, ServiceAuditEvent, ServiceContext, ServiceDomainEvent, ServiceOutcome,
+    OperationKind, ServiceAuditEvent, ServiceContext, ServiceDomainEvent, ServiceEnvelope,
+    ServiceOutcome, ServiceRouter,
 };
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -32,6 +34,12 @@ pub enum ServiceRuntimeError {
     Audit(String),
     #[error("domain event port failed: {0}")]
     Event(String),
+    #[error("service router failed: {code}: {message}")]
+    Router {
+        code: String,
+        message: String,
+        retryable: bool,
+    },
 }
 
 #[derive(Clone)]
@@ -39,6 +47,7 @@ pub struct ServiceInfrastructure {
     pub authorization: Arc<dyn AuthorizationPort>,
     pub audit: Arc<dyn AuditPort>,
     pub events: Arc<dyn DomainEventPort>,
+    pub router: Option<Arc<dyn ServiceRouter>>,
 }
 
 impl ServiceInfrastructure {
@@ -51,7 +60,13 @@ impl ServiceInfrastructure {
             authorization,
             audit,
             events,
+            router: None,
         }
+    }
+
+    pub fn with_router(mut self, router: Arc<dyn ServiceRouter>) -> Self {
+        self.router = Some(router);
+        self
     }
 }
 
@@ -140,5 +155,35 @@ impl ServiceRuntime {
             })
             .await
             .map_err(|error| ServiceRuntimeError::Event(error.message))
+    }
+
+    pub async fn call_service(
+        &self,
+        domain: impl Into<String>,
+        operation: impl Into<String>,
+        payload: Value,
+        context: &ServiceContext,
+    ) -> Result<Value, ServiceRuntimeError> {
+        let router = self.infrastructure.router.as_ref().ok_or_else(|| {
+            ServiceRuntimeError::Router {
+                code: "SERVICE_ROUTER_UNAVAILABLE".into(),
+                message: "No ServiceRouter is configured for this service.".into(),
+                retryable: true,
+            }
+        })?;
+
+        let envelope = ServiceEnvelope {
+            domain: domain.into(),
+            operation: operation.into(),
+            payload,
+        };
+        router
+            .dispatch(&envelope, context)
+            .await
+            .map_err(|error| ServiceRuntimeError::Router {
+                code: error.code().to_owned(),
+                message: error.to_string(),
+                retryable: error.retryable(),
+            })
     }
 }

@@ -72,6 +72,26 @@ impl ServiceDispatchError {
             retryable,
         }
     }
+
+    pub fn code(&self) -> &str {
+        match self {
+            Self::ServiceNotFound(_) => "SERVICE_NOT_FOUND",
+            Self::UnknownOperation { .. } => "UNKNOWN_OPERATION",
+            Self::InvalidPayload { .. } => "INVALID_SERVICE_PAYLOAD",
+            Self::Operation { code, .. } => code.as_str(),
+            Self::ServiceDraining(_) => "SERVICE_DRAINING",
+            Self::ServiceStopped(_) => "SERVICE_STOPPED",
+            Self::OperationPanicked { .. } => "SERVICE_OPERATION_PANICKED",
+        }
+    }
+
+    pub fn retryable(&self) -> bool {
+        match self {
+            Self::Operation { retryable, .. } => *retryable,
+            Self::ServiceDraining(_) | Self::ServiceStopped(_) | Self::OperationPanicked { .. } => true,
+            _ => false,
+        }
+    }
 }
 
 #[async_trait]

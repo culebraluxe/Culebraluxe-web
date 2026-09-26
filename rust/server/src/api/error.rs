@@ -121,6 +121,19 @@ impl ApiError {
                 message,
                 true,
             ),
+            ServiceRuntimeError::Router {
+                code,
+                message,
+                retryable,
+            } => {
+                let status = match code.as_str() {
+                    "FORBIDDEN" => StatusCode::FORBIDDEN,
+                    _ if code.ends_with("_NOT_FOUND") => StatusCode::NOT_FOUND,
+                    _ if code.contains("CONFLICT") => StatusCode::CONFLICT,
+                    _ => StatusCode::SERVICE_UNAVAILABLE,
+                };
+                Self::new(status, code, message, retryable)
+            }
         }
     }
 }

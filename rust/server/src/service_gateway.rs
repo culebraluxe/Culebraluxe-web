@@ -15,11 +15,11 @@ use service::{
 
 #[derive(Clone)]
 pub struct ServiceGateway {
-    registry: ServiceRegistry,
+    registry: std::sync::Arc<ServiceRegistry>,
 }
 
 impl ServiceGateway {
-    pub fn new(registry: ServiceRegistry) -> Self {
+    pub fn new(registry: std::sync::Arc<ServiceRegistry>) -> Self {
         Self { registry }
     }
 
@@ -91,6 +91,7 @@ fn core_error(error: CoreServiceError) -> ServiceDispatchError {
                 service::ServiceRuntimeError::Forbidden { .. } => "FORBIDDEN",
                 service::ServiceRuntimeError::Audit(_) => "AUDIT_UNAVAILABLE",
                 service::ServiceRuntimeError::Event(_) => "DOMAIN_EVENT_UNAVAILABLE",
+                service::ServiceRuntimeError::Router { code, .. } => code.as_str(),
             },
             error.to_string(),
             !matches!(error, service::ServiceRuntimeError::Forbidden { .. }),

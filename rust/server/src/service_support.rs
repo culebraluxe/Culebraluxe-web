@@ -22,7 +22,7 @@ impl CoreServiceError {
         }
     }
 
-    pub fn code(&self) -> &'static str {
+    pub fn code(&self) -> &str {
         match self {
             Self::Business { code, .. } => code,
             Self::Database(_) => "DATABASE",
@@ -30,6 +30,7 @@ impl CoreServiceError {
             Self::Runtime(ServiceRuntimeError::Forbidden { .. }) => "FORBIDDEN",
             Self::Runtime(ServiceRuntimeError::Audit(_)) => "AUDIT_UNAVAILABLE",
             Self::Runtime(ServiceRuntimeError::Event(_)) => "DOMAIN_EVENT_UNAVAILABLE",
+            Self::Runtime(ServiceRuntimeError::Router { code, .. }) => code.as_str(),
         }
     }
 }
