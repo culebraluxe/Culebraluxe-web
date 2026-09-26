@@ -187,13 +187,9 @@ impl From<CommandDispatchError> for ApiError {
                     let status = match class {
                         service::ServiceFailureClass::Caller
                         | service::ServiceFailureClass::Business => StatusCode::BAD_REQUEST,
-                        service::ServiceFailureClass::Lifecycle => {
-                            StatusCode::SERVICE_UNAVAILABLE
-                        }
+                        service::ServiceFailureClass::Lifecycle => StatusCode::SERVICE_UNAVAILABLE,
                         service::ServiceFailureClass::Infrastructure
-                        | service::ServiceFailureClass::Panic => {
-                            StatusCode::INTERNAL_SERVER_ERROR
-                        }
+                        | service::ServiceFailureClass::Panic => StatusCode::INTERNAL_SERVER_ERROR,
                     };
                     Self::new(status, code, message, retryable)
                 }

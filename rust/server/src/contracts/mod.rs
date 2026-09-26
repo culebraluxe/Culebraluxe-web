@@ -81,7 +81,9 @@ trait ContractExecutionRepository: Send {
 struct SharedContractExecutionRepository<'a, R>(&'a R);
 
 #[async_trait]
-impl<R: ContractRepository> ContractExecutionRepository for SharedContractExecutionRepository<'_, R> {
+impl<R: ContractRepository> ContractExecutionRepository
+    for SharedContractExecutionRepository<'_, R>
+{
     async fn get(&mut self, contract_id: &str) -> DbResult<Option<Contract>> {
         self.0.get(contract_id).await
     }
@@ -321,15 +323,12 @@ impl<R: ContractRepository> ContractService<R> {
         .await?;
 
         let result = async {
-            let existing = repository
-                .get(&request.contract_id)
-                .await?
-                .ok_or_else(|| {
-                    CoreServiceError::business(
-                        "CONTRACT_NOT_FOUND",
-                        format!("Contract not found: {}", request.contract_id),
-                    )
-                })?;
+            let existing = repository.get(&request.contract_id).await?.ok_or_else(|| {
+                CoreServiceError::business(
+                    "CONTRACT_NOT_FOUND",
+                    format!("Contract not found: {}", request.contract_id),
+                )
+            })?;
 
             if existing.status == "executed" {
                 return Err(CoreServiceError::business(

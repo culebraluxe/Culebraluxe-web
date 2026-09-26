@@ -62,7 +62,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .name("engine-warmup".into())
         .spawn(|| match forge::engine::re_runtime::re_engine() {
             Ok(_) => tracing::info!(target: "culebraluxe::engine", "engine warmed"),
-            Err(error) => tracing::warn!(target: "culebraluxe::engine", %error, "engine warm-up deferred"),
+            Err(error) => {
+                tracing::warn!(target: "culebraluxe::engine", %error, "engine warm-up deferred")
+            }
         })
         .ok();
 

@@ -143,7 +143,10 @@ impl CommandDispatcher {
                 CommandOutcome::ValidationFailure,
                 request.aggregate_id.clone(),
                 "COMMAND_TYPE_UNKNOWN",
-                format!("No command handler is registered for {}.", request.command_type),
+                format!(
+                    "No command handler is registered for {}.",
+                    request.command_type
+                ),
             ));
         };
 
@@ -190,9 +193,7 @@ impl CommandDispatcher {
         let mut execution_context = context.clone();
         execution_context.causation_id = Some(envelope.command_id.clone());
 
-        let result = handler
-            .handle(&mut tx, &envelope, &execution_context)
-            .await;
+        let result = handler.handle(&mut tx, &envelope, &execution_context).await;
 
         let mut result = match result {
             Ok(result) => result,
