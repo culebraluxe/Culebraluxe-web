@@ -34,7 +34,7 @@ pub enum CommandDispatchError {
 trait DurableCommandHandler: Send + Sync {
     fn command_type(&self) -> &'static str;
     fn service_domain(&self) -> &'static str;
-    fn scheduling_payload(&self, request: &CommandRequest) -> Value;
+    fn scheduling_payload(&self, request: &CommandRequest) -> Option<Value>;
 
     async fn handle(
         &self,
@@ -100,7 +100,7 @@ impl CommandDispatcher {
         Some((
             handler.service_domain(),
             handler.command_type(),
-            handler.scheduling_payload(request),
+            handler.scheduling_payload(request)?,
         ))
     }
 
@@ -379,8 +379,12 @@ impl DurableCommandHandler for ContractExecuteCommand {
         "contract"
     }
 
-    fn scheduling_payload(&self, request: &CommandRequest) -> Value {
-        json!({ "contractId": request.aggregate_id })
+    fn scheduling_payload(&self, request: &CommandRequest) -> Option<Value> {
+        request
+            .aggregate_id
+            .as_ref()
+            .filter(|value| !value.trim().is_empty())
+            .map(|contract_id| json!({ "contractId": contract_id }))
     }
 
     async fn handle(
