@@ -6,6 +6,7 @@
 mod abstract_service;
 mod audit;
 mod authorization;
+mod command;
 mod context;
 mod events;
 mod execution;
@@ -23,6 +24,10 @@ pub use abstract_service::{
 pub use audit::{AuditPort, CapturingAuditPort, ServiceAuditEvent, ServiceOutcome};
 pub use authorization::{
     AuthorizationDecision, AuthorizationPort, AuthorizationRequest, DefaultAuthorizationPort,
+};
+pub use command::{
+    CommandDomainEvent, CommandEnvelope, CommandError, CommandOutcome, CommandReceipt,
+    CommandReceiptStatus, CommandRequest, CommandResult,
 };
 pub use context::{
     OperationKind, ServiceActor, ServiceActorKind, ServiceContext, ServicePrincipal,
