@@ -38,6 +38,7 @@ pub struct PublicListing {
     /// The view labels a card shows, spelled out — "Ocean", "Sunset" — because the eight booleans they come from are
     /// a storage detail and every surface wants the same words.
     pub views: Vec<String>,
+    pub water_access: bool,
     pub beach_access: bool,
     /// The hero: the marked photograph, or the first one. A card always has a picture.
     pub hero_media_id: Option<String>,

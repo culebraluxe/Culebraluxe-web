@@ -443,6 +443,7 @@ export type RustPublicListing = {
   lotSizeUnits: string | null
   /** The view labels, already spelled: "Ocean", "Sunset". */
   views: string[]
+  waterAccess: boolean
   beachAccess: boolean
   /** The marked hero, or the first photograph. A card always has a picture. */
   heroMediaId: string | null

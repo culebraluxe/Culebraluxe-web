@@ -32,6 +32,7 @@ struct ListingRow {
     has_mountain_view: bool,
     has_sunrise_view: bool,
     has_sunset_view: bool,
+    water_access: bool,
     beach_access: bool,
     hero_media_id: Option<String>,
     hero_alt: Option<String>,
@@ -73,6 +74,7 @@ impl ListingRow {
             lot_size: self.lot_size,
             lot_size_units: self.lot_size_units,
             views,
+            water_access: self.water_access,
             beach_access: self.beach_access,
             hero_media_id: self.hero_media_id,
             hero_alt: self.hero_alt,
@@ -179,6 +181,7 @@ impl PublicListingDao {
                 coalesce(p.has_mountain_view, false) as has_mountain_view,
                 coalesce(p.has_sunrise_view, false) as has_sunrise_view,
                 coalesce(p.has_sunset_view, false) as has_sunset_view,
+                coalesce(p.has_water_access, false) as water_access,
                 coalesce(p.has_beach_access, false) as beach_access,
                 hero.media_id as hero_media_id,
                 hero.alt_text as hero_alt
