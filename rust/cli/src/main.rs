@@ -52,18 +52,16 @@ fn print_usage() {
     eprintln!("  cargo run -p cli -- service dispatch <domain> <operation> [json-payload]");
     eprintln!("  cargo run -p cli -- service command '<CommandRequest json>'");
     eprintln!();
-    eprintln!("remote service commands require CULEBRA_CLI_AUTH_PROVIDER and CULEBRA_CLI_AUTH_SUB.");
+    eprintln!(
+        "remote service commands require CULEBRA_CLI_AUTH_PROVIDER and CULEBRA_CLI_AUTH_SUB."
+    );
 }
 
 async fn service_cli(args: &[String]) -> Result<(), Box<dyn Error>> {
     match args.first().map(String::as_str).unwrap_or_default() {
         "serve" => server::http_runtime::run_http_server().await,
-        "catalog" => {
-            print_remote_json(Method::GET, "/v1/services", None).await
-        }
-        "health" => {
-            print_remote_json(Method::GET, "/v1/services/runtime/health", None).await
-        }
+        "catalog" => print_remote_json(Method::GET, "/v1/services", None).await,
+        "health" => print_remote_json(Method::GET, "/v1/services/runtime/health", None).await,
         "status" | "drain" | "stop" => {
             let command = args[0].as_str();
             let domain = args
@@ -103,8 +101,9 @@ async fn service_cli(args: &[String]) -> Result<(), Box<dyn Error>> {
             let raw = args
                 .get(1)
                 .ok_or_else(|| io::Error::other("service command requires CommandRequest JSON"))?;
-            let command: CommandRequest = serde_json::from_str(raw)
-                .map_err(|error| io::Error::other(format!("invalid CommandRequest JSON: {error}")))?;
+            let command: CommandRequest = serde_json::from_str(raw).map_err(|error| {
+                io::Error::other(format!("invalid CommandRequest JSON: {error}"))
+            })?;
             let value = serde_json::to_value(command)?;
             print_remote_json(Method::POST, "/v1/commands/dispatch", Some(value)).await
         }
