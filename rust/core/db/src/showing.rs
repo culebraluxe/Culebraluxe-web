@@ -50,6 +50,10 @@ impl ShowingDao {
         Self { db }
     }
 
+    pub fn database(&self) -> Database {
+        self.db.clone()
+    }
+
     pub async fn get(&self, showing_id: &str) -> DbResult<Option<Showing>> {
         let row = sqlx::query_as::<_, ShowingRow>(
             r#"
@@ -60,7 +64,7 @@ impl ShowingDao {
             "#,
         )
         .bind(showing_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("showing.get", &error))?;
         row.map(map_showing).transpose()
@@ -119,7 +123,7 @@ impl ShowingDao {
         .bind(request.interest_score)
         .bind(request.feedback.as_deref())
         .bind(request.follow_up.as_deref())
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("showing.save_report", &error))?;
         row.map(map_showing).transpose()

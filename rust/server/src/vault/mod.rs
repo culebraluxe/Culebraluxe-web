@@ -1,6 +1,6 @@
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
-use db::{DbResult, VaultDao};
+use db::{Database, DbResult, VaultDao};
 use domain::{
     ContractIssuedLineage, CreateTransactionDocumentRequest, IssueDocumentRequest,
     IssuedDocumentForFormInstance, IssuedDocumentListItem, NextIssuedVersionRequest,
@@ -23,6 +23,9 @@ pub trait VaultArtifactPort: Send + Sync {
 
 #[async_trait]
 pub trait VaultRepository: Send {
+    fn database(&self) -> Option<Database> {
+        None
+    }
     async fn list_issued_documents(
         &mut self,
         actor: Option<&VaultActorScope>,
@@ -67,6 +70,9 @@ pub trait VaultRepository: Send {
 
 #[async_trait]
 impl VaultRepository for VaultDao {
+    fn database(&self) -> Option<Database> {
+        Some(VaultDao::database(self))
+    }
     async fn list_issued_documents(
         &mut self,
         actor: Option<&VaultActorScope>,
@@ -257,7 +263,7 @@ impl<R: VaultRepository> VaultService<R> {
             context,
         )
         .await?;
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             let document = self.repository.create_document(request).await?;
             self.runtime
                 .emit(
@@ -272,7 +278,7 @@ impl<R: VaultRepository> VaultService<R> {
                 )
                 .await?;
             Ok(document)
-        }
+        })
         .await;
         audit_result(&self.runtime, "vault", OP, context, decision, &result).await?;
         result
@@ -293,7 +299,7 @@ impl<R: VaultRepository> VaultService<R> {
             context,
         )
         .await?;
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             let command = self.repository.transition_state(request).await?;
             if command.outcome == VaultCommandOutcome::Success && !command.replayed {
                 self.runtime
@@ -309,7 +315,7 @@ impl<R: VaultRepository> VaultService<R> {
                     .await?;
             }
             Ok(command)
-        }
+        })
         .await;
         audit_result(&self.runtime, "vault", OP, context, decision, &result).await?;
         result
@@ -451,7 +457,7 @@ impl<R: VaultRepository> VaultService<R> {
             context,
         )
         .await?;
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             let bound = self
                 .repository
                 .bind_form_to_contract(form_instance_id, contract_id)
@@ -474,7 +480,7 @@ impl<R: VaultRepository> VaultService<R> {
                 )
                 .await?;
             Ok(())
-        }
+        })
         .await;
         audit_result(&self.runtime, "vault", OP, context, decision, &result).await?;
         result
@@ -520,7 +526,7 @@ impl<R: VaultRepository> VaultService<R> {
             context,
         )
         .await?;
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             let command = self
                 .repository
                 .issue_from_form_instance(request, self.artifacts.clone())
@@ -546,7 +552,7 @@ impl<R: VaultRepository> VaultService<R> {
                     .await?;
             }
             Ok(command)
-        }
+        })
         .await;
         audit_result(&self.runtime, "vault", OP, context, decision, &result).await?;
         result

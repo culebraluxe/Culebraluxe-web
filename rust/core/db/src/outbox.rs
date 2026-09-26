@@ -228,8 +228,12 @@ impl DomainEventOutboxDao {
         }
     }
 
-    pub async fn mark_delivered(&self, event_id: &str, subscriber_id: &str) -> DbResult<()> {
-        sqlx::query(
+    pub async fn mark_delivered(
+        &self,
+        delivery: &OutboxDelivery,
+        worker_id: &str,
+    ) -> DbResult<bool> {
+        let result = sqlx::query(
             r#"
             update mq_delivery
             set state='delivered',
@@ -239,26 +243,32 @@ impl DomainEventOutboxDao {
                 claimed_by=null,
                 last_error=null,
                 updated_at=now()
-            where message_id=$1::uuid
+            where id=$1::uuid
               and subscription_id=$2
+              and claimed_by=$3
+              and attempt_count=$4
               and state='claimed'
+              and lease_until > now()
             "#,
         )
-        .bind(event_id)
-        .bind(subscriber_id)
+        .bind(&delivery.delivery_id)
+        .bind(&delivery.subscription_id)
+        .bind(worker_id)
+        .bind(delivery.attempt_count)
         .execute(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("outbox.mark_delivered", &error))?;
-        Ok(())
+        Ok(result.rows_affected() == 1)
     }
 
     pub async fn mark_failed(
         &self,
         delivery: &OutboxDelivery,
+        worker_id: &str,
         error_message: &str,
-    ) -> DbResult<bool> {
+    ) -> DbResult<Option<bool>> {
         let dead = delivery.attempt_count >= delivery.max_attempts;
-        sqlx::query(
+        let result = sqlx::query(
             r#"
             update mq_delivery
             set state=$3,
@@ -271,20 +281,54 @@ impl DomainEventOutboxDao {
                     else now() + make_interval(secs => $5)
                 end,
                 updated_at=now()
-            where message_id=$1::uuid
+            where id=$1::uuid
               and subscription_id=$2
+              and claimed_by=$6
+              and attempt_count=$7
               and state='claimed'
+              and lease_until > now()
             "#,
         )
-        .bind(&delivery.event_id)
+        .bind(&delivery.delivery_id)
         .bind(&delivery.subscription_id)
         .bind(if dead { "dead" } else { "failed" })
         .bind(error_message.chars().take(2000).collect::<String>())
         .bind(delivery.retry_backoff_seconds)
+        .bind(worker_id)
+        .bind(delivery.attempt_count)
         .execute(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("outbox.mark_failed", &error))?;
-        Ok(dead)
+        Ok((result.rows_affected() == 1).then_some(dead))
+    }
+
+    pub async fn renew_lease(
+        &self,
+        delivery: &OutboxDelivery,
+        worker_id: &str,
+        lease_until: DateTime<Utc>,
+    ) -> DbResult<bool> {
+        let result = sqlx::query(
+            r#"
+            update mq_delivery
+            set lease_until=$5, updated_at=now()
+            where id=$1::uuid
+              and subscription_id=$2
+              and claimed_by=$3
+              and attempt_count=$4
+              and state='claimed'
+              and lease_until > now()
+            "#,
+        )
+        .bind(&delivery.delivery_id)
+        .bind(&delivery.subscription_id)
+        .bind(worker_id)
+        .bind(delivery.attempt_count)
+        .bind(lease_until)
+        .execute(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("outbox.renew_lease", &error))?;
+        Ok(result.rows_affected() == 1)
     }
 
     pub async fn record_proof_effect(&self, delivery: &OutboxDelivery) -> DbResult<()> {

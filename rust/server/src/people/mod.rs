@@ -1,6 +1,6 @@
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
-use db::{DbResult, PersonDao};
+use db::{Database, DbResult, PersonDao};
 use domain::{
     AttachPersonIdentityRequest, Person, PersonIdentity, PersonSearchResult, SearchPeopleRequest,
     SetPersonDisplayNameRequest, UpdatePersonAdminRequest,
@@ -11,6 +11,9 @@ use std::collections::BTreeMap;
 
 #[async_trait]
 pub trait PersonRepository: Send + Sync {
+    fn database(&self) -> Option<Database> {
+        None
+    }
     async fn get(&self, person_id: &str) -> DbResult<Option<Person>>;
     async fn find_by_identity(&self, identity: &PersonIdentity) -> DbResult<Option<Person>>;
     async fn set_display_name(
@@ -27,6 +30,9 @@ pub trait PersonRepository: Send + Sync {
 
 #[async_trait]
 impl PersonRepository for PersonDao {
+    fn database(&self) -> Option<Database> {
+        Some(PersonDao::database(self))
+    }
     async fn get(&self, person_id: &str) -> DbResult<Option<Person>> {
         PersonDao::get(self, person_id).await
     }
@@ -131,7 +137,7 @@ impl<R: PersonRepository> PersonService<R> {
         )
         .await?;
 
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             if request.display_name.trim().is_empty() {
                 return Err(CoreServiceError::business(
                     "PERSON_NAME_REQUIRED",
@@ -163,7 +169,7 @@ impl<R: PersonRepository> PersonService<R> {
                 .await?;
 
             Ok(person)
-        }
+        })
         .await;
 
         audit_result(&self.runtime, "person", OP, context, decision, &result).await?;
@@ -186,7 +192,7 @@ impl<R: PersonRepository> PersonService<R> {
         )
         .await?;
 
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             if request.display_name.trim().is_empty() {
                 return Err(CoreServiceError::business(
                     "PERSON_NAME_REQUIRED",
@@ -225,7 +231,7 @@ impl<R: PersonRepository> PersonService<R> {
                 )
                 .await?;
             Ok(person)
-        }
+        })
         .await;
 
         audit_result(&self.runtime, "person", OP, context, decision, &result).await?;
@@ -248,7 +254,7 @@ impl<R: PersonRepository> PersonService<R> {
         )
         .await?;
 
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             if let Some(owner) = self.repository.find_by_identity(&request.identity).await? {
                 if owner.id != request.person_id {
                     return Err(CoreServiceError::business(
@@ -280,7 +286,7 @@ impl<R: PersonRepository> PersonService<R> {
                 .await?;
 
             Ok(identity)
-        }
+        })
         .await;
 
         audit_result(&self.runtime, "person", OP, context, decision, &result).await?;

@@ -45,7 +45,12 @@ impl FirmDao {
         Self { db }
     }
 
+    pub fn database(&self) -> Database {
+        self.db.clone()
+    }
+
     pub async fn get(&self, firm_id: &str) -> DbResult<Option<Firm>> {
+        let mut connection = self.db.connection().await?;
         let row = sqlx::query_as::<_, FirmRow>(
             r#"
             select id::text as id, name, legal_name, kind, status
@@ -55,7 +60,7 @@ impl FirmDao {
             "#,
         )
         .bind(firm_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *connection)
         .await
         .map_err(|error| DbFailure::from_sqlx("firm.get", &error))?;
 
@@ -68,6 +73,7 @@ impl FirmDao {
             return Ok(None);
         }
 
+        let mut connection = self.db.connection().await?;
         let rows = sqlx::query_as::<_, FirmRow>(
             r#"
             select id::text as id, name, legal_name, kind, status
@@ -83,7 +89,7 @@ impl FirmDao {
             "#,
         )
         .bind(name)
-        .fetch_all(self.db.pool())
+        .fetch_all(&mut *connection)
         .await
         .map_err(|error| DbFailure::from_sqlx("firm.find_by_name", &error))?;
 
@@ -122,6 +128,7 @@ impl FirmDao {
             .or_else(|| existing.as_ref().map(|firm| firm.status.clone()))
             .unwrap_or_else(|| "active".into());
 
+        let mut connection = self.db.connection().await?;
         let row = if let Some(existing) = existing {
             sqlx::query_as::<_, FirmRow>(
                 r#"
@@ -140,7 +147,7 @@ impl FirmDao {
             .bind(legal_name)
             .bind(kind)
             .bind(status)
-            .fetch_one(self.db.pool())
+            .fetch_one(&mut *connection)
             .await
             .map_err(|error| DbFailure::from_sqlx("firm.upsert.update", &error))?
         } else {
@@ -155,7 +162,7 @@ impl FirmDao {
             .bind(legal_name)
             .bind(kind)
             .bind(status)
-            .fetch_one(self.db.pool())
+            .fetch_one(&mut *connection)
             .await
             .map_err(|error| DbFailure::from_sqlx("firm.upsert.insert", &error))?
         };

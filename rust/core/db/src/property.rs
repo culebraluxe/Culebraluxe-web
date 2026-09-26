@@ -531,13 +531,17 @@ impl PropertyDao {
         Self { db }
     }
 
+    pub fn database(&self) -> Database {
+        self.db.clone()
+    }
+
     pub async fn get(&self, property_id: &str) -> DbResult<Option<Property>> {
         let row = sqlx::query_as::<_, PropertyRow>(property_sql!(
             "select ",
             " from property p where p.id = $1::uuid limit 1"
         ))
         .bind(property_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("property.get", &error))?;
         Ok(row.map(map_property))
@@ -560,7 +564,7 @@ impl PropertyDao {
         .bind(request.municipality.as_deref())
         .bind(request.state_or_province.as_deref())
         .bind(request.postal_code.as_deref())
-        .fetch_all(self.db.pool())
+        .fetch_all(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("property.find_by_address", &error))?;
 
@@ -580,7 +584,7 @@ impl PropertyDao {
              where pp.person_id = $1::uuid and p.archived_at is null"
         ))
         .bind(person_id)
-        .fetch_all(self.db.pool())
+        .fetch_all(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("property.for_person.canonical", &error))?;
 
@@ -592,7 +596,7 @@ impl PropertyDao {
              where pi.person_id = $1::uuid and p.archived_at is null"
         ))
         .bind(person_id)
-        .fetch_all(self.db.pool())
+        .fetch_all(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("property.for_person.interest", &error))?;
 
@@ -603,7 +607,7 @@ impl PropertyDao {
              where p.seller_person_id = $1::uuid and p.archived_at is null"
         ))
         .bind(person_id)
-        .fetch_all(self.db.pool())
+        .fetch_all(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("property.for_person.seller", &error))?;
 
@@ -651,7 +655,7 @@ impl PropertyDao {
         ))
         .bind(&request.property_id)
         .bind(request.display_name.trim())
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("property.set_display_name", &error))?;
         Ok(row.map(map_property))
@@ -668,7 +672,7 @@ impl PropertyDao {
         ))
         .bind(&request.property_id)
         .bind(request.status.trim())
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("property.set_status", &error))?;
         Ok(row.map(map_property))
@@ -699,7 +703,7 @@ impl PropertyDao {
             "#,
         )
         .bind(search.as_deref())
-        .fetch_one(self.db.pool())
+        .fetch_one(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("property.admin.count", &error))?;
 
@@ -737,7 +741,7 @@ impl PropertyDao {
         .bind(search.as_deref())
         .bind(page_size)
         .bind(offset)
-        .fetch_all(self.db.pool())
+        .fetch_all(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("property.admin.page", &error))?;
 
@@ -880,7 +884,7 @@ impl PropertyDao {
             "#,
         )
         .bind(property_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("property.admin.get", &error))?;
 
@@ -935,7 +939,7 @@ impl PropertyDao {
                 .map(str::trim)
                 .filter(|value| !value.is_empty()),
         )
-        .execute(self.db.pool())
+        .execute(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("property.admin.create", &error))?;
 

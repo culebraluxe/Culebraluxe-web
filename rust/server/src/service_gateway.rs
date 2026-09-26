@@ -12,15 +12,23 @@ use service::{
     AbstractService, OperationKind, ServiceCapability, ServiceContext, ServiceDescriptor,
     ServiceDispatchError, ServiceEnvelope, ServiceExecutionPolicy,
 };
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 #[derive(Clone)]
 pub struct ServiceGateway {
-    registry: std::sync::Arc<ServiceRegistry>,
+    registry: Arc<ServiceRegistry>,
+    accepting: Arc<AtomicBool>,
 }
 
 impl ServiceGateway {
-    pub fn new(registry: std::sync::Arc<ServiceRegistry>) -> Self {
-        Self { registry }
+    pub fn new(registry: Arc<ServiceRegistry>) -> Self {
+        Self {
+            registry,
+            accepting: Arc::new(AtomicBool::new(true)),
+        }
     }
 
     pub fn descriptors(&self) -> Vec<ServiceDescriptor> {
@@ -32,7 +40,20 @@ impl ServiceGateway {
         envelope: &ServiceEnvelope,
         context: &ServiceContext,
     ) -> Result<Value, ServiceDispatchError> {
+        self.ensure_accepting()?;
         self.registry.dispatch(envelope, context).await
+    }
+
+    pub fn refuse_new_work(&self) {
+        self.accepting.store(false, Ordering::Release);
+    }
+
+    pub fn ensure_accepting(&self) -> Result<(), ServiceDispatchError> {
+        if self.accepting.load(Ordering::Acquire) {
+            Ok(())
+        } else {
+            Err(ServiceDispatchError::ServiceDraining("gateway".into()))
+        }
     }
 }
 

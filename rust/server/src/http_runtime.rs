@@ -1,8 +1,10 @@
 use crate::api::{build_application, error_capture, ApiConfig};
-use crate::ServiceHarness;
 use db::Database;
 use std::error::Error;
+use std::future::IntoFuture;
 use tokio::net::TcpListener;
+use tokio::time::{timeout, Duration};
+use tokio_util::sync::CancellationToken;
 
 pub async fn run_http_server() -> Result<(), Box<dyn Error>> {
     crate::observability::init_tracing();
@@ -48,14 +50,40 @@ pub async fn run_http_server() -> Result<(), Box<dyn Error>> {
         "culebraluxe rust api listening"
     );
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal(service_harness.clone()))
-        .await?;
+    let http_shutdown = CancellationToken::new();
+    let signal_token = http_shutdown.clone();
+    let signal_harness = service_harness.clone();
+    let signal_task = tokio::spawn(async move {
+        shutdown_signal().await;
+        // Stop new background claims first. Existing HTTP handlers keep their
+        // internal service access until Axum has drained them.
+        signal_harness.quiesce_mq();
+        signal_token.cancel();
+    });
+    let mut server = Box::pin(
+        axum::serve(listener, app)
+            .with_graceful_shutdown(http_shutdown.clone().cancelled_owned())
+            .into_future(),
+    );
+    let serve_result = tokio::select! {
+        result = &mut server => result.map_err(std::io::Error::other),
+        _ = http_shutdown.cancelled() => {
+            timeout(Duration::from_secs(30), &mut server)
+                .await
+                .map_err(|_| std::io::Error::other("HTTP drain exceeded its 30 second deadline"))?
+                .map_err(std::io::Error::other)
+        }
+    };
+    signal_task.abort();
+    let _ = signal_task.await;
 
-    service_harness
-        .wait_stopped()
+    let shutdown_result = service_harness
+        .shutdown()
         .await
-        .map_err(|error| std::io::Error::other(error.to_string()))?;
+        .map_err(|error| std::io::Error::other(error.to_string()));
+
+    serve_result?;
+    shutdown_result?;
 
     if let Some(keepalive) = keepalive {
         keepalive.abort();
@@ -65,7 +93,7 @@ pub async fn run_http_server() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn shutdown_signal(service_harness: ServiceHarness) {
+async fn shutdown_signal() {
     #[cfg(unix)]
     {
         use tokio::signal::unix::{signal, SignalKind};
@@ -88,5 +116,4 @@ async fn shutdown_signal(service_harness: ServiceHarness) {
     }
 
     tracing::info!(target: "culebraluxe::service::lifecycle", "service harness shutdown requested");
-    service_harness.begin_shutdown();
 }

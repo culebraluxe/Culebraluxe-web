@@ -1,6 +1,6 @@
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
-use db::{DbResult, FormDao};
+use db::{Database, DbResult, FormDao};
 use domain::{
     BindFormInstanceToDirectContextRequest, BindFormInstanceToShowingRequest,
     BindListingFormContextRequest, CreateFormInstanceRequest, DealFormFacts, DirectFormContext,
@@ -13,6 +13,9 @@ use std::collections::BTreeMap;
 
 #[async_trait]
 pub trait FormRepository: Send {
+    fn database(&self) -> Option<Database> {
+        None
+    }
     async fn create_instance(
         &mut self,
         request: &CreateFormInstanceRequest,
@@ -55,6 +58,9 @@ pub trait FormRepository: Send {
 
 #[async_trait]
 impl FormRepository for FormDao {
+    fn database(&self) -> Option<Database> {
+        Some(FormDao::database(self))
+    }
     async fn create_instance(
         &mut self,
         request: &CreateFormInstanceRequest,
@@ -162,7 +168,7 @@ impl<R: FormRepository> FormService<R> {
         )
         .await?;
 
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             if request.template_id.trim().is_empty() {
                 return Err(CoreServiceError::business(
                     "FORM_TEMPLATE_REQUIRED",
@@ -196,7 +202,7 @@ impl<R: FormRepository> FormService<R> {
                 )
                 .await?;
             Ok(instance)
-        }
+        })
         .await;
 
         audit_result(&self.runtime, "form", OP, context, decision, &result).await?;
@@ -242,7 +248,7 @@ impl<R: FormRepository> FormService<R> {
             context,
         )
         .await?;
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             let instance = self.repository.update_instance(request).await?;
             if let Some(instance) = &instance {
                 self.runtime
@@ -258,7 +264,7 @@ impl<R: FormRepository> FormService<R> {
                     .await?;
             }
             Ok(instance)
-        }
+        })
         .await;
         audit_result(&self.runtime, "form", OP, context, decision, &result).await?;
         result
@@ -515,7 +521,7 @@ impl<R: FormRepository> FormService<R> {
         )
         .await?;
 
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             let bound = match bind {
                 FormBind::Direct(request) => self.repository.bind_direct_context(request).await?,
                 FormBind::Listing(request) => self.repository.bind_listing_context(request).await?,
@@ -531,7 +537,7 @@ impl<R: FormRepository> FormService<R> {
                 .emit(event_type, Some(aggregate_id), payload, context)
                 .await?;
             Ok(())
-        }
+        })
         .await;
 
         audit_result(&self.runtime, "form", operation, context, decision, &result).await?;

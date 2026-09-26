@@ -43,6 +43,8 @@ pub struct ServiceRegistry {
     root_cancel: CancellationToken,
     entries: Arc<HashMap<String, RegisteredService>>,
     observer: ServiceRuntime,
+    startup_order: Arc<Vec<String>>,
+    shutdown_order: Arc<Vec<String>>,
 }
 
 impl ServiceRegistry {
@@ -51,6 +53,12 @@ impl ServiceRegistry {
         services: Vec<Arc<dyn AbstractService>>,
         infrastructure: ServiceInfrastructure,
     ) -> Result<Self, ServiceDispatchError> {
+        let descriptors = services
+            .iter()
+            .map(|service| service.descriptor())
+            .collect::<Vec<_>>();
+        let startup_order = validate_service_graph(&descriptors)?;
+        let shutdown_order = startup_order.iter().rev().cloned().collect::<Vec<_>>();
         let mut entries = HashMap::new();
 
         for service in services {
@@ -82,6 +90,8 @@ impl ServiceRegistry {
             root_cancel,
             entries: Arc::new(entries),
             observer: ServiceRuntime::new(infrastructure),
+            startup_order: Arc::new(startup_order),
+            shutdown_order: Arc::new(shutdown_order),
         })
     }
 
@@ -144,7 +154,8 @@ impl ServiceRegistry {
     }
 
     pub async fn start(&self) -> Result<(), ServiceDispatchError> {
-        for entry in self.entries.values() {
+        for domain in self.startup_order.iter() {
+            let entry = &self.entries[domain];
             entry.mailbox.wait_running().await?;
         }
         Ok(())
@@ -278,34 +289,114 @@ impl ServiceRegistry {
     }
 
     pub async fn drain(&self) -> Result<(), ServiceDispatchError> {
-        for entry in self.entries.values() {
-            entry.mailbox.refuse_new_work();
+        let mut first_error = None;
+        for domain in self.shutdown_order.iter() {
+            let mailbox = &self.entries[domain].mailbox;
+            mailbox.refuse_new_work();
+            if let Err(error) = mailbox.drain().await {
+                first_error.get_or_insert(error);
+            }
         }
-        for entry in self.entries.values() {
-            entry.mailbox.drain().await?;
-        }
-        Ok(())
+        first_error.map_or(Ok(()), Err)
     }
 
     pub fn cancel(&self) {
-        for entry in self.entries.values() {
-            entry.mailbox.cancel();
+        for domain in self.shutdown_order.iter() {
+            self.entries[domain].mailbox.cancel();
+        }
+        self.root_cancel.cancel();
+    }
+
+    pub fn force_stop(&self) {
+        for domain in self.shutdown_order.iter() {
+            self.entries[domain].mailbox.force_stop();
         }
         self.root_cancel.cancel();
     }
 
     pub async fn wait_stopped(&self) -> Result<(), ServiceDispatchError> {
-        for entry in self.entries.values() {
-            entry.mailbox.wait_stopped().await?;
+        let mut first_error = None;
+        for domain in self.shutdown_order.iter() {
+            if let Err(error) = self.entries[domain].mailbox.wait_stopped().await {
+                first_error.get_or_insert(error);
+            }
         }
-        Ok(())
+        first_error.map_or(Ok(()), Err)
     }
 
     pub async fn shutdown(&self) -> Result<(), ServiceDispatchError> {
-        self.drain().await?;
+        let drain_result = self.drain().await;
         self.cancel();
-        self.wait_stopped().await
+        let stopped_result = self.wait_stopped().await;
+        drain_result.and(stopped_result)
     }
+}
+
+fn validate_service_graph(
+    descriptors: &[ServiceDescriptor],
+) -> Result<Vec<String>, ServiceDispatchError> {
+    let mut graph = HashMap::<String, Vec<String>>::new();
+    for descriptor in descriptors {
+        if graph
+            .insert(descriptor.domain.clone(), descriptor.dependencies.clone())
+            .is_some()
+        {
+            return Err(ServiceDispatchError::operation(
+                "SERVICE_ALREADY_REGISTERED",
+                format!(
+                    "Service already registered for domain: {}",
+                    descriptor.domain
+                ),
+                false,
+            ));
+        }
+    }
+    for (domain, dependencies) in &graph {
+        for dependency in dependencies {
+            if !graph.contains_key(dependency) {
+                return Err(ServiceDispatchError::operation(
+                    "SERVICE_DEPENDENCY_MISSING",
+                    format!("Service {domain} requires missing dependency {dependency}."),
+                    false,
+                ));
+            }
+        }
+    }
+
+    fn visit(
+        domain: &str,
+        graph: &HashMap<String, Vec<String>>,
+        state: &mut HashMap<String, u8>,
+        order: &mut Vec<String>,
+    ) -> Result<(), ServiceDispatchError> {
+        match state.get(domain).copied() {
+            Some(2) => return Ok(()),
+            Some(1) => {
+                return Err(ServiceDispatchError::operation(
+                    "SERVICE_DEPENDENCY_CYCLE",
+                    format!("Service dependency cycle includes {domain}."),
+                    false,
+                ));
+            }
+            _ => {}
+        }
+        state.insert(domain.to_owned(), 1);
+        for dependency in &graph[domain] {
+            visit(dependency, graph, state, order)?;
+        }
+        state.insert(domain.to_owned(), 2);
+        order.push(domain.to_owned());
+        Ok(())
+    }
+
+    let mut domains = graph.keys().cloned().collect::<Vec<_>>();
+    domains.sort();
+    let mut state = HashMap::new();
+    let mut order = Vec::with_capacity(domains.len());
+    for domain in domains {
+        visit(&domain, &graph, &mut state, &mut order)?;
+    }
+    Ok(order)
 }
 
 #[async_trait]
@@ -490,7 +581,60 @@ impl ServiceKernel {
         self.registry.cancel();
     }
 
+    pub fn force_stop(&self) {
+        self.registry.force_stop();
+    }
+
     pub async fn wait_stopped(&self) -> Result<(), ServiceDispatchError> {
         self.registry.wait_stopped().await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn descriptor(domain: &str, dependencies: &[&str]) -> ServiceDescriptor {
+        ServiceDescriptor {
+            domain: domain.into(),
+            version: "1".into(),
+            description: String::new(),
+            capabilities: Vec::new(),
+            dependencies: dependencies.iter().map(|value| (*value).into()).collect(),
+            invariants: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn dependency_order_starts_dependencies_before_dependents() {
+        let order = validate_service_graph(&[
+            descriptor("contract", &["person", "property"]),
+            descriptor("property", &[]),
+            descriptor("person", &[]),
+        ])
+        .unwrap();
+        let contract = order.iter().position(|value| value == "contract").unwrap();
+        assert!(order.iter().position(|value| value == "person").unwrap() < contract);
+        assert!(order.iter().position(|value| value == "property").unwrap() < contract);
+    }
+
+    #[test]
+    fn dependency_graph_rejects_missing_services() {
+        let error = validate_service_graph(&[descriptor("contract", &["person"])]).unwrap_err();
+        assert_eq!(error.code(), "SERVICE_DEPENDENCY_MISSING");
+    }
+
+    #[test]
+    fn dependency_graph_rejects_cycles() {
+        let error = validate_service_graph(&[descriptor("a", &["b"]), descriptor("b", &["a"])])
+            .unwrap_err();
+        assert_eq!(error.code(), "SERVICE_DEPENDENCY_CYCLE");
+    }
+
+    #[test]
+    fn dependency_graph_rejects_duplicate_domains_before_spawning() {
+        let error =
+            validate_service_graph(&[descriptor("a", &[]), descriptor("a", &[])]).unwrap_err();
+        assert_eq!(error.code(), "SERVICE_ALREADY_REGISTERED");
     }
 }

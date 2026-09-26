@@ -10,6 +10,8 @@ use service::{
     ServiceDescriptor, ServiceDispatchError, ServiceEnvelope, ServiceHealth, ServiceInfrastructure,
 };
 use std::sync::Arc;
+use tokio::sync::OnceCell;
+use tokio::time::{timeout, Duration};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -24,6 +26,7 @@ pub struct ServiceHarness {
     gateway: ServiceGateway,
     commands: CommandDispatcher,
     mq: MqRuntime,
+    shutdown: Arc<OnceCell<Result<(), ServiceDispatchError>>>,
 }
 
 impl ServiceHarness {
@@ -77,17 +80,13 @@ impl ServiceHarness {
         } else {
             Vec::new()
         };
-        let mq = MqRuntime::new(
-            outbox,
-            subscribers,
-            mq_infrastructure,
-            kernel.child_token(),
-        )?;
+        let mq = MqRuntime::new(outbox, subscribers, mq_infrastructure, kernel.child_token())?;
         Ok(Self {
             kernel,
             gateway,
             commands,
             mq,
+            shutdown: Arc::new(OnceCell::new()),
         })
     }
 
@@ -140,6 +139,7 @@ impl ServiceHarness {
         request: &CommandRequest,
         context: &ServiceContext,
     ) -> Result<CommandResult, CommandDispatchError> {
+        self.gateway.ensure_accepting()?;
         if let Some((domain, operation, payload)) = self.commands.scheduling_route(request) {
             let dispatcher = self.commands.clone();
             let request = request.clone();
@@ -165,17 +165,44 @@ impl ServiceHarness {
     }
 
     pub async fn shutdown(&self) -> Result<(), ServiceDispatchError> {
-        self.kernel.shutdown().await?;
-        self.mq.wait_stopped().await
+        self.shutdown
+            .get_or_init(|| async { self.shutdown_inner().await })
+            .await
+            .clone()
     }
 
     pub fn begin_shutdown(&self) {
-        self.kernel.begin_shutdown();
+        self.gateway.refuse_new_work();
+        self.mq.begin_shutdown();
+    }
+
+    pub fn quiesce_mq(&self) {
         self.mq.begin_shutdown();
     }
 
     pub async fn wait_stopped(&self) -> Result<(), ServiceDispatchError> {
-        self.kernel.wait_stopped().await?;
-        self.mq.wait_stopped().await
+        self.shutdown().await
+    }
+
+    async fn shutdown_inner(&self) -> Result<(), ServiceDispatchError> {
+        self.begin_shutdown();
+        let graceful = async {
+            // Workers already holding deliveries may still call services, so
+            // finish MQ before closing the internal service mailboxes.
+            self.mq.wait_stopped().await?;
+            self.kernel.shutdown().await
+        };
+        match timeout(Duration::from_secs(30), graceful).await {
+            Ok(result) => result,
+            Err(_) => {
+                self.mq.force_stop();
+                self.kernel.force_stop();
+                Err(ServiceDispatchError::infrastructure(
+                    "SERVICE_SHUTDOWN_TIMEOUT",
+                    "Service harness exceeded its 30 second drain deadline; remaining work was aborted.",
+                    false,
+                ))
+            }
+        }
     }
 }

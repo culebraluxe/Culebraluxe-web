@@ -1,9 +1,12 @@
 use async_trait::async_trait;
-use db::{DbResult, ProjectDao, ProjectTxDao};
+use db::{Database, DbResult, ProjectDao, ProjectTxDao};
 use domain::{CompleteProjectRequest, CreateProjectRequest, Project, UpdateProjectRequest};
 
 #[async_trait]
 pub trait ProjectRepository: Send {
+    fn database(&self) -> Option<Database> {
+        None
+    }
     async fn get(&mut self, id: &str) -> DbResult<Option<Project>>;
     async fn list(&mut self) -> DbResult<Vec<Project>>;
     async fn create(&mut self, request: &CreateProjectRequest) -> DbResult<Project>;
@@ -13,6 +16,9 @@ pub trait ProjectRepository: Send {
 
 #[async_trait]
 impl ProjectRepository for ProjectDao {
+    fn database(&self) -> Option<Database> {
+        Some(ProjectDao::database(self))
+    }
     async fn get(&mut self, id: &str) -> DbResult<Option<Project>> {
         // A read, so a transient cold-connect is worth another attempt. Writes below are not wrapped: `create` has no
         // claim guarding it, and retrying an unguarded insert is how one project becomes two.

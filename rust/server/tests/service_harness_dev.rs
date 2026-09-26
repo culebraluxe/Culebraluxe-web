@@ -40,7 +40,11 @@ async fn external_harness_boot_dispatch_drain_and_shutdown_are_real() {
     let db = Database::connect_from_env()
         .await
         .expect("connect DEV database");
-    assert_eq!(db.target(), DbTarget::Dev, "external harness proof is DEV-only");
+    assert_eq!(
+        db.target(),
+        DbTarget::Dev,
+        "external harness proof is DEV-only"
+    );
 
     let harness = ServiceHarness::isolated(db, infrastructure()).unwrap();
     harness.start().await.unwrap();
@@ -52,8 +56,12 @@ async fn external_harness_boot_dispatch_drain_and_shutdown_are_real() {
     assert!(health.mq.accepting);
 
     let descriptors = harness.descriptors();
-    assert!(descriptors.iter().any(|descriptor| descriptor.domain == "person"));
-    assert!(descriptors.iter().any(|descriptor| descriptor.domain == "contract"));
+    assert!(descriptors
+        .iter()
+        .any(|descriptor| descriptor.domain == "person"));
+    assert!(descriptors
+        .iter()
+        .any(|descriptor| descriptor.domain == "contract"));
 
     let value = harness
         .dispatch(
@@ -85,7 +93,10 @@ async fn external_harness_boot_dispatch_drain_and_shutdown_are_real() {
             &context(),
         )
         .await;
-    assert!(matches!(refused, Err(ServiceDispatchError::ServiceDraining(_))));
+    assert!(matches!(
+        refused,
+        Err(ServiceDispatchError::ServiceDraining(_))
+    ));
 
     harness.begin_shutdown();
     harness.wait_stopped().await.unwrap();

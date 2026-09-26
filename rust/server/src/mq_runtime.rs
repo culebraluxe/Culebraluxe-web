@@ -14,7 +14,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    sync::{watch, Semaphore},
+    sync::{watch, Mutex, Semaphore},
     task::JoinSet,
     time::{interval, MissedTickBehavior},
 };
@@ -23,6 +23,21 @@ use uuid::Uuid;
 
 const MQ_PROOF_SUBSCRIPTION_ID: &str = "mq-proof";
 const MQ_PROOF_ROUTING_KEY: &str = "mq.proof";
+
+struct InFlightGuard(Arc<AtomicUsize>);
+
+impl InFlightGuard {
+    fn enter(counter: Arc<AtomicUsize>) -> Self {
+        counter.fetch_add(1, Ordering::Relaxed);
+        Self(counter)
+    }
+}
+
+impl Drop for InFlightGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
+    }
+}
 
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("{message}")]
@@ -127,11 +142,13 @@ pub struct MqRuntime {
     registry: MqSubscriberRegistry,
     observer: ServiceRuntime,
     cancel: CancellationToken,
+    abort: CancellationToken,
     tracker: TaskTracker,
     status_tx: watch::Sender<ServiceStatus>,
     status: watch::Receiver<ServiceStatus>,
     started: Arc<AtomicBool>,
     in_flight: Arc<AtomicUsize>,
+    dispatch_lock: Arc<Mutex<()>>,
     config: MqRuntimeConfig,
 }
 
@@ -177,16 +194,25 @@ impl MqRuntime {
             registry,
             observer: ServiceRuntime::new(infrastructure),
             cancel: parent_cancel.child_token(),
+            abort: CancellationToken::new(),
             tracker: TaskTracker::new(),
             status_tx,
             status,
             started: Arc::new(AtomicBool::new(false)),
             in_flight: Arc::new(AtomicUsize::new(0)),
+            dispatch_lock: Arc::new(Mutex::new(())),
             config,
         })
     }
 
     pub async fn start(&self) -> Result<(), ServiceDispatchError> {
+        if self.cancel.is_cancelled() {
+            return Err(ServiceDispatchError::infrastructure(
+                "MQ_RUNTIME_STOPPED",
+                "MQ runtime cannot start after shutdown has begun.",
+                false,
+            ));
+        }
         if self.started.swap(true, Ordering::AcqRel) {
             return self.wait_running().await;
         }
@@ -211,8 +237,15 @@ impl MqRuntime {
 
         let worker = self.clone();
         let supervisor = self.clone();
+        let abort = self.abort.clone();
         self.tracker.spawn(async move {
-            let outcome = tokio::spawn(async move { worker.run_loop().await }).await;
+            let outcome = tokio::spawn(async move {
+                tokio::select! {
+                    result = worker.run_loop() => result,
+                    _ = abort.cancelled() => Ok(()),
+                }
+            })
+            .await;
             match outcome {
                 Ok(Ok(())) => {
                     let _ = supervisor.status_tx.send(ServiceStatus::Stopped);
@@ -248,6 +281,14 @@ impl MqRuntime {
 
     pub fn begin_shutdown(&self) {
         self.cancel.cancel();
+        if !self.started.load(Ordering::Acquire) {
+            let _ = self.status_tx.send(ServiceStatus::Stopped);
+        }
+    }
+
+    pub fn force_stop(&self) {
+        self.begin_shutdown();
+        self.abort.cancel();
     }
 
     pub async fn shutdown(&self) -> Result<(), ServiceDispatchError> {
@@ -340,6 +381,10 @@ impl MqRuntime {
     }
 
     pub async fn dispatch_once(&self) -> Result<(), ServiceDispatchError> {
+        let _dispatch = self.dispatch_lock.lock().await;
+        if self.cancel.is_cancelled() {
+            return Ok(());
+        }
         let lease = ChronoDuration::from_std(self.config.lease_duration).map_err(|error| {
             ServiceDispatchError::infrastructure(
                 "MQ_LEASE_DURATION_INVALID",
@@ -353,7 +398,9 @@ impl MqRuntime {
             .claim_batch(
                 &self.config.worker_id,
                 &subscriber_ids,
-                self.config.claim_limit,
+                self.config
+                    .claim_limit
+                    .min(self.config.max_concurrency as i64),
                 Utc::now() + lease,
             )
             .await
@@ -376,10 +423,8 @@ impl MqRuntime {
             let runtime = self.clone();
             jobs.spawn(async move {
                 let _permit = permit;
-                runtime.in_flight.fetch_add(1, Ordering::Relaxed);
-                let result = runtime.process_delivery(delivery).await;
-                runtime.in_flight.fetch_sub(1, Ordering::Relaxed);
-                result
+                let _in_flight = InFlightGuard::enter(runtime.in_flight.clone());
+                runtime.process_delivery(delivery).await
             });
         }
 
@@ -441,7 +486,37 @@ impl MqRuntime {
             return Ok(());
         }
 
-        if let Err(error) = subscriber.handle(&delivery).await {
+        let mut handling = Box::pin(subscriber.handle(&delivery));
+        let heartbeat_period = (self.config.lease_duration / 3).max(Duration::from_millis(10));
+        let mut heartbeat = interval(heartbeat_period);
+        heartbeat.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        heartbeat.tick().await;
+        let handled = loop {
+            tokio::select! {
+                result = &mut handling => break result,
+                _ = heartbeat.tick() => {
+                    let lease = ChronoDuration::from_std(self.config.lease_duration).map_err(|error| {
+                        ServiceDispatchError::infrastructure("MQ_LEASE_DURATION_INVALID", error.to_string(), false)
+                    })?;
+                    let renewed = self.outbox
+                        .renew_lease(&delivery, &self.config.worker_id, Utc::now() + lease)
+                        .await
+                        .map_err(|error| db_error("MQ_LEASE_RENEW_FAILED", error))?;
+                    if !renewed {
+                        tracing::warn!(
+                            target: "culebraluxe::mq",
+                            worker_id = %self.config.worker_id,
+                            delivery_id = %delivery.delivery_id,
+                            attempt = delivery.attempt_count,
+                            "mq delivery lease ownership was lost during processing"
+                        );
+                        return Ok(());
+                    }
+                }
+            }
+        };
+
+        if let Err(error) = handled {
             let dispatch = ServiceDispatchError::infrastructure(
                 "MQ_SUBSCRIBER_FAILED",
                 format!("Subscriber {} failed: {error}", subscriber.id()),
@@ -451,10 +526,21 @@ impl MqRuntime {
             return Ok(());
         }
 
-        self.outbox
-            .mark_delivered(&delivery.event_id, &delivery.subscription_id)
+        let acknowledged = self
+            .outbox
+            .mark_delivered(&delivery, &self.config.worker_id)
             .await
             .map_err(|error| db_error("MQ_ACK_FAILED", error))?;
+        if !acknowledged {
+            tracing::warn!(
+                target: "culebraluxe::mq",
+                worker_id = %self.config.worker_id,
+                delivery_id = %delivery.delivery_id,
+                attempt = delivery.attempt_count,
+                "stale mq worker could not acknowledge delivery"
+            );
+            return Ok(());
+        }
 
         tracing::info!(
             target: "culebraluxe::mq",
@@ -473,11 +559,21 @@ impl MqRuntime {
         delivery: &OutboxDelivery,
         error: &ServiceDispatchError,
     ) -> Result<(), ServiceDispatchError> {
-        let dead = self
+        let Some(dead) = self
             .outbox
-            .mark_failed(delivery, &error.to_string())
+            .mark_failed(delivery, &self.config.worker_id, &error.to_string())
             .await
-            .map_err(|db| db_error("MQ_FAILURE_PERSIST_FAILED", db))?;
+            .map_err(|db| db_error("MQ_FAILURE_PERSIST_FAILED", db))?
+        else {
+            tracing::warn!(
+                target: "culebraluxe::mq",
+                worker_id = %self.config.worker_id,
+                delivery_id = %delivery.delivery_id,
+                attempt = delivery.attempt_count,
+                "stale mq worker could not record delivery failure"
+            );
+            return Ok(());
+        };
         let context = delivery_context(delivery);
         let observed = ServiceDispatchError::infrastructure(
             error.code(),

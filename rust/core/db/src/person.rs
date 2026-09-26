@@ -74,6 +74,10 @@ impl PersonDao {
         Self { db }
     }
 
+    pub fn database(&self) -> Database {
+        self.db.clone()
+    }
+
     pub async fn get(&self, person_id: &str) -> DbResult<Option<Person>> {
         let row = sqlx::query_as::<_, PersonRow>(
             r#"
@@ -84,7 +88,7 @@ impl PersonDao {
             "#,
         )
         .bind(person_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("person.get", &error))?;
         Ok(row.map(map_person))
@@ -125,7 +129,7 @@ impl PersonDao {
         .bind(kind)
         .bind(&value)
         .bind(source_system)
-        .fetch_all(self.db.pool())
+        .fetch_all(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("person.find_by_identity", &error))?;
 
@@ -153,7 +157,7 @@ impl PersonDao {
         )
         .bind(&request.person_id)
         .bind(request.display_name.trim())
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("person.set_display_name", &error))?;
 
@@ -180,7 +184,7 @@ impl PersonDao {
         .bind(request.display_name.trim())
         .bind(request.status.trim())
         .bind(request.company.as_deref())
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("person.update_admin", &error))?;
 
@@ -223,7 +227,7 @@ impl PersonDao {
         .bind(kind)
         .bind(&normalized)
         .bind(source_system)
-        .fetch_all(self.db.pool())
+        .fetch_all(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("person.attach_identity.lookup", &error))?;
 
@@ -260,7 +264,7 @@ impl PersonDao {
         .bind(&normalized)
         .bind(source_system)
         .bind(identity.is_primary)
-        .fetch_one(self.db.pool())
+        .fetch_one(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("person.attach_identity", &error))?;
 
@@ -317,7 +321,7 @@ impl PersonDao {
         )
         .bind(pattern)
         .bind(limit)
-        .fetch_all(self.db.pool())
+        .fetch_all(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("person.search", &error))?;
 

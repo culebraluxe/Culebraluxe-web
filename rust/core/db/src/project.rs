@@ -73,6 +73,10 @@ impl ProjectDao {
         Self { db }
     }
 
+    pub fn database(&self) -> Database {
+        self.db.clone()
+    }
+
     pub async fn get(&self, id: &str) -> DbResult<Option<Project>> {
         let row = sqlx::query_as::<_, ProjectRow>(
             r#"
@@ -86,7 +90,7 @@ impl ProjectDao {
             "#,
         )
         .bind(id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("project.get", &error))?;
 
@@ -104,7 +108,7 @@ impl ProjectDao {
             order by created_at desc, id
             "#,
         )
-        .fetch_all(self.db.pool())
+        .fetch_all(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("project.list", &error))?;
 
@@ -145,7 +149,7 @@ impl ProjectDao {
         .bind(&request.person_id)
         .bind(&request.property_id)
         .bind(&request.contract_id)
-        .fetch_one(self.db.pool())
+        .fetch_one(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("project.create", &error))?;
 
@@ -197,7 +201,7 @@ impl ProjectDao {
         .bind(&request.person_id)
         .bind(&request.property_id)
         .bind(&request.contract_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("project.update", &error))?;
 
@@ -217,7 +221,7 @@ impl ProjectDao {
             "#,
         )
         .bind(&request.id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("project.complete", &error))?;
 

@@ -1,7 +1,7 @@
 use crate::lookup::CoreEntityLookup;
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
-use db::{DbResult, ShowingDao};
+use db::{Database, DbResult, ShowingDao};
 use domain::{SaveShowingReportRequest, Showing};
 use serde_json::json;
 use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
@@ -10,6 +10,9 @@ use std::sync::Arc;
 
 #[async_trait]
 pub trait ShowingRepository: Send {
+    fn database(&self) -> Option<Database> {
+        None
+    }
     async fn get(&mut self, showing_id: &str) -> DbResult<Option<Showing>>;
     async fn save_report(
         &mut self,
@@ -19,6 +22,9 @@ pub trait ShowingRepository: Send {
 
 #[async_trait]
 impl ShowingRepository for ShowingDao {
+    fn database(&self) -> Option<Database> {
+        Some(ShowingDao::database(self))
+    }
     async fn get(&mut self, showing_id: &str) -> DbResult<Option<Showing>> {
         ShowingDao::get(self, showing_id).await
     }
@@ -86,7 +92,7 @@ impl<R: ShowingRepository> ShowingService<R> {
         )
         .await?;
 
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             if request.showing_id.trim().is_empty() {
                 return Err(CoreServiceError::business(
                     "SHOWING_ID_REQUIRED",
@@ -166,7 +172,7 @@ impl<R: ShowingRepository> ShowingService<R> {
                 .await?;
 
             Ok(showing)
-        }
+        })
         .await;
 
         audit_result(&self.runtime, "showing", OP, context, decision, &result).await?;

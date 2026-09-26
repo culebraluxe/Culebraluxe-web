@@ -539,6 +539,10 @@ impl VaultDao {
         Self { db }
     }
 
+    pub fn database(&self) -> Database {
+        self.db.clone()
+    }
+
     pub async fn list_issued_documents(
         &self,
         actor: Option<&VaultActorScope>,
@@ -583,7 +587,7 @@ impl VaultDao {
         )
         .bind(external)
         .bind(person_id)
-        .fetch_all(self.db.pool())
+        .fetch_all(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("vault.list_issued_documents", &error))?;
 
@@ -633,7 +637,7 @@ impl VaultDao {
             "#,
         )
         .bind(document_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("vault.get_document", &error))?;
         row.map(map_document).transpose()
@@ -658,7 +662,7 @@ impl VaultDao {
             "#,
         )
         .bind(deal_id)
-        .fetch_all(self.db.pool())
+        .fetch_all(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("vault.list_by_deal", &error))?;
         rows.into_iter().map(map_document).collect()
@@ -726,7 +730,7 @@ impl VaultDao {
         .bind(evidence.map(|value| value.source_snapshot.clone()))
         .bind(evidence.map(|value| value.issued_version))
         .bind(evidence.map(|value| value.form_instance_id.as_str()))
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("vault.create_document", &error))?;
 
@@ -757,7 +761,7 @@ impl VaultDao {
         .bind(request.deal_id.as_deref())
         .bind(request.source_system.as_deref())
         .bind(request.source_external_id.as_deref())
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("vault.create_document.replay", &error))?
         .ok_or_else(|| {
@@ -929,7 +933,7 @@ impl VaultDao {
             "#,
         )
         .bind(form_instance_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("vault.issued_for_form_instance", &error))?;
         Ok(row.map(|row| IssuedDocumentForFormInstance {
@@ -958,7 +962,7 @@ impl VaultDao {
             )
             .bind(contract_id)
             .bind(request.template_id.trim())
-            .fetch_optional(self.db.pool())
+            .fetch_optional(&mut *self.db.connection().await?)
             .await
             .map_err(|error| DbFailure::from_sqlx("vault.next_version.contract", &error))?
         } else {
@@ -977,7 +981,7 @@ impl VaultDao {
             )
             .bind(request.deal_id.as_deref())
             .bind(request.template_id.trim())
-            .fetch_optional(self.db.pool())
+            .fetch_optional(&mut *self.db.connection().await?)
             .await
             .map_err(|error| DbFailure::from_sqlx("vault.next_version.legacy", &error))?
         };
@@ -994,7 +998,7 @@ impl VaultDao {
             "#,
         )
         .bind(media_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("vault.media_bytes", &error))?;
         Ok(row.map(|row| VaultMediaBytes {
@@ -1045,7 +1049,7 @@ impl VaultDao {
             "#,
         )
         .bind(media_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("vault.public_listing_document_bytes", &error))?;
         Ok(row.map(|row| VaultMediaBytes {
@@ -1065,7 +1069,7 @@ impl VaultDao {
             "#,
         )
         .bind(form_instance_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map(|value| value.flatten())
         .map_err(|error| DbFailure::from_sqlx("vault.form_contract_id", &error))
@@ -1087,7 +1091,7 @@ impl VaultDao {
         )
         .bind(form_instance_id)
         .bind(contract_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("vault.bind_form_to_contract", &error))?;
         Ok(id.is_some())
@@ -1112,7 +1116,7 @@ impl VaultDao {
         )
         .bind(contract_id)
         .bind(template_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("vault.prior_contract_document", &error))?;
 

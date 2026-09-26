@@ -1,7 +1,8 @@
 use crate::security::{CasbinAuthorizationPort, DurableSecurityAuditPort};
+use crate::service_events::TransactionalDomainEventPort;
 use crate::service_observability::{DurableServiceAlertPort, DurableServiceErrorSink};
 use db::{AppErrorDao, Database, SecurityAuditDao};
-use service::{CapturingDomainEventPort, ServiceInfrastructure};
+use service::ServiceInfrastructure;
 use std::sync::Arc;
 
 pub async fn production_service_infrastructure(
@@ -13,7 +14,7 @@ pub async fn production_service_infrastructure(
         Arc::new(DurableSecurityAuditPort::new(SecurityAuditDao::new(
             db.clone(),
         ))),
-        Arc::new(CapturingDomainEventPort::default()),
+        Arc::new(TransactionalDomainEventPort::new(db.clone())),
     )
     .with_error_sink(Arc::new(DurableServiceErrorSink::new(app_error.clone())))
     .with_alert_port(Arc::new(DurableServiceAlertPort::new(app_error))))
