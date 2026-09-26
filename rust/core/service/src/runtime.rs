@@ -1,7 +1,9 @@
 use crate::{
     AuditPort, AuthorizationDecision, AuthorizationPort, AuthorizationRequest, DomainEventPort,
-    OperationKind, ServiceAuditEvent, ServiceContext, ServiceDomainEvent, ServiceEnvelope,
-    ServiceOutcome, ServiceRouter,
+    OperationKind, ServiceAlert, ServiceAlertPort, ServiceAuditEvent, ServiceContext,
+    ServiceDispatchError, ServiceDomainEvent, ServiceEnvelope, ServiceErrorRecord,
+    ServiceErrorSink, ServiceFailureClass, ServiceFailureSeverity, ServiceOutcome, ServiceRouter,
+    TracingServiceAlertPort, TracingServiceErrorSink,
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -47,6 +49,8 @@ pub struct ServiceInfrastructure {
     pub authorization: Arc<dyn AuthorizationPort>,
     pub audit: Arc<dyn AuditPort>,
     pub events: Arc<dyn DomainEventPort>,
+    pub errors: Arc<dyn ServiceErrorSink>,
+    pub alerts: Arc<dyn ServiceAlertPort>,
     pub router: Option<Arc<dyn ServiceRouter>>,
 }
 
@@ -60,8 +64,20 @@ impl ServiceInfrastructure {
             authorization,
             audit,
             events,
+            errors: Arc::new(TracingServiceErrorSink),
+            alerts: Arc::new(TracingServiceAlertPort),
             router: None,
         }
+    }
+
+    pub fn with_error_sink(mut self, errors: Arc<dyn ServiceErrorSink>) -> Self {
+        self.errors = errors;
+        self
+    }
+
+    pub fn with_alert_port(mut self, alerts: Arc<dyn ServiceAlertPort>) -> Self {
+        self.alerts = alerts;
+        self
     }
 
     pub fn with_router(mut self, router: Arc<dyn ServiceRouter>) -> Self {
@@ -155,6 +171,68 @@ impl ServiceRuntime {
             })
             .await
             .map_err(|error| ServiceRuntimeError::Event(error.message))
+    }
+
+    pub async fn observe_dispatch_failure(
+        &self,
+        domain: &str,
+        operation: &str,
+        context: &ServiceContext,
+        error: &ServiceDispatchError,
+    ) {
+        let class = error.failure_class();
+        if !matches!(class, ServiceFailureClass::Infrastructure | ServiceFailureClass::Panic) {
+            return;
+        }
+
+        let severity = if class == ServiceFailureClass::Panic {
+            ServiceFailureSeverity::Fatal
+        } else {
+            ServiceFailureSeverity::Error
+        };
+        let record = ServiceErrorRecord {
+            domain: domain.to_owned(),
+            operation: operation.to_owned(),
+            code: error.code().to_owned(),
+            message: error.to_string(),
+            retryable: error.retryable(),
+            stack: None,
+            correlation_id: context.correlation_id.clone(),
+            causation_id: context.causation_id.clone(),
+            actor_id: context.actor.id.clone(),
+            severity,
+        };
+
+        if let Err(sink_error) = self.infrastructure.errors.record(record.clone()).await {
+            tracing::error!(
+                target: "culebraluxe::service::observer",
+                domain = %record.domain,
+                operation = %record.operation,
+                code = %record.code,
+                correlation_id = %record.correlation_id,
+                observer_error = %sink_error,
+                "service error sink failed"
+            );
+        }
+
+        let alert = ServiceAlert {
+            domain: record.domain,
+            operation: record.operation,
+            code: record.code,
+            message: record.message,
+            correlation_id: record.correlation_id,
+            severity,
+        };
+        if let Err(alert_error) = self.infrastructure.alerts.notify(alert).await {
+            tracing::error!(
+                target: "culebraluxe::service::observer",
+                domain,
+                operation,
+                correlation_id = %context.correlation_id,
+                observer_error = %alert_error,
+                "service alert port failed"
+            );
+        }
     }
 
     pub async fn call_service(

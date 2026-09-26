@@ -11,6 +11,7 @@ mod events;
 mod execution;
 mod lifecycle;
 mod mailbox;
+mod observability;
 mod router;
 mod runtime;
 mod signature_provider;
@@ -30,6 +31,11 @@ pub use events::{CapturingDomainEventPort, DomainEventPort, ServiceDomainEvent};
 pub use execution::{ServiceExecutionMode, ServiceExecutionPolicy};
 pub use lifecycle::{ServiceHealth, ServiceLifecycle, ServiceLifecycleError, ServiceStatus};
 pub use mailbox::{ServiceMailbox, ServiceMailboxConfig};
+pub use observability::{
+    CapturingServiceAlertPort, CapturingServiceErrorSink, ServiceAlert, ServiceAlertPort,
+    ServiceErrorRecord, ServiceErrorSink, ServiceFailureSeverity, TracingServiceAlertPort,
+    TracingServiceErrorSink,
+};
 pub use router::{DeferredServiceRouter, ServiceRouter};
 pub use runtime::{ServiceInfrastructure, ServicePortError, ServiceRuntime, ServiceRuntimeError};
 

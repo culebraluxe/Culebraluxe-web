@@ -34,6 +34,15 @@ pub struct ServiceDescriptor {
     pub invariants: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServiceFailureClass {
+    Caller,
+    Business,
+    Infrastructure,
+    Lifecycle,
+    Panic,
+}
+
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum ServiceDispatchError {
     #[error("service not found: {0}")]
@@ -51,6 +60,7 @@ pub enum ServiceDispatchError {
         code: String,
         message: String,
         retryable: bool,
+        class: ServiceFailureClass,
     },
     #[error("service is draining: {0}")]
     ServiceDraining(String),
@@ -66,10 +76,39 @@ pub enum ServiceDispatchError {
 
 impl ServiceDispatchError {
     pub fn operation(code: impl Into<String>, message: impl Into<String>, retryable: bool) -> Self {
+        Self::infrastructure(code, message, retryable)
+    }
+
+    pub fn business(code: impl Into<String>, message: impl Into<String>, retryable: bool) -> Self {
         Self::Operation {
             code: code.into(),
             message: message.into(),
             retryable,
+            class: ServiceFailureClass::Business,
+        }
+    }
+
+    pub fn infrastructure(
+        code: impl Into<String>,
+        message: impl Into<String>,
+        retryable: bool,
+    ) -> Self {
+        Self::Operation {
+            code: code.into(),
+            message: message.into(),
+            retryable,
+            class: ServiceFailureClass::Infrastructure,
+        }
+    }
+
+    pub fn failure_class(&self) -> ServiceFailureClass {
+        match self {
+            Self::ServiceNotFound(_)
+            | Self::UnknownOperation { .. }
+            | Self::InvalidPayload { .. } => ServiceFailureClass::Caller,
+            Self::Operation { class, .. } => *class,
+            Self::ServiceDraining(_) | Self::ServiceStopped(_) => ServiceFailureClass::Lifecycle,
+            Self::OperationPanicked { .. } => ServiceFailureClass::Panic,
         }
     }
 
