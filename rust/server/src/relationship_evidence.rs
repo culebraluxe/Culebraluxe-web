@@ -152,7 +152,15 @@ impl<R: RelationshipEvidenceRepository> RelationshipEvidenceService<R> {
             .review(review_state, search, limit.clamp(1, 100), offset.max(0))
             .await
             .map_err(Into::into);
-        audit_result(&self.runtime, "relationship", OP, context, decision, &result).await?;
+        audit_result(
+            &self.runtime,
+            "relationship",
+            OP,
+            context,
+            decision,
+            &result,
+        )
+        .await?;
         result
     }
 
@@ -172,7 +180,15 @@ impl<R: RelationshipEvidenceRepository> RelationshipEvidenceService<R> {
         )
         .await?;
         let result = self.repository.by_id(id).await.map_err(Into::into);
-        audit_result(&self.runtime, "relationship", OP, context, decision, &result).await?;
+        audit_result(
+            &self.runtime,
+            "relationship",
+            OP,
+            context,
+            decision,
+            &result,
+        )
+        .await?;
         result
     }
 
@@ -196,11 +212,7 @@ impl<R: RelationshipEvidenceRepository> RelationshipEvidenceService<R> {
         let result = async {
             let updated = self
                 .repository
-                .classify(
-                    id,
-                    automated.then_some(true),
-                    service_flag.then_some(true),
-                )
+                .classify(id, automated.then_some(true), service_flag.then_some(true))
                 .await?;
             if !updated {
                 return Err(CoreServiceError::business(
@@ -211,7 +223,15 @@ impl<R: RelationshipEvidenceRepository> RelationshipEvidenceService<R> {
             self.rerun_authorized(None, None, &[id.to_owned()], 1).await
         }
         .await;
-        audit_result(&self.runtime, "relationship", OP, context, decision, &result).await?;
+        audit_result(
+            &self.runtime,
+            "relationship",
+            OP,
+            context,
+            decision,
+            &result,
+        )
+        .await?;
         result
     }
 
@@ -262,7 +282,15 @@ impl<R: RelationshipEvidenceRepository> RelationshipEvidenceService<R> {
             self.repository.by_id(id).await.map_err(Into::into)
         }
         .await;
-        audit_result(&self.runtime, "relationship", OP, context, decision, &result).await?;
+        audit_result(
+            &self.runtime,
+            "relationship",
+            OP,
+            context,
+            decision,
+            &result,
+        )
+        .await?;
         result
     }
 
@@ -306,7 +334,15 @@ impl<R: RelationshipEvidenceRepository> RelationshipEvidenceService<R> {
             self.repository.by_id(id).await.map_err(Into::into)
         }
         .await;
-        audit_result(&self.runtime, "relationship", OP, context, decision, &result).await?;
+        audit_result(
+            &self.runtime,
+            "relationship",
+            OP,
+            context,
+            decision,
+            &result,
+        )
+        .await?;
         result
     }
 
@@ -330,7 +366,15 @@ impl<R: RelationshipEvidenceRepository> RelationshipEvidenceService<R> {
         let result = self
             .rerun_authorized(source, review_state, &[], limit.clamp(1, 500))
             .await;
-        audit_result(&self.runtime, "relationship", OP, context, decision, &result).await?;
+        audit_result(
+            &self.runtime,
+            "relationship",
+            OP,
+            context,
+            decision,
+            &result,
+        )
+        .await?;
         result
     }
 
@@ -366,9 +410,7 @@ impl<R: RelationshipEvidenceRepository> RelationshipEvidenceService<R> {
             if let Some(value) = tally.get_mut(&decision.review_state) {
                 *value += 1;
             }
-            if decision.review_state == "exact_linked"
-                && decision.canonical_person_id.is_some()
-            {
+            if decision.review_state == "exact_linked" && decision.canonical_person_id.is_some() {
                 canonical_linked += 1;
             }
             self.repository.record_decision(&row.id, &decision).await?;
