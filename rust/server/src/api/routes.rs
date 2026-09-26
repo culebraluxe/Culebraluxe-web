@@ -1133,6 +1133,7 @@ pub fn router(state: ApiState) -> Router {
             post(signature_webhook),
         )
         .merge(super::portal_ui::router())
+        .merge(super::public_ui::router())
         // Everything the API does not claim is the website: static files, else the Yew shell (crate::site).
         .fallback_service(crate::site::service())
         .with_state(state)

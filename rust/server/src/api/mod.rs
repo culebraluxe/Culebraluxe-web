@@ -10,6 +10,7 @@ mod engine;
 mod error;
 pub mod error_capture;
 mod portal_ui;
+mod public_ui;
 mod routes;
 pub mod ui_auth;
 

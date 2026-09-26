@@ -124,7 +124,13 @@ pub fn resolve_public_guest_context(
             "Public document reads must not carry identity headers.",
         ));
     }
-    Ok(ServiceContext {
+    Ok(public_guest_context(headers))
+}
+
+/// The anonymous website visitor, for the addresses the browser calls directly (`public_ui`): no key to present,
+/// because the caller is the public, not a trusted edge.
+pub fn public_guest_context(headers: &HeaderMap) -> ServiceContext {
+    ServiceContext {
         actor: ServiceActor {
             id: Some("public-website".into()),
             kind: ServiceActorKind::System,
@@ -135,7 +141,7 @@ pub fn resolve_public_guest_context(
             .unwrap_or_else(|| Uuid::new_v4().to_string()),
         causation_id: None,
         principal: None,
-    })
+    }
 }
 
 /// A context for engine commands, which may arrive with a user or without one.
