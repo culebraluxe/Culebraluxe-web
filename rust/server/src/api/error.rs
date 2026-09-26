@@ -125,6 +125,7 @@ impl ApiError {
                 code,
                 message,
                 retryable,
+                ..
             } => {
                 let status = match code.as_str() {
                     "FORBIDDEN" => StatusCode::FORBIDDEN,

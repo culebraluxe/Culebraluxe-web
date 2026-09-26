@@ -377,7 +377,7 @@ impl ServiceKernel {
         let contract = Arc::new(ContractService::new(
             ContractDao::new(db),
             lookup,
-            infrastructure,
+            infrastructure.clone(),
         ));
 
         let services: Vec<Arc<dyn AbstractService>> = vec![
