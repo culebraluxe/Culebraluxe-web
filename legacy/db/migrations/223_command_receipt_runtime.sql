@@ -9,6 +9,7 @@
 begin;
 
 alter table workflow_command_receipt
+    alter column aggregate_id type text using aggregate_id::text,
     add column if not exists command_type text,
     add column if not exists correlation_id text,
     add column if not exists causation_id text,

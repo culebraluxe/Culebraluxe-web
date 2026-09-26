@@ -82,7 +82,7 @@ pub use guide::GuideDao;
 pub use intake::IntakeDao;
 pub use issue::IssueDao;
 pub use marketing::MarketingDao;
-pub use outbox::{DomainEventOutboxDao, OutboxEventInput, OutboxRecord};
+pub use outbox::{DomainEventOutboxDao, OutboxDelivery, OutboxEventInput};
 pub use media::{
     BeginMediaUpload, MediaDao, MediaDerivativeInput, MediaUploadAssembly, MediaUploadStatus,
 };

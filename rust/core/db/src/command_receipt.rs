@@ -34,7 +34,7 @@ impl CommandReceiptDao {
     pub async fn find(&self, command_id: &str) -> DbResult<Option<CommandReceiptRow>> {
         sqlx::query_as::<_, CommandReceiptRow>(
             r#"
-            select command_id, outcome, aggregate_id::text as aggregate_id, message, created_at,
+            select command_id, outcome, aggregate_id, message, created_at,
                    actor_app_user_id::text as actor_app_user_id,
                    command_type, correlation_id, causation_id, aggregate_type,
                    requested_at, result_payload, error_code, error_message
@@ -56,7 +56,7 @@ impl CommandReceiptDao {
     ) -> DbResult<Option<CommandReceiptRow>> {
         sqlx::query_as::<_, CommandReceiptRow>(
             r#"
-            select command_id, outcome, aggregate_id::text as aggregate_id, message, created_at,
+            select command_id, outcome, aggregate_id, message, created_at,
                    actor_app_user_id::text as actor_app_user_id,
                    command_type, correlation_id, causation_id, aggregate_type,
                    requested_at, result_payload, error_code, error_message
@@ -92,7 +92,7 @@ impl CommandReceiptDao {
                 requested_at, updated_at
             )
             values (
-                $1, 'pending', $5::uuid, null, $3::uuid,
+                $1, 'pending', $5, null, $3,
                 $2, $6, $7, $4, $8::timestamptz, now()
             )
             on conflict(command_id) do nothing
@@ -129,7 +129,7 @@ impl CommandReceiptDao {
             r#"
             update workflow_command_receipt
             set outcome=$2,
-                aggregate_id=$3::uuid,
+                aggregate_id=$3,
                 message=$4,
                 result_payload=$5,
                 error_code=$6,

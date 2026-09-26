@@ -721,7 +721,7 @@ impl ForgeEngineDao {
     ) -> DbResult<()> {
         sqlx::query(
             "update workflow_command_receipt
-             set outcome=$2, aggregate_id=$3::uuid, message=$4
+             set outcome=$2, aggregate_id=$3, message=$4
              where command_id=$1",
         )
         .bind(command_id)
