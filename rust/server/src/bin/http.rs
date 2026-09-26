@@ -1,9 +1,6 @@
 use db::Database;
 use server::api::{build_application, error_capture, ApiConfig};
-use server::security::{CasbinAuthorizationPort, DurableSecurityAuditPort};
-use server::service_observability::{DurableServiceAlertPort, DurableServiceErrorSink};
-use service::{CapturingDomainEventPort, ServiceInfrastructure};
-use std::{error::Error, sync::Arc};
+use std::error::Error;
 use tokio::net::TcpListener;
 
 #[tokio::main]
@@ -18,16 +15,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Every database failure this process produces lands in app_error, alongside the TypeScript ones. Best effort and
     // recursion-guarded on the db side, so a dead database cannot fail this and cannot loop on itself.
     error_capture::install(db.clone());
-    let app_error = db::AppErrorDao::new(db.clone());
-    let infrastructure = ServiceInfrastructure::new(
-        Arc::new(CasbinAuthorizationPort::new().await?),
-        Arc::new(DurableSecurityAuditPort::new(db::SecurityAuditDao::new(
-            db.clone(),
-        ))),
-        Arc::new(CapturingDomainEventPort::default()),
-    )
-    .with_error_sink(Arc::new(DurableServiceErrorSink::new(app_error.clone())))
-    .with_alert_port(Arc::new(DurableServiceAlertPort::new(app_error)));
+    let infrastructure = server::service_bootstrap::production_service_infrastructure(&db).await?;
     let (app, service_harness) = build_application(db.clone(), infrastructure, config);
     service_harness
         .start()
