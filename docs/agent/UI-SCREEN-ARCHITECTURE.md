@@ -1,7 +1,7 @@
 # UI Screen Architecture — the contract every screen implements
 
 Status: **framework and master shell built** (owner decision 2026-09-26). Code: `rust/ui/src/app/`. Screens on the
-trait: `db-test`, `site-account`. Cutover ledger: 24 screens still on the old loop (`app/registry.rs`). This document is the contract for all
+trait: `db-test`, `site-account`. Cutover ledger: 20 screens still on the old loop (`app/registry.rs`). This document is the contract for all
 UI work in `rust/ui`. It supersedes the ad hoc per-screen patterns: when code and this document disagree, the code is
 wrong.
 
@@ -215,7 +215,7 @@ not a screen.
 | MARKETING | Dashboard, Syndication |
 | OPPS | Records [property record], Listing Media |
 | SUPPORT | System Health, DB Test, WhatsApp Diagnostic, WhatsApp Activation (a LIFELINE page — see below), WhatsApp Public Page (`/whatsapp`), Mux Video Test (`/video`), Security [users, roles, authorities]; plus the token review page (`/review/:token/:page`, public URL kept) |
-| TECH | Cockpit, Flight Recorder (run detail), Storyboard [story record], UI Lab |
+| TECH | Cockpit, Flight Recorder (run detail), Storyboard [story record], UI Lab — **ported**; the sorter, the recorder console and the galleries are `<Island>`s |
 
 Public URLs filed under SUPPORT keep their URLs (they may be registered with Meta or sent in email) and render in the
 site chrome; the SUPPORT rail links to them.
@@ -227,6 +227,12 @@ portal-auth-proof; and (same day) showings — its data source was unwired and r
 Projects calendar — and the framer-ui-lab page, merged into UI Lab.
 
 ### Known gaps found while porting (not caused by the port)
+
+- **TECH sorter drop** still calls its Next server action (`moveStoryBucketAction`) from inside the island, as it did
+  before the port. Everything else on the Cockpit is the screen's. Moving it behind an API endpoint the screen calls
+  finishes §9 for this widget.
+- **Story record** had no data source (it fell through to an empty generic rows read). It now reads the Cockpit's
+  story detail (`/api/portal/rust-ui/tech?selected=<id>`).
 
 - **Accounting** contract fixtures (`portal-page-accounting*.json`) are stand-ins written from the payload type in the
   cloud sandbox, which cannot reach the dev API; the next `scripts/ui-capture-fixtures.mjs` run replaces them. The old

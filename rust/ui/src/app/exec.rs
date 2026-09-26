@@ -147,6 +147,8 @@ pub(crate) fn interpret(status: u16, ok: bool, text: &str) -> Result<serde_json:
             code: field(&value, "code").unwrap_or_else(|| "HTTP".into()),
             message: field(&value, "message")
                 .or_else(|| field(&value, "error"))
+                // The recorder's relay speaks problem+json: `{ title, detail }`.
+                .or_else(|| field(&value, "detail"))
                 .unwrap_or_else(|| format!("The request failed ({status}).")),
         }),
         None if ok => Err(ApiError::decode("The answer was not JSON.")),

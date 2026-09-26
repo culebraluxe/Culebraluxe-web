@@ -398,3 +398,50 @@ impl Endpoint for DealWorkspaceCommand {
         serde_json::to_value(&self.command).ok()
     }
 }
+
+/// One process instance's recorded transaction, as the Flight Recorder console reads it. The answer is passed to the
+/// console untouched, so it stays JSON here.
+pub struct FlightRecorderRead {
+    pub instance_id: String,
+}
+
+impl Endpoint for FlightRecorderRead {
+    const METHOD: Method = Method::Get;
+    type Response = serde_json::Value;
+    fn path(&self) -> String {
+        format!("/api/portal/flight-recorder/{}", encode(&self.instance_id))
+    }
+}
+
+/// The Forge Cockpit, with one story's detail when `selected` is set. Answers `{ tech: ... }`.
+pub struct TechRead {
+    pub selected: Option<String>,
+}
+
+impl Endpoint for TechRead {
+    const METHOD: Method = Method::Get;
+    type Response = crate::model::PortalPage;
+    fn path(&self) -> String {
+        match self.selected.as_deref().filter(|id| !id.is_empty()) {
+            Some(id) => format!("/api/portal/rust-ui/tech?selected={}", encode(id)),
+            None => "/api/portal/rust-ui/tech".into(),
+        }
+    }
+}
+
+/// One Cockpit command (`clearWorkbench`, `goodToGo`, `scopedRun`, `moveWorkbench`, `launchFlight`, `scheduleFlight`,
+/// `cancelFlight`). Answers `{ ok, message }`.
+pub struct TechCommand {
+    pub body: serde_json::Value,
+}
+
+impl Endpoint for TechCommand {
+    const METHOD: Method = Method::Post;
+    type Response = serde_json::Value;
+    fn path(&self) -> String {
+        "/api/portal/rust-ui/tech".into()
+    }
+    fn body(&self) -> Option<serde_json::Value> {
+        Some(self.body.clone())
+    }
+}

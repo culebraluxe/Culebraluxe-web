@@ -1391,37 +1391,6 @@ fn detail(label: &str, value: &str) -> Html {
     }
 }
 
-fn metric(label: &str, value: i64) -> Html {
-    html! {
-        <div class="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/35 p-3">
-            <div class="font-serif text-2xl font-light text-[var(--portal-navy)]">{ value }</div>
-            <div class="mt-1 text-[10px] font-light uppercase tracking-[0.12em] text-black/35">{ label }</div>
-        </div>
-    }
-}
-
-fn offer_summary(deal: &PortalDeal) -> String {
-    if deal.offer_count == 0 {
-        return "No offers".into();
-    }
-    let amount = format_currency(deal.latest_offer_amount.or(deal.offer_price));
-    match deal.latest_offer_status.as_deref() {
-        Some(status) => format!(
-            "{} offer{} · {} · {}",
-            deal.offer_count,
-            if deal.offer_count == 1 { "" } else { "s" },
-            title_case(status),
-            amount
-        ),
-        None => format!(
-            "{} offer{} · {}",
-            deal.offer_count,
-            if deal.offer_count == 1 { "" } else { "s" },
-            amount
-        ),
-    }
-}
-
 fn field_class() -> Classes {
     classes!(
         "mt-1",

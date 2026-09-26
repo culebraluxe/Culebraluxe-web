@@ -6,14 +6,11 @@
 use yew::prelude::*;
 
 use crate::model::{Msg, Screen};
-use crate::yew_views::portal_flight_recorder::FlightRecorder;
 use crate::yew_views::portal_flight_recorder_list::FlightRecorderList;
 use crate::yew_views::portal_forms::{FormRecord, Forms};
 use crate::yew_views::portal_listing_media::ListingMedia;
 use crate::yew_views::portal_ops::OpsWorkbench;
 use crate::yew_views::portal_projects::Projects;
-use crate::yew_views::portal_storyboard::Storyboard;
-use crate::yew_views::portal_tech::TechCockpit;
 
 use std::rc::Rc;
 
@@ -98,10 +95,6 @@ impl Component for PortalApp {
     fn view(&self, ctx: &Context<Self>) -> Html {
         let on_msg = ctx.link().callback(AppMsg::Ui);
         let body = match self.model.screen.key {
-            "tech" => html! { <TechCockpit model={self.model.clone()} on_msg={on_msg.clone()} /> },
-            "trace-record" => {
-                html! { <FlightRecorder model={self.model.clone()} on_msg={on_msg.clone()} /> }
-            }
             "tech-flight-recorder" => {
                 html! { <FlightRecorderList model={self.model.clone()} on_msg={on_msg} /> }
             }
@@ -112,7 +105,6 @@ impl Component for PortalApp {
             "property-media" => {
                 html! { <ListingMedia model={self.model.clone()} on_msg={on_msg} /> }
             }
-            "storyboard" => html! { <Storyboard model={self.model.clone()} on_msg={on_msg} /> },
             "forms" => html! { <Forms model={self.model.clone()} on_msg={on_msg} /> },
             "form-record" => html! { <FormRecord model={self.model.clone()} on_msg={on_msg} /> },
             "projects" => html! { <Projects model={self.model.clone()} on_msg={on_msg} /> },

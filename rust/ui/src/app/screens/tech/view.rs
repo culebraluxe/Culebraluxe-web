@@ -7,58 +7,15 @@
 use serde_json::json;
 use yew::prelude::*;
 
+use crate::app::island::Island;
 use crate::model::{
-    Msg, PortalTechEngineRun, PortalTechFlight, PortalTechHistory, PortalTechPage, PortalTechRun,
+    PortalTechEngineRun, PortalTechFlight, PortalTechHistory, PortalTechPage, PortalTechRun,
     PortalTechStory,
 };
-use crate::yew_views::portal_shell::PortalShell;
 
-#[derive(Properties, PartialEq)]
-pub struct TechCockpitProps {
-    pub model: crate::model::Model,
-    pub on_msg: Callback<Msg>,
-}
+use super::{Msg, Vm};
 
-pub struct TechCockpit;
-
-impl Component for TechCockpit {
-    type Message = ();
-    type Properties = TechCockpitProps;
-
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
-    }
-
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let props = ctx.props();
-        let screen = crate::model::screen("tech").expect("tech screen exists");
-        html! {
-            <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
-                { cockpit(&props.model, &props.on_msg) }
-            </PortalShell>
-        }
-    }
-}
-
-fn payload(model: &crate::model::Model) -> Option<&PortalTechPage> {
-    model
-        .page
-        .as_ref()
-        .and_then(|page| page.portal.as_ref())
-        .and_then(|portal| portal.tech.as_ref())
-}
-
-fn cockpit(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
-    let Some(tech) = payload(model) else {
-        return html! {
-            <section class="min-h-[32rem] rounded-xl bg-[#0b1220] p-6 text-slate-200">
-                <p class="text-sm text-slate-400">
-                    { if model.loading { "Loading the Forge line…" } else { "The Engineering Cockpit is not available." } }
-                </p>
-            </section>
-        };
-    };
-
+pub(super) fn cockpit(model: &Vm<'_>, tech: &PortalTechPage, on_msg: &Callback<Msg>) -> Html {
     if !tech.ready {
         return html! {
             <section class="rounded-xl bg-[#0b1220] p-8 text-center text-slate-200">
@@ -70,11 +27,10 @@ fn cockpit(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
 
     html! {
         <div class="min-h-screen rounded-xl bg-[#0b1220] px-5 py-5 text-slate-200">
-            { island_bridge(on_msg) }
             { header(tech, model, on_msg) }
             { kpis(tech) }
             { command_notice(model) }
-            { sorter(tech) }
+            { sorter(tech, on_msg) }
             { flight_strip(model, tech, on_msg) }
             { workbench(model, tech, on_msg) }
             { engine_line(tech) }
@@ -83,36 +39,7 @@ fn cockpit(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
     }
 }
 
-fn island_bridge(on_msg: &Callback<Msg>) -> Html {
-    let dispatch = {
-        let on_msg = on_msg.clone();
-        Callback::from(move |event: MouseEvent| {
-            let target = event.target_unchecked_into::<web_sys::HtmlElement>();
-            let Some(raw) = target.get_attribute("data-intent") else {
-                return;
-            };
-            let Ok(intent) = serde_json::from_str::<serde_json::Value>(&raw) else {
-                return;
-            };
-            if intent.get("kind").and_then(|value| value.as_str()) == Some("refresh") {
-                on_msg.emit(Msg::TechRefreshRequested);
-            }
-        })
-    };
-    html! {
-        <button
-            id="tech-cockpit-island-bridge"
-            type="button"
-            class="hidden"
-            data-intent=""
-            tabindex="-1"
-            aria-hidden="true"
-            onclick={dispatch}
-        />
-    }
-}
-
-fn header(tech: &PortalTechPage, model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
+fn header(tech: &PortalTechPage, model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
     let refresh = {
         let on_msg = on_msg.clone();
         Callback::from(move |_: MouseEvent| on_msg.emit(Msg::TechRefreshRequested))
@@ -196,7 +123,7 @@ fn kpis(tech: &PortalTechPage) -> Html {
     }
 }
 
-fn sorter(tech: &PortalTechPage) -> Html {
+fn sorter(tech: &PortalTechPage, on_msg: &Callback<Msg>) -> Html {
     let widget = json!({
         "cards": &tech.sorter_cards,
         "columns": &tech.sorter_columns,
@@ -212,21 +139,13 @@ fn sorter(tech: &PortalTechPage) -> Html {
                     {"Drag freely · WORK BENCH is daily intent · FLIGHT STAGING does not dispatch · ENGINE RUN Q does"}
                 </p>
             </div>
-            <div
-                id="tech-sorter-island"
-                data-tech-widget={widget.to_string()}
-                class="h-[520px] overflow-hidden p-2"
-                aria-label="Story sorter"
-            />
+            <Island kind="tech-sorter" props={widget.to_string()}
+                on_event={on_msg.reform(Msg::Sorter)} class="h-[520px] overflow-hidden p-2" />
         </section>
     }
 }
 
-fn flight_strip(
-    model: &crate::model::Model,
-    tech: &PortalTechPage,
-    on_msg: &Callback<Msg>,
-) -> Html {
+fn flight_strip(model: &Vm<'_>, tech: &PortalTechPage, on_msg: &Callback<Msg>) -> Html {
     let busy = model.tech.busy_action.is_some();
     let flight_count = tech
         .staging_flight
@@ -356,7 +275,7 @@ fn flight_card(flight: &PortalTechFlight, busy: bool, on_msg: &Callback<Msg>) ->
     }
 }
 
-fn workbench(model: &crate::model::Model, tech: &PortalTechPage, on_msg: &Callback<Msg>) -> Html {
+fn workbench(model: &Vm<'_>, tech: &PortalTechPage, on_msg: &Callback<Msg>) -> Html {
     let open = !model.controls.toggled;
     let busy = model.tech.busy_action.is_some();
     let toggle = {
@@ -466,11 +385,7 @@ fn workbench_row(story: &PortalTechStory, tech: &PortalTechPage, on_msg: &Callba
     }
 }
 
-fn selected_story(
-    model: &crate::model::Model,
-    tech: &PortalTechPage,
-    on_msg: &Callback<Msg>,
-) -> Html {
+fn selected_story(model: &Vm<'_>, tech: &PortalTechPage, on_msg: &Callback<Msg>) -> Html {
     let Some(story) = tech.selected_story.as_ref() else {
         return html! {
             <article class="rounded-md border border-white/10 bg-white/[0.025] p-5 text-sm text-slate-500">
@@ -795,7 +710,7 @@ fn history_card(item: &PortalTechHistory) -> Html {
     }
 }
 
-fn command_notice(model: &crate::model::Model) -> Html {
+fn command_notice(model: &Vm<'_>) -> Html {
     let Some(notice) = model.tech.notice.as_ref() else {
         return html! {};
     };

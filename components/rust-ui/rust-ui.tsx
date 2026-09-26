@@ -2,10 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 
-import { FlightRecorderReactIsland } from '@/components/rust-ui/flight-recorder-react-island'
 import { OpsVideoReactIsland } from '@/components/rust-ui/opps-video-island'
 import { ProjectReactIslands } from '@/components/rust-ui/project-react-islands'
-import { TechCockpitReactIslands } from '@/components/rust-ui/tech-cockpit-react-islands'
 import { IslandHost } from '@/components/rust-ui/island-host'
 import { ISLAND_RENDERERS } from '@/components/rust-ui/island-renderers'
 import { bootRustUi, type RustUiModule } from '@/lib/rust-ui/mount'
@@ -100,8 +98,6 @@ export function RustUi({
       />
       <IslandHost renderers={ISLAND_RENDERERS} />
       {screen === 'projects' ? <ProjectReactIslands /> : null}
-      {screen === 'tech' ? <TechCockpitReactIslands /> : null}
-      {screen === 'trace-record' ? <FlightRecorderReactIsland /> : null}
       {screen === 'property-admin' ? <OpsVideoReactIsland /> : null}
       {bootError ? (
         <p className="p-6 text-sm text-destructive" role="alert">

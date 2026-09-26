@@ -26,11 +26,14 @@ use crate::app::screens::clients::{ClientRecord, Clients};
 use crate::app::screens::cockpit::{Attention, Cockpit};
 use crate::app::screens::db_test::DbTest;
 use crate::app::screens::deals::{DealRecord, Deals};
+use crate::app::screens::flight_recorder::FlightRecorder;
 use crate::app::screens::security::Security;
 use crate::app::screens::security_users::SecurityUsers;
 use crate::app::screens::seller_strategy::SellerStrategy;
+use crate::app::screens::storyboard::{StoryRecord, Storyboard};
 use crate::app::screens::support_rows::{Authorities, Review, Roles, VideoTest};
 use crate::app::screens::system_health::SystemHealth;
+use crate::app::screens::tech::TechCockpit;
 use crate::app::screens::ui_lab::UiLab;
 use crate::app::screens::whatsapp_meta::WhatsAppMeta;
 use crate::app::screens::whatsapp_public::WhatsAppPublic;
@@ -168,8 +171,8 @@ pub const ENTRIES: &[Entry] = &[
     entry("marketing-syndication", "/portal/marketing/syndication", Surface::Marketing, "Syndication", Menu::Rail("Syndication"), "portal.read", "property.read", Kind::LegacyPortal("marketing-syndication")),
     entry("property-admin", "/portal/property-admin", Surface::Ops, "Data Workbench", Menu::Rail("Records"), "portal.read", "property.read", Kind::LegacyIsland("property-admin")),
     entry("property-media", "/portal/property-media", Surface::Ops, "Property Media", Menu::Rail("Listing Media"), "portal.read", "property.read", Kind::LegacyPortal("property-media")),
-    entry("tech", "/portal/tech", Surface::Tech, "Cockpit", Menu::Rail("Cockpit"), "tech.access", "tech.access", Kind::LegacyIsland("tech")),
-    entry("storyboard", "/portal/storyboard", Surface::Tech, "Story Board", Menu::Rail("Story Board"), "tech.access", "tech.access", Kind::LegacyPortal("storyboard")),
+    entry("tech", "/portal/tech", Surface::Tech, "Cockpit", Menu::Rail("Cockpit"), "tech.access", "tech.access", Kind::Screen(mount::<TechCockpit>)),
+    entry("storyboard", "/portal/storyboard", Surface::Tech, "Story Board", Menu::Rail("Story Board"), "tech.access", "tech.access", Kind::Screen(mount::<Storyboard>)),
     entry("design-lab", "/portal/design-lab", Surface::Tech, "UI Lab", Menu::Rail("UI Lab"), "tech.access", "tech.access", Kind::Screen(mount::<UiLab>)),
     entry("system-health", "/portal/system-health", Surface::Support, "System Health", Menu::Rail("System Health"), "portal.read", "portal.read", Kind::Screen(mount::<SystemHealth>)),
     entry("db-test", "/portal/db-test", Surface::Support, "DB Test", Menu::Rail("DB Test"), "portal.read", "portal.read", Kind::Screen(mount::<DbTest>)),
@@ -196,8 +199,8 @@ pub const ENTRIES: &[Entry] = &[
     entry("form-record", "/portal/forms/:formId", Surface::Core, "Form", Menu::None, "portal.read", "", Kind::External).of("forms"),
     entry("workflow-record", "/portal/workflows/:instanceId", Surface::Core, "Workflow instance", Menu::None, "portal.read", "", Kind::Screen(mount::<WorkflowRecord>)).of("workflows"),
     entry("property-record", "/portal/property-admin/:propertyId", Surface::Ops, "Property record", Menu::None, "portal.read", "", Kind::LegacyPortal("property-record")).of("property-admin"),
-    entry("story-record", "/portal/storyboard/:id", Surface::Tech, "Story", Menu::None, "portal.read", "", Kind::LegacyPortal("story-record")).of("storyboard"),
-    entry("trace-record", "/portal/tech/flight-recorder/:instanceId", Surface::Tech, "Trace", Menu::None, "portal.read", "", Kind::LegacyIsland("trace-record")).of("tech"),
+    entry("story-record", "/portal/storyboard/:id", Surface::Tech, "Story", Menu::None, "portal.read", "", Kind::Screen(mount::<StoryRecord>)).of("storyboard"),
+    entry("trace-record", "/portal/tech/flight-recorder/:instanceId", Surface::Tech, "Trace", Menu::None, "portal.read", "", Kind::Screen(mount::<FlightRecorder>)).of("tech"),
     entry("site-home", "/", Surface::Site, "Home", Menu::None, "", "", Kind::LegacySite),
     entry("site-properties", "/properties", Surface::Site, "Properties", Menu::None, "", "", Kind::LegacySite).of("site-buyers"),
     entry("site-property-detail", "/properties/:slug", Surface::Site, "Property", Menu::None, "", "", Kind::LegacySite).of("site-buyers"),
@@ -610,5 +613,5 @@ mod tests {
         );
     }
 
-    const LEGACY_CEILING: usize = 24;
+    const LEGACY_CEILING: usize = 20;
 }

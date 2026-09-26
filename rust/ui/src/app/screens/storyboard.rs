@@ -5,60 +5,34 @@
 
 use yew::prelude::*;
 
-use crate::model::{Msg, PortalStoryboardPage, PortalStoryboardPanel, PortalStoryboardStory};
-use crate::yew_views::portal_shell::PortalShell;
+use crate::app::api::TechRead;
+use crate::app::cmd::{ApiError, Cmd, Remote};
+use crate::app::page::{PageScreen, PageSpec};
+use crate::app::screen::{Link, Screen, ScreenCtx};
+use crate::app::template::{self, PANEL};
+use crate::model::{
+    PortalPage, PortalStoryboardPage, PortalStoryboardPanel, PortalStoryboardStory, PortalTechRun,
+    PortalTechStory,
+};
 
-#[derive(Properties, PartialEq)]
-pub struct StoryboardProps {
-    pub model: crate::model::Model,
-    pub on_msg: Callback<Msg>,
-}
+pub type Storyboard = PageScreen<Board>;
 
-pub struct Storyboard;
+/// `/portal/storyboard` — every story by lifecycle: open, backlog, closed, next version.
+pub struct Board;
 
-impl Component for Storyboard {
-    type Message = ();
-    type Properties = StoryboardProps;
-
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
+impl PageSpec for Board {
+    type Data = PortalStoryboardPage;
+    const SCREEN: &'static str = "storyboard";
+    const NOUN: &'static str = "the Story Board";
+    fn pick(page: PortalPage) -> Option<PortalStoryboardPage> {
+        page.storyboard
     }
-
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let props = ctx.props();
-        let screen = crate::model::screen("storyboard").expect("storyboard screen exists");
-        html! {
-            <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
-                { storyboard(&props.model) }
-            </PortalShell>
-        }
+    fn view(data: &PortalStoryboardPage, _ctx: &ScreenCtx) -> Html {
+        storyboard(data)
     }
 }
 
-fn payload(model: &crate::model::Model) -> Option<&PortalStoryboardPage> {
-    model
-        .page
-        .as_ref()
-        .and_then(|page| page.portal.as_ref())
-        .and_then(|portal| portal.storyboard.as_ref())
-}
-
-fn storyboard(model: &crate::model::Model) -> Html {
-    let Some(data) = payload(model) else {
-        return html! {
-            <section class="portal-glass-panel rounded-[var(--portal-panel-radius)] px-8 py-12 text-center">
-                <h1 class="font-serif text-2xl font-light text-[var(--portal-navy)]">
-                    { if model.loading { "Loading Story Board…" } else { "Story Board storage not ready" } }
-                </h1>
-                if !model.loading {
-                    <p class="mx-auto mt-3 max-w-xl text-sm font-light leading-6 text-black/50">
-                        {"The canonical Story Board projection returned no cockpit payload."}
-                    </p>
-                }
-            </section>
-        };
-    };
-
+fn storyboard(data: &PortalStoryboardPage) -> Html {
     html! {
         <div class="flex flex-col gap-4">
             { kpis(data) }
@@ -286,13 +260,149 @@ fn status_badge(status: &str, subdued: bool) -> Html {
     }
 }
 
+/// `/portal/storyboard/:id` — one story: what it is for, what "done" means, and the runs that have worked on it. Read
+/// from the Cockpit's story detail, so it is the same record the Cockpit introspects.
+pub struct StoryRecord;
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct StoryModel {
+    pub read: Remote<(PortalTechStory, Vec<PortalTechRun>)>,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum StoryMsg {
+    Loaded(Result<PortalPage, ApiError>),
+}
+
+impl Screen for StoryRecord {
+    type Model = StoryModel;
+    type Msg = StoryMsg;
+
+    fn init(ctx: &ScreenCtx) -> (StoryModel, Cmd<StoryMsg>) {
+        (
+            StoryModel {
+                read: Remote::Loading,
+            },
+            Cmd::request(
+                TechRead {
+                    selected: ctx.id.clone(),
+                },
+                StoryMsg::Loaded,
+            ),
+        )
+    }
+
+    fn update(model: &mut StoryModel, msg: StoryMsg, _ctx: &ScreenCtx) -> Cmd<StoryMsg> {
+        let StoryMsg::Loaded(answer) = msg;
+        model.read = Remote::from_result(answer.and_then(|page| {
+            let tech = page
+                .tech
+                .ok_or_else(|| ApiError::decode("The answer had no story in it."))?;
+            let story = tech
+                .selected_story
+                .ok_or_else(|| ApiError::decode("That story was not found."))?;
+            Ok((story, tech.selected_runs))
+        }));
+        Cmd::none()
+    }
+
+    fn view(model: &StoryModel, ctx: &ScreenCtx, _link: &Link<StoryMsg>) -> Html {
+        html! {
+            <div class="space-y-6">
+                <div>{ template::back_link(ctx) }</div>
+                { template::remote(&model.read, "the story", |(story, runs)| story_record(story, runs)) }
+            </div>
+        }
+    }
+}
+
+fn story_record(story: &PortalTechStory, runs: &[PortalTechRun]) -> Html {
+    let section = |label: &'static str, value: &Option<String>| match value
+        .as_deref()
+        .filter(|text| !text.trim().is_empty())
+    {
+        Some(text) => html! {
+            <div>
+                <h3 class="text-[10px] font-medium uppercase tracking-[0.16em] text-black/40">{ label }</h3>
+                <p class="mt-1 whitespace-pre-wrap text-sm font-light leading-6 text-black/70">{ text.to_string() }</p>
+            </div>
+        },
+        None => Html::default(),
+    };
+    html! {
+        <>
+            { template::portal_heading(
+                &format!("{} · {}", story.id, story.workstream),
+                &story.title,
+                &format!("{} priority · {} · {:.0}% complete", story.priority, story.status, story.completion.clamp(0.0, 100.0)),
+            ) }
+            <section class={classes!(PANEL, "space-y-5", "p-6")}>
+                { section("Goal", &story.goal) }
+                { section("Scope", &story.scope) }
+                { section("Acceptance criteria", &story.acceptance_criteria) }
+                { section("Preconditions", &story.preconditions) }
+                { section("Postconditions", &story.postconditions) }
+                { section("Dependencies", &story.dependencies) }
+                { section("Architect brief", &story.architect_brief) }
+                { section("Context", &story.context_refs) }
+                { section("Notes", &story.notes) }
+            </section>
+            <section class={classes!(PANEL, "overflow-hidden")}>
+                <h2 class="border-b border-[var(--portal-border)] px-6 py-4 font-serif text-xl font-light">
+                    { format!("Runs ({})", runs.len()) }
+                </h2>
+                if runs.is_empty() {
+                    <p class="px-6 py-6 text-sm font-light text-black/40">{"No run has worked on this story yet."}</p>
+                } else {
+                    { for runs.iter().map(|run| html! {
+                        <div class="grid gap-1 border-b border-[var(--portal-border)] px-6 py-3 text-sm font-light last:border-b-0 md:grid-cols-[180px_1fr_140px]">
+                            <span class="text-black/50">{ run.started_at.clone() }</span>
+                            <span>
+                                { [run.run_type.clone(), run.run_phase.clone(), run.agent_runtime.clone()]
+                                    .into_iter().flatten().collect::<Vec<_>>().join(" · ") }
+                                if let Some(notes) = run.notes.clone() {
+                                    <span class="block text-xs text-black/45">{ notes }</span>
+                                }
+                            </span>
+                            <span class="text-right text-xs uppercase tracking-[0.12em] text-black/50">
+                                { run.result_status.clone().unwrap_or_else(|| "running".into()) }
+                            </span>
+                        </div>
+                    }) }
+                }
+            </section>
+        </>
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
-    fn completion_is_clamped_for_progress_bars() {
-        assert_eq!(120.0_f64.clamp(0.0, 100.0), 100.0);
-        assert_eq!((-5.0_f64).clamp(0.0, 100.0), 0.0);
+    fn a_story_record_reads_the_cockpits_story_detail() {
+        let ctx = ScreenCtx {
+            id: Some("S-9".into()),
+            ..ScreenCtx::default()
+        };
+        let (mut model, cmd) = StoryRecord::init(&ctx);
+        let request = cmd.into_requests().remove(0);
+        assert_eq!(request.path, "/api/portal/rust-ui/tech?selected=S-9");
+        StoryRecord::update(
+            &mut model,
+            request.respond(Ok(json!({ "tech": { "selectedStory": { "id": "S-9", "title": "Port" }, "selectedRuns": [{ "id": "r1" }] } }))),
+            &ctx,
+        );
+        let (story, runs) = model.read.loaded().expect("loaded");
+        assert_eq!((story.title.as_str(), runs.len()), ("Port", 1));
+
+        let (mut model, _) = StoryRecord::init(&ctx);
+        StoryRecord::update(
+            &mut model,
+            StoryMsg::Loaded(Ok(PortalPage::default())),
+            &ctx,
+        );
+        assert!(matches!(model.read, Remote::Failed(_)));
     }
 }
