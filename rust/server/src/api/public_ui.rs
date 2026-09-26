@@ -93,6 +93,15 @@ fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str).filter(|text| !text.is_empty())
 }
 
+/// A count or a size as a whole number: the services carry some as floats, the site reads integers (as the relay's
+/// JSON printed them). Anything that is not a whole number passes through unchanged.
+fn whole(value: &Value) -> Value {
+    match value.as_f64() {
+        Some(number) if number.fract() == 0.0 && number.abs() < 9e15 => json!(number as i64),
+        _ => value.clone(),
+    }
+}
+
 /// A number as JavaScript prints it: no trailing `.0`.
 fn js_number(number: f64) -> String {
     if number.fract() == 0.0 && number.abs() < 1e15 {
@@ -346,8 +355,8 @@ fn property_detail(slug: &str, p: &Value, similar: &Value, public_slugs: Value) 
             "title": text(m, "caption").or_else(|| text(m, "filename")).unwrap_or("Document"),
             "filename": text(m, "filename").unwrap_or("document"),
             "mimeType": text(m, "mimeType").unwrap_or("application/octet-stream"),
-            "fileSize": at(m, "fileSize"),
-            "sortOrder": at(m, "sortOrder"),
+            "fileSize": whole(at(m, "fileSize")),
+            "sortOrder": whole(at(m, "sortOrder")),
         }))
         .collect();
     let location = [text(p, "neighborhood"), text(p, "city"), text(p, "stateOrProvince")].into_iter().flatten().collect::<Vec<_>>().join(", ");
@@ -418,6 +427,8 @@ mod format_tests {
         assert_eq!(format_area(Some(2.5), Some("acres")).as_deref(), Some("2.5 Acres"));
         assert_eq!(format_area(Some(12500.0), Some("SqFt")).as_deref(), Some("12,500 SF"));
         assert_eq!(en_us(1234.5), "1,234.5");
+        assert_eq!(whole(&json!(2224613.0)), json!(2224613));
+        assert_eq!(whole(&json!(1.5)), json!(1.5));
     }
 }
 
