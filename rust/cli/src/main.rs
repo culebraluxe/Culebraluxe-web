@@ -1,9 +1,11 @@
 use db::{Database, DbTarget, ProjectDao, ProjectTxDao};
 use domain::{CreateProjectRequest, ProjectStatus, UpdateProjectRequest, WbsCategory};
+use reqwest::Method;
+use serde_json::{json, Value};
 use server::projects::ProjectService;
 use service::{
-    CapturingAuditPort, CapturingDomainEventPort, DefaultAuthorizationPort, ServiceActor,
-    ServiceActorKind, ServiceContext, ServiceInfrastructure, ServicePrincipal,
+    CapturingAuditPort, CapturingDomainEventPort, CommandRequest, DefaultAuthorizationPort,
+    ServiceActor, ServiceActorKind, ServiceContext, ServiceInfrastructure, ServicePrincipal,
 };
 use std::error::Error;
 use std::io;
@@ -13,24 +15,190 @@ use uuid::Uuid;
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    let command = std::env::args().nth(1).unwrap_or_default();
-
-    let result = match command.as_str() {
-        "db-smoke" => db_smoke().await,
-        "tx-smoke" => tx_smoke().await,
-        _ => {
-            eprintln!("usage: cargo run -p cli -- <db-smoke|tx-smoke>");
-            return ExitCode::from(2);
-        }
-    };
+    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    let result = dispatch_cli(&args).await;
 
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("rust smoke failed: {error}");
+            eprintln!("culebraluxe rust cli failed: {error}");
             ExitCode::FAILURE
         }
     }
+}
+
+async fn dispatch_cli(args: &[String]) -> Result<(), Box<dyn Error>> {
+    match args.first().map(String::as_str).unwrap_or_default() {
+        "db-smoke" => db_smoke().await,
+        "tx-smoke" => tx_smoke().await,
+        "service" => service_cli(&args[1..]).await,
+        _ => {
+            print_usage();
+            Err(io::Error::other("unknown or missing command").into())
+        }
+    }
+}
+
+fn print_usage() {
+    eprintln!("usage:");
+    eprintln!("  cargo run -p cli -- db-smoke");
+    eprintln!("  cargo run -p cli -- tx-smoke");
+    eprintln!("  cargo run -p cli -- service serve");
+    eprintln!("  cargo run -p cli -- service catalog");
+    eprintln!("  cargo run -p cli -- service health");
+    eprintln!("  cargo run -p cli -- service status <domain>");
+    eprintln!("  cargo run -p cli -- service drain <domain>");
+    eprintln!("  cargo run -p cli -- service stop <domain>");
+    eprintln!("  cargo run -p cli -- service dispatch <domain> <operation> [json-payload]");
+    eprintln!("  cargo run -p cli -- service command '<CommandRequest json>'");
+    eprintln!();
+    eprintln!("remote service commands require CULEBRA_CLI_AUTH_PROVIDER and CULEBRA_CLI_AUTH_SUB.");
+}
+
+async fn service_cli(args: &[String]) -> Result<(), Box<dyn Error>> {
+    match args.first().map(String::as_str).unwrap_or_default() {
+        "serve" => server::http_runtime::run_http_server().await,
+        "catalog" => {
+            print_remote_json(Method::GET, "/v1/services", None).await
+        }
+        "health" => {
+            print_remote_json(Method::GET, "/v1/services/runtime/health", None).await
+        }
+        "status" | "drain" | "stop" => {
+            let command = args[0].as_str();
+            let domain = args
+                .get(1)
+                .map(String::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| io::Error::other(format!("service {command} requires <domain>")))?;
+            let path = format!("/v1/services/{domain}/control");
+            print_remote_json(Method::POST, &path, Some(json!({ "command": command }))).await
+        }
+        "dispatch" => {
+            let domain = args
+                .get(1)
+                .map(String::as_str)
+                .ok_or_else(|| io::Error::other("service dispatch requires <domain>"))?;
+            let operation = args
+                .get(2)
+                .map(String::as_str)
+                .ok_or_else(|| io::Error::other("service dispatch requires <operation>"))?;
+            let payload = match args.get(3) {
+                Some(raw) => serde_json::from_str::<Value>(raw)
+                    .map_err(|error| io::Error::other(format!("invalid JSON payload: {error}")))?,
+                None => json!({}),
+            };
+            print_remote_json(
+                Method::POST,
+                "/v1/services/dispatch",
+                Some(json!({
+                    "domain": domain,
+                    "operation": operation,
+                    "payload": payload,
+                })),
+            )
+            .await
+        }
+        "command" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| io::Error::other("service command requires CommandRequest JSON"))?;
+            let command: CommandRequest = serde_json::from_str(raw)
+                .map_err(|error| io::Error::other(format!("invalid CommandRequest JSON: {error}")))?;
+            let value = serde_json::to_value(command)?;
+            print_remote_json(Method::POST, "/v1/commands/dispatch", Some(value)).await
+        }
+        _ => {
+            print_usage();
+            Err(io::Error::other("unknown service command").into())
+        }
+    }
+}
+
+struct RemoteServiceClient {
+    client: reqwest::Client,
+    base_url: String,
+    internal_key: String,
+    provider: String,
+    subject: String,
+}
+
+impl RemoteServiceClient {
+    fn from_env() -> Result<Self, Box<dyn Error>> {
+        let base_url = std::env::var("CULEBRA_SERVICE_URL")
+            .unwrap_or_else(|_| "http://127.0.0.1:8080".into())
+            .trim_end_matches('/')
+            .to_owned();
+        let provider = required_env("CULEBRA_CLI_AUTH_PROVIDER")?;
+        let subject = required_env("CULEBRA_CLI_AUTH_SUB")?;
+        let config = server::api::ApiConfig::from_env().map_err(io::Error::other)?;
+        Ok(Self {
+            client: reqwest::Client::new(),
+            base_url,
+            internal_key: config.internal_api_key.to_string(),
+            provider,
+            subject,
+        })
+    }
+
+    async fn request(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<Value>,
+    ) -> Result<Value, Box<dyn Error>> {
+        let correlation_id = format!("cli-{}", Uuid::new_v4());
+        let mut request = self
+            .client
+            .request(method, format!("{}{}", self.base_url, path))
+            .header("x-culebra-internal-key", &self.internal_key)
+            .header("x-culebra-auth-provider", &self.provider)
+            .header("x-culebra-auth-sub", &self.subject)
+            .header("x-culebra-correlation-id", &correlation_id);
+        if let Some(body) = body {
+            request = request.json(&body);
+        }
+
+        let response = request.send().await?;
+        let status = response.status();
+        let text = response.text().await?;
+        let value = serde_json::from_str::<Value>(&text).unwrap_or_else(|_| {
+            json!({
+                "ok": false,
+                "status": status.as_u16(),
+                "message": text,
+                "correlationId": correlation_id,
+            })
+        });
+        if !status.is_success() {
+            return Err(io::Error::other(format!(
+                "service API returned HTTP {}: {}",
+                status,
+                serde_json::to_string(&value)?
+            ))
+            .into());
+        }
+        Ok(value)
+    }
+}
+
+fn required_env(name: &str) -> Result<String, Box<dyn Error>> {
+    std::env::var(name)
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| io::Error::other(format!("{name} is required")).map_err(Into::into))
+}
+
+async fn print_remote_json(
+    method: Method,
+    path: &str,
+    body: Option<Value>,
+) -> Result<(), Box<dyn Error>> {
+    let client = RemoteServiceClient::from_env()?;
+    let value = client.request(method, path, body).await?;
+    println!("{}", serde_json::to_string_pretty(&value)?);
+    Ok(())
 }
 
 fn smoke_context(correlation_id: impl Into<String>) -> ServiceContext {
