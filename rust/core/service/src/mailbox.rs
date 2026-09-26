@@ -14,7 +14,7 @@ use std::{
         Arc,
     },
 };
-use tokio::sync::{mpsc, oneshot, watch, Notify};
+use tokio::sync::{mpsc, oneshot, watch, Notify, OwnedSemaphorePermit, Semaphore};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 type WorkOutput = Box<dyn Any + Send>;
@@ -25,6 +25,7 @@ struct WorkItem {
     partition_key: Option<String>,
     future: WorkFuture,
     respond_to: oneshot::Sender<Result<WorkOutput, ServiceDispatchError>>,
+    queue_permit: Option<OwnedSemaphorePermit>,
 }
 
 enum ActorMessage {
@@ -59,6 +60,7 @@ pub struct ServiceMailbox {
     queued: Arc<AtomicUsize>,
     in_flight: Arc<AtomicUsize>,
     idle_notify: Arc<Notify>,
+    queue_slots: Arc<Semaphore>,
     status: watch::Receiver<ServiceStatus>,
     cancel: CancellationToken,
     tracker: TaskTracker,
@@ -86,6 +88,11 @@ impl ServiceMailbox {
         let queued = Arc::new(AtomicUsize::new(0));
         let in_flight = Arc::new(AtomicUsize::new(0));
         let idle_notify = Arc::new(Notify::new());
+        // The mpsc channel alone is not enough to bound the mailbox: the actor moves
+        // messages into its own pending scheduler queue. A permit stays with every
+        // queued item until that item actually starts, so at most `capacity` tasks
+        // can wait for execution no matter how quickly the actor drains mpsc.
+        let queue_slots = Arc::new(Semaphore::new(config.capacity));
         let cancel = parent_cancel.child_token();
         let tracker = TaskTracker::new();
 
@@ -131,6 +138,7 @@ impl ServiceMailbox {
             queued,
             in_flight,
             idle_notify,
+            queue_slots,
             status,
             cancel,
             tracker,
@@ -180,6 +188,20 @@ impl ServiceMailbox {
             return downcast_work(self.domain.as_ref(), &operation, boxed);
         }
 
+        let queue_permit = self
+            .queue_slots
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| ServiceDispatchError::ServiceDraining(self.domain.to_string()))?;
+        // A drain may have begun while this sender was waiting for a queue slot.
+        // Re-check after acquisition so work is never accepted across the drain fence.
+        if !self.accepting.load(Ordering::Acquire) {
+            return Err(ServiceDispatchError::ServiceDraining(
+                self.domain.to_string(),
+            ));
+        }
+
         let partition_key = if policy.mode == ServiceExecutionMode::Ordered {
             Some(policy.partition_key(payload).ok_or_else(|| {
                 ServiceDispatchError::InvalidPayload {
@@ -202,6 +224,7 @@ impl ServiceMailbox {
                 partition_key,
                 future: wrapped,
                 respond_to,
+                queue_permit: Some(queue_permit),
             }))
             .await
             .map_err(|_| ServiceDispatchError::ServiceStopped(self.domain.to_string()))?;
@@ -226,7 +249,7 @@ impl ServiceMailbox {
     }
 
     pub async fn drain(&self) -> Result<(), ServiceDispatchError> {
-        self.accepting.store(false, Ordering::Release);
+        self.refuse_new_work();
 
         match self.status() {
             ServiceStatus::Stopped => return Ok(()),
@@ -267,6 +290,8 @@ impl ServiceMailbox {
 
     pub fn refuse_new_work(&self) {
         self.accepting.store(false, Ordering::Release);
+        // Wake submitters blocked on mailbox capacity and refuse them.
+        self.queue_slots.close();
     }
 
     pub fn cancel(&self) {
@@ -491,7 +516,10 @@ impl ServiceMailboxActor {
         }
     }
 
-    fn start(&mut self, work: WorkItem) {
+    fn start(&mut self, mut work: WorkItem) {
+        // Starting execution frees one waiting-mailbox slot. Concurrency remains
+        // independently bounded by max_concurrency.
+        drop(work.queue_permit.take());
         let partition_key = work.partition_key.clone();
         if let Some(key) = partition_key.as_ref() {
             self.active_partitions.insert(key.clone());
@@ -613,6 +641,112 @@ mod tests {
         }
 
         assert_eq!(peak.load(Ordering::SeqCst), 2);
+        mailbox.stop().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn bounded_mailbox_applies_backpressure_to_waiting_work() {
+        let root = CancellationToken::new();
+        let mailbox = ServiceMailbox::spawn(
+            "bounded",
+            ServiceMailboxConfig {
+                capacity: 1,
+                max_concurrency: 1,
+            },
+            &root,
+        )
+        .unwrap();
+
+        let first_release = Arc::new(Notify::new());
+        let second_release = Arc::new(Notify::new());
+        let first_started = Arc::new(Notify::new());
+        let second_started = Arc::new(Notify::new());
+        let third_started = Arc::new(Notify::new());
+
+        let first = {
+            let mailbox = mailbox.clone();
+            let release = first_release.clone();
+            let started = first_started.clone();
+            tokio::spawn(async move {
+                mailbox
+                    .submit(
+                        "bounded.work",
+                        ServiceExecutionPolicy::queued(),
+                        &json!({}),
+                        async move {
+                            started.notify_one();
+                            release.notified().await;
+                            Ok(json!({ "n": 1 }))
+                        },
+                    )
+                    .await
+            })
+        };
+        first_started.notified().await;
+
+        let second = {
+            let mailbox = mailbox.clone();
+            let release = second_release.clone();
+            let started = second_started.clone();
+            tokio::spawn(async move {
+                mailbox
+                    .submit(
+                        "bounded.work",
+                        ServiceExecutionPolicy::queued(),
+                        &json!({}),
+                        async move {
+                            started.notify_one();
+                            release.notified().await;
+                            Ok(json!({ "n": 2 }))
+                        },
+                    )
+                    .await
+            })
+        };
+
+        // Let the actor enqueue the second task; its queue permit remains held.
+        sleep(Duration::from_millis(10)).await;
+
+        let third = {
+            let mailbox = mailbox.clone();
+            let started = third_started.clone();
+            tokio::spawn(async move {
+                mailbox
+                    .submit(
+                        "bounded.work",
+                        ServiceExecutionPolicy::queued(),
+                        &json!({}),
+                        async move {
+                            started.notify_one();
+                            Ok(json!({ "n": 3 }))
+                        },
+                    )
+                    .await
+            })
+        };
+
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), third_started.notified())
+                .await
+                .is_err(),
+            "third task crossed the bounded mailbox while one task was already queued"
+        );
+
+        first_release.notify_one();
+        second_started.notified().await;
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), third_started.notified())
+                .await
+                .is_err(),
+            "third task started while the second task still held the only execution slot"
+        );
+
+        second_release.notify_one();
+        third_started.notified().await;
+
+        assert!(first.await.unwrap().is_ok());
+        assert!(second.await.unwrap().is_ok());
+        assert!(third.await.unwrap().is_ok());
         mailbox.stop().await.unwrap();
     }
 
