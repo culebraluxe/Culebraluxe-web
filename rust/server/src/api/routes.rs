@@ -25,7 +25,8 @@ use integrations::mux::{MuxClient, MuxConfig};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use service::{
-    OperationKind, ServiceContext, ServiceDispatchError, ServiceEnvelope, SignatureProvider,
+    CommandRequest, CommandResult, OperationKind, ServiceContext, ServiceDispatchError,
+    ServiceEnvelope, SignatureProvider,
 };
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -907,6 +908,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/services/health", get(service_health))
         .route("/v1/services/kernel/health", get(service_kernel_health))
         .route("/v1/services/dispatch", post(service_dispatch))
+        .route("/v1/commands/dispatch", post(command_dispatch))
         // THE LOGIN SEAM'S QUESTION, as opposed to whoami's. Auth.js has proved a Google subject and nobody
         // knows yet whether it maps to an active application user; this answers known / unmapped / inactive.
         .route("/v1/security/identity", get(security_identity))
@@ -1531,6 +1533,21 @@ async fn service_kernel_health(
 ) -> Result<Json<ApiSuccess<crate::ServiceKernelHealth>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
     let value = state.service_harness().health();
+    Ok(success(value, &resolved))
+}
+
+async fn command_dispatch(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(request): Json<CommandRequest>,
+) -> Result<Json<ApiSuccess<CommandResult>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let correlation_id = resolved.service.correlation_id.clone();
+    let value = state
+        .service_harness()
+        .execute_command(&request, &resolved.service)
+        .await
+        .map_err(|error| ApiError::from(error).with_correlation(correlation_id.clone()))?;
     Ok(success(value, &resolved))
 }
 

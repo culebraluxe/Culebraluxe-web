@@ -8,9 +8,9 @@ use async_trait::async_trait;
 use db::{ContractDao, Database, FirmDao, PersonDao, PropertyDao};
 use service::{
     AbstractService, DeferredServiceRouter, ServiceContext, ServiceControlCommand,
-    ServiceControlResult, ServiceDescriptor, ServiceDispatchError, ServiceEnvelope, ServiceHealth,
-    ServiceInfrastructure, ServiceLifecycle, ServiceMailbox, ServiceMailboxConfig, ServiceRouter,
-    ServiceRuntime, ServiceStatus,
+    OperationKind, ServiceControlResult, ServiceDescriptor, ServiceDispatchError, ServiceEnvelope,
+    ServiceHealth, ServiceInfrastructure, ServiceLifecycle, ServiceMailbox, ServiceMailboxConfig,
+    ServiceRouter, ServiceRuntime, ServiceStatus,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -181,6 +181,37 @@ impl ServiceRegistry {
         })
     }
 
+    pub async fn run_task<T, F>(
+        &self,
+        domain: &str,
+        operation: &str,
+        payload: &serde_json::Value,
+        work: F,
+    ) -> Result<T, ServiceDispatchError>
+    where
+        T: Send + 'static,
+        F: std::future::Future<Output = T> + Send + 'static,
+    {
+        let entry = self
+            .entries
+            .get(domain)
+            .ok_or_else(|| ServiceDispatchError::ServiceNotFound(domain.to_owned()))?;
+        let capability = entry
+            .descriptor
+            .capabilities
+            .iter()
+            .find(|capability| capability.name == operation)
+            .ok_or_else(|| ServiceDispatchError::UnknownOperation {
+                domain: domain.to_owned(),
+                operation: operation.to_owned(),
+            })?;
+
+        entry
+            .mailbox
+            .submit_task(operation.to_owned(), capability.execution.clone(), payload, work)
+            .await
+    }
+
     pub async fn dispatch(
         &self,
         envelope: &ServiceEnvelope,
@@ -200,6 +231,17 @@ impl ServiceRegistry {
                 domain: envelope.domain.clone(),
                 operation: envelope.operation.clone(),
             })?;
+
+        if capability.kind == OperationKind::Command {
+            return Err(ServiceDispatchError::business(
+                "DURABLE_COMMAND_REQUIRED",
+                format!(
+                    "{} must enter through the durable command dispatcher.",
+                    envelope.operation
+                ),
+                false,
+            ));
+        }
 
         let service = entry.service.clone();
         let request = envelope.clone();

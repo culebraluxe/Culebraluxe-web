@@ -26,11 +26,15 @@ pub enum CommandDispatchError {
     Serialization(String),
     #[error("command registry invariant failed: {0}")]
     Registry(String),
+    #[error(transparent)]
+    Scheduler(#[from] service::ServiceDispatchError),
 }
 
 #[async_trait]
 trait DurableCommandHandler: Send + Sync {
     fn command_type(&self) -> &'static str;
+    fn service_domain(&self) -> &'static str;
+    fn scheduling_payload(&self, request: &CommandRequest) -> Value;
 
     async fn handle(
         &self,
@@ -86,6 +90,18 @@ impl CommandDispatcher {
             db,
             registry: Arc::new(registry),
         })
+    }
+
+    pub fn scheduling_route(
+        &self,
+        request: &CommandRequest,
+    ) -> Option<(&'static str, &'static str, Value)> {
+        let handler = self.registry.get(&request.command_type)?;
+        Some((
+            handler.service_domain(),
+            handler.command_type(),
+            handler.scheduling_payload(request),
+        ))
     }
 
     pub async fn execute(
@@ -357,6 +373,14 @@ struct ContractExecuteCommand {
 impl DurableCommandHandler for ContractExecuteCommand {
     fn command_type(&self) -> &'static str {
         "contract.execute"
+    }
+
+    fn service_domain(&self) -> &'static str {
+        "contract"
+    }
+
+    fn scheduling_payload(&self, request: &CommandRequest) -> Value {
+        json!({ "contractId": request.aggregate_id })
     }
 
     async fn handle(

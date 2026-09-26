@@ -53,6 +53,19 @@ fn capability(
     }
 }
 
+fn capability_with_execution(
+    name: &str,
+    kind: OperationKind,
+    description: &str,
+    authorization: &str,
+    idempotent: bool,
+    execution: ServiceExecutionPolicy,
+) -> ServiceCapability {
+    let mut capability = capability(name, kind, description, authorization, idempotent);
+    capability.execution = execution;
+    capability
+}
+
 fn payload_string(envelope: &ServiceEnvelope, field: &str) -> Result<String, ServiceDispatchError> {
     envelope
         .payload
@@ -292,6 +305,14 @@ impl AbstractService for ContractService<ContractDao> {
                     "contract.read",
                     true,
                 ),
+                capability_with_execution(
+                    "contract.execute",
+                    OperationKind::Command,
+                    "Execute a canonical Contract through the durable command runtime.",
+                    "contract.execute",
+                    true,
+                    ServiceExecutionPolicy::ordered("contractId"),
+                ),
             ],
             dependencies: vec!["person".into(), "firm".into(), "property".into()],
             invariants: vec![
@@ -330,6 +351,11 @@ impl AbstractService for ContractService<ContractDao> {
                         .map_err(core_error)?,
                 )
             }
+            "contract.execute" => Err(ServiceDispatchError::business(
+                "DURABLE_COMMAND_REQUIRED",
+                "contract.execute must enter through the durable command dispatcher.",
+                false,
+            )),
             operation => Err(ServiceDispatchError::UnknownOperation {
                 domain: "contract".into(),
                 operation: operation.to_owned(),

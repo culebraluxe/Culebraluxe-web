@@ -4,14 +4,15 @@ use crate::{
 use db::Database;
 use serde_json::Value;
 use service::{
-    ServiceContext, ServiceControlCommand, ServiceControlResult, ServiceDescriptor,
-    ServiceDispatchError, ServiceEnvelope, ServiceInfrastructure,
+    CommandRequest, CommandResult, ServiceContext, ServiceControlCommand, ServiceControlResult,
+    ServiceDescriptor, ServiceDispatchError, ServiceEnvelope, ServiceInfrastructure,
 };
 
 #[derive(Clone)]
 pub struct ServiceHarness {
     kernel: ServiceKernel,
     gateway: ServiceGateway,
+    commands: CommandDispatcher,
 }
 
 impl ServiceHarness {
@@ -19,9 +20,16 @@ impl ServiceHarness {
         db: Database,
         infrastructure: ServiceInfrastructure,
     ) -> Result<Self, ServiceDispatchError> {
-        let kernel = ServiceKernel::new(db, infrastructure)?;
+        let kernel = ServiceKernel::new(db.clone(), infrastructure)?;
         let gateway = ServiceGateway::new(kernel.registry());
-        Ok(Self { kernel, gateway })
+        let commands = CommandDispatcher::for_kernel(db, kernel.contract()).map_err(|error| {
+            ServiceDispatchError::infrastructure("COMMAND_RUNTIME_INIT", error.to_string(), false)
+        })?;
+        Ok(Self {
+            kernel,
+            gateway,
+            commands,
+        })
     }
 
     pub async fn start(&self) -> Result<(), ServiceDispatchError> {
@@ -50,6 +58,27 @@ impl ServiceHarness {
         context: &ServiceContext,
     ) -> Result<Value, ServiceDispatchError> {
         self.gateway.dispatch(envelope, context).await
+    }
+
+    pub async fn execute_command(
+        &self,
+        request: &CommandRequest,
+        context: &ServiceContext,
+    ) -> Result<CommandResult, CommandDispatchError> {
+        if let Some((domain, operation, payload)) = self.commands.scheduling_route(request) {
+            let dispatcher = self.commands.clone();
+            let request = request.clone();
+            let context = context.clone();
+            return self
+                .kernel
+                .registry()
+                .run_task(domain, operation, &payload, async move {
+                    dispatcher.execute(&request, &context).await
+                })
+                .await?;
+        }
+
+        self.commands.execute(request, context).await
     }
 
     pub async fn control(
