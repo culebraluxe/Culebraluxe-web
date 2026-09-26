@@ -10,9 +10,6 @@ use yew_router::prelude::*;
 
 use crate::yew_router::Route;
 
-pub const CAPSULE: &str = "top-nav-capsule top-nav-capsule--tight";
-pub const MOBILE_CAPSULE: &str = "top-nav-capsule top-nav-capsule--full";
-
 /// A link the router owns: a real anchor, in the design's own markup, that navigates without a page load.
 ///
 /// WHY NOT `yew_router`'s `Link`: it takes `classes` and `to` and nothing else, so it cannot carry `aria-current` — and
@@ -56,92 +53,6 @@ pub fn nav_link(props: &NavLinkProps) -> Html {
             { props.children.clone() }
         </a>
     }
-}
-
-/// The header: the logo, the menu in the design's order, and the mobile menu that is a `<details>` element.
-///
-/// A FUNCTION COMPONENT SO THE HIGHLIGHT FOLLOWS THE ROUTE. `use_route` subscribes to the router: a client-side
-/// navigation re-renders the header, so `aria-current` moves with the page. As a struct component with no props it read
-/// the route once and Yew never re-rendered it, so the old destination stayed highlighted after every click. Outside a
-/// router (the error page) the route is `None` and nothing is highlighted.
-#[function_component(Header)]
-pub fn header() -> Html {
-    // The current route, from the router's own scope: no prop threading, and no second copy of the URL.
-    let current = use_route::<Route>();
-    let item = |route: Route, label: &'static str, class: &'static str| {
-        html! {
-            <NavLink to={route.clone()} classes={classes!(class)} current={current == Some(route)}>
-                { label }
-            </NavLink>
-        }
-    };
-    // THE DESTINATIONS THIS APP DOES NOT OWN STAY ORDINARY ANCHORS, and that is the routing rule rather than a
-    // shortcut: a path this bundle does not serve must be a full page load to the runtime that does, because
-    // claiming it here would put two routers on one URL. What is left is the portal, which is its own Yew app behind
-    // its own mount.
-    let outside = |href: &'static str, label: &'static str, class: &'static str| {
-        html! { <a href={href} class={class}>{ label }</a> }
-    };
-    html! {
-        <>
-            <header class="fixed inset-x-0 top-0 z-50 border-b border-brand-gold/15 bg-brand-navy py-6">
-                <div class="mx-auto flex max-w-[1600px] items-center justify-between px-6 md:px-12">
-                    <NavLink to={Route::Home} classes={classes!("flex", "h-7", "w-[250px]", "flex-none", "items-center")} aria_label={AttrValue::Static("CulebraLuxe home")}>
-                        <img src="/images/culebraluxe-header-logo-test.png" alt="CulebraLuxe" width="2050"
-                            height="300" class="h-9 max-h-9 w-auto max-w-full flex-none object-contain" />
-                    </NavLink>
-                    <nav class="hidden items-center gap-1 lg:flex" aria-label="Primary">
-                        { item(Route::Buyers, "Buyers", CAPSULE) }
-                        { item(Route::Sellers, "Sellers", CAPSULE) }
-                        { item(Route::Services, "Services", CAPSULE) }
-                        { item(Route::Guide, "Guide", CAPSULE) }
-                        { item(Route::About, "About", CAPSULE) }
-                        { item(Route::Faq, "FAQ", CAPSULE) }
-                        { item(Route::Contact, "Contact", CAPSULE) }
-                        { outside("/portal/dashboard", "Portal", CAPSULE) }
-                    </nav>
-                    // The bars turn into a cross when the menu is open, as the live button did, and choosing a
-                    // destination closes the menu: the router changes the page without a load, so nothing else would.
-                    <details class="group lg:hidden">
-                        <summary class="flex cursor-pointer list-none flex-col items-end gap-1.5 text-brand-ivory [&::-webkit-details-marker]:hidden" aria-label="Menu">
-                            <span class="block h-px w-6 bg-current transition-all duration-300 group-open:translate-y-[7px] group-open:rotate-45"></span>
-                            <span class="block h-px w-6 bg-current transition-all duration-300 group-open:opacity-0"></span>
-                            <span class="block h-px w-6 bg-current transition-all duration-300 group-open:-translate-y-[7px] group-open:-rotate-45"></span>
-                        </summary>
-                        <nav onclick={close_menu()} class="absolute inset-x-0 top-full flex max-h-[75svh] flex-col gap-2 overflow-y-auto border-t border-brand-gold/25 bg-brand-navy px-4 py-4 backdrop-blur-md animate-[fadeUp_0.4s_ease-out_both]" aria-label="Mobile">
-                            { item(Route::Buyers, "Buyers", MOBILE_CAPSULE) }
-                            { item(Route::Sellers, "Sellers", MOBILE_CAPSULE) }
-                            { item(Route::Services, "Services", MOBILE_CAPSULE) }
-                            { item(Route::Guide, "Guide", MOBILE_CAPSULE) }
-                            { item(Route::About, "About", MOBILE_CAPSULE) }
-                            { item(Route::Faq, "FAQ", MOBILE_CAPSULE) }
-                            { item(Route::Contact, "Contact", MOBILE_CAPSULE) }
-                            { outside("/portal/dashboard", "Portal", MOBILE_CAPSULE) }
-                        </nav>
-                    </details>
-                </div>
-            </header>
-            <div class="h-[76px] flex-none shrink-0 lg:h-[92px]" aria-hidden="true"></div>
-        </>
-    }
-}
-
-/// Close the `<details>` the clicked menu sits in, once a link in it is chosen. Found from the clicked link, not from
-/// `current_target`: Yew delegates its listeners to the app root, so the current target is the root, not this menu.
-fn close_menu() -> Callback<MouseEvent> {
-    Callback::from(|event: MouseEvent| {
-        use wasm_bindgen::JsCast;
-        let Some(link) = event
-            .target()
-            .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
-            .and_then(|element| element.closest("a").ok().flatten())
-        else {
-            return;
-        };
-        if let Some(menu) = link.closest("details").ok().flatten() {
-            let _ = menu.remove_attribute("open");
-        }
-    })
 }
 
 /// The footer, as `components/site-footer.tsx` renders it.

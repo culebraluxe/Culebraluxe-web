@@ -69,11 +69,11 @@ impl Component for App {
     }
 
     fn view(&self, ctx: &Context<Self>) -> Html {
+        // THE MASTER SHELL OWNS THE ROUTER AND THE CHROME (app/shell.rs). This old site app is hosted inside it for the
+        // site screens not yet on the `Screen` trait, and is deleted when the last one is ported.
         html! {
-            <BrowserRouter>
-                <Routed model={self.model.clone()} on_msg={ctx.link().callback(AppMsg::Ui)}
-                    on_route={ctx.link().callback(|(screen, scope)| AppMsg::RouteEntered { screen, scope })} />
-            </BrowserRouter>
+            <Routed model={self.model.clone()} on_msg={ctx.link().callback(AppMsg::Ui)}
+                on_route={ctx.link().callback(|(screen, scope)| AppMsg::RouteEntered { screen, scope })} />
         }
     }
 }
@@ -106,29 +106,6 @@ fn routed(props: &RoutedProps) -> Html {
     }
 }
 
-/// Mount the error boundary's page: this application's chrome around one calm message, with no router.
-///
-/// WHY THERE IS NO ROUTE FOR IT. An error boundary renders at the URL that FAILED, so a router would resolve that URL
-/// and render the screen that just threw — the error page must not be a destination anybody can link to. The page
-/// declares which application it is instead (`data-rust-app="site-error"`) and this mounts the one page no link reaches.
-pub fn mount_error_in(root: web_sys::Element) {
-    yew::Renderer::<ErrorPage>::with_root(root).render();
-}
-
-/// The whole error page: the header, the message, the footer.
-#[function_component(ErrorPage)]
-fn error_page() -> Html {
-    html! {
-        <div class="flex min-h-screen flex-col bg-background text-foreground">
-            <crate::yew_views::chrome::Header />
-            <main class="min-w-0 flex-1">
-                <ErrorView />
-            </main>
-            <crate::yew_views::chrome::Footer />
-        </div>
-    }
-}
-
 /// The interruption, in the design's own words.
 ///
 /// THE RETRY IS A LINK BACK TO THIS SAME URL, and that is a deliberate trade rather than an oversight. Next's error
@@ -137,7 +114,7 @@ fn error_page() -> Html {
 /// to the current document, so the link reloads the page and retries — heavier than `reset`, always correct, and it
 /// needs no JavaScript at all.
 #[function_component(ErrorView)]
-fn error_view() -> Html {
+pub fn error_view() -> Html {
     html! {
         <section class="flex min-h-[80svh] items-center bg-foreground px-6 text-background md:px-12">
             <div class="mx-auto w-full max-w-[1600px]">
@@ -167,13 +144,4 @@ fn error_view() -> Html {
             </div>
         </section>
     }
-}
-
-/// Mount the site application into the container the PAGE owns, handed over by reference.
-///
-/// THE ONLY ENTRY POINT FOR THE SITE APPLICATION, and there is deliberately no id-taking variant beside it. An id is not
-/// an identity: during a client-side navigation Next renders the new route while the old one is still in the document,
-/// so two containers can carry `#rust-ui` at once and a lookup answers with the first — the page the user is leaving.
-pub fn mount_in(root: web_sys::Element) {
-    yew::Renderer::<App>::with_root(root).render();
 }

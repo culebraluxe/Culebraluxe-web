@@ -32,6 +32,9 @@ pub mod view;
 #[cfg(feature = "wasm")]
 pub mod shell;
 
+/// The application framework and master shell (docs/agent/UI-SCREEN-ARCHITECTURE.md).
+#[cfg(all(feature = "wasm", feature = "yew", feature = "yew-router"))]
+pub mod app;
 /// The Yew application, which is replacing `shell` for the public routes. Everything it needs of the MVI core
 /// (`model`, `update`, `view`) is shared with the string renderers, so both runtimes agree on state and on the search
 /// contract while the port completes.

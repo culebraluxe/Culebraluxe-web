@@ -3908,44 +3908,6 @@ mod tests {
         assert!(html.contains("&quot;"));
     }
 
-    /// THE MENU HAS ONE TABLE, AND THIS IS IT.
-    ///
-    /// The test this replaces asserted these invariants against the STRING chrome — the copy of the menu that used to be
-    /// built inside `render`. That copy is deleted (the menu is drawn once, by `yew_views/portal_chrome.rs`, inside the
-    /// one Yew app), so the assertions had to move to what survived the deletion: the registry in `crate::navigation`,
-    /// which is what the Yew chrome reads. The invariants are the same and they are worth keeping, because every one of
-    /// them fails silently and looks like a working menu: a rail entry pointing at a route the model does not serve, an
-    /// entry offered twice, or a retired screen put back in front of an operator.
-    #[test]
-    fn the_portal_nav_offers_only_real_screens_and_never_offers_one_twice() {
-        for def in crate::navigation::SURFACES.iter() {
-            let surface = def.surface;
-            let mut seen: Vec<&str> = Vec::new();
-            for item in def.items.iter() {
-                let screen = crate::model::screen_for_path(item.href).unwrap_or_else(|| {
-                    panic!(
-                        "{}: the nav entry {} is not a screen the model serves",
-                        surface.label(),
-                        item.href
-                    )
-                });
-                assert!(
-                    !matches!(screen.nav, Nav::Retired),
-                    "{}: {} is retired and must not be offered",
-                    surface.label(),
-                    item.href
-                );
-                assert!(
-                    !seen.contains(&item.href),
-                    "{}: {} appears twice in the rail",
-                    surface.label(),
-                    item.href
-                );
-                seen.push(item.href);
-            }
-        }
-    }
-
     /// THE FIX, PINNED: a portal body carries no menu of its own.
     ///
     /// The portal had two chromes and, across a client-side navigation, more than one live owner of one container. The

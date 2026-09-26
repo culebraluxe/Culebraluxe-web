@@ -2170,34 +2170,6 @@ pub struct ContactFormState {
     pub submission_id: Option<String>,
 }
 
-/// Who is signed in on the public site, as `/api/rust-ui/guest` answered.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub enum GuestSession {
-    /// Not asked yet, or the answer has not arrived.
-    #[default]
-    Unknown,
-    SignedOut,
-    SignedIn {
-        display_name: String,
-        email: Option<String>,
-    },
-}
-
-/// The guest sign-in screen (`/account`): an EXTERNAL GUEST signs in with Google or an emailed code. The code check and
-/// the Google sign-in are Auth.js's own endpoints, which the screen's forms post to; `csrf_token` is Auth.js's token
-/// those forms must carry.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct GuestState {
-    pub session: GuestSession,
-    pub csrf_token: Option<String>,
-    /// The address a code went to: the screen then asks for the code.
-    pub code_sent_to: Option<String>,
-    /// A code request is on its way.
-    pub sending: bool,
-    /// Why the last request was refused, in words for the visitor.
-    pub message: Option<String>,
-}
-
 /// What the visitor typed, read from the form when it is submitted.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct ContactSubmission {
@@ -2266,8 +2238,6 @@ pub struct Model {
     pub saved_listings: Vec<String>,
     /// The contact form's own state: the interest chosen and where the submission is.
     pub contact_form: ContactFormState,
-    /// The guest sign-in screen's state.
-    pub guest: GuestState,
     /// The Buyers compare set (at most three), as the device's store holds it.
     pub compare: Vec<crate::search::CompareEntry>,
     /// The visitor's saved searches, as the device's store holds them.
@@ -2328,7 +2298,6 @@ impl Default for Model {
             property_media: PropertyMediaState::default(),
             saved_listings: Vec::new(),
             contact_form: ContactFormState::default(),
-            guest: GuestState::default(),
             compare: Vec::new(),
             saved_searches: Vec::new(),
             seller_strategy: crate::seller_strategy::SellerStrategyState::default(),
@@ -2496,19 +2465,6 @@ pub enum Msg {
     ContactResult {
         accepted: bool,
     },
-
-    // ---- Guest sign-in (/account) -----------------------------------------------------------------------------------
-    /// Who is signed in, and Auth.js's form token.
-    GuestLoaded {
-        session: GuestSession,
-        csrf_token: Option<String>,
-    },
-    /// "Email me a code" was pressed with this address.
-    GuestCodeRequested(String),
-    /// The code request came back: sent to this address, or refused with this message.
-    GuestCodeResult(Result<String, String>),
-    /// "Use a different email": back to the address form.
-    GuestCodeReset,
 
     // ---- Buyers: compare and saved searches ------------------------------------------------------------------------
     /// The device's compare set and saved searches, read when the Buyers page loads.
@@ -2939,12 +2895,6 @@ pub enum Effect {
     },
     /// Read which listings the visitor has saved, for the hearts on a page of cards.
     ListingFavoritesRead,
-    /// Ask who is signed in on the public site, and fetch Auth.js's form token.
-    GuestRead,
-    /// Ask Rust (through the host) to email a guest sign-in code.
-    GuestRequestCode {
-        email: String,
-    },
     /// Read the compare set and saved searches from the device.
     BuyerToolsRead,
     /// Persist the compare set.

@@ -362,38 +362,21 @@ fn start_at(root: &Element) -> Result<(), JsValue> {
 
     // THE PAGE SAYS WHICH APPLICATION IT IS, because inference from the screen alone cannot work: the public app owns
     // its own URL routing and is mounted without naming a screen at all.
+    // ONE APPLICATION. Site and portal pages both mount the master shell, whose router reads the URL
+    // (app/shell.rs); `site-error` is the error boundary's page, which must not resolve the failed URL.
     match attribute(ATTR_APP).as_deref() {
-        Some("site") => {
-            crate::yew_app::mount_in(root.clone());
+        Some("site") | Some("portal") => {
+            crate::app::shell::mount_in(root.clone(), false);
             Ok(())
         }
-        // THE ERROR BOUNDARY'S PAGE. It is not a route and not a screen: it is rendered at whatever URL failed, so the
-        // page names the application it wants and this mounts the one view no link can reach.
         Some("site-error") => {
-            crate::yew_app::mount_error_in(root.clone());
+            crate::app::shell::mount_in(root.clone(), true);
             Ok(())
         }
-        Some("portal") => {
-            let Some(key) = attribute(ATTR_SCREEN) else {
-                return Ok(());
-            };
-            let scope = attribute(ATTR_SCOPE).unwrap_or_default();
-            // ONE PORTAL RENDERER, AND IT IS THE YEW APP. The branch that used to hand a screen without a Yew component
-            // to the string renderer is gone: those screens render their existing body as markup INSIDE the Yew chrome
-            // (`yew_portal::StringBody`), so there is one application, one chrome and one owner of this container
-            // instead of two renderers racing over it.
-            crate::yew_portal::mount_in(root.clone(), &key, &scope)
-        }
-        // No declaration: this page has no Rust UI. Not an error — the module loads on pages that never mount it.
         _ => Ok(()),
     }
 }
 
-/// The container the module mounts into, when the page does not name one.
-/// The screen this container serves. Set by the page; read here, never passed as an argument.
-const ATTR_SCREEN: &str = "data-rust-screen";
-/// The record key, for a screen whose path carries one. Absent on list screens.
-const ATTR_SCOPE: &str = "data-rust-scope";
 /// Which application this container wants: `site`, `portal`, or `site-error` for the error boundary.
 const ATTR_APP: &str = "data-rust-app";
 

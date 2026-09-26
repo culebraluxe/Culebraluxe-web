@@ -1,6 +1,7 @@
 # UI Screen Architecture — the contract every screen implements
 
-Status: **adopted design, implementation starting** (owner decision 2026-09-26). This document is the contract for all
+Status: **framework and master shell built** (owner decision 2026-09-26). Code: `rust/ui/src/app/`. Screens on the
+trait: `db-test`, `site-account`. Cutover ledger: 77 screens still on the old loop (`app/registry.rs`). This document is the contract for all
 UI work in `rust/ui`. It supersedes the ad hoc per-screen patterns: when code and this document disagree, the code is
 wrong.
 
@@ -28,14 +29,6 @@ Rust has no inheritance; a trait with default methods is the equivalent. Every s
 
 ```rust
 pub trait Screen: 'static {
-    // ---- identity: the registry is generated from these; nothing else lists screens ----
-    const KEY: &'static str;              // "clients"
-    const PATH: &'static str;             // "/portal/clients" or "/portal/clients/:id"
-    const SURFACE: Surface;               // Site | Core | Accounting | Marketing | Ops | Support | Tech
-    fn title() -> &'static str;
-    fn nav() -> Nav { Nav::Listed }                    // Listed | Unlisted | Record { of: KEY }
-    fn entitlement() -> Option<&'static str> { None }  // nav VISIBILITY only; the server authorizes
-
     // ---- the screen's own state: nothing global ----
     type Model: Default + Clone + PartialEq;
     type Msg: 'static;
@@ -43,11 +36,13 @@ pub trait Screen: 'static {
     fn init(ctx: &ScreenCtx) -> (Self::Model, Cmd<Self::Msg>);
     fn update(model: &mut Self::Model, msg: Self::Msg, ctx: &ScreenCtx) -> Cmd<Self::Msg>;
     fn view(model: &Self::Model, ctx: &ScreenCtx, link: &Link<Self::Msg>) -> Html;
-
-    // ---- optional ----
-    fn subscriptions(_model: &Self::Model) -> Sub<Self::Msg> { Sub::none() }  // timers, window events
 }
 ```
+
+A screen's IDENTITY — key, path, surface, title, menu label, authority/entitlement — is its one line in the registry
+(section 7), not trait constants: the router, both menus and the headless walk are generated from that table, and a
+table is where "every screen" can be checked at once. (Subscriptions — timers, window events — are added as a named
+capability when the first screen needs one.)
 
 Rules:
 
@@ -131,15 +126,17 @@ executes the returned `Cmd` with the current generation, and draws `S::view` ins
 Screens are registered in one place:
 
 ```rust
-screens! {
-    site:    Home, Buyers, Sellers, /* ... */
-    core:    Cockpit, Clients, ClientRecord, Deals, DealRecord, /* ... */
-    // ...
-}
+// rust/ui/src/app/registry.rs — the table order is the menu order
+entry("db-test", "/portal/db-test", Surface::Support, "DB Test", Menu::Rail("DB Test"), "portal.read", "portal.read",
+      Kind::Screen(mount::<DbTest>)),
 ```
 
-The macro generates the route enum, the router switch, the nav rail per surface, and the list the headless navigation
-test walks. Adding a screen is **implement the trait + one registry line**; forgetting a part does not compile.
+`Kind::Screen(mount::<S>)` is a screen on the trait. `Kind::LegacyPortal` / `Kind::LegacySite` host a screen still on
+the old loop inside the new shell while it is ported — the ledger test (`legacy_count_only_goes_down`) holds that
+number to a ceiling that only moves down. `Kind::External` is a page Next renders (Auth.js sign-in, the React Forms
+editor). Adding a screen is **implement the trait + one registry line**. The registry's tests also check that every Next
+`page.tsx` has an entry and every entry has a page, that the menus are the designed menus in order, and that every
+surface's home is registered.
 
 ### 8. One app, one router
 

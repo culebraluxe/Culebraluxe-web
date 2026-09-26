@@ -42,7 +42,6 @@ pub fn is_ported_portal_screen(key: &str) -> bool {
             | "accounting-receipt-scanner"
             // SUPPORT — the four diagnostic screens, ported one at a time from their pre-cutover TypeScript, not from the
             // generic rows output that replaced them.
-            | "db-test"
             | "security"
             | "settings-users"
             | "whatsapp-meta"
@@ -765,13 +764,6 @@ fn open(model: &mut Model, screen: Screen, scope: Option<String>) -> Vec<Effect>
 
     // Local screens own deterministic browser-only state and do not ask the server for a payload.
     // Seller Strategy resets its calculator model; UI Lab owns its comparison/demo model inside its Yew component.
-    // The guest sign-in screen has no page payload: it asks who is signed in, and renders its forms from that.
-    if screen.key == "site-account" {
-        model.loading = false;
-        model.guest = crate::model::GuestState::default();
-        return vec![Effect::GuestRead];
-    }
-
     if matches!(screen.key, "seller-strategy" | "design-lab") {
         if screen.key == "seller-strategy" {
             model.seller_strategy = crate::seller_strategy::SellerStrategyState::default();
@@ -1877,40 +1869,6 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                     ContactStatus::Failed
                 };
             }
-            Vec::new()
-        }
-        Msg::GuestLoaded {
-            session,
-            csrf_token,
-        } => {
-            if model.screen.key == "site-account" {
-                model.guest.session = session;
-                model.guest.csrf_token = csrf_token;
-            }
-            Vec::new()
-        }
-        Msg::GuestCodeRequested(email) => {
-            let email = email.trim().to_string();
-            if model.screen.key != "site-account" || model.guest.sending || email.is_empty() {
-                return Vec::new();
-            }
-            model.guest.sending = true;
-            model.guest.message = None;
-            vec![Effect::GuestRequestCode { email }]
-        }
-        Msg::GuestCodeResult(result) => {
-            if model.screen.key == "site-account" && model.guest.sending {
-                model.guest.sending = false;
-                match result {
-                    Ok(email) => model.guest.code_sent_to = Some(email),
-                    Err(message) => model.guest.message = Some(message),
-                }
-            }
-            Vec::new()
-        }
-        Msg::GuestCodeReset => {
-            model.guest.code_sent_to = None;
-            model.guest.message = None;
             Vec::new()
         }
         Msg::BuyerToolsLoaded { compare, searches } => {
@@ -4803,74 +4761,6 @@ mod tests {
     }
 
     #[test]
-    fn the_account_screen_asks_who_is_signed_in_and_sends_one_code_at_a_time() {
-        use crate::model::GuestSession;
-        let mut model = Model::default();
-        assert_eq!(
-            update(&mut model, Msg::Navigate(target("site-account"))),
-            vec![Effect::GuestRead]
-        );
-        assert!(!model.loading, "no page payload to wait for");
-
-        update(
-            &mut model,
-            Msg::GuestLoaded {
-                session: GuestSession::SignedOut,
-                csrf_token: Some("token".into()),
-            },
-        );
-        assert_eq!(model.guest.csrf_token.as_deref(), Some("token"));
-
-        let sent = update(
-            &mut model,
-            Msg::GuestCodeRequested(" ada@example.com ".into()),
-        );
-        assert_eq!(
-            sent,
-            vec![Effect::GuestRequestCode {
-                email: "ada@example.com".into()
-            }]
-        );
-        assert!(
-            update(
-                &mut model,
-                Msg::GuestCodeRequested("ada@example.com".into())
-            )
-            .is_empty(),
-            "one request at a time"
-        );
-
-        update(
-            &mut model,
-            Msg::GuestCodeResult(Err("Too many codes".into())),
-        );
-        assert_eq!(model.guest.message.as_deref(), Some("Too many codes"));
-        assert_eq!(model.guest.code_sent_to, None);
-
-        update(
-            &mut model,
-            Msg::GuestCodeRequested("ada@example.com".into()),
-        );
-        update(
-            &mut model,
-            Msg::GuestCodeResult(Ok("ada@example.com".into())),
-        );
-        assert_eq!(model.guest.code_sent_to.as_deref(), Some("ada@example.com"));
-        assert_eq!(model.guest.message, None);
-
-        update(&mut model, Msg::GuestCodeReset);
-        assert_eq!(model.guest.code_sent_to, None);
-
-        // Elsewhere, the guest messages do nothing.
-        update(&mut model, Msg::Navigate(target("site-home")));
-        assert!(update(
-            &mut model,
-            Msg::GuestCodeRequested("ada@example.com".into())
-        )
-        .is_empty());
-    }
-
-    #[test]
     fn a_contact_submission_is_sent_once_and_a_retry_keeps_its_id() {
         use crate::model::{ContactStatus, ContactSubmission};
         let mut model = Model {
@@ -5835,86 +5725,6 @@ mod tests {
     /// The chain is the point of the test: a screen can be ported at one end and not the other, and the failure is silent.
     /// The route asks for the portal payload (not rows), the payload arrives as a typed DTO the component reads, and the
     /// screen is in the ported list so a mount cannot fall back to the generic renderer.
-    #[test]
-    fn the_db_test_screen_reads_its_own_typed_payload() {
-        assert!(
-            is_ported_portal_screen("db-test"),
-            "a SUPPORT screen with a component must be in the ported list, or the mount refuses it and the generic host \
-             renders it instead"
-        );
-
-        let mut model = Model {
-            screen: target("system-health"),
-            ..Model::default()
-        };
-        let effects = update(&mut model, Msg::Navigate(target("db-test")));
-        let Effect::FetchPortal {
-            screen, generation, ..
-        } = &effects[0]
-        else {
-            panic!("opening DB Test must ask for its portal payload, not for rows");
-        };
-        assert_eq!(*screen, "db-test");
-        assert_eq!(*generation, 0);
-
-        // What the bridge answers with: the database answered, two clients, their identity columns.
-        let payload = r#"{"support":{"dbTest":{"connected":true,"clientCount":2,"clients":[
-            {"id":"c1","displayName":"Harbour Holdings","role":"buyer","status":"active",
-             "email":"ops@harbour.example","phone":null},
-            {"id":"c2","displayName":"Elm Street Trust","role":"seller","status":"active",
-             "email":null,"phone":"+17875550100"}]}}}"#;
-        update(&mut model, Msg::portal_loaded_json("db-test", 0, payload));
-
-        // Exactly what the component reads.
-        let read = model
-            .page
-            .as_ref()
-            .and_then(|page| page.portal.as_ref())
-            .and_then(|portal| portal.support.as_ref())
-            .and_then(|support| support.db_test.as_ref())
-            .expect("the payload must land where the component looks for it");
-        assert!(read.connected);
-        assert_eq!(read.client_count, 2);
-        assert_eq!(read.clients.len(), 2);
-        assert_eq!(read.clients[0].display_name, "Harbour Holdings");
-        // An absent email and an absent phone are absent, not empty strings: the screen prints a dash for each, and it can
-        // only do that if the two states are distinguishable.
-        assert_eq!(read.clients[1].email, None);
-        assert_eq!(read.clients[1].phone.as_deref(), Some("+17875550100"));
-    }
-
-    #[test]
-    fn a_failed_db_test_read_does_not_render_as_a_healthy_database() {
-        let mut model = Model {
-            screen: target("db-test"),
-            ..Model::default()
-        };
-        update(
-            &mut model,
-            Msg::EffectFailed {
-                screen: "db-test".into(),
-                generation: 0,
-                message: "the client read could not be answered".into(),
-            },
-        );
-
-        // No payload, and the failure is on the model for the shell to show. A screen that rendered "Connected" with no data
-        // would be a diagnostic lying about the thing it exists to check.
-        let read = model
-            .page
-            .as_ref()
-            .and_then(|page| page.portal.as_ref())
-            .and_then(|portal| portal.support.as_ref())
-            .and_then(|support| support.db_test.as_ref());
-        assert!(read.is_none());
-        assert_eq!(
-            model.error,
-            Some("the client read could not be answered".to_string())
-        );
-    }
-
-    // ---- SUPPORT: system-health, the instance row the earlier conversion could not open --------------------------
-
     /// A payload with an instance list and one instance's detail, as the bridge answers when a row is opened.
     fn system_health_payload(instance_id: &str, detail_instance: &str) -> String {
         format!(
@@ -5941,12 +5751,6 @@ mod tests {
         )
     }
 
-    /// CLICK → MESSAGE → EFFECT → PAYLOAD → MODEL, and the row is still the only thing that changed.
-    ///
-    /// THIS IS THE BEHAVIOUR THE EARLIER CONVERSION DROPPED. It held `selectedId`/`detail`/`loadingId` in React and fetched
-    /// the detail on click; the rows cutover sent the screen through the generic renderer and the list lost its interaction.
-    /// Three things are asserted here that a rendering test could not: the fetch carries the clicked id as its scope, the
-    /// answer lands on the model where the view reads it, and the detail is matched to the row that asked for it.
     #[test]
     fn opening_a_workflow_instance_asks_for_that_instance_and_holds_its_detail() {
         assert!(

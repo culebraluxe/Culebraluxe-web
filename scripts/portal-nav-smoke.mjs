@@ -6,7 +6,8 @@
 //   pnpm debug:portal-nav http://localhost:3001 # another dev server
 //
 // Opens /portal/dashboard, then clicks each top-nav world and each rail tab in turn and checks that the URL and the
-// mounted Yew screen (`#rust-ui[data-rust-screen]`) are the ones the link points at. Exits non-zero on any mismatch.
+// screen the master shell mounted (`[data-screen-key]`) are the ones the link points at, and says whether the move
+// was in-app (the router) or a document load. Exits non-zero on any mismatch.
 //
 // WHY IT EXISTS (2026-09-25): "every portal link bounces back to the Core dashboard" turned out to be a browser tab
 // still running an older wasm module after `pnpm ui:build`. This script runs in a fresh browser with no cache, so:
@@ -28,7 +29,9 @@ page.on('console', (message) => {
   if (message.type() === 'error') errors.push(`console: ${message.text().slice(0, 160)}`)
 })
 
-const screenNow = () => page.getAttribute('#rust-ui', 'data-rust-screen').catch(() => null)
+const screenNow = () => page.getAttribute('[data-screen-key]', 'data-screen-key').catch(() => null)
+let loads = 0
+page.on('load', () => { loads += 1 })
 const pathNow = () => new URL(page.url()).pathname
 const settle = () => page.waitForTimeout(3000)
 
@@ -53,6 +56,7 @@ for (const world of worlds) {
     await page.goto(`${base}${world}`, { waitUntil: 'networkidle' })
     await settle()
     errors.length = 0
+    const loadsBefore = loads
     const clicked = await page
       .click(`header a[href="${href}"]`, { timeout: 5000, noWaitAfter: true })
       .then(() => true)
@@ -65,7 +69,7 @@ for (const world of worlds) {
     const ok = clicked && path === href
     if (!ok) failures += 1
     console.log(
-      `${ok ? 'ok  ' : 'FAIL'} ${href.padEnd(36)} -> ${path.padEnd(36)} screen=${screen ?? '(none)'}` +
+      `${ok ? 'ok  ' : 'FAIL'} ${href.padEnd(36)} -> ${path.padEnd(36)} ${loads > loadsBefore ? 'load  ' : 'in-app'} screen=${screen ?? '(none)'}` +
         (clicked ? '' : '  (link not found)') +
         (react ? '  (React page, not Yew)' : '') +
         (errors.length ? `  ${errors.join(' | ')}` : ''),

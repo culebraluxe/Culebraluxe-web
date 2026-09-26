@@ -13,7 +13,6 @@ use yew_router::prelude::*;
 
 use crate::model::{screen, Msg, Screen};
 use crate::yew_views::about::About;
-use crate::yew_views::account::Account;
 use crate::yew_views::buyers::Buyers;
 use crate::yew_views::contact::Contact;
 use crate::yew_views::faq::Faq;
@@ -45,8 +44,6 @@ pub enum Route {
     Contact,
     #[at("/favorites")]
     Favorites,
-    #[at("/account")]
-    Account,
     #[at("/properties/:slug")]
     Property { slug: String },
     #[at("/properties")]
@@ -95,7 +92,6 @@ impl Route {
             Route::Faq => screen("site-faq"),
             Route::Contact => screen("site-contact"),
             Route::Favorites => screen("site-favorites"),
-            Route::Account => screen("site-account"),
             Route::Property { .. } => screen("site-property-detail"),
             Route::Properties => screen("site-properties"),
             Route::Privacy => screen("site-privacy"),
@@ -166,10 +162,8 @@ impl Component for Shell {
         let props = ctx.props();
         let model = props.model.clone();
         let on_msg = props.on_msg.clone();
+        // The master shell draws the header and footer around this (app/chrome.rs).
         html! {
-            <div class="flex min-h-screen flex-col bg-background text-foreground">
-                <crate::yew_views::chrome::Header />
-                <main class="min-w-0 flex-1">
                     <Switch<Route> render={Callback::from(move |route: Route| match route {
                         Route::Home => html! { <Home model={model.clone()} on_msg={on_msg.clone()} /> },
                         Route::Buyers => html! { <Buyers model={model.clone()} on_msg={on_msg.clone()} /> },
@@ -180,7 +174,6 @@ impl Component for Shell {
                         Route::Faq => html! { <Faq model={model.clone()} on_msg={on_msg.clone()} /> },
                         Route::Contact => html! { <Contact model={model.clone()} on_msg={on_msg.clone()} /> },
                         Route::Favorites => html! { <Favorites model={model.clone()} on_msg={on_msg.clone()} /> },
-                        Route::Account => html! { <Account model={model.clone()} on_msg={on_msg.clone()} /> },
                         Route::Property { .. } => html! {
                             <PropertyDetail model={model.clone()} on_msg={on_msg.clone()} />
                         },
@@ -201,9 +194,6 @@ impl Component for Shell {
                         | Route::DevAppleMap => html! { <SiteBody model={model.clone()} /> },
                         Route::NotFound => html! { <NotFound /> },
                     })} />
-                </main>
-                <crate::yew_views::chrome::Footer />
-            </div>
         }
     }
 }

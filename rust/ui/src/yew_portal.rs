@@ -13,7 +13,6 @@ use crate::yew_views::portal_accounting_receipt_scanner::Scanner as AccountingRe
 use crate::yew_views::portal_accounting_receivables::Receivables as AccountingReceivables;
 use crate::yew_views::portal_activity::Activity;
 use crate::yew_views::portal_cabinet::Cabinet;
-use crate::yew_views::portal_chrome::PortalChrome;
 use crate::yew_views::portal_clients::{ClientRecord, Clients};
 use crate::yew_views::portal_cockpit::Cockpit;
 use crate::yew_views::portal_deals::{DealRecord, Deals};
@@ -25,7 +24,6 @@ use crate::yew_views::portal_ops::OpsWorkbench;
 use crate::yew_views::portal_projects::Projects;
 use crate::yew_views::portal_seller_strategy::SellerStrategy;
 use crate::yew_views::portal_storyboard::Storyboard;
-use crate::yew_views::portal_support_db_test::DbTest as SupportDbTest;
 use crate::yew_views::portal_support_security::Security as SupportSecurity;
 use crate::yew_views::portal_support_system_health::SystemHealth as SupportSystemHealth;
 use crate::yew_views::portal_support_users::SecurityUsers as SupportSecurityUsers;
@@ -35,23 +33,7 @@ use crate::yew_views::portal_ui_lab::UiLab;
 use crate::yew_views::portal_workflow_record::WorkflowRecord;
 use crate::yew_views::portal_workflows::Workflows;
 
-use std::cell::RefCell;
 use std::rc::Rc;
-
-use yew::AppHandle;
-
-thread_local! {
-    /// THE ONE PORTAL APP ON THIS DOCUMENT, so the next mount can destroy the one before it.
-    ///
-    /// WHY THIS EXISTS, and it is the whole of the "three owners" defect: `yew::Renderer::render` mounts a NEW
-    /// application every time it is called and clears the container first, but the application it cleared is not
-    /// destroyed by that — nobody holds its handle, so it stays alive, keeps its node references, and writes its own
-    /// last screen back into the container the next time it re-renders. A client-side navigation therefore left one
-    /// live app per page visited, all aimed at the same container, and the screen you saw was whichever had written
-    /// last. Destroying the previous app before mounting the next is what makes one owner a fact rather than an
-    /// intention.
-    static MOUNTED: RefCell<Option<AppHandle<PortalApp>>> = const { RefCell::new(None) };
-}
 
 /// A portal body that has no Yew component yet, rendered as markup inside this chrome.
 ///
@@ -160,7 +142,6 @@ impl Component for PortalApp {
                 html! { <AccountingReceiptScanner model={self.model.clone()} on_msg={on_msg} /> }
             }
             // SUPPORT — a bespoke component per screen, never the generic renderer.
-            "db-test" => html! { <SupportDbTest model={self.model.clone()} on_msg={on_msg} /> },
             "security" => html! { <SupportSecurity model={self.model.clone()} on_msg={on_msg} /> },
             "settings-users" => {
                 html! { <SupportSecurityUsers model={self.model.clone()} on_msg={on_msg} /> }
@@ -204,51 +185,7 @@ impl Component for PortalApp {
                 <StringBody html={yew::AttrValue::from(crate::view::render_page(&self.model))} />
             },
         };
-        html! {
-            <PortalChrome screen={self.model.screen}>
-                { body }
-            </PortalChrome>
-        }
+        // The master shell draws the portal chrome around this (app/chrome.rs).
+        body
     }
-}
-
-/// Mount the portal app into the container the PAGE owns, handed over by reference.
-///
-/// THE ONLY ENTRY POINT, and there is deliberately no id-taking variant beside it. An id is not an identity: during a
-/// client-side navigation Next renders the new route while the old one is still in the document, so two containers can
-/// carry `#rust-ui` at once and a lookup answers with the first — the page the user is leaving. See `shell::start_in`.
-pub fn mount_in(
-    root: web_sys::Element,
-    screen_key: &str,
-    scope: &str,
-) -> Result<(), wasm_bindgen::JsValue> {
-    console_error_panic_hook::set_once();
-    let screen = crate::model::screen(screen_key).ok_or_else(|| {
-        wasm_bindgen::JsValue::from_str(&format!("ui: '{screen_key}' is not a known screen"))
-    })?;
-    // THE ADMISSION TEST THAT USED TO BE HERE IS GONE, and its removal is part of the fix: it refused every screen that
-    // had no Yew component and left those screens to the string renderer, which is what put a second renderer on this
-    // container. A screen without a component renders its existing body inside the chrome (`StringBody`), so there is
-    // nothing left to refuse and nowhere else to send it.
-    //
-    // The listeners that turn this page's `data-*` controls into messages are installed here, because the Yew app is
-    // now the only renderer on a portal page and the bodies it renders as markup are made of those attributes.
-    crate::shell::listen();
-    let scope = if scope.trim().is_empty() {
-        None
-    } else {
-        Some(scope.to_string())
-    };
-    // ONE APP: the previous one is destroyed before this one is mounted, so nothing left behind can write to this
-    // container afterwards. See `MOUNTED`.
-    MOUNTED.with(|slot| {
-        if let Some(previous) = slot.borrow_mut().take() {
-            previous.destroy();
-        }
-    });
-    let mounted =
-        yew::Renderer::<PortalApp>::with_root_and_props(root, PortalAppProps { screen, scope })
-            .render();
-    MOUNTED.with(|slot| *slot.borrow_mut() = Some(mounted));
-    Ok(())
 }
