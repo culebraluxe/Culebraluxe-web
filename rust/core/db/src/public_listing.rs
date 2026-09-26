@@ -412,7 +412,11 @@ impl PublicListingDao {
                 amenities.push(label.to_owned());
             }
         }
-        if let Some(notes) = row.amenities_notes.clone().filter(|value| !value.trim().is_empty()) {
+        if let Some(notes) = row
+            .amenities_notes
+            .clone()
+            .filter(|value| !value.trim().is_empty())
+        {
             amenities.push(notes);
         }
 
@@ -430,7 +434,11 @@ impl PublicListingDao {
                 lifestyle_tags.push(label.to_owned());
             }
         }
-        if let Some(notes) = row.lifestyle_notes.clone().filter(|value| !value.trim().is_empty()) {
+        if let Some(notes) = row
+            .lifestyle_notes
+            .clone()
+            .filter(|value| !value.trim().is_empty())
+        {
             lifestyle_tags.push(notes);
         }
 
