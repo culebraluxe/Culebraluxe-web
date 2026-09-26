@@ -2,7 +2,7 @@ use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
 use db::{DbResult, VaultDao};
 use domain::{
-    CreateTransactionDocumentRequest, IssueDocumentRequest, IssuedDocumentForFormInstance,
+    ContractIssuedLineage, CreateTransactionDocumentRequest, IssueDocumentRequest, IssuedDocumentForFormInstance,
     IssuedDocumentListItem, NextIssuedVersionRequest, TransactionDocument,
     TransitionTransactionDocumentRequest, VaultActorScope, VaultArtifactFailure,
     VaultCommandOutcome, VaultCommandResult, VaultMediaBytes, VaultRenderRequest,
@@ -53,6 +53,19 @@ pub trait VaultRepository: Send {
         form_instance_id: &str,
         contract_id: &str,
     ) -> DbResult<bool>;
+    async fn prior_contract_document(
+        &mut self,
+        contract_id: &str,
+        template_id: &str,
+    ) -> DbResult<Option<ContractIssuedLineage>>;
+    async fn prior_contract_document(
+        &mut self,
+        contract_id: &str,
+        template_id: &str,
+    ) -> DbResult<Option<ContractIssuedLineage>> {
+        VaultDao::prior_contract_document(self, contract_id, template_id).await
+    }
+
     async fn issue_from_form_instance(
         &mut self,
         request: &IssueDocumentRequest,
@@ -463,6 +476,31 @@ impl<R: VaultRepository> VaultService<R> {
             Ok(())
         }
         .await;
+        audit_result(&self.runtime, "vault", OP, context, decision, &result).await?;
+        result
+    }
+
+    pub async fn prior_contract_document(
+        &mut self,
+        contract_id: &str,
+        template_id: &str,
+        context: &ServiceContext,
+    ) -> Result<Option<ContractIssuedLineage>, CoreServiceError> {
+        const OP: &str = "vault.priorContractDocument";
+        let decision = authorize(
+            &self.runtime,
+            "vault",
+            "vault.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+        let result = self
+            .repository
+            .prior_contract_document(contract_id, template_id)
+            .await
+            .map_err(Into::into);
         audit_result(&self.runtime, "vault", OP, context, decision, &result).await?;
         result
     }

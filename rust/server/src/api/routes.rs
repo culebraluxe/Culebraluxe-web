@@ -506,6 +506,12 @@ struct AppleReminderBody {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct BindVaultFormContractBody {
+    contract_id: String,
+}
+
 struct RouteProjectWorkBody {
     title: String,
     notes: String,
@@ -1053,6 +1059,10 @@ pub fn router(state: ApiState) -> Router {
         )
         .route("/v1/vault/documents", get(vault_documents))
         .route("/v1/vault/documents/{id}", get(vault_document))
+        .route("/v1/vault/deals/{id}/documents", get(vault_documents_by_deal))
+        .route("/v1/vault/forms/{id}/contract", get(vault_form_contract))
+        .route("/v1/vault/forms/{id}/bind-contract", post(vault_bind_form_contract))
+        .route("/v1/vault/contracts/{contract_id}/templates/{template_id}/prior", get(vault_prior_contract_document))
         .route(
             "/v1/vault/public-listing-documents/{id}",
             get(vault_public_listing_document_bytes),
@@ -3566,6 +3576,71 @@ async fn vault_document(
                 &resolved,
             )
         })?;
+    Ok(success(value, &resolved))
+}
+
+async fn vault_documents_by_deal(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<ApiSuccess<Vec<domain::TransactionDocument>>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state
+        .services()
+        .vault(Arc::new(UnavailableVaultArtifactPort));
+    let value = service
+        .list_by_deal(&id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn vault_form_contract(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<ApiSuccess<Option<String>>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state
+        .services()
+        .vault(Arc::new(UnavailableVaultArtifactPort));
+    let value = service
+        .form_contract_id(&id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn vault_bind_form_contract(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<BindVaultFormContractBody>,
+) -> Result<Json<ApiSuccess<()>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state
+        .services()
+        .vault(Arc::new(UnavailableVaultArtifactPort));
+    service
+        .bind_form_to_contract(&id, &body.contract_id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success((), &resolved))
+}
+
+async fn vault_prior_contract_document(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path((contract_id, template_id)): Path<(String, String)>,
+) -> Result<Json<ApiSuccess<Option<domain::ContractIssuedLineage>>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state
+        .services()
+        .vault(Arc::new(UnavailableVaultArtifactPort));
+    let value = service
+        .prior_contract_document(&contract_id, &template_id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(value, &resolved))
 }
 
