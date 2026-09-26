@@ -6,9 +6,6 @@
 use yew::prelude::*;
 
 use crate::model::{Msg, Screen};
-use crate::yew_views::portal_activity::Activity;
-use crate::yew_views::portal_cabinet::Cabinet;
-use crate::yew_views::portal_cockpit::Cockpit;
 use crate::yew_views::portal_deals::{DealRecord, Deals};
 use crate::yew_views::portal_flight_recorder::FlightRecorder;
 use crate::yew_views::portal_flight_recorder_list::FlightRecorderList;
@@ -16,12 +13,9 @@ use crate::yew_views::portal_forms::{FormRecord, Forms};
 use crate::yew_views::portal_listing_media::ListingMedia;
 use crate::yew_views::portal_ops::OpsWorkbench;
 use crate::yew_views::portal_projects::Projects;
-use crate::yew_views::portal_seller_strategy::SellerStrategy;
 use crate::yew_views::portal_storyboard::Storyboard;
 use crate::yew_views::portal_tech::TechCockpit;
 use crate::yew_views::portal_ui_lab::UiLab;
-use crate::yew_views::portal_workflow_record::WorkflowRecord;
-use crate::yew_views::portal_workflows::Workflows;
 
 use std::rc::Rc;
 
@@ -106,7 +100,6 @@ impl Component for PortalApp {
     fn view(&self, ctx: &Context<Self>) -> Html {
         let on_msg = ctx.link().callback(AppMsg::Ui);
         let body = match self.model.screen.key {
-            "dashboard" => html! { <Cockpit model={self.model.clone()} on_msg={on_msg.clone()} /> },
             "tech" => html! { <TechCockpit model={self.model.clone()} on_msg={on_msg.clone()} /> },
             "trace-record" => {
                 html! { <FlightRecorder model={self.model.clone()} on_msg={on_msg.clone()} /> }
@@ -114,8 +107,6 @@ impl Component for PortalApp {
             "tech-flight-recorder" => {
                 html! { <FlightRecorderList model={self.model.clone()} on_msg={on_msg} /> }
             }
-            "cabinet" => html! { <Cabinet model={self.model.clone()} on_msg={on_msg} /> },
-            "activity" => html! { <Activity model={self.model.clone()} on_msg={on_msg} /> },
             // SUPPORT — a bespoke component per screen, never the generic renderer.
             "property-admin" => {
                 html! { <OpsWorkbench model={self.model.clone()} on_msg={on_msg} /> }
@@ -132,13 +123,6 @@ impl Component for PortalApp {
             "forms" => html! { <Forms model={self.model.clone()} on_msg={on_msg} /> },
             "form-record" => html! { <FormRecord model={self.model.clone()} on_msg={on_msg} /> },
             "projects" => html! { <Projects model={self.model.clone()} on_msg={on_msg} /> },
-            "seller-strategy" => {
-                html! { <SellerStrategy model={self.model.clone()} on_msg={on_msg} /> }
-            }
-            "workflows" => html! { <Workflows model={self.model.clone()} on_msg={on_msg} /> },
-            "workflow-record" => {
-                html! { <WorkflowRecord model={self.model.clone()} on_msg={on_msg} /> }
-            }
             // EVERY OTHER PORTAL SCREEN, drawn by THIS app as markup rather than handed to a second renderer. This arm
             // used to be an error card while the screen was really painted by the string host — the second owner this
             // change removes. See `StringBody`.

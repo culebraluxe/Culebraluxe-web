@@ -10,8 +10,11 @@
 
 use yew::prelude::*;
 
-use crate::model::{Msg, PortalActivityEntry};
-use crate::yew_views::portal_shell::PortalShell;
+use crate::app::page::{PageScreen, PageSpec};
+use crate::app::screen::ScreenCtx;
+use crate::model::{PortalActivityEntry, PortalPage};
+
+pub type Activity = PageScreen<Feed>;
 
 /// The channel as the screen labels it, from `channelLabel` in the component.
 fn channel_label(channel: &str) -> String {
@@ -40,44 +43,17 @@ fn capitalise(value: &str) -> String {
     }
 }
 
-#[derive(Properties, PartialEq)]
-pub struct ActivityProps {
-    pub model: crate::model::Model,
-    pub on_msg: Callback<Msg>,
-}
+/// The feed: every interaction across the book, newest first.
+pub struct Feed;
 
-/// The portal screen wrapper: the shell, and the feed inside it.
-pub struct Activity;
-
-impl Component for Activity {
-    type Message = ();
-    type Properties = ActivityProps;
-
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
+impl PageSpec for Feed {
+    type Data = Vec<PortalActivityEntry>;
+    const SCREEN: &'static str = "activity";
+    const NOUN: &'static str = "the activity";
+    fn pick(page: PortalPage) -> Option<Vec<PortalActivityEntry>> {
+        Some(page.activity)
     }
-
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let props = ctx.props();
-        let screen =
-            crate::model::screen("activity").expect("the activity screen is in the registry");
-        html! {
-            <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
-                { self.feed(&props.model) }
-            </PortalShell>
-        }
-    }
-}
-
-impl Activity {
-    /// The header and the panel, which is the whole of the screen.
-    fn feed(&self, model: &crate::model::Model) -> Html {
-        let entries: &[PortalActivityEntry] = model
-            .page
-            .as_ref()
-            .and_then(|page| page.portal.as_ref())
-            .map(|portal| portal.activity.as_slice())
-            .unwrap_or(&[]);
+    fn view(entries: &Vec<PortalActivityEntry>, _ctx: &ScreenCtx) -> Html {
         html! {
             <div>
                 <header class="mb-6">

@@ -1,62 +1,73 @@
-//! /portal/workflows/[instanceId] — one definition-driven workflow instance.
+//! CORE — Workflows: the transaction workflow cards (`/portal/workflows`) and one instance's timeline
+//! (`/portal/workflows/:instanceId`). Both are reads; the runtime changes workflows, never this screen.
 
 use yew::prelude::*;
 
-use crate::model::{Msg, PortalWorkflowDetail, PortalWorkflowTimelineItem};
-use crate::yew_views::portal_shell::PortalShell;
+use crate::app::page::{PageScreen, PageSpec};
+use crate::app::screen::ScreenCtx;
+use crate::model::{
+    PortalPage, PortalWorkflowDetail, PortalWorkflowList, PortalWorkflowSummary,
+    PortalWorkflowTimelineItem,
+};
 
-#[derive(Properties, PartialEq)]
-pub struct WorkflowRecordProps {
-    pub model: crate::model::Model,
-    pub on_msg: Callback<Msg>,
-}
+pub type Workflows = PageScreen<WorkflowList>;
+pub type WorkflowRecord = PageScreen<WorkflowInstance>;
 
-pub struct WorkflowRecord;
+pub struct WorkflowList;
 
-impl Component for WorkflowRecord {
-    type Message = ();
-    type Properties = WorkflowRecordProps;
-
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
+impl PageSpec for WorkflowList {
+    type Data = PortalWorkflowList;
+    const SCREEN: &'static str = "workflows";
+    const NOUN: &'static str = "the workflows";
+    fn pick(page: PortalPage) -> Option<PortalWorkflowList> {
+        page.workflows
     }
-
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let props = ctx.props();
-        let screen = crate::model::screen("workflow-record").expect("workflow record exists");
-        html! {
-            <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
-                { self.body(&props.model) }
-            </PortalShell>
-        }
-    }
-}
-
-impl WorkflowRecord {
-    fn body(&self, model: &crate::model::Model) -> Html {
-        let detail = model
-            .page
-            .as_ref()
-            .and_then(|page| page.portal.as_ref())
-            .and_then(|portal| portal.workflow.as_ref());
-
-        if model.loading {
-            return html! {};
-        }
-        let Some(detail) = detail else {
-            return html! {
-                <div>
-                    <a href="/portal/workflows" class="mb-6 inline-flex text-sm font-light text-black/50 hover:text-[var(--portal-navy)]">{"← Workflows"}</a>
-                    <section class="rounded-[var(--portal-panel-radius)] portal-glass-panel p-8">
-                        <h1 class="font-serif text-2xl font-light text-[var(--portal-navy)]">{"Workflow not found"}</h1>
-                    </section>
-                </div>
-            };
-        };
-
+    fn view(payload: &PortalWorkflowList, _ctx: &ScreenCtx) -> Html {
         html! {
             <div>
-                <a href="/portal/workflows" class="mb-6 inline-flex text-sm font-light text-black/50 hover:text-[var(--portal-navy)]">{"← Workflows"}</a>
+                <header class="mb-8">
+                    <h1 class="font-serif text-3xl font-light text-[var(--portal-navy)]">{"Workflows"}</h1>
+                    <p class="mt-1 text-sm font-light text-black/55">
+                        {"Transaction orchestration for deals in motion."}
+                    </p>
+                </header>
+                if !payload.configured {
+                    <section class="rounded-[var(--portal-panel-radius)] portal-glass-panel px-10 py-16 text-center">
+                        <h2 class="font-serif text-2xl font-light text-[var(--portal-navy)]">{"Workflow runtime not ready"}</h2>
+                        <p class="mx-auto mt-3 max-w-lg text-sm font-light leading-6 text-black/55">
+                            {"The workflow runtime shares the CulebraLuxe database. Apply the unified activation script to enable transaction workflows."}
+                        </p>
+                    </section>
+                } else if payload.items.is_empty() {
+                    <section class="rounded-[var(--portal-panel-radius)] portal-glass-panel px-10 py-16 text-center">
+                        <h2 class="font-serif text-2xl font-light text-[var(--portal-navy)]">{"No transaction workflows yet"}</h2>
+                        <p class="mx-auto mt-3 max-w-md text-sm font-light text-black/55">
+                            {"A workflow instance is created when an offer is accepted and the transaction moves into contract preparation."}
+                        </p>
+                    </section>
+                } else {
+                    <div class="grid gap-4 xl:grid-cols-2">
+                        { for payload.items.iter().map(workflow_card) }
+                    </div>
+                }
+            </div>
+        }
+    }
+}
+
+pub struct WorkflowInstance;
+
+impl PageSpec for WorkflowInstance {
+    type Data = PortalWorkflowDetail;
+    const SCREEN: &'static str = "workflow-record";
+    const NOUN: &'static str = "the workflow";
+    const SCOPED: bool = true;
+    fn pick(page: PortalPage) -> Option<PortalWorkflowDetail> {
+        page.workflow
+    }
+    fn view(detail: &PortalWorkflowDetail, _ctx: &ScreenCtx) -> Html {
+        html! {
+            <div>
                 { header(detail) }
                 <div class="mt-6 grid gap-6 2xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
                     { timeline(detail) }
@@ -64,6 +75,75 @@ impl WorkflowRecord {
                 </div>
             </div>
         }
+    }
+}
+
+fn pill(summary: &PortalWorkflowSummary) -> (&'static str, String) {
+    if summary.outcome.as_deref() == Some("cancelled") {
+        return ("bg-black/5 text-black/55", "Cancelled".into());
+    }
+    if matches!(
+        summary.outcome.as_deref(),
+        Some("failed") | Some("conflict")
+    ) || summary.status == "error"
+    {
+        return (
+            "bg-red-50 text-red-700",
+            summary
+                .outcome
+                .clone()
+                .unwrap_or_else(|| summary.status.clone()),
+        );
+    }
+    if summary.outcome.as_deref() == Some("completed") {
+        return ("bg-emerald-50 text-emerald-700", "Closed".into());
+    }
+    (
+        "bg-[var(--portal-blue-pale)] text-[var(--portal-navy)]",
+        summary.status.clone(),
+    )
+}
+
+fn workflow_card(summary: &PortalWorkflowSummary) -> Html {
+    let (pill_class, pill_label) = pill(summary);
+    let milestone = if summary.active_milestones.is_empty() {
+        summary
+            .responsible_party
+            .clone()
+            .unwrap_or_else(|| "No active milestone".into())
+    } else {
+        summary.active_milestones.join(", ")
+    };
+    html! {
+        <a href={format!("/portal/workflows/{}", summary.instance_id)}
+            class="block rounded-[var(--portal-panel-radius)] portal-glass-panel p-6 transition-colors hover:border-[var(--portal-blue-gray)]/50">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <div class="text-[10px] font-light uppercase tracking-[0.22em] text-black/45">
+                        { format!("{} · v{}", summary.workflow_name, summary.workflow_version) }
+                    </div>
+                    <h2 class="mt-2 font-serif text-xl font-light text-[var(--portal-navy)]">
+                        { summary.property_name.clone().unwrap_or_else(|| "Transaction".into()) }
+                    </h2>
+                </div>
+                <span class={format!("rounded-full px-3 py-1 text-xs font-light capitalize {pill_class}")}>
+                    { pill_label }
+                </span>
+            </div>
+            <div class="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm font-light text-black/60">
+                <span>{ milestone }</span>
+                if summary.blocker_count > 0 {
+                    <span class="text-[var(--portal-blue-gray)]">
+                        { format!("{} blocker{}", summary.blocker_count, if summary.blocker_count == 1 { "" } else { "s" }) }
+                    </span>
+                }
+                if summary.open_task_count > 0 {
+                    <span>
+                        { format!("{} open task{}", summary.open_task_count, if summary.open_task_count == 1 { "" } else { "s" }) }
+                    </span>
+                }
+            </div>
+        </a>
     }
 }
 
@@ -201,5 +281,44 @@ fn operational(detail: &PortalWorkflowDetail) -> Html {
                 </ol>
             </div>
         </section>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::screen::Screen;
+    use serde_json::json;
+
+    #[test]
+    fn the_list_and_the_instance_read_their_pages() {
+        let ctx = ScreenCtx::default();
+        let (mut model, cmd) = Workflows::init(&ctx);
+        let request = cmd.into_requests().remove(0);
+        assert_eq!(request.path, "/api/portal/rust-ui/page?screen=workflows");
+        Workflows::update(
+            &mut model,
+            request.respond(Ok(
+                json!({ "workflows": { "configured": true, "items": [] } }),
+            )),
+            &ctx,
+        );
+        assert!(model.read.loaded().unwrap().configured);
+
+        let ctx = ScreenCtx {
+            id: Some("wf 1".into()),
+            ..ScreenCtx::default()
+        };
+        let (mut model, cmd) = WorkflowRecord::init(&ctx);
+        let request = cmd.into_requests().remove(0);
+        assert_eq!(
+            request.path,
+            "/api/portal/rust-ui/page?screen=workflow-record&scope=wf%201"
+        );
+        WorkflowRecord::update(&mut model, request.respond(Ok(json!({}))), &ctx);
+        assert!(
+            matches!(model.read, crate::app::cmd::Remote::Failed(ref e) if e.code == "DECODE"),
+            "an instance that is not there is said so"
+        );
     }
 }

@@ -277,3 +277,41 @@ impl Endpoint for AccountingCommand {
         Some(self.body.clone())
     }
 }
+
+/// The Cockpit's read: KPIs, tasks, the featured deal, the pipeline and recent interactions. Answers `{ cockpit: ... }`.
+pub struct CockpitRead;
+
+impl Endpoint for CockpitRead {
+    const METHOD: Method = Method::Get;
+    type Response = crate::model::PortalPage;
+    fn path(&self) -> String {
+        "/api/portal/rust-ui/cockpit".into()
+    }
+}
+
+/// Mark one Cockpit task done. Answers the refreshed Cockpit.
+pub struct CockpitCompleteTask {
+    pub task_id: String,
+}
+
+impl Endpoint for CockpitCompleteTask {
+    const METHOD: Method = Method::Post;
+    type Response = crate::model::PortalPage;
+    fn path(&self) -> String {
+        "/api/portal/rust-ui/cockpit".into()
+    }
+    fn body(&self) -> Option<serde_json::Value> {
+        Some(serde_json::json!({ "action": "completeTask", "taskId": self.task_id }))
+    }
+}
+
+/// The Cabinet: every issued document. Answers `{ cabinet: ... }`.
+pub struct CabinetRead;
+
+impl Endpoint for CabinetRead {
+    const METHOD: Method = Method::Get;
+    type Response = crate::model::PortalPage;
+    fn path(&self) -> String {
+        "/api/portal/rust-ui/cabinet".into()
+    }
+}

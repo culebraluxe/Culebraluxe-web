@@ -1,37 +1,61 @@
+//! CORE — Seller Strategy (`/portal/core/seller-strategy`): the sale-option calculator. Local only.
+
 use yew::prelude::*;
 
-use crate::model::Msg;
+use crate::app::cmd::Cmd;
+use crate::app::screen::{Link, Screen, ScreenCtx};
 use crate::seller_strategy::{
     compact_money, evaluate, money, number, pct, rank_strategies, recommendation_rationale,
-    takeaways, Inputs, ModelResult, OptionId, OptionScore, TakeawayTone,
+    takeaways, Inputs, ModelResult, OptionId, OptionScore, SellerStrategyState, TakeawayTone,
 };
-use crate::yew_views::portal_shell::PortalShell;
 
-#[derive(Properties, PartialEq)]
-pub struct SellerStrategyProps {
-    pub model: crate::model::Model,
-    pub on_msg: Callback<Msg>,
+/// Every intent on the calculator. Nothing here reads or writes the server: the model is the assumptions, and the
+/// evaluation is a pure function of them (`crate::seller_strategy`).
+#[derive(Debug, PartialEq)]
+pub enum Msg {
+    SellerStrategyFieldChanged {
+        key: String,
+        raw: String,
+        percent: bool,
+    },
+    SellerStrategyOptionToggled {
+        option: u8,
+        enabled: bool,
+    },
+    SellerStrategyEditAllToggled,
+    SellerStrategyActiveEditChanged(Option<u8>),
+    SellerStrategyDetailToggled,
+    SellerStrategyReset,
 }
 
 pub struct SellerStrategy;
 
-impl Component for SellerStrategy {
-    type Message = ();
-    type Properties = SellerStrategyProps;
+impl Screen for SellerStrategy {
+    type Model = SellerStrategyState;
+    type Msg = Msg;
 
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
+    fn init(_ctx: &ScreenCtx) -> (SellerStrategyState, Cmd<Msg>) {
+        (SellerStrategyState::default(), Cmd::none())
     }
 
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let props = ctx.props();
-        let screen =
-            crate::model::screen("seller-strategy").expect("seller strategy screen exists");
-        html! {
-            <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
-                { cockpit(&props.model, &props.on_msg) }
-            </PortalShell>
+    fn update(state: &mut SellerStrategyState, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> {
+        match msg {
+            Msg::SellerStrategyFieldChanged { key, raw, percent } => {
+                state.set_field(&key, &raw, percent)
+            }
+            Msg::SellerStrategyOptionToggled { option, enabled } => {
+                state.set_option(option, enabled)
+            }
+            Msg::SellerStrategyEditAllToggled => state.edit_all = !state.edit_all,
+            Msg::SellerStrategyActiveEditChanged(option) => state.active_edit = option,
+            Msg::SellerStrategyDetailToggled => state.show_detail = !state.show_detail,
+            Msg::SellerStrategyReset => state.reset(),
         }
+        Cmd::none()
+    }
+
+    fn view(state: &SellerStrategyState, _ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
+        cockpit(state, &link.callback(|msg: Msg| msg))
     }
 }
 
@@ -414,8 +438,7 @@ const STRATEGIES: &[StrategyDef] = &[
     },
 ];
 
-fn cockpit(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
-    let state = &model.seller_strategy;
+fn cockpit(state: &SellerStrategyState, on_msg: &Callback<Msg>) -> Html {
     let result = evaluate(&state.inputs);
     let ranking = rank_strategies(&result);
     let rationale = recommendation_rationale(&result);
@@ -940,5 +963,38 @@ fn decision_tree(model: &ModelResult) -> Html {
                 }
             }) }
         </svg>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_calculator_is_local_and_its_intents_change_the_assumptions() {
+        let ctx = ScreenCtx::default();
+        let (mut state, cmd) = SellerStrategy::init(&ctx);
+        assert!(cmd.into_requests().is_empty(), "no read");
+        SellerStrategy::update(
+            &mut state,
+            Msg::SellerStrategyFieldChanged {
+                key: "appraisal".into(),
+                raw: "500000".into(),
+                percent: false,
+            },
+            &ctx,
+        );
+        assert_eq!(state.inputs.appraisal, 500000.0);
+        SellerStrategy::update(
+            &mut state,
+            Msg::SellerStrategyOptionToggled {
+                option: 3,
+                enabled: false,
+            },
+            &ctx,
+        );
+        assert!(!state.inputs.o3_on);
+        SellerStrategy::update(&mut state, Msg::SellerStrategyReset, &ctx);
+        assert_eq!(state, SellerStrategyState::default());
     }
 }

@@ -8,6 +8,7 @@
 //!   host.rs      `ScreenHost<S>` — runs any screen
 //!   template.rs  the standard views: headings, panels, loading, failure, empty, tabs, back link
 //!   list.rs      the list building block: search with a pause, paging, the list rail
+//!   page.rs      the read-only page building block: `PageScreen<T>`
 //!   registry.rs  every screen, in one table: routes, menus, the cutover ledger
 //!   chrome.rs    the site header/footer and the portal top nav/rail, generated from the registry
 //!   shell.rs     the master app: one router for the site and the portal
@@ -19,6 +20,7 @@ pub mod cmd;
 pub mod exec;
 pub mod host;
 pub mod list;
+pub mod page;
 pub mod registry;
 pub mod rows;
 pub mod screen;

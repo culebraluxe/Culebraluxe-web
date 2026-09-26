@@ -1,61 +1,151 @@
+//! CORE — the Cockpit (`/portal/dashboard`) and its "View all" list, Attention (`/portal/attention`).
+//!
+//! Both read the one Cockpit projection and share one command, marking a task done; its answer is the refreshed Cockpit,
+//! so the finished task leaves the list in the same step. One command at a time, and a refusal is said above the lists
+//! in the service's own words rather than blanking the page.
+
 use std::collections::HashSet;
 
 use yew::prelude::*;
 
+use crate::app::api::{CockpitCompleteTask, CockpitRead};
+use crate::app::cmd::{ApiError, Cmd, Remote};
+use crate::app::screen::{Link, Screen, ScreenCtx};
+use crate::app::template;
 use crate::model::{
-    Msg, PortalCockpitDeal, PortalCockpitInteraction, PortalCockpitPage, PortalCockpitStageCount,
-    PortalCockpitTask,
+    CommandNotice, PortalCockpitDeal, PortalCockpitInteraction, PortalCockpitPage,
+    PortalCockpitStageCount, PortalCockpitTask, PortalPage,
 };
-use crate::yew_views::portal_shell::PortalShell;
 
-#[derive(Properties, PartialEq)]
-pub struct CockpitProps {
-    pub model: crate::model::Model,
-    pub on_msg: Callback<Msg>,
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Model {
+    pub read: Remote<PortalCockpitPage>,
+    /// A task is being marked done; every Done button waits for the answer.
+    pub busy: bool,
+    pub notice: Option<CommandNotice>,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Msg {
+    Loaded(Result<PortalPage, ApiError>),
+    CompleteRequested { task_id: String },
+    Completed(Result<PortalPage, ApiError>),
+}
+
+fn init() -> (Model, Cmd<Msg>) {
+    (
+        Model {
+            read: Remote::Loading,
+            ..Model::default()
+        },
+        Cmd::request(CockpitRead, Msg::Loaded),
+    )
+}
+
+fn update(model: &mut Model, msg: Msg) -> Cmd<Msg> {
+    match msg {
+        Msg::Loaded(answer) => model.read = Remote::from_result(answer.and_then(cockpit_of)),
+        Msg::CompleteRequested { task_id } => {
+            if model.busy || task_id.trim().is_empty() || model.read.loaded().is_none() {
+                return Cmd::none();
+            }
+            model.busy = true;
+            model.notice = None;
+            return Cmd::request(CockpitCompleteTask { task_id }, Msg::Completed);
+        }
+        Msg::Completed(answer) => {
+            model.busy = false;
+            match answer.and_then(cockpit_of) {
+                Ok(cockpit) => {
+                    model.read = Remote::Loaded(cockpit);
+                    model.notice = Some(CommandNotice::success("Marked done."));
+                }
+                Err(error) => model.notice = Some(CommandNotice::failure(error.message)),
+            }
+        }
+    }
+    Cmd::none()
+}
+
+fn cockpit_of(page: PortalPage) -> Result<PortalCockpitPage, ApiError> {
+    page.cockpit
+        .ok_or_else(|| ApiError::decode("The answer had no Cockpit in it."))
+}
+
+fn notice(model: &Model) -> Html {
+    match &model.notice {
+        Some(notice) => html! {
+            <p class={classes!("text-xs", "font-light", if notice.ok { "text-emerald-700" } else { "text-red-700" })} role="status">
+                { notice.message.clone() }
+            </p>
+        },
+        None => Html::default(),
+    }
 }
 
 pub struct Cockpit;
 
-impl Component for Cockpit {
-    type Message = ();
-    type Properties = CockpitProps;
+impl Screen for Cockpit {
+    type Model = Model;
+    type Msg = Msg;
 
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
+    fn init(_ctx: &ScreenCtx) -> (Model, Cmd<Msg>) {
+        init()
     }
 
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let props = ctx.props();
-        let screen = crate::model::screen("dashboard").expect("dashboard screen exists");
+    fn update(model: &mut Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> {
+        update(model, msg)
+    }
+
+    fn view(model: &Model, _ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
+        let on_msg = link.callback(|msg: Msg| msg);
         html! {
-            <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
-                { cockpit(&props.model, &props.on_msg) }
-            </PortalShell>
+            <div class="flex flex-col gap-4">
+                { notice(model) }
+                { template::remote(&model.read, "the Cockpit", |data| cockpit(data, model.busy, &on_msg)) }
+            </div>
         }
     }
 }
 
-fn payload(model: &crate::model::Model) -> Option<&PortalCockpitPage> {
-    model
-        .page
-        .as_ref()
-        .and_then(|page| page.portal.as_ref())
-        .and_then(|portal| portal.cockpit.as_ref())
+/// Every task that needs attention: overdue first, then due soon — the list the Cockpit's panel shows five of.
+pub struct Attention;
+
+impl Screen for Attention {
+    type Model = Model;
+    type Msg = Msg;
+
+    fn init(_ctx: &ScreenCtx) -> (Model, Cmd<Msg>) {
+        init()
+    }
+
+    fn update(model: &mut Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> {
+        update(model, msg)
+    }
+
+    fn view(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
+        let on_msg = link.callback(|msg: Msg| msg);
+        html! {
+            <div class="space-y-6">
+                <div>{ template::back_link(ctx) }</div>
+                { template::portal_heading(
+                    "Cockpit",
+                    "Needs attention",
+                    "Every open task that is overdue or due soon, overdue first. Mark one done and it leaves the list.",
+                ) }
+                { notice(model) }
+                { template::remote(&model.read, "the tasks", |data| {
+                    let tasks = combined_tasks(data, usize::MAX);
+                    task_panel("Needs attention", None, &tasks, true, model.busy, &on_msg)
+                }) }
+            </div>
+        }
+    }
 }
 
-fn cockpit(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
-    let Some(data) = payload(model) else {
-        return html! {
-            <section class="portal-glass-panel rounded-[var(--portal-panel-radius)] p-6">
-                <p class="text-sm font-light text-black/45">
-                    { if model.loading { "Loading Cockpit…" } else { "Cockpit data is not available." } }
-                </p>
-            </section>
-        };
-    };
-
-    let attention = combined_tasks(data);
-    let today = combined_tasks(data);
+fn cockpit(data: &PortalCockpitPage, busy: bool, on_msg: &Callback<Msg>) -> Html {
+    let attention = combined_tasks(data, 5);
+    let today = combined_tasks(data, 5);
 
     html! {
         <div class="flex flex-col gap-4">
@@ -64,18 +154,18 @@ fn cockpit(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
             <div class="grid gap-4 lg:grid-cols-3">
                 { task_panel(
                     "Needs attention",
-                    "/portal/attention",
+                    Some("/portal/attention"),
                     &attention,
                     true,
-                    model.loading,
+                    busy,
                     on_msg,
                 ) }
                 { task_panel(
                     "Today",
-                    "/portal/attention",
+                    Some("/portal/attention"),
                     &today,
                     false,
-                    model.loading,
+                    busy,
                     on_msg,
                 ) }
 
@@ -141,20 +231,20 @@ fn kpis(data: &PortalCockpitPage) -> Html {
     }
 }
 
-fn combined_tasks(data: &PortalCockpitPage) -> Vec<(&PortalCockpitTask, bool)> {
+fn combined_tasks(data: &PortalCockpitPage, limit: usize) -> Vec<(&PortalCockpitTask, bool)> {
     let mut seen = HashSet::new();
     data.overdue_tasks
         .iter()
         .map(|task| (task, true))
         .chain(data.tasks_due_soon.iter().map(|task| (task, false)))
         .filter(|(task, _)| seen.insert(task.id.as_str()))
-        .take(5)
+        .take(limit)
         .collect()
 }
 
 fn task_panel(
     heading: &'static str,
-    href: &'static str,
+    href: Option<&'static str>,
     tasks: &[(&PortalCockpitTask, bool)],
     actions: bool,
     disabled: bool,
@@ -181,9 +271,11 @@ fn task_panel(
         <section class={surface}>
             <div class="flex items-center justify-between gap-3 border-b border-[var(--portal-panel-border)] px-4 py-3">
                 <h2 class={heading_tone}>{ heading }</h2>
-                <a href={href} class="text-[10px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy-soft)] transition hover:text-[var(--portal-navy)]">
-                    {"View all →"}
-                </a>
+                if let Some(href) = href {
+                    <a href={href} class="text-[10px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy-soft)] transition hover:text-[var(--portal-navy)]">
+                        {"View all →"}
+                    </a>
+                }
             </div>
 
             if tasks.is_empty() {
@@ -206,7 +298,7 @@ fn attention_row(task: &PortalCockpitTask, disabled: bool, on_msg: &Callback<Msg
     let onclick = {
         let on_msg = on_msg.clone();
         Callback::from(move |_: MouseEvent| {
-            on_msg.emit(Msg::CockpitTaskCompleteRequested {
+            on_msg.emit(Msg::CompleteRequested {
                 task_id: task_id.clone(),
             });
         })
@@ -474,4 +566,76 @@ fn format_currency(value: Option<f64>) -> String {
     }
     let number: String = grouped.chars().rev().collect();
     format!("{}{}{}", if negative { "-" } else { "" }, "$", number)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn task(id: &str) -> serde_json::Value {
+        json!({ "id": id, "title": "Call back" })
+    }
+
+    #[test]
+    fn a_task_is_marked_done_once_and_the_answer_is_the_new_cockpit() {
+        let ctx = ScreenCtx::default();
+        let (mut model, cmd) = Attention::init(&ctx);
+        let request = cmd.into_requests().remove(0);
+        assert_eq!(request.path, "/api/portal/rust-ui/cockpit");
+        Attention::update(
+            &mut model,
+            request.respond(Ok(json!({ "cockpit": { "overdueTasks": [task("t1")], "tasksDueSoon": [task("t1"), task("t2")] } }))),
+            &ctx,
+        );
+        let tasks = combined_tasks(model.read.loaded().unwrap(), usize::MAX);
+        assert_eq!(tasks.len(), 2, "a task in both lists is listed once");
+
+        let request = Attention::update(
+            &mut model,
+            Msg::CompleteRequested {
+                task_id: "t1".into(),
+            },
+            &ctx,
+        )
+        .into_requests()
+        .remove(0);
+        assert_eq!(
+            request.body,
+            Some(json!({ "action": "completeTask", "taskId": "t1" }))
+        );
+        assert!(
+            Attention::update(
+                &mut model,
+                Msg::CompleteRequested {
+                    task_id: "t2".into()
+                },
+                &ctx
+            )
+            .into_requests()
+            .is_empty(),
+            "one at a time"
+        );
+        Attention::update(
+            &mut model,
+            request.respond(Ok(json!({ "cockpit": { "tasksDueSoon": [task("t2")] } }))),
+            &ctx,
+        );
+        assert!(!model.busy);
+        assert_eq!(
+            combined_tasks(model.read.loaded().unwrap(), usize::MAX).len(),
+            1
+        );
+
+        Attention::update(
+            &mut model,
+            Msg::Completed(Err(ApiError::network("Task is closed."))),
+            &ctx,
+        );
+        assert_eq!(
+            model.notice,
+            Some(CommandNotice::failure("Task is closed."))
+        );
+        assert!(model.read.loaded().is_some(), "a refusal keeps the list");
+    }
 }

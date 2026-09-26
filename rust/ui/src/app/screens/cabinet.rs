@@ -1,41 +1,62 @@
+//! CORE — the Cabinet (`/portal/documents`): the repository of issued documents, filtered in place by deal, client,
+//! property, type or issuer. A read; issuing happens in Forms.
+
 use yew::prelude::*;
 
-use crate::model::{Msg, PortalCabinetDocument, PortalCabinetPage};
-use crate::yew_views::portal_shell::PortalShell;
-
-#[derive(Properties, PartialEq)]
-pub struct CabinetProps {
-    pub model: crate::model::Model,
-    pub on_msg: Callback<Msg>,
-}
+use crate::app::api::CabinetRead;
+use crate::app::cmd::{ApiError, Cmd, Remote};
+use crate::app::screen::{Link, Screen, ScreenCtx};
+use crate::app::template;
+use crate::model::{PortalCabinetDocument, PortalCabinetPage, PortalPage};
 
 pub struct Cabinet;
 
-impl Component for Cabinet {
-    type Message = ();
-    type Properties = CabinetProps;
-
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
-    }
-
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let props = ctx.props();
-        let screen = crate::model::screen("cabinet").expect("cabinet screen exists");
-        html! {
-            <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
-                { cabinet(&props.model, &props.on_msg) }
-            </PortalShell>
-        }
-    }
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Model {
+    pub read: Remote<PortalCabinetPage>,
+    /// The filter as typed. The whole repository is on the page, so filtering is a view of it, not a new read.
+    pub query: String,
 }
 
-fn payload(model: &crate::model::Model) -> Option<&PortalCabinetPage> {
-    model
-        .page
-        .as_ref()
-        .and_then(|page| page.portal.as_ref())
-        .and_then(|portal| portal.cabinet.as_ref())
+#[derive(Debug, PartialEq)]
+pub enum Msg {
+    Loaded(Result<PortalPage, ApiError>),
+    QueryChanged(String),
+}
+
+impl Screen for Cabinet {
+    type Model = Model;
+    type Msg = Msg;
+
+    fn init(_ctx: &ScreenCtx) -> (Model, Cmd<Msg>) {
+        (
+            Model {
+                read: Remote::Loading,
+                ..Model::default()
+            },
+            Cmd::request(CabinetRead, Msg::Loaded),
+        )
+    }
+
+    fn update(model: &mut Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> {
+        match msg {
+            Msg::Loaded(answer) => {
+                model.read = Remote::from_result(answer.and_then(|page| {
+                    page.cabinet
+                        .ok_or_else(|| ApiError::decode("The answer had no Cabinet in it."))
+                }))
+            }
+            Msg::QueryChanged(query) => model.query = query,
+        }
+        Cmd::none()
+    }
+
+    fn view(model: &Model, _ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
+        let on_msg = link.callback(|msg: Msg| msg);
+        template::remote(&model.read, "the Cabinet", |data| {
+            cabinet(data, &model.query, &on_msg)
+        })
+    }
 }
 
 fn visible_documents<'a>(
@@ -64,18 +85,8 @@ fn visible_documents<'a>(
         .collect()
 }
 
-fn cabinet(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
-    let Some(data) = payload(model) else {
-        return html! {
-            <section class="portal-glass-panel rounded-[var(--portal-panel-radius)] p-6">
-                <p class="text-sm font-light text-black/45">
-                    { if model.loading { "Loading Cabinet…" } else { "Cabinet data is not available." } }
-                </p>
-            </section>
-        };
-    };
-
-    let visible = visible_documents(&data.documents, &model.controls.query);
+fn cabinet(data: &PortalCabinetPage, query: &str, on_msg: &Callback<Msg>) -> Html {
+    let visible = visible_documents(&data.documents, query);
     let oninput = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
@@ -127,7 +138,7 @@ fn cabinet(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
                         <input
                             type="search"
                             {oninput}
-                            value={model.controls.query.clone()}
+                            value={query.to_string()}
                             placeholder="Search…"
                             class="min-h-11 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white px-3 text-sm font-light text-[var(--portal-text)] outline-none transition placeholder:text-black/35 hover:border-[var(--portal-blue-gray)]/60 focus:border-[var(--portal-navy-soft)] focus:ring-1 focus:ring-[var(--portal-gold)]/35"
                         />
