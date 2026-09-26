@@ -265,6 +265,14 @@ jobs:
         working-directory: rust
         run: cargo run -p cli -- tx-smoke
 
+      - name: Rust durable command runtime proofs
+        working-directory: rust
+        run: cargo test -p server --test command_runtime_dev -- --ignored --test-threads=1
+
+      - name: Rust MQ delivery runtime proofs
+        working-directory: rust
+        run: cargo test -p server --test mq_runtime_dev -- --ignored --test-threads=1
+
   database:
     name: database-backed gates
     # Parked until dev credentials exist as secrets. A skipped gate is visibly skipped; a gate that
