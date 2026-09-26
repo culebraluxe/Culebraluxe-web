@@ -1000,11 +1000,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/forms", get(forms).post(create_form))
         .route("/v1/forms/deal-facts/{deal_id}", get(form_deal_facts))
         .route("/v1/forms/{id}/signers", get(form_signers))
-        .route(
-            "/v1/forms/{id}/issued-document",
-            get(form_issued_document).post(form_issue_document),
-        )
-        .route("/v1/forms/{id}/preview", post(form_preview))
+        .route("/v1/forms/{id}/issued-document", get(form_issued_document))
         .route("/v1/forms/{id}", get(form).patch(update_form))
         .route("/v1/comms/{person_id}/panel", get(comms_panel))
         .route("/v1/comms/{person_id}/timeline", get(comms_timeline))
@@ -3333,120 +3329,6 @@ async fn form_issued_document(
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(value, &resolved))
-}
-
-/// Issue the form's document: render it, version it, store it, and record where its signatures go.
-///
-/// THIS IS THE ROUTE THAT WAS MISSING, and it is what the whole forms path turned on. The vault could list and read
-/// issued documents but had no way to CREATE one: the artifact port was a stub answering "renderer is not configured on
-/// this transport", and nothing drove it. The command itself was already here — `VaultService::issue_from_form_instance`
-/// versions the document, resolves the parties and writes the receipts — so this handler is the HTTP surface it lacked.
-///
-/// The response is the issued document's identity: its id, its version and the checksum of the rendered bytes. The
-/// checksum is what makes the artifact evidence, so it is returned rather than left to be looked up.
-async fn form_issue_document(
-    State(state): State<ApiState>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-) -> Result<Json<ApiSuccess<serde_json::Value>>, ApiError> {
-    let resolved = resolve_request_context(&state, &headers).await?;
-    let request = domain::IssueDocumentRequest {
-        command_id: uuid::Uuid::new_v4().to_string(),
-        form_instance_id: id,
-        actor_app_user_id: Some(resolved.acting_user.app_user_id.clone()),
-        // THE COMMAND'S OWN TIMESTAMP IS THE ISSUANCE DATE, and it is not decoration: the broker's local pre-signature
-        // prints it under her signature, so a document issued without it cannot be signed by her at all — the resolver
-        // refuses rather than drawing an undated signature. It is set HERE, where the command begins.
-        issued_at: Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
-    };
-    let service = state.services().vault();
-    let command = service
-        .issue_from_form_instance(&request, &resolved.service)
-        .await
-        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
-    if command.outcome != domain::VaultCommandOutcome::Success {
-        let message = command
-            .message
-            .unwrap_or_else(|| "The document could not be issued.".to_string());
-        return Err(correlate(
-            ApiError::from(CoreServiceError::business("VAULT_ISSUE_REFUSED", message)),
-            &resolved,
-        ));
-    }
-    Ok(success(
-        command.value.unwrap_or(serde_json::json!(null)),
-        &resolved,
-    ))
-}
-
-/// The draft preview's body. It is a SCHEMA, not a shape check: anything that is not a string map is refused by
-/// deserialization, before it can reach the renderer — the boundary rule for anything crossing from a browser.
-#[derive(Debug, Default, serde::Deserialize)]
-#[serde(rename_all = "camelCase", default)]
-struct FormPreviewRequest {
-    field_values: std::collections::BTreeMap<String, String>,
-    sections: std::collections::BTreeMap<String, String>,
-}
-
-/// The draft preview: the ISSUANCE RENDERER at a version that does not exist yet, writing nothing.
-///
-/// WHAT THIS REPLACES: a TypeScript route that rendered the draft with `pdf-lib`. The whole point of the port is that the
-/// preview and the issued document come from ONE composer — so the pane beside the editor shows the document the
-/// signature will be applied to, not a second implementation's approximation of it.
-async fn form_preview(
-    State(state): State<ApiState>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-    Json(body): Json<FormPreviewRequest>,
-) -> Result<Response, ApiError> {
-    let resolved = resolve_request_context(&state, &headers).await?;
-    let service = state.services().vault();
-    let artifact = service
-        .preview_form_instance(
-            &id,
-            body.field_values,
-            body.sections,
-            Some(resolved.acting_user.app_user_id.clone()),
-            &resolved.service,
-        )
-        .await
-        .map_err(|failure| match failure {
-            crate::vault::PreviewFailure::NotFound(id) => correlate(
-                ApiError::not_found("FORM_NOT_FOUND", format!("Form instance not found: {id}")),
-                &resolved,
-            ),
-            crate::vault::PreviewFailure::Service(error) => {
-                correlate(ApiError::from(error), &resolved)
-            }
-            crate::vault::PreviewFailure::Db(failure) => {
-                correlate(ApiError::from(CoreServiceError::from(failure)), &resolved)
-            }
-            // A REFUSAL IS THE OPERATOR'S SENTENCE, not a stack trace: the broker configuration could not be proven, and
-            // the screen shows exactly why the document cannot be rendered.
-            crate::vault::PreviewFailure::Refused(failure) => correlate(
-                ApiError::from(CoreServiceError::business(
-                    "VAULT_PREVIEW_REFUSED",
-                    failure.message,
-                )),
-                &resolved,
-            ),
-        })?;
-    let mut response = Response::new(Body::from(artifact.bytes));
-    let headers = response.headers_mut();
-    headers.insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static("application/pdf"),
-    );
-    // Private and unstored: a draft is not a resource, and a cached preview would be a stale document on the next edit.
-    headers.insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("private, no-store"),
-    );
-    headers.insert(
-        HeaderName::from_static("x-content-type-options"),
-        HeaderValue::from_static("nosniff"),
-    );
-    Ok(response)
 }
 
 async fn comms_panel(

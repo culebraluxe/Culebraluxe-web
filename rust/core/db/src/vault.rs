@@ -11,7 +11,7 @@ use domain::{
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use sqlx::{FromRow, PgConnection, Row};
+use sqlx::{FromRow, PgConnection};
 use std::collections::BTreeMap;
 use std::future::Future;
 
@@ -546,90 +546,6 @@ impl VaultDao {
 
     pub fn database(&self) -> Database {
         self.db.clone()
-    }
-
-    /// The form as the renderer needs it. A preview reads without creating a receipt, version, or write.
-    pub async fn form_document_source(
-        &self,
-        form_instance_id: &str,
-    ) -> DbResult<Option<domain::vault::FormDocumentSource>> {
-        let row = sqlx::query(
-            r#"
-            select template_id,
-                   template_version,
-                   contract_id::text as contract_id,
-                   deal_id::text as deal_id,
-                   status,
-                   field_values,
-                   sections
-            from document_form_instance
-            where id = $1::uuid
-            limit 1
-            "#,
-        )
-        .bind(form_instance_id)
-        .fetch_optional(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("vault.preview.form", &error))?;
-        let Some(row) = row else {
-            return Ok(None);
-        };
-        Ok(Some(domain::vault::FormDocumentSource {
-            template_id: row.try_get("template_id").unwrap_or_default(),
-            template_version: row.try_get("template_version").unwrap_or_default(),
-            contract_id: row.try_get("contract_id").ok().flatten(),
-            deal_id: row.try_get("deal_id").ok().flatten(),
-            status: row.try_get("status").unwrap_or_default(),
-            field_values: string_map(
-                row.try_get("field_values")
-                    .unwrap_or(serde_json::Value::Null),
-            ),
-            sections: string_map(row.try_get("sections").unwrap_or(serde_json::Value::Null)),
-        }))
-    }
-
-    pub async fn form_signers(
-        &self,
-        form_instance_id: &str,
-    ) -> DbResult<Vec<domain::forms::FormSignerPerson>> {
-        let mut connection = self
-            .db
-            .pool()
-            .acquire()
-            .await
-            .map_err(|error| DbFailure::from_sqlx("vault.preview.signers", &error))?;
-        list_signers_on(&mut connection, form_instance_id).await
-    }
-
-    /// Resolve the brokerage pre-signature for a draft without requiring the external execution slot used at issuance.
-    pub async fn broker_signature_for_preview(
-        &self,
-        template_id: &str,
-        field_values: &BTreeMap<String, String>,
-        slots: &[domain::forms_execution::IssuedExecutionSlot],
-        actor_app_user_id: Option<&str>,
-        issued_at: &str,
-    ) -> Result<
-        Vec<domain::forms_applied_signature::FormAppliedSignature>,
-        domain::VaultArtifactFailure,
-    > {
-        let mut connection = self.db.pool().acquire().await.map_err(|error| {
-            let failure = DbFailure::from_sqlx("vault.preview.broker_signature", &error);
-            domain::VaultArtifactFailure {
-                outcome: domain::VaultCommandOutcome::PreconditionFailure,
-                message: format!("document.preview failed: {failure}"),
-            }
-        })?;
-        crate::broker_signature::resolve_for_issuance(
-            &mut connection,
-            template_id,
-            field_values,
-            slots,
-            actor_app_user_id,
-            Some(issued_at),
-            false,
-        )
-        .await
     }
 
     pub async fn list_issued_documents(

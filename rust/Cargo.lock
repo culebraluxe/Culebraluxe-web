@@ -2385,7 +2385,6 @@ dependencies = [
  "chrono",
  "db",
  "domain",
- "flate2",
  "forge",
  "image",
  "integrations",
@@ -2401,7 +2400,6 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
- "unicode-normalization",
  "uuid",
 ]
 
