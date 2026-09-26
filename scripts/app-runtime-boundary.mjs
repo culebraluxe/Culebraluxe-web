@@ -22,6 +22,8 @@ const TRACE_TARGETS = [
   'lib/commands/index',
   'lib/neon-interactive',
   'lib/mq/outbox-repository',
+  'lib/property-reads',
+  'lib/vault-io',
 ]
 
 function traceDirectImporters() {
