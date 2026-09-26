@@ -28,7 +28,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     )
     .with_error_sink(Arc::new(DurableServiceErrorSink::new(app_error.clone())))
     .with_alert_port(Arc::new(DurableServiceAlertPort::new(app_error)));
-    let (app, service_kernel) = build_application(db.clone(), infrastructure, config);
+    let (app, service_harness) = build_application(db.clone(), infrastructure, config);
+    service_harness
+        .start()
+        .await
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
 
     // The server is a long-lived process, so its pool is the one that stays warm. Neon suspends an idle database and a
     // suspended database turns the next user page load into a cold connect - the exact cost the retry policy exists to
@@ -72,10 +76,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     );
 
     axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal(service_kernel.clone()))
+        .with_graceful_shutdown(shutdown_signal(service_harness.clone()))
         .await?;
 
-    service_kernel
+    service_harness
         .wait_stopped()
         .await
         .map_err(|error| std::io::Error::other(error.to_string()))?;
@@ -88,7 +92,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn shutdown_signal(service_kernel: server::ServiceKernel) {
+async fn shutdown_signal(service_harness: server::ServiceHarness) {
     #[cfg(unix)]
     {
         use tokio::signal::unix::{signal, SignalKind};
@@ -110,5 +114,6 @@ async fn shutdown_signal(service_kernel: server::ServiceKernel) {
         let _ = tokio::signal::ctrl_c().await;
     }
 
-    service_kernel.begin_shutdown();
+    tracing::info!(target: "culebraluxe::service::lifecycle", "service harness shutdown requested");
+    service_harness.begin_shutdown();
 }

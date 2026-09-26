@@ -28,6 +28,7 @@ pub mod public_listings;
 pub mod relationship_evidence;
 pub mod security;
 pub mod service_gateway;
+pub mod service_harness;
 pub mod service_kernel;
 pub mod service_observability;
 pub mod observability;
@@ -45,4 +46,5 @@ pub mod workflow_portal;
 
 pub use composition::CoreServices;
 pub use service_gateway::ServiceGateway;
-pub use service_kernel::{ServiceKernel, ServiceRegistry};
+pub use service_harness::ServiceHarness;
+pub use service_kernel::{ServiceKernel, ServiceKernelHealth, ServiceRegistry};

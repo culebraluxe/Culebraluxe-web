@@ -1,4 +1,4 @@
-use crate::{CoreServices, ServiceGateway, ServiceKernel};
+use crate::{CoreServices, ServiceGateway, ServiceHarness, ServiceKernel};
 use db::Database;
 use service::ServiceInfrastructure;
 use sha2::{Digest, Sha256};
@@ -57,19 +57,19 @@ impl ApiConfig {
 pub struct ApiState {
     db: Database,
     services: CoreServices,
-    kernel: ServiceKernel,
+    harness: ServiceHarness,
     config: ApiConfig,
 }
 
 impl ApiState {
     pub fn new(db: Database, infrastructure: ServiceInfrastructure, config: ApiConfig) -> Self {
         let services = CoreServices::new(db.clone(), infrastructure.clone());
-        let kernel = ServiceKernel::new(db.clone(), infrastructure)
-            .expect("default CulebraLuxe service kernel configuration must be valid");
+        let harness = ServiceHarness::new(db.clone(), infrastructure)
+            .expect("default CulebraLuxe service harness configuration must be valid");
         Self {
             db,
             services,
-            kernel,
+            harness,
             config,
         }
     }
@@ -83,11 +83,15 @@ impl ApiState {
     }
 
     pub fn service_gateway(&self) -> ServiceGateway {
-        ServiceGateway::new(self.kernel.registry())
+        self.harness.gateway()
     }
 
     pub fn service_kernel(&self) -> ServiceKernel {
-        self.kernel.clone()
+        self.harness.kernel()
+    }
+
+    pub fn service_harness(&self) -> ServiceHarness {
+        self.harness.clone()
     }
 
     fn internal_api_key(&self) -> &str {
@@ -99,10 +103,10 @@ pub fn build_application(
     db: Database,
     infrastructure: ServiceInfrastructure,
     config: ApiConfig,
-) -> (axum::Router, ServiceKernel) {
+) -> (axum::Router, ServiceHarness) {
     let state = ApiState::new(db, infrastructure, config);
-    let kernel = state.service_kernel();
-    (routes::router(state), kernel)
+    let harness = state.service_harness();
+    (routes::router(state), harness)
 }
 
 pub fn build_router(

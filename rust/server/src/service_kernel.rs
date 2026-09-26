@@ -7,10 +7,12 @@ use crate::service_support::CoreServiceError;
 use async_trait::async_trait;
 use db::{ContractDao, Database, FirmDao, PersonDao, PropertyDao};
 use service::{
-    AbstractService, DeferredServiceRouter, ServiceContext, ServiceDescriptor,
-    ServiceDispatchError, ServiceEnvelope, ServiceHealth, ServiceInfrastructure, ServiceMailbox,
-    ServiceMailboxConfig, ServiceRouter, ServiceRuntime,
+    AbstractService, DeferredServiceRouter, ServiceContext, ServiceControlCommand,
+    ServiceControlResult, ServiceDescriptor, ServiceDispatchError, ServiceEnvelope, ServiceHealth,
+    ServiceInfrastructure, ServiceLifecycle, ServiceMailbox, ServiceMailboxConfig, ServiceRouter,
+    ServiceRuntime, ServiceStatus,
 };
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
@@ -23,6 +25,17 @@ struct RegisteredService {
     descriptor: ServiceDescriptor,
     service: Arc<dyn AbstractService>,
     mailbox: ServiceMailbox,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceKernelHealth {
+    pub status: ServiceStatus,
+    pub accepting: bool,
+    pub queued: usize,
+    pub in_flight: usize,
+    pub service_count: usize,
+    pub services: BTreeMap<String, ServiceHealth>,
 }
 
 #[derive(Clone)]
@@ -87,6 +100,85 @@ impl ServiceRegistry {
             .iter()
             .map(|(domain, entry)| (domain.clone(), entry.mailbox.health()))
             .collect()
+    }
+
+    pub fn kernel_health(&self) -> ServiceKernelHealth {
+        let services = self.health();
+        let status = if services
+            .values()
+            .any(|health| health.status == ServiceStatus::Failed)
+        {
+            ServiceStatus::Failed
+        } else if services
+            .values()
+            .any(|health| health.status == ServiceStatus::Stopping)
+        {
+            ServiceStatus::Stopping
+        } else if services
+            .values()
+            .any(|health| health.status == ServiceStatus::Draining)
+        {
+            ServiceStatus::Draining
+        } else if services
+            .values()
+            .any(|health| health.status == ServiceStatus::Starting)
+        {
+            ServiceStatus::Starting
+        } else if !services.is_empty()
+            && services
+                .values()
+                .all(|health| health.status == ServiceStatus::Stopped)
+        {
+            ServiceStatus::Stopped
+        } else {
+            ServiceStatus::Running
+        };
+        ServiceKernelHealth {
+            status,
+            accepting: services.values().all(|health| health.accepting),
+            queued: services.values().map(|health| health.queued).sum(),
+            in_flight: services.values().map(|health| health.in_flight).sum(),
+            service_count: services.len(),
+            services,
+        }
+    }
+
+    pub async fn start(&self) -> Result<(), ServiceDispatchError> {
+        for entry in self.entries.values() {
+            entry.mailbox.wait_running().await?;
+        }
+        Ok(())
+    }
+
+    pub async fn control(
+        &self,
+        domain: &str,
+        command: ServiceControlCommand,
+    ) -> Result<ServiceControlResult, ServiceDispatchError> {
+        let entry = self
+            .entries
+            .get(domain)
+            .ok_or_else(|| ServiceDispatchError::ServiceNotFound(domain.to_owned()))?;
+
+        match command {
+            ServiceControlCommand::Start => entry
+                .mailbox
+                .start()
+                .await
+                .map_err(|error| {
+                    ServiceDispatchError::infrastructure(error.code, error.message, false)
+                })?,
+            ServiceControlCommand::Drain => entry.mailbox.drain().await?,
+            ServiceControlCommand::Stop => entry.mailbox.stop().await?,
+            ServiceControlCommand::Status | ServiceControlCommand::Health => {}
+        }
+
+        Ok(ServiceControlResult {
+            domain: domain.to_owned(),
+            command,
+            status: entry.mailbox.status(),
+            health: entry.mailbox.health(),
+        })
     }
 
     pub async fn dispatch(
@@ -313,6 +405,22 @@ impl ServiceKernel {
 
     pub fn registry(&self) -> Arc<ServiceRegistry> {
         self.registry.clone()
+    }
+
+    pub async fn start(&self) -> Result<(), ServiceDispatchError> {
+        self.registry.start().await
+    }
+
+    pub fn health(&self) -> ServiceKernelHealth {
+        self.registry.kernel_health()
+    }
+
+    pub async fn control(
+        &self,
+        domain: &str,
+        command: ServiceControlCommand,
+    ) -> Result<ServiceControlResult, ServiceDispatchError> {
+        self.registry.control(domain, command).await
     }
 
     pub fn person(&self) -> Arc<PersonService<PersonDao>> {
