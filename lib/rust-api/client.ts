@@ -1349,6 +1349,63 @@ export async function rustApiSetUserPrimaryRole<T>(
   return rustApiJsonWrite<T>('/v1/security/users', 'PUT', body)
 }
 
+export type RustPersonSearchResult = {
+  id: string
+  display_name: string
+  role: string
+  status: string
+  location: string | null
+  email: string | null
+  phone: string | null
+}
+
+export async function rustApiSearchPeople(
+  query: string,
+  limit = 8,
+): Promise<RustPersonSearchResult[]> {
+  const path =
+    `/v1/people/search?query=${encodeURIComponent(query)}&limit=${encodeURIComponent(String(limit))}` as `/v1/${string}`
+  return (await rustApiRead<RustPersonSearchResult[]>(path)).value
+}
+
+export type RustContractSummary = {
+  id: string
+  contract_type: string
+  form_template_id: string
+  status: string
+  property_id: string
+  predecessor_contract_id: string | null
+  process_instance_id: string | null
+  evidence_document_id: string | null
+  executed_at: string | null
+  created_at: string
+}
+
+export async function rustApiContracts(): Promise<RustContractSummary[]> {
+  return (await rustApiRead<RustContractSummary[]>('/v1/contracts')).value
+}
+
+export type RustPropertyRef = {
+  id: string
+  display_name: string
+  local_name: string | null
+  address_line1: string | null
+  municipality: string | null
+}
+
+export async function rustApiPropertyRef(propertyId: string): Promise<RustPropertyRef | null> {
+  try {
+    return (
+      await rustApiRead<RustPropertyRef>(
+        (`/v1/properties/${encodeURIComponent(propertyId)}`) as `/v1/${string}`,
+      )
+    ).value
+  } catch (error) {
+    if (error instanceof RustApiError && error.status === 404) return null
+    throw error
+  }
+}
+
 export async function rustApiVaultDocuments<T>(): Promise<T> {
   return (await rustApiRead<T>('/v1/vault/documents')).value
 }

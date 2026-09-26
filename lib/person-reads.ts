@@ -1,38 +1,38 @@
 import 'server-only'
 
-import { randomUUID } from 'node:crypto'
+import { rustApiSearchPeople } from '@/lib/rust-api/client'
 
-import { coreServices } from '@/lib/service-runtime'
-import { PERSON_OPERATIONS } from '@/legacy/services/person'
-import type { PersonSearchResult } from '@/legacy/services/person'
-
-/**
- * Person reads for server surfaces — through the Person SERVICE, never the
- * database. (The retired db/people.ts was a Person read living outside the
- * Person domain.)
- */
-export type { PersonSearchResult }
-
-const service = coreServices.person
+export type PersonSearchResult = {
+  id: string
+  displayName: string
+  role: string
+  status: string
+  location: string | null
+  email: string | null
+  phone: string | null
+}
 
 /**
- * Narrow operator search over canonical people: exact substring on display name
- * or a recorded identity value. Not identity resolution, and no fuzzy matching.
- * A failed read returns [] — the caller never sees a rejected query.
+ * Narrow operator search over canonical people. Rust owns authorization and
+ * persistence; this module only preserves the caller-facing DTO.
  */
 export async function searchPeople(query: string, limit = 8): Promise<PersonSearchResult[]> {
   const trimmed = query.trim()
   if (!trimmed) return []
 
-  const result = await service.execute({
-    operation: PERSON_OPERATIONS.SEARCH,
-    payload: { query: trimmed, limit },
-    context: {
-      actor: { id: null, kind: 'system' },
-      correlationId: randomUUID(),
-    },
-  })
-
-  // The kernel captured any failure; an empty result is the safe operator default.
-  return result.ok ? result.value : []
+  try {
+    const rows = await rustApiSearchPeople(trimmed, limit)
+    return rows.map((row) => ({
+      id: row.id,
+      displayName: row.display_name,
+      role: row.role,
+      status: row.status,
+      location: row.location,
+      email: row.email,
+      phone: row.phone,
+    }))
+  } catch {
+    // Preserve the historical failure-safe operator default.
+    return []
+  }
 }

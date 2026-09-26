@@ -1,104 +1,104 @@
 import 'server-only'
 
-import { randomUUID } from 'node:crypto'
+import {
+  rustApiContracts,
+  rustApiPropertyRef,
+  type RustContractSummary,
+} from '@/lib/rust-api/client'
 
-import { coreServices } from '@/lib/service-runtime'
-import { getActingUser } from '@/lib/auth/get-acting-user'
-import { getPortalSessionAdapter } from '@/lib/auth/portal-session'
-import { resolveSecurityLevel } from '@/legacy/services/security'
-import { CONTRACT_OPERATIONS, type ContractSummaryDto } from '@/legacy/services/contract'
-import { PROPERTY_OPERATIONS, type PropertyIntro } from '@/legacy/services/property'
-import type { Result } from '@/legacy/db/client'
+export type ContractSummaryDto = {
+  id: string
+  contractType: string
+  formTemplateId: string
+  status: string
+  propertyId: string
+  predecessorContractId: string | null
+  processInstanceId: string | null
+  evidenceDocumentId: string | null
+  executedAt: string | null
+  createdAt: string
+}
 
-/**
- * The Contracts portfolio's reads — through the CONTRACT SERVICE, never the
- * database (docs/REAL-ESTATE-TRANSACTION-DESIGN.md section 7.5).
- *
- * The nav already says *Contracts* while the page below it lists Deals. A deal is
- * really the *transaction*; a contract is its artifact. This module makes the
- * artifacts visible without removing the transaction view: the page composes
- * both, so nothing disappears when the contract count is still low.
- *
- * The kernel authorizes off `principal`, so the context is built from the portal
- * session. Without one the kernel sees GUEST and refuses the command-side reads.
- */
-
-export type { ContractSummaryDto }
-
-/** One contract row, enriched with the property label the service does not own. */
 export type ContractPortfolioRow = ContractSummaryDto & {
   propertyLabel: string | null
 }
 
-const service = coreServices.contract
-const properties = coreServices.property
-
-async function portalContext() {
-  const correlationId = randomUUID()
-  try {
-    const acting = await getActingUser(getPortalSessionAdapter())
-    return {
-      actor: { id: acting.appUserId, kind: 'user' as const },
-      correlationId,
-      principal: {
-        appUserId: acting.appUserId,
-        level: resolveSecurityLevel(acting.roleCodes),
-        roleCodes: acting.roleCodes,
-      },
+type ReadResult<T> =
+  | { ok: true; data: T }
+  | {
+      ok: false
+      error: {
+        kind: 'UNKNOWN'
+        operation: string
+        incidentId: string
+        code: string
+        detail: string
+      }
     }
-  } catch {
-    // No session: the read fails closed (the kernel returns FORBIDDEN).
-    return { actor: { id: null, kind: 'system' as const }, correlationId }
-  }
-}
 
-function failure(operation: string, correlationId: string, code: string, detail: string): Result<never> {
+function mapContract(row: RustContractSummary): ContractSummaryDto {
   return {
-    ok: false,
-    error: { kind: 'UNKNOWN', operation, incidentId: correlationId, code, detail },
+    id: row.id,
+    contractType: row.contract_type,
+    formTemplateId: row.form_template_id,
+    status: row.status,
+    propertyId: row.property_id,
+    predecessorContractId: row.predecessor_contract_id,
+    processInstanceId: row.process_instance_id,
+    evidenceDocumentId: row.evidence_document_id,
+    executedAt: row.executed_at,
+    createdAt: row.created_at,
   }
 }
 
 /**
- * The Contracts portfolio, newest first, each row carrying its property label.
- *
- * Property labels come from the Property service (one intro read per distinct
- * property — a handful of rows). A label that cannot be read leaves the row
- * intact with a null label: the contract is still true.
+ * Contracts portfolio backed entirely by Rust services. Property labels are
+ * composed from Rust's canonical Property read; authorization remains in Rust.
  */
-export async function listContractPortfolio(): Promise<Result<ContractPortfolioRow[]>> {
-  const context = await portalContext()
-  const operation = CONTRACT_OPERATIONS.LIST
+export async function listContractPortfolio(): Promise<ReadResult<ContractPortfolioRow[]>> {
+  try {
+    const raw = await rustApiContracts()
+    const contracts = raw.map(mapContract)
+    const propertyIds = [...new Set(contracts.map((row) => row.propertyId).filter(Boolean))]
+    const labels = new Map<string, string | null>()
 
-  const result = await service.execute({ operation, payload: {}, context })
-  if (!result.ok) return failure(operation, context.correlationId, result.error.code, result.error.message)
+    await Promise.all(
+      propertyIds.map(async (propertyId) => {
+        try {
+          const property = await rustApiPropertyRef(propertyId)
+          if (!property) return
+          labels.set(
+            propertyId,
+            property.display_name ||
+              property.local_name ||
+              property.address_line1 ||
+              property.municipality ||
+              null,
+          )
+        } catch {
+          // Preserve the row even when a secondary label lookup fails.
+        }
+      }),
+    )
 
-  const contracts = result.value as ContractSummaryDto[]
-  const propertyIds = [...new Set(contracts.map((contract) => contract.propertyId).filter(Boolean))]
-
-  const labels = new Map<string, string | null>()
-  await Promise.all(
-    propertyIds.map(async (propertyId) => {
-      const intro = await properties.execute({
-        operation: PROPERTY_OPERATIONS.INTRO,
-        payload: { propertyId },
-        context,
-      })
-      if (!intro.ok) return
-      // Property reads return a Result inside the envelope (the contract read
-      // returns its rows directly) — unwrap it rather than treat it as data.
-      const unwrapped = intro.value as unknown as Result<PropertyIntro | null>
-      if (!unwrapped.ok) return
-      const property = unwrapped.data
-      labels.set(propertyId, property ? property.name ?? property.location ?? null : null)
-    }),
-  )
-
-  return {
-    ok: true,
-    data: contracts.map((contract) => ({
-      ...contract,
-      propertyLabel: labels.get(contract.propertyId) ?? null,
-    })),
+    return {
+      ok: true,
+      data: contracts.map((row) => ({
+        ...row,
+        propertyLabel: labels.get(row.propertyId) ?? null,
+      })),
+    }
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : 'Contract portfolio read failed.'
+    return {
+      ok: false,
+      error: {
+        kind: 'UNKNOWN',
+        operation: 'contract.list',
+        incidentId: 'rust-contract-read',
+        code: 'RUST_API_FAILURE',
+        detail,
+      },
+    }
   }
 }
