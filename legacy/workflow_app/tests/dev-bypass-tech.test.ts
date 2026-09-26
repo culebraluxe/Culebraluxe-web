@@ -40,6 +40,19 @@ test('DEV bypass actor exposes tech.access (TECH nav gate)', () => {
   assert.ok(actor.authorityCodes.includes('portal.read'), 'portal.read present')
 })
 
+test('the bypass acts as ROOT by default and as the business account when flipped', () => {
+  const root = withEnv({ PORTAL_AUTH_BYPASS_AS: undefined, PORTAL_AUTH_BYPASS_ROOT_USER_ID: undefined }, () => portalAuthBypassActor())
+  assert.equal(root.securityLevel, 'ROOT')
+  assert.deepEqual(root.roleCodes, ['root'])
+  const business = withEnv(
+    { PORTAL_AUTH_BYPASS_AS: 'business_power', PORTAL_AUTH_BYPASS_BUSINESS_USER_ID: 'user-b' },
+    () => portalAuthBypassActor(),
+  )
+  assert.equal(business.securityLevel, 'BUSINESS_POWER_USER')
+  assert.equal(business.appUserId, 'user-b')
+  assert.notEqual(root.appUserId, business.appUserId, 'the flip changes the user Rust resolves, not only the nav')
+})
+
 test('bypass is active only when PORTAL_AUTH_BYPASS=1 in non-production', () => {
   const active = withEnv(
     { PORTAL_AUTH_BYPASS: '1', NODE_ENV: 'development', APP_ENV: 'development', NODE_TEST_CONTEXT: undefined },
