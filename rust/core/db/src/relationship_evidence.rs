@@ -1,7 +1,5 @@
 use crate::{Database, DbFailure, DbResult};
-use domain::{
-    RelationshipDecision, RelationshipEvidenceReview, RelationshipEvidenceRow,
-};
+use domain::{RelationshipDecision, RelationshipEvidenceReview, RelationshipEvidenceRow};
 use serde_json::Value;
 use sqlx::FromRow;
 
@@ -354,13 +352,19 @@ impl RelationshipEvidenceDao {
         let id_filter = if ids.is_empty() {
             None
         } else {
-            Some(ids.iter().cloned().collect::<std::collections::HashSet<_>>())
+            Some(
+                ids.iter()
+                    .cloned()
+                    .collect::<std::collections::HashSet<_>>(),
+            )
         };
         let rows = self.recent_rows(source).await?;
         Ok(rows
             .into_iter()
             .filter(|row| {
-                review_state.map(|state| row.review_state == state).unwrap_or(true)
+                review_state
+                    .map(|state| row.review_state == state)
+                    .unwrap_or(true)
             })
             .filter(|row| {
                 id_filter
