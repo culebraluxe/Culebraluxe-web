@@ -181,7 +181,7 @@ impl AbstractService for ContractService<ContractDao> {
     }
 
     async fn dispatch(
-        &mut self,
+        &self,
         envelope: &ServiceEnvelope,
         context: &ServiceContext,
     ) -> Result<Value, ServiceDispatchError> {
@@ -258,7 +258,7 @@ impl AbstractService for PropertyService<PropertyDao> {
     }
 
     async fn dispatch(
-        &mut self,
+        &self,
         envelope: &ServiceEnvelope,
         context: &ServiceContext,
     ) -> Result<Value, ServiceDispatchError> {

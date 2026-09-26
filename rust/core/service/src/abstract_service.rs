@@ -75,11 +75,11 @@ impl ServiceDispatchError {
 }
 
 #[async_trait]
-pub trait AbstractService: Send {
+pub trait AbstractService: Send + Sync {
     fn descriptor(&self) -> ServiceDescriptor;
 
     async fn dispatch(
-        &mut self,
+        &self,
         envelope: &ServiceEnvelope,
         context: &ServiceContext,
     ) -> Result<Value, ServiceDispatchError>;

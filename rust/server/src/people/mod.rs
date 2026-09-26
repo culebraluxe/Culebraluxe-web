@@ -10,56 +10,56 @@ use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRunti
 use std::collections::BTreeMap;
 
 #[async_trait]
-pub trait PersonRepository: Send {
-    async fn get(&mut self, person_id: &str) -> DbResult<Option<Person>>;
-    async fn find_by_identity(&mut self, identity: &PersonIdentity) -> DbResult<Option<Person>>;
+pub trait PersonRepository: Send + Sync {
+    async fn get(&self, person_id: &str) -> DbResult<Option<Person>>;
+    async fn find_by_identity(&self, identity: &PersonIdentity) -> DbResult<Option<Person>>;
     async fn set_display_name(
-        &mut self,
+        &self,
         request: &SetPersonDisplayNameRequest,
     ) -> DbResult<Option<Person>>;
     async fn attach_identity(
-        &mut self,
+        &self,
         request: &AttachPersonIdentityRequest,
     ) -> DbResult<PersonIdentity>;
     async fn update_admin(
-        &mut self,
+        &self,
         request: &UpdatePersonAdminRequest,
     ) -> DbResult<Option<Person>>;
-    async fn search(&mut self, request: &SearchPeopleRequest) -> DbResult<Vec<PersonSearchResult>>;
+    async fn search(&self, request: &SearchPeopleRequest) -> DbResult<Vec<PersonSearchResult>>;
 }
 
 #[async_trait]
 impl PersonRepository for PersonDao {
-    async fn get(&mut self, person_id: &str) -> DbResult<Option<Person>> {
+    async fn get(&self, person_id: &str) -> DbResult<Option<Person>> {
         PersonDao::get(self, person_id).await
     }
 
-    async fn find_by_identity(&mut self, identity: &PersonIdentity) -> DbResult<Option<Person>> {
+    async fn find_by_identity(&self, identity: &PersonIdentity) -> DbResult<Option<Person>> {
         PersonDao::find_by_identity(self, identity).await
     }
 
     async fn set_display_name(
-        &mut self,
+        &self,
         request: &SetPersonDisplayNameRequest,
     ) -> DbResult<Option<Person>> {
         PersonDao::set_display_name(self, request).await
     }
 
     async fn attach_identity(
-        &mut self,
+        &self,
         request: &AttachPersonIdentityRequest,
     ) -> DbResult<PersonIdentity> {
         PersonDao::attach_identity(self, request).await
     }
 
     async fn update_admin(
-        &mut self,
+        &self,
         request: &UpdatePersonAdminRequest,
     ) -> DbResult<Option<Person>> {
         PersonDao::update_admin(self, request).await
     }
 
-    async fn search(&mut self, request: &SearchPeopleRequest) -> DbResult<Vec<PersonSearchResult>> {
+    async fn search(&self, request: &SearchPeopleRequest) -> DbResult<Vec<PersonSearchResult>> {
         PersonDao::search(self, request).await
     }
 }
@@ -78,7 +78,7 @@ impl<R: PersonRepository> PersonService<R> {
     }
 
     pub async fn get(
-        &mut self,
+        &self,
         person_id: &str,
         context: &ServiceContext,
     ) -> Result<Option<Person>, CoreServiceError> {
@@ -98,7 +98,7 @@ impl<R: PersonRepository> PersonService<R> {
     }
 
     pub async fn find_by_identity(
-        &mut self,
+        &self,
         identity: &PersonIdentity,
         context: &ServiceContext,
     ) -> Result<Option<Person>, CoreServiceError> {
@@ -122,7 +122,7 @@ impl<R: PersonRepository> PersonService<R> {
     }
 
     pub async fn set_display_name(
-        &mut self,
+        &self,
         request: &SetPersonDisplayNameRequest,
         context: &ServiceContext,
     ) -> Result<Person, CoreServiceError> {
@@ -177,7 +177,7 @@ impl<R: PersonRepository> PersonService<R> {
     }
 
     pub async fn update_admin(
-        &mut self,
+        &self,
         request: &UpdatePersonAdminRequest,
         context: &ServiceContext,
     ) -> Result<Person, CoreServiceError> {
@@ -239,7 +239,7 @@ impl<R: PersonRepository> PersonService<R> {
     }
 
     pub async fn attach_identity(
-        &mut self,
+        &self,
         request: &AttachPersonIdentityRequest,
         context: &ServiceContext,
     ) -> Result<PersonIdentity, CoreServiceError> {
@@ -294,7 +294,7 @@ impl<R: PersonRepository> PersonService<R> {
     }
 
     pub async fn search(
-        &mut self,
+        &self,
         request: &SearchPeopleRequest,
         context: &ServiceContext,
     ) -> Result<Vec<PersonSearchResult>, CoreServiceError> {

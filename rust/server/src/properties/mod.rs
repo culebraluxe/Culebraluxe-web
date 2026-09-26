@@ -13,54 +13,54 @@ use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRunti
 use std::collections::BTreeMap;
 
 #[async_trait]
-pub trait PropertyRepository: Send {
-    async fn get(&mut self, property_id: &str) -> DbResult<Option<Property>>;
+pub trait PropertyRepository: Send + Sync {
+    async fn get(&self, property_id: &str) -> DbResult<Option<Property>>;
     async fn find_by_address(
-        &mut self,
+        &self,
         request: &FindPropertyByAddressRequest,
     ) -> DbResult<Option<Property>>;
-    async fn for_person(&mut self, person_id: &str) -> DbResult<PersonPropertyContext>;
+    async fn for_person(&self, person_id: &str) -> DbResult<PersonPropertyContext>;
     async fn upsert_for_person(
-        &mut self,
+        &self,
         request: &UpsertPropertyForPersonRequest,
     ) -> DbResult<PropertyForPerson>;
     async fn set_display_name(
-        &mut self,
+        &self,
         request: &SetPropertyDisplayNameRequest,
     ) -> DbResult<Option<Property>>;
     async fn set_status(
-        &mut self,
+        &self,
         request: &SetPropertyStatusRequest,
     ) -> DbResult<Option<Property>>;
     async fn admin_page(
-        &mut self,
+        &self,
         request: &PropertyAdminPageRequest,
     ) -> DbResult<PropertyAdminPage>;
-    async fn admin_get(&mut self, property_id: &str) -> DbResult<Option<PropertyAdminRecord>>;
+    async fn admin_get(&self, property_id: &str) -> DbResult<Option<PropertyAdminRecord>>;
     async fn admin_create(
-        &mut self,
+        &self,
         request: &CreatePropertyAdminRequest,
     ) -> DbResult<PropertyAdminRecord>;
     async fn admin_save(
-        &mut self,
+        &self,
         request: &SavePropertyAdminRequest,
     ) -> DbResult<Option<PropertyAdminRecord>>;
 }
 
 #[async_trait]
 impl PropertyRepository for PropertyDao {
-    async fn get(&mut self, property_id: &str) -> DbResult<Option<Property>> {
+    async fn get(&self, property_id: &str) -> DbResult<Option<Property>> {
         db::retrying_read!(PropertyDao::get(self, property_id))
     }
 
     async fn find_by_address(
-        &mut self,
+        &self,
         request: &FindPropertyByAddressRequest,
     ) -> DbResult<Option<Property>> {
         db::retrying_read!(PropertyDao::find_by_address(self, request))
     }
 
-    async fn for_person(&mut self, person_id: &str) -> DbResult<PersonPropertyContext> {
+    async fn for_person(&self, person_id: &str) -> DbResult<PersonPropertyContext> {
         db::retrying_read!(PropertyDao::for_person(self, person_id))
     }
 
@@ -68,46 +68,46 @@ impl PropertyRepository for PropertyDao {
     // landed, and repeating it would either duplicate a link or silently re-apply a status change. Reads above are
     // repeatable; these are not.
     async fn upsert_for_person(
-        &mut self,
+        &self,
         request: &UpsertPropertyForPersonRequest,
     ) -> DbResult<PropertyForPerson> {
         PropertyDao::upsert_for_person(self, request).await
     }
 
     async fn set_display_name(
-        &mut self,
+        &self,
         request: &SetPropertyDisplayNameRequest,
     ) -> DbResult<Option<Property>> {
         PropertyDao::set_display_name(self, request).await
     }
 
     async fn set_status(
-        &mut self,
+        &self,
         request: &SetPropertyStatusRequest,
     ) -> DbResult<Option<Property>> {
         PropertyDao::set_status(self, request).await
     }
 
     async fn admin_page(
-        &mut self,
+        &self,
         request: &PropertyAdminPageRequest,
     ) -> DbResult<PropertyAdminPage> {
         db::retrying_read!(PropertyDao::admin_page(self, request))
     }
 
-    async fn admin_get(&mut self, property_id: &str) -> DbResult<Option<PropertyAdminRecord>> {
+    async fn admin_get(&self, property_id: &str) -> DbResult<Option<PropertyAdminRecord>> {
         db::retrying_read!(PropertyDao::admin_get(self, property_id))
     }
 
     async fn admin_create(
-        &mut self,
+        &self,
         request: &CreatePropertyAdminRequest,
     ) -> DbResult<PropertyAdminRecord> {
         PropertyDao::admin_create(self, request).await
     }
 
     async fn admin_save(
-        &mut self,
+        &self,
         request: &SavePropertyAdminRequest,
     ) -> DbResult<Option<PropertyAdminRecord>> {
         PropertyDao::admin_save(self, request).await
@@ -128,7 +128,7 @@ impl<R: PropertyRepository> PropertyService<R> {
     }
 
     pub async fn get(
-        &mut self,
+        &self,
         property_id: &str,
         context: &ServiceContext,
     ) -> Result<Option<Property>, CoreServiceError> {
@@ -148,7 +148,7 @@ impl<R: PropertyRepository> PropertyService<R> {
     }
 
     pub async fn find_by_address(
-        &mut self,
+        &self,
         request: &FindPropertyByAddressRequest,
         context: &ServiceContext,
     ) -> Result<Option<Property>, CoreServiceError> {
@@ -172,7 +172,7 @@ impl<R: PropertyRepository> PropertyService<R> {
     }
 
     pub async fn for_person(
-        &mut self,
+        &self,
         person_id: &str,
         context: &ServiceContext,
     ) -> Result<PersonPropertyContext, CoreServiceError> {
@@ -196,7 +196,7 @@ impl<R: PropertyRepository> PropertyService<R> {
     }
 
     pub async fn upsert_for_person(
-        &mut self,
+        &self,
         request: &UpsertPropertyForPersonRequest,
         context: &ServiceContext,
     ) -> Result<PropertyForPerson, CoreServiceError> {
@@ -239,7 +239,7 @@ impl<R: PropertyRepository> PropertyService<R> {
     }
 
     pub async fn set_display_name(
-        &mut self,
+        &self,
         request: &SetPropertyDisplayNameRequest,
         context: &ServiceContext,
     ) -> Result<Property, CoreServiceError> {
@@ -283,7 +283,7 @@ impl<R: PropertyRepository> PropertyService<R> {
     }
 
     pub async fn admin_page(
-        &mut self,
+        &self,
         request: &PropertyAdminPageRequest,
         context: &ServiceContext,
     ) -> Result<PropertyAdminPage, CoreServiceError> {
@@ -307,7 +307,7 @@ impl<R: PropertyRepository> PropertyService<R> {
     }
 
     pub async fn admin_get(
-        &mut self,
+        &self,
         property_id: &str,
         context: &ServiceContext,
     ) -> Result<Option<PropertyAdminRecord>, CoreServiceError> {
@@ -331,7 +331,7 @@ impl<R: PropertyRepository> PropertyService<R> {
     }
 
     pub async fn admin_create(
-        &mut self,
+        &self,
         request: &CreatePropertyAdminRequest,
         context: &ServiceContext,
     ) -> Result<PropertyAdminRecord, CoreServiceError> {
@@ -372,7 +372,7 @@ impl<R: PropertyRepository> PropertyService<R> {
     }
 
     pub async fn admin_save(
-        &mut self,
+        &self,
         request: &SavePropertyAdminRequest,
         context: &ServiceContext,
     ) -> Result<PropertyAdminRecord, CoreServiceError> {
@@ -426,7 +426,7 @@ impl<R: PropertyRepository> PropertyService<R> {
     }
 
     pub async fn set_status(
-        &mut self,
+        &self,
         request: &SetPropertyStatusRequest,
         context: &ServiceContext,
     ) -> Result<Property, CoreServiceError> {

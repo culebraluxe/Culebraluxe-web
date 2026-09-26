@@ -7,23 +7,23 @@ use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRunti
 use std::collections::BTreeMap;
 
 #[async_trait]
-pub trait FirmRepository: Send {
-    async fn get(&mut self, firm_id: &str) -> DbResult<Option<Firm>>;
-    async fn find_by_name(&mut self, name: &str) -> DbResult<Option<Firm>>;
-    async fn upsert(&mut self, request: &UpsertFirmRequest) -> DbResult<Firm>;
+pub trait FirmRepository: Send + Sync {
+    async fn get(&self, firm_id: &str) -> DbResult<Option<Firm>>;
+    async fn find_by_name(&self, name: &str) -> DbResult<Option<Firm>>;
+    async fn upsert(&self, request: &UpsertFirmRequest) -> DbResult<Firm>;
 }
 
 #[async_trait]
 impl FirmRepository for FirmDao {
-    async fn get(&mut self, firm_id: &str) -> DbResult<Option<Firm>> {
+    async fn get(&self, firm_id: &str) -> DbResult<Option<Firm>> {
         FirmDao::get(self, firm_id).await
     }
 
-    async fn find_by_name(&mut self, name: &str) -> DbResult<Option<Firm>> {
+    async fn find_by_name(&self, name: &str) -> DbResult<Option<Firm>> {
         FirmDao::find_by_name(self, name).await
     }
 
-    async fn upsert(&mut self, request: &UpsertFirmRequest) -> DbResult<Firm> {
+    async fn upsert(&self, request: &UpsertFirmRequest) -> DbResult<Firm> {
         FirmDao::upsert(self, request).await
     }
 }
@@ -42,7 +42,7 @@ impl<R: FirmRepository> FirmService<R> {
     }
 
     pub async fn get(
-        &mut self,
+        &self,
         firm_id: &str,
         context: &ServiceContext,
     ) -> Result<Option<Firm>, CoreServiceError> {
@@ -62,7 +62,7 @@ impl<R: FirmRepository> FirmService<R> {
     }
 
     pub async fn find_by_name(
-        &mut self,
+        &self,
         name: &str,
         context: &ServiceContext,
     ) -> Result<Option<Firm>, CoreServiceError> {
@@ -82,7 +82,7 @@ impl<R: FirmRepository> FirmService<R> {
     }
 
     pub async fn upsert(
-        &mut self,
+        &self,
         request: &UpsertFirmRequest,
         context: &ServiceContext,
     ) -> Result<Firm, CoreServiceError> {
