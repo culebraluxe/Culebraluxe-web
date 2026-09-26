@@ -1349,6 +1349,120 @@ export async function rustApiSetUserPrimaryRole<T>(
   return rustApiJsonWrite<T>('/v1/security/users', 'PUT', body)
 }
 
+export async function rustApiVaultDocuments<T>(): Promise<T> {
+  return (await rustApiRead<T>('/v1/vault/documents')).value
+}
+
+export async function rustApiVaultDocument<T>(documentId: string): Promise<T> {
+  return (
+    await rustApiRead<T>(
+      (`/v1/vault/documents/${encodeURIComponent(documentId)}`) as `/v1/${string}`,
+    )
+  ).value
+}
+
+export async function rustApiVaultDocumentsByDeal<T>(dealId: string): Promise<T> {
+  return (
+    await rustApiRead<T>(
+      (`/v1/vault/deals/${encodeURIComponent(dealId)}/documents`) as `/v1/${string}`,
+    )
+  ).value
+}
+
+export async function rustApiVaultIssuedDocumentForForm<T>(formInstanceId: string): Promise<T> {
+  return (
+    await rustApiRead<T>(
+      (`/v1/forms/${encodeURIComponent(formInstanceId)}/issued-document`) as `/v1/${string}`,
+    )
+  ).value
+}
+
+export async function rustApiVaultFormContract<T>(formInstanceId: string): Promise<T> {
+  return (
+    await rustApiRead<T>(
+      (`/v1/vault/forms/${encodeURIComponent(formInstanceId)}/contract`) as `/v1/${string}`,
+    )
+  ).value
+}
+
+export async function rustApiVaultPriorContractDocument<T>(
+  contractId: string,
+  templateId: string,
+): Promise<T> {
+  return (
+    await rustApiRead<T>(
+      (`/v1/vault/contracts/${encodeURIComponent(contractId)}/templates/${encodeURIComponent(templateId)}/prior`) as `/v1/${string}`,
+    )
+  ).value
+}
+
+export async function rustApiBindVaultFormContract(
+  formInstanceId: string,
+  contractId: string,
+): Promise<void> {
+  await rustApiJsonWrite<null>(
+    (`/v1/vault/forms/${encodeURIComponent(formInstanceId)}/bind-contract`) as `/v1/${string}`,
+    'POST',
+    { contractId },
+  )
+}
+
+export async function rustApiVaultDocumentBytes(
+  mediaId: string,
+): Promise<{ bytes: Buffer; filename: string; mimeType: string } | null> {
+  const identity =
+    (await createAuthJsSessionAdapter().getSession()) ??
+    (await bypassBridgeIdentity())
+  if (!identity) {
+    throw new RustApiError({
+      status: 401,
+      code: 'AUTH_IDENTITY_REQUIRED',
+      message: 'An authenticated provider identity is required.',
+    })
+  }
+
+  const correlationId = randomUUID()
+  const headers = buildRustBridgeHeaders({
+    identity,
+    internalApiKey: internalApiKey(),
+    correlationId,
+  })
+  let response: Response
+  try {
+    response = await fetch(
+      `${rustApiBaseUrl()}/v1/vault/document-bytes/${encodeURIComponent(mediaId)}`,
+      { headers, cache: 'no-store' },
+    )
+  } catch (cause) {
+    throw new RustApiError({
+      status: 503,
+      code: 'RUST_API_UNAVAILABLE',
+      message: cause instanceof Error ? cause.message : 'Rust API request failed.',
+      retryable: true,
+      correlationId,
+    })
+  }
+
+  if (response.status === 404) return null
+  if (!response.ok) {
+    throw new RustApiError({
+      status: response.status,
+      code: 'RUST_API_FAILURE',
+      message: 'The Vault document-byte read failed.',
+      retryable: response.status >= 500,
+      correlationId,
+    })
+  }
+
+  const disposition = response.headers.get('content-disposition') ?? ''
+  const filenameMatch = disposition.match(/filename="([^"]+)"/i)
+  return {
+    bytes: Buffer.from(await response.arrayBuffer()),
+    filename: filenameMatch?.[1] ?? 'document.pdf',
+    mimeType: response.headers.get('content-type') ?? 'application/pdf',
+  }
+}
+
 export async function rustApiCreateDeal<T>(
   body: Record<string, unknown>,
   options: RustApiJsonWriteOptions = {},
