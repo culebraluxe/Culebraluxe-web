@@ -505,13 +505,13 @@ struct AppleReminderBody {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct BindVaultFormContractBody {
     contract_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct RouteProjectWorkBody {
     title: String,
     notes: String,

@@ -58,14 +58,6 @@ pub trait VaultRepository: Send {
         contract_id: &str,
         template_id: &str,
     ) -> DbResult<Option<ContractIssuedLineage>>;
-    async fn prior_contract_document(
-        &mut self,
-        contract_id: &str,
-        template_id: &str,
-    ) -> DbResult<Option<ContractIssuedLineage>> {
-        VaultDao::prior_contract_document(self, contract_id, template_id).await
-    }
-
     async fn issue_from_form_instance(
         &mut self,
         request: &IssueDocumentRequest,
@@ -136,6 +128,14 @@ impl VaultRepository for VaultDao {
         contract_id: &str,
     ) -> DbResult<bool> {
         VaultDao::bind_form_to_contract(self, form_instance_id, contract_id).await
+    }
+
+    async fn prior_contract_document(
+        &mut self,
+        contract_id: &str,
+        template_id: &str,
+    ) -> DbResult<Option<ContractIssuedLineage>> {
+        VaultDao::prior_contract_document(self, contract_id, template_id).await
     }
 
     async fn issue_from_form_instance(
