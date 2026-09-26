@@ -8,6 +8,9 @@ mod audit;
 mod authorization;
 mod context;
 mod events;
+mod execution;
+mod lifecycle;
+mod mailbox;
 mod runtime;
 mod signature_provider;
 
@@ -23,6 +26,9 @@ pub use context::{
     AUTHJS_EDGE_ACTOR,
 };
 pub use events::{CapturingDomainEventPort, DomainEventPort, ServiceDomainEvent};
+pub use execution::{ServiceExecutionMode, ServiceExecutionPolicy};
+pub use lifecycle::{ServiceHealth, ServiceLifecycle, ServiceLifecycleError, ServiceStatus};
+pub use mailbox::{ServiceMailbox, ServiceMailboxConfig};
 pub use runtime::{ServiceInfrastructure, ServicePortError, ServiceRuntime, ServiceRuntimeError};
 
 pub use signature_provider::SignatureProvider;

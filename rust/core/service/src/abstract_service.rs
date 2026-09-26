@@ -53,6 +53,16 @@ pub enum ServiceDispatchError {
         message: String,
         retryable: bool,
     },
+    #[error("service is draining: {0}")]
+    ServiceDraining(String),
+    #[error("service is stopped: {0}")]
+    ServiceStopped(String),
+    #[error("service operation panicked: {domain}.{operation}: {message}")]
+    OperationPanicked {
+        domain: String,
+        operation: String,
+        message: String,
+    },
 }
 
 impl ServiceDispatchError {
