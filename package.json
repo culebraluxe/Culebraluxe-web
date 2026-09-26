@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "bash scripts/site-build.sh && cargo run --manifest-path rust/Cargo.toml -p server --bin http",
+    "dev": "bash scripts/dev.sh",
     "dev:raw": "next dev",
     "mail:test": "bash scripts/mail-test.sh",
     "mail:preview": "bash scripts/mail-test.sh --preview",
