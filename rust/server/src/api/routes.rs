@@ -1102,7 +1102,6 @@ pub fn router(state: ApiState) -> Router {
             "/api/integrations/boldsign/webhook",
             post(signature_webhook),
         )
-        .merge(super::portal_ui::router())
         .merge(super::public_ui::router())
         .layer(middleware::from_fn_with_state(
             state.clone(),

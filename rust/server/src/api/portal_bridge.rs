@@ -1,4 +1,4 @@
-//! Rust-owned compatibility endpoints for the WASM portal.
+//! THE PORTAL'S OWN ADDRESSES — every endpoint the Yew portal calls (`rust/ui/src/app/api.rs`), answered by the services.
 //!
 //! These replace server-side TypeScript relays. A request resolves its caller
 //! once, calls the long-lived Rust services directly, and returns the payload
@@ -29,6 +29,8 @@ use super::routes::{
 
 pub fn router() -> Router<ApiState> {
     Router::new()
+        .route("/api/portal/rust-ui/entitlements", get(entitlements))
+        .route("/api/portal/rust-ui/cockpit", get(cockpit).post(cockpit_act))
         .route("/api/portal/rust-ui/clients", get(clients))
         .route("/api/portal/rust-ui/page", get(page))
         .route("/api/portal/rust-ui/cabinet", get(cabinet))
@@ -2066,4 +2068,96 @@ async fn property_media_chunked(
         }
     };
     Ok(Json(answer))
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PortalEntitlements {
+    account_type: String,
+    security_level: String,
+    is_root: bool,
+    entitlement_codes: Vec<String>,
+}
+
+/// What the signed-in user may be offered: the shell reads it once and every screen asks it.
+async fn entitlements(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<PortalEntitlements>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    let level = resolved
+        .service
+        .principal
+        .as_ref()
+        .map(|p| p.level.clone())
+        .unwrap_or_else(|| "GUEST".into());
+    let user = resolved.acting_user;
+    Ok(Json(PortalEntitlements {
+        account_type: user.account_type,
+        security_level: level,
+        is_root: user.role_codes.iter().any(|role| role == "root"),
+        entitlement_codes: user.entitlement_codes,
+    }))
+}
+
+async fn cockpit_page(
+    state: &ApiState,
+    resolved: &ResolvedRequestContext,
+) -> Result<Json<Value>, ApiError> {
+    let cockpit = state
+        .services()
+        .cockpit()
+        .snapshot(&resolved.service)
+        .await
+        .map_err(failed(resolved))?;
+    Ok(Json(json!({ "cockpit": cockpit })))
+}
+
+/// The Cockpit: KPIs, tasks, the featured deal, the pipeline and recent interactions, as `{ cockpit }`.
+async fn cockpit(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    cockpit_page(&state, &resolved).await
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CockpitAction {
+    action: Option<String>,
+    task_id: Option<String>,
+}
+
+/// The Cockpit's one command, completing a task; answers the Cockpit as it now stands.
+async fn cockpit_act(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(input): Json<CockpitAction>,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    if input.action.as_deref() != Some("completeTask") {
+        return Err(ApiError::bad_request(
+            "COCKPIT_ACTION_UNSUPPORTED",
+            "Unsupported Cockpit action.",
+        ));
+    }
+    let task = input
+        .task_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty());
+    let Some(task) = task else {
+        return Err(ApiError::bad_request(
+            "COCKPIT_TASK_REQUIRED",
+            "taskId is required.",
+        ));
+    };
+    state
+        .services()
+        .task()
+        .complete(task, &resolved.service)
+        .await
+        .map_err(failed(&resolved))?;
+    cockpit_page(&state, &resolved).await
 }
