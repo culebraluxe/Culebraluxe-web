@@ -63,6 +63,10 @@ impl ApiError {
         Self::new(StatusCode::FORBIDDEN, code, message, false)
     }
 
+    pub fn bad_request(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, code, message, false)
+    }
+
     pub fn not_found(code: impl Into<String>, message: impl Into<String>) -> Self {
         Self::new(StatusCode::NOT_FOUND, code, message, false)
     }
