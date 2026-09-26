@@ -1252,7 +1252,6 @@ fn showings_card(
                 </div>
                 <div class="flex items-center gap-3">
                     <span class="text-xs font-light text-black/35">{ workspace.showings.len() }</span>
-                    <a href="/portal/showings" class="text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)]">{"View all →"}</a>
                     if workspace.client.is_some() {
                         <button type="button" onclick={create} disabled={busy} class={small_action_class()}>{"Request showing"}</button>
                     }

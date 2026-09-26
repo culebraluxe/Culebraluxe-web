@@ -1,7 +1,7 @@
 # UI Screen Architecture — the contract every screen implements
 
 Status: **framework and master shell built** (owner decision 2026-09-26). Code: `rust/ui/src/app/`. Screens on the
-trait: `db-test`, `site-account`. Cutover ledger: 53 screens still on the old loop (`app/registry.rs`). This document is the contract for all
+trait: `db-test`, `site-account`. Cutover ledger: 50 screens still on the old loop (`app/registry.rs`). This document is the contract for all
 UI work in `rust/ui`. It supersedes the ad hoc per-screen patterns: when code and this document disagree, the code is
 wrong.
 
@@ -207,11 +207,11 @@ not a screen.
 
 | World | Screens (drill-ins in brackets) |
 | --- | --- |
-| CORE | Cockpit, Clients [client record], Projects [7 panes as tabs: Workplan, Timeline, Calendar, Financials, Documents, Activity, Catch-up], Contracts [contract record], Cabinet, Workflows [workflow record], Forms [form record], Seller Strategy |
+| CORE | Cockpit [all activity, needs attention], Clients [client record], Projects [7 panes as tabs: Workplan, Timeline, Calendar, Financials, Documents, Activity, Catch-up], Contracts [contract record], Cabinet, Workflows [workflow record], Forms [form record], Seller Strategy |
 | ACCOUNTING | Dashboard, Receivables, Expenses, P&L Statement, Receipt Scanner |
 | MARKETING | Dashboard, Syndication |
 | OPPS | Records [property record], Listing Media |
-| SUPPORT | System Health, DB Test, WhatsApp Diagnostic, WhatsApp Activation (Meta embedded signup — see below), WhatsApp Public Page (`/whatsapp`), Mux Video Test (`/video`), Security [users, roles, authorities]; plus the token review page (`/review/:token/:page`, public URL kept) |
+| SUPPORT | System Health, DB Test, WhatsApp Diagnostic, WhatsApp Activation (a LIFELINE page — see below), WhatsApp Public Page (`/whatsapp`), Mux Video Test (`/video`), Security [users, roles, authorities]; plus the token review page (`/review/:token/:page`, public URL kept) |
 | TECH | Cockpit, Flight Recorder (run detail), Storyboard [story record], UI Lab |
 
 Public URLs filed under SUPPORT keep their URLs (they may be registered with Meta or sent in email) and render in the
@@ -220,13 +220,16 @@ site chrome; the SUPPORT rail links to them.
 **Retired (routes deleted 2026-09-26):** client-admin, decision-analysis, identity-quality, issues, media-admin,
 needs-review, reporting, runtime-inspector, command-center, command-console (+ story), media-test, tech rust-lab,
 app-errors, flight-recorder list, grok, kanban, lab, line, runs, both rust-previews, both dev map tests,
-portal-auth-proof.
+portal-auth-proof; and (same day) showings — its data source was unwired and returned nothing; bookings are the
+Projects calendar — and the framer-ui-lab page, merged into UI Lab.
 
-### Open
+### Decisions recorded
 
-- **Linked from kept screens, not yet decided:** `/portal/activity` and `/portal/attention` (the Cockpit links to them
-  as "all activity" / "needs attention"), `/portal/showings` (linked from Contracts), `/portal/tech/framer-ui-lab`
-  (linked from the UI Lab island). Keep as drill-ins of their parent, or delete the route and the link.
-- **WhatsApp Activation is broken.** Its conversion to Yew dropped the Meta Embedded Signup launcher ("crossed over
-  before the Rust body had those controls"). The working TypeScript original is `d6fc6258`
-  (`app/portal/admin/whatsapp-coexistence/page.tsx`). It is rebuilt on the `Screen` trait as part of the cutover.
+- **WhatsApp Activation is a lifeline, not a cutover target.** The Meta Embedded Signup page
+  (`app/portal/admin/whatsapp-coexistence/page.tsx`) is the exact TypeScript that activated WhatsApp Business messaging
+  (restored from `706329da`, 2026-09-15, after a Yew conversion had dropped the launcher). Messaging works; the owner
+  keeps this page as-is so there is a way back if activation must be redone, and changes it only deliberately. It is
+  `Kind::External` in the registry. Do not convert it, test it against Meta, or "clean it up".
+- **Activity and Needs attention** stay as drill-ins of the Cockpit, which links to them.
+- **Forge's TECH Cockpit and Flight Recorder** were never properly ported and carry known bugs; they are fixed as they
+  are ported, not before.

@@ -24,7 +24,9 @@ use integrations::boldsign::{BoldSignConfig, BoldSignSignatureProvider};
 use integrations::mux::{MuxClient, MuxConfig};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use service::{OperationKind, ServiceContext, ServiceDispatchError, ServiceEnvelope, SignatureProvider};
+use service::{
+    OperationKind, ServiceContext, ServiceDispatchError, ServiceEnvelope, SignatureProvider,
+};
 use std::{collections::BTreeMap, sync::Arc};
 
 #[derive(Debug, Serialize)]
@@ -1552,9 +1554,10 @@ fn service_dispatch_error(error: ServiceDispatchError) -> ApiError {
         } => {
             let status = match code.as_str() {
                 "FORBIDDEN" => StatusCode::FORBIDDEN,
-                "AUTHORIZATION_UNAVAILABLE" | "AUDIT_UNAVAILABLE" | "DOMAIN_EVENT_UNAVAILABLE" | "DATABASE" => {
-                    StatusCode::SERVICE_UNAVAILABLE
-                }
+                "AUTHORIZATION_UNAVAILABLE"
+                | "AUDIT_UNAVAILABLE"
+                | "DOMAIN_EVENT_UNAVAILABLE"
+                | "DATABASE" => StatusCode::SERVICE_UNAVAILABLE,
                 _ if code.ends_with("_NOT_FOUND") => StatusCode::NOT_FOUND,
                 _ if code.contains("CONFLICT") => StatusCode::CONFLICT,
                 _ => StatusCode::BAD_REQUEST,

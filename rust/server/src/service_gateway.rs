@@ -68,10 +68,7 @@ fn capability(
     }
 }
 
-fn payload_string(
-    envelope: &ServiceEnvelope,
-    field: &str,
-) -> Result<String, ServiceDispatchError> {
+fn payload_string(envelope: &ServiceEnvelope, field: &str) -> Result<String, ServiceDispatchError> {
     envelope
         .payload
         .get(field)
@@ -103,18 +100,16 @@ fn core_error(error: CoreServiceError) -> ServiceDispatchError {
             "Database operation failed.",
             error.retryable,
         ),
-        CoreServiceError::Runtime(error) => {
-            ServiceDispatchError::operation(
-                match &error {
-                    service::ServiceRuntimeError::Authorization(_) => "AUTHORIZATION_UNAVAILABLE",
-                    service::ServiceRuntimeError::Forbidden { .. } => "FORBIDDEN",
-                    service::ServiceRuntimeError::Audit(_) => "AUDIT_UNAVAILABLE",
-                    service::ServiceRuntimeError::Event(_) => "DOMAIN_EVENT_UNAVAILABLE",
-                },
-                error.to_string(),
-                !matches!(error, service::ServiceRuntimeError::Forbidden { .. }),
-            )
-        }
+        CoreServiceError::Runtime(error) => ServiceDispatchError::operation(
+            match &error {
+                service::ServiceRuntimeError::Authorization(_) => "AUTHORIZATION_UNAVAILABLE",
+                service::ServiceRuntimeError::Forbidden { .. } => "FORBIDDEN",
+                service::ServiceRuntimeError::Audit(_) => "AUDIT_UNAVAILABLE",
+                service::ServiceRuntimeError::Event(_) => "DOMAIN_EVENT_UNAVAILABLE",
+            },
+            error.to_string(),
+            !matches!(error, service::ServiceRuntimeError::Forbidden { .. }),
+        ),
     }
 }
 
@@ -256,7 +251,9 @@ impl AbstractService for PropertyService<PropertyDao> {
                 };
                 encode(
                     envelope,
-                    self.admin_page(&request, context).await.map_err(core_error)?,
+                    self.admin_page(&request, context)
+                        .await
+                        .map_err(core_error)?,
                 )
             }
             "property.adminGet" => {

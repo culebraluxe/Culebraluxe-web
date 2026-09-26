@@ -144,7 +144,7 @@ pub const ENTRIES: &[Entry] = &[
     entry("system-health", "/portal/system-health", Surface::Support, "System Health", Menu::Rail("System Health"), "portal.read", "portal.read", Kind::LegacyPortal("system-health")),
     entry("db-test", "/portal/db-test", Surface::Support, "DB Test", Menu::Rail("DB Test"), "portal.read", "portal.read", Kind::Screen(mount::<DbTest>)),
     entry("whatsapp-meta", "/portal/admin/whatsapp-meta", Surface::Support, "WhatsApp Diagnostic", Menu::Rail("WhatsApp Diagnostic"), "portal.read", "portal.read", Kind::LegacyPortal("whatsapp-meta")),
-    entry("whatsapp-coexistence", "/portal/admin/whatsapp-coexistence", Surface::Support, "WhatsApp Activation", Menu::Rail("WhatsApp Activation"), "portal.read", "portal.read", Kind::LegacyPortal("whatsapp-coexistence")),
+    entry("whatsapp-coexistence", "/portal/admin/whatsapp-coexistence", Surface::Support, "WhatsApp Activation", Menu::Rail("WhatsApp Activation"), "portal.read", "portal.read", Kind::External),
     entry("site-whatsapp", "/whatsapp", Surface::Support, "WhatsApp Public Page", Menu::Rail("WhatsApp Public Page"), "portal.read", "portal.read", Kind::LegacySite),
     entry("site-video", "/video", Surface::Support, "Mux Video Test", Menu::Rail("Mux Video Test"), "portal.read", "portal.read", Kind::LegacySite),
     entry("review", "/review/:token/:page", Surface::Support, "Review", Menu::None, "", "", Kind::LegacySite),
@@ -161,8 +161,6 @@ pub const ENTRIES: &[Entry] = &[
     entry("settings-users", "/portal/settings/users", Surface::Support, "Users", Menu::None, "portal.read", "", Kind::LegacyPortal("settings-users")),
     entry("attention", "/portal/attention", Surface::Core, "Attention", Menu::None, "portal.read", "", Kind::LegacyPortal("attention")),
     entry("activity", "/portal/activity", Surface::Core, "Activity", Menu::None, "portal.read", "", Kind::LegacyPortal("activity")),
-    entry("showings", "/portal/showings", Surface::Core, "Showings", Menu::None, "portal.read", "", Kind::LegacyPortal("showings")),
-    entry("framer-ui-lab", "/portal/tech/framer-ui-lab", Surface::Tech, "Framer UI Lab", Menu::None, "portal.read", "", Kind::LegacyPortal("framer-ui-lab")),
     entry("client-record", "/portal/clients/:personId", Surface::Core, "Client", Menu::None, "portal.read", "", Kind::LegacyPortal("client-record")),
     entry("deal-record", "/portal/deals/:dealId", Surface::Core, "Deal", Menu::None, "portal.read", "", Kind::LegacyPortal("deal-record")),
     entry("form-record", "/portal/forms/:formId", Surface::Core, "Form", Menu::None, "portal.read", "", Kind::External),
@@ -541,5 +539,5 @@ mod tests {
         );
     }
 
-    const LEGACY_CEILING: usize = 53;
+    const LEGACY_CEILING: usize = 50;
 }

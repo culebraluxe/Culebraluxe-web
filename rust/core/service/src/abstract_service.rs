@@ -56,11 +56,7 @@ pub enum ServiceDispatchError {
 }
 
 impl ServiceDispatchError {
-    pub fn operation(
-        code: impl Into<String>,
-        message: impl Into<String>,
-        retryable: bool,
-    ) -> Self {
+    pub fn operation(code: impl Into<String>, message: impl Into<String>, retryable: bool) -> Self {
         Self::Operation {
             code: code.into(),
             message: message.into(),
