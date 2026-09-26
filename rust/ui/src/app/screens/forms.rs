@@ -56,11 +56,7 @@ impl Screen for Forms {
         )
     }
 
-    fn update(
-        model: &mut Self::Model,
-        msg: Self::Msg,
-        ctx: &ScreenCtx,
-    ) -> Cmd<Self::Msg> {
+    fn update(model: &mut Self::Model, msg: Self::Msg, ctx: &ScreenCtx) -> Cmd<Self::Msg> {
         match msg {
             FormsListMsg::Loaded(result) => {
                 model.loading = false;
@@ -93,8 +89,10 @@ impl Screen for Forms {
                     || ctx.query("personId").is_some()
                     || ctx.query("propertyId").is_some();
                 if !has_context {
-                    model.error =
-                        Some("Open Forms from a deal, client, or property before creating a form.".into());
+                    model.error = Some(
+                        "Open Forms from a deal, client, or property before creating a form."
+                            .into(),
+                    );
                     return Cmd::none();
                 }
                 if model.selected_template.trim().is_empty() {
@@ -328,11 +326,7 @@ impl Screen for FormRecord {
         )
     }
 
-    fn update(
-        model: &mut Self::Model,
-        msg: Self::Msg,
-        ctx: &ScreenCtx,
-    ) -> Cmd<Self::Msg> {
+    fn update(model: &mut Self::Model, msg: Self::Msg, ctx: &ScreenCtx) -> Cmd<Self::Msg> {
         match msg {
             FormRecordMsg::Loaded(result) => {
                 model.loading = false;
