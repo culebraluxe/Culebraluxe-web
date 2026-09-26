@@ -148,8 +148,6 @@ impl Endpoint for ClientsRead {
     }
 }
 
-
-
 // ---------------------------------------------------------------- Forms
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
