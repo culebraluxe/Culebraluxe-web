@@ -1,6 +1,6 @@
 use crate::{
-    CommandDispatchError, CommandDispatcher, MqProofSubscriber, MqRuntime, ServiceGateway,
-    ServiceKernel, ServiceKernelHealth,
+    CommandDispatchError, CommandDispatcher, Crm26AgreementExecutionSubscriber, MqProofSubscriber,
+    MqRuntime, ServiceGateway, ServiceKernel, ServiceKernelHealth,
 };
 use db::{Database, DomainEventOutboxDao};
 use serde_json::Value;
@@ -34,10 +34,18 @@ impl ServiceHarness {
                     false,
                 )
             })?;
-        let outbox = DomainEventOutboxDao::new(db);
+        let outbox = DomainEventOutboxDao::new(db.clone());
+        let crm26 = Crm26AgreementExecutionSubscriber::production(
+            db,
+            commands.clone(),
+            kernel.registry(),
+        );
         let mq = MqRuntime::new(
             outbox.clone(),
-            vec![Arc::new(MqProofSubscriber::new(outbox))],
+            vec![
+                Arc::new(MqProofSubscriber::new(outbox)),
+                Arc::new(crm26),
+            ],
             mq_infrastructure,
             kernel.child_token(),
         )?;
