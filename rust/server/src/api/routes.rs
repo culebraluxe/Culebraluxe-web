@@ -1563,6 +1563,7 @@ fn service_dispatch_error(error: ServiceDispatchError) -> ApiError {
             code,
             message,
             retryable,
+            ..
         } => {
             let status = match code.as_str() {
                 "FORBIDDEN" => StatusCode::FORBIDDEN,

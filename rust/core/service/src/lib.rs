@@ -18,6 +18,7 @@ mod signature_provider;
 
 pub use abstract_service::{
     AbstractService, ServiceCapability, ServiceDescriptor, ServiceDispatchError, ServiceEnvelope,
+    ServiceFailureClass,
 };
 pub use audit::{AuditPort, CapturingAuditPort, ServiceAuditEvent, ServiceOutcome};
 pub use authorization::{

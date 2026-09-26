@@ -78,24 +78,49 @@ fn payload_i64(envelope: &ServiceEnvelope, field: &str, default: i64) -> i64 {
 fn core_error(error: CoreServiceError) -> ServiceDispatchError {
     match error {
         CoreServiceError::Business { code, message } => {
-            ServiceDispatchError::operation(code, message, false)
+            ServiceDispatchError::business(code, message, false)
         }
-        CoreServiceError::Database(error) => ServiceDispatchError::operation(
+        CoreServiceError::Database(error) => ServiceDispatchError::infrastructure(
             "DATABASE",
             "Database operation failed.",
             error.retryable,
         ),
-        CoreServiceError::Runtime(error) => ServiceDispatchError::operation(
-            match &error {
-                service::ServiceRuntimeError::Authorization(_) => "AUTHORIZATION_UNAVAILABLE",
-                service::ServiceRuntimeError::Forbidden { .. } => "FORBIDDEN",
-                service::ServiceRuntimeError::Audit(_) => "AUDIT_UNAVAILABLE",
-                service::ServiceRuntimeError::Event(_) => "DOMAIN_EVENT_UNAVAILABLE",
-                service::ServiceRuntimeError::Router { code, .. } => code.as_str(),
-            },
-            error.to_string(),
-            !matches!(error, service::ServiceRuntimeError::Forbidden { .. }),
-        ),
+        CoreServiceError::Runtime(error) => {
+            let (code, class, retryable) = match &error {
+                service::ServiceRuntimeError::Authorization(_) => (
+                    "AUTHORIZATION_UNAVAILABLE",
+                    service::ServiceFailureClass::Infrastructure,
+                    true,
+                ),
+                service::ServiceRuntimeError::Forbidden { .. } => (
+                    "FORBIDDEN",
+                    service::ServiceFailureClass::Business,
+                    false,
+                ),
+                service::ServiceRuntimeError::Audit(_) => (
+                    "AUDIT_UNAVAILABLE",
+                    service::ServiceFailureClass::Infrastructure,
+                    true,
+                ),
+                service::ServiceRuntimeError::Event(_) => (
+                    "DOMAIN_EVENT_UNAVAILABLE",
+                    service::ServiceFailureClass::Infrastructure,
+                    true,
+                ),
+                service::ServiceRuntimeError::Router {
+                    code,
+                    retryable,
+                    class,
+                    ..
+                } => (code.as_str(), *class, *retryable),
+            };
+            match class {
+                service::ServiceFailureClass::Business | service::ServiceFailureClass::Caller => {
+                    ServiceDispatchError::business(code, error.to_string(), retryable)
+                }
+                _ => ServiceDispatchError::infrastructure(code, error.to_string(), retryable),
+            }
+        }
     }
 }
 
@@ -103,13 +128,15 @@ fn encode<T: serde::Serialize>(
     envelope: &ServiceEnvelope,
     value: T,
 ) -> Result<Value, ServiceDispatchError> {
-    serde_json::to_value(value).map_err(|error| ServiceDispatchError::Operation {
-        code: "SERVICE_SERIALIZATION_FAILED".into(),
-        message: format!(
-            "{}.{} response could not be serialized: {error}",
-            envelope.domain, envelope.operation
-        ),
-        retryable: false,
+    serde_json::to_value(value).map_err(|error| {
+        ServiceDispatchError::infrastructure(
+            "SERVICE_SERIALIZATION_FAILED",
+            format!(
+                "{}.{} response could not be serialized: {error}",
+                envelope.domain, envelope.operation
+            ),
+            false,
+        )
     })
 }
 

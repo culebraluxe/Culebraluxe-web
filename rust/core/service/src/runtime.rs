@@ -41,6 +41,7 @@ pub enum ServiceRuntimeError {
         code: String,
         message: String,
         retryable: bool,
+        class: ServiceFailureClass,
     },
 }
 
@@ -264,6 +265,7 @@ impl ServiceRuntime {
                 code: error.code().to_owned(),
                 message: error.to_string(),
                 retryable: error.retryable(),
+                class: error.failure_class(),
             })
     }
 }
