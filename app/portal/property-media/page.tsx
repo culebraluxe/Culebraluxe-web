@@ -1,5 +1,5 @@
-import { PortalYewApp } from '@/components/rust-ui/portal-yew-app'
+import { RustUi } from '@/components/rust-ui/rust-ui'
 
 export default function Page() {
-  return <PortalYewApp screen="property-media" />
+  return <RustUi screen="property-media" />
 }

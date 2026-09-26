@@ -1,4 +1,4 @@
-import { PortalYewApp } from '@/components/rust-ui/portal-yew-app'
+import { RustUi } from '@/components/rust-ui/rust-ui'
 
 export const metadata = {
   title: 'Seller Strategy',
@@ -6,5 +6,5 @@ export const metadata = {
 }
 
 export default function SellerStrategyPage() {
-  return <PortalYewApp screen="seller-strategy" />
+  return <RustUi screen="seller-strategy" />
 }

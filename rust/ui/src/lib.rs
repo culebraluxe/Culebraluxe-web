@@ -23,6 +23,7 @@
 pub mod document;
 pub mod format;
 pub mod model;
+pub mod navigation;
 pub mod search;
 pub mod seller_strategy;
 pub mod update;
@@ -48,8 +49,8 @@ pub mod yew_views;
 pub mod icons;
 pub use document::{document, ASSETS_ROOT, STYLESHEET_URL};
 pub use model::{
-    home, listed, record_for, screen, Block, BlockItem, Controls, Effect, Listing, Model, Msg, Nav,
-    PageContent, Row, Screen, Surface, PAGE_SIZE, SCREENS,
+    home, listed, record_for, screen, screen_for_path, Block, BlockItem, Controls, Effect, Listing,
+    Model, Msg, Nav, PageContent, Row, Screen, Surface, PAGE_SIZE, SCREENS,
 };
 pub use update::update;
 pub use view::{render, render_page, PAGE_ID};

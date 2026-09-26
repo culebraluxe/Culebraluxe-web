@@ -21,6 +21,7 @@ pub mod portal_accounting_receivables;
 pub mod portal_accounting_shell;
 pub mod portal_activity;
 pub mod portal_cabinet;
+pub mod portal_chrome;
 pub mod portal_clients;
 pub mod portal_cockpit;
 pub mod portal_deals;

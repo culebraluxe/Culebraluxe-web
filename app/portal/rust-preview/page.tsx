@@ -1,6 +1,6 @@
 'use client'
 
-import { RustUiHost } from '@/components/rust-ui/host'
+import { RustUi } from '@/components/rust-ui/rust-ui'
 
 // ---------------------------------------------------------------------------
 // The portal host: the portal screens rendered from Rust.
@@ -14,8 +14,6 @@ import { RustUiHost } from '@/components/rust-ui/host'
 
 export default function RustPreviewPage() {
   return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="dashboard" />
-    </div>
+    <RustUi screen="dashboard" />
   )
 }

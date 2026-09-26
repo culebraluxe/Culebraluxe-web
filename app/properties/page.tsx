@@ -1,4 +1,4 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import { RustUi } from '@/components/rust-ui/rust-ui'
 
 // ---------------------------------------------------------------------------
 // THE PUBLIC PROPERTY INDEX — the page the site exists for, rendered by Rust.
@@ -14,8 +14,6 @@ import { RustUiHost } from '@/components/rust-ui/host'
 
 export default function PropertiesPage() {
   return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/rust-ui/public-rows" start="site-properties" />
-    </div>
+    <RustUi />
   )
 }

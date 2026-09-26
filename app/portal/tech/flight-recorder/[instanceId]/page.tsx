@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 
-import { PortalYewApp } from '@/components/rust-ui/portal-yew-app'
+import { RustUi } from '@/components/rust-ui/rust-ui'
 import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
 import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 
@@ -20,5 +20,5 @@ export default async function Page({
   if (!access.ok) redirect(access.redirectTo)
 
   const { instanceId } = await params
-  return <PortalYewApp screen="trace-record" scope={instanceId} />
+  return <RustUi screen="trace-record" scope={instanceId} />
 }

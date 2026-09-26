@@ -1,7 +1,7 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import { RustUi } from '@/components/rust-ui/rust-ui'
 
 // ---------------------------------------------------------------------------
-// CONVERTED TO RUST (screen: client-admin, surface Ops).
+// CONVERTED TO YEW (screen: client-admin, surface Ops).
 //
 // The route is unchanged; the screen is not. It rendered a TypeScript component with its own state
 // (1 interactive hooks); it now renders the Rust screen, fed by the portal rows route.
@@ -15,8 +15,6 @@ import { RustUiHost } from '@/components/rust-ui/host'
 export default function Page() {
 
   return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="client-admin" />
-    </div>
+    <RustUi screen="client-admin" />
   )
 }

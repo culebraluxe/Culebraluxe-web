@@ -1,7 +1,7 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import { RustUi } from '@/components/rust-ui/rust-ui'
 
 // ---------------------------------------------------------------------------
-// CONVERTED TO RUST (screen: property-record, surface Ops).
+// CONVERTED TO YEW (screen: property-record, surface Ops).
 //
 // The route is unchanged; the screen is not. It rendered a TypeScript component with its own state
 // (74 interactive hooks); it now renders the Rust screen, fed by the portal rows route.
@@ -16,8 +16,6 @@ export default async function Page({ params }: { params: Promise<Record<'propert
   const { propertyId } = await params
 
   return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="property-record" scope={propertyId} />
-    </div>
+    <RustUi screen="property-record" scope={propertyId} />
   )
 }

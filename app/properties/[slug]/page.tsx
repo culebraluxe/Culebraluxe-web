@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { YewApp } from '@/components/rust-ui/yew-app'
+import { RustUi } from '@/components/rust-ui/rust-ui'
 import { rustApiPublicProperty } from '@/lib/rust-api/client'
 
 // RENDERED ON EVERY REQUEST, DELIBERATELY. This page's metadata and shell come from the Property record, and a
@@ -33,8 +33,6 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 
 export default function Page() {
   return (
-    <div className="min-h-screen bg-background">
-      <YewApp />
-    </div>
+    <RustUi />
   )
 }

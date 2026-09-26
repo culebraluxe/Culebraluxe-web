@@ -139,6 +139,15 @@ pub fn home(surface: Surface) -> Option<Screen> {
         .find(|candidate| candidate.surface == surface && candidate.is_listed())
 }
 
+/// Look a screen up by the route it serves. The registry addresses screens by PATH; the model addresses them by KEY,
+/// and a surface's `home` is a path, so something has to cross that line.
+pub fn screen_for_path(path: &str) -> Option<Screen> {
+    SCREENS
+        .iter()
+        .copied()
+        .find(|candidate| candidate.path == path)
+}
+
 /// The listed screens of one surface, in table order.
 pub fn listed(surface: Surface) -> impl Iterator<Item = Screen> {
     SCREENS

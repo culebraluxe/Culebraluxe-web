@@ -1,4 +1,4 @@
-import { YewApp } from '@/components/rust-ui/yew-app'
+import { RustUi } from '@/components/rust-ui/rust-ui'
 
 // ---------------------------------------------------------------------------
 // /account — YEW OWNS THIS ROUTE. Guest sign-in and the signed-in guest (`rust/ui/src/yew_views/account.rs`).
@@ -7,8 +7,6 @@ import { YewApp } from '@/components/rust-ui/yew-app'
 
 export default function Page() {
   return (
-    <div className="min-h-screen bg-background">
-      <YewApp />
-    </div>
+    <RustUi />
   )
 }

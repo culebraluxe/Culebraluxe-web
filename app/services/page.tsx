@@ -1,4 +1,4 @@
-import { YewApp } from '@/components/rust-ui/yew-app'
+import { RustUi } from '@/components/rust-ui/rust-ui'
 
 // ---------------------------------------------------------------------------
 // /services — YEW OWNS THIS ROUTE NOW.
@@ -9,9 +9,7 @@ import { YewApp } from '@/components/rust-ui/yew-app'
 
 export default function Page() {
   return (
-    <div className="min-h-screen bg-background">
-      <YewApp />
-    </div>
+    <RustUi />
   )
 }
 

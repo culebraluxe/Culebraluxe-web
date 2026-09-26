@@ -1,4 +1,4 @@
-import { PortalYewApp } from '@/components/rust-ui/portal-yew-app'
+import { RustUi } from '@/components/rust-ui/rust-ui'
 
 // ---------------------------------------------------------------------------
 // /portal/settings — YEW OWNS THIS SCREEN NOW.
@@ -11,5 +11,5 @@ import { PortalYewApp } from '@/components/rust-ui/portal-yew-app'
 // ---------------------------------------------------------------------------
 
 export default function Page() {
-  return <PortalYewApp screen="security" />
+  return <RustUi screen="security" />
 }

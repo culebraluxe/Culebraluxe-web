@@ -1,10 +1,10 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import { RustUi } from '@/components/rust-ui/rust-ui'
 
 // ---------------------------------------------------------------------------
 // FLIPPED TO RUST (screen: needs-review).
 //
 // The route is unchanged; the screen is not. What used to be a TypeScript page fetching its own data and handing it to
-// a TypeScript component is now the Rust host, which reads the same data through the portal rows route and paints the
+// a TypeScript component is now the Yew app, which reads the same data through the portal rows route and paints the
 // screen from rust/ui/src/view.rs.
 //
 // This page qualified because it is a read-only list: its TypeScript body carries no state, no form, no dialog and no
@@ -14,8 +14,6 @@ import { RustUiHost } from '@/components/rust-ui/host'
 
 export default function Page() {
   return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="needs-review" />
-    </div>
+    <RustUi screen="needs-review" />
   )
 }

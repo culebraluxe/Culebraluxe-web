@@ -1,4 +1,4 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import { RustUi } from '@/components/rust-ui/rust-ui'
 
 // ---------------------------------------------------------------------------
 // RUST LAB — the control vocabulary this crate renders, wired to the model.
@@ -13,8 +13,6 @@ import { RustUiHost } from '@/components/rust-ui/host'
 
 export default function RustLabPage() {
   return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="rust-lab" />
-    </div>
+    <RustUi screen="rust-lab" />
   )
 }

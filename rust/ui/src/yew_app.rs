@@ -106,20 +106,74 @@ fn routed(props: &RoutedProps) -> Html {
     }
 }
 
-/// Mount the Yew application into `element_id`.
+/// Mount the error boundary's page: this application's chrome around one calm message, with no router.
 ///
-/// THE ENTRY POINT A PAGE CALLS, and the only thing the browser needs from this crate now: the module boots, this
-/// function takes the container, and from there the router owns the URL — so a deep link, a refresh and the back button
-/// are the router's business rather than a `start` prop a page has to work out.
-#[wasm_bindgen::prelude::wasm_bindgen]
-pub fn yew_mount(element_id: &str) -> Result<(), wasm_bindgen::JsValue> {
-    console_error_panic_hook::set_once();
-    let document = web_sys::window()
-        .and_then(|window| window.document())
-        .ok_or_else(|| wasm_bindgen::JsValue::from_str("ui: no document"))?;
-    let root = document.get_element_by_id(element_id).ok_or_else(|| {
-        wasm_bindgen::JsValue::from_str(&format!("ui: no element '{element_id}'"))
-    })?;
+/// WHY THERE IS NO ROUTE FOR IT. An error boundary renders at the URL that FAILED, so a router would resolve that URL
+/// and render the screen that just threw — the error page must not be a destination anybody can link to. The page
+/// declares which application it is instead (`data-rust-app="site-error"`) and this mounts the one page no link reaches.
+pub fn mount_error_in(root: web_sys::Element) {
+    yew::Renderer::<ErrorPage>::with_root(root).render();
+}
+
+/// The whole error page: the header, the message, the footer.
+#[function_component(ErrorPage)]
+fn error_page() -> Html {
+    html! {
+        <div class="flex min-h-screen flex-col bg-background text-foreground">
+            <crate::yew_views::chrome::Header />
+            <main class="min-w-0 flex-1">
+                <ErrorView />
+            </main>
+            <crate::yew_views::chrome::Footer />
+        </div>
+    }
+}
+
+/// The interruption, in the design's own words.
+///
+/// THE RETRY IS A LINK BACK TO THIS SAME URL, and that is a deliberate trade rather than an oversight. Next's error
+/// boundary hands a client component a `reset()` that re-renders the segment in place; reaching it from here would mean
+/// a callback crossing from React into this view, which is the kind of seam this port removes. An empty `href` resolves
+/// to the current document, so the link reloads the page and retries — heavier than `reset`, always correct, and it
+/// needs no JavaScript at all.
+#[function_component(ErrorView)]
+fn error_view() -> Html {
+    html! {
+        <section class="flex min-h-[80svh] items-center bg-foreground px-6 text-background md:px-12">
+            <div class="mx-auto w-full max-w-[1600px]">
+                <p class="mb-6 text-xs font-light uppercase tracking-[0.4em] text-background/60">{"CulebraLuxe"}</p>
+                <h1 class="max-w-2xl text-balance font-serif text-4xl font-light leading-[1.05] text-background md:text-6xl">
+                    {"Something drifted off course."}
+                </h1>
+                <p class="mt-6 max-w-xl text-pretty text-sm font-light leading-relaxed text-background/75">
+                    {"A momentary interruption while we prepared this page. You can try again, or return to the CulebraLuxe home."}
+                </p>
+                <div class="mt-12 flex flex-wrap items-center gap-x-10 gap-y-4">
+                    <a
+                        href=""
+                        class="group inline-flex min-h-11 items-center gap-3 border border-background/40 px-8 py-4 text-xs font-light uppercase tracking-[0.22em] text-background transition-colors duration-500 hover:border-background"
+                    >
+                        {"Try again"}
+                        <span class="inline-block h-px w-10 bg-background transition-all duration-500 group-hover:w-16" />
+                    </a>
+                    <a
+                        href="/"
+                        class="group inline-flex items-center gap-3 text-xs font-light uppercase tracking-[0.22em] text-background/80 transition-colors hover:text-background"
+                    >
+                        {"Return home"}
+                        <span class="inline-block h-px w-8 bg-background/60 transition-all duration-500 group-hover:w-14" />
+                    </a>
+                </div>
+            </div>
+        </section>
+    }
+}
+
+/// Mount the site application into the container the PAGE owns, handed over by reference.
+///
+/// THE ONLY ENTRY POINT FOR THE SITE APPLICATION, and there is deliberately no id-taking variant beside it. An id is not
+/// an identity: during a client-side navigation Next renders the new route while the old one is still in the document,
+/// so two containers can carry `#rust-ui` at once and a lookup answers with the first — the page the user is leaving.
+pub fn mount_in(root: web_sys::Element) {
     yew::Renderer::<App>::with_root(root).render();
-    Ok(())
 }

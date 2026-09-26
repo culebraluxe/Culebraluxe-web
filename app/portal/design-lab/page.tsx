@@ -1,4 +1,4 @@
-import { PortalYewApp } from '@/components/rust-ui/portal-yew-app'
+import { RustUi } from '@/components/rust-ui/rust-ui'
 
 // ---------------------------------------------------------------------------
 // /portal/design-lab — THE ONE UI LAB.
@@ -9,5 +9,5 @@ import { PortalYewApp } from '@/components/rust-ui/portal-yew-app'
 // ---------------------------------------------------------------------------
 
 export default function DesignLabPage() {
-  return <PortalYewApp screen="design-lab" />
+  return <RustUi screen="design-lab" />
 }

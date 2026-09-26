@@ -1,4 +1,4 @@
-import { PortalYewApp } from '@/components/rust-ui/portal-yew-app'
+import { RustUi } from '@/components/rust-ui/rust-ui'
 
 // ---------------------------------------------------------------------------
 // /portal/accounting — YEW OWNS THIS SCREEN NOW.
@@ -12,5 +12,5 @@ import { PortalYewApp } from '@/components/rust-ui/portal-yew-app'
 // ---------------------------------------------------------------------------
 
 export default function Page() {
-  return <PortalYewApp screen="accounting" />
+  return <RustUi screen="accounting" />
 }

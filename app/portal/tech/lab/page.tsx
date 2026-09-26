@@ -1,4 +1,4 @@
-import { RustUiHost } from '@/components/rust-ui/host'
+import { RustUi } from '@/components/rust-ui/rust-ui'
 
 // ---------------------------------------------------------------------------
 // TECH LAB — what Rust does with layout, on this application's own design tokens.
@@ -14,8 +14,6 @@ import { RustUiHost } from '@/components/rust-ui/host'
 
 export default function TechLabPage() {
   return (
-    <div className="min-h-screen bg-background">
-      <RustUiHost rowsPath="/api/portal/rust-ui/rows" start="tech-lab" />
-    </div>
+    <RustUi screen="tech-lab" />
   )
 }

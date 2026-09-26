@@ -13,6 +13,7 @@ use crate::yew_views::portal_accounting_receipt_scanner::Scanner as AccountingRe
 use crate::yew_views::portal_accounting_receivables::Receivables as AccountingReceivables;
 use crate::yew_views::portal_activity::Activity;
 use crate::yew_views::portal_cabinet::Cabinet;
+use crate::yew_views::portal_chrome::PortalChrome;
 use crate::yew_views::portal_clients::{ClientRecord, Clients};
 use crate::yew_views::portal_cockpit::Cockpit;
 use crate::yew_views::portal_deals::{DealRecord, Deals};
@@ -34,6 +35,45 @@ use crate::yew_views::portal_ui_lab::UiLab;
 use crate::yew_views::portal_workflow_record::WorkflowRecord;
 use crate::yew_views::portal_workflows::Workflows;
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use yew::AppHandle;
+
+thread_local! {
+    /// THE ONE PORTAL APP ON THIS DOCUMENT, so the next mount can destroy the one before it.
+    ///
+    /// WHY THIS EXISTS, and it is the whole of the "three owners" defect: `yew::Renderer::render` mounts a NEW
+    /// application every time it is called and clears the container first, but the application it cleared is not
+    /// destroyed by that — nobody holds its handle, so it stays alive, keeps its node references, and writes its own
+    /// last screen back into the container the next time it re-renders. A client-side navigation therefore left one
+    /// live app per page visited, all aimed at the same container, and the screen you saw was whichever had written
+    /// last. Destroying the previous app before mounting the next is what makes one owner a fact rather than an
+    /// intention.
+    static MOUNTED: RefCell<Option<AppHandle<PortalApp>>> = const { RefCell::new(None) };
+}
+
+/// A portal body that has no Yew component yet, rendered as markup inside this chrome.
+///
+/// THE BRIDGE, AND IT IS NOT A SECOND RENDERER. Every portal screen is drawn by the one Yew app in this module: one
+/// application, one chrome, one owner of the container. A screen that has not been rewritten as a component yet renders
+/// the body `view::render_page` already produces, and Yew treats it as a node it owns and diffs (`VNode::VRaw`), so the
+/// body updates on every message exactly as a component would — through the same reducer, from the same model.
+///
+/// WHAT IT COSTS, stated rather than hidden: `VRaw` replaces its markup when the body changes, so a field inside one of
+/// these bodies is rebuilt on a keystroke and its caret is restored by `shell::deliver` rather than by Yew's diffing.
+/// That is the string renderer's old limitation, carried one screen at a time — a screen leaves this arm by gaining a
+/// component, and nothing else has to change when it does.
+#[derive(Properties, PartialEq)]
+pub struct StringBodyProps {
+    pub html: yew::AttrValue,
+}
+
+#[function_component(StringBody)]
+fn string_body(props: &StringBodyProps) -> Html {
+    Html::from_html_unchecked(props.html.clone())
+}
+
 pub enum AppMsg {
     Ui(Msg),
 }
@@ -53,6 +93,20 @@ impl Component for PortalApp {
     type Properties = PortalAppProps;
 
     fn create(ctx: &Context<Self>) -> Self {
+        // THE SEAT THE DOCUMENT LISTENERS DELIVER TO, claimed by this app while it owns the container.
+        //
+        // A portal body rendered as markup has no callbacks of its own — its controls are `data-*` attributes — so the
+        // shell's document listeners resolve the intent and `shell::deliver` hands it to whoever owns the page. This is
+        // that owner. It is claimed here, by the component that holds the model, so an intent can never reach a model
+        // that has been replaced, and it is claimed again on every mount for the same reason.
+        let dispatcher: Rc<dyn Fn(Msg)> = {
+            let link = ctx.link().clone();
+            Rc::new(move |msg: Msg| {
+                link.send_message(AppMsg::Ui(msg));
+            })
+        };
+        crate::shell::set_dispatcher(Some(dispatcher));
+
         let mut model = crate::model::Model::default();
         let effects = crate::update::update(
             &mut model,
@@ -79,7 +133,7 @@ impl Component for PortalApp {
 
     fn view(&self, ctx: &Context<Self>) -> Html {
         let on_msg = ctx.link().callback(AppMsg::Ui);
-        match self.model.screen.key {
+        let body = match self.model.screen.key {
             "dashboard" => html! { <Cockpit model={self.model.clone()} on_msg={on_msg.clone()} /> },
             "tech" => html! { <TechCockpit model={self.model.clone()} on_msg={on_msg.clone()} /> },
             "trace-record" => {
@@ -143,18 +197,28 @@ impl Component for PortalApp {
             "workflow-record" => {
                 html! { <WorkflowRecord model={self.model.clone()} on_msg={on_msg} /> }
             }
-            other => html! {
-                <div class="p-6 text-sm text-destructive" role="alert">
-                    { format!("Portal Yew screen '{other}' has no component.") }
-                </div>
+            // EVERY OTHER PORTAL SCREEN, drawn by THIS app as markup rather than handed to a second renderer. This arm
+            // used to be an error card while the screen was really painted by the string host — the second owner this
+            // change removes. See `StringBody`.
+            _ => html! {
+                <StringBody html={yew::AttrValue::from(crate::view::render_page(&self.model))} />
             },
+        };
+        html! {
+            <PortalChrome screen={self.model.screen}>
+                { body }
+            </PortalChrome>
         }
     }
 }
 
-#[wasm_bindgen::prelude::wasm_bindgen]
-pub fn portal_mount(
-    element_id: &str,
+/// Mount the portal app into the container the PAGE owns, handed over by reference.
+///
+/// THE ONLY ENTRY POINT, and there is deliberately no id-taking variant beside it. An id is not an identity: during a
+/// client-side navigation Next renders the new route while the old one is still in the document, so two containers can
+/// carry `#rust-ui` at once and a lookup answers with the first — the page the user is leaving. See `shell::start_in`.
+pub fn mount_in(
+    root: web_sys::Element,
     screen_key: &str,
     scope: &str,
 ) -> Result<(), wasm_bindgen::JsValue> {
@@ -162,23 +226,29 @@ pub fn portal_mount(
     let screen = crate::model::screen(screen_key).ok_or_else(|| {
         wasm_bindgen::JsValue::from_str(&format!("ui: '{screen_key}' is not a known screen"))
     })?;
-    if !crate::update::has_yew_portal_component(screen.key) {
-        return Err(wasm_bindgen::JsValue::from_str(&format!(
-            "ui: '{screen_key}' has no Yew component yet"
-        )));
-    }
-    let document = web_sys::window()
-        .and_then(|window| window.document())
-        .ok_or_else(|| wasm_bindgen::JsValue::from_str("ui: no document"))?;
-    let root = document.get_element_by_id(element_id).ok_or_else(|| {
-        wasm_bindgen::JsValue::from_str(&format!("ui: no element '{element_id}'"))
-    })?;
+    // THE ADMISSION TEST THAT USED TO BE HERE IS GONE, and its removal is part of the fix: it refused every screen that
+    // had no Yew component and left those screens to the string renderer, which is what put a second renderer on this
+    // container. A screen without a component renders its existing body inside the chrome (`StringBody`), so there is
+    // nothing left to refuse and nowhere else to send it.
+    //
+    // The listeners that turn this page's `data-*` controls into messages are installed here, because the Yew app is
+    // now the only renderer on a portal page and the bodies it renders as markup are made of those attributes.
+    crate::shell::listen();
     let scope = if scope.trim().is_empty() {
         None
     } else {
         Some(scope.to_string())
     };
-    yew::Renderer::<PortalApp>::with_root_and_props(root, PortalAppProps { screen, scope })
-        .render();
+    // ONE APP: the previous one is destroyed before this one is mounted, so nothing left behind can write to this
+    // container afterwards. See `MOUNTED`.
+    MOUNTED.with(|slot| {
+        if let Some(previous) = slot.borrow_mut().take() {
+            previous.destroy();
+        }
+    });
+    let mounted =
+        yew::Renderer::<PortalApp>::with_root_and_props(root, PortalAppProps { screen, scope })
+            .render();
+    MOUNTED.with(|slot| *slot.borrow_mut() = Some(mounted));
     Ok(())
 }

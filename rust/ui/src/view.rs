@@ -56,15 +56,14 @@ pub fn render(model: &Model) -> String {
             site_footer()
         );
     }
-    format!(
-        "<div class=\"flex min-h-screen text-foreground\" data-rust-screen=\"{}\">\
-           <nav class=\"w-60 shrink-0 border-r bg-card p-4\" aria-label=\"Portal\">{}</nav>\
-           {}\
-         </div>",
-        escape(model.screen.key),
-        nav(model),
-        page_container("min-w-0 flex-1 p-6", model)
-    )
+    // THE PORTAL FRAME IS NOT HERE, AND THAT IS THE FIX. The frame is drawn by ONE renderer and it is the Yew one
+    // (`yew_views/portal_chrome.rs`, mounted by `PortalApp`): a page must have exactly one owner of its container, and
+    // two implementations of one menu is a second place to be wrong. This file used to build a string copy of that
+    // menu right here, which meant the portal had two frames that could disagree about the active surface — and did.
+    //
+    // What a caller gets instead is the screen's own area, which is also what `render_page` returns, so the string path
+    // and the Yew path now produce the same markup for the same model.
+    page_container("min-w-0 flex-1", model)
 }
 
 /// The screen's own area, wrapped in the element the shell repaints: `<main id="rust-page">` plus what the screen says
@@ -91,6 +90,8 @@ pub fn render_page(model: &Model) -> String {
             body(model)
         );
     }
+    // THE PORTAL'S CHROME IS NOT HERE. This is the half the shell repaints (`#rust-page`), so it carries only what the
+    // screen says about itself and its body. The frame is added by `render`.
     format!(
         "{}{}{}",
         error_banner(model),
@@ -226,56 +227,6 @@ fn site_error_banner(model: &Model) -> String {
         ),
         None => String::new(),
     }
-}
-
-fn nav(model: &Model) -> String {
-    let surface = model.screen.surface;
-    let mut out = format!(
-        "<p class=\"mb-2 px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground\">{}</p>",
-        escape(surface.label())
-    );
-    // The surface the current screen belongs to, which is what the live portal does: the registry is the single source
-    // of truth for what navigation belongs under a surface, and only LISTED screens appear here. Retired and unlisted
-    // routes are reached from the screens that own them.
-    for screen in SCREENS
-        .iter()
-        .copied()
-        .filter(|candidate| candidate.surface == surface && candidate.is_listed())
-    {
-        let active = screen == model.screen;
-        out.push_str(&format!(
-            "<button type=\"button\" data-nav=\"{key}\" class=\"block w-full rounded-md px-2 py-1.5 text-left \
-             text-sm {state}\">{label}{suffix}</button>",
-            key = escape(screen.key),
-            state = if active { "bg-muted font-medium" } else { "hover:bg-muted/60 text-muted-foreground" },
-            label = escape(screen.title),
-            suffix = if screen.is_deferred() { " (no data yet)" } else { "" }
-        ));
-    }
-    out.push_str(&surface_switcher(model));
-    out
-}
-
-/// One nav entry per surface, so a host that mounts one surface can still reach the others. Each carries
-/// `data-surface` rather than `data-nav`: the two are different intents (go to a screen, versus go to a surface's
-/// home), and one attribute meaning two things is how a click ends up doing the wrong one.
-fn surface_switcher(model: &Model) -> String {
-    let mut out = String::from(
-        "<p class=\"mt-6 mb-2 px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground\">Surfaces</p>",
-    );
-    for surface in Surface::ALL.iter().copied() {
-        let Some(home) = home(surface) else { continue };
-        let active = surface == model.screen.surface;
-        out.push_str(&format!(
-            "<button type=\"button\" data-surface=\"{key}\" title=\"home: {home}\" class=\"block w-full rounded-md \
-             px-2 py-1 text-left text-xs {state}\">{label}</button>",
-            key = escape(surface.key()),
-            home = escape(home.key),
-            state = if active { "text-foreground font-medium" } else { "text-muted-foreground hover:bg-muted/60" },
-            label = escape(surface.label())
-        ));
-    }
-    out
 }
 
 fn error_banner(model: &Model) -> String {
@@ -3957,44 +3908,72 @@ mod tests {
         assert!(html.contains("&quot;"));
     }
 
-    /// The nav shows its own surface's listed screens, plus one switcher entry per surface — and NEVER a retired,
-    /// unlisted or record screen. That last part is the invariant worth having: "the code stays, the links go" is a
-    /// decision recorded in the registry, and a port that quietly re-lists a retired screen undoes it.
+    /// THE MENU HAS ONE TABLE, AND THIS IS IT.
+    ///
+    /// The test this replaces asserted these invariants against the STRING chrome — the copy of the menu that used to be
+    /// built inside `render`. That copy is deleted (the menu is drawn once, by `yew_views/portal_chrome.rs`, inside the
+    /// one Yew app), so the assertions had to move to what survived the deletion: the registry in `crate::navigation`,
+    /// which is what the Yew chrome reads. The invariants are the same and they are worth keeping, because every one of
+    /// them fails silently and looks like a working menu: a rail entry pointing at a route the model does not serve, an
+    /// entry offered twice, or a retired screen put back in front of an operator.
     #[test]
-    fn the_portal_nav_lists_each_of_its_screens_once_and_never_a_retired_one() {
-        // Scoped to the PORTAL nav, because the site header is no longer built from the registry at all (below). This is
-        // the invariant the table can still guarantee: a listed screen of the current surface appears exactly once, and
-        // a retired one never appears.
+    fn the_portal_nav_offers_only_real_screens_and_never_offers_one_twice() {
+        for def in crate::navigation::SURFACES.iter() {
+            let surface = def.surface;
+            let mut seen: Vec<&str> = Vec::new();
+            for item in def.items.iter() {
+                let screen = crate::model::screen_for_path(item.href).unwrap_or_else(|| {
+                    panic!(
+                        "{}: the nav entry {} is not a screen the model serves",
+                        surface.label(),
+                        item.href
+                    )
+                });
+                assert!(
+                    !matches!(screen.nav, Nav::Retired),
+                    "{}: {} is retired and must not be offered",
+                    surface.label(),
+                    item.href
+                );
+                assert!(
+                    !seen.contains(&item.href),
+                    "{}: {} appears twice in the rail",
+                    surface.label(),
+                    item.href
+                );
+                seen.push(item.href);
+            }
+        }
+    }
+
+    /// THE FIX, PINNED: a portal body carries no menu of its own.
+    ///
+    /// The portal had two chromes and, across a client-side navigation, more than one live owner of one container. The
+    /// string chrome is deleted, so a portal body must contain no navigation at all — the frame is drawn once, by the
+    /// one Yew app. If a body ever grows a menu again, this is where the second owner reappears.
+    #[test]
+    fn the_portal_body_carries_no_menu_of_its_own() {
         for &screen in SCREENS.iter().filter(|s| s.surface != Surface::Site) {
             let html = render(&Model {
                 screen,
                 ..Model::default()
             });
-            let menu = html
-                .split("aria-label=\"Portal\"")
-                .nth(1)
-                .and_then(|rest| rest.split("</nav>").next())
-                .unwrap_or(html.as_str());
-            for candidate in SCREENS.iter().filter(|c| c.surface != Surface::Site) {
-                let count = menu
-                    .matches(&format!("data-nav=\"{}\"", candidate.key))
-                    .count();
-                match candidate.nav {
-                    Nav::Listed if candidate.surface == screen.surface => {
-                        assert_eq!(
-                            count,
-                            1,
-                            "{} missing from the {} nav",
-                            candidate.key,
-                            screen.surface.label()
-                        )
-                    }
-                    // A listed screen of another surface appears at most once, as that surface's home.
-                    Nav::Listed => assert!(count <= 1, "{} appeared twice", candidate.key),
-                    Nav::Retired | Nav::Unlisted | Nav::Record => {
-                        assert_eq!(count, 0, "{} must never be a nav entry", candidate.key)
-                    }
-                }
+            // THE MARKERS ARE WHAT ONLY THE MENU EMITS. Not `portal-glass-tab` / `portal-glass-rail`: the Projects body
+            // draws its own sub-navigation with those classes (`<nav aria-label="Project workspace views">`), which is a
+            // screen's own control and not a second menu. An assertion on the class would fail on a correct screen and
+            // teach the next reader to delete the test.
+            for marker in [
+                "data-nav=",
+                "data-surface=",
+                "top-nav-capsule",
+                "portal-top-nav",
+                "portal-page",
+            ] {
+                assert!(
+                    !html.contains(marker),
+                    "{}: the body renders {marker}, so the portal has a second menu again",
+                    screen.key
+                );
             }
         }
     }
@@ -4420,14 +4399,24 @@ mod tests {
     }
 
     #[test]
-    fn the_active_screen_is_marked_and_the_others_are_not() {
+    fn a_portal_body_is_only_the_screens_own_area() {
+        // WHAT REPLACED "the active screen is marked and the others are not". That assertion was about the string chrome
+        // marking one nav entry, and the marking now happens in the Yew chrome from the model's own screen — so what is
+        // left to pin here is the other half of the same fact: the string renderer draws the screen's area and NOTHING
+        // around it, which is what makes the chrome's ownership of the frame exclusive.
         let model = Model {
             screen: target("deals"),
             ..Model::default()
         };
         let html = render(&model);
-        assert!(html.contains("data-rust-screen=\"deals\""));
-        assert_eq!(html.matches("bg-muted font-medium").count(), 1);
+        assert!(html.contains(&format!("id=\"{PAGE_ID}\"")));
+        assert!(
+            !html.contains("data-rust-screen="),
+            "the portal's frame is the Yew app's, so the body does not identify a screen in the document"
+        );
+        // And the screen's own title is inside it, because a body that rendered nothing would satisfy every "does not
+        // contain" assertion above while showing an empty page.
+        assert!(html.contains("Contracts") || html.contains("Deals"));
     }
 
     #[test]

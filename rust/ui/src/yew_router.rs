@@ -49,6 +49,32 @@ pub enum Route {
     Account,
     #[at("/properties/:slug")]
     Property { slug: String },
+    #[at("/properties")]
+    Properties,
+    #[at("/privacy")]
+    Privacy,
+    #[at("/video")]
+    Video,
+    #[at("/whatsapp")]
+    Whatsapp,
+    #[at("/login")]
+    Login,
+    #[at("/login/recovery")]
+    LoginRecovery,
+    #[at("/login/unauthorized")]
+    LoginUnauthorized,
+    #[at("/auth/error")]
+    AuthError,
+    #[at("/review/:token/:page")]
+    Review { token: String, page: String },
+    /// The port's own preview harness: the public listings screen at a URL of its own, so the shell can be exercised
+    /// without a reader of the real route. The router owns it because a URL must have one owner.
+    #[at("/rust-preview")]
+    RustPreview,
+    #[at("/dev/google-map-test")]
+    DevGoogleMap,
+    #[at("/dev/apple-map-test")]
+    DevAppleMap,
     /// A URL this app does not serve. It renders a message rather than a blank page, and the reader is offered the way
     /// back to the home page — the honest answer to a path that has no screen here.
     #[not_found]
@@ -71,6 +97,20 @@ impl Route {
             Route::Favorites => screen("site-favorites"),
             Route::Account => screen("site-account"),
             Route::Property { .. } => screen("site-property-detail"),
+            Route::Properties => screen("site-properties"),
+            Route::Privacy => screen("site-privacy"),
+            Route::Video => screen("site-video"),
+            Route::Whatsapp => screen("site-whatsapp"),
+            Route::Login => screen("login"),
+            Route::LoginRecovery => screen("login-recovery"),
+            Route::LoginUnauthorized => screen("login-unauthorized"),
+            Route::AuthError => screen("auth-error"),
+            Route::Review { .. } => screen("review"),
+            // The preview harness shows the listings screen; the screen is the same one `/properties` serves, and it is
+            // named here rather than invented so the payload it fetches is the payload that screen's registry entry says.
+            Route::RustPreview => screen("site-properties"),
+            Route::DevGoogleMap => screen("dev-google-map-test"),
+            Route::DevAppleMap => screen("dev-apple-map-test"),
             Route::NotFound => None,
         }
     }
@@ -144,6 +184,21 @@ impl Component for Shell {
                         Route::Property { .. } => html! {
                             <PropertyDetail model={model.clone()} on_msg={on_msg.clone()} />
                         },
+                        // THE PUBLIC SCREENS THAT HAVE NO COMPONENT OF THEIR OWN yet render the body the port already
+                        // produces, inside this chrome and this router. Same bridge as the portal's, same reason: the
+                        // URL, the header, the footer and the route must have ONE owner, and it is the Yew app.
+                        Route::Properties
+                        | Route::Privacy
+                        | Route::Video
+                        | Route::Whatsapp
+                        | Route::Login
+                        | Route::LoginRecovery
+                        | Route::LoginUnauthorized
+                        | Route::AuthError
+                        | Route::Review { .. }
+                        | Route::RustPreview
+                        | Route::DevGoogleMap
+                        | Route::DevAppleMap => html! { <SiteBody model={model.clone()} /> },
                         Route::NotFound => html! { <NotFound /> },
                     })} />
                 </main>
@@ -153,22 +208,58 @@ impl Component for Shell {
     }
 }
 
+/// A public screen whose body is the one `view::render_page` already produces.
+///
+/// THE SAME BRIDGE THE PORTAL USES, and it is not a second renderer: one Yew app owns the URL, the chrome and the page,
+/// and a screen that has not been rewritten as a component renders the markup the port already had. `VNode::VRaw` is
+/// diffed and updated by Yew like any other node, so the body follows the model on every message.
+#[derive(Properties, PartialEq)]
+pub struct SiteBodyProps {
+    pub model: crate::model::Model,
+}
+
+#[function_component(SiteBody)]
+fn site_body(props: &SiteBodyProps) -> Html {
+    Html::from_html_unchecked(yew::AttrValue::from(crate::view::render_page(&props.model)))
+}
+
 /// A path this app does not own.
+///
+/// THE DESIGN IS THE ONE THE REACT PAGE HAD, ported rather than replaced: full-bleed, dark, one large 404, two ways out.
+/// It is a Yew component and not a string body because it needs no model — there is nothing about a 404 to fetch — and it
+/// renders inside this application's own header and footer, which is what retires the last React chrome in the
+/// repository (`components/site-header.tsx` and `site-footer.tsx`, whose only user this page was).
+///
+/// IT IS A `<section>`, NOT A `<main>`: this application's shell already renders the `<main>`, and two nested ones is
+/// invalid markup. The React page had to own the `<main>` because it owned the whole document.
 #[function_component(NotFound)]
 fn not_found() -> Html {
     html! {
-        <section class="px-6 py-32 md:px-12">
-            <div class="mx-auto max-w-3xl">
-                <p class="mb-5 text-xs font-light uppercase tracking-[0.34em] text-accent">{"Not found"}</p>
-                <h1 class="font-serif text-4xl font-light leading-[1.05] text-foreground md:text-5xl">
-                    {"That page is not served here."}
+        <section class="bg-foreground px-6 py-32 text-background md:px-12 md:py-44">
+            <div class="mx-auto max-w-[1600px]">
+                <p class="mb-6 text-xs font-light uppercase tracking-[0.4em] text-background/60">{"CulebraLuxe"}</p>
+                <h1 class="text-balance font-serif text-5xl font-light leading-[1.02] text-background md:text-7xl">
+                    {"404"}
                 </h1>
-                <p class="mt-6 max-w-xl text-sm font-light leading-relaxed text-muted-foreground">
-                    {"The address you followed does not belong to this part of the site."}
+                <p class="mt-6 max-w-xl text-pretty text-base font-light leading-relaxed text-background/75">
+                    {"This page has drifted out to sea. The address may have changed, or the page may no longer exist."}
                 </p>
-                <a href="/" class="mt-8 inline-flex text-xs font-light uppercase tracking-[0.2em] text-accent">
-                    {"Return to the home page"}
-                </a>
+                <div class="mt-12 flex flex-wrap items-center gap-x-10 gap-y-4">
+                    <a
+                        href="/"
+                        class="group inline-flex items-center gap-3 border border-background/40 px-8 py-4 text-xs font-light uppercase tracking-[0.22em] text-background transition-colors duration-500 hover:border-background"
+                    >
+                        {"Return home"}
+                        <span class="inline-block h-px w-10 bg-background transition-all duration-500 group-hover:w-16" />
+                    </a>
+                    <a
+                        href="/buyers"
+                        class="group inline-flex items-center gap-3 text-xs font-light uppercase tracking-[0.22em] text-background/80 transition-colors hover:text-background"
+                    >
+                        {"Explore properties"}
+                        <span class="inline-block h-px w-8 bg-background/60 transition-all duration-500 group-hover:w-14" />
+                    </a>
+                </div>
             </div>
         </section>
     }
