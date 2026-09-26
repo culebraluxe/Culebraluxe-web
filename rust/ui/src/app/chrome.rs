@@ -258,12 +258,12 @@ mod tests {
         );
         assert!(!in_app("/buyers", "https://example.com/"), "another site");
         assert!(
-            !in_app("/portal/dashboard", "/portal/property-admin"),
-            "to a page that mounts a legacy vendor island"
+            !in_app("/portal/forms", "/portal/clients"),
+            "from a page Next renders"
         );
         assert!(
-            !in_app("/portal/property-admin", "/portal/clients"),
-            "from a page that mounted a legacy vendor island"
+            in_app("/portal/dashboard", "/portal/property-admin"),
+            "the Workbench's video is an <Island>, so it moves in the app"
         );
         assert!(
             in_app("/portal/dashboard", "/portal/projects"),

@@ -1,7 +1,7 @@
 # UI Screen Architecture — the contract every screen implements
 
 Status: **framework and master shell built** (owner decision 2026-09-26). Code: `rust/ui/src/app/`. Screens on the
-trait: `db-test`, `site-account`. Cutover ledger: 19 screens still on the old loop (`app/registry.rs`). This document is the contract for all
+trait: `db-test`, `site-account`. Cutover ledger: 16 screens still on the old loop (`app/registry.rs`). This document is the contract for all
 UI work in `rust/ui`. It supersedes the ad hoc per-screen patterns: when code and this document disagree, the code is
 wrong.
 
@@ -213,7 +213,7 @@ not a screen.
 | CORE | Cockpit [all activity, needs attention], Clients [client record], Projects [7 panes as tabs: Workplan, Timeline, Calendar, Financials, Documents, Activity, Catch-up], Contracts [contract record], Cabinet, Workflows [workflow record], Forms [form record], Seller Strategy — **ported** (Forms stays a Next page); Projects' five widgets are `<Island>`s |
 | ACCOUNTING | Dashboard, Receivables, Expenses, P&L Statement, Receipt Scanner — **ported** (`app/screens/accounting/`: one shared model and reducer, five thin screens) |
 | MARKETING | Dashboard, Syndication |
-| OPPS | Records [property record], Listing Media |
+| OPPS | Records [property record], Listing Media — **ported**; the record route is the Workbench opened on that property; photos go through `Cmd::upload` (chunked) |
 | SUPPORT | System Health, DB Test, WhatsApp Diagnostic, WhatsApp Activation (a LIFELINE page — see below), WhatsApp Public Page (`/whatsapp`), Mux Video Test (`/video`), Security [users, roles, authorities]; plus the token review page (`/review/:token/:page`, public URL kept) |
 | TECH | Cockpit, Flight Recorder (run detail), Storyboard [story record], UI Lab — **ported**; the sorter, the recorder console and the galleries are `<Island>`s |
 
@@ -227,6 +227,13 @@ portal-auth-proof; and (same day) showings — its data source was unwired and r
 Projects calendar — and the framer-ui-lab page, merged into UI Lab.
 
 ### Known gaps found while porting (not caused by the port)
+
+- **OPPS video upload** still runs inside the `opps-video` island (direct to Mux), as before the port; it asks the
+  screen to re-read through its events. Moving it behind `Cmd` finishes §9 for this widget.
+- **OPPS photo title** (`VillaDelMar_7`) was derived from the Listing Media payload, which the Workbench never loads,
+  so it was always blank; it now comes from the Workbench's own property and photo count.
+- **Listing Media** uploaded in one request (refused above the gateway's ~4.5 MB); it now uses the same chunked
+  upload as the Workbench.
 
 - **`<select value>` lost its value in Yew**: Yew sets `value` before the options exist, so the browser showed the LAST
   option (Projects showed every project "Archived"). Fixed in every ported screen by marking the chosen

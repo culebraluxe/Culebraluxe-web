@@ -473,3 +473,73 @@ impl Endpoint for ProjectsCommand {
         Some(self.body.clone())
     }
 }
+
+/// The Data Workbench: one page of an entity's records (`property`, `person`, `project`), with one opened when
+/// `selected` is set. Answers `{ ops: ... }`.
+pub struct OpsRead {
+    pub entity: String,
+    pub selected: Option<String>,
+    pub search: String,
+    /// 0-based, as the relay counts.
+    pub page: usize,
+}
+
+impl Endpoint for OpsRead {
+    const METHOD: Method = Method::Get;
+    type Response = crate::model::PortalPage;
+    fn path(&self) -> String {
+        let mut path = format!(
+            "/api/portal/rust-ui/opps?entity={}&page={}&search={}",
+            encode(&self.entity),
+            self.page,
+            encode(&self.search)
+        );
+        if let Some(selected) = self.selected.as_deref().filter(|id| !id.is_empty()) {
+            path.push_str(&format!("&selected={}", encode(selected)));
+        }
+        path
+    }
+}
+
+/// One Workbench write (`save`, `createProperty`). Answers the refreshed Workbench page.
+pub struct OpsCommand {
+    pub body: serde_json::Value,
+}
+
+impl Endpoint for OpsCommand {
+    const METHOD: Method = Method::Post;
+    type Response = crate::model::PortalPage;
+    fn path(&self) -> String {
+        "/api/portal/rust-ui/opps".into()
+    }
+    fn body(&self) -> Option<serde_json::Value> {
+        Some(self.body.clone())
+    }
+}
+
+/// Where property photographs are sent, in pieces (`Cmd::upload`).
+pub const PROPERTY_MEDIA_CHUNKED: &str = "/api/property-media/chunked";
+
+/// Listing Media: listings with their photo counts, one opened when `selected` is set. Answers `{ listingMedia: ... }`.
+pub struct ListingMediaRead {
+    pub selected: Option<String>,
+    pub search: String,
+    /// 0-based.
+    pub page: usize,
+}
+
+impl Endpoint for ListingMediaRead {
+    const METHOD: Method = Method::Get;
+    type Response = crate::model::PortalPage;
+    fn path(&self) -> String {
+        let mut path = format!(
+            "/api/portal/rust-ui/listing-media?page={}&search={}",
+            self.page,
+            encode(&self.search)
+        );
+        if let Some(selected) = self.selected.as_deref().filter(|id| !id.is_empty()) {
+            path.push_str(&format!("&selected={}", encode(selected)));
+        }
+        path
+    }
+}

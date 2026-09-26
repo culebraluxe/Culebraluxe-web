@@ -113,7 +113,7 @@ fn frame_component(props: &MasterProps) -> Html {
         Kind::Screen(mount) => html! {
             <div key={entry.key} class="min-w-0" data-screen-key={entry.key}>{ mount(ctx) }</div>
         },
-        Kind::LegacyPortal(screen_key) | Kind::LegacyIsland(screen_key) => html! {
+        Kind::LegacyPortal(screen_key) => html! {
             <div key={format!("legacy:{path}")} class="min-w-0" data-screen-key={entry.key}>
                 <LegacyPortal screen_key={screen_key} scope={ctx.id.clone()} />
             </div>

@@ -3,38 +3,13 @@
 
 use yew::prelude::*;
 
+use crate::app::island::Island;
 use crate::model::{
-    Msg, PortalOpsMediaAsset, PortalOpsPerson, PortalOpsProject, PortalOpsProperty,
+    PortalOpsMediaAsset, PortalOpsPerson, PortalOpsProject, PortalOpsProperty,
     PortalOpsWorkbenchPage,
 };
-use crate::yew_views::portal_shell::PortalShell;
 
-#[derive(Properties, PartialEq)]
-pub struct OpsProps {
-    pub model: crate::model::Model,
-    pub on_msg: Callback<Msg>,
-}
-
-pub struct OpsWorkbench;
-
-impl Component for OpsWorkbench {
-    type Message = ();
-    type Properties = OpsProps;
-
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
-    }
-
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let props = ctx.props();
-        let screen = crate::model::screen("property-admin").expect("OPPS workbench screen exists");
-        html! {
-            <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
-                { workbench(&props.model, &props.on_msg) }
-            </PortalShell>
-        }
-    }
-}
+use super::{Msg, Vm};
 
 #[derive(Clone, Copy)]
 enum FieldKind {
@@ -880,19 +855,15 @@ const PROJECT_LINKS: &[FieldSpec] = &[
     },
 ];
 
-fn payload(model: &crate::model::Model) -> Option<&PortalOpsWorkbenchPage> {
-    model
-        .page
-        .as_ref()
-        .and_then(|page| page.portal.as_ref())
-        .and_then(|portal| portal.ops.as_ref())
+fn payload<'a>(model: &Vm<'a>) -> Option<&'a PortalOpsWorkbenchPage> {
+    Some(model.data)
 }
 
-fn value(model: &crate::model::Model, key: &str) -> String {
+fn value(model: &Vm<'_>, key: &str) -> String {
     model.ops.form.get(key).cloned().unwrap_or_default()
 }
 
-fn workbench(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
+pub(super) fn workbench(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
     let data = payload(model);
     let total = data.map(|data| data.total).unwrap_or(0);
     let current = data.map(|data| data.page).unwrap_or(1);
@@ -924,7 +895,7 @@ fn workbench(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
     }
 }
 
-fn entity_switcher(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
+fn entity_switcher(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
     html! {
         <div class="portal-glass-panel flex flex-wrap items-center justify-between gap-3 rounded-[var(--portal-panel-radius)] px-3 py-2">
             <div class="flex min-w-0 items-center gap-3">
@@ -947,7 +918,7 @@ fn entity_switcher(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html 
 }
 
 fn entity_button(
-    model: &crate::model::Model,
+    model: &Vm<'_>,
     on_msg: &Callback<Msg>,
     key: &'static str,
     icon: &'static str,
@@ -975,7 +946,7 @@ fn entity_button(
 }
 
 fn selector_rail(
-    model: &crate::model::Model,
+    model: &Vm<'_>,
     on_msg: &Callback<Msg>,
     total: i64,
     current: i64,
@@ -1112,7 +1083,7 @@ fn selector_rail(
     }
 }
 
-fn create_property(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
+fn create_property(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
     let change = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
@@ -1158,7 +1129,7 @@ fn create_property(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html 
     }
 }
 
-fn editor(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
+fn editor(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
     let Some(data) = payload(model) else {
         return empty_editor(model.loading);
     };
@@ -1185,11 +1156,7 @@ fn editor(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
     }
 }
 
-fn editor_header(
-    model: &crate::model::Model,
-    data: &PortalOpsWorkbenchPage,
-    on_msg: &Callback<Msg>,
-) -> Html {
+fn editor_header(model: &Vm<'_>, data: &PortalOpsWorkbenchPage, on_msg: &Callback<Msg>) -> Html {
     let (title, subtitle, status) = match data.entity.as_str() {
         "person" => data.person.as_ref().map(|record| {
             (
@@ -1334,7 +1301,7 @@ fn metric(label: &str, value: &str) -> Html {
     }
 }
 
-fn section_tabs(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
+fn section_tabs(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
     let tabs: &[(&str, &str)] = match model.ops.entity.as_str() {
         "person" => &[
             ("identity", "Identity"),
@@ -1382,7 +1349,7 @@ fn section_tabs(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
 }
 
 fn property_editor(
-    model: &crate::model::Model,
+    model: &Vm<'_>,
     property: Option<&PortalOpsProperty>,
     media: &[PortalOpsMediaAsset],
     on_msg: &Callback<Msg>,
@@ -1451,7 +1418,7 @@ fn property_editor(
     }
 }
 
-fn feature_panel(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
+fn feature_panel(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
     html! {
         <section class="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/30 p-4">
             <h2 class="mb-3 text-[12px] font-semibold text-[var(--portal-navy)]">{"Views, access and improvements"}</h2>
@@ -1506,7 +1473,7 @@ fn source_columns_panel(
 }
 
 fn property_person_editor(
-    model: &crate::model::Model,
+    model: &Vm<'_>,
     property: &PortalOpsProperty,
     on_msg: &Callback<Msg>,
 ) -> Html {
@@ -1668,11 +1635,6 @@ fn video_editor(
         }).collect::<Vec<_>>(),
     })
     .to_string();
-    let refresh = {
-        let on_msg = on_msg.clone();
-        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::OpsVideoRefreshRequested))
-    };
-
     html! {
         <div class="space-y-4">
             {section_intro(
@@ -1684,20 +1646,14 @@ fn video_editor(
                 {count_card("Property films", films)}
                 {count_card("Short films", shorts)}
             </div>
-            <div
-                id="opps-video-island"
-                data-video-widget={payload}
-                class="min-h-[360px] overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/30"
-            />
-            <button id="opps-video-refresh" type="button" onclick={refresh} class="hidden" aria-hidden="true">
-                {"Refresh video"}
-            </button>
+            <Island kind="opps-video" props={payload} on_event={on_msg.reform(Msg::Video)}
+                class="min-h-[360px] overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/30" />
         </div>
     }
 }
 
 fn media_editor(
-    model: &crate::model::Model,
+    model: &Vm<'_>,
     property: &PortalOpsProperty,
     media: &[PortalOpsMediaAsset],
     on_msg: &Callback<Msg>,
@@ -1749,7 +1705,7 @@ fn media_editor(
             // THE FAILURE HAS TO BE VISIBLE. Every op in this screen writes its problem into `model.error`, and this
             // view never rendered it — so an upload that failed said nothing at all. "Nothing happened" is the most
             // expensive bug report there is: it describes a screen, not a cause.
-            if let Some(error) = model.error.clone() {
+            if let Some(error) = model.error.clone().filter(|_| model.ops.section == "photos") {
                 <div class="rounded-[var(--portal-tab-radius)] border border-red-400/60 bg-red-50 px-3 py-2 text-[12px] font-light text-red-700">
                     {error}
                 </div>
@@ -1917,16 +1873,14 @@ fn media_file_change(on_msg: &Callback<Msg>) -> Callback<Event> {
     let on_msg = on_msg.clone();
     Callback::from(move |event: Event| {
         let input = event.target_unchecked_into::<web_sys::HtmlInputElement>();
-        let name = input
-            .files()
-            .and_then(|files| files.get(0))
-            .map(|file| file.name())
-            .unwrap_or_default();
-        on_msg.emit(Msg::OpsMediaFileChosen(name));
+        let file = input.files().and_then(|files| files.get(0));
+        // Cleared, so choosing the same file again (after a failure) is a new choice.
+        input.set_value("");
+        on_msg.emit(Msg::OpsMediaFileChosen(file));
     })
 }
 
-fn ops_media_uploader(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
+fn ops_media_uploader(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
     let role_change = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: Event| {
@@ -1945,7 +1899,6 @@ fn ops_media_uploader(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Ht
             on_msg.emit(Msg::OpsMediaAltChanged(value));
         })
     };
-    let file_change = media_file_change(on_msg);
     let choose_again = Callback::from(move |_: MouseEvent| open_file_picker());
 
     html! {
@@ -1982,8 +1935,8 @@ fn ops_media_uploader(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Ht
                         onchange={role_change}
                         class="mt-1 h-9 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 px-3 text-[13px] font-light"
                     >
-                        <option value="gallery">{"Gallery"}</option>
-                        <option value="hero">{"Hero"}</option>
+                        <option value="gallery" selected={model.ops.media_role == "gallery"}>{"Gallery"}</option>
+                        <option value="hero" selected={model.ops.media_role == "hero"}>{"Hero"}</option>
                     </select>
                 </label>
                 <label class="text-[10px] font-semibold uppercase tracking-[0.11em] text-[var(--portal-blue-gray)]">
@@ -2000,11 +1953,7 @@ fn ops_media_uploader(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Ht
     }
 }
 
-fn person_editor(
-    model: &crate::model::Model,
-    person: Option<&PortalOpsPerson>,
-    on_msg: &Callback<Msg>,
-) -> Html {
+fn person_editor(model: &Vm<'_>, person: Option<&PortalOpsPerson>, on_msg: &Callback<Msg>) -> Html {
     let Some(person) = person else {
         return empty_record("Person");
     };
@@ -2044,7 +1993,7 @@ fn person_editor(
 }
 
 fn project_editor(
-    model: &crate::model::Model,
+    model: &Vm<'_>,
     project: Option<&PortalOpsProject>,
     on_msg: &Callback<Msg>,
 ) -> Html {
@@ -2076,12 +2025,7 @@ fn project_editor(
     }
 }
 
-fn field_panel(
-    model: &crate::model::Model,
-    on_msg: &Callback<Msg>,
-    title: &str,
-    fields: &[FieldSpec],
-) -> Html {
+fn field_panel(model: &Vm<'_>, on_msg: &Callback<Msg>, title: &str, fields: &[FieldSpec]) -> Html {
     html! {
         <section class="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/30 p-4">
             <div class="mb-3 text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--portal-gold-muted)]">{title}</div>
@@ -2090,7 +2034,7 @@ fn field_panel(
     }
 }
 
-fn field_grid(model: &crate::model::Model, on_msg: &Callback<Msg>, fields: &[FieldSpec]) -> Html {
+fn field_grid(model: &Vm<'_>, on_msg: &Callback<Msg>, fields: &[FieldSpec]) -> Html {
     html! {
         <div class="grid gap-4 lg:grid-cols-2">
             {for fields.iter().map(|field| editor_field(model, on_msg, field))}
@@ -2098,7 +2042,7 @@ fn field_grid(model: &crate::model::Model, on_msg: &Callback<Msg>, fields: &[Fie
     }
 }
 
-fn editor_field(model: &crate::model::Model, on_msg: &Callback<Msg>, field: &FieldSpec) -> Html {
+fn editor_field(model: &Vm<'_>, on_msg: &Callback<Msg>, field: &FieldSpec) -> Html {
     let field_value = value(model, field.key);
     let wrapper = if field.wide { "lg:col-span-2" } else { "" };
     let disabled = model.ops.saving;
@@ -2143,7 +2087,7 @@ fn editor_field(model: &crate::model::Model, on_msg: &Callback<Msg>, field: &Fie
             let on_msg = on_msg.clone();
             html! {
                 <select
-                    value={field_value}
+                    value={field_value.clone()}
                     disabled={disabled}
                     onchange={Callback::from(move |event: Event| {
                         let value = event.target_unchecked_into::<web_sys::HtmlSelectElement>().value();
@@ -2151,7 +2095,9 @@ fn editor_field(model: &crate::model::Model, on_msg: &Callback<Msg>, field: &Fie
                     })}
                     class="mt-1.5 h-10 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 px-3 text-[13px] font-light text-black/75 outline-none focus:border-[var(--portal-navy)] disabled:opacity-50"
                 >
-                    {for options.iter().map(|(value, label)| html! { <option value={*value}>{*label}</option> })}
+                    {for options.iter().map(|(value, label)| html! {
+                        <option value={*value} selected={field_value.as_str() == *value}>{*label}</option>
+                    })}
                 </select>
             }
         }

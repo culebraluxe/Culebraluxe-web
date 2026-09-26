@@ -2,7 +2,8 @@
 
 import MuxPlayer from '@mux/mux-player-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { createRoot, type Root } from 'react-dom/client'
+
+import type { IslandRenderer } from './island-host'
 
 type VideoItem = {
   id: string
@@ -18,12 +19,6 @@ type VideoPayload = {
   propertyId: string
   propertyName: string
   videos: VideoItem[]
-}
-
-type MountedIsland = {
-  target: Element
-  root: Root
-  payloadRaw: string
 }
 
 function aspectRatio(value: string | null, role: 'video' | 'short') {
@@ -45,7 +40,12 @@ function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
-function VideoWorkspace({ payload }: { payload: VideoPayload }) {
+/**
+ * The Workbench's video tab: the Mux player and the direct-to-Mux upload. KNOWN GAP (docs/agent/UI-SCREEN-ARCHITECTURE.md):
+ * the upload still runs here, as it did before the port; when it finishes, the screen is asked to re-read through
+ * the island's events.
+ */
+function VideoWorkspace({ payload, emit }: { payload: VideoPayload; emit: (event: Record<string, unknown>) => void }) {
   const [activeIndex, setActiveIndex] = useState(0)
   const [uploadOpen, setUploadOpen] = useState(false)
   const [role, setRole] = useState<'video' | 'short'>('video')
@@ -130,7 +130,7 @@ function VideoWorkspace({ payload }: { payload: VideoPayload }) {
           setCaption('')
           setUploadOpen(false)
           if (fileRef.current) fileRef.current.value = ''
-          document.getElementById('opps-video-refresh')?.click()
+          emit({ type: 'refresh' })
           return
         }
 
@@ -322,92 +322,6 @@ function VideoWorkspace({ payload }: { payload: VideoPayload }) {
   )
 }
 
-export function OpsVideoReactIsland() {
-  const mountedRef = useRef<MountedIsland | null>(null)
-
-  useEffect(() => {
-    const host = document.getElementById('rust-ui')
-    if (!host) return
-
-    let frame = 0
-    const scan = () => {
-      frame = 0
-      const target = host.querySelector('#opps-video-island')
-      const current = mountedRef.current
-
-      if (!target) {
-        if (current) {
-          try {
-            current.root.unmount()
-          } catch {
-            // Yew may already have detached the island node during a repaint.
-          }
-          mountedRef.current = null
-        }
-        return
-      }
-
-      const payloadRaw = target.getAttribute('data-video-widget')
-      if (!payloadRaw) return
-
-      let payload: VideoPayload
-      try {
-        payload = JSON.parse(payloadRaw) as VideoPayload
-      } catch (error) {
-        console.error('[opps-video-island] invalid payload', error)
-        return
-      }
-
-      if (current && current.target === target) {
-        if (current.payloadRaw !== payloadRaw) {
-          current.payloadRaw = payloadRaw
-          current.root.render(<VideoWorkspace payload={payload} />)
-        }
-        return
-      }
-
-      if (current) {
-        try {
-          current.root.unmount()
-        } catch {
-          // Yew may already have detached the island node during a repaint.
-        }
-      }
-      const root = createRoot(target)
-      mountedRef.current = { target, root, payloadRaw }
-      root.render(<VideoWorkspace payload={payload} />)
-    }
-
-    const schedule = () => {
-      if (frame) return
-      frame = window.requestAnimationFrame(scan)
-    }
-
-    scan()
-    const observer = new MutationObserver(schedule)
-    observer.observe(host, {
-      subtree: true,
-      childList: true,
-      attributes: true,
-      attributeFilter: ['data-video-widget'],
-    })
-
-    return () => {
-      observer.disconnect()
-      if (frame) window.cancelAnimationFrame(frame)
-      const current = mountedRef.current
-      mountedRef.current = null
-      if (current) {
-        queueMicrotask(() => {
-          try {
-            current.root.unmount()
-          } catch {
-            // Yew may already have detached the island node during a repaint.
-          }
-        })
-      }
-    }
-  }, [])
-
-  return null
-}
+export const OPPS_VIDEO_RENDERER: IslandRenderer = (props, emit) => (
+  <VideoWorkspace payload={props as VideoPayload} emit={emit} />
+)

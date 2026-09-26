@@ -97,6 +97,19 @@ pub enum Cmd<Msg> {
         millis: u32,
         msg: Msg,
     },
+    /// Send one file with the chunked-upload protocol (see `Upload`).
+    Upload(Upload<Msg>),
+}
+
+/// A file sent in pieces, so no single request reaches the gateway's body limit: `init` declares it (the executor adds
+/// `filename`, `mimeType`, `byteSize`, `chunkCount`, `chunkSize`) and answers an `uploadId`; each `chunk` carries one
+/// piece in order; `complete` assembles and attaches it. `fields` go with every step, `init_fields` with the first only.
+pub struct Upload<Msg> {
+    pub file: web_sys::File,
+    pub path: String,
+    pub fields: Vec<(String, String)>,
+    pub init_fields: Vec<(String, String)>,
+    pub reply: Box<dyn FnOnce(Result<(), ApiError>) -> Msg>,
 }
 
 impl<Msg: 'static> Cmd<Msg> {
@@ -156,6 +169,22 @@ impl<Msg: 'static> Cmd<Msg> {
         Cmd::After { millis, msg }
     }
 
+    pub fn upload(
+        file: web_sys::File,
+        path: impl Into<String>,
+        fields: Vec<(String, String)>,
+        init_fields: Vec<(String, String)>,
+        to_msg: impl FnOnce(Result<(), ApiError>) -> Msg + 'static,
+    ) -> Self {
+        Cmd::Upload(Upload {
+            file,
+            path: path.into(),
+            fields,
+            init_fields,
+            reply: Box::new(to_msg),
+        })
+    }
+
     pub fn storage_write(key: impl Into<String>, value: Option<String>) -> Self {
         Cmd::StorageWrite {
             key: key.into(),
@@ -193,6 +222,16 @@ impl<Msg: 'static> Cmd<Msg> {
                 millis,
                 msg: f(msg),
             },
+            Cmd::Upload(upload) => Cmd::Upload(Upload {
+                file: upload.file,
+                path: upload.path,
+                fields: upload.fields,
+                init_fields: upload.init_fields,
+                reply: {
+                    let reply = upload.reply;
+                    Box::new(move |answer| f(reply(answer)))
+                },
+            }),
         }
     }
 
@@ -217,6 +256,7 @@ impl<Msg> std::fmt::Debug for Cmd<Msg> {
             Cmd::StorageRead { key, .. } => write!(f, "StorageRead({key})"),
             Cmd::StorageWrite { key, value } => write!(f, "StorageWrite({key}, {value:?})"),
             Cmd::After { millis, .. } => write!(f, "After({millis}ms)"),
+            Cmd::Upload(upload) => write!(f, "Upload({})", upload.path),
         }
     }
 }

@@ -14,6 +14,7 @@ import { adaptFlightRecorderTransaction } from '@/lib/flight-recorder-adapter'
 import type { FlightRecorderTransaction } from '@/lib/flight-recorder-contract'
 
 import type { IslandRenderer } from './island-host'
+import { OPPS_VIDEO_RENDERER } from './opps-video-island'
 import { PROJECT_ISLAND_RENDERERS } from './project-islands'
 
 function FlightRecorderIsland({ transaction }: { transaction: FlightRecorderTransaction }) {
@@ -55,6 +56,8 @@ export const ISLAND_RENDERERS: Record<string, IslandRenderer> = {
   // TECH · UI Lab — the preserved galleries, unchanged.
   'ui-lab-gallery': () => <TypeScriptUiLab />,
   'ui-lab-motion': () => <FramerUiLab />,
+  // OPPS · Workbench — the property's films.
+  'opps-video': OPPS_VIDEO_RENDERER,
   // TECH · Cockpit — the story sorter.
   'tech-sorter': (props, emit) => <SorterIsland props={props as SorterProps} emit={emit} />,
   // TECH · Flight Recorder — the console over one transaction snapshot; Yew owns the read and its refresh.

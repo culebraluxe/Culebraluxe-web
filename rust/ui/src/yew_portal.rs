@@ -8,8 +8,6 @@ use yew::prelude::*;
 use crate::model::{Msg, Screen};
 use crate::yew_views::portal_flight_recorder_list::FlightRecorderList;
 use crate::yew_views::portal_forms::{FormRecord, Forms};
-use crate::yew_views::portal_listing_media::ListingMedia;
-use crate::yew_views::portal_ops::OpsWorkbench;
 
 use std::rc::Rc;
 
@@ -98,12 +96,6 @@ impl Component for PortalApp {
                 html! { <FlightRecorderList model={self.model.clone()} on_msg={on_msg} /> }
             }
             // SUPPORT — a bespoke component per screen, never the generic renderer.
-            "property-admin" => {
-                html! { <OpsWorkbench model={self.model.clone()} on_msg={on_msg} /> }
-            }
-            "property-media" => {
-                html! { <ListingMedia model={self.model.clone()} on_msg={on_msg} /> }
-            }
             "forms" => html! { <Forms model={self.model.clone()} on_msg={on_msg} /> },
             "form-record" => html! { <FormRecord model={self.model.clone()} on_msg={on_msg} /> },
             // EVERY OTHER PORTAL SCREEN, drawn by THIS app as markup rather than handed to a second renderer. This arm

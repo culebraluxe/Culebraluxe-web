@@ -24,6 +24,7 @@ pub mod document;
 pub mod format;
 pub mod model;
 pub mod navigation;
+pub mod ops;
 pub mod projects;
 pub mod search;
 pub mod seller_strategy;

@@ -27,6 +27,7 @@ use crate::app::screens::cockpit::{Attention, Cockpit};
 use crate::app::screens::db_test::DbTest;
 use crate::app::screens::deals::{DealRecord, Deals};
 use crate::app::screens::flight_recorder::FlightRecorder;
+use crate::app::screens::listing_media::ListingMedia;
 use crate::app::screens::projects::Projects;
 use crate::app::screens::security::Security;
 use crate::app::screens::security_users::SecurityUsers;
@@ -38,6 +39,7 @@ use crate::app::screens::tech::TechCockpit;
 use crate::app::screens::ui_lab::UiLab;
 use crate::app::screens::whatsapp_meta::WhatsAppMeta;
 use crate::app::screens::whatsapp_public::WhatsAppPublic;
+use crate::app::screens::workbench::Workbench;
 use crate::app::screens::workflows::{WorkflowRecord, Workflows};
 use crate::model::Surface;
 use crate::navigation::{Actor, Level};
@@ -66,10 +68,6 @@ pub enum Kind {
     Screen(fn(ScreenCtx) -> Html),
     /// Still on the old loop: the old portal app for this screen key. Temporary.
     LegacyPortal(&'static str),
-    /// As `LegacyPortal`, and its PAGE mounts a React vendor island (`components/rust-ui/rust-ui.tsx` picks the island
-    /// by the page's screen). Moving to or from it is therefore a document load: an in-app move would leave the island
-    /// of the page you started on. Temporary — it goes when the island is behind the `Island` component.
-    LegacyIsland(&'static str),
     /// Still on the old loop: the old site app. Temporary.
     LegacySite,
     /// Rendered by Next, not by this app.
@@ -81,7 +79,6 @@ impl std::fmt::Debug for Kind {
         match self {
             Kind::Screen(_) => write!(f, "Screen"),
             Kind::LegacyPortal(key) => write!(f, "LegacyPortal({key})"),
-            Kind::LegacyIsland(key) => write!(f, "LegacyIsland({key})"),
             Kind::LegacySite => write!(f, "LegacySite"),
             Kind::External => write!(f, "External"),
         }
@@ -109,7 +106,7 @@ pub struct Entry {
 impl Entry {
     /// Whether arriving here, or leaving from here, must load the document rather than move in-app.
     pub fn needs_document(&self) -> bool {
-        matches!(self.kind, Kind::External | Kind::LegacyIsland(_))
+        matches!(self.kind, Kind::External)
     }
 
     /// The area is a fact about the URL, not the menu: a public page filed under SUPPORT (the WhatsApp page Meta
@@ -170,8 +167,8 @@ pub const ENTRIES: &[Entry] = &[
     entry("accounting-receipt-scanner", "/portal/accounting/receipt-scanner", Surface::Accounting, "Receipt Scanner", Menu::Rail("Receipt Scanner"), "portal.read", "accounting.read", Kind::Screen(mount::<accounting::ReceiptScanner>)),
     entry("marketing", "/portal/marketing", Surface::Marketing, "Dashboard", Menu::Rail("Dashboard"), "portal.read", "property.read", Kind::LegacyPortal("marketing")),
     entry("marketing-syndication", "/portal/marketing/syndication", Surface::Marketing, "Syndication", Menu::Rail("Syndication"), "portal.read", "property.read", Kind::LegacyPortal("marketing-syndication")),
-    entry("property-admin", "/portal/property-admin", Surface::Ops, "Data Workbench", Menu::Rail("Records"), "portal.read", "property.read", Kind::LegacyIsland("property-admin")),
-    entry("property-media", "/portal/property-media", Surface::Ops, "Property Media", Menu::Rail("Listing Media"), "portal.read", "property.read", Kind::LegacyPortal("property-media")),
+    entry("property-admin", "/portal/property-admin", Surface::Ops, "Data Workbench", Menu::Rail("Records"), "portal.read", "property.read", Kind::Screen(mount::<Workbench>)),
+    entry("property-media", "/portal/property-media", Surface::Ops, "Property Media", Menu::Rail("Listing Media"), "portal.read", "property.read", Kind::Screen(mount::<ListingMedia>)),
     entry("tech", "/portal/tech", Surface::Tech, "Cockpit", Menu::Rail("Cockpit"), "tech.access", "tech.access", Kind::Screen(mount::<TechCockpit>)),
     entry("storyboard", "/portal/storyboard", Surface::Tech, "Story Board", Menu::Rail("Story Board"), "tech.access", "tech.access", Kind::Screen(mount::<Storyboard>)),
     entry("design-lab", "/portal/design-lab", Surface::Tech, "UI Lab", Menu::Rail("UI Lab"), "tech.access", "tech.access", Kind::Screen(mount::<UiLab>)),
@@ -199,7 +196,7 @@ pub const ENTRIES: &[Entry] = &[
     entry("deal-record", "/portal/deals/:dealId", Surface::Core, "Deal", Menu::None, "portal.read", "", Kind::Screen(mount::<DealRecord>)).of("deals"),
     entry("form-record", "/portal/forms/:formId", Surface::Core, "Form", Menu::None, "portal.read", "", Kind::External).of("forms"),
     entry("workflow-record", "/portal/workflows/:instanceId", Surface::Core, "Workflow instance", Menu::None, "portal.read", "", Kind::Screen(mount::<WorkflowRecord>)).of("workflows"),
-    entry("property-record", "/portal/property-admin/:propertyId", Surface::Ops, "Property record", Menu::None, "portal.read", "", Kind::LegacyPortal("property-record")).of("property-admin"),
+    entry("property-record", "/portal/property-admin/:propertyId", Surface::Ops, "Property record", Menu::None, "portal.read", "", Kind::Screen(mount::<Workbench>)).of("property-admin"),
     entry("story-record", "/portal/storyboard/:id", Surface::Tech, "Story", Menu::None, "portal.read", "", Kind::Screen(mount::<StoryRecord>)).of("storyboard"),
     entry("trace-record", "/portal/tech/flight-recorder/:instanceId", Surface::Tech, "Trace", Menu::None, "portal.read", "", Kind::Screen(mount::<FlightRecorder>)).of("tech"),
     entry("site-home", "/", Surface::Site, "Home", Menu::None, "", "", Kind::LegacySite),
@@ -601,12 +598,7 @@ mod tests {
     fn legacy_count_only_goes_down() {
         let legacy = ENTRIES
             .iter()
-            .filter(|entry| {
-                matches!(
-                    entry.kind,
-                    Kind::LegacyPortal(_) | Kind::LegacyIsland(_) | Kind::LegacySite
-                )
-            })
+            .filter(|entry| matches!(entry.kind, Kind::LegacyPortal(_) | Kind::LegacySite))
             .count();
         assert!(
             legacy <= LEGACY_CEILING,
@@ -614,5 +606,5 @@ mod tests {
         );
     }
 
-    const LEGACY_CEILING: usize = 19;
+    const LEGACY_CEILING: usize = 16;
 }

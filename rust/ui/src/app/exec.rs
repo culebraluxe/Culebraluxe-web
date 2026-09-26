@@ -9,6 +9,8 @@ use yew::Callback;
 use yew_router::prelude::Navigator;
 use yew_router::AnyRoute;
 
+use wasm_bindgen::JsCast;
+
 use crate::app::cmd::{ApiError, Cmd, Method, Request};
 
 /// Perform a command. Its messages go to `deliver`. Without a navigator (outside the router) navigation is a document
@@ -47,6 +49,20 @@ pub fn run<Msg: 'static>(cmd: Cmd<Msg>, deliver: &Callback<Msg>, navigator: Opti
                 deliver.emit(msg);
             });
         }
+        Cmd::Upload(upload) => {
+            let deliver = deliver.clone();
+            spawn_local(async move {
+                let reply = upload.reply;
+                let result = upload_chunked(
+                    upload.file,
+                    &upload.path,
+                    &upload.fields,
+                    &upload.init_fields,
+                )
+                .await;
+                deliver.emit(reply(result));
+            });
+        }
         Cmd::StorageWrite { key, value } => {
             if let Some(storage) = storage() {
                 let _ = match value {
@@ -56,6 +72,99 @@ pub fn run<Msg: 'static>(cmd: Cmd<Msg>, deliver: &Callback<Msg>, navigator: Opti
             }
         }
     }
+}
+
+/// 3 MB per request: comfortably under the gateway's ~4.5 MB cap, so a 13 MB photograph uploads.
+const CHUNK_BYTES: f64 = 3.0 * 1024.0 * 1024.0;
+
+async fn upload_chunked(
+    file: web_sys::File,
+    path: &str,
+    fields: &[(String, String)],
+    init_fields: &[(String, String)],
+) -> Result<(), ApiError> {
+    let size = file.size();
+    let chunk_count = ((size / CHUNK_BYTES).ceil() as i32).max(1);
+    let form = |step: &str, extra: &[(&str, String)]| -> Result<web_sys::FormData, ApiError> {
+        let form = web_sys::FormData::new()
+            .map_err(|_| ApiError::network("The browser could not create the upload form."))?;
+        let append = |key: &str, value: &str| {
+            form.append_with_str(key, value)
+                .map_err(|_| ApiError::network("The browser could not prepare the upload."))
+        };
+        append("step", step)?;
+        for (key, value) in fields {
+            append(key, value)?;
+        }
+        for (key, value) in extra {
+            append(key, value)?;
+        }
+        Ok(form)
+    };
+    let post = |form: web_sys::FormData| async move {
+        let response = HttpRequest::post(path)
+            .body(form)
+            .map_err(|error| ApiError::network(error.to_string()))?
+            .send()
+            .await
+            .map_err(|error| ApiError::network(error.to_string()))?;
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        interpret(status, response.ok(), &text)
+    };
+
+    // One: declare the file; everything needed to check the bytes later is settled here.
+    let mut declared: Vec<(&str, String)> = vec![
+        ("filename", file.name()),
+        ("mimeType", file.type_()),
+        ("byteSize", format!("{size}")),
+        ("chunkCount", chunk_count.to_string()),
+        ("chunkSize", format!("{CHUNK_BYTES}")),
+    ];
+    declared.extend(
+        init_fields
+            .iter()
+            .map(|(key, value)| (key.as_str(), value.clone())),
+    );
+    let opened = post(form("init", &declared)?).await?;
+    let upload_id = opened
+        .get("uploadId")
+        .and_then(|id| id.as_str())
+        .map(str::to_owned)
+        .ok_or_else(|| ApiError::decode("The upload was opened but no upload id came back."))?;
+
+    // Two: the pieces, in order — the receiver refuses an index beyond the declared count, so they are not raced.
+    for index in 0..chunk_count {
+        let start = f64::from(index) * CHUNK_BYTES;
+        let end = (start + CHUNK_BYTES).min(size);
+        let piece = file
+            .unchecked_ref::<web_sys::Blob>()
+            .slice_with_f64_and_f64(start, end)
+            .map_err(|_| {
+                ApiError::network(format!(
+                    "Part {} of {chunk_count} could not be read.",
+                    index + 1
+                ))
+            })?;
+        let chunk = form(
+            "chunk",
+            &[
+                ("uploadId", upload_id.clone()),
+                ("chunkIndex", index.to_string()),
+            ],
+        )?;
+        chunk
+            .append_with_blob_and_filename("chunk", &piece, &file.name())
+            .map_err(|_| ApiError::network("The browser could not prepare the upload."))?;
+        post(chunk).await.map_err(|error| ApiError {
+            message: format!("Part {} of {chunk_count}: {}", index + 1, error.message),
+            ..error
+        })?;
+    }
+
+    // Three: assemble, make it servable, attach it. The slow step — the image is re-encoded.
+    post(form("complete", &[("uploadId", upload_id)])?).await?;
+    Ok(())
 }
 
 pub fn load(href: &str) {
