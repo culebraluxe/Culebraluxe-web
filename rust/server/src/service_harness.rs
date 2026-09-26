@@ -31,6 +31,27 @@ impl ServiceHarness {
         db: Database,
         infrastructure: ServiceInfrastructure,
     ) -> Result<Self, ServiceDispatchError> {
+        Self::compose(db, infrastructure, true)
+    }
+
+    /// External/runtime-test composition.
+    ///
+    /// This is the SAME ServiceHarness, ServiceKernel, registry, mailboxes and
+    /// lifecycle implementation as production. The only omitted composition is
+    /// the production MQ subscriber set, so a DEV harness test cannot consume
+    /// unrelated pending business deliveries while proving lifecycle behavior.
+    pub fn isolated(
+        db: Database,
+        infrastructure: ServiceInfrastructure,
+    ) -> Result<Self, ServiceDispatchError> {
+        Self::compose(db, infrastructure, false)
+    }
+
+    fn compose(
+        db: Database,
+        infrastructure: ServiceInfrastructure,
+        production_mq_subscribers: bool,
+    ) -> Result<Self, ServiceDispatchError> {
         let mq_infrastructure = infrastructure.clone();
         let kernel = ServiceKernel::new(db.clone(), infrastructure)?;
         let gateway = ServiceGateway::new(kernel.registry());
@@ -43,11 +64,22 @@ impl ServiceHarness {
                 )
             })?;
         let outbox = DomainEventOutboxDao::new(db.clone());
-        let crm26 =
-            Crm26AgreementExecutionSubscriber::production(db, commands.clone(), kernel.registry());
+        let subscribers: Vec<Arc<dyn crate::MqSubscriber>> = if production_mq_subscribers {
+            let crm26 = Crm26AgreementExecutionSubscriber::production(
+                db,
+                commands.clone(),
+                kernel.registry(),
+            );
+            vec![
+                Arc::new(MqProofSubscriber::new(outbox.clone())),
+                Arc::new(crm26),
+            ]
+        } else {
+            Vec::new()
+        };
         let mq = MqRuntime::new(
-            outbox.clone(),
-            vec![Arc::new(MqProofSubscriber::new(outbox)), Arc::new(crm26)],
+            outbox,
+            subscribers,
             mq_infrastructure,
             kernel.child_token(),
         )?;
