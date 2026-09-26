@@ -9,6 +9,7 @@ pub mod calendar;
 pub mod clients;
 pub mod cockpit;
 pub mod communications;
+pub mod command_runtime;
 pub mod composition;
 pub mod contracts;
 pub mod deals;
@@ -44,6 +45,7 @@ pub mod website_leads;
 pub mod whatsapp;
 pub mod workflow_portal;
 
+pub use command_runtime::{CommandDispatchError, CommandDispatcher};
 pub use composition::CoreServices;
 pub use service_gateway::ServiceGateway;
 pub use service_harness::ServiceHarness;
