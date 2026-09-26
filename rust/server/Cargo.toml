@@ -34,4 +34,5 @@ tokio-util.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
+unicode-normalization = "0.1"
 

@@ -18,6 +18,7 @@ pub fn router() -> Router<ApiState> {
     Router::new()
         .route("/api/media/{id}", get(media))
         .route("/api/rust-ui/public-page", get(public_page))
+        .route("/api/rust-ui/website-intake", axum::routing::post(website_intake))
 }
 
 /// One photograph's bytes. A portal user reads any media the firm holds (never cached by the browser); a visitor only
@@ -418,4 +419,38 @@ mod format_tests {
         assert_eq!(format_area(Some(12500.0), Some("SqFt")).as_deref(), Some("12,500 SF"));
         assert_eq!(en_us(1234.5), "1,234.5");
     }
+}
+
+/// A lead from the website's forms: validated, saved, and then the team and the visitor are emailed. The lead is saved
+/// before the mail goes, so a mail failure is recorded and the visitor still gets their thank-you.
+async fn website_intake(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    body: Option<axum::Json<Value>>,
+) -> Result<Response, ApiError> {
+    let invalid = |status: StatusCode| (status, axum::Json(json!({ "accepted": false, "status": "invalid" }))).into_response();
+    let Some(axum::Json(Value::Object(raw))) = body else {
+        return Ok(invalid(StatusCode::BAD_REQUEST));
+    };
+    // Only the form's fields, and only as text a person could have typed.
+    const FIELDS: &[&str] = &["submissionId", "requestType", "propertyId", "name", "email", "message", "service", "company"];
+    let fields: serde_json::Map<String, Value> = FIELDS
+        .iter()
+        .filter_map(|key| {
+            let value = raw.get(*key)?.as_str()?;
+            (value.chars().count() <= 5000).then(|| ((*key).to_owned(), json!(value)))
+        })
+        .collect();
+    let lead = match crate::intake::normalize_website_intake(&Value::Object(fields)) {
+        Ok(Some(lead)) => lead,
+        Ok(None) => return Ok(axum::Json(json!({ "accepted": true, "status": "accepted" })).into_response()),
+        Err(_) => return Ok(invalid(StatusCode::UNPROCESSABLE_ENTITY)),
+    };
+    let context = public_guest_context(&headers);
+    let result = state.services().intake().submit_website(&lead, &context).await.map_err(ApiError::from)?;
+    if result.accepted {
+        tolerated("notify-lead", state.services().website_leads().notify(&lead.submission_id, &context).await);
+    }
+    let status = if result.accepted { StatusCode::OK } else { StatusCode::UNPROCESSABLE_ENTITY };
+    Ok((status, axum::Json(to_json(result))).into_response())
 }
