@@ -107,7 +107,23 @@ pub struct ServiceCatalog {
 
 impl ServiceCatalog {
     pub fn new(db: Database, infrastructure: ServiceInfrastructure) -> Self {
-        let directory = Arc::new(ServiceDirectory::new(db.clone(), infrastructure.clone()));
+        let person = Arc::new(PersonService::new(
+            PersonDao::new(db.clone()),
+            infrastructure.clone(),
+        ));
+        let firm = Arc::new(FirmService::new(
+            FirmDao::new(db.clone()),
+            infrastructure.clone(),
+        ));
+        let property = Arc::new(PropertyService::new(
+            PropertyDao::new(db.clone()),
+            infrastructure.clone(),
+        ));
+        let directory = Arc::new(ServiceDirectory::new(
+            person.clone(),
+            firm.clone(),
+            property.clone(),
+        ));
         let signature = BoldSignConfig::from_env()
             .and_then(|config| BoldSignSignatureProvider::new(db.clone(), config))
             .map(|provider| {
@@ -147,14 +163,8 @@ impl ServiceCatalog {
                 MediaDao::new(db.clone()),
                 infrastructure.clone(),
             )),
-            person: Arc::new(PersonService::new(
-                PersonDao::new(db.clone()),
-                infrastructure.clone(),
-            )),
-            firm: Arc::new(FirmService::new(
-                FirmDao::new(db.clone()),
-                infrastructure.clone(),
-            )),
+            person,
+            firm,
             forms: Arc::new(FormService::new(
                 FormDao::new(db.clone()),
                 infrastructure.clone(),
@@ -177,10 +187,7 @@ impl ServiceCatalog {
                 RelationshipEvidenceDao::new(db.clone()),
                 infrastructure.clone(),
             )),
-            property: Arc::new(PropertyService::new(
-                PropertyDao::new(db.clone()),
-                infrastructure.clone(),
-            )),
+            property,
             calendar: Arc::new(CalendarService::new(
                 CalendarDao::new(db.clone()),
                 infrastructure.clone(),
