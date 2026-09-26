@@ -4,7 +4,6 @@ use db::{AgreementExecutionDao, Database, IssuedAgreementDocumentRow, OutboxDeli
 use serde_json::{json, Map, Value};
 use service::{
     CommandOutcome, CommandRequest, ServiceActor, ServiceActorKind, ServiceContext,
-    ServiceDispatchError,
 };
 use std::sync::Arc;
 
