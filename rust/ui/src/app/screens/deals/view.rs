@@ -6,68 +6,12 @@
 
 use yew::prelude::*;
 
-use crate::model::{
-    Msg, PortalDeal, PortalDealContract, PortalDealPersonCandidate, PortalDealsPage,
-};
-use crate::yew_views::portal_shell::PortalShell;
+use crate::model::{PortalDeal, PortalDealContract, PortalDealPersonCandidate, PortalDealsPage};
 
-#[derive(Properties, PartialEq)]
-pub struct DealsProps {
-    pub model: crate::model::Model,
-    pub on_msg: Callback<Msg>,
-}
+use super::{Msg, Vm};
 
-pub struct Deals;
-pub struct DealRecord;
-
-impl Component for Deals {
-    type Message = ();
-    type Properties = DealsProps;
-
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
-    }
-
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let props = ctx.props();
-        let screen = crate::model::screen("deals").expect("deals screen exists");
-        html! {
-            <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
-                { portfolio(&props.model, &props.on_msg) }
-            </PortalShell>
-        }
-    }
-}
-
-impl Component for DealRecord {
-    type Message = ();
-    type Properties = DealsProps;
-
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
-    }
-
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let props = ctx.props();
-        let screen = crate::model::screen("deal-record").expect("deal record exists");
-        html! {
-            <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
-                { deal_workspace(&props.model, &props.on_msg) }
-            </PortalShell>
-        }
-    }
-}
-
-fn payload(model: &crate::model::Model) -> Option<&PortalDealsPage> {
-    model
-        .page
-        .as_ref()
-        .and_then(|page| page.portal.as_ref())
-        .and_then(|portal| portal.deals.as_ref())
-}
-
-fn portfolio(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
-    let data = payload(model);
+pub(super) fn portfolio(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
+    let data = Some(model.data);
     let filter = model.controls.filter.as_deref().unwrap_or("all");
     let deals = data
         .map(|page| {
@@ -146,11 +90,7 @@ fn portfolio(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
     }
 }
 
-fn create_panel(
-    model: &crate::model::Model,
-    data: Option<&PortalDealsPage>,
-    on_msg: &Callback<Msg>,
-) -> Html {
+fn create_panel(model: &Vm<'_>, data: Option<&PortalDealsPage>, on_msg: &Callback<Msg>) -> Html {
     let state = &model.deal_create;
     let toggle = {
         let on_msg = on_msg.clone();
@@ -334,7 +274,7 @@ fn person_choice(person: &PortalDealPersonCandidate, on_msg: &Callback<Msg>) -> 
     }
 }
 
-fn stage_filter(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
+fn stage_filter(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
     const STAGES: [(&str, &str); 7] = [
         ("all", "All"),
         ("new_lead", "New Lead"),
@@ -493,10 +433,8 @@ fn contract_row(contract: &PortalDealContract) -> Html {
     }
 }
 
-fn deal_workspace(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
-    let Some(data) = payload(model) else {
-        return empty_workspace(model.loading, "Loading contract workspace…");
-    };
+pub(super) fn deal_workspace(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
+    let data = model.data;
     let Some(workspace) = data.workspace.as_ref() else {
         return empty_workspace(model.loading, "Contract not found.");
     };
@@ -669,7 +607,7 @@ fn client_card(client: Option<&crate::model::PortalDealWorkspaceClient>) -> Html
 }
 
 fn participants_card(
-    model: &crate::model::Model,
+    model: &Vm<'_>,
     workspace: &crate::model::PortalDealWorkspace,
     on_msg: &Callback<Msg>,
     busy: bool,
@@ -694,7 +632,7 @@ fn participants_card(
 }
 
 fn participant_row(
-    model: &crate::model::Model,
+    model: &Vm<'_>,
     participant: &crate::model::PortalDealWorkspaceParticipant,
     on_msg: &Callback<Msg>,
     busy: bool,
@@ -754,7 +692,7 @@ fn participant_row(
 }
 
 fn other_participant_controls(
-    model: &crate::model::Model,
+    model: &Vm<'_>,
     participant: &crate::model::PortalDealWorkspaceParticipant,
     on_msg: &Callback<Msg>,
     end_other: Callback<MouseEvent>,
@@ -805,7 +743,7 @@ fn other_participant_controls(
     }
 }
 
-fn add_participant_form(model: &crate::model::Model, on_msg: &Callback<Msg>, busy: bool) -> Html {
+fn add_participant_form(model: &Vm<'_>, on_msg: &Callback<Msg>, busy: bool) -> Html {
     let query_change = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
@@ -854,7 +792,7 @@ fn add_participant_form(model: &crate::model::Model, on_msg: &Callback<Msg>, bus
 }
 
 fn structural_participant_form(
-    model: &crate::model::Model,
+    model: &Vm<'_>,
     workspace: &crate::model::PortalDealWorkspace,
     on_msg: &Callback<Msg>,
     busy: bool,
@@ -965,7 +903,7 @@ fn workspace_person_choice(
 }
 
 fn tasks_card(
-    model: &crate::model::Model,
+    model: &Vm<'_>,
     workspace: &crate::model::PortalDealWorkspace,
     on_msg: &Callback<Msg>,
     busy: bool,
@@ -1098,7 +1036,7 @@ fn activity_card(workspace: &crate::model::PortalDealWorkspace) -> Html {
 }
 
 fn offers_card(
-    model: &crate::model::Model,
+    model: &Vm<'_>,
     workspace: &crate::model::PortalDealWorkspace,
     on_msg: &Callback<Msg>,
     busy: bool,
@@ -1129,7 +1067,7 @@ fn offers_card(
 }
 
 fn offer_row(
-    model: &crate::model::Model,
+    model: &Vm<'_>,
     offer: &crate::model::PortalDealWorkspaceOffer,
     on_msg: &Callback<Msg>,
     busy: bool,
@@ -1187,7 +1125,7 @@ fn offer_row(
 }
 
 fn offer_form(
-    model: &crate::model::Model,
+    model: &Vm<'_>,
     parent_offer_id: Option<String>,
     label: &'static str,
     on_msg: &Callback<Msg>,
@@ -1234,7 +1172,7 @@ fn offer_form(
 }
 
 fn showings_card(
-    model: &crate::model::Model,
+    model: &Vm<'_>,
     workspace: &crate::model::PortalDealWorkspace,
     on_msg: &Callback<Msg>,
     busy: bool,
@@ -1269,7 +1207,7 @@ fn showings_card(
 }
 
 fn showing_row(
-    model: &crate::model::Model,
+    model: &Vm<'_>,
     showing: &crate::model::PortalDealWorkspaceShowing,
     on_msg: &Callback<Msg>,
     busy: bool,

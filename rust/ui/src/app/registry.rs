@@ -25,6 +25,7 @@ use crate::app::screens::cabinet::Cabinet;
 use crate::app::screens::clients::{ClientRecord, Clients};
 use crate::app::screens::cockpit::{Attention, Cockpit};
 use crate::app::screens::db_test::DbTest;
+use crate::app::screens::deals::{DealRecord, Deals};
 use crate::app::screens::security::Security;
 use crate::app::screens::security_users::SecurityUsers;
 use crate::app::screens::seller_strategy::SellerStrategy;
@@ -152,7 +153,7 @@ pub const ENTRIES: &[Entry] = &[
     entry("dashboard", "/portal/dashboard", Surface::Core, "Cockpit", Menu::Rail("Cockpit"), "portal.read", "cockpit.read", Kind::Screen(mount::<Cockpit>)),
     entry("clients", "/portal/clients", Surface::Core, "Clients", Menu::Rail("Clients"), "portal.read", "person.read", Kind::Screen(mount::<Clients>)),
     entry("projects", "/portal/projects", Surface::Core, "Projects", Menu::Rail("Projects"), "portal.read", "project.read", Kind::LegacyIsland("projects")),
-    entry("deals", "/portal/deals", Surface::Core, "Contracts", Menu::Rail("Contracts"), "deal.read", "deal.read", Kind::LegacyPortal("deals")),
+    entry("deals", "/portal/deals", Surface::Core, "Contracts", Menu::Rail("Contracts"), "deal.read", "deal.read", Kind::Screen(mount::<Deals>)),
     entry("cabinet", "/portal/documents", Surface::Core, "Cabinet", Menu::Rail("Cabinet"), "deal.read", "vault.read", Kind::Screen(mount::<Cabinet>)),
     entry("workflows", "/portal/workflows", Surface::Core, "Workflows", Menu::Rail("Workflows"), "portal.read", "portal.read", Kind::Screen(mount::<Workflows>)),
     entry("forms", "/portal/forms", Surface::Core, "Forms", Menu::Rail("Forms"), "deal.read", "form.read", Kind::External),
@@ -190,7 +191,7 @@ pub const ENTRIES: &[Entry] = &[
     entry("attention", "/portal/attention", Surface::Core, "Attention", Menu::None, "portal.read", "", Kind::Screen(mount::<Attention>)).of("dashboard"),
     entry("activity", "/portal/activity", Surface::Core, "Activity", Menu::None, "portal.read", "", Kind::Screen(mount::<Activity>)).of("dashboard"),
     entry("client-record", "/portal/clients/:personId", Surface::Core, "Client", Menu::None, "portal.read", "", Kind::Screen(mount::<ClientRecord>)).of("clients"),
-    entry("deal-record", "/portal/deals/:dealId", Surface::Core, "Deal", Menu::None, "portal.read", "", Kind::LegacyPortal("deal-record")).of("deals"),
+    entry("deal-record", "/portal/deals/:dealId", Surface::Core, "Deal", Menu::None, "portal.read", "", Kind::Screen(mount::<DealRecord>)).of("deals"),
     entry("form-record", "/portal/forms/:formId", Surface::Core, "Form", Menu::None, "portal.read", "", Kind::External).of("forms"),
     entry("workflow-record", "/portal/workflows/:instanceId", Surface::Core, "Workflow instance", Menu::None, "portal.read", "", Kind::Screen(mount::<WorkflowRecord>)).of("workflows"),
     entry("property-record", "/portal/property-admin/:propertyId", Surface::Ops, "Property record", Menu::None, "portal.read", "", Kind::LegacyPortal("property-record")).of("property-admin"),
@@ -608,5 +609,5 @@ mod tests {
         );
     }
 
-    const LEGACY_CEILING: usize = 27;
+    const LEGACY_CEILING: usize = 25;
 }

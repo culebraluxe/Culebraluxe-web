@@ -12,7 +12,6 @@ pub mod faq;
 pub mod favorites;
 pub mod guide;
 pub mod home;
-pub mod portal_deals;
 pub mod portal_flight_recorder;
 pub mod portal_flight_recorder_list;
 pub mod portal_forms;

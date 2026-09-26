@@ -315,3 +315,86 @@ impl Endpoint for CabinetRead {
         "/api/portal/rust-ui/cabinet".into()
     }
 }
+
+/// The Contracts portfolio (`screen=deals`), or one deal's workspace (`screen=deal-record&scope=<dealId>`).
+/// Answers `{ deals: ... }`.
+pub struct DealsRead {
+    pub deal_id: Option<String>,
+}
+
+impl Endpoint for DealsRead {
+    const METHOD: Method = Method::Get;
+    type Response = crate::model::PortalPage;
+    fn path(&self) -> String {
+        match &self.deal_id {
+            Some(id) => format!(
+                "/api/portal/rust-ui/deals?screen=deal-record&scope={}",
+                encode(id)
+            ),
+            None => "/api/portal/rust-ui/deals?screen=deals".into(),
+        }
+    }
+}
+
+/// People who can be put on a deal, by name. Answers `{ people: [...] }`.
+pub struct DealPeopleSearch {
+    pub query: String,
+}
+
+impl Endpoint for DealPeopleSearch {
+    const METHOD: Method = Method::Get;
+    type Response = crate::model::PortalDealPeopleSearch;
+    fn path(&self) -> String {
+        format!(
+            "/api/portal/rust-ui/deals?peopleSearch={}",
+            encode(&self.query)
+        )
+    }
+}
+
+/// What a create or a deal command answers: the id of the record it made or changed.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct RecordId {
+    pub id: String,
+}
+
+/// Open a deal for a property and an existing client.
+pub struct DealCreate {
+    pub property_id: String,
+    pub client_person_id: String,
+    pub owner_user_id: Option<String>,
+    pub notes: Option<String>,
+}
+
+impl Endpoint for DealCreate {
+    const METHOD: Method = Method::Post;
+    type Response = RecordId;
+    fn path(&self) -> String {
+        "/api/portal/rust-ui/deals".into()
+    }
+    fn body(&self) -> Option<serde_json::Value> {
+        Some(serde_json::json!({
+            "propertyId": self.property_id,
+            "clientPersonId": self.client_person_id,
+            "ownerUserId": self.owner_user_id,
+            "notes": self.notes,
+        }))
+    }
+}
+
+/// One command on a deal's workspace: tasks, offers, showings, participants.
+pub struct DealWorkspaceCommand {
+    pub deal_id: String,
+    pub command: crate::model::PortalDealCommand,
+}
+
+impl Endpoint for DealWorkspaceCommand {
+    const METHOD: Method = Method::Post;
+    type Response = RecordId;
+    fn path(&self) -> String {
+        format!("/api/portal/rust-ui/deals?scope={}", encode(&self.deal_id))
+    }
+    fn body(&self) -> Option<serde_json::Value> {
+        serde_json::to_value(&self.command).ok()
+    }
+}
