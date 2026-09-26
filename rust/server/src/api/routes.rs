@@ -167,7 +167,6 @@ struct ActivityQuery {
     limit: Option<i64>,
 }
 
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct IssuesQuery {
@@ -176,7 +175,6 @@ struct IssuesQuery {
     page: Option<i64>,
     page_size: Option<i64>,
 }
-
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1613,15 +1611,17 @@ async fn create_project(
     let resolved = resolve_request_context(&state, &headers).await?;
     let mut areas = Vec::with_capacity(body.areas.as_ref().map(Vec::len).unwrap_or(0));
     for value in body.areas.unwrap_or_default() {
-        areas.push(domain::WbsCategory::try_from(value.as_str()).map_err(|error| {
-            correlate(
-                ApiError::from(CoreServiceError::business(
-                    "PROJECT_AREA_INVALID",
-                    error.to_string(),
-                )),
-                &resolved,
-            )
-        })?);
+        areas.push(
+            domain::WbsCategory::try_from(value.as_str()).map_err(|error| {
+                correlate(
+                    ApiError::from(CoreServiceError::business(
+                        "PROJECT_AREA_INVALID",
+                        error.to_string(),
+                    )),
+                    &resolved,
+                )
+            })?,
+        );
     }
 
     let parse_time = |raw: Option<String>, field: &'static str| {
