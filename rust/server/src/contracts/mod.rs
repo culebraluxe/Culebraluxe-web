@@ -1,14 +1,16 @@
 use crate::lookup::CoreEntityLookup;
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
-use db::{ContractDao, DbResult};
+use db::{ContractDao, ContractTxDao, DbResult, DbTransaction};
 use domain::{
     Contract, ContractEffectiveState, ContractRole, ContractSummary, CreateContractFromFormRequest,
     ExecuteContractRequest, SaveContractDraftRequest, CONTRACT_FIRM_ROLE_CODES,
     CONTRACT_PERSON_ROLE_CODES,
 };
 use serde_json::json;
-use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
+use service::{
+    OperationKind, ServiceContext, ServiceDomainEvent, ServiceInfrastructure, ServiceRuntime,
+};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -67,6 +69,36 @@ impl ContractRepository for ContractDao {
 
     async fn execute(&self, request: &ExecuteContractRequest) -> DbResult<Option<Contract>> {
         ContractDao::execute(self, request).await
+    }
+}
+
+#[async_trait]
+trait ContractExecutionRepository: Send {
+    async fn get(&mut self, contract_id: &str) -> DbResult<Option<Contract>>;
+    async fn execute(&mut self, request: &ExecuteContractRequest) -> DbResult<Option<Contract>>;
+}
+
+struct SharedContractExecutionRepository<'a, R>(&'a R);
+
+#[async_trait]
+impl<R: ContractRepository> ContractExecutionRepository for SharedContractExecutionRepository<'_, R> {
+    async fn get(&mut self, contract_id: &str) -> DbResult<Option<Contract>> {
+        self.0.get(contract_id).await
+    }
+
+    async fn execute(&mut self, request: &ExecuteContractRequest) -> DbResult<Option<Contract>> {
+        self.0.execute(request).await
+    }
+}
+
+#[async_trait]
+impl ContractExecutionRepository for ContractTxDao<'_> {
+    async fn get(&mut self, contract_id: &str) -> DbResult<Option<Contract>> {
+        ContractTxDao::get(self, contract_id).await
+    }
+
+    async fn execute(&mut self, request: &ExecuteContractRequest) -> DbResult<Option<Contract>> {
+        ContractTxDao::execute(self, request).await
     }
 }
 
@@ -252,6 +284,31 @@ impl<R: ContractRepository> ContractService<R> {
         request: &ExecuteContractRequest,
         context: &ServiceContext,
     ) -> Result<Contract, CoreServiceError> {
+        let mut repository = SharedContractExecutionRepository(&self.repository);
+        let (contract, _) = self
+            .execute_with_repository(&mut repository, request, context, true)
+            .await?;
+        Ok(contract)
+    }
+
+    pub async fn execute_transactional(
+        &self,
+        tx: &mut DbTransaction,
+        request: &ExecuteContractRequest,
+        context: &ServiceContext,
+    ) -> Result<(Contract, ServiceDomainEvent), CoreServiceError> {
+        let mut repository = ContractTxDao::new(tx);
+        self.execute_with_repository(&mut repository, request, context, false)
+            .await
+    }
+
+    async fn execute_with_repository<X: ContractExecutionRepository>(
+        &self,
+        repository: &mut X,
+        request: &ExecuteContractRequest,
+        context: &ServiceContext,
+        emit_runtime_event: bool,
+    ) -> Result<(Contract, ServiceDomainEvent), CoreServiceError> {
         const OP: &str = "contract.execute";
         let decision = authorize(
             &self.runtime,
@@ -264,8 +321,7 @@ impl<R: ContractRepository> ContractService<R> {
         .await?;
 
         let result = async {
-            let existing = self
-                .repository
+            let existing = repository
                 .get(&request.contract_id)
                 .await?
                 .ok_or_else(|| {
@@ -291,29 +347,40 @@ impl<R: ContractRepository> ContractService<R> {
                 ));
             }
 
-            let contract = self.repository.execute(request).await?.ok_or_else(|| {
+            let contract = repository.execute(request).await?.ok_or_else(|| {
                 CoreServiceError::business(
                     "CONTRACT_NOT_FOUND",
                     format!("Contract not found: {}", request.contract_id),
                 )
             })?;
 
-            self.runtime
-                .emit(
-                    "contract.executed",
-                    Some(contract.id.clone()),
-                    BTreeMap::from([
-                        ("contractId".into(), json!(contract.id.clone())),
-                        ("contractType".into(), json!(contract.contract_type.clone())),
-                        (
-                            "evidenceDocumentId".into(),
-                            json!(contract.evidence_document_id.clone()),
-                        ),
-                    ]),
-                    context,
-                )
-                .await?;
-            Ok(contract)
+            let event = ServiceDomainEvent {
+                event_type: "contract.executed",
+                aggregate_id: Some(contract.id.clone()),
+                payload: BTreeMap::from([
+                    ("contractId".into(), json!(contract.id.clone())),
+                    ("contractType".into(), json!(contract.contract_type.clone())),
+                    (
+                        "evidenceDocumentId".into(),
+                        json!(contract.evidence_document_id.clone()),
+                    ),
+                ]),
+                correlation_id: context.correlation_id.clone(),
+                causation_id: context.causation_id.clone(),
+            };
+
+            if emit_runtime_event {
+                self.runtime
+                    .emit(
+                        event.event_type,
+                        event.aggregate_id.clone(),
+                        event.payload.clone(),
+                        context,
+                    )
+                    .await?;
+            }
+
+            Ok((contract, event))
         }
         .await;
 
