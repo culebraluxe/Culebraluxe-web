@@ -57,8 +57,8 @@ impl MqSubscriberRegistry {
     pub fn new(subscribers: Vec<Arc<dyn MqSubscriber>>) -> Result<Self, ServiceDispatchError> {
         let mut entries = HashMap::new();
         for subscriber in subscribers {
-            let id = subscriber.id().trim();
-            let routing_key = subscriber.routing_key().trim();
+            let id = subscriber.id().trim().to_owned();
+            let routing_key = subscriber.routing_key().trim().to_owned();
             if id.is_empty()
                 || routing_key.is_empty()
                 || subscriber.max_attempts() < 1
@@ -70,7 +70,7 @@ impl MqSubscriberRegistry {
                     false,
                 ));
             }
-            if entries.insert(id.to_owned(), subscriber).is_some() {
+            if entries.insert(id.clone(), subscriber).is_some() {
                 return Err(ServiceDispatchError::infrastructure(
                     "MQ_SUBSCRIBER_DUPLICATE",
                     format!("MQ subscriber is registered more than once: {id}"),
@@ -257,7 +257,8 @@ impl MqRuntime {
     pub async fn wait_running(&self) -> Result<(), ServiceDispatchError> {
         let mut status = self.status.clone();
         loop {
-            match *status.borrow_and_update() {
+            let current = *status.borrow_and_update();
+            match current {
                 ServiceStatus::Running => return Ok(()),
                 ServiceStatus::Starting => {
                     status.changed().await.map_err(|_| {
@@ -289,7 +290,8 @@ impl MqRuntime {
     pub async fn wait_stopped(&self) -> Result<(), ServiceDispatchError> {
         let mut status = self.status.clone();
         loop {
-            match *status.borrow_and_update() {
+            let current = *status.borrow_and_update();
+            match current {
                 ServiceStatus::Stopped => {
                     self.tracker.close();
                     self.tracker.wait().await;
