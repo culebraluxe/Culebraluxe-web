@@ -265,6 +265,10 @@ jobs:
         working-directory: rust
         run: cargo run -p cli -- tx-smoke
 
+      - name: Rust external ServiceHarness lifecycle proof
+        working-directory: rust
+        run: cargo test -p server --test service_harness_dev -- --ignored --test-threads=1
+
       - name: Rust durable command runtime proofs
         working-directory: rust
         run: cargo test -p server --test command_runtime_dev -- --ignored --test-threads=1
