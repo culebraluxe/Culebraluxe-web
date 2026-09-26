@@ -471,7 +471,7 @@ mod tests {
     #[tokio::test]
     async fn an_emailed_code_signs_in_once_and_provisions_the_guest() {
         let (memory, outbox) = (Memory::default(), Arc::new(Outbox::default()));
-        let mut service = service(memory.clone(), outbox.clone()).await;
+        let service = service(memory.clone(), outbox.clone()).await;
         let site = system("public-website");
         service
             .request_code(" Ada@Example.com ", Some("203.0.113.9"), &site)
@@ -507,7 +507,7 @@ mod tests {
     #[tokio::test]
     async fn five_wrong_tries_end_a_code_and_only_the_newest_works() {
         let outbox = Arc::new(Outbox::default());
-        let mut service = service(Memory::default(), outbox.clone()).await;
+        let service = service(Memory::default(), outbox.clone()).await;
         let site = system("public-website");
         service
             .request_code("ada@example.com", None, &site)
@@ -542,7 +542,7 @@ mod tests {
     #[tokio::test]
     async fn sending_is_rate_limited_and_bad_addresses_are_refused() {
         let (memory, outbox) = (Memory::default(), Arc::new(Outbox::default()));
-        let mut service = service(memory.clone(), outbox.clone()).await;
+        let service = service(memory.clone(), outbox.clone()).await;
         let site = system("public-website");
         for bad in [
             "",
@@ -583,7 +583,7 @@ mod tests {
     #[tokio::test]
     async fn the_edge_provisions_google_guests_and_links_only_verified_email() {
         let memory = Memory::default();
-        let mut service = service(memory.clone(), Arc::new(Outbox::default())).await;
+        let service = service(memory.clone(), Arc::new(Outbox::default())).await;
         let edge = system(service::AUTHJS_EDGE_ACTOR);
         let claim = |verified| GuestClaim {
             provider: "google".into(),
@@ -612,7 +612,7 @@ mod tests {
     async fn each_door_is_its_own_actors_alone() {
         let outbox = Arc::new(Outbox::default());
         let memory = Memory::default();
-        let mut service = service(memory.clone(), outbox.clone()).await;
+        let service = service(memory.clone(), outbox.clone()).await;
         let edge = system(service::AUTHJS_EDGE_ACTOR);
         let site = system("public-website");
         assert!(service

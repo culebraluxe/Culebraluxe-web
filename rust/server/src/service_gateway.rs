@@ -7,7 +7,9 @@ use crate::service_support::CoreServiceError;
 use async_trait::async_trait;
 use db::{ContractDao, FirmDao, PersonDao, PropertyDao};
 use domain::{PropertyAdminPageRequest, SearchPeopleRequest};
-use serde_json::{json, Value};
+#[cfg(test)]
+use serde_json::json;
+use serde_json::Value;
 use service::{
     AbstractService, OperationKind, ServiceCapability, ServiceContext, ServiceDescriptor,
     ServiceDispatchError, ServiceEnvelope, ServiceExecutionPolicy,

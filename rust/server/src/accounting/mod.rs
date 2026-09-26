@@ -458,7 +458,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_pnl_projection_keeps_the_range_the_caller_asked_for() {
-        let (mut service, repository) = service();
+        let (service, repository) = service();
         let request = PnlRequest {
             from: "2026-03-01".into(),
             to: "2026-03-31".into(),
@@ -480,7 +480,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_backwards_period_is_refused_before_the_repository() {
-        let (mut service, repository) = service();
+        let (service, repository) = service();
         let error = service
             .pnl(
                 &PnlRequest {
@@ -498,7 +498,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_guest_cannot_run_an_accounting_command() {
-        let (mut service, repository) = service();
+        let (service, repository) = service();
         let command = CreateExpenseCommand {
             vendor: "Sunrise Fuel".into(),
             category: "Office".into(),
@@ -520,7 +520,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_invalid_expense_never_reaches_the_repository() {
-        let (mut service, repository) = service();
+        let (service, repository) = service();
         let command = CreateExpenseCommand {
             vendor: "Sunrise Fuel".into(),
             category: "Not A Category".into(),

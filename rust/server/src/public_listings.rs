@@ -291,7 +291,7 @@ mod tests {
             Arc::new(CapturingAuditPort::default()),
             Arc::new(CapturingDomainEventPort::default()),
         );
-        let mut service = PublicListingService::new(FakeRepository, infrastructure);
+        let service = PublicListingService::new(FakeRepository, infrastructure);
         let copy = service
             .listing_copy(&public_website())
             .await

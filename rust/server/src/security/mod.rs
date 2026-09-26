@@ -489,7 +489,7 @@ mod tests {
 
     #[tokio::test]
     async fn identity_database_failure_is_not_reported_as_unmapped() {
-        let mut service = SecurityService::new(IdentityLookupFailure, infrastructure());
+        let service = SecurityService::new(IdentityLookupFailure, infrastructure());
         let result = service
             .resolve_identity("test-provider-db-failure", "subject-1", &context())
             .await;
@@ -499,7 +499,7 @@ mod tests {
 
     #[tokio::test]
     async fn principal_database_failure_is_not_reported_as_inactive() {
-        let mut service = SecurityService::new(PrincipalLookupFailure, infrastructure());
+        let service = SecurityService::new(PrincipalLookupFailure, infrastructure());
         let result = service
             .resolve_identity("test-provider-principal-failure", "subject-2", &context())
             .await;
@@ -509,7 +509,7 @@ mod tests {
 
     #[tokio::test]
     async fn direct_principal_database_failure_is_not_reported_as_missing() {
-        let mut service = SecurityService::new(PrincipalLookupFailure, infrastructure());
+        let service = SecurityService::new(PrincipalLookupFailure, infrastructure());
         let result = service.get_principal("user-1", &context()).await;
 
         assert!(matches!(result, Err(CoreServiceError::Database(_))));

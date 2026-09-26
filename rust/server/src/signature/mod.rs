@@ -4,9 +4,8 @@ use db::{Database, DbResult, SignatureDao};
 use domain::{
     validate_signature_recipients, ApplySignatureStatusRequest, SendSignatureRequest,
     SignatureArtifactDownload, SignatureCommandOutcome, SignatureCommandResult,
-    SignatureProviderActionResult, SignatureProviderSendRequest, SignatureProviderSendResult,
-    SignatureProviderStatusResult, SignatureRequest, SignatureRequestResult,
-    SignatureRequestStatus, SignatureStatusResult, SignatureWebhookVerification,
+    SignatureProviderSendRequest, SignatureRequest, SignatureRequestResult, SignatureRequestStatus,
+    SignatureStatusResult, SignatureWebhookVerification,
 };
 use serde_json::json;
 use service::{
