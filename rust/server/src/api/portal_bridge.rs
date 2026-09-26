@@ -30,6 +30,7 @@ pub fn router() -> Router<ApiState> {
         .route("/api/portal/rust-ui/cabinet", get(cabinet))
         .route("/api/portal/rust-ui/deals", get(deals).post(deals_write))
         .route("/api/portal/rust-ui/projects", get(projects).post(projects_act))
+        .route("/api/portal/rust-ui/accounting", axum::routing::post(accounting_act))
 }
 
 #[derive(Debug, Deserialize)]
@@ -308,6 +309,8 @@ struct PageQuery {
     #[serde(default)]
     screen: String,
     scope: Option<String>,
+    from: Option<String>,
+    to: Option<String>,
 }
 
 /// A portal screen's page payload, in the screen's own shape (`{ activity }`, `{ workflows }`, `{ workflow }`).
@@ -319,6 +322,10 @@ async fn page(
     let resolved = resolve_portal_context(&state, &headers).await?;
     let scope = query.scope.as_deref().map(str::trim).filter(|value| !value.is_empty());
     match query.screen.as_str() {
+        screen if ACCOUNTING_SCREENS.contains(&screen) => {
+            let payload = accounting_payload(&state, &resolved, screen, query.from.as_deref(), query.to.as_deref()).await?;
+            Ok(Json(payload))
+        }
         "activity" => {
             let entries = state
                 .services()
@@ -651,4 +658,115 @@ async fn projects_act(
         _ => return Err(ApiError::bad_request("PROJECT_ACTION_UNSUPPORTED", "Unsupported Projects action.")),
     }
     projects_page(&state, &resolved).await
+}
+
+const ACCOUNTING_SCREENS: &[&str] =
+    &["accounting", "accounting-expenses", "accounting-receivables", "accounting-pnl", "accounting-receipt-scanner"];
+
+/// The book's date (UTC, as the relay's `todayISO`), which the create forms default to.
+fn book_today() -> chrono::NaiveDate {
+    chrono::Utc::now().date_naive()
+}
+
+/// One Accounting screen's payload, `{ accounting: ... }`. The P&L period defaults to the current month.
+async fn accounting_payload(
+    state: &ApiState,
+    resolved: &ResolvedRequestContext,
+    screen: &str,
+    from: Option<&str>,
+    to: Option<&str>,
+) -> Result<Value, ApiError> {
+    use chrono::Datelike;
+    let accounting = state.services().accounting();
+    let context = &resolved.service;
+    let today = book_today();
+    let body = match screen {
+        "accounting" => json!({ "dashboard": to_json(accounting.dashboard(context).await.map_err(failed(resolved))?) }),
+        "accounting-expenses" => {
+            let (expenses, categories) = tokio::join!(accounting.expenses(context), accounting.expense_categories(context));
+            json!({
+                "expenses": to_json(expenses.map_err(failed(resolved))?),
+                "expenseCategories": to_json(categories.map_err(failed(resolved))?),
+                "today": today.to_string(),
+            })
+        }
+        "accounting-receivables" => json!({
+            "receivables": to_json(accounting.receivables(context).await.map_err(failed(resolved))?),
+            "today": today.to_string(),
+        }),
+        "accounting-pnl" => {
+            let first = today.with_day(1).unwrap_or(today);
+            let last = first
+                .checked_add_months(chrono::Months::new(1))
+                .and_then(|next| next.pred_opt())
+                .unwrap_or(today);
+            let pick = |value: Option<&str>, fallback: chrono::NaiveDate| {
+                value.map(str::trim).filter(|v| !v.is_empty()).map(str::to_owned).unwrap_or_else(|| fallback.to_string())
+            };
+            let request = domain::PnlRequest { from: pick(from, first), to: pick(to, last) };
+            json!({ "pnl": to_json(accounting.pnl(&request, context).await.map_err(failed(resolved))?) })
+        }
+        _ => json!({ "today": today.to_string() }),
+    };
+    Ok(json!({ "accounting": body }))
+}
+
+/// Accounting's three commands; each answers the screen that asked, as it now stands.
+async fn accounting_act(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    let raw = |key: &str| body.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
+    let text = |key: &str| body.get(key).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty()).map(str::to_owned);
+    let screen = raw("screen");
+    if !ACCOUNTING_SCREENS.contains(&screen.as_str()) {
+        return Err(ApiError::bad_request("ACCOUNTING_SCREEN_UNKNOWN", format!("no accounting screen '{screen}'")));
+    }
+    let accounting = state.services().accounting();
+    let context = &resolved.service;
+    match raw("action").as_str() {
+        "createExpense" => {
+            let command = domain::CreateExpenseCommand {
+                vendor: raw("vendor"),
+                category: raw("category"),
+                // The digits the operator typed: Rust validates the decimal, nothing rounds it first.
+                amount: raw("amount"),
+                expense_on: raw("expenseOn"),
+                memo: text("memo"),
+                deal_id: text("dealId"),
+                property_id: text("propertyId"),
+                person_id: text("personId"),
+            };
+            accounting.create_expense(&command, context).await.map_err(failed(&resolved))?;
+        }
+        "createReceivable" => {
+            let command = domain::CreateReceivableCommand {
+                reference: text("reference"),
+                description: raw("description"),
+                category: raw("category"),
+                amount: raw("amount"),
+                issued_on: raw("issuedOn"),
+                due_on: text("dueOn"),
+                deal_id: text("dealId"),
+                property_id: text("propertyId"),
+                person_id: text("personId"),
+            };
+            accounting.create_receivable(&command, context).await.map_err(failed(&resolved))?;
+        }
+        "markReceivablePaid" => {
+            let Some(receivable_id) = text("receivableId") else {
+                return Err(ApiError::bad_request("RECEIVABLE_REQUIRED", "A receivable is required."));
+            };
+            let command = domain::MarkReceivablePaidCommand { receivable_id, paid_on: raw("paidOn") };
+            accounting.mark_receivable_paid(&command, context).await.map_err(failed(&resolved))?;
+        }
+        other => {
+            return Err(ApiError::bad_request("ACCOUNTING_COMMAND_UNKNOWN", format!("no accounting command '{other}'")))
+        }
+    }
+    let from = text("from");
+    let to = text("to");
+    Ok(Json(accounting_payload(&state, &resolved, &screen, from.as_deref(), to.as_deref()).await?))
 }
