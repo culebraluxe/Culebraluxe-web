@@ -183,19 +183,24 @@ async fn mq_dev_fanout_isolates_failure_and_acknowledges_per_subscriber() {
 
     runtime.dispatch_once().await.unwrap();
 
-    let rows: Vec<(String, String, i32, Option<chrono::DateTime<Utc>>, Option<String>)> =
-        sqlx::query_as(
-            r#"
+    let rows: Vec<(
+        String,
+        String,
+        i32,
+        Option<chrono::DateTime<Utc>>,
+        Option<String>,
+    )> = sqlx::query_as(
+        r#"
             select subscription_id, state, attempt_count, acknowledged_at, last_error
             from mq_delivery
             where message_id=$1::uuid
             order by subscription_id
             "#,
-        )
-        .bind(&event_id)
-        .fetch_all(db.pool())
-        .await
-        .unwrap();
+    )
+    .bind(&event_id)
+    .fetch_all(db.pool())
+    .await
+    .unwrap();
 
     cleanup(
         &db,
@@ -350,12 +355,11 @@ async fn mq_dev_duplicate_event_append_is_idempotent() {
     append_event(&db, &event_id, &routing).await;
     append_event(&db, &event_id, &routing).await;
 
-    let count: i64 =
-        sqlx::query_scalar("select count(*) from outbox_message where id=$1::uuid")
-            .bind(&event_id)
-            .fetch_one(db.pool())
-            .await
-            .unwrap();
+    let count: i64 = sqlx::query_scalar("select count(*) from outbox_message where id=$1::uuid")
+        .bind(&event_id)
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
 
     cleanup(&db, std::slice::from_ref(&event_id), &[]).await;
     assert_eq!(count, 1);
@@ -374,13 +378,7 @@ async fn mq_dev_runtime_never_claims_subscription_it_does_not_own() {
 
     let runtime = runtime(
         &db,
-        vec![subscriber(
-            owned_id.clone(),
-            routing.clone(),
-            3,
-            1,
-            false,
-        )],
+        vec![subscriber(owned_id.clone(), routing.clone(), 3, 1, false)],
         20,
     )
     .await;
