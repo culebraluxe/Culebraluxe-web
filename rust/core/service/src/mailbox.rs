@@ -5,6 +5,7 @@ use crate::{
 use async_trait::async_trait;
 use serde_json::Value;
 use std::{
+    any::Any,
     collections::{HashSet, VecDeque},
     future::Future,
     pin::Pin,
@@ -16,14 +17,14 @@ use std::{
 use tokio::sync::{mpsc, oneshot, watch, Notify};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
-type WorkFuture =
-    Pin<Box<dyn Future<Output = Result<Value, ServiceDispatchError>> + Send + 'static>>;
+type WorkOutput = Box<dyn Any + Send>;
+type WorkFuture = Pin<Box<dyn Future<Output = WorkOutput> + Send + 'static>>;
 
 struct WorkItem {
     operation: String,
     partition_key: Option<String>,
     future: WorkFuture,
-    respond_to: oneshot::Sender<Result<Value, ServiceDispatchError>>,
+    respond_to: oneshot::Sender<Result<WorkOutput, ServiceDispatchError>>,
 }
 
 enum ActorMessage {
@@ -136,15 +137,16 @@ impl ServiceMailbox {
         })
     }
 
-    pub async fn submit<F>(
+    pub async fn submit_task<T, F>(
         &self,
         operation: impl Into<String>,
         policy: ServiceExecutionPolicy,
         payload: &Value,
         work: F,
-    ) -> Result<Value, ServiceDispatchError>
+    ) -> Result<T, ServiceDispatchError>
     where
-        F: Future<Output = Result<Value, ServiceDispatchError>> + Send + 'static,
+        T: Send + 'static,
+        F: Future<Output = T> + Send + 'static,
     {
         let operation = operation.into();
         if !self.accepting.load(Ordering::Acquire) {
@@ -153,24 +155,28 @@ impl ServiceMailbox {
             ));
         }
 
+        let wrapped: WorkFuture = Box::pin(async move { Box::new(work.await) as WorkOutput });
+
         if policy.mode == ServiceExecutionMode::Inline {
             self.in_flight.fetch_add(1, Ordering::Relaxed);
             let domain = self.domain.clone();
             let in_flight = self.in_flight.clone();
             let idle_notify = self.idle_notify.clone();
+            let operation_for_task = operation.clone();
             let handle = self.tracker.spawn(async move {
-                let result = run_work(domain, operation, Box::pin(work)).await;
+                let result = run_work(domain, operation_for_task, wrapped).await;
                 in_flight.fetch_sub(1, Ordering::Relaxed);
                 idle_notify.notify_waiters();
                 result
             });
-            return handle
+            let boxed = handle
                 .await
                 .map_err(|error| ServiceDispatchError::OperationPanicked {
                     domain: self.domain.to_string(),
-                    operation: "inline-dispatch".into(),
+                    operation: operation.clone(),
                     message: error.to_string(),
-                })?;
+                })??;
+            return downcast_work(self.domain.as_ref(), &operation, boxed);
         }
 
         let partition_key = if policy.mode == ServiceExecutionMode::Ordered {
@@ -191,17 +197,31 @@ impl ServiceMailbox {
         let (respond_to, response) = oneshot::channel();
         self.sender
             .send(ActorMessage::Work(WorkItem {
-                operation,
+                operation: operation.clone(),
                 partition_key,
-                future: Box::pin(work),
+                future: wrapped,
                 respond_to,
             }))
             .await
             .map_err(|_| ServiceDispatchError::ServiceStopped(self.domain.to_string()))?;
 
-        response
+        let boxed = response
             .await
-            .map_err(|_| ServiceDispatchError::ServiceStopped(self.domain.to_string()))?
+            .map_err(|_| ServiceDispatchError::ServiceStopped(self.domain.to_string()))??;
+        downcast_work(self.domain.as_ref(), &operation, boxed)
+    }
+
+    pub async fn submit<F>(
+        &self,
+        operation: impl Into<String>,
+        policy: ServiceExecutionPolicy,
+        payload: &Value,
+        work: F,
+    ) -> Result<Value, ServiceDispatchError>
+    where
+        F: Future<Output = Result<Value, ServiceDispatchError>> + Send + 'static,
+    {
+        self.submit_task(operation, policy, payload, work).await?
     }
 
     pub async fn drain(&self) -> Result<(), ServiceDispatchError> {
@@ -496,9 +516,9 @@ async fn run_work(
     domain: Arc<str>,
     operation: String,
     work: WorkFuture,
-) -> Result<Value, ServiceDispatchError> {
+) -> Result<WorkOutput, ServiceDispatchError> {
     match tokio::spawn(work).await {
-        Ok(result) => result,
+        Ok(result) => Ok(result),
         Err(error) => Err(ServiceDispatchError::OperationPanicked {
             domain: domain.to_string(),
             operation,
@@ -507,12 +527,51 @@ async fn run_work(
     }
 }
 
+fn downcast_work<T: Send + 'static>(
+    domain: &str,
+    operation: &str,
+    value: WorkOutput,
+) -> Result<T, ServiceDispatchError> {
+    value
+        .downcast::<T>()
+        .map(|value| *value)
+        .map_err(|_| {
+            ServiceDispatchError::infrastructure(
+                "SERVICE_MAILBOX_TYPE_MISMATCH",
+                format!(
+                    "Service mailbox returned an unexpected task type for {domain}.{operation}."
+                ),
+                false,
+            )
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::time::{sleep, Duration};
+
+    #[tokio::test]
+    async fn typed_tasks_use_the_same_mailbox_without_json_coercion() {
+        let root = CancellationToken::new();
+        let mailbox =
+            ServiceMailbox::spawn("contract", ServiceMailboxConfig::default(), &root).unwrap();
+
+        let result: usize = mailbox
+            .submit_task(
+                "contract.count",
+                ServiceExecutionPolicy::inline(),
+                &json!({}),
+                async { 42usize },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result, 42);
+        mailbox.stop().await.unwrap();
+    }
 
     #[tokio::test]
     async fn ordered_work_serializes_one_partition_but_allows_other_partitions() {
