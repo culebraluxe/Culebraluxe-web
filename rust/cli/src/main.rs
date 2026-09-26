@@ -187,7 +187,7 @@ fn required_env(name: &str) -> Result<String, Box<dyn Error>> {
         .ok()
         .map(|value| value.trim().to_owned())
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| io::Error::other(format!("{name} is required")).map_err(Into::into))
+        .ok_or_else(|| io::Error::other(format!("{name} is required")).into())
 }
 
 async fn print_remote_json(
