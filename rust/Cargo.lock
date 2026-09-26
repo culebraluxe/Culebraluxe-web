@@ -2388,6 +2388,7 @@ dependencies = [
  "forge",
  "image",
  "integrations",
+ "reqwest",
  "serde",
  "serde_json",
  "service",

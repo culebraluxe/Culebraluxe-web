@@ -792,6 +792,15 @@ async fn support_break_glass_readiness(
     headers: HeaderMap,
 ) -> Result<Json<ApiSuccess<domain::SupportBreakGlassReadiness>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
+    let value = break_glass_readiness(&state, &resolved).await?;
+    Ok(success(value, &resolved))
+}
+
+/// Shared by `/v1` and the Support screens (`portal_bridge`).
+pub(super) async fn break_glass_readiness(
+    state: &ApiState,
+    resolved: &ResolvedRequestContext,
+) -> Result<domain::SupportBreakGlassReadiness, ApiError> {
     let app_user_id = std::env::var("AUTH_BREAK_GLASS_APP_USER_ID")
         .ok()
         .map(|value| value.trim().to_owned())
@@ -813,8 +822,8 @@ async fn support_break_glass_readiness(
             &resolved.service,
         )
         .await
-        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
-    Ok(success(value, &resolved))
+        .map_err(|error| correlate(ApiError::from(error), resolved))?;
+    Ok(value)
 }
 
 async fn support_system_health(
