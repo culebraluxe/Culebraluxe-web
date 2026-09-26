@@ -86,6 +86,15 @@ impl AuthorizationPort for CasbinAuthorizationPort {
             && request.operation == "website.submitIntake"
             && request.action == "website.intake.submit"
             && request.kind == OperationKind::Command;
+        // CRM-26 AGREEMENT EXECUTION: the MQ runtime may execute exactly one canonical Contract command
+        // after it has verified immutable document lineage + the agreement_execution marker. This is not a
+        // generic "system may command" grant: the actor, domain, operation, action and kind must all match.
+        let agreement_execution = system
+            && request.actor.id.as_deref() == Some("agreement-execution-worker")
+            && request.domain == "contract"
+            && request.operation == "contract.execute"
+            && request.action == "contract.execute"
+            && request.kind == OperationKind::Command;
         // GUEST SIGN-IN (security/guest.rs). The public website asks for and checks emailed codes for a visitor who
         // has no principal yet; the Auth.js edge provisions the external guest behind an identity it has proved.
         // A guest is an external account, so the principal branch below refuses it every grant.
@@ -125,6 +134,7 @@ impl AuthorizationPort for CasbinAuthorizationPort {
             || public
             || lead_notice
             || website_intake
+            || agreement_execution
             || guest_code
             || guest_provision
             || published;
@@ -486,6 +496,29 @@ mod tests {
                 "{action} granted"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn agreement_execution_worker_has_one_reserved_contract_command() {
+        let auth = CasbinAuthorizationPort::new().await.unwrap();
+        let mut req = request("contract.execute", OperationKind::Command, &[]);
+        req.domain = "contract";
+        req.operation = "contract.execute";
+        req.principal = None;
+        req.actor = ServiceActor {
+            id: Some("agreement-execution-worker".into()),
+            kind: ServiceActorKind::System,
+        };
+        assert!(auth.authorize(req.clone()).await.unwrap().allowed);
+
+        req.operation = "contract.saveDraft";
+        assert!(!auth.authorize(req.clone()).await.unwrap().allowed);
+        req.operation = "contract.execute";
+        req.action = "contract.write";
+        assert!(!auth.authorize(req.clone()).await.unwrap().allowed);
+        req.action = "contract.execute";
+        req.actor.id = Some("another-system".into());
+        assert!(!auth.authorize(req).await.unwrap().allowed);
     }
 
     #[tokio::test]
