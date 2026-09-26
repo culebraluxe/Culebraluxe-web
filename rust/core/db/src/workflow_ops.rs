@@ -51,6 +51,27 @@ impl WorkflowOpsDao {
         .map_err(|error| DbFailure::from_sqlx("workflow_ops.find_active_instance", &error))
     }
 
+    pub async fn find_actionable_task(
+        &self,
+        instance_id: &str,
+        node_id: &str,
+    ) -> DbResult<Option<String>> {
+        sqlx::query_scalar::<_, String>(
+            "select id::text
+             from tasks
+             where process_instance_id=$1::uuid
+               and node_id=$2
+               and status in ('ready','reserved','in_progress')
+             order by created_at asc, id
+             limit 1",
+        )
+        .bind(instance_id)
+        .bind(node_id)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("workflow_ops.find_actionable_task", &error))
+    }
+
     pub async fn pending_timer_job(
         &self,
         instance_id: &str,
