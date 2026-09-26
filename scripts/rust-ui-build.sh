@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the Rust UI to WebAssembly for the Next host.
+# Build the Rust UI to WebAssembly for the Rust server.
 #
 # WHY THIS EXISTS INSTEAD OF `wasm-pack build`: wasm-pack passes `--out-dir` straight through to `cargo build`, which
 # renamed that flag to `--artifact-dir`, so wasm-pack dies with "unexpected argument '--out-dir' found" before it
@@ -9,14 +9,12 @@
 #
 # DELETE THIS SCRIPT and go back to `wasm-pack build` when wasm-pack understands the current cargo.
 #
-# Output split, and the split matters:
-#   lib/rust-ui/ui.js   the importable ES module (Next bundles it; it is source, not an asset)
-#   public/rust-ui/ui_bg.wasm   served as a static file, because the host passes its URL to `init` explicitly. The
-#                               glue's default "next to this module" URL cannot work once a bundler owns the JS.
+# Output: public/rust-ui/ui.js (the ES module the page imports) and public/rust-ui/ui_bg.wasm, both served as static
+# files by the Rust server (rust/server/src/site.rs).
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-js_out="$root/lib/rust-ui"
+js_out="$root/public/rust-ui"
 wasm_out="$root/public/rust-ui"
 target_dir="${RUST_UI_TARGET_DIR:-$root/rust/target}"
 
@@ -50,11 +48,7 @@ wasm-bindgen \
   --out-name ui \
   "$target_dir/wasm32-unknown-unknown/$profile_dir/ui.wasm"
 
-# The wasm itself is fetched by URL, so it has to be reachable as a static asset.
-cp "$js_out/ui_bg.wasm" "$wasm_out/ui_bg.wasm"
-# The Rust server (rust/server/src/site.rs) serves the page without a bundler, so the browser imports the glue itself.
-cp "$js_out/ui.js" "$wasm_out/ui.js"
 
 echo "==> done"
-echo "    JS glue:  lib/rust-ui/ui.js"
+echo "    JS glue:  public/rust-ui/ui.js"
 echo "    WASM:     public/rust-ui/ui_bg.wasm ($(du -h "$wasm_out/ui_bg.wasm" | cut -f1))"
