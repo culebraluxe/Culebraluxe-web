@@ -59,9 +59,6 @@ pub enum Msg {
     },
     Uploaded(Result<(), ApiError>),
     SearchPaused(u32),
-    /// An event from the video island (`{ "type": "refresh" }` after an upload).
-    Video(serde_json::Value),
-
     QueryChanged(String),
     PageChanged(i64),
     RowSelected(String),
@@ -550,13 +547,6 @@ fn update(model: &mut Model, msg: Msg) -> Cmd<Msg> {
             }
         }
         Msg::OpsVideoRefreshRequested => read(model),
-        Msg::Video(event) => {
-            if event.get("type").and_then(|kind| kind.as_str()) == Some("refresh") {
-                read(model)
-            } else {
-                Cmd::none()
-            }
-        }
     }
 }
 

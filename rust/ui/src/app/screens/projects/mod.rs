@@ -2,8 +2,8 @@
 //! plan, timeline, calendar, financials, documents, activity), catch-up, and the work-item editor.
 //!
 //! Yew owns every piece of state: selection, view, catch-up, the draft of the open work item, and the two writes (a
-//! project's status; a work item's save). The mature widgets — Arborist navigator, catch-up list, SVAR Gantt,
-//! FullCalendar, the asset browser — are islands: they draw from props and report intents as events.
+//! project's status; a work item's save). The navigator, catch-up list, timeline, calendar and asset browser were
+//! JavaScript widgets and were deleted with the TypeScript (owner decision, 2026-09-26); they return as Rust ports.
 //!
 //! A WRITE ANSWERS WITH THE REFRESHED PAGE, and `crate::projects::carry_over` keeps what the user was looking at.
 
@@ -36,8 +36,6 @@ pub struct Model {
 pub enum Msg {
     Loaded(Result<PortalPage, ApiError>),
     Saved(Result<PortalPage, ApiError>),
-    /// An intent from the navigator or catch-up island (`{ kind: "domain" | "project" | "work" | ... }`).
-    Navigator(serde_json::Value),
     QueryChanged(String),
     ProjectDomainSelected(String),
     ProjectSelected(String),
@@ -112,10 +110,6 @@ fn edit(model: &mut Model, change: impl FnOnce(&mut PortalProjectWorkItem)) {
     }
 }
 
-fn field<'a>(event: &'a serde_json::Value, name: &str) -> Option<&'a str> {
-    event.get(name).and_then(|value| value.as_str())
-}
-
 impl Screen for Projects {
     type Model = Model;
     type Msg = Msg;
@@ -130,7 +124,7 @@ impl Screen for Projects {
         )
     }
 
-    fn update(model: &mut Model, msg: Msg, ctx: &ScreenCtx) -> Cmd<Msg> {
+    fn update(model: &mut Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> {
         // Intents that need a loaded page are ignored before it arrives.
         match msg {
             Msg::Loaded(result) => {
@@ -149,47 +143,6 @@ impl Screen for Projects {
                     model.error = None;
                 }
                 return Cmd::none();
-            }
-            Msg::Navigator(event) => {
-                let msg = match field(&event, "kind") {
-                    Some("query") => {
-                        field(&event, "query").map(|query| Msg::QueryChanged(query.into()))
-                    }
-                    Some("domain") => field(&event, "domain")
-                        .map(|domain| Msg::ProjectDomainSelected(domain.into())),
-                    Some("catchup") => Some(Msg::ProjectCatchUpToggled(true)),
-                    Some("project") => {
-                        field(&event, "projectId").map(|id| Msg::ProjectSelected(id.into()))
-                    }
-                    Some(kind @ ("catchupSelect" | "catchupComplete" | "work")) => {
-                        match (field(&event, "projectId"), field(&event, "nodeId")) {
-                            (Some(project_id), Some(node_id)) => {
-                                let (project_id, node_id) =
-                                    (project_id.to_string(), node_id.to_string());
-                                if kind == "work" {
-                                    Self::update(model, Msg::ProjectSelected(project_id), ctx);
-                                    Some(Msg::ProjectNodeSelected(Some(node_id)))
-                                } else if kind == "catchupSelect" {
-                                    Some(Msg::ProjectCatchUpItemSelected {
-                                        project_id,
-                                        node_id,
-                                    })
-                                } else {
-                                    Some(Msg::ProjectCatchUpItemCompleteRequested {
-                                        project_id,
-                                        node_id,
-                                    })
-                                }
-                            }
-                            _ => None,
-                        }
-                    }
-                    _ => None,
-                };
-                return match msg {
-                    Some(msg) => Self::update(model, msg, ctx),
-                    None => Cmd::none(),
-                };
             }
             Msg::QueryChanged(query) => {
                 model.controls.query = query;
@@ -408,7 +361,7 @@ mod tests {
     }
 
     #[test]
-    fn the_first_answer_opens_the_first_domain_with_work_and_islands_steer_it() {
+    fn the_first_answer_opens_the_first_domain_with_work_and_selection_steers_it() {
         let ctx = ScreenCtx::default();
         let mut model = opened();
         let projects = model.read.loaded().unwrap();
@@ -420,11 +373,8 @@ mod tests {
             ),
             ("properties", Some("p1"), Some("w1"))
         );
-        Projects::update(
-            &mut model,
-            Msg::Navigator(json!({ "kind": "work", "projectId": "p2", "nodeId": "w2" })),
-            &ctx,
-        );
+        Projects::update(&mut model, Msg::ProjectSelected("p2".into()), &ctx);
+        Projects::update(&mut model, Msg::ProjectNodeSelected(Some("w2".into())), &ctx);
         let projects = model.read.loaded().unwrap();
         assert_eq!(
             (
@@ -433,11 +383,7 @@ mod tests {
             ),
             (Some("p2"), Some("w2"))
         );
-        Projects::update(
-            &mut model,
-            Msg::Navigator(json!({ "kind": "query", "query": "villa" })),
-            &ctx,
-        );
+        Projects::update(&mut model, Msg::QueryChanged("villa".into()), &ctx);
         assert_eq!(model.controls.query, "villa");
     }
 

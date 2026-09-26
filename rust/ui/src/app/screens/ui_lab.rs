@@ -1,37 +1,17 @@
 //! /portal/design-lab — one comparison surface for the portal UI vocabulary.
 //!
 //! This screen is deliberately local: no read model, no credentials, no server effect. It is the safe place to compare
-//! native Yew controls against the preserved React/TypeScript gallery and the Framer interaction experiments before a
-//! pattern is promoted into product screens.
+//! native Yew controls before a pattern is promoted into product screens.
 
 use web_sys::{HtmlInputElement, HtmlSelectElement};
 use yew::prelude::*;
 use yew::TargetCast;
 
 use crate::app::cmd::Cmd;
-use crate::app::island::Island;
 use crate::app::screen::{Link, Screen, ScreenCtx};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LabTab {
-    Yew,
-    React,
-    Motion,
-}
-
-impl LabTab {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Yew => "Yew / Rust",
-            Self::React => "React / TypeScript",
-            Self::Motion => "Motion / Framer",
-        }
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LabModel {
-    tab: LabTab,
     query: String,
     density: &'static str,
     notifications: bool,
@@ -45,7 +25,6 @@ pub struct LabModel {
 impl Default for LabModel {
     fn default() -> Self {
         Self {
-            tab: LabTab::Yew,
             query: String::new(),
             density: "comfortable",
             notifications: true,
@@ -59,7 +38,6 @@ impl Default for LabModel {
 }
 
 pub enum LabMsg {
-    TabSelected(LabTab),
     QueryChanged(String),
     DensityChanged(&'static str),
     NotificationsChanged(bool),
@@ -73,7 +51,6 @@ pub enum LabMsg {
 
 fn reduce(model: &mut LabModel, msg: LabMsg) {
     match msg {
-        LabMsg::TabSelected(tab) => model.tab = tab,
         LabMsg::QueryChanged(query) => model.query = query,
         LabMsg::DensityChanged(density) => model.density = density,
         LabMsg::NotificationsChanged(enabled) => model.notifications = enabled,
@@ -106,14 +83,7 @@ impl Screen for UiLab {
         html! {
             <div class="space-y-4">
                 { view.hero(link) }
-                { view.tabs(link) }
-                {
-                    match lab.tab {
-                        LabTab::Yew => view.yew_lab(link),
-                        LabTab::React => view.react_lab(),
-                        LabTab::Motion => view.motion_lab(),
-                    }
-                }
+                { view.yew_lab(link) }
             </div>
         }
     }
@@ -138,7 +108,7 @@ impl View<'_> {
                             {"UI Lab"}
                         </h1>
                         <p class="mt-2 max-w-3xl text-sm font-light leading-6 text-black/55">
-                            {"One surface to compare the SaaS vocabulary before promoting it into production. Yew owns the screen; React and motion experiments stay bounded until they earn adoption."}
+                            {"One surface to compare the SaaS vocabulary before promoting it into production. Everything here is Yew."}
                         </p>
                     </div>
                     <button
@@ -153,37 +123,6 @@ impl View<'_> {
         }
     }
 
-    fn tabs(&self, link: &Link<LabMsg>) -> Html {
-        html! {
-            <nav class="portal-glass-panel flex flex-wrap gap-1 rounded-[var(--portal-panel-radius)] p-1.5" aria-label="UI lab technology">
-                { self.tab_button(link, LabTab::Yew) }
-                { self.tab_button(link, LabTab::React) }
-                { self.tab_button(link, LabTab::Motion) }
-            </nav>
-        }
-    }
-
-    fn tab_button(&self, link: &Link<LabMsg>, tab: LabTab) -> Html {
-        let active = self.lab.tab == tab;
-        let onclick = link.callback(move |_: MouseEvent| LabMsg::TabSelected(tab));
-        html! {
-            <button
-                type="button"
-                {onclick}
-                aria-pressed={active.to_string()}
-                class={classes!(
-                    "rounded-md", "px-4", "py-2", "text-xs", "font-medium", "transition",
-                    if active {
-                        "bg-[var(--portal-navy)] text-white shadow-sm"
-                    } else {
-                        "text-[var(--portal-navy-soft)] hover:bg-white/50 hover:text-[var(--portal-navy)]"
-                    }
-                )}
-            >
-                { tab.label() }
-            </button>
-        }
-    }
 }
 
 impl View<'_> {
@@ -546,7 +485,7 @@ impl View<'_> {
         ];
         html! {
             <section class="portal-glass-panel rounded-[var(--portal-panel-radius)] p-4">
-                { section_heading("Kanban pattern", "Native static proof; production TECH Cockpit keeps SVAR as a bounded island.") }
+                { section_heading("Kanban pattern", "Native static proof.") }
                 <div class="mt-4 grid gap-3 md:grid-cols-3">
                     { for columns.into_iter().map(|(column, cards)| html! {
                         <div class="rounded-md border border-[var(--portal-border)] bg-white/25 p-2.5">
@@ -776,38 +715,6 @@ impl View<'_> {
                     }) }
                 </div>
             </section>
-        }
-    }
-}
-
-impl View<'_> {
-    fn react_lab(&self) -> Html {
-        html! {
-            <div class="space-y-4">
-                <section class="portal-glass-panel rounded-[var(--portal-panel-radius)] p-5">
-                    <p class="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--portal-gold)]">{"Preserved reference"}</p>
-                    <h2 class="mt-1 font-serif text-2xl font-light text-[var(--portal-navy)]">{"React / TypeScript component gallery"}</h2>
-                    <p class="mt-3 max-w-3xl text-sm font-light leading-6 text-black/55">
-                        {"The original portal component gallery is mounted below unchanged as a bounded React island. Yew still owns this route and tab state."}
-                    </p>
-                </section>
-                <Island kind="ui-lab-gallery" class="min-h-[20rem]" />
-            </div>
-        }
-    }
-
-    fn motion_lab(&self) -> Html {
-        html! {
-            <div class="space-y-4">
-                <section class="portal-glass-panel rounded-[var(--portal-panel-radius)] p-5">
-                    <p class="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--portal-gold)]">{"Interaction reference"}</p>
-                    <h2 class="mt-1 font-serif text-2xl font-light text-[var(--portal-navy)]">{"Motion / Framer ideas"}</h2>
-                    <p class="mt-3 max-w-3xl text-sm font-light leading-6 text-black/55">
-                        {"The existing Framer-inspired MVI lab is mounted below as a bounded React island: motion profiles, view transitions, image drift, hotspots, tilt, command palette and reusable core components."}
-                    </p>
-                </section>
-                <Island kind="ui-lab-motion" class="min-h-[28rem] overflow-hidden rounded-[var(--portal-panel-radius)]" />
-            </div>
         }
     }
 }

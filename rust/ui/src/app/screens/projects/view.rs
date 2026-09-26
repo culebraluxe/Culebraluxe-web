@@ -6,10 +6,8 @@
 
 use std::collections::BTreeSet;
 
-use serde_json::json;
 use yew::prelude::*;
 
-use crate::app::island::Island;
 use crate::model::{PortalProject, PortalProjectWorkItem, PortalProjectsPage};
 
 use super::{Msg, Vm};
@@ -32,29 +30,19 @@ pub(super) fn workspace(
 
     html! {
         <div class="grid min-h-0 gap-3 lg:h-[calc(100dvh-8.5rem)] lg:grid-cols-[390px_minmax(0,1fr)]">
-            { navigator(model, projects, on_msg) }
+            { navigator() }
             { center_panel(model, projects, on_msg) }
         </div>
     }
 }
 
-fn navigator(model: &Vm<'_>, projects: &PortalProjectsPage, on_msg: &Callback<Msg>) -> Html {
-    let widget = json!({
-        "projects": &projects.projects,
-        "items": &projects.items,
-        "identityNames": &projects.identity_names,
-        "activeDomain": projects.active_domain.clone(),
-        "catchUp": projects.catch_up,
-        "selectedProjectId": projects.selected_project_id.clone(),
-        "selectedNodeId": projects.selected_node_id.clone(),
-        "query": model.controls.query.clone(),
-    });
+fn navigator() -> Html {
     html! {
         <aside
             class="portal-glass-panel min-h-0 overflow-hidden rounded-[var(--portal-panel-radius)] text-white"
             style="background-color: color-mix(in srgb, var(--portal-navy) 90%, transparent);"
         >
-            <Island kind="project-navigator" props={widget.to_string()} on_event={on_msg.reform(Msg::Navigator)} class="h-full min-h-[20rem] overflow-hidden" />
+            { crate::app::template::widget_removed("The project navigator") }
         </aside>
     }
 }
@@ -181,13 +169,13 @@ fn active_view(
     on_msg: &Callback<Msg>,
 ) -> Html {
     match projects.active_view.as_str() {
-        "timeline" => timeline_view(projects, project),
-        "calendar" => calendar_view(projects, project),
+        "timeline" => timeline_view(),
+        "calendar" => calendar_view(),
         "financials" => placeholder_view(
             "Financials",
             "No project-scoped accounting read model is attached to the Rust workspace yet.",
         ),
-        "documents" => documents_view(projects, project),
+        "documents" => documents_view(),
         "activity" => activity_view(projects, project),
         _ => work_plan_view(projects, project, on_msg),
     }
@@ -259,81 +247,16 @@ fn work_plan_node(
     }
 }
 
-fn timeline_view(projects: &PortalProjectsPage, project: &PortalProject) -> Html {
-    let widget = timeline_widget_json(projects, project);
-    html! {
-        <Island kind="project-timeline" props={widget.to_string()} class="h-full min-h-[26rem] overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)]" />
-    }
+fn timeline_view() -> Html {
+    crate::app::template::widget_removed("The timeline")
 }
 
-fn calendar_view(projects: &PortalProjectsPage, project: &PortalProject) -> Html {
-    // An empty schedule is a valid project state: this is the surface where due
-    // dates are created. Always mount FullCalendar and let the mature widget
-    // render its own empty grid instead of replacing the calendar with prose.
-    let widget = calendar_widget_json(projects, project);
-    html! {
-        <Island kind="project-calendar" props={widget.to_string()} class="h-full min-h-[28rem] overflow-hidden" />
-    }
+fn calendar_view() -> Html {
+    crate::app::template::widget_removed("The calendar")
 }
 
-fn documents_view(projects: &PortalProjectsPage, project: &PortalProject) -> Html {
-    let property_ids = project_property_ids(projects, project);
-    let mut files = projects
-        .documents
-        .iter()
-        .filter(|document| {
-            document
-                .property_id
-                .as_ref()
-                .is_some_and(|id| property_ids.contains(id))
-        })
-        .map(|document| {
-            json!({
-                "id": format!("vault:{}", document.id),
-                "assetId": document.id,
-                "kind": "document",
-                "name": document.title,
-                "source": "vault",
-                "href": format!("/portal/documents/{}", document.id),
-                "state": document.state,
-                "date": document.created_at,
-            })
-        })
-        .collect::<Vec<_>>();
-
-    files.extend(
-        projects
-            .media
-            .iter()
-            .filter(|asset| property_ids.contains(&asset.property_id))
-            .map(|asset| {
-                let photo = asset
-                    .mime_type
-                    .as_deref()
-                    .is_some_and(|mime| mime.starts_with("image/"))
-                    || matches!(asset.media_type.as_str(), "photo" | "image");
-                json!({
-                    "id": format!("media:{}", asset.id),
-                    "assetId": asset.id,
-                    "kind": if photo { "photo" } else { "document" },
-                    "name": asset.filename.clone().unwrap_or_else(|| {
-                        asset.caption.clone().unwrap_or_else(|| "Property media".into())
-                    }),
-                    "source": "property-media",
-                    "href": asset.url,
-                    "caption": asset.caption,
-                    "altText": asset.alt_text,
-                    "mimeType": asset.mime_type,
-                    "size": asset.file_size,
-                    "date": asset.created_at,
-                })
-            }),
-    );
-
-    let widget = json!({ "files": files });
-    html! {
-        <Island kind="project-documents" props={widget.to_string()} class="h-full min-h-[24rem] overflow-hidden" />
-    }
+fn documents_view() -> Html {
+    crate::app::template::widget_removed("The document browser")
 }
 
 fn placeholder_view(title: &str, message: &str) -> Html {
@@ -457,24 +380,15 @@ fn selected_work_editor(
     }
 }
 
-fn catchup_center(_model: &Vm<'_>, projects: &PortalProjectsPage, on_msg: &Callback<Msg>) -> Html {
-    let widget = json!({
-        "projects": &projects.projects,
-        "items": &projects.items,
-        "identityNames": &projects.identity_names,
-        "calendar": &projects.calendar,
-        "selectedProjectId": &projects.selected_project_id,
-        "selectedNodeId": &projects.selected_node_id,
-        "saving": projects.saving,
-    });
+fn catchup_center(model: &Vm<'_>, projects: &PortalProjectsPage, on_msg: &Callback<Msg>) -> Html {
     let selected = selected_item(projects);
     html! {
         <section class="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
             <div class="min-h-0 flex-1 overflow-hidden">
-                <Island kind="project-catchup" props={widget.to_string()} on_event={on_msg.reform(Msg::Navigator)} class="h-full min-h-[28rem] overflow-hidden" />
+                { crate::app::template::widget_removed("The catch-up view") }
             </div>
             <div class="shrink-0 px-3 pb-3">
-                { selected_work_editor(_model, projects, selected, on_msg) }
+                { selected_work_editor(model, projects, selected, on_msg) }
             </div>
         </section>
     }
@@ -687,24 +601,6 @@ fn activity_view(projects: &PortalProjectsPage, project: &PortalProject) -> Html
     }
 }
 
-fn project_property_ids(
-    projects: &PortalProjectsPage,
-    project: &PortalProject,
-) -> BTreeSet<String> {
-    let mut ids = BTreeSet::new();
-    if let Some(id) = project.property_id.as_ref() {
-        ids.insert(id.clone());
-    }
-    for item in project_items(projects, &project.id) {
-        if let Some(entity) = item.entity.as_ref() {
-            if entity.entity_type == "property" {
-                ids.insert(entity.id.clone());
-            }
-        }
-    }
-    ids
-}
-
 fn status_label(status: &str) -> &'static str {
     match status {
         "doing" => "In progress",
@@ -736,42 +632,4 @@ fn date_value(value: Option<&str>) -> String {
         .and_then(|value| value.get(0..10))
         .unwrap_or("")
         .to_string()
-}
-
-fn timeline_widget_json(
-    projects: &PortalProjectsPage,
-    project: &PortalProject,
-) -> serde_json::Value {
-    let items = project_items(projects, &project.id);
-    json!({
-        "project": project,
-        "items": items,
-        "progress": project_progress(projects, &project.id),
-    })
-}
-
-fn calendar_widget_json(
-    projects: &PortalProjectsPage,
-    project: &PortalProject,
-) -> serde_json::Value {
-    let events = project_items(projects, &project.id)
-        .into_iter()
-        .filter_map(|item| {
-            let due = item.due_at.as_deref()?;
-            Some(json!({
-                "id": item.id,
-                "title": item.title,
-                "startAt": due,
-                "endAt": null,
-                "allDay": true,
-                "personId": null,
-                "personName": null,
-                "propertyName": project.property_id.as_ref()
-                    .and_then(|id| projects.identity_names.get(&format!("property:{id}"))),
-                "kind": "other",
-                "source": "wbs",
-            }))
-        })
-        .collect::<Vec<_>>();
-    json!({ "events": events })
 }

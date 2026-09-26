@@ -3,7 +3,6 @@
 
 use yew::prelude::*;
 
-use crate::app::island::Island;
 use crate::model::{
     PortalOpsMediaAsset, PortalOpsPerson, PortalOpsProject, PortalOpsProperty,
     PortalOpsWorkbenchPage,
@@ -1407,7 +1406,7 @@ fn property_editor(
             </div>
         },
         "photos" => media_editor(model, property, media, on_msg),
-        "video" => video_editor(property, media, on_msg),
+        "video" => video_editor(property, media),
         "person" => property_person_editor(model, property, on_msg),
         _ => html! {
             <div class="space-y-4">
@@ -1608,33 +1607,13 @@ fn property_person_editor(
     }
 }
 
-fn video_editor(
-    property: &PortalOpsProperty,
-    media: &[PortalOpsMediaAsset],
-    on_msg: &Callback<Msg>,
-) -> Html {
+fn video_editor(property: &PortalOpsProperty, media: &[PortalOpsMediaAsset]) -> Html {
     let videos = media
         .iter()
         .filter(|item| item.media_type == "video" && item.mux_playback_id.is_some())
         .collect::<Vec<_>>();
     let films = videos.iter().filter(|item| item.role == "video").count() as i64;
     let shorts = videos.iter().filter(|item| item.role == "short").count() as i64;
-    let payload = serde_json::json!({
-        "propertyId": property.id,
-        "propertyName": property.name,
-        "videos": videos.iter().map(|item| {
-            serde_json::json!({
-                "id": item.id,
-                "role": item.role,
-                "caption": item.caption,
-                "muxAssetId": item.mux_asset_id,
-                "playbackId": item.mux_playback_id,
-                "durationSeconds": item.duration_seconds,
-                "aspectRatio": item.aspect_ratio,
-            })
-        }).collect::<Vec<_>>(),
-    })
-    .to_string();
     html! {
         <div class="space-y-4">
             {section_intro(
@@ -1646,8 +1625,7 @@ fn video_editor(
                 {count_card("Property films", films)}
                 {count_card("Short films", shorts)}
             </div>
-            <Island kind="opps-video" props={payload} on_event={on_msg.reform(Msg::Video)}
-                class="min-h-[360px] overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/30" />
+            { crate::app::template::widget_removed("The video panel") }
         </div>
     }
 }

@@ -263,11 +263,11 @@ mod tests {
         );
         assert!(
             in_app("/portal/dashboard", "/portal/property-admin"),
-            "the Workbench's video is an <Island>, so it moves in the app"
+            "the Workbench is a screen, so it moves in the app"
         );
         assert!(
             in_app("/portal/dashboard", "/portal/projects"),
-            "a screen whose widgets are <Island>s moves in the app"
+            "Projects is a screen, so it moves in the app"
         );
     }
 }

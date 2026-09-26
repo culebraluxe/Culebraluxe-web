@@ -63,6 +63,13 @@ pub fn empty_panel(message: &str) -> Html {
 }
 
 /// One headline number with its label and what it counts.
+/// Where a vendor widget (Gantt, calendar, sorter, player, gallery) used to be. The widgets were deleted with the last
+/// of the TypeScript (owner decision, 2026-09-26): a feature that needs one comes back only as a Rust port, never as a
+/// JavaScript island.
+pub fn widget_removed(what: &str) -> Html {
+    empty_panel(&format!("{what} is not available yet — it is being rebuilt in Rust."))
+}
+
 pub fn metric(label: &str, value: &str, hint: &str) -> Html {
     html! {
         <div class={classes!(PANEL, "p-6")}>

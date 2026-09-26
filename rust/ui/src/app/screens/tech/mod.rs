@@ -38,8 +38,6 @@ pub struct Model {
 pub enum Msg {
     Loaded(Result<PortalPage, ApiError>),
     Tick,
-    /// An event from the sorter island (`{ "type": "refresh" }`).
-    Sorter(serde_json::Value),
     TechStorySelected(String),
     TechRefreshRequested,
     TechScheduleChanged(String),
@@ -115,15 +113,6 @@ impl Screen for TechCockpit {
                     read(model)
                 };
                 Cmd::batch([refresh, Cmd::after(REFRESH_MS, Msg::Tick)])
-            }
-            Msg::Sorter(event) => {
-                if event.get("type").and_then(|kind| kind.as_str()) == Some("refresh")
-                    && !model.loading
-                {
-                    read(model)
-                } else {
-                    Cmd::none()
-                }
             }
             Msg::TechStorySelected(id) => {
                 model.selected = Some(id);
@@ -292,20 +281,5 @@ mod tests {
         );
         assert_eq!(after.into_requests().len(), 1, "a refusal re-reads too");
         assert!(model.tech.busy_action.is_none());
-    }
-
-    #[test]
-    fn the_sorter_asks_for_a_refresh_through_its_events() {
-        let ctx = ScreenCtx::default();
-        let mut model = Model {
-            read: Remote::Loaded(PortalTechPage::default()),
-            ..Model::default()
-        };
-        assert_eq!(
-            TechCockpit::update(&mut model, Msg::Sorter(json!({ "type": "refresh" })), &ctx)
-                .into_requests()
-                .len(),
-            1
-        );
     }
 }

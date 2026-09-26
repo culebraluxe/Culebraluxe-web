@@ -4,10 +4,8 @@
 //! the engine queue/running/results lanes, selected-story introspection and the last four story outcomes. SVAR remains a
 //! rendering-only React island for drag mechanics; Yew owns the screen, selection and canonical data refresh.
 
-use serde_json::json;
 use yew::prelude::*;
 
-use crate::app::island::Island;
 use crate::model::{
     PortalTechEngineRun, PortalTechFlight, PortalTechHistory, PortalTechPage, PortalTechRun,
     PortalTechStory,
@@ -30,7 +28,7 @@ pub(super) fn cockpit(model: &Vm<'_>, tech: &PortalTechPage, on_msg: &Callback<M
             { header(tech, model, on_msg) }
             { kpis(tech) }
             { command_notice(model) }
-            { sorter(tech, on_msg) }
+            { sorter() }
             { flight_strip(model, tech, on_msg) }
             { workbench(model, tech, on_msg) }
             { engine_line(tech) }
@@ -123,11 +121,7 @@ fn kpis(tech: &PortalTechPage) -> Html {
     }
 }
 
-fn sorter(tech: &PortalTechPage, on_msg: &Callback<Msg>) -> Html {
-    let widget = json!({
-        "cards": &tech.sorter_cards,
-        "columns": &tech.sorter_columns,
-    });
+fn sorter() -> Html {
     html! {
         <section class="mb-4 overflow-hidden rounded-lg border border-white/10 bg-white/[0.02]">
             <div class="flex flex-wrap items-baseline justify-between gap-2 border-b border-white/10 px-4 py-3">
@@ -139,8 +133,7 @@ fn sorter(tech: &PortalTechPage, on_msg: &Callback<Msg>) -> Html {
                     {"Drag freely · WORK BENCH is daily intent · FLIGHT STAGING does not dispatch · ENGINE RUN Q does"}
                 </p>
             </div>
-            <Island kind="tech-sorter" props={widget.to_string()}
-                on_event={on_msg.reform(Msg::Sorter)} class="h-[520px] overflow-hidden p-2" />
+            { crate::app::template::widget_removed("The story sorter") }
         </section>
     }
 }

@@ -399,20 +399,6 @@ impl Endpoint for DealWorkspaceCommand {
     }
 }
 
-/// One process instance's recorded transaction, as the Flight Recorder console reads it. The answer is passed to the
-/// console untouched, so it stays JSON here.
-pub struct FlightRecorderRead {
-    pub instance_id: String,
-}
-
-impl Endpoint for FlightRecorderRead {
-    const METHOD: Method = Method::Get;
-    type Response = serde_json::Value;
-    fn path(&self) -> String {
-        format!("/api/portal/flight-recorder/{}", encode(&self.instance_id))
-    }
-}
-
 /// The Forge Cockpit, with one story's detail when `selected` is set. Answers `{ tech: ... }`.
 pub struct TechRead {
     pub selected: Option<String>,
