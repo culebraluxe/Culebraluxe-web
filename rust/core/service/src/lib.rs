@@ -3,6 +3,7 @@
 //! This crate owns transport-neutral service context plus the authorization,
 //! audit, and domain-event ports used by authoritative business services.
 
+mod abstract_service;
 mod audit;
 mod authorization;
 mod context;
@@ -10,6 +11,9 @@ mod events;
 mod runtime;
 mod signature_provider;
 
+pub use abstract_service::{
+    AbstractService, ServiceCapability, ServiceDescriptor, ServiceDispatchError, ServiceEnvelope,
+};
 pub use audit::{AuditPort, CapturingAuditPort, ServiceAuditEvent, ServiceOutcome};
 pub use authorization::{
     AuthorizationDecision, AuthorizationPort, AuthorizationRequest, DefaultAuthorizationPort,

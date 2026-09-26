@@ -24,7 +24,7 @@ use integrations::boldsign::{BoldSignConfig, BoldSignSignatureProvider};
 use integrations::mux::{MuxClient, MuxConfig};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use service::{OperationKind, ServiceContext, SignatureProvider};
+use service::{OperationKind, ServiceContext, ServiceDispatchError, ServiceEnvelope, SignatureProvider};
 use std::{collections::BTreeMap, sync::Arc};
 
 #[derive(Debug, Serialize)]
@@ -899,6 +899,10 @@ pub fn router(state: ApiState) -> Router {
         .route("/healthz", get(health))
         .route("/readyz", get(ready))
         .route("/v1/whoami", get(whoami))
+        // ABSTRACT SERVICE INGRESS. The transport resolves identity/context; callers supply only
+        // domain + operation + payload. Typed services remain authoritative underneath.
+        .route("/v1/services", get(service_catalog))
+        .route("/v1/services/dispatch", post(service_dispatch))
         // THE LOGIN SEAM'S QUESTION, as opposed to whoami's. Auth.js has proved a Google subject and nobody
         // knows yet whether it maps to an active application user; this answers known / unmapped / inactive.
         .route("/v1/security/identity", get(security_identity))
@@ -1497,6 +1501,68 @@ struct AuthorizeResponse {
 
 /// THE ONE DECISION SURFACE.
 ///
+
+async fn service_catalog(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<Vec<service::ServiceDescriptor>>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let value = crate::ServiceGateway::new(state.services()).descriptors();
+    Ok(success(value, &resolved))
+}
+
+async fn service_dispatch(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(envelope): Json<ServiceEnvelope>,
+) -> Result<Json<ApiSuccess<serde_json::Value>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let correlation_id = resolved.service.correlation_id.clone();
+    let value = crate::ServiceGateway::new(state.services())
+        .dispatch(&envelope, &resolved.service)
+        .await
+        .map_err(|error| service_dispatch_error(error).with_correlation(correlation_id))?;
+    Ok(success(value, &resolved))
+}
+
+fn service_dispatch_error(error: ServiceDispatchError) -> ApiError {
+    match error {
+        ServiceDispatchError::ServiceNotFound(domain) => ApiError::not_found(
+            "SERVICE_NOT_FOUND",
+            format!("Service not registered for domain: {domain}"),
+        ),
+        ServiceDispatchError::UnknownOperation { domain, operation } => ApiError::not_found(
+            "UNKNOWN_OPERATION",
+            format!("Unknown service operation: {domain}.{operation}"),
+        ),
+        ServiceDispatchError::InvalidPayload {
+            domain,
+            operation,
+            message,
+        } => ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "INVALID_SERVICE_PAYLOAD",
+            format!("{domain}.{operation}: {message}"),
+            false,
+        ),
+        ServiceDispatchError::Operation {
+            code,
+            message,
+            retryable,
+        } => {
+            let status = match code.as_str() {
+                "FORBIDDEN" => StatusCode::FORBIDDEN,
+                "AUTHORIZATION_UNAVAILABLE" | "AUDIT_UNAVAILABLE" | "DOMAIN_EVENT_UNAVAILABLE" | "DATABASE" => {
+                    StatusCode::SERVICE_UNAVAILABLE
+                }
+                _ if code.ends_with("_NOT_FOUND") => StatusCode::NOT_FOUND,
+                _ if code.contains("CONFLICT") => StatusCode::CONFLICT,
+                _ => StatusCode::BAD_REQUEST,
+            };
+            ApiError::new(status, code, message, retryable)
+        }
+    }
+}
 
 async fn whoami(
     State(state): State<ApiState>,
