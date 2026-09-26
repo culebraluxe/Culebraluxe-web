@@ -46,6 +46,28 @@ impl ServiceGateway {
         self.registry.dispatch(envelope, context).await
     }
 
+    /// Execute a typed service call through the registered service mailbox.
+    ///
+    /// HTTP handlers use this while a domain is being migrated to JSON envelope
+    /// dispatch. It preserves the typed response while enforcing the same
+    /// bounded queue and lifecycle controls as `dispatch`.
+    pub async fn execute<T, F>(
+        &self,
+        domain: &str,
+        operation: &str,
+        payload: &Value,
+        work: F,
+    ) -> Result<T, ServiceDispatchError>
+    where
+        T: Send + 'static,
+        F: std::future::Future<Output = T> + Send + 'static,
+    {
+        self.ensure_accepting()?;
+        self.registry
+            .run_task(domain, operation, payload, work)
+            .await
+    }
+
     pub fn refuse_new_work(&self) {
         self.accepting.store(false, Ordering::Release);
     }

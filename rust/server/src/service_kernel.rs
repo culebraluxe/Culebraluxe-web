@@ -202,24 +202,27 @@ impl ServiceRegistry {
             .entries
             .get(domain)
             .ok_or_else(|| ServiceDispatchError::ServiceNotFound(domain.to_owned()))?;
-        let capability = entry
+        let execution = match entry
             .descriptor
             .capabilities
             .iter()
             .find(|capability| capability.name == operation)
-            .ok_or_else(|| ServiceDispatchError::UnknownOperation {
-                domain: domain.to_owned(),
-                operation: operation.to_owned(),
-            })?;
+        {
+            Some(capability) => capability.execution.clone(),
+            None if entry.descriptor.capabilities.is_empty() => {
+                service::ServiceExecutionPolicy::inline()
+            }
+            None => {
+                return Err(ServiceDispatchError::UnknownOperation {
+                    domain: domain.to_owned(),
+                    operation: operation.to_owned(),
+                });
+            }
+        };
 
         entry
             .mailbox
-            .submit_task(
-                operation.to_owned(),
-                capability.execution.clone(),
-                payload,
-                work,
-            )
+            .submit_task(operation.to_owned(), execution, payload, work)
             .await
     }
 
