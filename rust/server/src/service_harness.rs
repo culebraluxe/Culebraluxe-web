@@ -1,18 +1,21 @@
 use crate::{
-    CommandDispatchError, CommandDispatcher, ServiceGateway, ServiceKernel, ServiceKernelHealth,
+    CommandDispatchError, CommandDispatcher, MqProofSubscriber, MqRuntime, ServiceGateway,
+    ServiceKernel, ServiceKernelHealth,
 };
-use db::Database;
+use db::{Database, DomainEventOutboxDao};
 use serde_json::Value;
 use service::{
     CommandRequest, CommandResult, ServiceContext, ServiceControlCommand, ServiceControlResult,
-    ServiceDescriptor, ServiceDispatchError, ServiceEnvelope, ServiceInfrastructure,
+    ServiceDescriptor, ServiceDispatchError, ServiceEnvelope, ServiceHealth, ServiceInfrastructure,
 };
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct ServiceHarness {
     kernel: ServiceKernel,
     gateway: ServiceGateway,
     commands: CommandDispatcher,
+    mq: MqRuntime,
 }
 
 impl ServiceHarness {
@@ -20,20 +23,34 @@ impl ServiceHarness {
         db: Database,
         infrastructure: ServiceInfrastructure,
     ) -> Result<Self, ServiceDispatchError> {
+        let mq_infrastructure = infrastructure.clone();
         let kernel = ServiceKernel::new(db.clone(), infrastructure)?;
         let gateway = ServiceGateway::new(kernel.registry());
-        let commands = CommandDispatcher::for_kernel(db, kernel.contract()).map_err(|error| {
+        let commands = CommandDispatcher::for_kernel(db.clone(), kernel.contract()).map_err(|error| {
             ServiceDispatchError::infrastructure("COMMAND_RUNTIME_INIT", error.to_string(), false)
         })?;
+        let outbox = DomainEventOutboxDao::new(db);
+        let mq = MqRuntime::new(
+            outbox.clone(),
+            vec![Arc::new(MqProofSubscriber::new(outbox))],
+            mq_infrastructure,
+            kernel.child_token(),
+        )?;
         Ok(Self {
             kernel,
             gateway,
             commands,
+            mq,
         })
     }
 
     pub async fn start(&self) -> Result<(), ServiceDispatchError> {
-        self.kernel.start().await
+        self.kernel.start().await?;
+        if let Err(error) = self.mq.start().await {
+            let _ = self.kernel.shutdown().await;
+            return Err(error);
+        }
+        Ok(())
     }
 
     pub fn kernel(&self) -> ServiceKernel {
@@ -50,6 +67,10 @@ impl ServiceHarness {
 
     pub fn health(&self) -> ServiceKernelHealth {
         self.kernel.health()
+    }
+
+    pub fn mq_health(&self) -> ServiceHealth {
+        self.mq.health()
     }
 
     pub async fn dispatch(
@@ -90,14 +111,17 @@ impl ServiceHarness {
     }
 
     pub async fn shutdown(&self) -> Result<(), ServiceDispatchError> {
-        self.kernel.shutdown().await
+        self.kernel.shutdown().await?;
+        self.mq.wait_stopped().await
     }
 
     pub fn begin_shutdown(&self) {
         self.kernel.begin_shutdown();
+        self.mq.begin_shutdown();
     }
 
     pub async fn wait_stopped(&self) -> Result<(), ServiceDispatchError> {
-        self.kernel.wait_stopped().await
+        self.kernel.wait_stopped().await?;
+        self.mq.wait_stopped().await
     }
 }
