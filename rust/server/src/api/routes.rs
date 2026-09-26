@@ -7,8 +7,9 @@ use crate::service_support::CoreServiceError;
 use axum::{
     body::Body,
     extract::{DefaultBodyLimit, Multipart, Path, Query, State},
-    http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode},
-    response::Response,
+    http::{header, HeaderMap, HeaderName, HeaderValue, Request, StatusCode},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -1099,7 +1100,130 @@ pub fn router(state: ApiState) -> Router {
             "/api/integrations/boldsign/webhook",
             post(signature_webhook),
         )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            registered_service_mailbox,
+        ))
         .with_state(state)
+}
+
+async fn registered_service_mailbox(
+    State(state): State<ApiState>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    let path = request.uri().path().to_owned();
+    let Some(domain) = http_service_domain(&path) else {
+        return next.run(request).await;
+    };
+    let method = request.method().to_string();
+    let operation = format!("http.{}", method.to_ascii_lowercase());
+    let payload = json!({ "method": method, "path": path });
+    match state
+        .service_gateway()
+        .execute(domain, &operation, &payload, async move {
+            next.run(request).await
+        })
+        .await
+    {
+        Ok(response) => response,
+        Err(error) => service_dispatch_error(error).into_response(),
+    }
+}
+
+fn http_service_domain(path: &str) -> Option<&'static str> {
+    if path == "/v1/cockpit"
+        || path.starts_with("/v1/workflows")
+        || path.starts_with("/v1/flight-recorder")
+        || path.starts_with("/v1/tasks/")
+    {
+        return None;
+    }
+    if path == "/api/integrations/whatsapp/webhook" {
+        return Some("whatsapp");
+    }
+    if path == "/api/integrations/boldsign/webhook" || path.starts_with("/v1/signature/") {
+        return Some("signature");
+    }
+    if path.starts_with("/v1/security/") {
+        return Some(if path.contains("guest") {
+            "guest-sign-in"
+        } else {
+            "security"
+        });
+    }
+    if path.starts_with("/v1/support/") {
+        return Some("support");
+    }
+    if path.starts_with("/v1/tech/") {
+        return Some("tech");
+    }
+    if path.starts_with("/v1/projects") {
+        return Some("project");
+    }
+    if path.starts_with("/v1/wbs") {
+        return Some("wbs");
+    }
+    if path.starts_with("/v1/clients") {
+        return Some("client");
+    }
+    if path.starts_with("/v1/people") {
+        return Some("person");
+    }
+    if path.starts_with("/v1/properties") {
+        return Some("property");
+    }
+    if path.starts_with("/v1/media") {
+        return Some("media");
+    }
+    if path.starts_with("/v1/deals") {
+        return Some("deal");
+    }
+    if path.starts_with("/v1/contracts") || path.contains("/contracts") {
+        return Some("contract");
+    }
+    if path.contains("/issued-document") || path.starts_with("/v1/vault") {
+        return Some("vault");
+    }
+    if path.starts_with("/v1/forms") {
+        return Some("forms");
+    }
+    if path.starts_with("/v1/comms") || path == "/v1/activity" {
+        return Some("communications");
+    }
+    if path == "/v1/issues" {
+        return Some("issue");
+    }
+    if path.starts_with("/v1/relationship-evidence") {
+        return Some("relationship-evidence");
+    }
+    if path.starts_with("/v1/accounting") {
+        return Some("accounting");
+    }
+    if path.starts_with("/v1/calendar") {
+        return Some("calendar");
+    }
+    if path.starts_with("/v1/public/listing")
+        || path.starts_with("/v1/public/property")
+        || path.starts_with("/v1/public/media")
+        || path.starts_with("/v1/public/similar")
+        || path.starts_with("/v1/public/slugs")
+    {
+        return Some("public-listing");
+    }
+    if path == "/v1/public/guide" {
+        return Some("guide");
+    }
+    if path == "/v1/public/marketing-content" {
+        return Some("marketing");
+    }
+    if path == "/v1/website-intake" || path == "/v1/catchup/leads" {
+        return Some("intake");
+    }
+    if path.starts_with("/v1/website-intake/") {
+        return Some("website-lead");
+    }
+    None
 }
 
 async fn health() -> Json<HealthResponse> {
@@ -4214,5 +4338,39 @@ mod tests {
         let value = serde_json::to_value(body).unwrap();
         assert_eq!(value["correlationId"], "corr-1");
         assert_eq!(value["ok"], true);
+    }
+
+    #[test]
+    fn every_http_service_family_maps_to_its_registered_mailbox() {
+        for (path, domain) in [
+            ("/api/integrations/whatsapp/webhook", "whatsapp"),
+            ("/api/integrations/boldsign/webhook", "signature"),
+            ("/v1/security/guest-code", "guest-sign-in"),
+            ("/v1/security/users", "security"),
+            ("/v1/support/system-health", "support"),
+            ("/v1/tech/cockpit", "tech"),
+            ("/v1/projects", "project"),
+            ("/v1/wbs/project-items", "wbs"),
+            ("/v1/clients", "client"),
+            ("/v1/people/search", "person"),
+            ("/v1/properties/admin", "property"),
+            ("/v1/media/upload", "media"),
+            ("/v1/deals", "deal"),
+            ("/v1/contracts", "contract"),
+            ("/v1/forms/x/issued-document", "vault"),
+            ("/v1/forms", "forms"),
+            ("/v1/comms/x/panel", "communications"),
+            ("/v1/issues", "issue"),
+            ("/v1/relationship-evidence/review", "relationship-evidence"),
+            ("/v1/accounting/dashboard", "accounting"),
+            ("/v1/calendar", "calendar"),
+            ("/v1/public/listings", "public-listing"),
+            ("/v1/public/guide", "guide"),
+            ("/v1/public/marketing-content", "marketing"),
+            ("/v1/website-intake", "intake"),
+            ("/v1/website-intake/x/notify", "website-lead"),
+        ] {
+            assert_eq!(http_service_domain(path), Some(domain), "{path}");
+        }
     }
 }
