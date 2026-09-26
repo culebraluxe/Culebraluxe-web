@@ -18,6 +18,7 @@ pub mod firms;
 pub mod flight_recorder;
 pub mod forms;
 pub mod guide;
+pub mod http_runtime;
 pub mod intake;
 pub mod issues;
 pub mod lookup;
