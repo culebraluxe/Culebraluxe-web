@@ -3851,7 +3851,7 @@ fn row_item(model: &Model, row: &Row) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Msg, Nav, Screen};
+    use crate::model::{Msg, Screen};
 
     #[test]
     fn login_submits_to_the_auth_js_form_without_a_get_signin_link() {

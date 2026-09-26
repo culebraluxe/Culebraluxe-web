@@ -407,77 +407,8 @@ mod tests {
         }
     }
 
-    /// THE TABLE IS CHECKED AGAINST THE ROUTE TREE, not against a registry.
-    ///
-    /// `lib/navigation/registry.ts` says of itself "Only EXISTING routes are listed" — a statement about navigation,
-    /// and I read it as a statement about scope. That mistake cost nine real pages (login, /auth/error, the dev map
-    /// tests, the token review page, the portal root, the auth proof page) which were never in the table at all.
-    /// The filesystem does not have opinions, so this walks it.
-    ///
-    /// The two exceptions are this port's own preview hosts, listed here with the reason.
-    #[test]
-    fn the_table_matches_the_route_tree() {
-        const PREVIEW_HOSTS: [&str; 2] = ["/portal/rust-preview", "/rust-preview"];
-
-        let app = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app");
-        let mut routes = Vec::new();
-        collect_routes(&app, String::new(), &mut routes);
-
-        assert!(
-            !routes.is_empty(),
-            "found no routes under {} — is the path wrong?",
-            app.display()
-        );
-
-        // Collect everything, then assert once: a check that stops at the first missing route makes fixing them a
-        // guessing game of how many runs it will take.
-        let mut missing: Vec<&String> = routes
-            .iter()
-            .filter(|route| !PREVIEW_HOSTS.contains(&route.as_str()))
-            .filter(|route| !SCREENS.iter().any(|screen| screen.path == route.as_str()))
-            .collect();
-        missing.sort();
-        assert!(
-            missing.is_empty(),
-            "{} route(s) with no screen in the table — add rows; do not narrow the scope:\n  {}",
-            missing.len(),
-            missing
-                .iter()
-                .map(|route| route.as_str())
-                .collect::<Vec<_>>()
-                .join("\n  ")
-        );
-
-        // A screen with no live route (path is empty) is skipping the route comparison, and it is REPORTED rather than
-        // quietly exempt: the point of this test is that nothing is hidden.
-        let orphans: Vec<&str> = SCREENS
-            .iter()
-            .filter(|screen| !screen.path.is_empty())
-            .map(|screen| screen.path)
-            .filter(|path| !routes.iter().any(|route| route == path))
-            .collect();
-        assert!(
-            orphans.is_empty(),
-            "screens claiming routes that do not exist: {orphans:?}"
-        );
-
-        let no_route: Vec<&str> = SCREENS
-            .iter()
-            .filter(|screen| screen.path.is_empty())
-            .map(|screen| screen.key)
-            .collect();
-        // Not a failure — a screen over data the app exposes through no route of its own is legitimate. But it must be
-        // deliberate, so it is listed here and the number is asserted rather than allowed to grow unnoticed.
-        //
-        // EMPTY, and that is the news: `site-properties` was the last one. It sat here with an empty path while the
-        // public read model was reachable only through `/properties/[slug]`, and the most important page on the site
-        // had no address. It has one now (`app/properties/page.tsx`), so nothing in the table is route-less.
-        assert_eq!(
-            no_route,
-            Vec::<&str>::new(),
-            "a screen with no live route must be a deliberate choice, and this is the list of them"
-        );
-    }
+    // The route tree is checked against the REGISTRY now (`app::registry` tests: every page has an entry and every
+    // entry a page). This old screen table is the old loop's and goes with it.
 
     /// Walk `app/` for `page.tsx` files, building the route each one serves. `/` is the root page.
     fn collect_routes(dir: &std::path::Path, prefix: String, out: &mut Vec<String>) {

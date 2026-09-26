@@ -89,12 +89,10 @@ impl Entry {
         matches!(self.kind, Kind::External | Kind::LegacyIsland(_))
     }
 
+    /// The area is a fact about the URL, not the menu: a public page filed under SUPPORT (the WhatsApp page Meta
+    /// needed) still renders in the site chrome, because it is served outside `/portal` and its guard.
     pub fn area(&self) -> Area {
-        if self.surface == Surface::Site {
-            Area::Site
-        } else {
-            Area::Portal
-        }
+        area_of(self.path)
     }
 }
 
@@ -146,6 +144,10 @@ pub const ENTRIES: &[Entry] = &[
     entry("system-health", "/portal/system-health", Surface::Support, "System Health", Menu::Rail("System Health"), "portal.read", "portal.read", Kind::LegacyPortal("system-health")),
     entry("db-test", "/portal/db-test", Surface::Support, "DB Test", Menu::Rail("DB Test"), "portal.read", "portal.read", Kind::Screen(mount::<DbTest>)),
     entry("whatsapp-meta", "/portal/admin/whatsapp-meta", Surface::Support, "WhatsApp Diagnostic", Menu::Rail("WhatsApp Diagnostic"), "portal.read", "portal.read", Kind::LegacyPortal("whatsapp-meta")),
+    entry("whatsapp-coexistence", "/portal/admin/whatsapp-coexistence", Surface::Support, "WhatsApp Activation", Menu::Rail("WhatsApp Activation"), "portal.read", "portal.read", Kind::LegacyPortal("whatsapp-coexistence")),
+    entry("site-whatsapp", "/whatsapp", Surface::Support, "WhatsApp Public Page", Menu::Rail("WhatsApp Public Page"), "portal.read", "portal.read", Kind::LegacySite),
+    entry("site-video", "/video", Surface::Support, "Mux Video Test", Menu::Rail("Mux Video Test"), "portal.read", "portal.read", Kind::LegacySite),
+    entry("review", "/review/:token/:page", Surface::Support, "Review", Menu::None, "", "", Kind::LegacySite),
     entry("security", "/portal/settings", Surface::Support, "Security", Menu::Rail("Security"), "settings.read", "security.principal.read", Kind::LegacyPortal("security")),
     entry("site-buyers", "/buyers", Surface::Site, "Buyers", Menu::Header("Buyers"), "", "", Kind::LegacySite),
     entry("site-sellers", "/sellers", Surface::Site, "Sellers", Menu::Header("Sellers"), "", "", Kind::LegacySite),
@@ -154,32 +156,13 @@ pub const ENTRIES: &[Entry] = &[
     entry("site-about", "/about", Surface::Site, "About", Menu::Header("About"), "", "", Kind::LegacySite),
     entry("site-faq", "/faq", Surface::Site, "FAQ", Menu::Header("FAQ"), "", "", Kind::LegacySite),
     entry("site-contact", "/contact", Surface::Site, "Contact", Menu::Header("Contact"), "", "", Kind::LegacySite),
-    entry("issues", "/portal/issues", Surface::Ops, "Issue Queue", Menu::None, "portal.read", "", Kind::LegacyPortal("issues")),
-    entry("needs-review", "/portal/needs-review", Surface::Ops, "Needs Review", Menu::None, "portal.read", "", Kind::LegacyPortal("needs-review")),
-    entry("media-admin", "/portal/media-admin", Surface::Ops, "Media Audit", Menu::None, "portal.read", "", Kind::LegacyPortal("media-admin")),
-    entry("identity-quality", "/portal/identity-quality", Surface::Ops, "Identity Quality", Menu::None, "portal.read", "", Kind::LegacyPortal("identity-quality")),
-    entry("client-admin", "/portal/client-admin", Surface::Ops, "Client Administration", Menu::None, "portal.read", "", Kind::LegacyPortal("client-admin")),
-    entry("reporting", "/portal/reporting", Surface::Ops, "Reporting", Menu::None, "portal.read", "", Kind::LegacyPortal("reporting")),
-    entry("decision-analysis", "/portal/decision-analysis", Surface::Ops, "Decision Analysis", Menu::None, "portal.read", "", Kind::LegacyPortal("decision-analysis")),
     entry("settings-authorities", "/portal/settings/authorities", Surface::Support, "Authorities", Menu::None, "portal.read", "", Kind::LegacyPortal("settings-authorities")),
     entry("settings-roles", "/portal/settings/roles", Surface::Support, "Roles", Menu::None, "portal.read", "", Kind::LegacyPortal("settings-roles")),
     entry("settings-users", "/portal/settings/users", Surface::Support, "Users", Menu::None, "portal.read", "", Kind::LegacyPortal("settings-users")),
-    entry("whatsapp-coexistence", "/portal/admin/whatsapp-coexistence", Surface::Tech, "WhatsApp Coexistence", Menu::None, "portal.read", "", Kind::LegacyPortal("whatsapp-coexistence")),
     entry("attention", "/portal/attention", Surface::Core, "Attention", Menu::None, "portal.read", "", Kind::LegacyPortal("attention")),
     entry("activity", "/portal/activity", Surface::Core, "Activity", Menu::None, "portal.read", "", Kind::LegacyPortal("activity")),
     entry("showings", "/portal/showings", Surface::Core, "Showings", Menu::None, "portal.read", "", Kind::LegacyPortal("showings")),
     entry("framer-ui-lab", "/portal/tech/framer-ui-lab", Surface::Tech, "Framer UI Lab", Menu::None, "portal.read", "", Kind::LegacyPortal("framer-ui-lab")),
-    entry("media-test", "/portal/media-test", Surface::Tech, "Media Test", Menu::None, "portal.read", "", Kind::LegacyPortal("media-test")),
-    entry("rust-lab", "/portal/tech/rust-lab", Surface::Tech, "Rust Lab", Menu::None, "portal.read", "", Kind::LegacyPortal("rust-lab")),
-    entry("tech-lab", "/portal/tech/lab", Surface::Tech, "Tech Lab", Menu::None, "portal.read", "", Kind::LegacyPortal("tech-lab")),
-    entry("command-center", "/portal/command-center", Surface::Tech, "Command Center", Menu::None, "portal.read", "", Kind::LegacyPortal("command-center")),
-    entry("command-console", "/portal/command-console", Surface::Tech, "Command Console", Menu::None, "portal.read", "", Kind::LegacyPortal("command-console")),
-    entry("tech-grok", "/portal/tech/grok", Surface::Tech, "GROK", Menu::None, "portal.read", "", Kind::LegacyPortal("tech-grok")),
-    entry("tech-flight-recorder", "/portal/tech/flight-recorder", Surface::Tech, "Flight Recorder", Menu::None, "portal.read", "", Kind::LegacyPortal("tech-flight-recorder")),
-    entry("tech-app-errors", "/portal/tech/app-errors", Surface::Tech, "App Errors", Menu::None, "portal.read", "", Kind::LegacyPortal("tech-app-errors")),
-    entry("tech-runs", "/portal/tech/runs", Surface::Tech, "Runs", Menu::None, "portal.read", "", Kind::LegacyPortal("tech-runs")),
-    entry("tech-kanban", "/portal/tech/kanban", Surface::Tech, "Kanban", Menu::None, "portal.read", "", Kind::LegacyPortal("tech-kanban")),
-    entry("tech-line", "/portal/tech/line", Surface::Tech, "Line", Menu::None, "portal.read", "", Kind::LegacyPortal("tech-line")),
     entry("client-record", "/portal/clients/:personId", Surface::Core, "Client", Menu::None, "portal.read", "", Kind::LegacyPortal("client-record")),
     entry("deal-record", "/portal/deals/:dealId", Surface::Core, "Deal", Menu::None, "portal.read", "", Kind::LegacyPortal("deal-record")),
     entry("form-record", "/portal/forms/:formId", Surface::Core, "Form", Menu::None, "portal.read", "", Kind::External),
@@ -187,27 +170,17 @@ pub const ENTRIES: &[Entry] = &[
     entry("property-record", "/portal/property-admin/:propertyId", Surface::Ops, "Property record", Menu::None, "portal.read", "", Kind::LegacyPortal("property-record")),
     entry("story-record", "/portal/storyboard/:id", Surface::Tech, "Story", Menu::None, "portal.read", "", Kind::LegacyPortal("story-record")),
     entry("trace-record", "/portal/tech/flight-recorder/:instanceId", Surface::Tech, "Trace", Menu::None, "portal.read", "", Kind::LegacyIsland("trace-record")),
-    entry("runtime-record", "/portal/runtime-inspector/:instanceId", Surface::Support, "Runtime inspector", Menu::None, "portal.read", "", Kind::LegacyPortal("runtime-record")),
     entry("site-home", "/", Surface::Site, "Home", Menu::None, "", "", Kind::LegacySite),
     entry("site-properties", "/properties", Surface::Site, "Properties", Menu::None, "", "", Kind::LegacySite),
     entry("site-property-detail", "/properties/:slug", Surface::Site, "Property", Menu::None, "", "", Kind::LegacySite),
     entry("site-privacy", "/privacy", Surface::Site, "Privacy", Menu::None, "", "", Kind::LegacySite),
-    entry("site-video", "/video", Surface::Site, "Video", Menu::None, "", "", Kind::LegacySite),
-    entry("site-whatsapp", "/whatsapp", Surface::Site, "WhatsApp", Menu::None, "", "", Kind::LegacySite),
     entry("site-favorites", "/favorites", Surface::Site, "Favorites", Menu::None, "", "", Kind::LegacySite),
     entry("site-account", "/account", Surface::Site, "Account", Menu::None, "", "", Kind::Screen(mount::<Account>)),
     entry("login", "/login", Surface::Site, "Login", Menu::None, "", "", Kind::External),
     entry("login-recovery", "/login/recovery", Surface::Site, "Login recovery", Menu::None, "", "", Kind::LegacySite),
     entry("login-unauthorized", "/login/unauthorized", Surface::Site, "Login unauthorized", Menu::None, "", "", Kind::LegacySite),
     entry("auth-error", "/auth/error", Surface::Site, "Auth error", Menu::None, "", "", Kind::External),
-    entry("review", "/review/:token/:page", Surface::Site, "Review", Menu::None, "", "", Kind::LegacySite),
     entry("portal-root", "/portal", Surface::Core, "Portal", Menu::None, "portal.read", "", Kind::External),
-    entry("portal-auth-proof", "/portal-auth-proof", Surface::Support, "Portal auth proof", Menu::None, "portal.read", "", Kind::External),
-    entry("dev-apple-map-test", "/dev/apple-map-test", Surface::Support, "Apple map test", Menu::None, "portal.read", "", Kind::LegacyPortal("dev-apple-map-test")),
-    entry("dev-google-map-test", "/dev/google-map-test", Surface::Support, "Google map test", Menu::None, "portal.read", "", Kind::LegacyPortal("dev-google-map-test")),
-    entry("console-story", "/portal/command-console/:storyId", Surface::Tech, "Command Console story", Menu::None, "portal.read", "", Kind::LegacyPortal("console-story")),
-    entry("site-rust-preview", "/rust-preview", Surface::Site, "Rust preview", Menu::None, "", "", Kind::LegacySite),
-    entry("portal-rust-preview", "/portal/rust-preview", Surface::Tech, "Rust preview", Menu::None, "portal.read", "", Kind::LegacyPortal("dashboard")),
 ];
 
 /// The screen a path is served by, with its `:param` values. Exact segments win over params, so
@@ -480,6 +453,9 @@ mod tests {
                 "System Health",
                 "DB Test",
                 "WhatsApp Diagnostic",
+                "WhatsApp Activation",
+                "WhatsApp Public Page",
+                "Mux Video Test",
                 "Security"
             ]
         );
@@ -565,5 +541,5 @@ mod tests {
         );
     }
 
-    const LEGACY_CEILING: usize = 77;
+    const LEGACY_CEILING: usize = 53;
 }

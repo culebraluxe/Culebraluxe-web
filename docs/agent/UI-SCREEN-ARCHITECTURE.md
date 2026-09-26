@@ -1,7 +1,7 @@
 # UI Screen Architecture — the contract every screen implements
 
 Status: **framework and master shell built** (owner decision 2026-09-26). Code: `rust/ui/src/app/`. Screens on the
-trait: `db-test`, `site-account`. Cutover ledger: 77 screens still on the old loop (`app/registry.rs`). This document is the contract for all
+trait: `db-test`, `site-account`. Cutover ledger: 53 screens still on the old loop (`app/registry.rs`). This document is the contract for all
 UI work in `rust/ui`. It supersedes the ad hoc per-screen patterns: when code and this document disagree, the code is
 wrong.
 
@@ -191,8 +191,42 @@ The owner's direction: done correctly, big-bang if needed; no permanent adapters
 
 Done means: all gates green; zero screens outside the trait; the old loop deleted; every registry path walked headless.
 
-## Needs an owner decision
+## The screen inventory (owner-approved 2026-09-26)
 
-Screens that should be deleted rather than ported (currently `Retired` or dev-only): `command-center`,
-`command-console`, `console-story`, `tech-flight-recorder`, `dev-apple-map-test`, `dev-google-map-test`,
-`portal-auth-proof`, `portal-root`. Confirm before phase 2.
+This is the whole product. A screen not listed here is not ported: its route is deleted and its code goes with the
+legacy tree. `app/registry.rs` holds exactly these routes, and its tests fail on any page or entry outside it.
+
+**Public site** — Landing, Buyers, Property detail, Sellers, Services, Guide, About, FAQ, Contact; and, kept for
+specific reasons: Properties (the homepage's "View All"), Favorites, Account (guest sign-in), Privacy (Meta requires a
+public privacy page for WhatsApp Business messaging).
+
+**Sign-in** — Login, Login recovery (emergency admin access), Unauthorized, Auth error. Sign-out is Auth.js's endpoint,
+not a screen.
+
+**Portal**
+
+| World | Screens (drill-ins in brackets) |
+| --- | --- |
+| CORE | Cockpit, Clients [client record], Projects [7 panes as tabs: Workplan, Timeline, Calendar, Financials, Documents, Activity, Catch-up], Contracts [contract record], Cabinet, Workflows [workflow record], Forms [form record], Seller Strategy |
+| ACCOUNTING | Dashboard, Receivables, Expenses, P&L Statement, Receipt Scanner |
+| MARKETING | Dashboard, Syndication |
+| OPPS | Records [property record], Listing Media |
+| SUPPORT | System Health, DB Test, WhatsApp Diagnostic, WhatsApp Activation (Meta embedded signup — see below), WhatsApp Public Page (`/whatsapp`), Mux Video Test (`/video`), Security [users, roles, authorities]; plus the token review page (`/review/:token/:page`, public URL kept) |
+| TECH | Cockpit, Flight Recorder (run detail), Storyboard [story record], UI Lab |
+
+Public URLs filed under SUPPORT keep their URLs (they may be registered with Meta or sent in email) and render in the
+site chrome; the SUPPORT rail links to them.
+
+**Retired (routes deleted 2026-09-26):** client-admin, decision-analysis, identity-quality, issues, media-admin,
+needs-review, reporting, runtime-inspector, command-center, command-console (+ story), media-test, tech rust-lab,
+app-errors, flight-recorder list, grok, kanban, lab, line, runs, both rust-previews, both dev map tests,
+portal-auth-proof.
+
+### Open
+
+- **Linked from kept screens, not yet decided:** `/portal/activity` and `/portal/attention` (the Cockpit links to them
+  as "all activity" / "needs attention"), `/portal/showings` (linked from Contracts), `/portal/tech/framer-ui-lab`
+  (linked from the UI Lab island). Keep as drill-ins of their parent, or delete the route and the link.
+- **WhatsApp Activation is broken.** Its conversion to Yew dropped the Meta Embedded Signup launcher ("crossed over
+  before the Rust body had those controls"). The working TypeScript original is `d6fc6258`
+  (`app/portal/admin/whatsapp-coexistence/page.tsx`). It is rebuilt on the `Screen` trait as part of the cutover.
