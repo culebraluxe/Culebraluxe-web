@@ -14,6 +14,7 @@ import { adaptFlightRecorderTransaction } from '@/lib/flight-recorder-adapter'
 import type { FlightRecorderTransaction } from '@/lib/flight-recorder-contract'
 
 import type { IslandRenderer } from './island-host'
+import { PROJECT_ISLAND_RENDERERS } from './project-islands'
 
 function FlightRecorderIsland({ transaction }: { transaction: FlightRecorderTransaction }) {
   const trace = adaptFlightRecorderTransaction(transaction)
@@ -49,6 +50,8 @@ function SorterIsland({ props, emit }: { props: SorterProps; emit: (event: Recor
 }
 
 export const ISLAND_RENDERERS: Record<string, IslandRenderer> = {
+  // CORE · Projects — navigator, catch-up, timeline, calendar, documents.
+  ...PROJECT_ISLAND_RENDERERS,
   // TECH · UI Lab — the preserved galleries, unchanged.
   'ui-lab-gallery': () => <TypeScriptUiLab />,
   'ui-lab-motion': () => <FramerUiLab />,

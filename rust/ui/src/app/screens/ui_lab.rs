@@ -274,9 +274,9 @@ impl View<'_> {
                             onchange={on_role}
                             class="mt-1.5 w-full rounded-md border border-[var(--portal-border)] bg-white/55 px-3 py-2.5 text-sm text-[var(--portal-navy)] outline-none focus:border-[var(--portal-gold)]"
                         >
-                            <option value="Broker">{"Broker"}</option>
-                            <option value="Agent">{"Agent"}</option>
-                            <option value="Transaction Coordinator">{"Transaction Coordinator"}</option>
+                            <option value="Broker" selected={self.lab.role == "Broker"}>{"Broker"}</option>
+                            <option value="Agent" selected={self.lab.role == "Agent"}>{"Agent"}</option>
+                            <option value="Transaction Coordinator" selected={self.lab.role == "Transaction Coordinator"}>{"Transaction Coordinator"}</option>
                         </select>
                     </label>
 

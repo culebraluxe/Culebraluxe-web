@@ -9,55 +9,16 @@ use std::collections::BTreeSet;
 use serde_json::json;
 use yew::prelude::*;
 
-use crate::model::{Msg, PortalProject, PortalProjectWorkItem, PortalProjectsPage};
-use crate::yew_views::portal_shell::PortalShell;
+use crate::app::island::Island;
+use crate::model::{PortalProject, PortalProjectWorkItem, PortalProjectsPage};
 
-#[derive(Properties, PartialEq)]
-pub struct ProjectsProps {
-    pub model: crate::model::Model,
-    pub on_msg: Callback<Msg>,
-}
+use super::{Msg, Vm};
 
-pub struct Projects;
-
-impl Component for Projects {
-    type Message = ();
-    type Properties = ProjectsProps;
-
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
-    }
-
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let props = ctx.props();
-        let screen = crate::model::screen("projects").expect("projects screen exists");
-        html! {
-            <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
-                { workspace(&props.model, &props.on_msg) }
-            </PortalShell>
-        }
-    }
-}
-
-fn payload(model: &crate::model::Model) -> Option<&PortalProjectsPage> {
-    model
-        .page
-        .as_ref()
-        .and_then(|page| page.portal.as_ref())
-        .and_then(|portal| portal.projects.as_ref())
-}
-
-fn workspace(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
-    let Some(projects) = payload(model) else {
-        return html! {
-            <section class="portal-glass-panel rounded-[var(--portal-panel-radius)] p-8">
-                <p class="text-sm font-light text-black/45">
-                    { if model.loading { "Loading projects…" } else { "Projects are unavailable." } }
-                </p>
-            </section>
-        };
-    };
-
+pub(super) fn workspace(
+    model: &Vm<'_>,
+    projects: &PortalProjectsPage,
+    on_msg: &Callback<Msg>,
+) -> Html {
     if projects.projects.is_empty() {
         return html! {
             <section class="portal-glass-panel rounded-[var(--portal-panel-radius)] px-8 py-14 text-center">
@@ -71,89 +32,13 @@ fn workspace(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
 
     html! {
         <div class="grid min-h-0 gap-3 lg:h-[calc(100dvh-8.5rem)] lg:grid-cols-[390px_minmax(0,1fr)]">
-            { island_bridge(on_msg) }
-            { navigator(model, projects) }
+            { navigator(model, projects, on_msg) }
             { center_panel(model, projects, on_msg) }
         </div>
     }
 }
 
-fn island_bridge(on_msg: &Callback<Msg>) -> Html {
-    let dispatch = {
-        let on_msg = on_msg.clone();
-        Callback::from(move |event: MouseEvent| {
-            let target = event.target_unchecked_into::<web_sys::HtmlElement>();
-            let Some(raw) = target.get_attribute("data-intent") else {
-                return;
-            };
-            let Ok(intent) = serde_json::from_str::<serde_json::Value>(&raw) else {
-                return;
-            };
-            match intent.get("kind").and_then(|value| value.as_str()) {
-                Some("query") => {
-                    if let Some(query) = intent.get("query").and_then(|value| value.as_str()) {
-                        on_msg.emit(Msg::QueryChanged(query.to_string()));
-                    }
-                }
-                Some("domain") => {
-                    if let Some(domain) = intent.get("domain").and_then(|value| value.as_str()) {
-                        on_msg.emit(Msg::ProjectDomainSelected(domain.to_string()));
-                    }
-                }
-                Some("catchup") => on_msg.emit(Msg::ProjectCatchUpToggled(true)),
-                Some("catchupSelect") => {
-                    let project_id = intent.get("projectId").and_then(|value| value.as_str());
-                    let node_id = intent.get("nodeId").and_then(|value| value.as_str());
-                    if let (Some(project_id), Some(node_id)) = (project_id, node_id) {
-                        on_msg.emit(Msg::ProjectCatchUpItemSelected {
-                            project_id: project_id.to_string(),
-                            node_id: node_id.to_string(),
-                        });
-                    }
-                }
-                Some("catchupComplete") => {
-                    let project_id = intent.get("projectId").and_then(|value| value.as_str());
-                    let node_id = intent.get("nodeId").and_then(|value| value.as_str());
-                    if let (Some(project_id), Some(node_id)) = (project_id, node_id) {
-                        on_msg.emit(Msg::ProjectCatchUpItemCompleteRequested {
-                            project_id: project_id.to_string(),
-                            node_id: node_id.to_string(),
-                        });
-                    }
-                }
-                Some("project") => {
-                    if let Some(project_id) =
-                        intent.get("projectId").and_then(|value| value.as_str())
-                    {
-                        on_msg.emit(Msg::ProjectSelected(project_id.to_string()));
-                    }
-                }
-                Some("work") => {
-                    let project_id = intent.get("projectId").and_then(|value| value.as_str());
-                    let node_id = intent.get("nodeId").and_then(|value| value.as_str());
-                    if let (Some(project_id), Some(node_id)) = (project_id, node_id) {
-                        on_msg.emit(Msg::ProjectSelected(project_id.to_string()));
-                        on_msg.emit(Msg::ProjectNodeSelected(Some(node_id.to_string())));
-                    }
-                }
-                _ => {}
-            }
-        })
-    };
-    html! {
-        <button
-            id="project-island-bridge"
-            type="button"
-            class="hidden"
-            data-intent=""
-            tabindex="-1"
-            aria-hidden="true"
-            onclick={dispatch}
-        />
-    }
-}
-
-fn navigator(model: &crate::model::Model, projects: &PortalProjectsPage) -> Html {
+fn navigator(model: &Vm<'_>, projects: &PortalProjectsPage, on_msg: &Callback<Msg>) -> Html {
     let widget = json!({
         "projects": &projects.projects,
         "items": &projects.items,
@@ -169,21 +54,12 @@ fn navigator(model: &crate::model::Model, projects: &PortalProjectsPage) -> Html
             class="portal-glass-panel min-h-0 overflow-hidden rounded-[var(--portal-panel-radius)] text-white"
             style="background-color: color-mix(in srgb, var(--portal-navy) 90%, transparent);"
         >
-            <div
-                id="project-navigator-island"
-                data-project-widget={widget.to_string()}
-                class="h-full min-h-[20rem] overflow-hidden"
-                aria-label="Project navigator"
-            />
+            <Island kind="project-navigator" props={widget.to_string()} on_event={on_msg.reform(Msg::Navigator)} class="h-full min-h-[20rem] overflow-hidden" />
         </aside>
     }
 }
 
-fn center_panel(
-    model: &crate::model::Model,
-    projects: &PortalProjectsPage,
-    on_msg: &Callback<Msg>,
-) -> Html {
+fn center_panel(model: &Vm<'_>, projects: &PortalProjectsPage, on_msg: &Callback<Msg>) -> Html {
     if projects.catch_up {
         return catchup_center(model, projects, on_msg);
     }
@@ -210,7 +86,7 @@ fn center_panel(
 }
 
 fn project_header(
-    model: &crate::model::Model,
+    model: &Vm<'_>,
     projects: &PortalProjectsPage,
     project: &PortalProject,
     on_msg: &Callback<Msg>,
@@ -240,16 +116,16 @@ fn project_header(
                             { format!("{}%", project_progress(projects, &project.id)) }
                         </span>
                         <select
-                            value={status}
+                            value={status.clone()}
                             onchange={onchange}
                             disabled={projects.saving}
                             aria-label="Project status"
                             class="rounded-full bg-white/50 px-2.5 py-1 text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] outline-none disabled:opacity-40"
                         >
-                            <option value="open">{"Open"}</option>
-                            <option value="doing">{"In progress"}</option>
-                            <option value="done">{"Complete"}</option>
-                            <option value="archived">{"Archived"}</option>
+                            <option value="open" selected={status == "open"}>{"Open"}</option>
+                            <option value="doing" selected={status == "doing"}>{"In progress"}</option>
+                            <option value="done" selected={status == "done"}>{"Complete"}</option>
+                            <option value="archived" selected={status == "archived"}>{"Archived"}</option>
                         </select>
                         <button
                             type="button"
@@ -262,7 +138,7 @@ fn project_header(
                     </div>
                 </div>
                 if let Some(error) = model.error.as_ref() {
-                    <p class="mt-1 text-xs text-red-700">{ error.clone() }</p>
+                    <p class="mt-1 text-xs text-red-700">{ (*error).clone() }</p>
                 }
             </div>
         </>
@@ -386,12 +262,7 @@ fn work_plan_node(
 fn timeline_view(projects: &PortalProjectsPage, project: &PortalProject) -> Html {
     let widget = timeline_widget_json(projects, project);
     html! {
-        <div
-            id="project-timeline-island"
-            data-project-widget={widget.to_string()}
-            class="h-full min-h-[26rem] overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)]"
-            aria-label="Project timeline"
-        />
+        <Island kind="project-timeline" props={widget.to_string()} class="h-full min-h-[26rem] overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)]" />
     }
 }
 
@@ -401,12 +272,7 @@ fn calendar_view(projects: &PortalProjectsPage, project: &PortalProject) -> Html
     // render its own empty grid instead of replacing the calendar with prose.
     let widget = calendar_widget_json(projects, project);
     html! {
-        <div
-            id="project-calendar-island"
-            data-project-widget={widget.to_string()}
-            class="h-full min-h-[28rem] overflow-hidden"
-            aria-label="Project calendar"
-        />
+        <Island kind="project-calendar" props={widget.to_string()} class="h-full min-h-[28rem] overflow-hidden" />
     }
 }
 
@@ -466,12 +332,7 @@ fn documents_view(projects: &PortalProjectsPage, project: &PortalProject) -> Htm
 
     let widget = json!({ "files": files });
     html! {
-        <div
-            id="project-documents-island"
-            data-project-widget={widget.to_string()}
-            class="h-full min-h-[24rem] overflow-hidden"
-            aria-label="Project assets"
-        />
+        <Island kind="project-documents" props={widget.to_string()} class="h-full min-h-[24rem] overflow-hidden" />
     }
 }
 
@@ -487,7 +348,7 @@ fn placeholder_view(title: &str, message: &str) -> Html {
 }
 
 fn selected_work_editor(
-    _model: &crate::model::Model,
+    _model: &Vm<'_>,
     projects: &PortalProjectsPage,
     item: Option<&PortalProjectWorkItem>,
     on_msg: &Callback<Msg>,
@@ -559,10 +420,10 @@ fn selected_work_editor(
                     <label class="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
                         {"Status"}
                         <select value={item.status.clone()} onchange={status_change} class={work_input_class()}>
-                            <option value="open">{"Not started"}</option>
-                            <option value="doing">{"In progress"}</option>
-                            <option value="done">{"Complete"}</option>
-                            <option value="dismissed">{"Dismissed"}</option>
+                            <option value="open" selected={item.status == "open"}>{"Not started"}</option>
+                            <option value="doing" selected={item.status == "doing"}>{"In progress"}</option>
+                            <option value="done" selected={item.status == "done"}>{"Complete"}</option>
+                            <option value="dismissed" selected={item.status == "dismissed"}>{"Dismissed"}</option>
                         </select>
                     </label>
                     <label class="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
@@ -596,11 +457,7 @@ fn selected_work_editor(
     }
 }
 
-fn catchup_center(
-    _model: &crate::model::Model,
-    projects: &PortalProjectsPage,
-    on_msg: &Callback<Msg>,
-) -> Html {
+fn catchup_center(_model: &Vm<'_>, projects: &PortalProjectsPage, on_msg: &Callback<Msg>) -> Html {
     let widget = json!({
         "projects": &projects.projects,
         "items": &projects.items,
@@ -614,12 +471,7 @@ fn catchup_center(
     html! {
         <section class="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
             <div class="min-h-0 flex-1 overflow-hidden">
-                <div
-                    id="project-catchup-island"
-                    data-project-widget={widget.to_string()}
-                    class="h-full min-h-[28rem] overflow-hidden"
-                    aria-label="Project Catch-Up"
-                />
+                <Island kind="project-catchup" props={widget.to_string()} on_event={on_msg.reform(Msg::Navigator)} class="h-full min-h-[28rem] overflow-hidden" />
             </div>
             <div class="shrink-0 px-3 pb-3">
                 { selected_work_editor(_model, projects, selected, on_msg) }
@@ -747,98 +599,6 @@ fn project_progress(projects: &PortalProjectsPage, project_id: &str) -> i32 {
     ((done * 100) / planned) as i32
 }
 
-fn project_in_domain(
-    project: &PortalProject,
-    items: &[PortalProjectWorkItem],
-    domain: &str,
-) -> bool {
-    let project_items = items
-        .iter()
-        .filter(|item| item.project_id.as_deref() == Some(project.id.as_str()))
-        .collect::<Vec<_>>();
-    match domain {
-        "properties" => {
-            project.property_id.is_some()
-                || project
-                    .areas
-                    .iter()
-                    .any(|area| area == "properties" || area == "media")
-                || project_items.iter().any(|item| {
-                    item.entity
-                        .as_ref()
-                        .is_some_and(|entity| entity.entity_type == "property")
-                })
-        }
-        "people" => {
-            project.person_id.is_some()
-                || project.areas.iter().any(|area| area == "clients")
-                || project_items.iter().any(|item| {
-                    item.entity
-                        .as_ref()
-                        .is_some_and(|entity| entity.entity_type == "person")
-                })
-        }
-        "deals" => {
-            project.contract_id.is_some()
-                || project.areas.iter().any(|area| area == "contracts")
-                || project_items.iter().any(|item| {
-                    item.entity.as_ref().is_some_and(|entity| {
-                        matches!(entity.entity_type.as_str(), "contract" | "deal")
-                    })
-                })
-        }
-        "marketing" => project.areas.iter().any(|area| area == "marketing"),
-        "accounting" => project.areas.iter().any(|area| area == "accounting"),
-        "firm" => {
-            project.areas.iter().any(|area| area == "management")
-                || (project.person_id.is_none()
-                    && project.property_id.is_none()
-                    && project.contract_id.is_none())
-        }
-        _ => false,
-    }
-}
-
-fn project_context(project: &PortalProject, projects: &PortalProjectsPage) -> String {
-    let mut labels = Vec::new();
-    if let Some(id) = project.person_id.as_ref() {
-        labels.push(
-            projects
-                .identity_names
-                .get(&format!("person:{id}"))
-                .cloned()
-                .unwrap_or_else(|| id.clone()),
-        );
-    }
-    if let Some(id) = project.property_id.as_ref() {
-        labels.push(
-            projects
-                .identity_names
-                .get(&format!("property:{id}"))
-                .cloned()
-                .unwrap_or_else(|| id.clone()),
-        );
-    }
-    if let Some(id) = project.contract_id.as_ref() {
-        labels.push(
-            projects
-                .identity_names
-                .get(&format!("contract:{id}"))
-                .cloned()
-                .unwrap_or_else(|| id.clone()),
-        );
-    }
-    if labels.is_empty() {
-        project
-            .areas
-            .first()
-            .cloned()
-            .unwrap_or_else(|| "Project".into())
-    } else {
-        labels.join(" · ")
-    }
-}
-
 fn project_person_ids(projects: &PortalProjectsPage, project: &PortalProject) -> BTreeSet<String> {
     if let Some(id) = project.person_id.as_ref() {
         return BTreeSet::from([id.clone()]);
@@ -943,19 +703,6 @@ fn project_property_ids(
         }
     }
     ids
-}
-
-fn work_meta(item: &PortalProjectWorkItem) -> String {
-    [
-        Some(status_label(&item.status).to_string()),
-        Some(due_label(item.due_at.as_deref())),
-        item.owner.clone(),
-    ]
-    .into_iter()
-    .flatten()
-    .filter(|value| !value.is_empty() && value != "—")
-    .collect::<Vec<_>>()
-    .join(" · ")
 }
 
 fn status_label(status: &str) -> &'static str {

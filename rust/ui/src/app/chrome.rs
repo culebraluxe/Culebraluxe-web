@@ -258,12 +258,16 @@ mod tests {
         );
         assert!(!in_app("/buyers", "https://example.com/"), "another site");
         assert!(
-            !in_app("/portal/dashboard", "/portal/projects"),
-            "to a page that mounts a vendor island"
+            !in_app("/portal/dashboard", "/portal/property-admin"),
+            "to a page that mounts a legacy vendor island"
         );
         assert!(
-            !in_app("/portal/projects", "/portal/clients"),
-            "from a page that mounted a vendor island"
+            !in_app("/portal/property-admin", "/portal/clients"),
+            "from a page that mounted a legacy vendor island"
+        );
+        assert!(
+            in_app("/portal/dashboard", "/portal/projects"),
+            "a screen whose widgets are <Island>s moves in the app"
         );
     }
 }

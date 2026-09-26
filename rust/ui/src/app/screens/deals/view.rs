@@ -163,9 +163,9 @@ fn create_panel(model: &Vm<'_>, data: Option<&PortalDealsPage>, on_msg: &Callbac
                     <label class="text-[10px] font-medium uppercase tracking-[0.12em] text-black/45">
                         {"Property *"}
                         <select value={state.property_id.clone()} onchange={property_change} class={field_class()}>
-                            <option value="">{"Choose an active property…"}</option>
+                            <option value="" selected={state.property_id.is_empty()}>{"Choose an active property…"}</option>
                             { for properties.iter().map(|property| html! {
-                                <option value={property.id.clone()}>
+                                <option value={property.id.clone()} selected={property.id == state.property_id}>
                                     {
                                         property.location.as_deref()
                                             .map(|location| format!("{} — {}", property.name, location))
@@ -206,9 +206,9 @@ fn create_panel(model: &Vm<'_>, data: Option<&PortalDealsPage>, on_msg: &Callbac
                     <label class="text-[10px] font-medium uppercase tracking-[0.12em] text-black/45">
                         {"Owner"}
                         <select value={state.owner_user_id.clone()} onchange={owner_change} class={field_class()}>
-                            <option value="">{"Unassigned…"}</option>
+                            <option value="" selected={state.owner_user_id.is_empty()}>{"Unassigned…"}</option>
                             { for users.iter().map(|user| html! {
-                                <option value={user.id.clone()}>
+                                <option value={user.id.clone()} selected={user.id == state.owner_user_id}>
                                     {
                                         user.email.as_deref()
                                             .map(|email| format!("{} — {}", user.display_name, email))
@@ -837,16 +837,16 @@ fn structural_participant_form(
         <div class="border-t border-[var(--portal-panel-border)] bg-white/20 px-5 py-4">
             <p class="text-[10px] font-medium uppercase tracking-[0.13em] text-black/40">{"Replace structural role"}</p>
             <select value={model.deal_workspace.structural_role.clone()} onchange={role_change} class={field_class()}>
-                <option value="">{"Choose role…"}</option>
-                <option value="client">{"Client"}</option>
-                <option value="owner">{"Owner"}</option>
-                <option value="seller">{"Seller"}</option>
+                <option value="" selected={role.is_empty()}>{"Choose role…"}</option>
+                <option value="client" selected={role == "client"}>{"Client"}</option>
+                <option value="owner" selected={role == "owner"}>{"Owner"}</option>
+                <option value="seller" selected={role == "seller"}>{"Seller"}</option>
             </select>
             if role == "owner" {
                 <select value={model.deal_workspace.structural_owner_user_id.clone()} onchange={owner_change} class={field_class()}>
-                    <option value="">{"Choose active user…"}</option>
+                    <option value="" selected={model.deal_workspace.structural_owner_user_id.is_empty()}>{"Choose active user…"}</option>
                     { for workspace.owner_candidates.iter().map(|user| html! {
-                        <option value={user.id.clone()}>{ user.display_name.clone() }</option>
+                        <option value={user.id.clone()} selected={user.id == model.deal_workspace.structural_owner_user_id}>{ user.display_name.clone() }</option>
                     }) }
                 </select>
             } else if matches!(role, "client" | "seller") {

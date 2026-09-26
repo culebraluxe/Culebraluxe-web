@@ -1,7 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { createRoot, type Root } from 'react-dom/client'
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import {
   Banknote,
@@ -27,13 +26,14 @@ import {
 import { Tree } from 'react-arborist'
 import type { NodeApi, NodeRendererProps } from 'react-arborist'
 
-import type { ILink, ITask } from '@svar-ui/react-gantt'
 import { FullCalendarCandidate } from '@/components/portal/fullcalendar-candidate'
 import { ProjectFilemanager } from '@/components/portal/project-filemanager'
 import { ProjectTimeline } from '@/components/portal/project-timeline'
 import type { CatchUpCalendarEvent } from '@/lib/catchup/calendar-adapter'
 import type { ProjectAssetBrowserItem } from '@/ui/projects/documents-projection'
 import { mapProjectToTimeline } from '@/ui/projects/timeline-projection'
+
+import type { IslandRenderer } from './island-host'
 import type { ProjectPlan, ProjectWorkNode, ProjectWorkStatus } from '@/ui/projects/model'
 
 
@@ -214,12 +214,8 @@ function compareItems(left: NavigatorItem, right: NavigatorItem): number {
   return (left.dueAt ?? '9999').localeCompare(right.dueAt ?? '9999') || left.id.localeCompare(right.id)
 }
 
-function dispatchNavigatorIntent(intent: Record<string, string>) {
-  const bridge = document.getElementById('project-island-bridge')
-  if (!(bridge instanceof HTMLButtonElement)) return
-  bridge.setAttribute('data-intent', JSON.stringify(intent))
-  bridge.click()
-}
+/** Where a widget's intents go: the renderer provides the island's `emit`, so the screen receives them as events. */
+const IslandEmit = createContext<(intent: Record<string, string>) => void>(() => undefined)
 
 function ProjectProgress({ value, className }: { value: number; className?: string }) {
   const clamped = Math.max(0, Math.min(100, value))
@@ -538,6 +534,7 @@ function NavigatorNodeView({ node, style }: NodeRendererProps<NavigatorNode>) {
 }
 
 function ProjectDomainRail({ payload }: { payload: NavigatorPayload }) {
+  const dispatchNavigatorIntent = useContext(IslandEmit)
   return (
     <div className="flex w-[86px] shrink-0 flex-col items-center border-r border-white/10 py-3" aria-label="Project scope and domain">
       <button
@@ -583,6 +580,7 @@ function ProjectDomainRail({ payload }: { payload: NavigatorPayload }) {
 }
 
 function ProjectNavigatorIsland({ payload }: { payload: NavigatorPayload }) {
+  const dispatchNavigatorIntent = useContext(IslandEmit)
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const [height, setHeight] = useState(560)
   const data = useMemo(() => buildNavigatorTree(payload), [payload])
@@ -779,6 +777,7 @@ function domainLabel(domain: ProjectDomainKey): string {
 }
 
 function ProjectCatchUpIsland({ payload }: { payload: CatchUpPayload }) {
+  const dispatchNavigatorIntent = useContext(IslandEmit)
   const [bucket, setBucket] = useState<CatchUpBucket>('today')
   const [statusFilter, setStatusFilter] = useState<CatchUpFilter>('all')
   const [domainFilter, setDomainFilter] = useState<ProjectDomainKey | 'all'>('all')
@@ -1052,12 +1051,6 @@ type DocumentsPayload = {
   }>
 }
 
-type MountedIsland = {
-  target: Element
-  root: Root
-  payloadRaw: string
-}
-
 function ProjectTimelineIsland({ payload }: { payload: TimelinePayload }) {
   const timeline = useMemo(() => {
     const byParent = (parentId: string | null): ProjectWorkNode[] =>
@@ -1167,154 +1160,38 @@ function IslandBoundary({
   )
 }
 
-function safeUnmount(root: Root) {
-  try {
-    root.unmount()
-  } catch {
-    // The Yew side may already have removed the old slot. A detached React root
-    // is obsolete either way; the replacement slot gets a fresh root below.
-  }
-}
-
 /**
- * Route cleanup runs inside React's own commit. Unmounting one of the nested
- * island roots synchronously from that cleanup asks React to tear down a second
- * root while it is still rendering the outer portal tree, which produces:
- *
- *   "Attempted to synchronously unmount a root while React was already rendering."
- *
- * Queue the island teardown until the current commit stack has finished. The
- * old island target is already obsolete at that point; this changes only the
- * timing of disposal, not root ownership.
+ * The Projects widgets, by `<Island kind>`. Each draws from its props; the navigator and catch-up send intents to the
+ * screen through the island's events.
  */
-function deferUnmount(root: Root) {
-  queueMicrotask(() => safeUnmount(root))
-}
-
-function syncIsland<T>(
-  host: Element,
-  mounted: Map<string, MountedIsland>,
-  id: string,
-  render: (payload: T) => ReactNode,
-) {
-  const target = host.querySelector('#' + id)
-  const current = mounted.get(id)
-
-  if (!target) {
-    if (current) {
-      safeUnmount(current.root)
-      mounted.delete(id)
-    }
-    return
-  }
-
-  const payloadRaw = target.getAttribute('data-project-widget')
-  if (!payloadRaw) return
-
-  let payload: T
-  try {
-    payload = JSON.parse(payloadRaw) as T
-  } catch (error) {
-    console.error('[projects-island] invalid payload for ' + id, error)
-    return
-  }
-
-  // Container identity is the root-ownership invariant.
-  //
-  // Do NOT inspect React-rendered child DOM to decide whether this target
-  // already has a root. createRoot() claims the container before React's
-  // concurrent render necessarily commits its first child. A MutationObserver
-  // scan can therefore run in that window; treating a missing child marker as
-  // "unmounted" creates a second root on the same element and races unmount
-  // against React's commit (the createRoot/removeChild failure seen in DEV).
-  if (current && current.target === target) {
-    if (current.payloadRaw !== payloadRaw) {
-      current.payloadRaw = payloadRaw
-      current.root.render(
-        <IslandBoundary name={id}>
-          {render(payload)}
-        </IslandBoundary>,
-      )
-    }
-    return
-  }
-
-  if (current) {
-    safeUnmount(current.root)
-    mounted.delete(id)
-  }
-
-  // Yew owns the empty slot element; React owns everything inside it. The Yew
-  // view deliberately renders no children into island slots, so there is
-  // nothing to clear before React claims a newly-created slot.
-  const root = createRoot(target)
-  mounted.set(id, { target, root, payloadRaw })
-  root.render(
-    <IslandBoundary name={id}>
-      {render(payload)}
-    </IslandBoundary>,
-  )
-}
-
-/**
- * React-island host for the Projects Yew screen.
- *
- * This intentionally mirrors the proven pre-Yew Rust host: every third-party
- * surface gets its own React root inside a Rust/Yew-owned slot. Do not combine
- * these into one portal tree. A navigator/rendering failure must not take
- * Timeline, Calendar, or Documents down with it, and Yew must never own DOM
- * inside a slot after React has taken it over.
- */
-export function ProjectReactIslands() {
-  const mountedRef = useRef(new Map<string, MountedIsland>())
-
-  useEffect(() => {
-    const host = document.getElementById('rust-ui')
-    if (!host) return
-
-    let frame = 0
-    const scan = () => {
-      frame = 0
-      const mounted = mountedRef.current
-      syncIsland<NavigatorPayload>(host, mounted, 'project-navigator-island', (payload) => (
-        <ProjectNavigatorIsland payload={payload} />
-      ))
-      syncIsland<TimelinePayload>(host, mounted, 'project-timeline-island', (payload) => (
-        <ProjectTimelineIsland payload={payload} />
-      ))
-      syncIsland<CalendarPayload>(host, mounted, 'project-calendar-island', (payload) => (
-        <FullCalendarCandidate events={payload.events ?? []} heading={null} />
-      ))
-      syncIsland<DocumentsPayload>(host, mounted, 'project-documents-island', (payload) => (
-        <ProjectDocumentsIsland payload={payload} />
-      ))
-      syncIsland<CatchUpPayload>(host, mounted, 'project-catchup-island', (payload) => (
-        <ProjectCatchUpIsland payload={payload} />
-      ))
-    }
-
-    const scheduleScan = () => {
-      if (frame) return
-      frame = window.requestAnimationFrame(scan)
-    }
-
-    scan()
-    const observer = new MutationObserver(scheduleScan)
-    observer.observe(host, {
-      subtree: true,
-      childList: true,
-      attributes: true,
-      attributeFilter: ['data-project-widget'],
-    })
-
-    return () => {
-      observer.disconnect()
-      if (frame) window.cancelAnimationFrame(frame)
-      const mounted = [...mountedRef.current.values()]
-      mountedRef.current.clear()
-      for (const island of mounted) deferUnmount(island.root)
-    }
-  }, [])
-
-  return null
+export const PROJECT_ISLAND_RENDERERS: Record<string, IslandRenderer> = {
+  'project-navigator': (props, emit) => (
+    <IslandEmit.Provider value={emit}>
+      <IslandBoundary name="project-navigator">
+        <ProjectNavigatorIsland payload={props as NavigatorPayload} />
+      </IslandBoundary>
+    </IslandEmit.Provider>
+  ),
+  'project-catchup': (props, emit) => (
+    <IslandEmit.Provider value={emit}>
+      <IslandBoundary name="project-catchup">
+        <ProjectCatchUpIsland payload={props as CatchUpPayload} />
+      </IslandBoundary>
+    </IslandEmit.Provider>
+  ),
+  'project-timeline': (props) => (
+    <IslandBoundary name="project-timeline">
+      <ProjectTimelineIsland payload={props as TimelinePayload} />
+    </IslandBoundary>
+  ),
+  'project-calendar': (props) => (
+    <IslandBoundary name="project-calendar">
+      <FullCalendarCandidate events={(props as CalendarPayload).events ?? []} heading={null} />
+    </IslandBoundary>
+  ),
+  'project-documents': (props) => (
+    <IslandBoundary name="project-documents">
+      <ProjectDocumentsIsland payload={props as DocumentsPayload} />
+    </IslandBoundary>
+  ),
 }

@@ -16,7 +16,6 @@ pub mod portal_flight_recorder_list;
 pub mod portal_forms;
 pub mod portal_listing_media;
 pub mod portal_ops;
-pub mod portal_projects;
 pub mod portal_records;
 pub mod portal_shell;
 pub mod property_detail;

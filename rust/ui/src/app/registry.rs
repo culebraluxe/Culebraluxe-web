@@ -27,6 +27,7 @@ use crate::app::screens::cockpit::{Attention, Cockpit};
 use crate::app::screens::db_test::DbTest;
 use crate::app::screens::deals::{DealRecord, Deals};
 use crate::app::screens::flight_recorder::FlightRecorder;
+use crate::app::screens::projects::Projects;
 use crate::app::screens::security::Security;
 use crate::app::screens::security_users::SecurityUsers;
 use crate::app::screens::seller_strategy::SellerStrategy;
@@ -156,7 +157,7 @@ impl Entry {
 pub const ENTRIES: &[Entry] = &[
     entry("dashboard", "/portal/dashboard", Surface::Core, "Cockpit", Menu::Rail("Cockpit"), "portal.read", "cockpit.read", Kind::Screen(mount::<Cockpit>)),
     entry("clients", "/portal/clients", Surface::Core, "Clients", Menu::Rail("Clients"), "portal.read", "person.read", Kind::Screen(mount::<Clients>)),
-    entry("projects", "/portal/projects", Surface::Core, "Projects", Menu::Rail("Projects"), "portal.read", "project.read", Kind::LegacyIsland("projects")),
+    entry("projects", "/portal/projects", Surface::Core, "Projects", Menu::Rail("Projects"), "portal.read", "project.read", Kind::Screen(mount::<Projects>)),
     entry("deals", "/portal/deals", Surface::Core, "Contracts", Menu::Rail("Contracts"), "deal.read", "deal.read", Kind::Screen(mount::<Deals>)),
     entry("cabinet", "/portal/documents", Surface::Core, "Cabinet", Menu::Rail("Cabinet"), "deal.read", "vault.read", Kind::Screen(mount::<Cabinet>)),
     entry("workflows", "/portal/workflows", Surface::Core, "Workflows", Menu::Rail("Workflows"), "portal.read", "portal.read", Kind::Screen(mount::<Workflows>)),
@@ -613,5 +614,5 @@ mod tests {
         );
     }
 
-    const LEGACY_CEILING: usize = 20;
+    const LEGACY_CEILING: usize = 19;
 }

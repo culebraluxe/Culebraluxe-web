@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { OpsVideoReactIsland } from '@/components/rust-ui/opps-video-island'
-import { ProjectReactIslands } from '@/components/rust-ui/project-react-islands'
 import { IslandHost } from '@/components/rust-ui/island-host'
 import { ISLAND_RENDERERS } from '@/components/rust-ui/island-renderers'
 import { bootRustUi, type RustUiModule } from '@/lib/rust-ui/mount'
@@ -97,7 +96,6 @@ export function RustUi({
         data-rust-scope={scope ?? ''}
       />
       <IslandHost renderers={ISLAND_RENDERERS} />
-      {screen === 'projects' ? <ProjectReactIslands /> : null}
       {screen === 'property-admin' ? <OpsVideoReactIsland /> : null}
       {bootError ? (
         <p className="p-6 text-sm text-destructive" role="alert">

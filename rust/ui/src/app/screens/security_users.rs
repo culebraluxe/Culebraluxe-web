@@ -260,7 +260,7 @@ impl SecurityUsers {
                                 class="min-h-10 flex-1 rounded border border-black/20 bg-white px-3 py-2 text-sm disabled:opacity-40"
                             >
                                 { for ROLES.iter().map(|(code, label)| html! {
-                                    <option key={*code} value={*code}>{*label}</option>
+                                    <option key={*code} value={*code} selected={draft.as_str() == *code}>{*label}</option>
                                 }) }
                             </select>
                             <button

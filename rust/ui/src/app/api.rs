@@ -445,3 +445,31 @@ impl Endpoint for TechCommand {
         Some(self.body.clone())
     }
 }
+
+/// Project Management: every project with its work items, documents, media, activity and calendar. Answers
+/// `{ projects: ... }`.
+pub struct ProjectsRead;
+
+impl Endpoint for ProjectsRead {
+    const METHOD: Method = Method::Get;
+    type Response = crate::model::PortalPage;
+    fn path(&self) -> String {
+        "/api/portal/rust-ui/projects".into()
+    }
+}
+
+/// One Projects write (`projectStatus`, `wbsSave`). Answers the refreshed projects page.
+pub struct ProjectsCommand {
+    pub body: serde_json::Value,
+}
+
+impl Endpoint for ProjectsCommand {
+    const METHOD: Method = Method::Post;
+    type Response = crate::model::PortalPage;
+    fn path(&self) -> String {
+        "/api/portal/rust-ui/projects".into()
+    }
+    fn body(&self) -> Option<serde_json::Value> {
+        Some(self.body.clone())
+    }
+}

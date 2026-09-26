@@ -566,110 +566,6 @@ fn listing_media_effect(model: &Model) -> Effect {
     }
 }
 
-fn project_in_domain(
-    project: &crate::model::PortalProject,
-    items: &[crate::model::PortalProjectWorkItem],
-    domain: &str,
-) -> bool {
-    let project_items = items
-        .iter()
-        .filter(|item| item.project_id.as_deref() == Some(project.id.as_str()));
-    match domain {
-        "properties" => {
-            project.property_id.is_some()
-                || project
-                    .areas
-                    .iter()
-                    .any(|area| area == "properties" || area == "media")
-                || project_items.clone().any(|item| {
-                    item.entity
-                        .as_ref()
-                        .is_some_and(|entity| entity.entity_type == "property")
-                })
-        }
-        "people" => {
-            project.person_id.is_some()
-                || project.areas.iter().any(|area| area == "clients")
-                || project_items.clone().any(|item| {
-                    item.entity
-                        .as_ref()
-                        .is_some_and(|entity| entity.entity_type == "person")
-                })
-        }
-        "deals" => {
-            project.contract_id.is_some()
-                || project.areas.iter().any(|area| area == "contracts")
-                || project_items.clone().any(|item| {
-                    item.entity.as_ref().is_some_and(|entity| {
-                        matches!(entity.entity_type.as_str(), "contract" | "deal")
-                    })
-                })
-        }
-        "marketing" => project.areas.iter().any(|area| area == "marketing"),
-        "accounting" => project.areas.iter().any(|area| area == "accounting"),
-        "firm" => {
-            project.areas.iter().any(|area| area == "management")
-                || (project.person_id.is_none()
-                    && project.property_id.is_none()
-                    && project.contract_id.is_none())
-        }
-        _ => false,
-    }
-}
-
-fn initial_project_domain(projects: &crate::model::PortalProjectsPage) -> String {
-    const DOMAINS: &[&str] = &[
-        "properties",
-        "people",
-        "deals",
-        "firm",
-        "marketing",
-        "accounting",
-    ];
-    DOMAINS
-        .iter()
-        .find(|domain| {
-            projects
-                .projects
-                .iter()
-                .any(|project| project_in_domain(project, &projects.items, domain))
-        })
-        .copied()
-        .unwrap_or("properties")
-        .to_string()
-}
-
-fn first_project_for_domain(
-    projects: &crate::model::PortalProjectsPage,
-    domain: &str,
-) -> Option<String> {
-    projects
-        .projects
-        .iter()
-        .find(|project| project_in_domain(project, &projects.items, domain))
-        .or_else(|| projects.projects.first())
-        .map(|project| project.id.clone())
-}
-
-fn first_node_for_project(
-    projects: &crate::model::PortalProjectsPage,
-    project_id: Option<&str>,
-) -> Option<String> {
-    let project_id = project_id?;
-    projects
-        .items
-        .iter()
-        .filter(|item| item.project_id.as_deref() == Some(project_id))
-        .find(|item| matches!(item.status.as_str(), "doing" | "open"))
-        .or_else(|| {
-            projects
-                .items
-                .iter()
-                .find(|item| item.project_id.as_deref() == Some(project_id))
-        })
-        .map(|item| item.id.clone())
-}
-
 fn deal_workspace_command(
     model: &mut Model,
     busy_action: impl Into<String>,
@@ -1590,14 +1486,17 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                         previous
                     {
                         projects.active_domain = if domain.is_empty() {
-                            initial_project_domain(projects)
+                            crate::projects::initial_project_domain(projects)
                         } else {
                             domain
                         };
                         projects.selected_project_id = project_id
                             .filter(|id| projects.projects.iter().any(|project| &project.id == id))
                             .or_else(|| {
-                                first_project_for_domain(projects, &projects.active_domain)
+                                crate::projects::first_project_for_domain(
+                                    projects,
+                                    &projects.active_domain,
+                                )
                             });
                         projects.selected_node_id = node_id
                             .filter(|id| {
@@ -1608,7 +1507,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                                 })
                             })
                             .or_else(|| {
-                                first_node_for_project(
+                                crate::projects::first_node_for_project(
                                     projects,
                                     projects.selected_project_id.as_deref(),
                                 )
@@ -1621,10 +1520,12 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                         projects.catch_up = catch_up;
                         projects.work_collapsed = work_collapsed;
                     } else {
-                        projects.active_domain = initial_project_domain(projects);
-                        projects.selected_project_id =
-                            first_project_for_domain(projects, &projects.active_domain);
-                        projects.selected_node_id = first_node_for_project(
+                        projects.active_domain = crate::projects::initial_project_domain(projects);
+                        projects.selected_project_id = crate::projects::first_project_for_domain(
+                            projects,
+                            &projects.active_domain,
+                        );
+                        projects.selected_node_id = crate::projects::first_node_for_project(
                             projects,
                             projects.selected_project_id.as_deref(),
                         );
@@ -3589,9 +3490,12 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             }
             projects.active_domain = domain.clone();
             projects.catch_up = false;
-            projects.selected_project_id = first_project_for_domain(projects, &domain);
-            projects.selected_node_id =
-                first_node_for_project(projects, projects.selected_project_id.as_deref());
+            projects.selected_project_id =
+                crate::projects::first_project_for_domain(projects, &domain);
+            projects.selected_node_id = crate::projects::first_node_for_project(
+                projects,
+                projects.selected_project_id.as_deref(),
+            );
             projects.active_view = "work-plan".into();
             projects.work_collapsed = false;
             projects.work_dirty = false;
@@ -3614,8 +3518,10 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 return Vec::new();
             }
             projects.selected_project_id = Some(project_id);
-            projects.selected_node_id =
-                first_node_for_project(projects, projects.selected_project_id.as_deref());
+            projects.selected_node_id = crate::projects::first_node_for_project(
+                projects,
+                projects.selected_project_id.as_deref(),
+            );
             projects.catch_up = false;
             projects.active_view = "work-plan".into();
             projects.work_collapsed = false;

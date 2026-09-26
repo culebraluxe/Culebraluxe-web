@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useEffect, useState, type ReactNode } from 'react'
+import { Component, useEffect, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
 // ---------------------------------------------------------------------------
@@ -68,6 +68,33 @@ function apply(current: Map<number, Mounted>, ops: IslandOp[]): Map<number, Moun
   return next
 }
 
+/**
+ * One widget's failure stays in its node: it is reported and replaced by a short notice, and every other widget on the
+ * page keeps running.
+ */
+class IslandBoundary extends Component<{ kind: string; children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+
+  componentDidCatch(error: unknown) {
+    report(`${this.props.kind}: ${error instanceof Error ? error.message : String(error)}`)
+  }
+
+  render() {
+    if (this.state.failed) {
+      return (
+        <p className="p-4 text-sm text-destructive" role="alert">
+          This panel could not be drawn. The failure has been reported.
+        </p>
+      )
+    }
+    return this.props.children
+  }
+}
+
 export function IslandHost({ renderers }: { renderers: Record<string, IslandRenderer> }) {
   const [mounted, setMounted] = useState<Map<number, Mounted>>(() => new Map())
 
@@ -97,7 +124,11 @@ export function IslandHost({ renderers }: { renderers: Record<string, IslandRend
           return null
         }
         const emit = (event: Record<string, unknown>) => widget.emit(JSON.stringify(event))
-        return createPortal(<Fragment>{render(widget.props, emit)}</Fragment>, widget.node, String(id))
+        return createPortal(
+          <IslandBoundary kind={widget.kind}>{render(widget.props, emit)}</IslandBoundary>,
+          widget.node,
+          String(id),
+        )
       })}
     </>
   )

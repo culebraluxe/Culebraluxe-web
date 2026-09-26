@@ -1,7 +1,7 @@
 # UI Screen Architecture — the contract every screen implements
 
 Status: **framework and master shell built** (owner decision 2026-09-26). Code: `rust/ui/src/app/`. Screens on the
-trait: `db-test`, `site-account`. Cutover ledger: 20 screens still on the old loop (`app/registry.rs`). This document is the contract for all
+trait: `db-test`, `site-account`. Cutover ledger: 19 screens still on the old loop (`app/registry.rs`). This document is the contract for all
 UI work in `rust/ui`. It supersedes the ad hoc per-screen patterns: when code and this document disagree, the code is
 wrong.
 
@@ -210,7 +210,7 @@ not a screen.
 
 | World | Screens (drill-ins in brackets) |
 | --- | --- |
-| CORE | Cockpit [all activity, needs attention], Clients [client record], Projects [7 panes as tabs: Workplan, Timeline, Calendar, Financials, Documents, Activity, Catch-up], Contracts [contract record], Cabinet, Workflows [workflow record], Forms [form record], Seller Strategy |
+| CORE | Cockpit [all activity, needs attention], Clients [client record], Projects [7 panes as tabs: Workplan, Timeline, Calendar, Financials, Documents, Activity, Catch-up], Contracts [contract record], Cabinet, Workflows [workflow record], Forms [form record], Seller Strategy — **ported** (Forms stays a Next page); Projects' five widgets are `<Island>`s |
 | ACCOUNTING | Dashboard, Receivables, Expenses, P&L Statement, Receipt Scanner — **ported** (`app/screens/accounting/`: one shared model and reducer, five thin screens) |
 | MARKETING | Dashboard, Syndication |
 | OPPS | Records [property record], Listing Media |
@@ -227,6 +227,11 @@ portal-auth-proof; and (same day) showings — its data source was unwired and r
 Projects calendar — and the framer-ui-lab page, merged into UI Lab.
 
 ### Known gaps found while porting (not caused by the port)
+
+- **`<select value>` lost its value in Yew**: Yew sets `value` before the options exist, so the browser showed the LAST
+  option (Projects showed every project "Archived"). Fixed in every ported screen by marking the chosen
+  `<option selected>`; the pattern is required for new screens. Old-loop screens (Forms, OPPS) still carry it until
+  they are ported.
 
 - **TECH sorter drop** still calls its Next server action (`moveStoryBucketAction`) from inside the island, as it did
   before the port. Everything else on the Cockpit is the screen's. Moving it behind an API endpoint the screen calls

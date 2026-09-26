@@ -9,6 +9,7 @@ pub mod cockpit;
 pub mod db_test;
 pub mod deals;
 pub mod flight_recorder;
+pub mod projects;
 pub mod security;
 pub mod security_users;
 pub mod seller_strategy;

@@ -10,7 +10,6 @@ use crate::yew_views::portal_flight_recorder_list::FlightRecorderList;
 use crate::yew_views::portal_forms::{FormRecord, Forms};
 use crate::yew_views::portal_listing_media::ListingMedia;
 use crate::yew_views::portal_ops::OpsWorkbench;
-use crate::yew_views::portal_projects::Projects;
 
 use std::rc::Rc;
 
@@ -107,7 +106,6 @@ impl Component for PortalApp {
             }
             "forms" => html! { <Forms model={self.model.clone()} on_msg={on_msg} /> },
             "form-record" => html! { <FormRecord model={self.model.clone()} on_msg={on_msg} /> },
-            "projects" => html! { <Projects model={self.model.clone()} on_msg={on_msg} /> },
             // EVERY OTHER PORTAL SCREEN, drawn by THIS app as markup rather than handed to a second renderer. This arm
             // used to be an error card while the screen was really painted by the string host — the second owner this
             // change removes. See `StringBody`.

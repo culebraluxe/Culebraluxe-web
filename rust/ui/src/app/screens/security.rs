@@ -237,8 +237,9 @@ impl Security {
                                 <label for="role-grant-selector" class="text-xs font-medium uppercase tracking-[0.12em]">{"Edit role grants"}</label>
                                 <select id="role-grant-selector" value={role.role_code.clone()} onchange={select_role}
                                     class="ml-3 rounded border border-black/20 bg-white px-3 py-2 text-sm">
-                                    { for roles.iter().filter(|role| role.account_type == "internal").map(|role| html! {
-                                        <option key={role.role_code.clone()} value={role.role_code.clone()}>{role.role_code.clone()}</option>
+                                    { for roles.iter().filter(|candidate| candidate.account_type == "internal").map(|candidate| html! {
+                                        <option key={candidate.role_code.clone()} value={candidate.role_code.clone()}
+                                            selected={candidate.role_code == role.role_code}>{candidate.role_code.clone()}</option>
                                     }) }
                                 </select>
                                 <div class="mt-4 grid gap-2 md:grid-cols-2">
