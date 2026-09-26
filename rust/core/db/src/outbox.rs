@@ -45,6 +45,47 @@ impl DomainEventOutboxDao {
         Self { db }
     }
 
+    pub async fn register_subscription(
+        &self,
+        subscriber_id: &str,
+        routing_key: &str,
+        max_attempts: i32,
+        retry_backoff_seconds: i32,
+    ) -> DbResult<()> {
+        if subscriber_id.trim().is_empty()
+            || routing_key.trim().is_empty()
+            || max_attempts < 1
+            || retry_backoff_seconds < 0
+        {
+            return Err(DbFailure::schema_mismatch(
+                "outbox.register_subscription",
+                "MQ subscriber id/routing key must be non-empty, max_attempts >= 1, and retry backoff >= 0.",
+            ));
+        }
+
+        sqlx::query(
+            r#"
+            insert into mq_subscription (
+                id, routing_key, max_attempts, retry_backoff_seconds, enabled
+            )
+            values ($1, $2, $3, $4, true)
+            on conflict(id) do update set
+                routing_key=excluded.routing_key,
+                max_attempts=excluded.max_attempts,
+                retry_backoff_seconds=excluded.retry_backoff_seconds,
+                enabled=true
+            "#,
+        )
+        .bind(subscriber_id)
+        .bind(routing_key)
+        .bind(max_attempts)
+        .bind(retry_backoff_seconds)
+        .execute(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("outbox.register_subscription", &error))?;
+        Ok(())
+    }
+
     pub async fn append_tx(
         &self,
         tx: &mut DbTransaction,
@@ -83,9 +124,14 @@ impl DomainEventOutboxDao {
     pub async fn claim_batch(
         &self,
         worker_id: &str,
+        subscriber_ids: &[String],
         limit: i64,
         lease_until: DateTime<Utc>,
     ) -> DbResult<Vec<OutboxDelivery>> {
+        if subscriber_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
         let mut tx = self.db.begin("outbox.claim_batch").await?;
         let result = async {
             sqlx::query(
@@ -96,9 +142,11 @@ impl DomainEventOutboxDao {
                 join mq_subscription s
                   on s.routing_key=m.event_type
                  and s.enabled
+                 and s.id = any($1::text[])
                 on conflict(message_id, subscription_id) do nothing
                 "#,
             )
+            .bind(subscriber_ids)
             .execute(tx.connection())
             .await
             .map_err(|error| DbFailure::from_sqlx("outbox.materialize_deliveries", &error))?;
@@ -108,13 +156,16 @@ impl DomainEventOutboxDao {
                 with candidate as (
                     select d.id
                     from mq_delivery d
-                    where (
-                            d.state in ('pending','failed')
-                            and d.available_at <= now()
-                          )
-                       or (
-                            d.state='claimed'
-                            and d.lease_until <= now()
+                    where d.subscription_id = any($4::text[])
+                      and (
+                            (
+                              d.state in ('pending','failed')
+                              and d.available_at <= now()
+                            )
+                            or (
+                              d.state='claimed'
+                              and d.lease_until <= now()
+                            )
                           )
                     order by d.available_at, d.id
                     for update skip locked
@@ -157,6 +208,7 @@ impl DomainEventOutboxDao {
             .bind(worker_id)
             .bind(limit.clamp(1, 500))
             .bind(lease_until)
+            .bind(subscriber_ids)
             .fetch_all(tx.connection())
             .await
             .map_err(|error| DbFailure::from_sqlx("outbox.claim_deliveries", &error))?;
@@ -233,6 +285,26 @@ impl DomainEventOutboxDao {
         .await
         .map_err(|error| DbFailure::from_sqlx("outbox.mark_failed", &error))?;
         Ok(dead)
+    }
+
+    pub async fn record_proof_effect(&self, delivery: &OutboxDelivery) -> DbResult<()> {
+        sqlx::query(
+            r#"
+            insert into mq_proof_effect (
+                message_id, subscription_id, routing_key, attempt
+            )
+            values ($1::uuid, $2, $3, $4)
+            on conflict(message_id) do nothing
+            "#,
+        )
+        .bind(&delivery.event_id)
+        .bind(&delivery.subscription_id)
+        .bind(&delivery.event_type)
+        .bind(delivery.attempt_count)
+        .execute(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("outbox.record_proof_effect", &error))?;
+        Ok(())
     }
 
     pub async fn subscription_enabled(&self, subscriber_id: &str) -> DbResult<bool> {
