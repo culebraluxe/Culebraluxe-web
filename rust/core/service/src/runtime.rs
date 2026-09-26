@@ -164,13 +164,15 @@ impl ServiceRuntime {
         payload: Value,
         context: &ServiceContext,
     ) -> Result<Value, ServiceRuntimeError> {
-        let router = self.infrastructure.router.as_ref().ok_or_else(|| {
-            ServiceRuntimeError::Router {
-                code: "SERVICE_ROUTER_UNAVAILABLE".into(),
-                message: "No ServiceRouter is configured for this service.".into(),
-                retryable: true,
-            }
-        })?;
+        let router =
+            self.infrastructure
+                .router
+                .as_ref()
+                .ok_or_else(|| ServiceRuntimeError::Router {
+                    code: "SERVICE_ROUTER_UNAVAILABLE".into(),
+                    message: "No ServiceRouter is configured for this service.".into(),
+                    retryable: true,
+                })?;
 
         let envelope = ServiceEnvelope {
             domain: domain.into(),

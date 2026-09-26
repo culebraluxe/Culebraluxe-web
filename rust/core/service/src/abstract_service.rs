@@ -88,7 +88,9 @@ impl ServiceDispatchError {
     pub fn retryable(&self) -> bool {
         match self {
             Self::Operation { retryable, .. } => *retryable,
-            Self::ServiceDraining(_) | Self::ServiceStopped(_) | Self::OperationPanicked { .. } => true,
+            Self::ServiceDraining(_) | Self::ServiceStopped(_) | Self::OperationPanicked { .. } => {
+                true
+            }
             _ => false,
         }
     }

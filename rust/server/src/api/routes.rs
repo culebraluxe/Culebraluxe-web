@@ -1517,7 +1517,8 @@ async fn service_catalog(
 async fn service_health(
     State(state): State<ApiState>,
     headers: HeaderMap,
-) -> Result<Json<ApiSuccess<std::collections::BTreeMap<String, service::ServiceHealth>>>, ApiError> {
+) -> Result<Json<ApiSuccess<std::collections::BTreeMap<String, service::ServiceHealth>>>, ApiError>
+{
     let resolved = resolve_request_context(&state, &headers).await?;
     let value = state.service_kernel().registry().health();
     Ok(success(value, &resolved))

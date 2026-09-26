@@ -1,5 +1,6 @@
 use crate::{
-    ServiceDispatchError, ServiceExecutionMode, ServiceExecutionPolicy, ServiceHealth, ServiceStatus,
+    ServiceDispatchError, ServiceExecutionMode, ServiceExecutionPolicy, ServiceHealth,
+    ServiceStatus,
 };
 use serde_json::Value;
 use std::{
@@ -133,7 +134,9 @@ impl ServiceMailbox {
     {
         let operation = operation.into();
         if !self.accepting.load(Ordering::Acquire) {
-            return Err(ServiceDispatchError::ServiceDraining(self.domain.to_string()));
+            return Err(ServiceDispatchError::ServiceDraining(
+                self.domain.to_string(),
+            ));
         }
 
         if policy.mode == ServiceExecutionMode::Inline {
