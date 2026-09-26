@@ -804,10 +804,10 @@ mod tests {
             ..ScreenCtx::default()
         };
         let (_, cmd) = Forms::init(&ctx);
-        let requests = cmd.into_requests();
-        assert_eq!(requests.len(), 1);
-        assert!(format!("{:?}", requests[0]).contains("/api/portal/rust-ui/forms?screen=forms"));
-        assert!(format!("{:?}", requests[0]).contains("personId=person-1"));
+        let debug = format!("{cmd:?}");
+        assert!(debug.contains("/api/portal/rust-ui/forms?screen=forms"));
+        assert!(debug.contains("personId=person-1"));
+        assert_eq!(cmd.into_requests().len(), 1);
     }
 
     #[test]
