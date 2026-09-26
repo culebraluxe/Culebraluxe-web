@@ -1,10 +1,10 @@
 use crate::{CommandDispatcher, ServiceRegistry};
 use async_trait::async_trait;
-use db::{AgreementExecutionDao, Database, IssuedAgreementDocumentRow, OutboxDelivery, WorkflowOpsDao};
-use serde_json::{json, Map, Value};
-use service::{
-    CommandOutcome, CommandRequest, ServiceActor, ServiceActorKind, ServiceContext,
+use db::{
+    AgreementExecutionDao, Database, IssuedAgreementDocumentRow, OutboxDelivery, WorkflowOpsDao,
 };
+use serde_json::{json, Map, Value};
+use service::{CommandOutcome, CommandRequest, ServiceActor, ServiceActorKind, ServiceContext};
 use std::sync::Arc;
 
 use crate::mq_runtime::{MqSubscriber, MqSubscriberError};
@@ -387,10 +387,7 @@ impl MqSubscriber for Crm26AgreementExecutionSubscriber {
 mod tests {
     use super::*;
     use chrono::Utc;
-    use std::{
-        collections::HashMap,
-        sync::Mutex,
-    };
+    use std::{collections::HashMap, sync::Mutex};
 
     struct FakePort {
         document: Option<IssuedAgreementDocumentRow>,
@@ -477,10 +474,7 @@ mod tests {
             _instance_id: &str,
             node_id: &str,
         ) -> Result<Option<String>, MqSubscriberError> {
-            self.calls
-                .lock()
-                .unwrap()
-                .push(format!("find:{node_id}"));
+            self.calls.lock().unwrap().push(format!("find:{node_id}"));
             Ok(self.tasks.lock().unwrap().get(node_id).cloned())
         }
 
@@ -569,7 +563,10 @@ mod tests {
         let port = Arc::new(fake);
         let subscriber = Crm26AgreementExecutionSubscriber::with_port(port.clone());
         assert!(subscriber.handle(&delivery(valid_payload())).await.is_err());
-        assert!(!port.calls().iter().any(|call| call.starts_with("workflow:")));
+        assert!(!port
+            .calls()
+            .iter()
+            .any(|call| call.starts_with("workflow:")));
     }
 
     #[tokio::test]
