@@ -114,6 +114,21 @@ async fn external_harness_boot_dispatch_drain_and_shutdown_are_real() {
         .expect("catalog-only service participates in lifecycle control");
     assert_eq!(accounting.status, ServiceStatus::Running);
 
+    harness
+        .control("accounting", ServiceControlCommand::Drain)
+        .await
+        .expect("catalog service drains");
+    let refused_typed = harness
+        .gateway()
+        .execute("accounting", "accounting.dashboard", &json!({}), async {
+            1_u8
+        })
+        .await;
+    assert!(matches!(
+        refused_typed,
+        Err(ServiceDispatchError::ServiceDraining(_))
+    ));
+
     let value = harness
         .dispatch(
             &ServiceEnvelope {

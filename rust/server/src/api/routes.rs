@@ -1681,10 +1681,16 @@ async fn cockpit(
 ) -> Result<Json<ApiSuccess<domain::CockpitSnapshot>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
     let service = state.services().cockpit();
-    let value = service
-        .snapshot(&resolved.service)
-        .await
-        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    let context = resolved.service.clone();
+    let value = execute_registered(
+        &state,
+        "cockpit",
+        "cockpit.snapshot",
+        json!({}),
+        async move { service.snapshot(&context).await },
+    )
+    .await
+    .map_err(|error| correlate(error, &resolved))?;
     Ok(success(value, &resolved))
 }
 
@@ -1694,10 +1700,16 @@ async fn workflows(
 ) -> Result<Json<ApiSuccess<domain::WorkflowPortalList>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
     let service = state.services().workflow_portal();
-    let value = service
-        .list(&resolved.service)
-        .await
-        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    let context = resolved.service.clone();
+    let value = execute_registered(
+        &state,
+        "workflow-portal",
+        "workflow.list",
+        json!({}),
+        async move { service.list(&context).await },
+    )
+    .await
+    .map_err(|error| correlate(error, &resolved))?;
     Ok(success(value, &resolved))
 }
 
@@ -1708,19 +1720,26 @@ async fn workflow_detail(
 ) -> Result<Json<ApiSuccess<domain::WorkflowPortalDetail>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
     let service = state.services().workflow_portal();
-    let value = service
-        .detail(&id, &resolved.service)
-        .await
-        .map_err(|error| correlate(ApiError::from(error), &resolved))?
-        .ok_or_else(|| {
-            correlate(
-                ApiError::not_found(
-                    "WORKFLOW_NOT_FOUND",
-                    format!("Workflow instance not found: {id}"),
-                ),
-                &resolved,
-            )
-        })?;
+    let context = resolved.service.clone();
+    let work_id = id.clone();
+    let value = execute_registered(
+        &state,
+        "workflow-portal",
+        "workflow.detail",
+        json!({ "id": id }),
+        async move { service.detail(&work_id, &context).await },
+    )
+    .await
+    .map_err(|error| correlate(error, &resolved))?
+    .ok_or_else(|| {
+        correlate(
+            ApiError::not_found(
+                "WORKFLOW_NOT_FOUND",
+                format!("Workflow instance not found: {id}"),
+            ),
+            &resolved,
+        )
+    })?;
     Ok(success(value, &resolved))
 }
 
@@ -1742,19 +1761,26 @@ async fn flight_recorder(
         ));
     }
     let service = state.services().flight_recorder();
-    let value = service
-        .transaction(&id, &resolved.service)
-        .await
-        .map_err(|error| correlate(ApiError::from(error), &resolved))?
-        .ok_or_else(|| {
-            correlate(
-                ApiError::not_found(
-                    "FLIGHT_RECORDER_NOT_FOUND",
-                    format!("Workflow instance not found: {id}"),
-                ),
-                &resolved,
-            )
-        })?;
+    let context = resolved.service.clone();
+    let work_id = id.clone();
+    let value = execute_registered(
+        &state,
+        "flight-recorder",
+        "flight-recorder.transaction",
+        json!({ "id": id }),
+        async move { service.transaction(&work_id, &context).await },
+    )
+    .await
+    .map_err(|error| correlate(error, &resolved))?
+    .ok_or_else(|| {
+        correlate(
+            ApiError::not_found(
+                "FLIGHT_RECORDER_NOT_FOUND",
+                format!("Workflow instance not found: {id}"),
+            ),
+            &resolved,
+        )
+    })?;
     Ok(success(value, &resolved))
 }
 
@@ -1931,10 +1957,16 @@ async fn complete_task(
 ) -> Result<Json<ApiSuccess<domain::TaskCompletion>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
     let service = state.services().task();
-    let value = service
-        .complete(&id, &resolved.service)
-        .await
-        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    let context = resolved.service.clone();
+    let value = execute_registered(
+        &state,
+        "task",
+        "task.complete",
+        json!({ "id": id }),
+        async move { service.complete(&id, &context).await },
+    )
+    .await
+    .map_err(|error| correlate(error, &resolved))?;
     Ok(success(value, &resolved))
 }
 
@@ -4138,6 +4170,25 @@ pub(crate) fn success_with_correlation<T>(value: T, correlation_id: &str) -> Jso
 
 fn correlate(error: ApiError, resolved: &ResolvedRequestContext) -> ApiError {
     error.with_correlation(resolved.service.correlation_id.clone())
+}
+
+async fn execute_registered<T, F>(
+    state: &ApiState,
+    domain: &str,
+    operation: &str,
+    payload: serde_json::Value,
+    work: F,
+) -> Result<T, ApiError>
+where
+    T: Send + 'static,
+    F: std::future::Future<Output = Result<T, CoreServiceError>> + Send + 'static,
+{
+    state
+        .service_gateway()
+        .execute(domain, operation, &payload, work)
+        .await
+        .map_err(service_dispatch_error)?
+        .map_err(ApiError::from)
 }
 
 #[cfg(test)]
