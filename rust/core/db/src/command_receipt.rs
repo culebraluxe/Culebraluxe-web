@@ -90,12 +90,12 @@ impl CommandReceiptDao {
             r#"
             insert into workflow_command_receipt (
                 command_id, outcome, aggregate_id, message, actor_app_user_id,
-                command_type, correlation_id, causation_id, aggregate_type,
-                requested_at, updated_at
+                command_type, request_fingerprint, correlation_id, causation_id,
+                aggregate_type, requested_at, updated_at
             )
             values (
-                $1, 'pending', $5, null, $3,
-                $2, $6, $7, $4, $8::timestamptz, now()
+                $1, 'pending', $6, null, $4::uuid,
+                $2, $3, $7, $8, $5, $9::timestamptz, now()
             )
             on conflict(command_id) do nothing
             returning command_id
