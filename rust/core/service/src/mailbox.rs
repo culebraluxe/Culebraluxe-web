@@ -324,10 +324,9 @@ impl ServiceMailbox {
                     ));
                 }
                 _ => {
-                    status
-                        .changed()
-                        .await
-                        .map_err(|_| ServiceDispatchError::ServiceStopped(self.domain.to_string()))?;
+                    status.changed().await.map_err(|_| {
+                        ServiceDispatchError::ServiceStopped(self.domain.to_string())
+                    })?;
                 }
             }
         }
