@@ -1167,8 +1167,14 @@ fn http_service_domain(path: &str) -> Option<&'static str> {
     if path.starts_with("/v1/clients") {
         return Some("client");
     }
+    if path.starts_with("/v1/people/") && path.ends_with("/properties") {
+        return Some("property");
+    }
     if path.starts_with("/v1/people") {
         return Some("person");
+    }
+    if path.starts_with("/v1/properties/") && (path.contains("/media") || path.contains("/video")) {
+        return Some("media");
     }
     if path.starts_with("/v1/properties") {
         return Some("property");
@@ -4353,7 +4359,9 @@ mod tests {
             ("/v1/wbs/project-items", "wbs"),
             ("/v1/clients", "client"),
             ("/v1/people/search", "person"),
+            ("/v1/people/x/properties", "property"),
             ("/v1/properties/admin", "property"),
+            ("/v1/properties/x/media/uploads", "media"),
             ("/v1/media/upload", "media"),
             ("/v1/deals", "deal"),
             ("/v1/contracts", "contract"),
