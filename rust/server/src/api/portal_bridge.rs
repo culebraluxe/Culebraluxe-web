@@ -19,9 +19,15 @@ use domain::{
     PersonPropertyContext,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+
+use super::routes::execute_registered;
 
 pub fn router() -> Router<ApiState> {
-    Router::new().route("/api/portal/rust-ui/clients", get(clients))
+    Router::new()
+        .route("/api/portal/rust-ui/clients", get(clients))
+        .route("/api/portal/rust-ui/page", get(page))
+        .route("/api/portal/rust-ui/cabinet", get(cabinet))
 }
 
 #[derive(Debug, Deserialize)]
@@ -284,4 +290,97 @@ fn map_properties(context: PersonPropertyContext) -> Vec<ClientBridgeProperty> {
 
 fn correlate(error: ApiError, resolved: &ResolvedRequestContext) -> ApiError {
     error.with_correlation(resolved.service.correlation_id.clone())
+}
+
+/// A service answer as JSON, or the service's failure tagged with this request's correlation id.
+fn to_json<T: Serialize>(value: T) -> Value {
+    serde_json::to_value(value).unwrap_or(Value::Null)
+}
+
+fn failed(resolved: &ResolvedRequestContext) -> impl Fn(CoreServiceError) -> ApiError + '_ {
+    move |error| correlate(ApiError::from(error), resolved)
+}
+
+#[derive(Debug, Deserialize)]
+struct PageQuery {
+    #[serde(default)]
+    screen: String,
+    scope: Option<String>,
+}
+
+/// A portal screen's page payload, in the screen's own shape (`{ activity }`, `{ workflows }`, `{ workflow }`).
+async fn page(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Query(query): Query<PageQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    let scope = query.scope.as_deref().map(str::trim).filter(|value| !value.is_empty());
+    match query.screen.as_str() {
+        "activity" => {
+            let entries = state
+                .services()
+                .comms()
+                .activity(50, &resolved.service)
+                .await
+                .map_err(failed(&resolved))?;
+            Ok(Json(json!({ "activity": entries })))
+        }
+        "workflows" | "tech-flight-recorder" => {
+            let service = state.services().workflow_portal();
+            let context = resolved.service.clone();
+            let list = execute_registered(&state, "workflow-portal", "workflow.list", json!({}), async move {
+                service.list(&context).await
+            })
+            .await
+            .map_err(|error| correlate(error, &resolved))?;
+            Ok(Json(json!({ "workflows": list })))
+        }
+        "workflow-record" => {
+            let Some(id) = scope.map(str::to_owned) else {
+                return Err(ApiError::bad_request("WORKFLOW_SCOPE_REQUIRED", "workflow-record requires scope."));
+            };
+            let service = state.services().workflow_portal();
+            let context = resolved.service.clone();
+            let work_id = id.clone();
+            let detail = execute_registered(
+                &state,
+                "workflow-portal",
+                "workflow.detail",
+                json!({ "id": id }),
+                async move { service.detail(&work_id, &context).await },
+            )
+            .await
+            .map_err(|error| correlate(error, &resolved))?
+            .ok_or_else(|| {
+                correlate(ApiError::not_found("WORKFLOW_NOT_FOUND", format!("Workflow instance not found: {id}")), &resolved)
+            })?;
+            Ok(Json(json!({ "workflow": detail })))
+        }
+        other => Err(correlate(
+            ApiError::new(
+                StatusCode::NOT_IMPLEMENTED,
+                "PAGE_NOT_IN_RUST_YET",
+                format!("The '{other}' screen has no Rust service yet."),
+                false,
+            ),
+            &resolved,
+        )),
+    }
+}
+
+/// The Cabinet: every issued document the caller may see, as `{ cabinet: { documents } }`.
+async fn cabinet(State(state): State<ApiState>, headers: HeaderMap) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    let scope = domain::VaultActorScope {
+        account_type: resolved.acting_user.account_type.clone(),
+        person_id: resolved.acting_user.person_id.clone(),
+    };
+    let documents = state
+        .services()
+        .vault()
+        .list_issued_documents(Some(&scope), &resolved.service)
+        .await
+        .map_err(failed(&resolved))?;
+    Ok(Json(json!({ "cabinet": { "documents": to_json(documents) } })))
 }

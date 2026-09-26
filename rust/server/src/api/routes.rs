@@ -4321,7 +4321,7 @@ fn correlate(error: ApiError, resolved: &ResolvedRequestContext) -> ApiError {
     error.with_correlation(resolved.service.correlation_id.clone())
 }
 
-async fn execute_registered<T, F>(
+pub(super) async fn execute_registered<T, F>(
     state: &ApiState,
     domain: &str,
     operation: &str,
