@@ -393,13 +393,12 @@ impl TechCockpitDao {
     }
 
     pub async fn unstage_story_from_batch(&self, story_id: &str) -> DbResult<u64> {
-        let result = sqlx::query(
-            "delete from forge_batch_item where story_id=$1 and state='Staged'",
-        )
-        .bind(story_id)
-        .execute(self.db.pool())
-        .await
-        .map_err(|e| DbFailure::from_sqlx("tech.unstage_story", &e))?;
+        let result =
+            sqlx::query("delete from forge_batch_item where story_id=$1 and state='Staged'")
+                .bind(story_id)
+                .execute(self.db.pool())
+                .await
+                .map_err(|e| DbFailure::from_sqlx("tech.unstage_story", &e))?;
         Ok(result.rows_affected())
     }
 
