@@ -446,6 +446,10 @@ impl ServiceKernel {
         self.registry.clone()
     }
 
+    pub(crate) fn child_token(&self) -> CancellationToken {
+        self.registry.root_cancel.child_token()
+    }
+
     pub async fn start(&self) -> Result<(), ServiceDispatchError> {
         self.registry.start().await
     }
