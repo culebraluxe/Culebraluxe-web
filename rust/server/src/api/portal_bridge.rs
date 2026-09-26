@@ -28,6 +28,7 @@ pub fn router() -> Router<ApiState> {
         .route("/api/portal/rust-ui/clients", get(clients))
         .route("/api/portal/rust-ui/page", get(page))
         .route("/api/portal/rust-ui/cabinet", get(cabinet))
+        .route("/api/portal/rust-ui/deals", get(deals).post(deals_write))
 }
 
 #[derive(Debug, Deserialize)]
@@ -383,4 +384,94 @@ async fn cabinet(State(state): State<ApiState>, headers: HeaderMap) -> Result<Js
         .await
         .map_err(failed(&resolved))?;
     Ok(Json(json!({ "cabinet": { "documents": to_json(documents) } })))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DealsQuery {
+    people_search: Option<String>,
+    scope: Option<String>,
+    id: Option<String>,
+}
+
+impl DealsQuery {
+    fn deal_id(&self) -> Option<String> {
+        self.scope.as_deref().or(self.id.as_deref()).map(str::trim).filter(|id| !id.is_empty()).map(str::to_owned)
+    }
+}
+
+/// Contracts: the deal portfolio, one deal's workspace (`scope`), or a people search for a new deal (`peopleSearch`).
+async fn deals(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Query(query): Query<DealsQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    if let Some(search) = query.people_search.as_deref() {
+        let search = search.trim();
+        if search.chars().count() < 2 {
+            return Ok(Json(json!({ "people": [] })));
+        }
+        let request = domain::SearchPeopleRequest { query: search.to_owned(), limit: Some(20) };
+        let people = state.services().person().search(&request, &resolved.service).await.map_err(failed(&resolved))?;
+        let people: Vec<Value> = people
+            .into_iter()
+            .map(|person| {
+                json!({
+                    "id": person.id,
+                    "displayName": person.display_name,
+                    "role": person.role,
+                    "status": person.status,
+                    "location": person.location,
+                    "email": person.email,
+                    "phone": person.phone,
+                })
+            })
+            .collect();
+        return Ok(Json(json!({ "people": people })));
+    }
+    let service = state.services().deal_portal();
+    if let Some(deal_id) = query.deal_id() {
+        let workspace = service.workspace(&deal_id, &resolved.service).await.map_err(failed(&resolved))?;
+        return Ok(Json(json!({ "deals": {
+            "deals": [], "contracts": [], "properties": [], "users": [], "workspace": to_json(workspace),
+        } })));
+    }
+    let portfolio = service.portfolio(&resolved.service).await.map_err(failed(&resolved))?;
+    let mut deals = to_json(portfolio);
+    if let Some(object) = deals.as_object_mut() {
+        object.insert("workspace".into(), Value::Null);
+    }
+    Ok(Json(json!({ "deals": deals })))
+}
+
+/// Contracts' writes: a command on one deal (`scope`), or a new deal. Both answer `{ id }`.
+async fn deals_write(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Query(query): Query<DealsQuery>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    let service = state.services().deal_portal();
+    if let Some(deal_id) = query.deal_id() {
+        let command: domain::DealWorkspaceCommand = serde_json::from_value(body)
+            .map_err(|error| ApiError::bad_request("DEAL_COMMAND_INVALID", format!("Invalid command body: {error}")))?;
+        let result = service.command(&deal_id, &command, &resolved.service).await.map_err(failed(&resolved))?;
+        return Ok(Json(json!({ "id": result.id })));
+    }
+    let text = |key: &str| {
+        body.get(key).and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty()).map(str::to_owned)
+    };
+    let (Some(property_id), Some(client_person_id)) = (text("propertyId"), text("clientPersonId")) else {
+        return Err(ApiError::bad_request("DEAL_CREATE_INVALID", "propertyId and clientPersonId are required."));
+    };
+    let request = domain::CreateDealRequest {
+        property_id,
+        client_person_id,
+        owner_user_id: text("ownerUserId"),
+        notes: text("notes"),
+    };
+    let created = service.create(&request, &resolved.service).await.map_err(failed(&resolved))?;
+    Ok(Json(json!({ "id": created.id })))
 }
