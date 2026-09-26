@@ -28,4 +28,5 @@ pub mod rows;
 pub mod screen;
 pub mod screens;
 pub mod shell;
+pub mod site;
 pub mod template;

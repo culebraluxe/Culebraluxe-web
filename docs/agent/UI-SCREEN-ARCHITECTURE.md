@@ -1,7 +1,7 @@
 # UI Screen Architecture — the contract every screen implements
 
 Status: **framework and master shell built** (owner decision 2026-09-26). Code: `rust/ui/src/app/`. Screens on the
-trait: `db-test`, `site-account`. Cutover ledger: 16 screens still on the old loop (`app/registry.rs`). This document is the contract for all
+trait: `db-test`, `site-account`. Cutover ledger: 2 screens still on the old loop (Marketing, on hold by the owner) (`app/registry.rs`). This document is the contract for all
 UI work in `rust/ui`. It supersedes the ad hoc per-screen patterns: when code and this document disagree, the code is
 wrong.
 
@@ -227,6 +227,18 @@ portal-auth-proof; and (same day) showings — its data source was unwired and r
 Projects calendar — and the framer-ui-lab page, merged into UI Lab.
 
 ### Known gaps found while porting (not caused by the port)
+
+- **Public site ported** (2026-09-26): every public and sign-in page is a screen (`app/screens/site/`); the old site
+  app (`yew_app.rs`, `yew_router.rs`) and the `LegacySite` kind are deleted. The interactive pages share one visitor
+  model (`site/visitor.rs`: saved homes, compare, saved searches, recently viewed, enquiries, the gallery) with the
+  TypeScript store keys unchanged.
+- **Emergency sign-in had no form**: `/login/recovery` showed its two sentences and nothing to sign in with, so the
+  break-glass provider in `auth.ts` was unreachable. It is a form again (posts to `/api/auth/callback/break-glass`).
+  A refused credential is sent by Auth.js to `pages.signIn` (`/account`), not back here — `auth.ts` is the security
+  stream's to change.
+- **`/properties`** was a string-rendered rows table; it is now the collection as cards.
+- **SEO**: the public site is rendered in the browser only (the Next page is an empty mount point; the Rust
+  `document()` renderer is not served). Listings are invisible to crawlers that do not run JavaScript.
 
 - **OPPS video upload** still runs inside the `opps-video` island (direct to Mux), as before the port; it asks the
   screen to re-read through its events. Moving it behind `Cmd` finishes §9 for this widget.

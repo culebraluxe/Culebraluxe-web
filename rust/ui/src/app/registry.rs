@@ -5,7 +5,7 @@
 //!
 //! THE KINDS, and why three of them are temporary:
 //!   * `Screen(mount)` — a screen on the `Screen` trait. The only kind that survives the cutover.
-//!   * `LegacyPortal(key)` / `LegacySite` — a screen still on the old global MVI loop, hosted inside this shell while it
+//!   * `LegacyPortal(key)` — a screen still on the old global MVI loop, hosted inside this shell while it
 //!     is ported. Each one is a debt: the count only goes down (`legacy_count` test), and at zero both kinds are deleted.
 //!   * `External` — a page Next still renders itself (Auth.js sign-in, the React Forms editor). Links to it load the
 //!     document.
@@ -32,6 +32,7 @@ use crate::app::screens::projects::Projects;
 use crate::app::screens::security::Security;
 use crate::app::screens::security_users::SecurityUsers;
 use crate::app::screens::seller_strategy::SellerStrategy;
+use crate::app::screens::site;
 use crate::app::screens::storyboard::{StoryRecord, Storyboard};
 use crate::app::screens::support_rows::{Authorities, Review, Roles, VideoTest};
 use crate::app::screens::system_health::SystemHealth;
@@ -68,8 +69,6 @@ pub enum Kind {
     Screen(fn(ScreenCtx) -> Html),
     /// Still on the old loop: the old portal app for this screen key. Temporary.
     LegacyPortal(&'static str),
-    /// Still on the old loop: the old site app. Temporary.
-    LegacySite,
     /// Rendered by Next, not by this app.
     External,
 }
@@ -79,7 +78,6 @@ impl std::fmt::Debug for Kind {
         match self {
             Kind::Screen(_) => write!(f, "Screen"),
             Kind::LegacyPortal(key) => write!(f, "LegacyPortal({key})"),
-            Kind::LegacySite => write!(f, "LegacySite"),
             Kind::External => write!(f, "External"),
         }
     }
@@ -180,13 +178,13 @@ pub const ENTRIES: &[Entry] = &[
     entry("site-video", "/video", Surface::Support, "Mux Video Test", Menu::Rail("Mux Video Test"), "portal.read", "portal.read", Kind::Screen(mount::<RowsScreen<VideoTest>>)),
     entry("review", "/review/:token/:page", Surface::Support, "Review", Menu::None, "", "", Kind::Screen(mount::<RowsScreen<Review>>)),
     entry("security", "/portal/settings", Surface::Support, "Security", Menu::Rail("Security"), "settings.read", "security.principal.read", Kind::Screen(mount::<Security>)),
-    entry("site-buyers", "/buyers", Surface::Site, "Buyers", Menu::Header("Buyers"), "", "", Kind::LegacySite),
-    entry("site-sellers", "/sellers", Surface::Site, "Sellers", Menu::Header("Sellers"), "", "", Kind::LegacySite),
-    entry("site-services", "/services", Surface::Site, "Services", Menu::Header("Services"), "", "", Kind::LegacySite),
-    entry("site-guide", "/guide", Surface::Site, "Guide", Menu::Header("Guide"), "", "", Kind::LegacySite),
-    entry("site-about", "/about", Surface::Site, "About", Menu::Header("About"), "", "", Kind::LegacySite),
-    entry("site-faq", "/faq", Surface::Site, "FAQ", Menu::Header("FAQ"), "", "", Kind::LegacySite),
-    entry("site-contact", "/contact", Surface::Site, "Contact", Menu::Header("Contact"), "", "", Kind::LegacySite),
+    entry("site-buyers", "/buyers", Surface::Site, "Buyers", Menu::Header("Buyers"), "", "", Kind::Screen(mount::<site::pages::Buyers>)),
+    entry("site-sellers", "/sellers", Surface::Site, "Sellers", Menu::Header("Sellers"), "", "", Kind::Screen(mount::<site::sellers::SellersPage>)),
+    entry("site-services", "/services", Surface::Site, "Services", Menu::Header("Services"), "", "", Kind::Screen(mount::<site::services::ServicesPage>)),
+    entry("site-guide", "/guide", Surface::Site, "Guide", Menu::Header("Guide"), "", "", Kind::Screen(mount::<site::guide::GuidePage>)),
+    entry("site-about", "/about", Surface::Site, "About", Menu::Header("About"), "", "", Kind::Screen(mount::<site::about::AboutPage>)),
+    entry("site-faq", "/faq", Surface::Site, "FAQ", Menu::Header("FAQ"), "", "", Kind::Screen(mount::<site::faq::FaqPage>)),
+    entry("site-contact", "/contact", Surface::Site, "Contact", Menu::Header("Contact"), "", "", Kind::Screen(mount::<site::pages::Contact>)),
     entry("settings-authorities", "/portal/settings/authorities", Surface::Support, "Authorities", Menu::None, "portal.read", "", Kind::Screen(mount::<RowsScreen<Authorities>>)).of("security"),
     entry("settings-roles", "/portal/settings/roles", Surface::Support, "Roles", Menu::None, "portal.read", "", Kind::Screen(mount::<RowsScreen<Roles>>)).of("security"),
     entry("settings-users", "/portal/settings/users", Surface::Support, "Users", Menu::None, "portal.read", "", Kind::Screen(mount::<SecurityUsers>)).of("security"),
@@ -199,15 +197,15 @@ pub const ENTRIES: &[Entry] = &[
     entry("property-record", "/portal/property-admin/:propertyId", Surface::Ops, "Property record", Menu::None, "portal.read", "", Kind::Screen(mount::<Workbench>)).of("property-admin"),
     entry("story-record", "/portal/storyboard/:id", Surface::Tech, "Story", Menu::None, "portal.read", "", Kind::Screen(mount::<StoryRecord>)).of("storyboard"),
     entry("trace-record", "/portal/tech/flight-recorder/:instanceId", Surface::Tech, "Trace", Menu::None, "portal.read", "", Kind::Screen(mount::<FlightRecorder>)).of("tech"),
-    entry("site-home", "/", Surface::Site, "Home", Menu::None, "", "", Kind::LegacySite),
-    entry("site-properties", "/properties", Surface::Site, "Properties", Menu::None, "", "", Kind::LegacySite).of("site-buyers"),
-    entry("site-property-detail", "/properties/:slug", Surface::Site, "Property", Menu::None, "", "", Kind::LegacySite).of("site-buyers"),
-    entry("site-privacy", "/privacy", Surface::Site, "Privacy", Menu::None, "", "", Kind::LegacySite),
-    entry("site-favorites", "/favorites", Surface::Site, "Favorites", Menu::None, "", "", Kind::LegacySite),
+    entry("site-home", "/", Surface::Site, "Home", Menu::None, "", "", Kind::Screen(mount::<site::pages::Home>)),
+    entry("site-properties", "/properties", Surface::Site, "Properties", Menu::None, "", "", Kind::Screen(mount::<site::pages::Properties>)).of("site-buyers"),
+    entry("site-property-detail", "/properties/:slug", Surface::Site, "Property", Menu::None, "", "", Kind::Screen(mount::<site::pages::PropertyDetail>)).of("site-buyers"),
+    entry("site-privacy", "/privacy", Surface::Site, "Privacy", Menu::None, "", "", Kind::Screen(mount::<site::notices::PrivacyPage>)),
+    entry("site-favorites", "/favorites", Surface::Site, "Favorites", Menu::None, "", "", Kind::Screen(mount::<site::pages::Favorites>)),
     entry("site-account", "/account", Surface::Site, "Account", Menu::None, "", "", Kind::Screen(mount::<Account>)),
     entry("login", "/login", Surface::Site, "Login", Menu::None, "", "", Kind::External),
-    entry("login-recovery", "/login/recovery", Surface::Site, "Login recovery", Menu::None, "", "", Kind::LegacySite),
-    entry("login-unauthorized", "/login/unauthorized", Surface::Site, "Login unauthorized", Menu::None, "", "", Kind::LegacySite),
+    entry("login-recovery", "/login/recovery", Surface::Site, "Login recovery", Menu::None, "", "", Kind::Screen(mount::<site::notices::Recovery>)),
+    entry("login-unauthorized", "/login/unauthorized", Surface::Site, "Login unauthorized", Menu::None, "", "", Kind::Screen(mount::<site::notices::UnauthorizedPage>)),
     entry("auth-error", "/auth/error", Surface::Site, "Auth error", Menu::None, "", "", Kind::External),
     entry("portal-root", "/portal", Surface::Core, "Portal", Menu::None, "portal.read", "", Kind::External),
 ];
@@ -598,7 +596,7 @@ mod tests {
     fn legacy_count_only_goes_down() {
         let legacy = ENTRIES
             .iter()
-            .filter(|entry| matches!(entry.kind, Kind::LegacyPortal(_) | Kind::LegacySite))
+            .filter(|entry| matches!(entry.kind, Kind::LegacyPortal(_)))
             .count();
         assert!(
             legacy <= LEGACY_CEILING,
@@ -606,5 +604,5 @@ mod tests {
         );
     }
 
-    const LEGACY_CEILING: usize = 16;
+    const LEGACY_CEILING: usize = 2;
 }

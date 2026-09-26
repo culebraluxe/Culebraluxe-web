@@ -10,26 +10,19 @@
 
 use yew::prelude::*;
 
+use super::visitor::{Model, Msg};
+
 use wasm_bindgen::JsCast;
 
-use crate::model::{BlockItem, ContactStatus, ContactSubmission, Model, Msg, PageContent};
-use crate::yew_router::query_param;
-use crate::yew_views::buyers::page_hero;
-use crate::yew_views::chrome::PageProps;
+use crate::app::site::{form_field, page_hero};
+use crate::model::{BlockItem, ContactStatus, ContactSubmission, PageContent};
 
 pub struct Contact;
 
-impl Component for Contact {
-    type Message = ();
-    type Properties = PageProps;
-
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
-    }
-
-    fn view(&self, ctx: &Context<Self>) -> Html {
+impl Contact {
+    pub(super) fn render(&self, model: &Model, on_msg: &Callback<Msg>) -> Html {
         // No page, no page furniture: a hero with no words over a section with no address is not the Contact page.
-        let Some(page) = ctx.props().model.page.as_ref() else {
+        let Some(page) = model.page.as_ref() else {
             return Html::default();
         };
         let intro = page.hero.body.as_str();
@@ -54,7 +47,7 @@ impl Component for Contact {
                             { self.details(page) }
                         </div>
                         <div class="reveal md:col-span-7" style="--reveal-step: 1">
-                            { enquiry_form(&ctx.props().model, &ctx.props().on_msg) }
+                            { enquiry_form(model, &on_msg) }
                         </div>
                     </div>
                 </section>
@@ -74,7 +67,7 @@ fn request_type(model: &Model) -> &'static str {
     {
         return "";
     }
-    match query_param("requestType").as_deref() {
+    match model.request_type.as_deref() {
         Some("property_information") => "property_information",
         _ => "private_viewing",
     }
@@ -110,13 +103,14 @@ fn enquiry_form(model: &Model, on_msg: &Callback<Msg>) -> Html {
     let onsubmit = {
         let on_msg = on_msg.clone();
         let scope = model.scope.clone().unwrap_or_default();
+        let service = model.service.clone().unwrap_or_default();
         Callback::from(move |event: SubmitEvent| {
             event.prevent_default();
             let submission = ContactSubmission {
-                name: field_value("contact-name"),
-                email: field_value("contact-email"),
-                message: field_value("contact-message"),
-                company: field_value("contact-company"),
+                name: form_field(&event, "name"),
+                email: form_field(&event, "email"),
+                message: form_field(&event, "message"),
+                company: form_field(&event, "company"),
                 request_type: request.to_string(),
                 property_id: if request.is_empty() {
                     String::new()
@@ -124,7 +118,7 @@ fn enquiry_form(model: &Model, on_msg: &Callback<Msg>) -> Html {
                     scope.trim().to_string()
                 },
                 service: if request.is_empty() {
-                    query_param("service").unwrap_or_default()
+                    service.clone()
                 } else {
                     String::new()
                 },
@@ -207,24 +201,6 @@ fn enquiry_form(model: &Model, on_msg: &Callback<Msg>) -> Html {
             </form>
         </>
     }
-}
-
-/// A form control's current value, by id. The fields are uncontrolled, as they were in the live form: the reducer holds
-/// the submission's state, not every keystroke.
-pub(crate) fn field_value(id: &str) -> String {
-    let Some(element) = web_sys::window()
-        .and_then(|window| window.document())
-        .and_then(|doc| doc.get_element_by_id(id))
-    else {
-        return String::new();
-    };
-    if let Some(input) = element.dyn_ref::<web_sys::HtmlInputElement>() {
-        return input.value();
-    }
-    element
-        .dyn_ref::<web_sys::HtmlTextAreaElement>()
-        .map(|area| area.value())
-        .unwrap_or_default()
 }
 
 /// `crypto.randomUUID()` — the submission id the intake pipeline requires. Empty only if the browser has no Web Crypto,
@@ -320,10 +296,10 @@ pub(crate) fn quick_enquiry(model: &Model, on_msg: &Callback<Msg>, enquiry: Quic
         Callback::from(move |event: SubmitEvent| {
             event.prevent_default();
             let submission = ContactSubmission {
-                name: field_value("quick-name"),
-                email: field_value("quick-email"),
+                name: form_field(&event, "name"),
+                email: form_field(&event, "email"),
                 message: message.clone(),
-                company: field_value("quick-company"),
+                company: form_field(&event, "company"),
                 ..Default::default()
             };
             on_msg.emit(Msg::ContactSubmitted {

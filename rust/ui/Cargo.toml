@@ -33,6 +33,7 @@ web-sys = { version = "0.3", optional = true, features = [
     "DragEvent",
     "DataTransfer",
     "HtmlElement",
+    "HtmlFormElement",
     "HtmlInputElement",
     "HtmlSelectElement",
     "HtmlTextAreaElement",

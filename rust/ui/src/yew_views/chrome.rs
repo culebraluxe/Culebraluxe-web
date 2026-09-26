@@ -6,54 +6,6 @@
 //! the attribute `.top-nav-capsule[aria-current='page']` matches.
 
 use yew::prelude::*;
-use yew_router::prelude::*;
-
-use crate::yew_router::Route;
-
-/// A link the router owns: a real anchor, in the design's own markup, that navigates without a page load.
-///
-/// WHY NOT `yew_router`'s `Link`: it takes `classes` and `to` and nothing else, so it cannot carry `aria-current` — and
-/// the active destination is styled by that attribute in the existing stylesheet, which this port is not allowed to
-/// change. This renders the same `<a>` with the same class, adds the attribute, and pushes the route instead of
-/// reloading the document. Modified clicks (a new tab, a download) are left to the browser.
-#[derive(Properties, PartialEq)]
-pub struct NavLinkProps {
-    pub to: Route,
-    pub classes: Classes,
-    #[prop_or_default]
-    pub aria_label: Option<AttrValue>,
-    #[prop_or_default]
-    pub current: bool,
-    #[prop_or_default]
-    pub children: Html,
-}
-
-#[function_component(NavLink)]
-pub fn nav_link(props: &NavLinkProps) -> Html {
-    let navigator = use_navigator();
-    let to = props.to.clone();
-    let click_target = to.clone();
-    let onclick = Callback::from(move |event: MouseEvent| {
-        if event.meta_key() || event.ctrl_key() || event.shift_key() || event.alt_key() {
-            return;
-        }
-        if let Some(navigator) = navigator.clone() {
-            event.prevent_default();
-            let _ = navigator.push(&click_target);
-        }
-    });
-    html! {
-        <a
-            href={to.to_path()}
-            class={props.classes.clone()}
-            aria-current={props.current.then_some("page")}
-            aria-label={props.aria_label.clone()}
-            {onclick}
-        >
-            { props.children.clone() }
-        </a>
-    }
-}
 
 /// The footer, as `components/site-footer.tsx` renders it.
 pub struct Footer;
@@ -78,13 +30,13 @@ impl Component for Footer {
                             </p>
                         </div>
                         <nav class="flex flex-wrap gap-x-8 gap-y-3" aria-label="Footer">
-                            <NavLink to={Route::Buyers} classes={classes!(FOOTER_LINK)}>{"Buyers"}</NavLink>
-                            <NavLink to={Route::Sellers} classes={classes!(FOOTER_LINK)}>{"Sellers"}</NavLink>
-                            <NavLink to={Route::Services} classes={classes!(FOOTER_LINK)}>{"Services"}</NavLink>
-                            <NavLink to={Route::Guide} classes={classes!(FOOTER_LINK)}>{"Guide"}</NavLink>
-                            <NavLink to={Route::About} classes={classes!(FOOTER_LINK)}>{"About"}</NavLink>
-                            <NavLink to={Route::Faq} classes={classes!(FOOTER_LINK)}>{"FAQ"}</NavLink>
-                            <NavLink to={Route::Contact} classes={classes!(FOOTER_LINK)}>{"Contact"}</NavLink>
+                            <crate::app::chrome::AppLink href="/buyers" classes={classes!(FOOTER_LINK)}>{"Buyers"}</crate::app::chrome::AppLink>
+                            <crate::app::chrome::AppLink href="/sellers" classes={classes!(FOOTER_LINK)}>{"Sellers"}</crate::app::chrome::AppLink>
+                            <crate::app::chrome::AppLink href="/services" classes={classes!(FOOTER_LINK)}>{"Services"}</crate::app::chrome::AppLink>
+                            <crate::app::chrome::AppLink href="/guide" classes={classes!(FOOTER_LINK)}>{"Guide"}</crate::app::chrome::AppLink>
+                            <crate::app::chrome::AppLink href="/about" classes={classes!(FOOTER_LINK)}>{"About"}</crate::app::chrome::AppLink>
+                            <crate::app::chrome::AppLink href="/faq" classes={classes!(FOOTER_LINK)}>{"FAQ"}</crate::app::chrome::AppLink>
+                            <crate::app::chrome::AppLink href="/contact" classes={classes!(FOOTER_LINK)}>{"Contact"}</crate::app::chrome::AppLink>
                         </nav>
                     </div>
                     <div class="mt-14 flex flex-col gap-3 border-t border-border pt-8 text-xs font-light uppercase tracking-[0.16em] text-muted-foreground md:flex-row md:justify-between">

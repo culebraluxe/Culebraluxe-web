@@ -9,23 +9,24 @@
 
 use yew::prelude::*;
 
+use crate::app::screen::ScreenCtx;
+use crate::app::site::{page_hero, SitePage, SitePageSpec};
 use crate::model::GuideItem;
 use crate::view::GUIDE_SECTIONS;
-use crate::yew_router::Route;
-use crate::yew_views::buyers::page_hero;
-use crate::yew_views::chrome::{NavLink, PageProps};
 
 pub struct Guide;
 
-impl Component for Guide {
-    type Message = ();
-    type Properties = PageProps;
+pub type GuidePage = SitePage<Guide>;
 
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
+impl SitePageSpec for Guide {
+    const SCREEN: &'static str = "site-guide";
+    fn view(page: &crate::model::PageContent, _ctx: &ScreenCtx) -> Html {
+        Guide.render(page)
     }
+}
 
-    fn view(&self, ctx: &Context<Self>) -> Html {
+impl Guide {
+    fn render(&self, page: &crate::model::PageContent) -> Html {
         html! {
             <>
                 { page_hero(
@@ -36,7 +37,7 @@ impl Component for Guide {
                     "The white sand crescent and turquoise water of Flamenco Beach, Culebra",
                 ) }
                 { self.jump_nav() }
-                { self.sections(&ctx.props().model) }
+                { self.sections(page) }
                 { self.closing() }
             </>
         }
@@ -64,12 +65,8 @@ impl Guide {
 
     /// Every section, with the cards that belong to it — filtered by the entry's own `section`, which is exactly how the
     /// string renderer grouped them and how the database groups them.
-    fn sections(&self, model: &crate::model::Model) -> Html {
-        let entries: &[GuideItem] = model
-            .page
-            .as_ref()
-            .map(|page| page.guide.as_slice())
-            .unwrap_or(&[]);
+    fn sections(&self, page: &crate::model::PageContent) -> Html {
+        let entries: &[GuideItem] = page.guide.as_slice();
         html! {
             <section class="px-6 py-20 md:px-12 md:py-28">
                 <div class="mx-auto max-w-[1600px]">
@@ -110,11 +107,11 @@ impl Guide {
                     <h2 class="max-w-3xl text-balance font-serif text-3xl font-light leading-[1.1] md:text-4xl">
                         {"When you are ready to find your place here."}
                     </h2>
-                    <NavLink to={Route::Buyers}
+                    <crate::app::chrome::AppLink href="/buyers"
                         classes={classes!("group", "inline-flex", "items-center", "gap-3", "text-xs", "font-light", "uppercase", "tracking-[0.24em]")}>
                         {"Explore buying on Culebra"}
                         <span class="inline-block h-px w-10 bg-primary-foreground transition-all duration-500 group-hover:w-16"></span>
-                    </NavLink>
+                    </crate::app::chrome::AppLink>
                 </div>
             </section>
         }

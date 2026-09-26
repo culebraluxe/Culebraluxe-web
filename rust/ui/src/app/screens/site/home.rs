@@ -10,28 +10,19 @@
 
 use yew::prelude::*;
 
+use super::visitor::{Model, Msg};
+
+use super::buyers::{listing_image, save_heart};
 use crate::format::{
     listing_enquire_href, listing_eyebrow, listing_fact_parts, listing_highlights,
     listing_price_label, FactsStyle,
 };
-use crate::model::Msg;
 use crate::model::{Block, Listing};
-use crate::yew_views::buyers::{listing_image, save_heart};
-use crate::yew_views::chrome::PageProps;
 
 pub struct Home;
 
-impl Component for Home {
-    type Message = ();
-    type Properties = PageProps;
-
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
-    }
-
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let model = &ctx.props().model;
-        let on_msg = &ctx.props().on_msg;
+impl Home {
+    pub(super) fn render(&self, model: &Model, on_msg: &Callback<Msg>) -> Html {
         let Some(page) = model.page.as_ref() else {
             // The chrome and the loading line are already on screen. An empty body here is honest; filling it with
             // invented copy would be worse than a page that is still arriving.

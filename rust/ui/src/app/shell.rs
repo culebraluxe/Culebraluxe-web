@@ -92,7 +92,7 @@ fn frame_component(props: &MasterProps) -> Html {
         return frame(
             Area::Site,
             Surface::Site,
-            html! { <crate::yew_app::ErrorView /> },
+            html! { <crate::app::site::ErrorView /> },
         );
     }
 
@@ -117,10 +117,6 @@ fn frame_component(props: &MasterProps) -> Html {
             <div key={format!("legacy:{path}")} class="min-w-0" data-screen-key={entry.key}>
                 <LegacyPortal screen_key={screen_key} scope={ctx.id.clone()} />
             </div>
-        },
-        // One old site app for every old site screen, kept across site navigation as it always was.
-        Kind::LegacySite => html! {
-            <div key="legacy-site" class="min-w-0" data-screen-key={entry.key}><crate::yew_app::App /></div>
         },
         Kind::External => html! { <DocumentLoad href={path.clone()} /> },
     };

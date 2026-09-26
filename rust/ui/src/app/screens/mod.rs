@@ -14,6 +14,7 @@ pub mod projects;
 pub mod security;
 pub mod security_users;
 pub mod seller_strategy;
+pub mod site;
 pub mod storyboard;
 pub mod support_rows;
 pub mod system_health;

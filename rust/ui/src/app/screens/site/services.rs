@@ -9,22 +9,23 @@
 
 use yew::prelude::*;
 
+use crate::app::screen::ScreenCtx;
+use crate::app::site::{page_hero, StaticPage, StaticPageSpec};
 use crate::icons::icon_html;
 use crate::view::{SERVICES, SERVICE_PRINCIPLES, SERVICE_PROCESS, SERVICE_REASONS};
-use crate::yew_views::buyers::page_hero;
-use crate::yew_views::chrome::PageProps;
 
 pub struct Services;
 
-impl Component for Services {
-    type Message = ();
-    type Properties = PageProps;
+pub type ServicesPage = StaticPage<Services>;
 
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
+impl StaticPageSpec for Services {
+    fn view(_ctx: &ScreenCtx) -> Html {
+        Services.render()
     }
+}
 
-    fn view(&self, _ctx: &Context<Self>) -> Html {
+impl Services {
+    fn render(&self) -> Html {
         html! {
             <>
                 { page_hero(

@@ -543,3 +543,48 @@ impl Endpoint for ListingMediaRead {
         path
     }
 }
+
+/// A public page's content (hero, blocks, listings, guide, FAQ), as the site reads it. `scope` is the record a page is
+/// about (a property's slug). Answers the page itself.
+pub struct PublicPage {
+    pub screen: &'static str,
+    pub scope: Option<String>,
+}
+
+impl Endpoint for PublicPage {
+    const METHOD: Method = Method::Get;
+    type Response = crate::model::PageContent;
+    fn path(&self) -> String {
+        match self.scope.as_deref().filter(|scope| !scope.is_empty()) {
+            Some(scope) => format!(
+                "/api/rust-ui/public-page?screen={}&scope={}",
+                self.screen,
+                encode(scope)
+            ),
+            None => format!("/api/rust-ui/public-page?screen={}", self.screen),
+        }
+    }
+}
+
+/// A website lead (contact form, quick enquiries). The relay hands it to the one intake pipeline. Answers
+/// `{ accepted, status }`.
+pub struct WebsiteIntake {
+    pub body: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct IntakeAnswer {
+    pub accepted: bool,
+}
+
+impl Endpoint for WebsiteIntake {
+    const METHOD: Method = Method::Post;
+    type Response = IntakeAnswer;
+    fn path(&self) -> String {
+        "/api/rust-ui/website-intake".into()
+    }
+    fn body(&self) -> Option<serde_json::Value> {
+        Some(self.body.clone())
+    }
+}

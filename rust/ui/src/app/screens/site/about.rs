@@ -8,22 +8,23 @@
 
 use yew::prelude::*;
 
+use crate::app::screen::ScreenCtx;
+use crate::app::site::{page_hero, StaticPage, StaticPageSpec};
 use crate::icons::icon_html;
 use crate::view::{ABOUT_CREDENTIALS, ABOUT_LIFE, ABOUT_REASONS, ABOUT_STATS, ABOUT_VALUES};
-use crate::yew_views::buyers::page_hero;
-use crate::yew_views::chrome::PageProps;
 
 pub struct About;
 
-impl Component for About {
-    type Message = ();
-    type Properties = PageProps;
+pub type AboutPage = StaticPage<About>;
 
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
+impl StaticPageSpec for About {
+    fn view(_ctx: &ScreenCtx) -> Html {
+        About.render()
     }
+}
 
-    fn view(&self, _ctx: &Context<Self>) -> Html {
+impl About {
+    fn render(&self) -> Html {
         html! {
             <>
                 { page_hero(

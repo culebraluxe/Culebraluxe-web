@@ -7,10 +7,11 @@
 
 use yew::prelude::*;
 
+use super::visitor::{Model, Msg};
+
+use super::buyers::card;
+use super::contact::{quick_enquiry, QuickEnquiry};
 use crate::model::Listing;
-use crate::yew_views::buyers::card;
-use crate::yew_views::chrome::PageProps;
-use crate::yew_views::contact::{quick_enquiry, QuickEnquiry};
 
 pub struct Favorites;
 
@@ -31,17 +32,8 @@ fn shortlist_message(saved: &[&Listing]) -> String {
     format!("Please send me details on my saved properties:\n{lines}")
 }
 
-impl Component for Favorites {
-    type Message = ();
-    type Properties = PageProps;
-
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
-    }
-
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let model = &ctx.props().model;
-        let on_msg = &ctx.props().on_msg;
+impl Favorites {
+    pub(super) fn render(&self, model: &Model, on_msg: &Callback<Msg>) -> Html {
         let Some(page) = model.page.as_ref() else {
             return Html::default();
         };

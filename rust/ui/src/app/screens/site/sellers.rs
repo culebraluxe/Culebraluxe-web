@@ -11,13 +11,13 @@
 
 use yew::prelude::*;
 
+use crate::app::screen::ScreenCtx;
+use crate::app::site::{page_hero, StaticPage, StaticPageSpec};
 use crate::icons::icon_html;
 use crate::view::{
     SELLER_DISTRIBUTION, SELLER_MARKET_LEFT, SELLER_MARKET_RIGHT, SELLER_PRESENTATION,
     SELLER_PROCESS, SELLER_REPRESENTATION, SELLER_WHY_US,
 };
-use crate::yew_views::buyers::page_hero;
-use crate::yew_views::chrome::PageProps;
 
 /// The label a section puts above its heading.
 fn section_number(number: &str) -> Html {
@@ -34,15 +34,16 @@ fn icon(name: &str, class: &str, weight: &str) -> Html {
 
 pub struct Sellers;
 
-impl Component for Sellers {
-    type Message = ();
-    type Properties = PageProps;
+pub type SellersPage = StaticPage<Sellers>;
 
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
+impl StaticPageSpec for Sellers {
+    fn view(_ctx: &ScreenCtx) -> Html {
+        Sellers.render()
     }
+}
 
-    fn view(&self, _ctx: &Context<Self>) -> Html {
+impl Sellers {
+    fn render(&self) -> Html {
         html! {
             <>
                 { page_hero(

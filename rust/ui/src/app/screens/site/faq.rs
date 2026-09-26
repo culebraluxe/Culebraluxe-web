@@ -13,25 +13,22 @@
 
 use yew::prelude::*;
 
-use crate::yew_views::buyers::page_hero;
-use crate::yew_views::chrome::PageProps;
+use crate::app::screen::ScreenCtx;
+use crate::app::site::{page_hero, SitePage, SitePageSpec};
 
 pub struct Faq;
 
-impl Component for Faq {
-    type Message = ();
-    type Properties = PageProps;
+pub type FaqPage = SitePage<Faq>;
 
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
+impl SitePageSpec for Faq {
+    const SCREEN: &'static str = "site-faq";
+    fn view(page: &crate::model::PageContent, _ctx: &ScreenCtx) -> Html {
+        Faq.render(page)
     }
+}
 
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        // No page, no page furniture. An accordion with no questions under a hero with no words is not the FAQ page; it
-        // is a page that has not arrived, and rendering nothing says so more honestly than inventing questions would.
-        let Some(page) = ctx.props().model.page.as_ref() else {
-            return Html::default();
-        };
+impl Faq {
+    fn render(&self, page: &crate::model::PageContent) -> Html {
         let intro = page.hero.body.as_str();
         html! {
             <>

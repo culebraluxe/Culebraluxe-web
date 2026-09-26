@@ -10,29 +10,17 @@
 
 use yew::prelude::*;
 
-use crate::model::{Listing, Model, Msg};
-use crate::view::{buyers_visible, BUYER_SERVICES, BUYER_STEPS};
+use super::visitor::{Model, Msg};
 
-#[derive(Properties, PartialEq)]
-pub struct BuyersProps {
-    pub model: Model,
-    pub on_msg: Callback<Msg>,
-}
+pub use crate::app::site::page_hero;
+
+use crate::model::Listing;
+use crate::view::{buyers_visible, BUYER_SERVICES, BUYER_STEPS};
 
 pub struct Buyers;
 
-impl Component for Buyers {
-    type Message = ();
-    type Properties = BuyersProps;
-
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
-    }
-
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let props = ctx.props();
-        let model = &props.model;
-        let on_msg = &props.on_msg;
+impl Buyers {
+    pub(super) fn render(&self, model: &Model, on_msg: &Callback<Msg>) -> Html {
         let listings: &[Listing] = model
             .page
             .as_ref()
@@ -53,46 +41,6 @@ impl Component for Buyers {
                 { self.beyond_the_search() }
             </>
         }
-    }
-}
-
-/// `components/page-hero.tsx` — the header every interior page opens with.
-///
-/// One component, five pages, so it is written once here too: the height, the padding that clears the fixed header, the
-/// scrim that makes ivory text legible over a photograph, and the rule that an absent intro renders nothing.
-pub fn page_hero(
-    eyebrow: &str,
-    title: &str,
-    intro: Option<&str>,
-    image: &str,
-    image_alt: &str,
-) -> Html {
-    let intro = intro.map(|intro| {
-        html! {
-            <p class="mt-8 max-w-2xl text-pretty text-base font-light leading-relaxed text-background/80 md:text-lg">
-                { intro }
-            </p>
-        }
-    });
-    html! {
-        <section class="relative flex min-h-[68svh] items-end overflow-hidden">
-            <img src={image.to_string()} alt={image_alt.to_string()} sizes="100vw"
-                class="absolute inset-0 h-full w-full object-cover" />
-            <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-black/25 to-black/40"></div>
-            <div class="relative w-full px-6 pb-16 pt-40 md:px-12 md:pb-24">
-                <div class="mx-auto max-w-[1600px]">
-                    // The live hero faded up on load (`Reveal` fires at once for what is already in view), heading
-                    // first and the intro a beat after.
-                    <div class="animate-[fadeUp_1.2s_cubic-bezier(0.22,1,0.36,1)_both]">
-                        <p class="mb-5 text-xs font-light uppercase tracking-[0.4em] text-background/70">{ eyebrow }</p>
-                        <h1 class="max-w-4xl text-balance font-serif text-4xl font-light leading-[1.05] text-background md:text-6xl">
-                            { title }
-                        </h1>
-                    </div>
-                    <div class="animate-[fadeUp_1.2s_cubic-bezier(0.22,1,0.36,1)_both] [animation-delay:120ms]">{ intro }</div>
-                </div>
-            </div>
-        </section>
     }
 }
 
@@ -136,7 +84,7 @@ impl Buyers {
         }
         // WHAT THE CONTROLS SAY, not what the payload holds: the same call the string renderer makes, so the count and
         // the grid are one answer.
-        let visible = buyers_visible(listings, model);
+        let visible = buyers_visible(listings, &model.controls);
         let count = match visible.len() {
             1 => "1 property".to_string(),
             total => format!("{total} properties"),
@@ -208,7 +156,7 @@ impl Buyers {
                         { compare_table(model, listings, on_msg) }
                         if !model.saved_searches.is_empty() {
                             // Saved searches, as a lead: until alerts are sent automatically, the team is the alert.
-                            { crate::yew_views::contact::quick_enquiry(model, on_msg, crate::yew_views::contact::QuickEnquiry {
+                            { super::contact::quick_enquiry(model, on_msg, super::contact::QuickEnquiry {
                                 eyebrow: "Alerts",
                                 title: "Tell me when new properties match.",
                                 body: "Leave your details and the CulebraLuxe team will let you know as soon as a new property matches one of your saved searches, often before it is widely marketed.",

@@ -1083,7 +1083,7 @@ fn whatsapp_view() -> String {
 /// NOT retyped, deliberately: this is reviewed wording (a policy Meta requires for the WhatsApp integration), and a
 /// hand-copied paragraph is a paragraph that can quietly differ. `kind` is the tag it had, so the render below can put
 /// it back in the same shape.
-const PRIVACY_VIEW_CONTENT: [(&str, &str); 29] = [
+pub(crate) const PRIVACY_VIEW_CONTENT: [(&str, &str); 29] = [
     ("p", "CulebraLuxe LLC"),
     ("h1", "Privacy Policy"),
     ("p", "Last updated: September 1, 2026"),
@@ -2964,9 +2964,12 @@ fn listing_price(listing: &Listing) -> Option<f64> {
 ///
 /// It takes the model rather than a filter set so the list on screen cannot be narrowed by something no control
 /// explains: what is rendered is always a function of what the model holds.
-pub(crate) fn buyers_visible<'a>(listings: &'a [Listing], model: &Model) -> Vec<&'a Listing> {
+pub(crate) fn buyers_visible<'a>(
+    listings: &'a [Listing],
+    controls: &crate::model::Controls,
+) -> Vec<&'a Listing> {
     // ONE MATCHER: the grid, the saved-search counts and their alerts all ask `search::matches`.
-    let filters = crate::search::SearchFilters::from_controls(&model.controls);
+    let filters = crate::search::SearchFilters::from_controls(controls);
     let sort = filters.sort.as_str();
     let mut visible: Vec<&Listing> = listings
         .iter()
@@ -3055,7 +3058,7 @@ fn buyer_showroom(model: &Model, listings: &[Listing]) -> String {
         .collect::<String>();
     // WHAT THE CONTROLS SAY, not what the payload holds. Computed once and used for both the cards and the count, so a
     // count that disagrees with the grid below it is not a state this can be in.
-    let visible = buyers_visible(listings, model);
+    let visible = buyers_visible(listings, &model.controls);
     let cards = visible
         .iter()
         .copied()
@@ -3187,7 +3190,7 @@ fn about_values() -> String {
 /// NOT retyped, deliberately: this is reviewed wording (a policy Meta requires for the WhatsApp integration), and a
 /// hand-copied paragraph is a paragraph that can quietly differ. `kind` is the tag it had, so the render below can put
 /// it back in the same shape.
-const LOGIN_UNAUTHORIZED_VIEW_CONTENT: [(&str, &str); 3] = [
+pub(crate) const LOGIN_UNAUTHORIZED_VIEW_CONTENT: [(&str, &str); 3] = [
     ("h1", "Access not authorized"),
     ("p", "This account is authenticated but is not authorized for CulebraLuxe. Accounts are provisioned by an administrator — there is no self-service sign-up or automatic access."),
     ("p", "If you believe this is a mistake, contact a CulebraLuxe administrator and provide the identity shown by your sign-in provider. Your password, secret, and provider credentials are never shared or displayed here."),
@@ -3335,7 +3338,7 @@ fn seller_strategy_view() -> String {
 /// NOT retyped, deliberately: this is reviewed wording (a policy Meta requires for the WhatsApp integration), and a
 /// hand-copied paragraph is a paragraph that can quietly differ. `kind` is the tag it had, so the render below can put
 /// it back in the same shape.
-const LOGIN_RECOVERY_VIEW_CONTENT: [(&str, &str); 2] = [
+pub(crate) const LOGIN_RECOVERY_VIEW_CONTENT: [(&str, &str); 2] = [
     ("h1", "Emergency administrative access"),
     ("p", "For CulebraLuxe administrators only. This path is independent of the normal sign-in provider and is intended solely for outage recovery."),
 ];

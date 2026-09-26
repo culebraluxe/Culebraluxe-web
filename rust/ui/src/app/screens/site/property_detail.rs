@@ -5,8 +5,10 @@
 
 use yew::prelude::*;
 
+use super::visitor::{Model, Msg};
+
 use crate::icons::icon_html;
-use crate::model::{MediaItem, Model, Msg, PropertyRecord, PropertyTab};
+use crate::model::{MediaItem, PropertyRecord, PropertyTab};
 
 #[derive(Clone, PartialEq)]
 struct Photo {
@@ -15,25 +17,10 @@ struct Photo {
     caption: Option<String>,
 }
 
-#[derive(Properties, PartialEq)]
-pub struct PropertyDetailProps {
-    pub model: Model,
-    pub on_msg: Callback<Msg>,
-}
-
 pub struct PropertyDetail;
 
-impl Component for PropertyDetail {
-    type Message = ();
-    type Properties = PropertyDetailProps;
-
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
-    }
-
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let model = &ctx.props().model;
-        let on_msg = &ctx.props().on_msg;
+impl PropertyDetail {
+    pub(super) fn render(&self, model: &Model, on_msg: &Callback<Msg>) -> Html {
         let Some(record) = model.page.as_ref().and_then(|page| page.property.as_ref()) else {
             return html! {
                 <section class="px-6 py-20 md:px-12">

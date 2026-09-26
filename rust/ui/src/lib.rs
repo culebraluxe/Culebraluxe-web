@@ -41,13 +41,9 @@ pub mod app;
 /// (`model`, `update`, `view`) is shared with the string renderers, so both runtimes agree on state and on the search
 /// contract while the port completes.
 #[cfg(all(feature = "wasm", feature = "yew"))]
-pub mod yew_app;
-#[cfg(all(feature = "wasm", feature = "yew"))]
 pub mod yew_effects;
 #[cfg(all(feature = "wasm", feature = "yew"))]
 pub mod yew_portal;
-#[cfg(all(feature = "wasm", feature = "yew-router"))]
-pub mod yew_router;
 #[cfg(all(feature = "wasm", feature = "yew"))]
 pub mod yew_views;
 
