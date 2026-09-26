@@ -43,7 +43,11 @@ impl IssueDao {
     ) -> DbResult<IssuesPage> {
         let page = page.max(1);
         let page_size = page_size.clamp(1, 50);
-        let state = if state == "RESOLVED" { "RESOLVED" } else { "OPEN" };
+        let state = if state == "RESOLVED" {
+            "RESOLVED"
+        } else {
+            "OPEN"
+        };
         let scope = if scope == "SUPPORT_EXCEPTION" {
             "SUPPORT_EXCEPTION"
         } else {
