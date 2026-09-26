@@ -27,6 +27,7 @@ use crate::app::screens::cockpit::{Attention, Cockpit};
 use crate::app::screens::db_test::DbTest;
 use crate::app::screens::deals::{DealRecord, Deals};
 use crate::app::screens::flight_recorder::FlightRecorder;
+use crate::app::screens::forms::{FormRecord, Forms};
 use crate::app::screens::listing_media::ListingMedia;
 use crate::app::screens::projects::Projects;
 use crate::app::screens::security::Security;
@@ -156,7 +157,7 @@ pub const ENTRIES: &[Entry] = &[
     entry("deals", "/portal/deals", Surface::Core, "Contracts", Menu::Rail("Contracts"), "deal.read", "deal.read", Kind::Screen(mount::<Deals>)),
     entry("cabinet", "/portal/documents", Surface::Core, "Cabinet", Menu::Rail("Cabinet"), "deal.read", "vault.read", Kind::Screen(mount::<Cabinet>)),
     entry("workflows", "/portal/workflows", Surface::Core, "Workflows", Menu::Rail("Workflows"), "portal.read", "portal.read", Kind::Screen(mount::<Workflows>)),
-    entry("forms", "/portal/forms", Surface::Core, "Forms", Menu::Rail("Forms"), "deal.read", "form.read", Kind::External),
+    entry("forms", "/portal/forms", Surface::Core, "Forms", Menu::Rail("Forms"), "deal.read", "form.read", Kind::Screen(mount::<Forms>)),
     entry("seller-strategy", "/portal/core/seller-strategy", Surface::Core, "Seller Strategy", Menu::Rail("Seller Strategy"), "portal.read", "portal.read", Kind::Screen(mount::<SellerStrategy>)),
     entry("accounting", "/portal/accounting", Surface::Accounting, "Dashboard", Menu::Rail("Dashboard"), "portal.read", "accounting.read", Kind::Screen(mount::<accounting::Dashboard>)),
     entry("accounting-receivables", "/portal/accounting/receivables", Surface::Accounting, "Receivables", Menu::Rail("Receivables"), "portal.read", "accounting.read", Kind::Screen(mount::<accounting::Receivables>)),
@@ -192,7 +193,7 @@ pub const ENTRIES: &[Entry] = &[
     entry("activity", "/portal/activity", Surface::Core, "Activity", Menu::None, "portal.read", "", Kind::Screen(mount::<Activity>)).of("dashboard"),
     entry("client-record", "/portal/clients/:personId", Surface::Core, "Client", Menu::None, "portal.read", "", Kind::Screen(mount::<ClientRecord>)).of("clients"),
     entry("deal-record", "/portal/deals/:dealId", Surface::Core, "Deal", Menu::None, "portal.read", "", Kind::Screen(mount::<DealRecord>)).of("deals"),
-    entry("form-record", "/portal/forms/:formId", Surface::Core, "Form", Menu::None, "portal.read", "", Kind::External).of("forms"),
+    entry("form-record", "/portal/forms/:formId", Surface::Core, "Form", Menu::None, "portal.read", "", Kind::Screen(mount::<FormRecord>)).of("forms"),
     entry("workflow-record", "/portal/workflows/:instanceId", Surface::Core, "Workflow instance", Menu::None, "portal.read", "", Kind::Screen(mount::<WorkflowRecord>)).of("workflows"),
     entry("property-record", "/portal/property-admin/:propertyId", Surface::Ops, "Property record", Menu::None, "portal.read", "", Kind::Screen(mount::<Workbench>)).of("property-admin"),
     entry("story-record", "/portal/storyboard/:id", Surface::Tech, "Story", Menu::None, "portal.read", "", Kind::Screen(mount::<StoryRecord>)).of("storyboard"),
