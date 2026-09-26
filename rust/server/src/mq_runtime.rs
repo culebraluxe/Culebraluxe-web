@@ -239,7 +239,8 @@ impl MqRuntime {
     pub fn health(&self) -> ServiceHealth {
         ServiceHealth {
             status: *self.status.borrow(),
-            accepting: *self.status.borrow() == ServiceStatus::Running && !self.cancel.is_cancelled(),
+            accepting: *self.status.borrow() == ServiceStatus::Running
+                && !self.cancel.is_cancelled(),
             queued: 0,
             in_flight: self.in_flight.load(Ordering::Relaxed),
         }
