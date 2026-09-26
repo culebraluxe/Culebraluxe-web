@@ -9,6 +9,8 @@ db = { path = "../core/db" }
 domain = { path = "../core/domain" }
 forge = { path = "../forge" }
 integrations = { path = "../integrations" }
+reqwest.workspace = true
+serde_json.workspace = true
 server = { path = "../server" }
 service = { path = "../core/service" }
 tokio.workspace = true
