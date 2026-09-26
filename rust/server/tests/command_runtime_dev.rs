@@ -18,8 +18,14 @@ struct Fixture {
 
 impl Fixture {
     async fn create() -> Self {
-        let db = Database::connect_from_env().await.expect("connect DEV database");
-        assert_eq!(db.target(), DbTarget::Dev, "command runtime tests are DEV-only");
+        let db = Database::connect_from_env()
+            .await
+            .expect("connect DEV database");
+        assert_eq!(
+            db.target(),
+            DbTarget::Dev,
+            "command runtime tests are DEV-only"
+        );
 
         let property_id = sqlx::query_scalar::<_, String>(
             "select id::text from property order by created_at asc nulls last, id limit 1",
@@ -149,16 +155,17 @@ async fn command_dev_commit_replay_and_intent_conflict_are_durable() {
         .expect("first command dispatch");
     assert_eq!(first.outcome, CommandOutcome::Success);
     assert!(!first.replayed);
-    assert_eq!(first.receipt_id.as_deref(), Some(fixture.command_id.as_str()));
+    assert_eq!(
+        first.receipt_id.as_deref(),
+        Some(fixture.command_id.as_str())
+    );
     assert_eq!(first.emitted_events.len(), 1);
 
-    let status = sqlx::query_scalar::<_, String>(
-        "select status from contract where id=$1::uuid",
-    )
-    .bind(&fixture.contract_id)
-    .fetch_one(fixture.db.pool())
-    .await
-    .unwrap();
+    let status = sqlx::query_scalar::<_, String>("select status from contract where id=$1::uuid")
+        .bind(&fixture.contract_id)
+        .fetch_one(fixture.db.pool())
+        .await
+        .unwrap();
     assert_eq!(status, "executed");
 
     let receipt_count = sqlx::query_scalar::<_, i64>(
@@ -197,7 +204,9 @@ async fn command_dev_commit_replay_and_intent_conflict_are_durable() {
     assert_eq!(post_replay_outbox, 1);
 
     let mut changed = request.clone();
-    changed.input.insert("differentIntent".into(), Value::Bool(true));
+    changed
+        .input
+        .insert("differentIntent".into(), Value::Bool(true));
     let conflict = harness
         .execute_command(&changed, &context)
         .await
