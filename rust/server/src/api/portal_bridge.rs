@@ -37,6 +37,10 @@ pub fn router() -> Router<ApiState> {
         .route("/api/portal/rust-ui/projects", get(projects).post(projects_act))
         .route("/api/portal/rust-ui/accounting", axum::routing::post(accounting_act))
         .route("/api/portal/rust-ui/opps", get(opps).post(opps_act))
+        .route("/api/portal/rust-ui/listing-media", get(listing_media))
+        .route("/api/portal/rust-ui/rows", get(rows))
+        .route("/api/portal/rust-ui/security-users", axum::routing::put(security_users_put))
+        .route("/api/portal/rust-ui/role-entitlements", axum::routing::put(role_entitlements_put))
 }
 
 #[derive(Debug, Deserialize)]
@@ -1791,4 +1795,132 @@ async fn opps_act(
     let search = str_at(&command, "search").unwrap_or("").trim().to_owned();
     let page_index = command.get("page").and_then(Value::as_i64).unwrap_or(0).max(0);
     Ok(Json(opps_workbench(&state, &resolved, entity, &search, page_index, Some(id)).await?))
+}
+
+/// Listing Media's property rail: a page of properties with their photo counts, and the selected one.
+async fn listing_media(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Query(query): Query<OppsQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    let property = state.services().property();
+    let page_index = query.page.as_deref().and_then(|page| page.trim().parse::<i64>().ok()).unwrap_or(0).max(0);
+    let request = domain::PropertyAdminPageRequest {
+        search: query.search.trim().to_owned(),
+        page: page_index + 1,
+        page_size: OPPS_PAGE_SIZE,
+    };
+    let page = to_json(property.admin_page(&request, &resolved.service).await.map_err(failed(&resolved))?);
+    let rows = page.get("rows").and_then(Value::as_array).cloned().unwrap_or_default();
+    let row = |row: &Value| {
+        json!({ "id": at(row, "id"), "name": at(row, "name"), "status": at(row, "status"),
+                "slug": at(row, "slug"), "imageCount": at(row, "imageCount") })
+    };
+    let selected_id = query
+        .selected
+        .map(|id| id.trim().to_owned())
+        .filter(|id| !id.is_empty())
+        .or_else(|| rows.first().and_then(|r| str_at(r, "id")).map(str::to_owned));
+    let mut selected = selected_id.as_deref().and_then(|id| rows.iter().find(|r| str_at(r, "id") == Some(id)).cloned());
+    if let (Some(id), None) = (selected_id.as_deref(), &selected) {
+        // A selection off this page is read on its own; one that cannot be read is simply not selected.
+        selected = property.admin_get(id, &resolved.service).await.ok().flatten().map(to_json);
+    }
+    Ok(Json(json!({ "listingMedia": {
+        "properties": rows.iter().map(row).collect::<Vec<_>>(),
+        "total": at(&page, "total"),
+        "page": at(&page, "page"),
+        "pageSize": at(&page, "pageSize"),
+        "selectedId": selected.as_ref().map(|r| at(r, "id").clone()).or_else(|| rows.first().map(|r| at(r, "id").clone())),
+        "selected": selected.as_ref().map(row),
+    } })))
+}
+
+/// The role table as generic rows `{ id, cells: [role, account type, entitlement count] }`, as the relay flattened it.
+fn role_rows(roles: &Value) -> Vec<Value> {
+    roles
+        .as_array()
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .map(|(index, role)| {
+            let count = at(role, "entitlementCodes").as_array().map_or(0, Vec::len);
+            let text = |key: &str| str_at(role, key).unwrap_or("").to_owned();
+            json!({ "id": format!("item-{index}"), "cells": [text("roleCode"), text("accountType"), count.to_string()] })
+        })
+        .collect()
+}
+
+#[derive(Debug, Deserialize)]
+struct RowsQuery {
+    #[serde(default)]
+    screen: String,
+}
+
+/// The portal's generic rows: the Security settings tables (roles and authorities).
+async fn rows(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Query(query): Query<RowsQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    match query.screen.as_str() {
+        "settings-roles" | "settings-authorities" => {
+            let roles = state.services().security().list_role_entitlements(&resolved.service).await;
+            Ok(Json(Value::Array(role_rows(&to_json(roles.map_err(failed(&resolved))?)))))
+        }
+        other => Err(correlate(
+            ApiError::new(StatusCode::NOT_IMPLEMENTED, "ROWS_NOT_IN_RUST_YET", format!("The '{other}' rows have no Rust service yet."), false),
+            &resolved,
+        )),
+    }
+}
+
+const CANONICAL_INTERNAL_ROLES: &[&str] = &["internal_guest", "user", "business_power_user", "owner", "root"];
+
+fn is_uuid(text: &str) -> bool {
+    uuid::Uuid::parse_str(text).is_ok_and(|id| (1..=5).contains(&id.get_version_num()))
+}
+
+/// ROOT sets one internal user's canonical role; answers the users as they now stand.
+async fn security_users_put(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    let (Some(user), Some(role)) = (str_at(&body, "appUserId"), str_at(&body, "roleCode")) else {
+        return Err(ApiError::bad_request("ROLE_ASSIGNMENT_INVALID", "Invalid user or canonical role."));
+    };
+    if !is_uuid(user) || !CANONICAL_INTERNAL_ROLES.contains(&role) {
+        return Err(ApiError::bad_request("ROLE_ASSIGNMENT_INVALID", "Invalid user or canonical role."));
+    }
+    let security = state.services().security();
+    security.set_user_primary_role(user, role, &resolved.service).await.map_err(failed(&resolved))?;
+    let users = security.list_security_users(&resolved.service).await.map_err(failed(&resolved))?;
+    Ok(Json(json!({ "users": to_json(users) })))
+}
+
+/// ROOT grants or revokes one entitlement for one internal role; answers the role table as it now stands.
+async fn role_entitlements_put(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    let role = str_at(&body, "roleCode").unwrap_or("");
+    let action = str_at(&body, "action").unwrap_or("");
+    let granted = body.get("granted").and_then(Value::as_bool);
+    let role_ok = (1..=64).contains(&role.len()) && role.chars().all(|c| c.is_ascii_lowercase() || c == '_');
+    let action_ok = (2..=101).contains(&action.len())
+        && action.starts_with(|c: char| c.is_ascii_lowercase())
+        && action.chars().all(|c| c.is_ascii_lowercase() || c == '.');
+    let (true, true, Some(granted)) = (role_ok, action_ok, granted) else {
+        return Err(ApiError::bad_request("ROLE_GRANT_INVALID", "Invalid role or action."));
+    };
+    let security = state.services().security();
+    security.set_role_entitlement(role, action, granted, &resolved.service).await.map_err(failed(&resolved))?;
+    let roles = security.list_role_entitlements(&resolved.service).await.map_err(failed(&resolved))?;
+    Ok(Json(json!({ "roles": to_json(roles) })))
 }
