@@ -536,6 +536,7 @@ impl PublicListingDao {
                 coalesce(p.has_mountain_view, false) as has_mountain_view,
                 coalesce(p.has_sunrise_view, false) as has_sunrise_view,
                 coalesce(p.has_sunset_view, false) as has_sunset_view,
+                coalesce(p.has_water_access, false) as water_access,
                 coalesce(p.has_beach_access, false) as beach_access,
                 hero.media_id::text as hero_media_id,
                 hero.alt_text as hero_alt
