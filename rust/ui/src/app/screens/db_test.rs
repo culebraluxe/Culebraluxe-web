@@ -128,7 +128,7 @@ mod tests {
         let (mut model, cmd) = DbTest::init(&ctx);
         assert!(model.read.is_loading());
         let request = cmd.into_requests().remove(0);
-        assert_eq!(request.path, "/api/portal/rust-ui/page?screen=db-test&");
+        assert_eq!(request.path, "/api/portal/rust-ui/page?screen=db-test");
 
         let answer = json!({ "support": { "dbTest": {
             "connected": true, "clientCount": 1, "clients": [{ "id": "c1", "displayName": "Ada", "role": "buyer", "status": "active" }]

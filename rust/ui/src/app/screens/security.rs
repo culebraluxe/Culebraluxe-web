@@ -1,20 +1,105 @@
-//! `/portal/settings` — the Security landing screen.
+//! `/portal/settings` — the application security model: the destinations (users, roles, authorities), the security
+//! status, the entitlements each internal role holds (ROOT may grant or revoke), and break-glass readiness.
 //!
-//! PARITY WITH `app/portal/settings/page.tsx` at `141df386` (the parent of `34d2fa87`): the eyebrow and heading, the three
-//! navigation cards to Users, Roles and Authorities, then the Security Status panel with its nine counts and the
-//! Break-glass readiness panel with its six conditions.
-//!
-//! THE CARDS ARE LINKS. Users, Roles and Authorities are their own routes. ROOT role assignment now lives on Users;
-//! this landing page still owns no user-role mutation itself. The role-entitlement editor below is also ROOT-only.
-//!
-//! WHAT IS NOT ON THIS SCREEN, AND MUST NOT BE: the break-glass secret, its hash, the root user's id, any token, and any
-//! credential of any kind. The panel says whether each condition holds — "Ready" or "Not configured" — which is exactly what
-//! the pre-cutover panel said. The six booleans are the whole vocabulary.
+//! A grant is a command: one at a time, offered only to ROOT (`ctx.can`, visibility only — the Rust security service
+//! decides), and its answer is the role table as it now stands.
 
 use yew::prelude::*;
 
-use crate::model::{Msg, PortalBreakGlassReadiness, PortalSecurityStatus};
-use crate::yew_views::portal_shell::PortalShell;
+use crate::app::api::{PortalScreenPage, SetRoleEntitlement};
+use crate::app::cmd::{ApiError, Cmd, Remote};
+use crate::app::screen::{Link, Screen, ScreenCtx};
+use crate::app::template;
+use crate::model::{
+    PortalBreakGlassReadiness, PortalPage, PortalRoleEntitlements, PortalSecurity,
+    PortalSecurityStatus,
+};
+
+pub struct Security;
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Model {
+    pub read: Remote<PortalSecurity>,
+    pub selected_security_role: Option<String>,
+    pub role_grant_busy: bool,
+    /// Why the last grant was refused.
+    pub error: Option<String>,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Msg {
+    Loaded(Result<PortalPage, ApiError>),
+    SecurityRoleSelected(String),
+    SecurityRoleGrantRequested {
+        role_code: String,
+        action: String,
+        granted: bool,
+    },
+    GrantAnswered(Result<Vec<PortalRoleEntitlements>, ApiError>),
+}
+
+impl Screen for Security {
+    type Model = Model;
+    type Msg = Msg;
+
+    fn init(_ctx: &ScreenCtx) -> (Model, Cmd<Msg>) {
+        (
+            Model {
+                read: Remote::Loading,
+                ..Model::default()
+            },
+            Cmd::request(PortalScreenPage::of("security"), Msg::Loaded),
+        )
+    }
+
+    fn update(model: &mut Model, msg: Msg, ctx: &ScreenCtx) -> Cmd<Msg> {
+        match msg {
+            Msg::Loaded(answer) => {
+                model.read = Remote::from_result(answer.and_then(|page| {
+                    page.support
+                        .and_then(|support| support.security)
+                        .ok_or_else(|| ApiError::decode("The answer had no security model in it."))
+                }));
+            }
+            Msg::SecurityRoleSelected(role) => model.selected_security_role = Some(role),
+            Msg::SecurityRoleGrantRequested {
+                role_code,
+                action,
+                granted,
+            } => {
+                if model.role_grant_busy || !ctx.can("security.entitlement.manage") {
+                    return Cmd::none();
+                }
+                model.role_grant_busy = true;
+                model.error = None;
+                return Cmd::request(
+                    SetRoleEntitlement {
+                        role_code,
+                        action,
+                        granted,
+                    },
+                    |answer| Msg::GrantAnswered(answer.map(|answer| answer.roles)),
+                );
+            }
+            Msg::GrantAnswered(answer) => {
+                model.role_grant_busy = false;
+                match answer {
+                    Ok(roles) => {
+                        if let Remote::Loaded(read) = &mut model.read {
+                            read.role_entitlements = roles;
+                        }
+                    }
+                    Err(error) => model.error = Some(error.message),
+                }
+            }
+        }
+        Cmd::none()
+    }
+
+    fn view(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
+        Security.body(model, ctx, &link.callback(|msg: Msg| msg))
+    }
+}
 
 /// The light surface the portal's read-only pages use.
 const PANEL: &str = "portal-glass-panel rounded-[var(--portal-panel-radius)]";
@@ -40,42 +125,9 @@ const SECTIONS: [(&str, &str, &str); 3] = [
     ),
 ];
 
-#[derive(Properties, PartialEq)]
-pub struct SecurityProps {
-    pub model: crate::model::Model,
-    pub on_msg: Callback<Msg>,
-}
-
-pub struct Security;
-
-impl Component for Security {
-    type Message = ();
-    type Properties = SecurityProps;
-
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
-    }
-
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let props = ctx.props();
-        let screen =
-            crate::model::screen("security").expect("the Security screen is in the registry");
-        html! {
-            <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
-                { self.body(&props.model, &props.on_msg) }
-            </PortalShell>
-        }
-    }
-}
-
 impl Security {
-    fn body(&self, model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
-        let read = model
-            .page
-            .as_ref()
-            .and_then(|page| page.portal.as_ref())
-            .and_then(|portal| portal.support.as_ref())
-            .and_then(|support| support.security.clone());
+    fn body(&self, model: &Model, ctx: &ScreenCtx, on_msg: &Callback<Msg>) -> Html {
+        let read = model.read.loaded().cloned();
         html! {
             <div>
                 <div class="mb-8">
@@ -88,7 +140,11 @@ impl Security {
                 </div>
                 { self.sections() }
                 { self.status_panel(read.as_ref().map(|read| &read.status)) }
-                { self.entitlement_panel(model, read.as_ref().map(|read| read.role_entitlements.as_slice()), on_msg) }
+                if let Remote::Failed(error) = &model.read { { template::failure(error) } }
+                if let Some(error) = &model.error {
+                    <div class="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm" role="alert">{ error.clone() }</div>
+                }
+                { self.entitlement_panel(model, ctx, read.as_ref().map(|read| read.role_entitlements.as_slice()), on_msg) }
                 { self.break_glass_panel(read.as_ref().map(|read| &read.break_glass)) }
             </div>
         }
@@ -117,7 +173,8 @@ impl Security {
 impl Security {
     fn entitlement_panel(
         &self,
-        model: &crate::model::Model,
+        model: &Model,
+        ctx: &ScreenCtx,
         roles: Option<&[crate::model::PortalRoleEntitlements]>,
         on_msg: &Callback<Msg>,
     ) -> Html {
@@ -174,7 +231,7 @@ impl Security {
                             </tbody>
                         </table>
                     </div>
-                    if model.can("security.entitlement.manage") {
+                    if ctx.can("security.entitlement.manage") {
                         if let Some(role) = selected {
                             <div class="mt-6 border-t border-black/10 pt-5">
                                 <label for="role-grant-selector" class="text-xs font-medium uppercase tracking-[0.12em]">{"Edit role grants"}</label>
@@ -354,5 +411,77 @@ impl Security {
                 </div>
             </section>
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::PortalEntitlements;
+
+    fn root() -> ScreenCtx {
+        ScreenCtx {
+            grants: Some(PortalEntitlements {
+                account_type: "internal".into(),
+                security_level: "ROOT".into(),
+                is_root: true,
+                entitlement_codes: vec![],
+            }),
+            ..ScreenCtx::default()
+        }
+    }
+
+    #[test]
+    fn only_root_grants_one_at_a_time_and_the_answer_replaces_the_table() {
+        let (mut model, cmd) = Security::init(&root());
+        let answer: serde_json::Value =
+            serde_json::from_str(include_str!("../../../fixtures/portal-page-security.json"))
+                .unwrap();
+        Security::update(
+            &mut model,
+            cmd.into_requests().remove(0).respond(Ok(answer)),
+            &root(),
+        );
+        assert!(model.read.loaded().is_some());
+
+        let grant = || Msg::SecurityRoleGrantRequested {
+            role_code: "user".into(),
+            action: "deal.read".into(),
+            granted: true,
+        };
+        assert!(
+            Security::update(&mut model, grant(), &ScreenCtx::default())
+                .into_requests()
+                .is_empty(),
+            "not offered without ROOT"
+        );
+        let request = Security::update(&mut model, grant(), &root())
+            .into_requests()
+            .remove(0);
+        assert_eq!(request.method, crate::app::cmd::Method::Put);
+        assert_eq!(
+            request.body,
+            Some(serde_json::json!({ "roleCode": "user", "action": "deal.read", "granted": true }))
+        );
+        assert!(
+            Security::update(&mut model, grant(), &root())
+                .into_requests()
+                .is_empty(),
+            "one at a time"
+        );
+
+        Security::update(
+            &mut model,
+            request.respond(Err(ApiError {
+                status: 403,
+                code: "FORBIDDEN".into(),
+                message: "Not ROOT.".into(),
+            })),
+            &root(),
+        );
+        assert_eq!(
+            (model.role_grant_busy, model.error.as_deref()),
+            (false, Some("Not ROOT."))
+        );
     }
 }

@@ -49,9 +49,30 @@ pub struct ScreenCtx {
     pub query: BTreeMap<String, String>,
     /// The path this screen was opened at.
     pub path: String,
+    /// What the signed-in user may do, as the Rust security service answered for this portal visit (the shell reads it
+    /// once). `None` until it arrives, and on the public site. UI VISIBILITY ONLY: the server authorizes every call.
+    pub grants: Option<crate::model::PortalEntitlements>,
 }
 
 impl ScreenCtx {
+    /// Whether to offer `action`. Mirrors the server's rule: internal accounts only; managing entitlements and roles is
+    /// ROOT's; everything else is ROOT or a held entitlement. Nothing is offered before the grants arrive.
+    pub fn can(&self, action: &str) -> bool {
+        self.grants.as_ref().is_some_and(|grants| {
+            if grants.account_type != "internal" {
+                false
+            } else if matches!(
+                action,
+                "security.entitlement.manage" | "security.role.manage"
+            ) {
+                grants.is_root
+            } else {
+                grants.security_level == "ROOT"
+                    || grants.entitlement_codes.iter().any(|code| code == action)
+            }
+        })
+    }
+
     pub fn query(&self, key: &str) -> Option<&str> {
         self.query
             .get(key)

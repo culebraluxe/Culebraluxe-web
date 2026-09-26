@@ -16,10 +16,17 @@
 use yew::Html;
 
 use crate::app::host::mount;
+use crate::app::rows::RowsScreen;
 use crate::app::screen::ScreenCtx;
 use crate::app::screens::account::Account;
 use crate::app::screens::clients::{ClientRecord, Clients};
 use crate::app::screens::db_test::DbTest;
+use crate::app::screens::security::Security;
+use crate::app::screens::security_users::SecurityUsers;
+use crate::app::screens::support_rows::{Authorities, Review, Roles, VideoTest};
+use crate::app::screens::system_health::SystemHealth;
+use crate::app::screens::whatsapp_meta::WhatsAppMeta;
+use crate::app::screens::whatsapp_public::WhatsAppPublic;
 use crate::model::Surface;
 use crate::navigation::{Actor, Level};
 
@@ -156,14 +163,14 @@ pub const ENTRIES: &[Entry] = &[
     entry("tech", "/portal/tech", Surface::Tech, "Cockpit", Menu::Rail("Cockpit"), "tech.access", "tech.access", Kind::LegacyIsland("tech")),
     entry("storyboard", "/portal/storyboard", Surface::Tech, "Story Board", Menu::Rail("Story Board"), "tech.access", "tech.access", Kind::LegacyPortal("storyboard")),
     entry("design-lab", "/portal/design-lab", Surface::Tech, "UI Lab", Menu::Rail("UI Lab"), "tech.access", "tech.access", Kind::LegacyIsland("design-lab")),
-    entry("system-health", "/portal/system-health", Surface::Support, "System Health", Menu::Rail("System Health"), "portal.read", "portal.read", Kind::LegacyPortal("system-health")),
+    entry("system-health", "/portal/system-health", Surface::Support, "System Health", Menu::Rail("System Health"), "portal.read", "portal.read", Kind::Screen(mount::<SystemHealth>)),
     entry("db-test", "/portal/db-test", Surface::Support, "DB Test", Menu::Rail("DB Test"), "portal.read", "portal.read", Kind::Screen(mount::<DbTest>)),
-    entry("whatsapp-meta", "/portal/admin/whatsapp-meta", Surface::Support, "WhatsApp Diagnostic", Menu::Rail("WhatsApp Diagnostic"), "portal.read", "portal.read", Kind::LegacyPortal("whatsapp-meta")),
+    entry("whatsapp-meta", "/portal/admin/whatsapp-meta", Surface::Support, "WhatsApp Diagnostic", Menu::Rail("WhatsApp Diagnostic"), "portal.read", "portal.read", Kind::Screen(mount::<WhatsAppMeta>)),
     entry("whatsapp-coexistence", "/portal/admin/whatsapp-coexistence", Surface::Support, "WhatsApp Activation", Menu::Rail("WhatsApp Activation"), "portal.read", "portal.read", Kind::External),
-    entry("site-whatsapp", "/whatsapp", Surface::Support, "WhatsApp Public Page", Menu::Rail("WhatsApp Public Page"), "portal.read", "portal.read", Kind::LegacySite),
-    entry("site-video", "/video", Surface::Support, "Mux Video Test", Menu::Rail("Mux Video Test"), "portal.read", "portal.read", Kind::LegacySite),
-    entry("review", "/review/:token/:page", Surface::Support, "Review", Menu::None, "", "", Kind::LegacySite),
-    entry("security", "/portal/settings", Surface::Support, "Security", Menu::Rail("Security"), "settings.read", "security.principal.read", Kind::LegacyPortal("security")),
+    entry("site-whatsapp", "/whatsapp", Surface::Support, "WhatsApp Public Page", Menu::Rail("WhatsApp Public Page"), "portal.read", "portal.read", Kind::Screen(mount::<WhatsAppPublic>)),
+    entry("site-video", "/video", Surface::Support, "Mux Video Test", Menu::Rail("Mux Video Test"), "portal.read", "portal.read", Kind::Screen(mount::<RowsScreen<VideoTest>>)),
+    entry("review", "/review/:token/:page", Surface::Support, "Review", Menu::None, "", "", Kind::Screen(mount::<RowsScreen<Review>>)),
+    entry("security", "/portal/settings", Surface::Support, "Security", Menu::Rail("Security"), "settings.read", "security.principal.read", Kind::Screen(mount::<Security>)),
     entry("site-buyers", "/buyers", Surface::Site, "Buyers", Menu::Header("Buyers"), "", "", Kind::LegacySite),
     entry("site-sellers", "/sellers", Surface::Site, "Sellers", Menu::Header("Sellers"), "", "", Kind::LegacySite),
     entry("site-services", "/services", Surface::Site, "Services", Menu::Header("Services"), "", "", Kind::LegacySite),
@@ -171,9 +178,9 @@ pub const ENTRIES: &[Entry] = &[
     entry("site-about", "/about", Surface::Site, "About", Menu::Header("About"), "", "", Kind::LegacySite),
     entry("site-faq", "/faq", Surface::Site, "FAQ", Menu::Header("FAQ"), "", "", Kind::LegacySite),
     entry("site-contact", "/contact", Surface::Site, "Contact", Menu::Header("Contact"), "", "", Kind::LegacySite),
-    entry("settings-authorities", "/portal/settings/authorities", Surface::Support, "Authorities", Menu::None, "portal.read", "", Kind::LegacyPortal("settings-authorities")).of("security"),
-    entry("settings-roles", "/portal/settings/roles", Surface::Support, "Roles", Menu::None, "portal.read", "", Kind::LegacyPortal("settings-roles")).of("security"),
-    entry("settings-users", "/portal/settings/users", Surface::Support, "Users", Menu::None, "portal.read", "", Kind::LegacyPortal("settings-users")).of("security"),
+    entry("settings-authorities", "/portal/settings/authorities", Surface::Support, "Authorities", Menu::None, "portal.read", "", Kind::Screen(mount::<RowsScreen<Authorities>>)).of("security"),
+    entry("settings-roles", "/portal/settings/roles", Surface::Support, "Roles", Menu::None, "portal.read", "", Kind::Screen(mount::<RowsScreen<Roles>>)).of("security"),
+    entry("settings-users", "/portal/settings/users", Surface::Support, "Users", Menu::None, "portal.read", "", Kind::Screen(mount::<SecurityUsers>)).of("security"),
     entry("attention", "/portal/attention", Surface::Core, "Attention", Menu::None, "portal.read", "", Kind::LegacyPortal("attention")).of("dashboard"),
     entry("activity", "/portal/activity", Surface::Core, "Activity", Menu::None, "portal.read", "", Kind::LegacyPortal("activity")).of("dashboard"),
     entry("client-record", "/portal/clients/:personId", Surface::Core, "Client", Menu::None, "portal.read", "", Kind::Screen(mount::<ClientRecord>)).of("clients"),
@@ -595,5 +602,5 @@ mod tests {
         );
     }
 
-    const LEGACY_CEILING: usize = 48;
+    const LEGACY_CEILING: usize = 39;
 }

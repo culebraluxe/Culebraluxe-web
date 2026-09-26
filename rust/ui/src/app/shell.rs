@@ -64,6 +64,23 @@ fn frame_component(props: &MasterProps) -> Html {
         .map(|location| location.query_str().to_string())
         .unwrap_or_default();
 
+    // THE GRANTS ARE READ ONCE PER PORTAL VISIT, here, and handed to every screen through `ScreenCtx::can`. No screen
+    // reads them itself. A failed read leaves them `None`, which offers nothing: the fail-closed direction.
+    let grants = use_state(|| None::<crate::model::PortalEntitlements>);
+    {
+        let grants = grants.clone();
+        let portal = !props.error && registry::area_of(&path) == Area::Portal;
+        use_effect_with(portal, move |portal| {
+            if *portal && grants.is_none() {
+                yew::platform::spawn_local(async move {
+                    if let Ok(read) = crate::app::exec::fetch(crate::app::api::Entitlements).await {
+                        grants.set(Some(read));
+                    }
+                });
+            }
+        });
+    }
+
     // A new screen starts at the top of the page, as a page load would.
     use_effect_with(path.clone(), |_| {
         if let Some(window) = web_sys::window() {
@@ -89,6 +106,7 @@ fn frame_component(props: &MasterProps) -> Html {
         id: params.first().map(|(_, value)| value.clone()),
         query: parse_query(&query),
         path: path.clone(),
+        grants: (*grants).clone(),
     };
     let content = match entry.kind {
         // Keyed by screen: another screen is a fresh host; the same screen with a new record re-inits in place.

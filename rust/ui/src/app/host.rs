@@ -76,8 +76,11 @@ impl<S: Screen> Component for ScreenHost<S> {
             let (model, cmd) = S::init(new);
             self.model = model;
             cmd
-        } else {
+        } else if new.query != old.query {
             S::url_changed(&mut self.model, new)
+        } else {
+            // Only the grants arrived (or changed): the view re-draws what it offers; nothing to read.
+            crate::app::cmd::Cmd::none()
         };
         self.run(ctx, cmd);
         true

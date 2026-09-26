@@ -1,7 +1,7 @@
 # UI Screen Architecture — the contract every screen implements
 
 Status: **framework and master shell built** (owner decision 2026-09-26). Code: `rust/ui/src/app/`. Screens on the
-trait: `db-test`, `site-account`. Cutover ledger: 48 screens still on the old loop (`app/registry.rs`). This document is the contract for all
+trait: `db-test`, `site-account`. Cutover ledger: 39 screens still on the old loop (`app/registry.rs`). This document is the contract for all
 UI work in `rust/ui`. It supersedes the ad hoc per-screen patterns: when code and this document disagree, the code is
 wrong.
 
@@ -222,6 +222,14 @@ needs-review, reporting, runtime-inspector, command-center, command-console (+ s
 app-errors, flight-recorder list, grok, kanban, lab, line, runs, both rust-previews, both dev map tests,
 portal-auth-proof; and (same day) showings — its data source was unwired and returned nothing; bookings are the
 Projects calendar — and the framer-ui-lab page, merged into UI Lab.
+
+### Known gaps found while porting (not caused by the port)
+
+- **System Health and Security** reads return `DATABASE` 500 from the Rust API on the dev database (2026-09-26). The
+  screens show the template's failure state; their contract fixtures are marked stand-ins until a real capture works.
+- **Authorities** shows the same role-entitlement rows as Roles — the old rows route answers both screens from one
+  read. A real authorities read is a backend addition.
+- **Mux Video Test** and **Review** have no rows source wired (the public rows route answers `[]`).
 
 ### Decisions recorded
 

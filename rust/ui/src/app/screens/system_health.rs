@@ -1,25 +1,125 @@
-//! `/portal/system-health` — the operational health, the environment posture, and the workflow diagnostics.
+//! `/portal/system-health` — the platform's health snapshot and the workflow engine's diagnostics.
 //!
-//! PARITY WITH `app/portal/system-health/page.tsx` at `0acb29c5` (the parent of `cb5000a2`), which composed
-//! `components/portal/system-health.tsx` and `components/portal/workflow-diagnostics.tsx` over three reads made together.
-//!
-//! WHAT THE EARLIER CONVERSION LOST, AND WHAT IS BACK: the Workflow Diagnostics half held React state — which instance is
-//! open, its detail, which one is loading, and any error — and loaded that instance's detail when a row was clicked. The
-//! generic rows cutover dropped the interaction entirely, so the screen became a list. Here the selection is
-//! `Msg::WorkflowInstanceToggled` → an effect → the payload with that instance's detail, and the open row comes from the
-//! model like every other piece of state on this portal.
-//!
-//! READ-ONLY. No workflow reset, repair or mutation control is on this screen, and none is added: it reports.
+//! One read on open (the snapshot, with the instance list). Opening an instance's row reads that instance's detail —
+//! one row at a time, and a click that closes the open row reads nothing. An answer for a row that is no longer the one
+//! open is dropped: a row must never name one instance and describe another. A failed instance read is told inside its
+//! row, not over the page, because the page's own snapshot is still good.
 
 use yew::prelude::*;
 
+use crate::app::api::PortalScreenPage;
+use crate::app::cmd::{ApiError, Cmd, Remote};
+use crate::app::screen::{Link, Screen, ScreenCtx};
+use crate::app::template;
 use crate::model::{
-    Msg, PortalEnvironmentReadiness, PortalSystemHealthSnapshot, PortalWorkflowAnomaly,
-    PortalWorkflowCorrelation, PortalWorkflowDefinition, PortalWorkflowDiagnosticEvent,
-    PortalWorkflowDiagnostics, PortalWorkflowInstance, PortalWorkflowInstanceDetail,
-    PortalWorkflowJob, PortalWorkflowTask, PortalWorkflowToken,
+    PortalEnvironmentReadiness, PortalPage, PortalSystemHealthPage, PortalSystemHealthSnapshot,
+    PortalWorkflowAnomaly, PortalWorkflowCorrelation, PortalWorkflowDefinition,
+    PortalWorkflowDiagnosticEvent, PortalWorkflowDiagnostics, PortalWorkflowInstance,
+    PortalWorkflowInstanceDetail, PortalWorkflowJob, PortalWorkflowTask, PortalWorkflowToken,
+    WorkflowDiagnosticsState,
 };
-use crate::yew_views::portal_shell::PortalShell;
+
+pub struct SystemHealth;
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Model {
+    pub read: Remote<PortalSystemHealthPage>,
+    /// The open instance row: which one, whether its detail is on its way, the detail, or why it could not be read.
+    pub workflow: WorkflowDiagnosticsState,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Msg {
+    Loaded(Result<PortalPage, ApiError>),
+    /// A row was clicked: open it (and read its detail), or close it if it is the open one.
+    WorkflowInstanceToggled {
+        instance_id: String,
+    },
+    DetailLoaded {
+        instance_id: String,
+        answer: Result<PortalPage, ApiError>,
+    },
+}
+
+fn health(page: PortalPage) -> Option<PortalSystemHealthPage> {
+    page.support.and_then(|support| support.system_health)
+}
+
+impl Screen for SystemHealth {
+    type Model = Model;
+    type Msg = Msg;
+
+    fn init(_ctx: &ScreenCtx) -> (Model, Cmd<Msg>) {
+        (
+            Model {
+                read: Remote::Loading,
+                ..Model::default()
+            },
+            Cmd::request(PortalScreenPage::of("system-health"), Msg::Loaded),
+        )
+    }
+
+    fn update(model: &mut Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> {
+        match msg {
+            Msg::Loaded(answer) => {
+                model.read = Remote::from_result(answer.and_then(|page| {
+                    health(page)
+                        .ok_or_else(|| ApiError::decode("The answer had no health snapshot in it."))
+                }));
+                Cmd::none()
+            }
+            Msg::WorkflowInstanceToggled { instance_id } => {
+                if model.workflow.selected_instance.as_deref() == Some(instance_id.as_str()) {
+                    model.workflow = WorkflowDiagnosticsState::default();
+                    return Cmd::none();
+                }
+                // Read again on every open: the engine moves, and a detail from the last look is a stale answer.
+                model.workflow = WorkflowDiagnosticsState {
+                    selected_instance: Some(instance_id.clone()),
+                    loading_instance: Some(instance_id.clone()),
+                    ..WorkflowDiagnosticsState::default()
+                };
+                Cmd::request(
+                    PortalScreenPage::scoped("system-health", instance_id.clone()),
+                    move |answer| Msg::DetailLoaded {
+                        instance_id,
+                        answer,
+                    },
+                )
+            }
+            Msg::DetailLoaded {
+                instance_id,
+                answer,
+            } => {
+                if model.workflow.loading_instance.as_deref() != Some(instance_id.as_str()) {
+                    return Cmd::none();
+                }
+                model.workflow.loading_instance = None;
+                let detail = answer.map(|page| {
+                    health(page)
+                        .and_then(|health| health.diagnostics.detail)
+                        .filter(|detail| detail.instance_id == instance_id)
+                });
+                match detail {
+                    Ok(Some(detail)) => {
+                        model.workflow.detail = Some(detail);
+                        model.workflow.error = None;
+                    }
+                    Ok(None) => {
+                        model.workflow.error =
+                            Some(format!("No detail found for instance {instance_id}."))
+                    }
+                    Err(error) => model.workflow.error = Some(error.message),
+                }
+                Cmd::none()
+            }
+        }
+    }
+
+    fn view(model: &Model, _ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
+        SystemHealth.body(model, &link.callback(|msg: Msg| msg))
+    }
+}
 
 /// The navy panel the live screen used for every section.
 const PANEL: &str = "rounded-[var(--portal-panel-radius)] portal-glass-panel p-6";
@@ -32,42 +132,12 @@ const PILL: &str =
 const RECEIPT_PILL: &str =
     "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em]";
 
-#[derive(Properties, PartialEq)]
-pub struct SystemHealthProps {
-    pub model: crate::model::Model,
-    pub on_msg: Callback<Msg>,
-}
-
-pub struct SystemHealth;
-
-impl Component for SystemHealth {
-    type Message = ();
-    type Properties = SystemHealthProps;
-
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
-    }
-
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let props = ctx.props();
-        let screen = crate::model::screen("system-health")
-            .expect("the system health screen is in the registry");
-        html! {
-            <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
-                { self.body(&props.model, &props.on_msg) }
-            </PortalShell>
-        }
-    }
-}
-
 impl SystemHealth {
-    fn body(&self, model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
-        let read = model
-            .page
-            .as_ref()
-            .and_then(|page| page.portal.as_ref())
-            .and_then(|portal| portal.support.as_ref())
-            .and_then(|support| support.system_health.clone());
+    fn body(&self, model: &Model, on_msg: &Callback<Msg>) -> Html {
+        if let Remote::Failed(error) = &model.read {
+            return html! { <div>{ self.heading() }{ template::failure(error) }</div> };
+        }
+        let read = model.read.loaded().cloned();
         html! {
             <div>
                 { self.heading() }
@@ -336,7 +406,7 @@ impl SystemHealth {
     /// every instance with its detail one click away. Read-only, like everything else on this screen.
     fn workflow_diagnostics(
         &self,
-        model: &crate::model::Model,
+        model: &Model,
         diagnostics: &PortalWorkflowDiagnostics,
         on_msg: &Callback<Msg>,
     ) -> Html {
@@ -455,7 +525,7 @@ impl SystemHealth {
     /// read entirely because `update` answers the close without one.
     fn workflow_instances(
         &self,
-        model: &crate::model::Model,
+        model: &Model,
         diagnostics: &PortalWorkflowDiagnostics,
         on_msg: &Callback<Msg>,
     ) -> Html {
@@ -1169,5 +1239,113 @@ fn facts_block(variables: Option<&serde_json::Value>) -> Html {
         <pre class="overflow-x-auto rounded-sm bg-[var(--portal-blue-pale)]/50 p-4 font-mono text-[11px] leading-5 text-black/70">
             { printed }
         </pre>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn the_real_answer_decodes_and_one_row_opens_at_a_time() {
+        let ctx = ScreenCtx::default();
+        let (mut model, cmd) = SystemHealth::init(&ctx);
+        let request = cmd.into_requests().remove(0);
+        assert_eq!(
+            request.path,
+            "/api/portal/rust-ui/page?screen=system-health"
+        );
+        let answer: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/portal-page-system-health.json"
+        ))
+        .unwrap();
+        SystemHealth::update(&mut model, request.respond(Ok(answer)), &ctx);
+        assert!(model.read.loaded().is_some(), "the real payload decodes");
+
+        let open = SystemHealth::update(
+            &mut model,
+            Msg::WorkflowInstanceToggled {
+                instance_id: "i-1".into(),
+            },
+            &ctx,
+        );
+        assert_eq!(
+            open.into_requests().remove(0).path,
+            "/api/portal/rust-ui/page?screen=system-health&scope=i-1"
+        );
+        // The operator opens another row before the first answer lands: the first answer is dropped.
+        let second = SystemHealth::update(
+            &mut model,
+            Msg::WorkflowInstanceToggled {
+                instance_id: "i-2".into(),
+            },
+            &ctx,
+        );
+        let stale = json!({ "support": { "systemHealth": { "diagnostics": { "detail": { "instanceId": "i-1" } } } } });
+        SystemHealth::update(
+            &mut model,
+            Msg::DetailLoaded {
+                instance_id: "i-1".into(),
+                answer: Ok(serde_json::from_value(stale).unwrap()),
+            },
+            &ctx,
+        );
+        assert!(
+            model.workflow.detail.is_none()
+                && model.workflow.loading_instance.as_deref() == Some("i-2")
+        );
+        let fresh = json!({ "support": { "systemHealth": { "diagnostics": { "detail": { "instanceId": "i-2" } } } } });
+        SystemHealth::update(
+            &mut model,
+            second.into_requests().remove(0).respond(Ok(fresh)),
+            &ctx,
+        );
+        assert_eq!(
+            model
+                .workflow
+                .detail
+                .as_ref()
+                .map(|detail| detail.instance_id.as_str()),
+            Some("i-2")
+        );
+
+        // Closing the open row reads nothing.
+        assert!(SystemHealth::update(
+            &mut model,
+            Msg::WorkflowInstanceToggled {
+                instance_id: "i-2".into()
+            },
+            &ctx
+        )
+        .into_requests()
+        .is_empty());
+        assert_eq!(model.workflow, WorkflowDiagnosticsState::default());
+    }
+
+    #[test]
+    fn a_failed_row_read_is_told_in_the_row_and_the_page_stays() {
+        let ctx = ScreenCtx::default();
+        let mut model = Model {
+            read: Remote::Loaded(PortalSystemHealthPage::default()),
+            ..Model::default()
+        };
+        SystemHealth::update(
+            &mut model,
+            Msg::WorkflowInstanceToggled {
+                instance_id: "i-9".into(),
+            },
+            &ctx,
+        );
+        SystemHealth::update(
+            &mut model,
+            Msg::DetailLoaded {
+                instance_id: "i-9".into(),
+                answer: Err(ApiError::network("offline")),
+            },
+            &ctx,
+        );
+        assert_eq!(model.workflow.error.as_deref(), Some("offline"));
+        assert!(model.read.loaded().is_some());
     }
 }

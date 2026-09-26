@@ -18,7 +18,14 @@ const out = new URL('../rust/ui/fixtures/', import.meta.url)
 
 // name -> path. Add a line when a screen moves onto the Screen trait.
 const ENDPOINTS = {
-  'portal-page-db-test': '/api/portal/rust-ui/page?screen=db-test&',
+  'portal-page-db-test': '/api/portal/rust-ui/page?screen=db-test',
+  // STAND-IN until the dev backend answers (2026-09-26: Rust returned DATABASE 500): the shape the old loop's tests used.
+  // The next successful capture overwrites it with a real, scrubbed answer.
+  'portal-page-system-health': '/api/portal/rust-ui/page?screen=system-health',
+  'portal-page-whatsapp-meta': '/api/portal/rust-ui/page?screen=whatsapp-meta',
+  // STAND-IN until the dev backend answers (2026-09-26: DATABASE 500), as for system-health.
+  'portal-page-security': '/api/portal/rust-ui/page?screen=security',
+  'portal-page-settings-users': '/api/portal/rust-ui/page?screen=settings-users',
   'clients-list': '/api/portal/rust-ui/clients?screen=clients&page=0&search=',
   'guest-session': '/api/rust-ui/guest',
 }

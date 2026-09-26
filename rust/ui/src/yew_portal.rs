@@ -23,10 +23,6 @@ use crate::yew_views::portal_ops::OpsWorkbench;
 use crate::yew_views::portal_projects::Projects;
 use crate::yew_views::portal_seller_strategy::SellerStrategy;
 use crate::yew_views::portal_storyboard::Storyboard;
-use crate::yew_views::portal_support_security::Security as SupportSecurity;
-use crate::yew_views::portal_support_system_health::SystemHealth as SupportSystemHealth;
-use crate::yew_views::portal_support_users::SecurityUsers as SupportSecurityUsers;
-use crate::yew_views::portal_support_whatsapp_meta::WhatsAppMeta as SupportWhatsAppMeta;
 use crate::yew_views::portal_tech::TechCockpit;
 use crate::yew_views::portal_ui_lab::UiLab;
 use crate::yew_views::portal_workflow_record::WorkflowRecord;
@@ -141,16 +137,6 @@ impl Component for PortalApp {
                 html! { <AccountingReceiptScanner model={self.model.clone()} on_msg={on_msg} /> }
             }
             // SUPPORT — a bespoke component per screen, never the generic renderer.
-            "security" => html! { <SupportSecurity model={self.model.clone()} on_msg={on_msg} /> },
-            "settings-users" => {
-                html! { <SupportSecurityUsers model={self.model.clone()} on_msg={on_msg} /> }
-            }
-            "whatsapp-meta" => {
-                html! { <SupportWhatsAppMeta model={self.model.clone()} on_msg={on_msg} /> }
-            }
-            "system-health" => {
-                html! { <SupportSystemHealth model={self.model.clone()} on_msg={on_msg} /> }
-            }
             "property-admin" => {
                 html! { <OpsWorkbench model={self.model.clone()} on_msg={on_msg} /> }
             }

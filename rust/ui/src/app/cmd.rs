@@ -39,6 +39,7 @@ impl ApiError {
 pub enum Method {
     Get,
     Post,
+    Put,
 }
 
 /// One endpoint in the API catalogue (`app/api.rs`). The catalogue is the only place that knows URLs.

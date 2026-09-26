@@ -1,0 +1,28 @@
+{
+  "support": {
+    "securityUsers": [
+      {
+        "appUserId": "1fc6dc61-d842-4d29-a20b-93c79e07c718",
+        "displayName": "Sample text",
+        "email": "person@example.com",
+        "accountType": "internal",
+        "active": true,
+        "roleCodes": [
+          "root"
+        ],
+        "primaryRoleCode": "root"
+      },
+      {
+        "appUserId": "aa06d089-162c-4bef-84ec-a76ee38cc8ad",
+        "displayName": "Sample text",
+        "email": "person@example.com",
+        "accountType": "internal",
+        "active": true,
+        "roleCodes": [
+          "business_power"
+        ],
+        "primaryRoleCode": "business_power_user"
+      }
+    ]
+  }
+}

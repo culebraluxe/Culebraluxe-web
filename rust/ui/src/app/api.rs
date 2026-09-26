@@ -11,11 +11,23 @@ use crate::app::cmd::{Endpoint, Method};
 /// not wrapped in the site's `PageContent`.
 pub struct PortalScreenPage {
     pub screen: &'static str,
+    /// The record the read is about (System Health: the workflow instance whose row is open).
+    pub scope: Option<String>,
 }
 
 impl PortalScreenPage {
     pub fn of(screen: &'static str) -> Self {
-        Self { screen }
+        Self {
+            screen,
+            scope: None,
+        }
+    }
+
+    pub fn scoped(screen: &'static str, scope: impl Into<String>) -> Self {
+        Self {
+            screen,
+            scope: Some(scope.into()),
+        }
     }
 }
 
@@ -23,7 +35,14 @@ impl Endpoint for PortalScreenPage {
     const METHOD: Method = Method::Get;
     type Response = crate::model::PortalPage;
     fn path(&self) -> String {
-        format!("/api/portal/rust-ui/page?screen={}&", self.screen)
+        match &self.scope {
+            Some(scope) => format!(
+                "/api/portal/rust-ui/page?screen={}&scope={}",
+                self.screen,
+                encode(scope)
+            ),
+            None => format!("/api/portal/rust-ui/page?screen={}", self.screen),
+        }
     }
 }
 
@@ -125,5 +144,100 @@ impl Endpoint for ClientsRead {
             path.push_str(&format!("&selected={}", encode(selected)));
         }
         path
+    }
+}
+
+/// What the signed-in portal user may do, as the Rust security service answers. Read once per portal visit by the shell.
+pub struct Entitlements;
+
+impl Endpoint for Entitlements {
+    const METHOD: Method = Method::Get;
+    type Response = crate::model::PortalEntitlements;
+    fn path(&self) -> String {
+        "/api/portal/rust-ui/entitlements".into()
+    }
+}
+
+/// ROOT grants or revokes one entitlement for one internal role. Answers the role table as it now stands.
+pub struct SetRoleEntitlement {
+    pub role_code: String,
+    pub action: String,
+    pub granted: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct RolesAnswer {
+    pub roles: Vec<crate::model::PortalRoleEntitlements>,
+}
+
+impl Endpoint for SetRoleEntitlement {
+    const METHOD: Method = Method::Put;
+    type Response = RolesAnswer;
+    fn path(&self) -> String {
+        "/api/portal/rust-ui/role-entitlements".into()
+    }
+    fn body(&self) -> Option<serde_json::Value> {
+        Some(
+            serde_json::json!({ "roleCode": self.role_code, "action": self.action, "granted": self.granted }),
+        )
+    }
+}
+
+/// ROOT replaces one internal user's primary role. Answers the user table as it now stands.
+pub struct SetUserPrimaryRole {
+    pub app_user_id: String,
+    pub role_code: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct UsersAnswer {
+    pub users: Vec<crate::model::PortalSecurityUser>,
+}
+
+impl Endpoint for SetUserPrimaryRole {
+    const METHOD: Method = Method::Put;
+    type Response = UsersAnswer;
+    fn path(&self) -> String {
+        "/api/portal/rust-ui/security-users".into()
+    }
+    fn body(&self) -> Option<serde_json::Value> {
+        Some(serde_json::json!({ "appUserId": self.app_user_id, "roleCode": self.role_code }))
+    }
+}
+
+/// A generic rows read: the portal's (`/api/portal/rust-ui/rows`) or the public site's (`/api/rust-ui/public-rows`).
+pub struct RowsRead {
+    pub public: bool,
+    pub screen: &'static str,
+}
+
+impl RowsRead {
+    pub fn portal(screen: &'static str) -> Self {
+        Self {
+            public: false,
+            screen,
+        }
+    }
+
+    pub fn public(screen: &'static str) -> Self {
+        Self {
+            public: true,
+            screen,
+        }
+    }
+}
+
+impl Endpoint for RowsRead {
+    const METHOD: Method = Method::Get;
+    type Response = Vec<crate::model::Row>;
+    fn path(&self) -> String {
+        let base = if self.public {
+            "/api/rust-ui/public-rows"
+        } else {
+            "/api/portal/rust-ui/rows"
+        };
+        format!("{base}?screen={}", self.screen)
     }
 }

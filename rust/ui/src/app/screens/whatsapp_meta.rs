@@ -1,55 +1,58 @@
-//! `/portal/admin/whatsapp-meta` — what Meta says about this deployment's WhatsApp number.
-//!
-//! PARITY WITH `app/portal/admin/whatsapp-meta/page.tsx` at `141df386`: the navy page, "Private diagnostic" over "WhatsApp Meta
-//! IDs", the sentence that says the query happens server-side and the token never reaches the browser, the WABA ID and token
-//! card, and then whichever of the four outcomes Meta gave — not configured, refused, no numbers, or the numbers.
-//!
-//! NOTHING HERE TALKS TO META. The call is made in the bridge, on the server, with the token that lives there. This component
-//! renders the answer and has no credentials, no endpoint and no way to reach one — which is the property that matters, not
-//! the layout.
+//! `/portal/admin/whatsapp-meta` — what Meta says about the WhatsApp Business account: the WABA, whether a token is
+//! configured, the phone numbers, or the problem. Read-only: one read on open.
 
 use yew::prelude::*;
 
-use crate::model::{Msg, PortalWhatsAppMeta, PortalWhatsAppPhone};
-use crate::yew_views::portal_shell::PortalShell;
+use crate::app::api::PortalScreenPage;
+use crate::app::cmd::{ApiError, Cmd, Remote};
+use crate::app::screen::{Link, Screen, ScreenCtx};
+use crate::app::template;
+use crate::model::{PortalPage, PortalWhatsAppMeta, PortalWhatsAppPhone};
+
+pub struct WhatsAppMeta;
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Model {
+    pub read: Remote<PortalWhatsAppMeta>,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Msg {
+    Loaded(Result<PortalPage, ApiError>),
+}
+
+impl Screen for WhatsAppMeta {
+    type Model = Model;
+    type Msg = Msg;
+
+    fn init(_ctx: &ScreenCtx) -> (Model, Cmd<Msg>) {
+        (
+            Model {
+                read: Remote::Loading,
+            },
+            Cmd::request(PortalScreenPage::of("whatsapp-meta"), Msg::Loaded),
+        )
+    }
+
+    fn update(model: &mut Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> {
+        let Msg::Loaded(answer) = msg;
+        model.read = Remote::from_result(answer.and_then(|page| {
+            page.support
+                .and_then(|support| support.whats_app_meta)
+                .ok_or_else(|| ApiError::decode("The answer had no WhatsApp diagnostic in it."))
+        }));
+        Cmd::none()
+    }
+
+    fn view(model: &Model, _ctx: &ScreenCtx, _link: &Link<Msg>) -> Html {
+        html! { <div>{ WhatsAppMeta.heading() }{ WhatsAppMeta.body(model) }</div> }
+    }
+}
 
 /// The navy surface the live page used, with the gold eyebrow.
 const PANEL: &str = "rounded-2xl border border-brand-gold/25 bg-white/5 p-6";
 const WARNING: &str = "rounded-2xl border border-amber-400/30 bg-amber-400/10 p-6";
 const LABEL: &str = "text-xs uppercase tracking-wider text-brand-ivory/50";
-
-#[derive(Properties, PartialEq)]
-pub struct WhatsAppMetaProps {
-    pub model: crate::model::Model,
-    pub on_msg: Callback<Msg>,
-}
-
-pub struct WhatsAppMeta;
-
-impl Component for WhatsAppMeta {
-    type Message = ();
-    type Properties = WhatsAppMetaProps;
-
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
-    }
-
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let props = ctx.props();
-        let screen = crate::model::screen("whatsapp-meta")
-            .expect("the WhatsApp diagnostic is in the registry");
-        html! {
-            <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
-                <main class="min-h-screen bg-brand-navy px-6 py-12 text-brand-ivory">
-                    <div class="mx-auto max-w-3xl space-y-8">
-                        { self.heading() }
-                        { self.body(&props.model) }
-                    </div>
-                </main>
-            </PortalShell>
-        }
-    }
-}
 
 impl WhatsAppMeta {
     fn heading(&self) -> Html {
@@ -71,14 +74,11 @@ impl WhatsAppMeta {
     ///
     /// A screen that has not been answered yet says so. It must not show an empty list of numbers, because "Meta returned
     /// nothing" and "we have not asked yet" are different facts and this is the screen whose job is telling them apart.
-    fn body(&self, model: &crate::model::Model) -> Html {
-        let read = model
-            .page
-            .as_ref()
-            .and_then(|page| page.portal.as_ref())
-            .and_then(|portal| portal.support.as_ref())
-            .and_then(|support| support.whats_app_meta.clone());
-        let Some(read) = read else {
+    fn body(&self, model: &Model) -> Html {
+        if let Remote::Failed(error) = &model.read {
+            return template::failure(error);
+        }
+        let Some(read) = model.read.loaded().cloned() else {
             return html! {
                 <section class={PANEL}>
                     <p class="text-sm">{"Asking Meta…"}</p>
@@ -166,5 +166,30 @@ fn field(label: &str, value: Option<&str>) -> Html {
             <p class={LABEL}>{ label }</p>
             <p class="mt-1 text-sm">{ value.unwrap_or("—") }</p>
         </div>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_real_answer_decodes() {
+        let ctx = ScreenCtx::default();
+        let (mut model, cmd) = WhatsAppMeta::init(&ctx);
+        let request = cmd.into_requests().remove(0);
+        assert_eq!(
+            request.path,
+            "/api/portal/rust-ui/page?screen=whatsapp-meta"
+        );
+        let answer: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/portal-page-whatsapp-meta.json"
+        ))
+        .unwrap();
+        WhatsAppMeta::update(&mut model, request.respond(Ok(answer)), &ctx);
+        assert!(model
+            .read
+            .loaded()
+            .is_some_and(|read| read.token_configured));
     }
 }

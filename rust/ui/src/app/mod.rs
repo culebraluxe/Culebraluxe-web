@@ -20,6 +20,7 @@ pub mod exec;
 pub mod host;
 pub mod list;
 pub mod registry;
+pub mod rows;
 pub mod screen;
 pub mod screens;
 pub mod shell;

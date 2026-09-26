@@ -69,6 +69,14 @@ fn storage() -> Option<web_sys::Storage> {
     web_sys::window().and_then(|window| window.local_storage().ok().flatten())
 }
 
+/// Read an endpoint from the shell's own infrastructure (not a screen): the entitlements for a portal visit.
+pub async fn fetch<E: crate::app::cmd::Endpoint>(endpoint: E) -> Result<E::Response, ApiError> {
+    let text = send(E::METHOD, &endpoint.path(), endpoint.body().as_ref())
+        .await?
+        .to_string();
+    serde_json::from_str(&text).map_err(|error| ApiError::decode(error.to_string()))
+}
+
 fn request_http<Msg: 'static>(request: Request<Msg>, deliver: Callback<Msg>) {
     spawn_local(async move {
         let answer = send(request.method, &request.path, request.body.as_ref()).await;
@@ -85,6 +93,8 @@ async fn send(
         (Method::Get, _) => HttpRequest::get(path).build(),
         (Method::Post, Some(body)) => HttpRequest::post(path).json(body),
         (Method::Post, None) => HttpRequest::post(path).build(),
+        (Method::Put, Some(body)) => HttpRequest::put(path).json(body),
+        (Method::Put, None) => HttpRequest::put(path).build(),
     }
     .map_err(|error| ApiError::network(error.to_string()))?;
     let response = request
@@ -117,11 +127,18 @@ pub(crate) fn interpret(status: u16, ok: bool, text: &str) -> Result<serde_json:
             Ok(value["value"].clone())
         }
         Some(value) if value.get("ok").and_then(serde_json::Value::as_bool) == Some(false) => {
+            // Two refusal spellings exist: `error: { code, message }` (the Rust API) and `error: "CODE", message`
+            // (a relay). Both become the same ApiError.
             let error = value.get("error").cloned().unwrap_or_default();
+            let code = error
+                .as_str()
+                .map(str::to_owned)
+                .or_else(|| field(&error, "code"));
+            let message = field(&error, "message").or_else(|| field(&value, "message"));
             Err(ApiError {
                 status,
-                code: field(&error, "code").unwrap_or_else(|| "FAILED".into()),
-                message: field(&error, "message").unwrap_or_else(|| "The request failed.".into()),
+                code: code.unwrap_or_else(|| "FAILED".into()),
+                message: message.unwrap_or_else(|| "The request failed.".into()),
             })
         }
         Some(value) if ok => Ok(value),
@@ -129,6 +146,7 @@ pub(crate) fn interpret(status: u16, ok: bool, text: &str) -> Result<serde_json:
             status,
             code: field(&value, "code").unwrap_or_else(|| "HTTP".into()),
             message: field(&value, "message")
+                .or_else(|| field(&value, "error"))
                 .unwrap_or_else(|| format!("The request failed ({status}).")),
         }),
         None if ok => Err(ApiError::decode("The answer was not JSON.")),
@@ -176,6 +194,18 @@ mod tests {
             ("HTTP", "Too many codes.")
         );
         assert_eq!(interpret(502, false, "<html>").unwrap_err().code, "HTTP");
+        let relay = interpret(
+            403,
+            false,
+            r#"{"ok":false,"error":"FORBIDDEN","message":"no matching entitlement"}"#,
+        )
+        .unwrap_err();
+        assert_eq!(
+            (relay.code.as_str(), relay.message.as_str()),
+            ("FORBIDDEN", "no matching entitlement")
+        );
+        let text = interpret(409, false, r#"{"error":"The role is in use."}"#).unwrap_err();
+        assert_eq!(text.message, "The role is in use.");
         assert_eq!(interpret(200, true, "<html>").unwrap_err().code, "DECODE");
     }
 }
