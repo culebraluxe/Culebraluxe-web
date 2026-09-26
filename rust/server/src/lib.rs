@@ -52,7 +52,7 @@ pub mod workflow_portal;
 
 pub use agreement_execution::Crm26AgreementExecutionSubscriber;
 pub use command_runtime::{CommandDispatchError, CommandDispatcher};
-pub use composition::CoreServices;
+pub use composition::ServiceCatalog;
 pub use mq_runtime::{
     MqProofSubscriber, MqRuntime, MqRuntimeConfig, MqSubscriber, MqSubscriberError,
 };

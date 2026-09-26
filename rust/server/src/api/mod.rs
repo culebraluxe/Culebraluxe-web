@@ -1,4 +1,4 @@
-use crate::{CoreServices, ServiceGateway, ServiceHarness, ServiceKernel};
+use crate::{ServiceCatalog, ServiceGateway, ServiceHarness, ServiceKernel};
 use db::Database;
 use service::ServiceInfrastructure;
 use sha2::{Digest, Sha256};
@@ -56,16 +56,16 @@ impl ApiConfig {
 #[derive(Clone)]
 pub struct ApiState {
     db: Database,
-    services: CoreServices,
+    services: ServiceCatalog,
     harness: ServiceHarness,
     config: ApiConfig,
 }
 
 impl ApiState {
     pub fn new(db: Database, infrastructure: ServiceInfrastructure, config: ApiConfig) -> Self {
-        let services = CoreServices::new(db.clone(), infrastructure.clone());
         let harness = ServiceHarness::new(db.clone(), infrastructure)
             .expect("default CulebraLuxe service harness configuration must be valid");
+        let services = harness.catalog();
         Self {
             db,
             services,
@@ -78,7 +78,7 @@ impl ApiState {
         &self.db
     }
 
-    pub fn services(&self) -> CoreServices {
+    pub fn services(&self) -> ServiceCatalog {
         self.services.clone()
     }
 

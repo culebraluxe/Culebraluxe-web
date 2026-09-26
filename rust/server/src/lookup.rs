@@ -66,7 +66,7 @@ impl CoreEntityLookup for ServiceDirectory {
         property_id: &str,
         context: &ServiceContext,
     ) -> Result<bool, CoreServiceError> {
-        let mut service = PropertyService::new(
+        let service = PropertyService::new(
             PropertyDao::new(self.db.clone()),
             self.infrastructure.clone(),
         );

@@ -1,9 +1,8 @@
+use crate::composition::ServiceCatalog;
 use crate::contracts::ContractService;
 use crate::firms::FirmService;
-use crate::lookup::CoreEntityLookup;
 use crate::people::PersonService;
 use crate::properties::PropertyService;
-use crate::service_support::CoreServiceError;
 use async_trait::async_trait;
 use db::{ContractDao, Database, FirmDao, PersonDao, PropertyDao};
 use serde::{Deserialize, Serialize};
@@ -411,71 +410,9 @@ impl ServiceRouter for ServiceRegistry {
 }
 
 #[derive(Clone)]
-struct KernelEntityLookup {
-    runtime: ServiceRuntime,
-}
-
-#[async_trait]
-impl CoreEntityLookup for KernelEntityLookup {
-    async fn person_exists(
-        &self,
-        person_id: &str,
-        context: &ServiceContext,
-    ) -> Result<bool, CoreServiceError> {
-        let value = self
-            .runtime
-            .call_service(
-                "person",
-                "person.get",
-                serde_json::json!({ "personId": person_id }),
-                context,
-            )
-            .await?;
-        Ok(!value.is_null())
-    }
-
-    async fn firm_exists(
-        &self,
-        firm_id: &str,
-        context: &ServiceContext,
-    ) -> Result<bool, CoreServiceError> {
-        let value = self
-            .runtime
-            .call_service(
-                "firm",
-                "firm.get",
-                serde_json::json!({ "firmId": firm_id }),
-                context,
-            )
-            .await?;
-        Ok(!value.is_null())
-    }
-
-    async fn property_exists(
-        &self,
-        property_id: &str,
-        context: &ServiceContext,
-    ) -> Result<bool, CoreServiceError> {
-        let value = self
-            .runtime
-            .call_service(
-                "property",
-                "property.get",
-                serde_json::json!({ "propertyId": property_id }),
-                context,
-            )
-            .await?;
-        Ok(!value.is_null())
-    }
-}
-
-#[derive(Clone)]
 pub struct ServiceKernel {
     registry: Arc<ServiceRegistry>,
-    person: Arc<PersonService<PersonDao>>,
-    firm: Arc<FirmService<FirmDao>>,
-    property: Arc<PropertyService<PropertyDao>>,
-    contract: Arc<ContractService<ContractDao>>,
+    catalog: ServiceCatalog,
 }
 
 impl ServiceKernel {
@@ -488,27 +425,11 @@ impl ServiceKernel {
         let router_port: Arc<dyn ServiceRouter> = deferred_router.clone();
         let infrastructure = infrastructure.with_router(router_port);
 
-        let person = Arc::new(PersonService::new(
-            PersonDao::new(db.clone()),
-            infrastructure.clone(),
-        ));
-        let firm = Arc::new(FirmService::new(
-            FirmDao::new(db.clone()),
-            infrastructure.clone(),
-        ));
-        let property = Arc::new(PropertyService::new(
-            PropertyDao::new(db.clone()),
-            infrastructure.clone(),
-        ));
-
-        let lookup: Arc<dyn CoreEntityLookup> = Arc::new(KernelEntityLookup {
-            runtime: ServiceRuntime::new(infrastructure.clone()),
-        });
-        let contract = Arc::new(ContractService::new(
-            ContractDao::new(db),
-            lookup,
-            infrastructure.clone(),
-        ));
+        let catalog = ServiceCatalog::new(db, infrastructure.clone());
+        let person = catalog.person();
+        let firm = catalog.firm();
+        let property = catalog.property();
+        let contract = catalog.contract();
 
         let services: Vec<Arc<dyn AbstractService>> = vec![
             person.clone(),
@@ -524,13 +445,7 @@ impl ServiceKernel {
         let registry_port: Arc<dyn ServiceRouter> = registry.clone();
         deferred_router.install(&registry_port)?;
 
-        Ok(Self {
-            registry,
-            person,
-            firm,
-            property,
-            contract,
-        })
+        Ok(Self { registry, catalog })
     }
 
     pub fn registry(&self) -> Arc<ServiceRegistry> {
@@ -558,19 +473,23 @@ impl ServiceKernel {
     }
 
     pub fn person(&self) -> Arc<PersonService<PersonDao>> {
-        self.person.clone()
+        self.catalog.person()
     }
 
     pub fn firm(&self) -> Arc<FirmService<FirmDao>> {
-        self.firm.clone()
+        self.catalog.firm()
     }
 
     pub fn property(&self) -> Arc<PropertyService<PropertyDao>> {
-        self.property.clone()
+        self.catalog.property()
     }
 
     pub fn contract(&self) -> Arc<ContractService<ContractDao>> {
-        self.contract.clone()
+        self.catalog.contract()
+    }
+
+    pub fn catalog(&self) -> ServiceCatalog {
+        self.catalog.clone()
     }
 
     pub async fn shutdown(&self) -> Result<(), ServiceDispatchError> {

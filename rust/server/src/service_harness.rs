@@ -1,6 +1,6 @@
 use crate::{
     CommandDispatchError, CommandDispatcher, Crm26AgreementExecutionSubscriber, MqProofSubscriber,
-    MqRuntime, ServiceGateway, ServiceKernel, ServiceKernelHealth,
+    MqRuntime, ServiceCatalog, ServiceGateway, ServiceKernel, ServiceKernelHealth,
 };
 use db::{Database, DomainEventOutboxDao};
 use serde::{Deserialize, Serialize};
@@ -30,6 +30,10 @@ pub struct ServiceHarness {
 }
 
 impl ServiceHarness {
+    pub fn catalog(&self) -> ServiceCatalog {
+        self.kernel.catalog()
+    }
+
     pub fn new(
         db: Database,
         infrastructure: ServiceInfrastructure,
