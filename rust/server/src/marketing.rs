@@ -6,12 +6,12 @@ use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRunti
 
 #[async_trait]
 pub trait MarketingRepository: Send {
-    async fn public_content(&mut self) -> DbResult<Vec<MarketingContentBlock>>;
+    async fn public_content(&self) -> DbResult<Vec<MarketingContentBlock>>;
 }
 
 #[async_trait]
 impl MarketingRepository for MarketingDao {
-    async fn public_content(&mut self) -> DbResult<Vec<MarketingContentBlock>> {
+    async fn public_content(&self) -> DbResult<Vec<MarketingContentBlock>> {
         db::retrying_read!(MarketingDao::public_content(self))
     }
 }
@@ -30,7 +30,7 @@ impl<R: MarketingRepository> MarketingService<R> {
     }
 
     pub async fn public_content(
-        &mut self,
+        &self,
         context: &ServiceContext,
     ) -> Result<Vec<MarketingContentBlock>, CoreServiceError> {
         const OP: &str = "marketing.publicContent";

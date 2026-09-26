@@ -7,17 +7,17 @@ use crate::service_support::{audit_result, authorize, CoreServiceError};
 
 #[async_trait]
 pub trait WorkflowPortalRepository: Send {
-    async fn list(&mut self) -> DbResult<WorkflowPortalList>;
-    async fn detail(&mut self, instance_id: &str) -> DbResult<Option<WorkflowPortalDetail>>;
+    async fn list(&self) -> DbResult<WorkflowPortalList>;
+    async fn detail(&self, instance_id: &str) -> DbResult<Option<WorkflowPortalDetail>>;
 }
 
 #[async_trait]
 impl WorkflowPortalRepository for WorkflowPortalDao {
-    async fn list(&mut self) -> DbResult<WorkflowPortalList> {
+    async fn list(&self) -> DbResult<WorkflowPortalList> {
         WorkflowPortalDao::list(self).await
     }
 
-    async fn detail(&mut self, instance_id: &str) -> DbResult<Option<WorkflowPortalDetail>> {
+    async fn detail(&self, instance_id: &str) -> DbResult<Option<WorkflowPortalDetail>> {
         WorkflowPortalDao::detail(self, instance_id).await
     }
 }
@@ -36,7 +36,7 @@ impl<R: WorkflowPortalRepository> WorkflowPortalService<R> {
     }
 
     pub async fn list(
-        &mut self,
+        &self,
         context: &ServiceContext,
     ) -> Result<WorkflowPortalList, CoreServiceError> {
         const OP: &str = "workflowPortal.list";
@@ -55,7 +55,7 @@ impl<R: WorkflowPortalRepository> WorkflowPortalService<R> {
     }
 
     pub async fn detail(
-        &mut self,
+        &self,
         instance_id: &str,
         context: &ServiceContext,
     ) -> Result<Option<WorkflowPortalDetail>, CoreServiceError> {

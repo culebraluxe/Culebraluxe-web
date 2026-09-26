@@ -12,42 +12,32 @@ use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRunti
 
 #[async_trait]
 pub trait CommsRepository: Send {
-    async fn activity(&mut self, limit: i64) -> DbResult<Vec<ActivityFeedEntry>>;
-    async fn sources(&mut self, person_id: &str) -> DbResult<Vec<CommsSourceRecord>>;
-    async fn evidence(&mut self, person_id: &str) -> DbResult<Vec<RelationshipEvidenceRecord>>;
-    async fn last_contact(&mut self, person_id: &str) -> DbResult<LastContactRecord>;
-    async fn moments(
-        &mut self,
-        person_id: &str,
-        limit: i64,
-        offset: i64,
-    ) -> DbResult<CommsMomentPage>;
+    async fn activity(&self, limit: i64) -> DbResult<Vec<ActivityFeedEntry>>;
+    async fn sources(&self, person_id: &str) -> DbResult<Vec<CommsSourceRecord>>;
+    async fn evidence(&self, person_id: &str) -> DbResult<Vec<RelationshipEvidenceRecord>>;
+    async fn last_contact(&self, person_id: &str) -> DbResult<LastContactRecord>;
+    async fn moments(&self, person_id: &str, limit: i64, offset: i64) -> DbResult<CommsMomentPage>;
 }
 
 #[async_trait]
 impl CommsRepository for CommsDao {
-    async fn activity(&mut self, limit: i64) -> DbResult<Vec<ActivityFeedEntry>> {
+    async fn activity(&self, limit: i64) -> DbResult<Vec<ActivityFeedEntry>> {
         CommsDao::activity(self, limit).await
     }
 
-    async fn sources(&mut self, person_id: &str) -> DbResult<Vec<CommsSourceRecord>> {
+    async fn sources(&self, person_id: &str) -> DbResult<Vec<CommsSourceRecord>> {
         CommsDao::sources(self, person_id).await
     }
 
-    async fn evidence(&mut self, person_id: &str) -> DbResult<Vec<RelationshipEvidenceRecord>> {
+    async fn evidence(&self, person_id: &str) -> DbResult<Vec<RelationshipEvidenceRecord>> {
         CommsDao::evidence(self, person_id).await
     }
 
-    async fn last_contact(&mut self, person_id: &str) -> DbResult<LastContactRecord> {
+    async fn last_contact(&self, person_id: &str) -> DbResult<LastContactRecord> {
         CommsDao::last_contact(self, person_id).await
     }
 
-    async fn moments(
-        &mut self,
-        person_id: &str,
-        limit: i64,
-        offset: i64,
-    ) -> DbResult<CommsMomentPage> {
+    async fn moments(&self, person_id: &str, limit: i64, offset: i64) -> DbResult<CommsMomentPage> {
         CommsDao::moments(self, person_id, limit, offset).await
     }
 }
@@ -66,7 +56,7 @@ impl<R: CommsRepository> CommsService<R> {
     }
 
     pub async fn activity(
-        &mut self,
+        &self,
         limit: i64,
         context: &ServiceContext,
     ) -> Result<Vec<ActivityFeedEntry>, CoreServiceError> {
@@ -92,7 +82,7 @@ impl<R: CommsRepository> CommsService<R> {
     }
 
     pub async fn panel(
-        &mut self,
+        &self,
         request: &GetCommsPanelRequest,
         context: &ServiceContext,
     ) -> Result<CommsPanel, CoreServiceError> {
@@ -159,7 +149,7 @@ impl<R: CommsRepository> CommsService<R> {
     }
 
     pub async fn timeline(
-        &mut self,
+        &self,
         request: &GetCommsTimelineRequest,
         context: &ServiceContext,
     ) -> Result<CommsTimeline, CoreServiceError> {

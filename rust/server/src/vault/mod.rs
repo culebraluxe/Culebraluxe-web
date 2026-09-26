@@ -27,42 +27,42 @@ pub trait VaultRepository: Send {
         None
     }
     async fn list_issued_documents(
-        &mut self,
+        &self,
         actor: Option<&VaultActorScope>,
     ) -> DbResult<Vec<IssuedDocumentListItem>>;
-    async fn get_document(&mut self, document_id: &str) -> DbResult<Option<TransactionDocument>>;
-    async fn list_by_deal(&mut self, deal_id: &str) -> DbResult<Vec<TransactionDocument>>;
+    async fn get_document(&self, document_id: &str) -> DbResult<Option<TransactionDocument>>;
+    async fn list_by_deal(&self, deal_id: &str) -> DbResult<Vec<TransactionDocument>>;
     async fn create_document(
-        &mut self,
+        &self,
         request: &CreateTransactionDocumentRequest,
     ) -> DbResult<TransactionDocument>;
     async fn transition_state(
-        &mut self,
+        &self,
         request: &TransitionTransactionDocumentRequest,
     ) -> DbResult<VaultCommandResult>;
     async fn issued_for_form_instance(
-        &mut self,
+        &self,
         form_instance_id: &str,
     ) -> DbResult<Option<IssuedDocumentForFormInstance>>;
-    async fn next_issued_version(&mut self, request: &NextIssuedVersionRequest) -> DbResult<i32>;
-    async fn media_bytes(&mut self, media_id: &str) -> DbResult<Option<VaultMediaBytes>>;
+    async fn next_issued_version(&self, request: &NextIssuedVersionRequest) -> DbResult<i32>;
+    async fn media_bytes(&self, media_id: &str) -> DbResult<Option<VaultMediaBytes>>;
     async fn public_listing_document_bytes(
-        &mut self,
+        &self,
         media_id: &str,
     ) -> DbResult<Option<VaultMediaBytes>>;
-    async fn form_contract_id(&mut self, form_instance_id: &str) -> DbResult<Option<String>>;
+    async fn form_contract_id(&self, form_instance_id: &str) -> DbResult<Option<String>>;
     async fn bind_form_to_contract(
-        &mut self,
+        &self,
         form_instance_id: &str,
         contract_id: &str,
     ) -> DbResult<bool>;
     async fn prior_contract_document(
-        &mut self,
+        &self,
         contract_id: &str,
         template_id: &str,
     ) -> DbResult<Option<ContractIssuedLineage>>;
     async fn issue_from_form_instance(
-        &mut self,
+        &self,
         request: &IssueDocumentRequest,
         artifacts: Arc<dyn VaultArtifactPort>,
     ) -> DbResult<VaultCommandResult>;
@@ -74,62 +74,62 @@ impl VaultRepository for VaultDao {
         Some(VaultDao::database(self))
     }
     async fn list_issued_documents(
-        &mut self,
+        &self,
         actor: Option<&VaultActorScope>,
     ) -> DbResult<Vec<IssuedDocumentListItem>> {
         VaultDao::list_issued_documents(self, actor).await
     }
 
-    async fn get_document(&mut self, document_id: &str) -> DbResult<Option<TransactionDocument>> {
+    async fn get_document(&self, document_id: &str) -> DbResult<Option<TransactionDocument>> {
         VaultDao::get_document(self, document_id).await
     }
 
-    async fn list_by_deal(&mut self, deal_id: &str) -> DbResult<Vec<TransactionDocument>> {
+    async fn list_by_deal(&self, deal_id: &str) -> DbResult<Vec<TransactionDocument>> {
         VaultDao::list_by_deal(self, deal_id).await
     }
 
     async fn create_document(
-        &mut self,
+        &self,
         request: &CreateTransactionDocumentRequest,
     ) -> DbResult<TransactionDocument> {
         VaultDao::create_document(self, request).await
     }
 
     async fn transition_state(
-        &mut self,
+        &self,
         request: &TransitionTransactionDocumentRequest,
     ) -> DbResult<VaultCommandResult> {
         VaultDao::transition_state(self, request).await
     }
 
     async fn issued_for_form_instance(
-        &mut self,
+        &self,
         form_instance_id: &str,
     ) -> DbResult<Option<IssuedDocumentForFormInstance>> {
         VaultDao::issued_for_form_instance(self, form_instance_id).await
     }
 
-    async fn next_issued_version(&mut self, request: &NextIssuedVersionRequest) -> DbResult<i32> {
+    async fn next_issued_version(&self, request: &NextIssuedVersionRequest) -> DbResult<i32> {
         VaultDao::next_issued_version(self, request).await
     }
 
-    async fn media_bytes(&mut self, media_id: &str) -> DbResult<Option<VaultMediaBytes>> {
+    async fn media_bytes(&self, media_id: &str) -> DbResult<Option<VaultMediaBytes>> {
         VaultDao::media_bytes(self, media_id).await
     }
 
     async fn public_listing_document_bytes(
-        &mut self,
+        &self,
         media_id: &str,
     ) -> DbResult<Option<VaultMediaBytes>> {
         VaultDao::public_listing_document_bytes(self, media_id).await
     }
 
-    async fn form_contract_id(&mut self, form_instance_id: &str) -> DbResult<Option<String>> {
+    async fn form_contract_id(&self, form_instance_id: &str) -> DbResult<Option<String>> {
         VaultDao::form_contract_id(self, form_instance_id).await
     }
 
     async fn bind_form_to_contract(
-        &mut self,
+        &self,
         form_instance_id: &str,
         contract_id: &str,
     ) -> DbResult<bool> {
@@ -137,7 +137,7 @@ impl VaultRepository for VaultDao {
     }
 
     async fn prior_contract_document(
-        &mut self,
+        &self,
         contract_id: &str,
         template_id: &str,
     ) -> DbResult<Option<ContractIssuedLineage>> {
@@ -145,7 +145,7 @@ impl VaultRepository for VaultDao {
     }
 
     async fn issue_from_form_instance(
-        &mut self,
+        &self,
         request: &IssueDocumentRequest,
         artifacts: Arc<dyn VaultArtifactPort>,
     ) -> DbResult<VaultCommandResult> {
@@ -177,7 +177,7 @@ impl<R: VaultRepository> VaultService<R> {
     }
 
     pub async fn list_issued_documents(
-        &mut self,
+        &self,
         actor: Option<&VaultActorScope>,
         context: &ServiceContext,
     ) -> Result<Vec<IssuedDocumentListItem>, CoreServiceError> {
@@ -201,7 +201,7 @@ impl<R: VaultRepository> VaultService<R> {
     }
 
     pub async fn get_document(
-        &mut self,
+        &self,
         document_id: &str,
         context: &ServiceContext,
     ) -> Result<Option<TransactionDocument>, CoreServiceError> {
@@ -225,7 +225,7 @@ impl<R: VaultRepository> VaultService<R> {
     }
 
     pub async fn list_by_deal(
-        &mut self,
+        &self,
         deal_id: &str,
         context: &ServiceContext,
     ) -> Result<Vec<TransactionDocument>, CoreServiceError> {
@@ -249,7 +249,7 @@ impl<R: VaultRepository> VaultService<R> {
     }
 
     pub async fn create_document(
-        &mut self,
+        &self,
         request: &CreateTransactionDocumentRequest,
         context: &ServiceContext,
     ) -> Result<TransactionDocument, CoreServiceError> {
@@ -285,7 +285,7 @@ impl<R: VaultRepository> VaultService<R> {
     }
 
     pub async fn transition_state(
-        &mut self,
+        &self,
         request: &TransitionTransactionDocumentRequest,
         context: &ServiceContext,
     ) -> Result<VaultCommandResult, CoreServiceError> {
@@ -322,7 +322,7 @@ impl<R: VaultRepository> VaultService<R> {
     }
 
     pub async fn issued_for_form_instance(
-        &mut self,
+        &self,
         form_instance_id: &str,
         context: &ServiceContext,
     ) -> Result<Option<IssuedDocumentForFormInstance>, CoreServiceError> {
@@ -346,7 +346,7 @@ impl<R: VaultRepository> VaultService<R> {
     }
 
     pub async fn next_issued_version(
-        &mut self,
+        &self,
         request: &NextIssuedVersionRequest,
         context: &ServiceContext,
     ) -> Result<i32, CoreServiceError> {
@@ -370,7 +370,7 @@ impl<R: VaultRepository> VaultService<R> {
     }
 
     pub async fn media_bytes(
-        &mut self,
+        &self,
         media_id: &str,
         context: &ServiceContext,
     ) -> Result<Option<VaultMediaBytes>, CoreServiceError> {
@@ -394,7 +394,7 @@ impl<R: VaultRepository> VaultService<R> {
     }
 
     pub async fn public_listing_document_bytes(
-        &mut self,
+        &self,
         media_id: &str,
         context: &ServiceContext,
     ) -> Result<Option<VaultMediaBytes>, CoreServiceError> {
@@ -418,7 +418,7 @@ impl<R: VaultRepository> VaultService<R> {
     }
 
     pub async fn form_contract_id(
-        &mut self,
+        &self,
         form_instance_id: &str,
         context: &ServiceContext,
     ) -> Result<Option<String>, CoreServiceError> {
@@ -442,7 +442,7 @@ impl<R: VaultRepository> VaultService<R> {
     }
 
     pub async fn bind_form_to_contract(
-        &mut self,
+        &self,
         form_instance_id: &str,
         contract_id: &str,
         context: &ServiceContext,
@@ -487,7 +487,7 @@ impl<R: VaultRepository> VaultService<R> {
     }
 
     pub async fn prior_contract_document(
-        &mut self,
+        &self,
         contract_id: &str,
         template_id: &str,
         context: &ServiceContext,
@@ -512,7 +512,7 @@ impl<R: VaultRepository> VaultService<R> {
     }
 
     pub async fn issue_from_form_instance(
-        &mut self,
+        &self,
         request: &IssueDocumentRequest,
         context: &ServiceContext,
     ) -> Result<VaultCommandResult, CoreServiceError> {

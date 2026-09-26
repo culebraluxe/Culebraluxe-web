@@ -7,7 +7,7 @@ use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRunti
 #[async_trait]
 pub trait IssueRepository: Send {
     async fn page(
-        &mut self,
+        &self,
         scope: &str,
         state: &str,
         page: i64,
@@ -18,7 +18,7 @@ pub trait IssueRepository: Send {
 #[async_trait]
 impl IssueRepository for IssueDao {
     async fn page(
-        &mut self,
+        &self,
         scope: &str,
         state: &str,
         page: i64,
@@ -42,7 +42,7 @@ impl<R: IssueRepository> IssueService<R> {
     }
 
     pub async fn page(
-        &mut self,
+        &self,
         scope: &str,
         state: &str,
         page: i64,

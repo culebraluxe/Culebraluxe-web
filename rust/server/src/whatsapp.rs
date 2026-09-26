@@ -27,28 +27,28 @@ pub struct WhatsAppWebhookResult {
 
 #[async_trait]
 pub trait WhatsAppRepository: Send {
-    async fn land(&mut self, input: &WhatsAppLandingInput) -> DbResult<bool>;
+    async fn land(&self, input: &WhatsAppLandingInput) -> DbResult<bool>;
     async fn process_event(
-        &mut self,
+        &self,
         input: &WhatsAppCanonicalInput,
     ) -> DbResult<WhatsAppProcessOutcome>;
-    async fn refresh_client_read_models(&mut self) -> DbResult<()>;
+    async fn refresh_client_read_models(&self) -> DbResult<()>;
 }
 
 #[async_trait]
 impl WhatsAppRepository for WhatsAppDao {
-    async fn land(&mut self, input: &WhatsAppLandingInput) -> DbResult<bool> {
+    async fn land(&self, input: &WhatsAppLandingInput) -> DbResult<bool> {
         WhatsAppDao::land(self, input).await
     }
 
     async fn process_event(
-        &mut self,
+        &self,
         input: &WhatsAppCanonicalInput,
     ) -> DbResult<WhatsAppProcessOutcome> {
         WhatsAppDao::process_event(self, input).await
     }
 
-    async fn refresh_client_read_models(&mut self) -> DbResult<()> {
+    async fn refresh_client_read_models(&self) -> DbResult<()> {
         WhatsAppDao::refresh_client_read_models(self).await
     }
 }
@@ -78,7 +78,7 @@ impl<R: WhatsAppRepository> WhatsAppService<R> {
     }
 
     pub async fn handle_webhook(
-        &mut self,
+        &self,
         raw_body: &str,
         signature: Option<&str>,
     ) -> Result<WhatsAppWebhookResult, String> {

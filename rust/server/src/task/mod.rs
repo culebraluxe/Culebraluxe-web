@@ -6,12 +6,12 @@ use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRunti
 
 #[async_trait]
 pub trait TaskRepository: Send {
-    async fn complete(&mut self, task_id: &str) -> DbResult<Option<TaskCompletion>>;
+    async fn complete(&self, task_id: &str) -> DbResult<Option<TaskCompletion>>;
 }
 
 #[async_trait]
 impl TaskRepository for TaskDao {
-    async fn complete(&mut self, task_id: &str) -> DbResult<Option<TaskCompletion>> {
+    async fn complete(&self, task_id: &str) -> DbResult<Option<TaskCompletion>> {
         TaskDao::complete(self, task_id).await
     }
 }
@@ -30,7 +30,7 @@ impl<R: TaskRepository> TaskService<R> {
     }
 
     pub async fn complete(
-        &mut self,
+        &self,
         task_id: &str,
         context: &ServiceContext,
     ) -> Result<TaskCompletion, CoreServiceError> {

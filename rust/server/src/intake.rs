@@ -6,23 +6,17 @@ use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRunti
 
 #[async_trait]
 pub trait IntakeRepository: Send {
-    async fn catchup_lead(&mut self, input: &CatchupLeadRequest) -> DbResult<CatchupLeadResult>;
-    async fn website_intake(
-        &mut self,
-        input: &WebsiteIntakeRequest,
-    ) -> DbResult<WebsiteIntakeResult>;
+    async fn catchup_lead(&self, input: &CatchupLeadRequest) -> DbResult<CatchupLeadResult>;
+    async fn website_intake(&self, input: &WebsiteIntakeRequest) -> DbResult<WebsiteIntakeResult>;
 }
 
 #[async_trait]
 impl IntakeRepository for IntakeDao {
-    async fn catchup_lead(&mut self, input: &CatchupLeadRequest) -> DbResult<CatchupLeadResult> {
+    async fn catchup_lead(&self, input: &CatchupLeadRequest) -> DbResult<CatchupLeadResult> {
         IntakeDao::catchup_lead(self, input).await
     }
 
-    async fn website_intake(
-        &mut self,
-        input: &WebsiteIntakeRequest,
-    ) -> DbResult<WebsiteIntakeResult> {
+    async fn website_intake(&self, input: &WebsiteIntakeRequest) -> DbResult<WebsiteIntakeResult> {
         IntakeDao::website_intake(self, input).await
     }
 }
@@ -41,7 +35,7 @@ impl<R: IntakeRepository> IntakeService<R> {
     }
 
     pub async fn submit_website(
-        &mut self,
+        &self,
         input: &WebsiteIntakeRequest,
         context: &ServiceContext,
     ) -> Result<WebsiteIntakeResult, CoreServiceError> {
@@ -65,7 +59,7 @@ impl<R: IntakeRepository> IntakeService<R> {
     }
 
     pub async fn submit_catchup(
-        &mut self,
+        &self,
         input: &CatchupLeadRequest,
         context: &ServiceContext,
     ) -> Result<CatchupLeadResult, CoreServiceError> {

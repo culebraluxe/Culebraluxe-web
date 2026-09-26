@@ -10,11 +10,11 @@ use crate::service_support::{audit_result, authorize, CoreServiceError};
 
 #[async_trait]
 pub trait DealPortalRepository: Send {
-    async fn portfolio(&mut self) -> DbResult<DealPortfolioSnapshot>;
-    async fn workspace(&mut self, deal_id: &str) -> DbResult<DealWorkspaceSnapshot>;
-    async fn create(&mut self, request: &CreateDealRequest) -> DbResult<CreateDealResult>;
+    async fn portfolio(&self) -> DbResult<DealPortfolioSnapshot>;
+    async fn workspace(&self, deal_id: &str) -> DbResult<DealWorkspaceSnapshot>;
+    async fn create(&self, request: &CreateDealRequest) -> DbResult<CreateDealResult>;
     async fn command(
-        &mut self,
+        &self,
         deal_id: &str,
         command: &DealWorkspaceCommand,
     ) -> DbResult<DealWorkspaceCommandResult>;
@@ -22,20 +22,20 @@ pub trait DealPortalRepository: Send {
 
 #[async_trait]
 impl DealPortalRepository for DealPortalDao {
-    async fn portfolio(&mut self) -> DbResult<DealPortfolioSnapshot> {
+    async fn portfolio(&self) -> DbResult<DealPortfolioSnapshot> {
         DealPortalDao::portfolio(self).await
     }
 
-    async fn workspace(&mut self, deal_id: &str) -> DbResult<DealWorkspaceSnapshot> {
+    async fn workspace(&self, deal_id: &str) -> DbResult<DealWorkspaceSnapshot> {
         DealPortalDao::workspace(self, deal_id).await
     }
 
-    async fn create(&mut self, request: &CreateDealRequest) -> DbResult<CreateDealResult> {
+    async fn create(&self, request: &CreateDealRequest) -> DbResult<CreateDealResult> {
         DealPortalDao::create(self, request).await
     }
 
     async fn command(
-        &mut self,
+        &self,
         deal_id: &str,
         command: &DealWorkspaceCommand,
     ) -> DbResult<DealWorkspaceCommandResult> {
@@ -57,7 +57,7 @@ impl<R: DealPortalRepository> DealPortalService<R> {
     }
 
     pub async fn portfolio(
-        &mut self,
+        &self,
         context: &ServiceContext,
     ) -> Result<DealPortfolioSnapshot, CoreServiceError> {
         const OP: &str = "deal.portfolio";
@@ -76,7 +76,7 @@ impl<R: DealPortalRepository> DealPortalService<R> {
     }
 
     pub async fn workspace(
-        &mut self,
+        &self,
         deal_id: &str,
         context: &ServiceContext,
     ) -> Result<DealWorkspaceSnapshot, CoreServiceError> {
@@ -104,7 +104,7 @@ impl<R: DealPortalRepository> DealPortalService<R> {
     }
 
     pub async fn create(
-        &mut self,
+        &self,
         request: &CreateDealRequest,
         context: &ServiceContext,
     ) -> Result<CreateDealResult, CoreServiceError> {
@@ -141,7 +141,7 @@ impl<R: DealPortalRepository> DealPortalService<R> {
     }
 
     pub async fn command(
-        &mut self,
+        &self,
         deal_id: &str,
         command: &DealWorkspaceCommand,
         context: &ServiceContext,

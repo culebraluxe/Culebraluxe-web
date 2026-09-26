@@ -7,9 +7,9 @@ use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRunti
 
 #[async_trait]
 pub trait CalendarRepository: Send {
-    async fn list(&mut self) -> DbResult<Vec<CalendarEvent>>;
+    async fn list(&self) -> DbResult<Vec<CalendarEvent>>;
     async fn create_apple_event(
-        &mut self,
+        &self,
         request: &CreateAppleCalendarEventRequest,
         actor_app_user_id: Option<&str>,
         correlation_id: &str,
@@ -18,12 +18,12 @@ pub trait CalendarRepository: Send {
 
 #[async_trait]
 impl CalendarRepository for CalendarDao {
-    async fn list(&mut self) -> DbResult<Vec<CalendarEvent>> {
+    async fn list(&self) -> DbResult<Vec<CalendarEvent>> {
         CalendarDao::list(self).await
     }
 
     async fn create_apple_event(
-        &mut self,
+        &self,
         request: &CreateAppleCalendarEventRequest,
         actor_app_user_id: Option<&str>,
         correlation_id: &str,
@@ -46,7 +46,7 @@ impl<R: CalendarRepository> CalendarService<R> {
     }
 
     pub async fn list(
-        &mut self,
+        &self,
         context: &ServiceContext,
     ) -> Result<Vec<CalendarEvent>, CoreServiceError> {
         const OP: &str = "calendar.list";
@@ -65,7 +65,7 @@ impl<R: CalendarRepository> CalendarService<R> {
     }
 
     pub async fn create_apple_event(
-        &mut self,
+        &self,
         request: &CreateAppleCalendarEventRequest,
         context: &ServiceContext,
     ) -> Result<CalendarCommandReceipt, CoreServiceError> {

@@ -13,11 +13,8 @@ pub trait ShowingRepository: Send {
     fn database(&self) -> Option<Database> {
         None
     }
-    async fn get(&mut self, showing_id: &str) -> DbResult<Option<Showing>>;
-    async fn save_report(
-        &mut self,
-        request: &SaveShowingReportRequest,
-    ) -> DbResult<Option<Showing>>;
+    async fn get(&self, showing_id: &str) -> DbResult<Option<Showing>>;
+    async fn save_report(&self, request: &SaveShowingReportRequest) -> DbResult<Option<Showing>>;
 }
 
 #[async_trait]
@@ -25,14 +22,11 @@ impl ShowingRepository for ShowingDao {
     fn database(&self) -> Option<Database> {
         Some(ShowingDao::database(self))
     }
-    async fn get(&mut self, showing_id: &str) -> DbResult<Option<Showing>> {
+    async fn get(&self, showing_id: &str) -> DbResult<Option<Showing>> {
         ShowingDao::get(self, showing_id).await
     }
 
-    async fn save_report(
-        &mut self,
-        request: &SaveShowingReportRequest,
-    ) -> DbResult<Option<Showing>> {
+    async fn save_report(&self, request: &SaveShowingReportRequest) -> DbResult<Option<Showing>> {
         ShowingDao::save_report(self, request).await
     }
 }
@@ -57,7 +51,7 @@ impl<R: ShowingRepository> ShowingService<R> {
     }
 
     pub async fn get(
-        &mut self,
+        &self,
         showing_id: &str,
         context: &ServiceContext,
     ) -> Result<Option<Showing>, CoreServiceError> {
@@ -77,7 +71,7 @@ impl<R: ShowingRepository> ShowingService<R> {
     }
 
     pub async fn save_report(
-        &mut self,
+        &self,
         request: &SaveShowingReportRequest,
         context: &ServiceContext,
     ) -> Result<Showing, CoreServiceError> {

@@ -14,19 +14,16 @@ pub trait WbsRepository: Send {
     fn database(&self) -> Option<Database> {
         None
     }
-    async fn get(&mut self, id: &str) -> DbResult<Option<WbsItem>>;
-    async fn list_due(&mut self, category: Option<WbsCategory>) -> DbResult<Vec<WbsItem>>;
-    async fn list_project_items(&mut self) -> DbResult<Vec<WbsItem>>;
-    async fn list_for_entity(
-        &mut self,
-        entity_type: WbsEntityType,
-        id: &str,
-    ) -> DbResult<Vec<WbsItem>>;
-    async fn create(&mut self, request: &CreateWbsItemRequest) -> DbResult<WbsItem>;
-    async fn save(&mut self, request: &SaveWbsItemRequest) -> DbResult<Option<WbsItem>>;
-    async fn set_status(&mut self, id: &str, status: WbsStatus) -> DbResult<Option<WbsItem>>;
+    async fn get(&self, id: &str) -> DbResult<Option<WbsItem>>;
+    async fn list_due(&self, category: Option<WbsCategory>) -> DbResult<Vec<WbsItem>>;
+    async fn list_project_items(&self) -> DbResult<Vec<WbsItem>>;
+    async fn list_for_entity(&self, entity_type: WbsEntityType, id: &str)
+        -> DbResult<Vec<WbsItem>>;
+    async fn create(&self, request: &CreateWbsItemRequest) -> DbResult<WbsItem>;
+    async fn save(&self, request: &SaveWbsItemRequest) -> DbResult<Option<WbsItem>>;
+    async fn set_status(&self, id: &str, status: WbsStatus) -> DbResult<Option<WbsItem>>;
     async fn queue_apple_reminder(
-        &mut self,
+        &self,
         request: &AppleReminderUpsertRequest,
         actor_app_user_id: Option<&str>,
         correlation_id: &str,
@@ -38,40 +35,40 @@ impl WbsRepository for WbsDao {
     fn database(&self) -> Option<Database> {
         Some(WbsDao::database(self))
     }
-    async fn get(&mut self, id: &str) -> DbResult<Option<WbsItem>> {
+    async fn get(&self, id: &str) -> DbResult<Option<WbsItem>> {
         WbsDao::get(self, id).await
     }
 
-    async fn list_due(&mut self, category: Option<WbsCategory>) -> DbResult<Vec<WbsItem>> {
+    async fn list_due(&self, category: Option<WbsCategory>) -> DbResult<Vec<WbsItem>> {
         WbsDao::list_due(self, category).await
     }
 
-    async fn list_project_items(&mut self) -> DbResult<Vec<WbsItem>> {
+    async fn list_project_items(&self) -> DbResult<Vec<WbsItem>> {
         WbsDao::list_project_items(self).await
     }
 
     async fn list_for_entity(
-        &mut self,
+        &self,
         entity_type: WbsEntityType,
         id: &str,
     ) -> DbResult<Vec<WbsItem>> {
         WbsDao::list_for_entity(self, entity_type, id).await
     }
 
-    async fn create(&mut self, request: &CreateWbsItemRequest) -> DbResult<WbsItem> {
+    async fn create(&self, request: &CreateWbsItemRequest) -> DbResult<WbsItem> {
         WbsDao::create(self, request).await
     }
 
-    async fn save(&mut self, request: &SaveWbsItemRequest) -> DbResult<Option<WbsItem>> {
+    async fn save(&self, request: &SaveWbsItemRequest) -> DbResult<Option<WbsItem>> {
         WbsDao::save(self, request).await
     }
 
-    async fn set_status(&mut self, id: &str, status: WbsStatus) -> DbResult<Option<WbsItem>> {
+    async fn set_status(&self, id: &str, status: WbsStatus) -> DbResult<Option<WbsItem>> {
         WbsDao::set_status(self, id, status).await
     }
 
     async fn queue_apple_reminder(
-        &mut self,
+        &self,
         request: &AppleReminderUpsertRequest,
         actor_app_user_id: Option<&str>,
         correlation_id: &str,
@@ -105,7 +102,7 @@ impl<R: WbsRepository> WbsService<R> {
     }
 
     pub async fn get(
-        &mut self,
+        &self,
         id: &str,
         context: &ServiceContext,
     ) -> Result<Option<WbsItem>, CoreServiceError> {
@@ -124,7 +121,7 @@ impl<R: WbsRepository> WbsService<R> {
     }
 
     pub async fn list_due(
-        &mut self,
+        &self,
         category: Option<WbsCategory>,
         context: &ServiceContext,
     ) -> Result<Vec<WbsItem>, CoreServiceError> {
@@ -143,7 +140,7 @@ impl<R: WbsRepository> WbsService<R> {
     }
 
     pub async fn list_project_items(
-        &mut self,
+        &self,
         context: &ServiceContext,
     ) -> Result<Vec<WbsItem>, CoreServiceError> {
         const OP: &str = "wbs.listProjectItems";
@@ -165,7 +162,7 @@ impl<R: WbsRepository> WbsService<R> {
     }
 
     pub async fn list_for_entity(
-        &mut self,
+        &self,
         entity_type: WbsEntityType,
         id: &str,
         context: &ServiceContext,
@@ -189,7 +186,7 @@ impl<R: WbsRepository> WbsService<R> {
     }
 
     pub async fn create(
-        &mut self,
+        &self,
         request: &CreateWbsItemRequest,
         context: &ServiceContext,
     ) -> Result<WbsItem, CoreServiceError> {
@@ -220,7 +217,7 @@ impl<R: WbsRepository> WbsService<R> {
     }
 
     pub async fn save(
-        &mut self,
+        &self,
         request: &SaveWbsItemRequest,
         context: &ServiceContext,
     ) -> Result<WbsItem, CoreServiceError> {
@@ -256,7 +253,7 @@ impl<R: WbsRepository> WbsService<R> {
     }
 
     pub async fn complete(
-        &mut self,
+        &self,
         id: &str,
         context: &ServiceContext,
     ) -> Result<WbsItem, CoreServiceError> {
@@ -271,7 +268,7 @@ impl<R: WbsRepository> WbsService<R> {
     }
 
     pub async fn queue_apple_reminder(
-        &mut self,
+        &self,
         id: &str,
         alert: bool,
         context: &ServiceContext,
@@ -319,7 +316,7 @@ impl<R: WbsRepository> WbsService<R> {
     }
 
     pub async fn dismiss(
-        &mut self,
+        &self,
         id: &str,
         context: &ServiceContext,
     ) -> Result<WbsItem, CoreServiceError> {
@@ -334,7 +331,7 @@ impl<R: WbsRepository> WbsService<R> {
     }
 
     async fn set_status(
-        &mut self,
+        &self,
         operation: &'static str,
         event_type: &'static str,
         id: &str,
