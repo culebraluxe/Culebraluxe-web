@@ -14,7 +14,6 @@ use crate::yew_views::portal_ops::OpsWorkbench;
 use crate::yew_views::portal_projects::Projects;
 use crate::yew_views::portal_storyboard::Storyboard;
 use crate::yew_views::portal_tech::TechCockpit;
-use crate::yew_views::portal_ui_lab::UiLab;
 
 use std::rc::Rc;
 
@@ -113,7 +112,6 @@ impl Component for PortalApp {
             "property-media" => {
                 html! { <ListingMedia model={self.model.clone()} on_msg={on_msg} /> }
             }
-            "design-lab" => html! { <UiLab model={self.model.clone()} on_msg={on_msg} /> },
             "storyboard" => html! { <Storyboard model={self.model.clone()} on_msg={on_msg} /> },
             "forms" => html! { <Forms model={self.model.clone()} on_msg={on_msg} /> },
             "form-record" => html! { <FormRecord model={self.model.clone()} on_msg={on_msg} /> },

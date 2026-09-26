@@ -1,7 +1,7 @@
 # UI Screen Architecture — the contract every screen implements
 
 Status: **framework and master shell built** (owner decision 2026-09-26). Code: `rust/ui/src/app/`. Screens on the
-trait: `db-test`, `site-account`. Cutover ledger: 25 screens still on the old loop (`app/registry.rs`). This document is the contract for all
+trait: `db-test`, `site-account`. Cutover ledger: 24 screens still on the old loop (`app/registry.rs`). This document is the contract for all
 UI work in `rust/ui`. It supersedes the ad hoc per-screen patterns: when code and this document disagree, the code is
 wrong.
 
@@ -157,6 +157,9 @@ A vendor widget (SVAR Gantt, FullCalendar, Mux player) is rendered by one Yew co
 ```rust
 <Island kind="svar-gantt" props={json} on_event={link.callback(Msg::Gantt)} />
 ```
+
+**Built:** `rust/ui/src/app/island.rs` (the component) and `components/rust-ui/island-host.tsx` + `island-renderers.tsx`
+(the host and its kind → renderer table). First user: UI Lab.
 
 Yew owns the node. A single small JS registry mounts the widget into that node, re-renders it when `props` change,
 unmounts it when the node goes, and reports widget events back as typed messages. The widget holds no application

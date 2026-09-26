@@ -6,6 +6,7 @@
 //!   api.rs       the API catalogue — the only place URLs are written
 //!   exec.rs      the executor — the only place a `Cmd` touches the network, storage or location
 //!   host.rs      `ScreenHost<S>` — runs any screen
+//!   island.rs    `<Island>` — a vendor widget as a dumb widget in a Yew node (§9)
 //!   template.rs  the standard views: headings, panels, loading, failure, empty, tabs, back link
 //!   list.rs      the list building block: search with a pause, paging, the list rail
 //!   page.rs      the read-only page building block: `PageScreen<T>`
@@ -19,6 +20,7 @@ pub mod chrome;
 pub mod cmd;
 pub mod exec;
 pub mod host;
+pub mod island;
 pub mod list;
 pub mod page;
 pub mod registry;

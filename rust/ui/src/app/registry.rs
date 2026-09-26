@@ -31,6 +31,7 @@ use crate::app::screens::security_users::SecurityUsers;
 use crate::app::screens::seller_strategy::SellerStrategy;
 use crate::app::screens::support_rows::{Authorities, Review, Roles, VideoTest};
 use crate::app::screens::system_health::SystemHealth;
+use crate::app::screens::ui_lab::UiLab;
 use crate::app::screens::whatsapp_meta::WhatsAppMeta;
 use crate::app::screens::whatsapp_public::WhatsAppPublic;
 use crate::app::screens::workflows::{WorkflowRecord, Workflows};
@@ -169,7 +170,7 @@ pub const ENTRIES: &[Entry] = &[
     entry("property-media", "/portal/property-media", Surface::Ops, "Property Media", Menu::Rail("Listing Media"), "portal.read", "property.read", Kind::LegacyPortal("property-media")),
     entry("tech", "/portal/tech", Surface::Tech, "Cockpit", Menu::Rail("Cockpit"), "tech.access", "tech.access", Kind::LegacyIsland("tech")),
     entry("storyboard", "/portal/storyboard", Surface::Tech, "Story Board", Menu::Rail("Story Board"), "tech.access", "tech.access", Kind::LegacyPortal("storyboard")),
-    entry("design-lab", "/portal/design-lab", Surface::Tech, "UI Lab", Menu::Rail("UI Lab"), "tech.access", "tech.access", Kind::LegacyIsland("design-lab")),
+    entry("design-lab", "/portal/design-lab", Surface::Tech, "UI Lab", Menu::Rail("UI Lab"), "tech.access", "tech.access", Kind::Screen(mount::<UiLab>)),
     entry("system-health", "/portal/system-health", Surface::Support, "System Health", Menu::Rail("System Health"), "portal.read", "portal.read", Kind::Screen(mount::<SystemHealth>)),
     entry("db-test", "/portal/db-test", Surface::Support, "DB Test", Menu::Rail("DB Test"), "portal.read", "portal.read", Kind::Screen(mount::<DbTest>)),
     entry("whatsapp-meta", "/portal/admin/whatsapp-meta", Surface::Support, "WhatsApp Diagnostic", Menu::Rail("WhatsApp Diagnostic"), "portal.read", "portal.read", Kind::Screen(mount::<WhatsAppMeta>)),
@@ -609,5 +610,5 @@ mod tests {
         );
     }
 
-    const LEGACY_CEILING: usize = 25;
+    const LEGACY_CEILING: usize = 24;
 }

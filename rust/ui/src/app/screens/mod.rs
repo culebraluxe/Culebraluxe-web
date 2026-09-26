@@ -13,6 +13,7 @@ pub mod security_users;
 pub mod seller_strategy;
 pub mod support_rows;
 pub mod system_health;
+pub mod ui_lab;
 pub mod whatsapp_meta;
 pub mod whatsapp_public;
 pub mod workflows;

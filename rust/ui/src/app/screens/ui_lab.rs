@@ -8,17 +8,12 @@ use web_sys::{HtmlInputElement, HtmlSelectElement};
 use yew::prelude::*;
 use yew::TargetCast;
 
-use crate::model::Msg;
-use crate::yew_views::portal_shell::PortalShell;
-
-#[derive(Properties, PartialEq)]
-pub struct UiLabProps {
-    pub model: crate::model::Model,
-    pub on_msg: Callback<Msg>,
-}
+use crate::app::cmd::Cmd;
+use crate::app::island::Island;
+use crate::app::screen::{Link, Screen, ScreenCtx};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum LabTab {
+pub enum LabTab {
     Yew,
     React,
     Motion,
@@ -35,7 +30,7 @@ impl LabTab {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct LabModel {
+pub struct LabModel {
     tab: LabTab,
     query: String,
     density: &'static str,
@@ -91,49 +86,47 @@ fn reduce(model: &mut LabModel, msg: LabMsg) {
     }
 }
 
-pub struct UiLab {
-    lab: LabModel,
-}
+pub struct UiLab;
 
-impl Component for UiLab {
-    type Message = LabMsg;
-    type Properties = UiLabProps;
+impl Screen for UiLab {
+    type Model = LabModel;
+    type Msg = LabMsg;
 
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self {
-            lab: LabModel::default(),
-        }
+    fn init(_ctx: &ScreenCtx) -> (LabModel, Cmd<LabMsg>) {
+        (LabModel::default(), Cmd::none())
     }
 
-    fn update(&mut self, _ctx: &Context<Self>, msg: Self::Message) -> bool {
-        reduce(&mut self.lab, msg);
-        true
+    fn update(lab: &mut LabModel, msg: LabMsg, _ctx: &ScreenCtx) -> Cmd<LabMsg> {
+        reduce(lab, msg);
+        Cmd::none()
     }
 
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let props = ctx.props();
-        let screen = crate::model::screen("design-lab").expect("design-lab screen exists");
+    fn view(lab: &LabModel, _ctx: &ScreenCtx, link: &Link<LabMsg>) -> Html {
+        let view = View { lab };
         html! {
-            <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
-                <div class="space-y-4">
-                    { self.hero(ctx) }
-                    { self.tabs(ctx) }
-                    {
-                        match self.lab.tab {
-                            LabTab::Yew => self.yew_lab(ctx),
-                            LabTab::React => self.react_lab(),
-                            LabTab::Motion => self.motion_lab(),
-                        }
+            <div class="space-y-4">
+                { view.hero(link) }
+                { view.tabs(link) }
+                {
+                    match lab.tab {
+                        LabTab::Yew => view.yew_lab(link),
+                        LabTab::React => view.react_lab(),
+                        LabTab::Motion => view.motion_lab(),
                     }
-                </div>
-            </PortalShell>
+                }
+            </div>
         }
     }
 }
 
-impl UiLab {
-    fn hero(&self, ctx: &Context<Self>) -> Html {
-        let reset = ctx.link().callback(|_: MouseEvent| LabMsg::Reset);
+/// The lab's drawing, over its model.
+struct View<'a> {
+    lab: &'a LabModel,
+}
+
+impl View<'_> {
+    fn hero(&self, link: &Link<LabMsg>) -> Html {
+        let reset = link.callback(|_: MouseEvent| LabMsg::Reset);
         html! {
             <section class="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
                 <div class="flex flex-col gap-4 p-5 lg:flex-row lg:items-end lg:justify-between">
@@ -160,21 +153,19 @@ impl UiLab {
         }
     }
 
-    fn tabs(&self, ctx: &Context<Self>) -> Html {
+    fn tabs(&self, link: &Link<LabMsg>) -> Html {
         html! {
             <nav class="portal-glass-panel flex flex-wrap gap-1 rounded-[var(--portal-panel-radius)] p-1.5" aria-label="UI lab technology">
-                { self.tab_button(ctx, LabTab::Yew) }
-                { self.tab_button(ctx, LabTab::React) }
-                { self.tab_button(ctx, LabTab::Motion) }
+                { self.tab_button(link, LabTab::Yew) }
+                { self.tab_button(link, LabTab::React) }
+                { self.tab_button(link, LabTab::Motion) }
             </nav>
         }
     }
 
-    fn tab_button(&self, ctx: &Context<Self>, tab: LabTab) -> Html {
+    fn tab_button(&self, link: &Link<LabMsg>, tab: LabTab) -> Html {
         let active = self.lab.tab == tab;
-        let onclick = ctx
-            .link()
-            .callback(move |_: MouseEvent| LabMsg::TabSelected(tab));
+        let onclick = link.callback(move |_: MouseEvent| LabMsg::TabSelected(tab));
         html! {
             <button
                 type="button"
@@ -195,13 +186,13 @@ impl UiLab {
     }
 }
 
-impl UiLab {
-    fn yew_lab(&self, ctx: &Context<Self>) -> Html {
+impl View<'_> {
+    fn yew_lab(&self, link: &Link<LabMsg>) -> Html {
         html! {
             <div class="space-y-4">
                 { self.metrics() }
                 <div class="grid gap-4 xl:grid-cols-[1.05fr_1.45fr]">
-                    { self.controls(ctx) }
+                    { self.controls(link) }
                     { self.data_grid_preview() }
                 </div>
                 <div class="grid gap-4 xl:grid-cols-2">
@@ -213,9 +204,9 @@ impl UiLab {
                     { self.workflow_timeline() }
                     { self.kanban_preview() }
                 </div>
-                { self.interaction_patterns(ctx) }
+                { self.interaction_patterns(link) }
                 { self.stack_matrix() }
-                { self.overlays(ctx) }
+                { self.overlays(link) }
             </div>
         }
     }
@@ -242,16 +233,16 @@ impl UiLab {
         }
     }
 
-    fn controls(&self, ctx: &Context<Self>) -> Html {
-        let on_query = ctx.link().callback(|event: InputEvent| {
+    fn controls(&self, link: &Link<LabMsg>) -> Html {
+        let on_query = link.callback(|event: InputEvent| {
             let input: HtmlInputElement = event.target_unchecked_into();
             LabMsg::QueryChanged(input.value())
         });
-        let on_role = ctx.link().callback(|event: Event| {
+        let on_role = link.callback(|event: Event| {
             let select: HtmlSelectElement = event.target_unchecked_into();
             LabMsg::RoleChanged(select.value())
         });
-        let on_notifications = ctx.link().callback(|event: Event| {
+        let on_notifications = link.callback(|event: Event| {
             let input: HtmlInputElement = event.target_unchecked_into();
             LabMsg::NotificationsChanged(input.checked())
         });
@@ -294,9 +285,9 @@ impl UiLab {
                             {"Density"}
                         </span>
                         <div class="mt-1.5 inline-flex rounded-md border border-[var(--portal-border)] bg-white/35 p-1">
-                            { self.density_button(ctx, "compact", "Compact") }
-                            { self.density_button(ctx, "comfortable", "Comfortable") }
-                            { self.density_button(ctx, "relaxed", "Relaxed") }
+                            { self.density_button(link, "compact", "Compact") }
+                            { self.density_button(link, "comfortable", "Comfortable") }
+                            { self.density_button(link, "relaxed", "Relaxed") }
                         </div>
                     </div>
 
@@ -331,14 +322,12 @@ impl UiLab {
 
     fn density_button(
         &self,
-        ctx: &Context<Self>,
+        link: &Link<LabMsg>,
         density: &'static str,
         label: &'static str,
     ) -> Html {
         let active = self.lab.density == density;
-        let onclick = ctx
-            .link()
-            .callback(move |_: MouseEvent| LabMsg::DensityChanged(density));
+        let onclick = link.callback(move |_: MouseEvent| LabMsg::DensityChanged(density));
         html! {
             <button
                 type="button"
@@ -580,15 +569,11 @@ impl UiLab {
         }
     }
 
-    fn interaction_patterns(&self, ctx: &Context<Self>) -> Html {
-        let open_dialog = ctx
-            .link()
-            .callback(|_: MouseEvent| LabMsg::DialogChanged(true));
-        let open_command = ctx
-            .link()
-            .callback(|_: MouseEvent| LabMsg::CommandChanged(true));
-        let previous = ctx.link().callback(|_: MouseEvent| LabMsg::PageChanged(0));
-        let next = ctx.link().callback(|_: MouseEvent| LabMsg::PageChanged(1));
+    fn interaction_patterns(&self, link: &Link<LabMsg>) -> Html {
+        let open_dialog = link.callback(|_: MouseEvent| LabMsg::DialogChanged(true));
+        let open_command = link.callback(|_: MouseEvent| LabMsg::CommandChanged(true));
+        let previous = link.callback(|_: MouseEvent| LabMsg::PageChanged(0));
+        let next = link.callback(|_: MouseEvent| LabMsg::PageChanged(1));
         let rows = if self.lab.page == 0 {
             vec![
                 ("Marina Soto", "Seller", "Culebra", "Active"),
@@ -633,7 +618,7 @@ impl UiLab {
                                 { for rows.into_iter().map(|(name, kind, market, status)| {
                                     let selected = self.lab.selected_client.as_deref() == Some(name);
                                     let name_for_click = name.to_string();
-                                    let onclick = ctx.link().callback(move |_: MouseEvent| LabMsg::ClientSelected(Some(name_for_click.clone())));
+                                    let onclick = link.callback(move |_: MouseEvent| LabMsg::ClientSelected(Some(name_for_click.clone())));
                                     html! {
                                         <tr class={classes!("border-t", "border-[var(--portal-border)]", if selected { "bg-[var(--portal-blue-pale)]/50" } else { "hover:bg-white/35" })}>
                                             <td class="px-4 py-2.5 text-sm font-medium text-[var(--portal-navy)]">{ name }</td>
@@ -677,13 +662,9 @@ impl UiLab {
         }
     }
 
-    fn overlays(&self, ctx: &Context<Self>) -> Html {
-        let close_dialog = ctx
-            .link()
-            .callback(|_: MouseEvent| LabMsg::DialogChanged(false));
-        let close_command = ctx
-            .link()
-            .callback(|_: MouseEvent| LabMsg::CommandChanged(false));
+    fn overlays(&self, link: &Link<LabMsg>) -> Html {
+        let close_dialog = link.callback(|_: MouseEvent| LabMsg::DialogChanged(false));
+        let close_command = link.callback(|_: MouseEvent| LabMsg::CommandChanged(false));
 
         html! {
             <>
@@ -799,7 +780,7 @@ impl UiLab {
     }
 }
 
-impl UiLab {
+impl View<'_> {
     fn react_lab(&self) -> Html {
         html! {
             <div class="space-y-4">
@@ -810,11 +791,7 @@ impl UiLab {
                         {"The original portal component gallery is mounted below unchanged as a bounded React island. Yew still owns this route and tab state."}
                     </p>
                 </section>
-                <div
-                    id="ui-lab-react-island"
-                    class="min-h-[20rem]"
-                    aria-label="React and TypeScript UI component gallery"
-                />
+                <Island kind="ui-lab-gallery" class="min-h-[20rem]" />
             </div>
         }
     }
@@ -829,11 +806,7 @@ impl UiLab {
                         {"The existing Framer-inspired MVI lab is mounted below as a bounded React island: motion profiles, view transitions, image drift, hotspots, tilt, command palette and reusable core components."}
                     </p>
                 </section>
-                <div
-                    id="ui-lab-motion-island"
-                    class="min-h-[28rem] overflow-hidden rounded-[var(--portal-panel-radius)]"
-                    aria-label="Motion and Framer interaction gallery"
-                />
+                <Island kind="ui-lab-motion" class="min-h-[28rem] overflow-hidden rounded-[var(--portal-panel-radius)]" />
             </div>
         }
     }

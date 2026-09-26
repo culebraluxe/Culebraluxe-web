@@ -22,7 +22,6 @@ pub mod portal_records;
 pub mod portal_shell;
 pub mod portal_storyboard;
 pub mod portal_tech;
-pub mod portal_ui_lab;
 pub mod property_detail;
 pub mod sellers;
 pub mod services;
