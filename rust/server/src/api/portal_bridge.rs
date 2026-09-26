@@ -510,7 +510,9 @@ fn default_forms_screen() -> String {
     "forms".into()
 }
 
-fn load_form_templates(resolved: &ResolvedRequestContext) -> Result<domain::forms_template::TemplateLibrary, ApiError> {
+fn load_form_templates(
+    resolved: &ResolvedRequestContext,
+) -> Result<domain::forms_template::TemplateLibrary, ApiError> {
     domain::forms_template::TemplateLibrary::load_default().map_err(|error| {
         correlate(
             ApiError::new(
@@ -565,9 +567,10 @@ fn form_field_type(value: domain::forms_template::TemplateFieldType) -> &'static
 }
 
 fn when_payload(when: Option<&domain::forms_template::TemplateWhen>) -> Value {
-    when.map_or(Value::Null, |when| {
-        json!({ "field": when.field, "values": when.values })
-    })
+    when.map_or(
+        Value::Null,
+        |when| json!({ "field": when.field, "values": when.values }),
+    )
 }
 
 fn form_template_payload(
@@ -746,7 +749,10 @@ async fn forms_page(
         .map_err(failed(resolved))?
         .ok_or_else(|| {
             correlate(
-                ApiError::not_found("FORM_NOT_FOUND", format!("Form instance not found: {form_id}")),
+                ApiError::not_found(
+                    "FORM_NOT_FOUND",
+                    format!("Form instance not found: {form_id}"),
+                ),
                 resolved,
             )
         })?;
@@ -778,7 +784,9 @@ async fn forms_page(
                 .await
                 .map_err(failed(resolved))?
             {
-                if let Some(civil_status) = person.civil_status.filter(|value| !value.trim().is_empty()) {
+                if let Some(civil_status) =
+                    person.civil_status.filter(|value| !value.trim().is_empty())
+                {
                     field_values.insert("sellerCivilStatus".into(), civil_status);
                 }
             }
@@ -827,7 +835,9 @@ fn date_default(field_name: &str) -> String {
     } else {
         0
     };
-    (today + chrono::Duration::days(days)).format("%Y-%m-%d").to_string()
+    (today + chrono::Duration::days(days))
+        .format("%Y-%m-%d")
+        .to_string()
 }
 
 fn binding_value(
@@ -889,7 +899,10 @@ fn prefill_form_values(
         }
 
         if value.trim().is_empty()
-            && matches!(field.field_type, domain::forms_template::TemplateFieldType::Date)
+            && matches!(
+                field.field_type,
+                domain::forms_template::TemplateFieldType::Date
+            )
         {
             value = date_default(&field.name);
         }
@@ -923,7 +936,10 @@ async fn save_form_values(
         .map_err(failed(resolved))?
         .ok_or_else(|| {
             correlate(
-                ApiError::not_found("FORM_NOT_FOUND", format!("Form instance not found: {form_id}")),
+                ApiError::not_found(
+                    "FORM_NOT_FOUND",
+                    format!("Form instance not found: {form_id}"),
+                ),
                 resolved,
             )
         })?;
@@ -961,7 +977,10 @@ async fn save_form_values(
         .map_err(failed(resolved))?
         .ok_or_else(|| {
             correlate(
-                ApiError::not_found("FORM_NOT_FOUND", format!("Form instance not found: {form_id}")),
+                ApiError::not_found(
+                    "FORM_NOT_FOUND",
+                    format!("Form instance not found: {form_id}"),
+                ),
                 resolved,
             )
         })?;
@@ -1010,7 +1029,11 @@ async fn forms(
     Query(query): Query<FormsBridgeQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let resolved = resolve_portal_context(&state, &headers).await?;
-    let scope = query.scope.as_deref().map(str::trim).filter(|value| !value.is_empty());
+    let scope = query
+        .scope
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
     let record = match query.screen.as_str() {
         "forms" => None,
         "form-record" => Some(scope.ok_or_else(|| {
@@ -1048,7 +1071,9 @@ async fn forms_write(
 ) -> Result<Json<Value>, ApiError> {
     let resolved = resolve_portal_context(&state, &headers).await?;
     let action = str_at(&body, "action").unwrap_or_default();
-    let form_id = str_at(&body, "formId").map(str::trim).filter(|value| !value.is_empty());
+    let form_id = str_at(&body, "formId")
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
 
     match action {
         "create" => {
@@ -1061,9 +1086,18 @@ async fn forms_write(
                         &resolved,
                     )
                 })?;
-            let deal_id = str_at(&body, "dealId").map(str::trim).filter(|value| !value.is_empty()).map(str::to_owned);
-            let person_id = str_at(&body, "personId").map(str::trim).filter(|value| !value.is_empty()).map(str::to_owned);
-            let property_id = str_at(&body, "propertyId").map(str::trim).filter(|value| !value.is_empty()).map(str::to_owned);
+            let deal_id = str_at(&body, "dealId")
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned);
+            let person_id = str_at(&body, "personId")
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned);
+            let property_id = str_at(&body, "propertyId")
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned);
             if deal_id.is_none() && person_id.is_none() && property_id.is_none() {
                 return Err(correlate(
                     ApiError::bad_request(
@@ -1146,17 +1180,20 @@ async fn forms_write(
                     &resolved,
                 )
             })?;
-            let field_values: std::collections::BTreeMap<String, String> =
-                serde_json::from_value(body.get("fieldValues").cloned().unwrap_or_else(|| json!({})))
-                    .map_err(|error| {
-                        correlate(
-                            ApiError::bad_request(
-                                "FORM_FIELDS_INVALID",
-                                format!("Invalid form fields: {error}"),
-                            ),
-                            &resolved,
-                        )
-                    })?;
+            let field_values: std::collections::BTreeMap<String, String> = serde_json::from_value(
+                body.get("fieldValues")
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
+            )
+            .map_err(|error| {
+                correlate(
+                    ApiError::bad_request(
+                        "FORM_FIELDS_INVALID",
+                        format!("Invalid form fields: {error}"),
+                    ),
+                    &resolved,
+                )
+            })?;
             let sections: std::collections::BTreeMap<String, String> =
                 serde_json::from_value(body.get("sections").cloned().unwrap_or_else(|| json!({})))
                     .map_err(|error| {
@@ -1169,14 +1206,7 @@ async fn forms_write(
                         )
                     })?;
 
-            save_form_values(
-                &state,
-                &resolved,
-                form_id,
-                field_values,
-                sections,
-            )
-            .await?;
+            save_form_values(&state, &resolved, form_id, field_values, sections).await?;
 
             if action == "issue" {
                 let command = state
@@ -1200,7 +1230,9 @@ async fn forms_write(
                         domain::VaultCommandOutcome::Conflict => StatusCode::CONFLICT,
                         domain::VaultCommandOutcome::Unauthorized => StatusCode::FORBIDDEN,
                         domain::VaultCommandOutcome::ValidationFailure
-                        | domain::VaultCommandOutcome::PreconditionFailure => StatusCode::BAD_REQUEST,
+                        | domain::VaultCommandOutcome::PreconditionFailure => {
+                            StatusCode::BAD_REQUEST
+                        }
                         domain::VaultCommandOutcome::Success => StatusCode::OK,
                     };
                     return Err(correlate(
@@ -1226,7 +1258,6 @@ async fn forms_write(
         )),
     }
 }
-
 
 /// snake_case keys to camelCase, all the way down: the project and work-item records are serialized snake_case by the
 /// domain, and the Projects screen reads them camelCase (as the relay renamed them field by field).
