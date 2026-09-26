@@ -55,5 +55,5 @@ pub use mq_runtime::{
     MqProofSubscriber, MqRuntime, MqRuntimeConfig, MqSubscriber, MqSubscriberError,
 };
 pub use service_gateway::ServiceGateway;
-pub use service_harness::ServiceHarness;
+pub use service_harness::{ServiceHarness, ServiceHarnessHealth};
 pub use service_kernel::{ServiceKernel, ServiceKernelHealth, ServiceRegistry};
