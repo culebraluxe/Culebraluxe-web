@@ -47,8 +47,10 @@ pub mod whatsapp;
 pub mod workflow_portal;
 
 pub use command_runtime::{CommandDispatchError, CommandDispatcher};
-pub use mq_runtime::{MqProofSubscriber, MqRuntime, MqRuntimeConfig, MqSubscriber, MqSubscriberError};
 pub use composition::CoreServices;
+pub use mq_runtime::{
+    MqProofSubscriber, MqRuntime, MqRuntimeConfig, MqSubscriber, MqSubscriberError,
+};
 pub use service_gateway::ServiceGateway;
 pub use service_harness::ServiceHarness;
 pub use service_kernel::{ServiceKernel, ServiceKernelHealth, ServiceRegistry};
