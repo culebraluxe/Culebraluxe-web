@@ -26,9 +26,14 @@ impl ServiceHarness {
         let mq_infrastructure = infrastructure.clone();
         let kernel = ServiceKernel::new(db.clone(), infrastructure)?;
         let gateway = ServiceGateway::new(kernel.registry());
-        let commands = CommandDispatcher::for_kernel(db.clone(), kernel.contract()).map_err(|error| {
-            ServiceDispatchError::infrastructure("COMMAND_RUNTIME_INIT", error.to_string(), false)
-        })?;
+        let commands =
+            CommandDispatcher::for_kernel(db.clone(), kernel.contract()).map_err(|error| {
+                ServiceDispatchError::infrastructure(
+                    "COMMAND_RUNTIME_INIT",
+                    error.to_string(),
+                    false,
+                )
+            })?;
         let outbox = DomainEventOutboxDao::new(db);
         let mq = MqRuntime::new(
             outbox.clone(),
