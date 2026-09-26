@@ -6,10 +6,10 @@
 //! records — to anyone. Without the stub, a portal request is unauthenticated (401) until Google sign-in lands here.
 
 use axum::http::HeaderMap;
-use service::{ServiceActor, ServiceActorKind, ServiceContext, ServicePrincipal};
 use uuid::Uuid;
 
-use super::ApiError;
+use super::context::{resolve_identity_context, ResolvedRequestContext};
+use super::{ApiError, ApiState};
 
 /// The ROOT app user the stub acts as (the DEV database's "CulebraLuxe Root"); override with `CULEBRA_UI_AUTH_STUB_USER`.
 const DEFAULT_ROOT_USER: &str = "1fc6dc61-d842-4d29-a20b-93c79e07c718";
@@ -40,43 +40,26 @@ pub fn actor_projection_json() -> Option<String> {
     })
 }
 
-/// A portal request's service context: the ROOT user under the stub; otherwise 401.
-pub fn portal_context(headers: &HeaderMap) -> Result<ServiceContext, ApiError> {
+/// A portal request's resolved user: under the stub, the ROOT user's break-glass identity resolved by the Security
+/// service exactly as a signed-in request is (so grants, roles and the acting user are real); otherwise 401.
+pub async fn resolve_portal_context(
+    state: &ApiState,
+    headers: &HeaderMap,
+) -> Result<ResolvedRequestContext, ApiError> {
     if !stub_enabled() {
         return Err(ApiError::unauthorized(
             "SIGN_IN_REQUIRED",
             "Portal sign-in is not available on this server yet.",
         ));
     }
-    let user = stub_user();
-    Ok(ServiceContext {
-        actor: ServiceActor {
-            id: Some(user.clone()),
-            kind: ServiceActorKind::User,
-        },
-        correlation_id: correlation(headers),
-        causation_id: None,
-        principal: Some(ServicePrincipal {
-            app_user_id: user,
-            level: "ROOT".into(),
-            role_codes: vec!["root".into()],
-            account_type: "internal".into(),
-            entitlement_codes: Vec::new(),
-        }),
-    })
-}
-
-/// A public-site request's context: the anonymous public website actor, as the relays presented it.
-pub fn public_context(headers: &HeaderMap) -> ServiceContext {
-    ServiceContext {
-        actor: ServiceActor {
-            id: Some("public-website".into()),
-            kind: ServiceActorKind::System,
-        },
-        correlation_id: correlation(headers),
-        causation_id: None,
-        principal: None,
-    }
+    resolve_identity_context(
+        state,
+        "break-glass",
+        &format!("break-glass:{}", stub_user()),
+        correlation(headers),
+        None,
+    )
+    .await
 }
 
 fn correlation(headers: &HeaderMap) -> String {
@@ -99,11 +82,10 @@ mod tests {
         std::env::remove_var("VERCEL_ENV");
         std::env::set_var("APP_ENV", "development");
         assert!(stub_enabled());
-        assert!(portal_context(&HeaderMap::new())
-            .is_ok_and(|ctx| ctx.principal.is_some_and(|p| p.level == "ROOT")));
+        assert!(actor_projection_json().is_some_and(|json| json.contains("ROOT")));
         std::env::set_var("APP_ENV", "production");
         assert!(!stub_enabled(), "never in production");
-        assert!(portal_context(&HeaderMap::new()).is_err());
+        assert!(actor_projection_json().is_none());
         std::env::remove_var("CULEBRA_UI_AUTH_STUB");
         std::env::remove_var("APP_ENV");
     }

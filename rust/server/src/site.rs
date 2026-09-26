@@ -39,6 +39,10 @@ async fn shell_now(uri: Uri) -> Response {
     if path.starts_with("/v1/") || path.starts_with("/api/") {
         return StatusCode::NOT_FOUND.into_response();
     }
+    // The portal has no page of its own; it opens on the dashboard (as `app/portal/page.tsx` did).
+    if path == "/portal" || path == "/portal/" {
+        return axum::response::Redirect::temporary("/portal/dashboard").into_response();
+    }
     shell(path)
 }
 
@@ -131,5 +135,7 @@ mod tests {
             shell_now("/buyers".parse().unwrap()).await.status(),
             StatusCode::OK
         );
+        let portal = shell_now("/portal".parse().unwrap()).await;
+        assert_eq!(portal.headers()[header::LOCATION], "/portal/dashboard");
     }
 }

@@ -34,7 +34,25 @@ pub async fn resolve_request_context(
     let causation_id = header(headers, HEADER_CAUSATION_ID)
         .filter(|value| !value.trim().is_empty())
         .map(str::to_owned);
+    resolve_identity_context(
+        state,
+        provider,
+        provider_subject,
+        correlation_id,
+        causation_id,
+    )
+    .await
+}
 
+/// One provider identity -> the application user it maps to, through the Security service. The caller has already
+/// decided the identity is proven (the internal key, or `ui_auth`'s stub).
+pub async fn resolve_identity_context(
+    state: &ApiState,
+    provider: &str,
+    provider_subject: &str,
+    correlation_id: String,
+    causation_id: Option<String>,
+) -> Result<ResolvedRequestContext, ApiError> {
     let bootstrap = ServiceContext {
         actor: ServiceActor {
             id: Some("authjs-edge".into()),
