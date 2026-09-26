@@ -3,21 +3,20 @@ import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
 import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 
 import type { ClientRelationshipChannel } from "@/lib/portal/types"
-import { coreServices } from "@/lib/service-runtime"
+import { rustApiRead } from '@/lib/rust-api/client'
 import { captureServerError } from '@/lib/server-error-capture'
 import { withApiHandler } from '@/lib/error-capture-seam'
+
+type RustCommsPanel = {
+  sources: Array<Omit<ClientRelationshipChannel, 'personId'> & { label?: string }>
+}
 
 // ---------------------------------------------------------------------------
 // CLIENTS — source-grain relationship channels for a selected canonical Person.
 //
 // The Client History panel reads ONE bounded row per communication source from
-// the COMMS service, which owns the warehouse read models and the channel
-// vocabulary. It used to read mv_client_relationship_channels through a
-// repository here, which is why `apple_calls` and `apple_facetime` reached the
-// pane as unknown channels and rendered with a generic globe instead of the Call
-// and Video icons. The mapping now happens once, in the service.
-//
-// Response shape is unchanged, so the panel component is untouched.
+// the Rust COMMS service, which owns the warehouse read models and the channel
+// vocabulary. Response shape is unchanged, so the panel component is untouched.
 // ---------------------------------------------------------------------------
 
 async function GETHandler(
@@ -37,17 +36,9 @@ async function GETHandler(
   }
   const { personId } = await params
   try {
-    if (!coreServices.comms) {
-      return NextResponse.json({ channels: [] })
-    }
-    const result = await coreServices.comms.execute({
-      operation: "comms.panel",
-      payload: { personId, momentLimit: 0 },
-      context: { actor: { id: "portal-api", kind: "user" }, correlationId: crypto.randomUUID() },
-    })
-    if (!result.ok) {
-      return NextResponse.json({ channels: [] })
-    }
+    const result = await rustApiRead<RustCommsPanel>(
+      `/v1/comms/${encodeURIComponent(personId)}/panel?momentLimit=0`,
+    )
     const channels: ClientRelationshipChannel[] = result.value.sources.map((source) => ({
       personId,
       source: source.source,
