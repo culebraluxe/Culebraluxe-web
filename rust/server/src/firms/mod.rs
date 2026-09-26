@@ -1,6 +1,6 @@
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
-use db::{DbResult, FirmDao};
+use db::{Database, DbResult, FirmDao};
 use domain::{Firm, UpsertFirmRequest};
 use serde_json::json;
 use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
@@ -8,6 +8,9 @@ use std::collections::BTreeMap;
 
 #[async_trait]
 pub trait FirmRepository: Send + Sync {
+    fn database(&self) -> Option<Database> {
+        None
+    }
     async fn get(&self, firm_id: &str) -> DbResult<Option<Firm>>;
     async fn find_by_name(&self, name: &str) -> DbResult<Option<Firm>>;
     async fn upsert(&self, request: &UpsertFirmRequest) -> DbResult<Firm>;
@@ -15,6 +18,9 @@ pub trait FirmRepository: Send + Sync {
 
 #[async_trait]
 impl FirmRepository for FirmDao {
+    fn database(&self) -> Option<Database> {
+        Some(FirmDao::database(self))
+    }
     async fn get(&self, firm_id: &str) -> DbResult<Option<Firm>> {
         FirmDao::get(self, firm_id).await
     }
@@ -97,7 +103,7 @@ impl<R: FirmRepository> FirmService<R> {
         )
         .await?;
 
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             if request.name.trim().is_empty() {
                 return Err(CoreServiceError::business(
                     "FIRM_NAME_REQUIRED",
@@ -121,7 +127,7 @@ impl<R: FirmRepository> FirmService<R> {
                 .await?;
 
             Ok(firm)
-        }
+        })
         .await;
 
         audit_result(&self.runtime, "firm", OP, context, decision, &result).await?;

@@ -333,6 +333,28 @@ pub struct VaultRenderRequest {
     pub participants: Vec<FormSignerPerson>,
     pub actor_app_user_id: Option<String>,
     pub issued_at: Option<String>,
+    /// The brokerage's own standing pre-signature, already authorized and resolved by the caller.
+    ///
+    /// SKIPPED IN SERDE ON PURPOSE: this carries live image bytes, which must never be written into a snapshot or cross a
+    /// serialization boundary. Only the EVIDENCE of drawing it is persisted, and the renderer returns that separately.
+    #[serde(skip)]
+    pub applied_signatures: Vec<crate::forms_applied_signature::FormAppliedSignature>,
+}
+
+/// A form as the RENDERER needs it: the version it was saved under, and the working draft.
+///
+/// The draft preview reads exactly this and NOTHING more — no receipts, no issued version, no persistence — so a preview
+/// can never be mistaken for an issuance.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct FormDocumentSource {
+    pub template_id: String,
+    pub template_version: i32,
+    pub deal_id: Option<String>,
+    pub contract_id: Option<String>,
+    pub status: String,
+    pub field_values: BTreeMap<String, String>,
+    pub sections: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

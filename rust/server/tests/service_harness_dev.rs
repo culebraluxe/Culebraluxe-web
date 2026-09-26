@@ -40,7 +40,11 @@ async fn external_harness_boot_dispatch_drain_and_shutdown_are_real() {
     let db = Database::connect_from_env()
         .await
         .expect("connect DEV database");
-    assert_eq!(db.target(), DbTarget::Dev, "external harness proof is DEV-only");
+    assert_eq!(
+        db.target(),
+        DbTarget::Dev,
+        "external harness proof is DEV-only"
+    );
 
     let harness = ServiceHarness::isolated(db, infrastructure()).unwrap();
     harness.start().await.unwrap();
@@ -52,8 +56,78 @@ async fn external_harness_boot_dispatch_drain_and_shutdown_are_real() {
     assert!(health.mq.accepting);
 
     let descriptors = harness.descriptors();
-    assert!(descriptors.iter().any(|descriptor| descriptor.domain == "person"));
-    assert!(descriptors.iter().any(|descriptor| descriptor.domain == "contract"));
+    assert_eq!(
+        descriptors.len(),
+        32,
+        "every route-facing service is registered"
+    );
+    assert!(descriptors
+        .iter()
+        .any(|descriptor| descriptor.domain == "person"));
+    assert!(descriptors
+        .iter()
+        .any(|descriptor| descriptor.domain == "contract"));
+    for domain in [
+        "accounting",
+        "calendar",
+        "client",
+        "cockpit",
+        "communications",
+        "deal",
+        "firm",
+        "flight-recorder",
+        "forms",
+        "guest-sign-in",
+        "guide",
+        "intake",
+        "issue",
+        "marketing",
+        "media",
+        "person",
+        "project",
+        "property",
+        "public-listing",
+        "relationship-evidence",
+        "security",
+        "showing",
+        "signature",
+        "support",
+        "task",
+        "tech",
+        "vault",
+        "wbs",
+        "website-lead",
+        "whatsapp",
+        "workflow-portal",
+    ] {
+        assert!(
+            descriptors
+                .iter()
+                .any(|descriptor| descriptor.domain == domain),
+            "missing registry entry for {domain}"
+        );
+    }
+
+    let accounting = harness
+        .control("accounting", ServiceControlCommand::Status)
+        .await
+        .expect("catalog-only service participates in lifecycle control");
+    assert_eq!(accounting.status, ServiceStatus::Running);
+
+    harness
+        .control("accounting", ServiceControlCommand::Drain)
+        .await
+        .expect("catalog service drains");
+    let refused_typed = harness
+        .gateway()
+        .execute("accounting", "accounting.dashboard", &json!({}), async {
+            1_u8
+        })
+        .await;
+    assert!(matches!(
+        refused_typed,
+        Err(ServiceDispatchError::ServiceDraining(_))
+    ));
 
     let value = harness
         .dispatch(
@@ -85,7 +159,10 @@ async fn external_harness_boot_dispatch_drain_and_shutdown_are_real() {
             &context(),
         )
         .await;
-    assert!(matches!(refused, Err(ServiceDispatchError::ServiceDraining(_))));
+    assert!(matches!(
+        refused,
+        Err(ServiceDispatchError::ServiceDraining(_))
+    ));
 
     harness.begin_shutdown();
     harness.wait_stopped().await.unwrap();

@@ -14,46 +14,42 @@ pub const REL_INTEL_RULE_VERSION: &str = "rel-intel/v1";
 #[async_trait]
 pub trait RelationshipEvidenceRepository: Send {
     async fn review(
-        &mut self,
+        &self,
         review_state: &str,
         search: &str,
         limit: i64,
         offset: i64,
     ) -> DbResult<RelationshipEvidenceReview>;
-    async fn by_id(&mut self, id: &str) -> DbResult<Option<RelationshipEvidenceRow>>;
+    async fn by_id(&self, id: &str) -> DbResult<Option<RelationshipEvidenceRow>>;
     async fn classify(
-        &mut self,
+        &self,
         id: &str,
         automated: Option<bool>,
         service: Option<bool>,
     ) -> DbResult<bool>;
-    async fn person_exists(&mut self, person_id: &str) -> DbResult<bool>;
+    async fn person_exists(&self, person_id: &str) -> DbResult<bool>;
     async fn source_link(
-        &mut self,
+        &self,
         source: &str,
         source_account: &str,
         source_identity_key: &str,
     ) -> DbResult<Option<String>>;
-    async fn people_by_email(&mut self, email: &str) -> DbResult<Vec<String>>;
-    async fn people_by_phone(&mut self, phone: &str) -> DbResult<Vec<String>>;
+    async fn people_by_email(&self, email: &str) -> DbResult<Vec<String>>;
+    async fn people_by_phone(&self, phone: &str) -> DbResult<Vec<String>>;
     async fn candidates(
-        &mut self,
+        &self,
         source: Option<&str>,
         review_state: Option<&str>,
         ids: &[String],
         limit: i64,
     ) -> DbResult<Vec<RelationshipEvidenceRow>>;
-    async fn record_decision(
-        &mut self,
-        id: &str,
-        decision: &RelationshipDecision,
-    ) -> DbResult<bool>;
+    async fn record_decision(&self, id: &str, decision: &RelationshipDecision) -> DbResult<bool>;
 }
 
 #[async_trait]
 impl RelationshipEvidenceRepository for RelationshipEvidenceDao {
     async fn review(
-        &mut self,
+        &self,
         review_state: &str,
         search: &str,
         limit: i64,
@@ -62,12 +58,12 @@ impl RelationshipEvidenceRepository for RelationshipEvidenceDao {
         RelationshipEvidenceDao::review(self, review_state, search, limit, offset).await
     }
 
-    async fn by_id(&mut self, id: &str) -> DbResult<Option<RelationshipEvidenceRow>> {
+    async fn by_id(&self, id: &str) -> DbResult<Option<RelationshipEvidenceRow>> {
         RelationshipEvidenceDao::by_id(self, id).await
     }
 
     async fn classify(
-        &mut self,
+        &self,
         id: &str,
         automated: Option<bool>,
         service: Option<bool>,
@@ -75,12 +71,12 @@ impl RelationshipEvidenceRepository for RelationshipEvidenceDao {
         RelationshipEvidenceDao::classify(self, id, automated, service).await
     }
 
-    async fn person_exists(&mut self, person_id: &str) -> DbResult<bool> {
+    async fn person_exists(&self, person_id: &str) -> DbResult<bool> {
         RelationshipEvidenceDao::person_exists(self, person_id).await
     }
 
     async fn source_link(
-        &mut self,
+        &self,
         source: &str,
         source_account: &str,
         source_identity_key: &str,
@@ -89,16 +85,16 @@ impl RelationshipEvidenceRepository for RelationshipEvidenceDao {
             .await
     }
 
-    async fn people_by_email(&mut self, email: &str) -> DbResult<Vec<String>> {
+    async fn people_by_email(&self, email: &str) -> DbResult<Vec<String>> {
         RelationshipEvidenceDao::people_by_email(self, email).await
     }
 
-    async fn people_by_phone(&mut self, phone: &str) -> DbResult<Vec<String>> {
+    async fn people_by_phone(&self, phone: &str) -> DbResult<Vec<String>> {
         RelationshipEvidenceDao::people_by_phone(self, phone).await
     }
 
     async fn candidates(
-        &mut self,
+        &self,
         source: Option<&str>,
         review_state: Option<&str>,
         ids: &[String],
@@ -107,11 +103,7 @@ impl RelationshipEvidenceRepository for RelationshipEvidenceDao {
         RelationshipEvidenceDao::candidates(self, source, review_state, ids, limit).await
     }
 
-    async fn record_decision(
-        &mut self,
-        id: &str,
-        decision: &RelationshipDecision,
-    ) -> DbResult<bool> {
+    async fn record_decision(&self, id: &str, decision: &RelationshipDecision) -> DbResult<bool> {
         RelationshipEvidenceDao::record_decision(self, id, decision).await
     }
 }
@@ -130,7 +122,7 @@ impl<R: RelationshipEvidenceRepository> RelationshipEvidenceService<R> {
     }
 
     pub async fn review(
-        &mut self,
+        &self,
         review_state: &str,
         search: &str,
         limit: i64,
@@ -165,7 +157,7 @@ impl<R: RelationshipEvidenceRepository> RelationshipEvidenceService<R> {
     }
 
     pub async fn inspect(
-        &mut self,
+        &self,
         id: &str,
         context: &ServiceContext,
     ) -> Result<Option<RelationshipEvidenceRow>, CoreServiceError> {
@@ -193,7 +185,7 @@ impl<R: RelationshipEvidenceRepository> RelationshipEvidenceService<R> {
     }
 
     pub async fn classify_and_rerun(
-        &mut self,
+        &self,
         id: &str,
         automated: bool,
         service_flag: bool,
@@ -236,7 +228,7 @@ impl<R: RelationshipEvidenceRepository> RelationshipEvidenceService<R> {
     }
 
     pub async fn link(
-        &mut self,
+        &self,
         id: &str,
         person_id: &str,
         confirmed: bool,
@@ -295,7 +287,7 @@ impl<R: RelationshipEvidenceRepository> RelationshipEvidenceService<R> {
     }
 
     pub async fn reject(
-        &mut self,
+        &self,
         id: &str,
         confirmed: bool,
         context: &ServiceContext,
@@ -347,7 +339,7 @@ impl<R: RelationshipEvidenceRepository> RelationshipEvidenceService<R> {
     }
 
     pub async fn rerun(
-        &mut self,
+        &self,
         source: Option<&str>,
         review_state: Option<&str>,
         limit: i64,
@@ -379,7 +371,7 @@ impl<R: RelationshipEvidenceRepository> RelationshipEvidenceService<R> {
     }
 
     async fn rerun_authorized(
-        &mut self,
+        &self,
         source: Option<&str>,
         review_state: Option<&str>,
         ids: &[String],
@@ -424,7 +416,7 @@ impl<R: RelationshipEvidenceRepository> RelationshipEvidenceService<R> {
     }
 
     async fn reconcile(
-        &mut self,
+        &self,
         row: &RelationshipEvidenceRow,
     ) -> Result<RelationshipDecision, CoreServiceError> {
         if row.is_organization_or_service.unwrap_or(false) {

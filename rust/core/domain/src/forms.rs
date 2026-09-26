@@ -149,4 +149,8 @@ pub struct FormSignerPerson {
     pub name: String,
     pub email: Option<String>,
     pub role: String,
+    /// The immutable execution slot this signer occupies (`ROLE:sequence`), assigned by canonicalization. It is what the
+    /// issued evidence and the external envelope refer to — never the person, and never their position in a list.
+    #[serde(default)]
+    pub slot_id: Option<String>,
 }

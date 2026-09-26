@@ -10,14 +10,14 @@ use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRunti
 #[async_trait]
 pub trait SupportDiagnosticsRepository: Send {
     async fn break_glass_probe(
-        &mut self,
+        &self,
         app_user_id: Option<&str>,
     ) -> DbResult<(bool, bool, bool, bool)>;
-    async fn security_status(&mut self) -> DbResult<SupportSecurityStatus>;
-    async fn system_health(&mut self) -> DbResult<SupportSystemHealth>;
-    async fn workflow_diagnostics(&mut self) -> DbResult<WorkflowDiagnosticsSnapshot>;
+    async fn security_status(&self) -> DbResult<SupportSecurityStatus>;
+    async fn system_health(&self) -> DbResult<SupportSystemHealth>;
+    async fn workflow_diagnostics(&self) -> DbResult<WorkflowDiagnosticsSnapshot>;
     async fn workflow_detail(
-        &mut self,
+        &self,
         instance_id: &str,
     ) -> DbResult<Option<WorkflowDiagnosticsDetail>>;
 }
@@ -25,26 +25,26 @@ pub trait SupportDiagnosticsRepository: Send {
 #[async_trait]
 impl SupportDiagnosticsRepository for SupportDiagnosticsDao {
     async fn break_glass_probe(
-        &mut self,
+        &self,
         app_user_id: Option<&str>,
     ) -> DbResult<(bool, bool, bool, bool)> {
         SupportDiagnosticsDao::break_glass_probe(self, app_user_id).await
     }
 
-    async fn security_status(&mut self) -> DbResult<SupportSecurityStatus> {
+    async fn security_status(&self) -> DbResult<SupportSecurityStatus> {
         SupportDiagnosticsDao::security_status(self).await
     }
 
-    async fn system_health(&mut self) -> DbResult<SupportSystemHealth> {
+    async fn system_health(&self) -> DbResult<SupportSystemHealth> {
         SupportDiagnosticsDao::system_health(self).await
     }
 
-    async fn workflow_diagnostics(&mut self) -> DbResult<WorkflowDiagnosticsSnapshot> {
+    async fn workflow_diagnostics(&self) -> DbResult<WorkflowDiagnosticsSnapshot> {
         SupportDiagnosticsDao::workflow_diagnostics(self).await
     }
 
     async fn workflow_detail(
-        &mut self,
+        &self,
         instance_id: &str,
     ) -> DbResult<Option<WorkflowDiagnosticsDetail>> {
         SupportDiagnosticsDao::workflow_detail(self, instance_id).await
@@ -65,7 +65,7 @@ impl<R: SupportDiagnosticsRepository> SupportDiagnosticsService<R> {
     }
 
     pub async fn break_glass_readiness(
-        &mut self,
+        &self,
         configured: bool,
         enabled: bool,
         app_user_id: Option<&str>,
@@ -103,7 +103,7 @@ impl<R: SupportDiagnosticsRepository> SupportDiagnosticsService<R> {
     }
 
     pub async fn security_status(
-        &mut self,
+        &self,
         context: &ServiceContext,
     ) -> Result<SupportSecurityStatus, CoreServiceError> {
         const OP: &str = "support.securityStatus";
@@ -122,7 +122,7 @@ impl<R: SupportDiagnosticsRepository> SupportDiagnosticsService<R> {
     }
 
     pub async fn system_health(
-        &mut self,
+        &self,
         context: &ServiceContext,
     ) -> Result<SupportSystemHealth, CoreServiceError> {
         const OP: &str = "support.systemHealth";
@@ -141,7 +141,7 @@ impl<R: SupportDiagnosticsRepository> SupportDiagnosticsService<R> {
     }
 
     pub async fn workflow_diagnostics(
-        &mut self,
+        &self,
         context: &ServiceContext,
     ) -> Result<WorkflowDiagnosticsSnapshot, CoreServiceError> {
         const OP: &str = "support.workflowDiagnostics";
@@ -164,7 +164,7 @@ impl<R: SupportDiagnosticsRepository> SupportDiagnosticsService<R> {
     }
 
     pub async fn workflow_detail(
-        &mut self,
+        &self,
         instance_id: &str,
         context: &ServiceContext,
     ) -> Result<Option<WorkflowDiagnosticsDetail>, CoreServiceError> {

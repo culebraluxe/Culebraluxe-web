@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use db::{
     CommandReceiptDao, CommandReceiptRow, ContractDao, Database, DbFailure, DbTransaction,
-    DomainEventOutboxDao, OutboxEventInput,
+    DomainEventOutboxDao, OutboxEventInput, SecurityAuditDao,
 };
 use domain::ExecuteContractRequest;
 use serde_json::{json, Map, Value};
@@ -73,6 +73,7 @@ pub struct CommandDispatcher {
     db: Database,
     receipts: CommandReceiptDao,
     outbox: DomainEventOutboxDao,
+    audit: SecurityAuditDao,
     registry: Arc<CommandRegistry>,
 }
 
@@ -87,6 +88,7 @@ impl CommandDispatcher {
         Ok(Self {
             receipts: CommandReceiptDao::new(db.clone()),
             outbox: DomainEventOutboxDao::new(db.clone()),
+            audit: SecurityAuditDao::new(db.clone()),
             db,
             registry: Arc::new(registry),
         })
@@ -234,6 +236,30 @@ impl CommandDispatcher {
                 result.value.as_ref(),
                 error_code,
                 error_message,
+            )
+            .await
+        {
+            let _ = tx.rollback().await;
+            return Err(error.into());
+        }
+
+        if let Err(error) = self
+            .audit
+            .record_tx(
+                &mut tx,
+                envelope.actor_app_user_id.as_deref(),
+                &envelope.command_type,
+                "rust-command",
+                &json!({
+                    "commandId": envelope.command_id,
+                    "commandType": envelope.command_type,
+                    "correlationId": envelope.correlation_id,
+                    "causationId": envelope.causation_id,
+                    "aggregateType": envelope.aggregate_type,
+                    "aggregateId": result.aggregate_id,
+                    "outcome": result.outcome.as_str(),
+                    "errorCode": error_code,
+                }),
             )
             .await
         {
@@ -462,6 +488,7 @@ impl DurableCommandHandler for ContractExecuteCommand {
             Err(CoreServiceError::Business { code, message }) => {
                 let outcome = match code {
                     "CONTRACT_NOT_FOUND" => CommandOutcome::NotFound,
+                    "CONTRACT_EXECUTION_CONFLICT" => CommandOutcome::Conflict,
                     "CONTRACT_ALREADY_EXECUTED" => CommandOutcome::Conflict,
                     "CONTRACT_NOT_EXECUTABLE" => CommandOutcome::PreconditionFailure,
                     _ => CommandOutcome::ValidationFailure,

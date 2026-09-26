@@ -13,36 +13,35 @@ use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRunti
 
 #[async_trait]
 pub trait MediaRepository: Send {
-    async fn media_bytes(&mut self, id: &str) -> DbResult<Option<(String, Vec<u8>)>>;
+    async fn media_bytes(&self, id: &str) -> DbResult<Option<(String, Vec<u8>)>>;
     async fn upload_standalone(
-        &mut self,
+        &self,
         filename: &str,
         mime_type: &str,
         bytes: &[u8],
     ) -> DbResult<(String, String, String, i64)>;
-    async fn for_property(&mut self, property_id: &str) -> DbResult<Vec<MediaAsset>>;
+    async fn for_property(&self, property_id: &str) -> DbResult<Vec<MediaAsset>>;
     async fn upload_property_media(
-        &mut self,
+        &self,
         request: &UploadPropertyMediaRequest,
     ) -> DbResult<UploadPropertyMediaResult>;
     async fn attach_property_video(
-        &mut self,
+        &self,
         request: &AttachPropertyVideoRequest,
     ) -> DbResult<AttachPropertyVideoResult>;
     async fn begin_media_upload(
-        &mut self,
+        &self,
         request: &db::BeginMediaUpload,
     ) -> DbResult<BeginMediaUploadResult>;
     async fn stage_media_chunk(
-        &mut self,
+        &self,
         upload_id: &str,
         chunk_index: i32,
         bytes: &[u8],
     ) -> DbResult<db::MediaUploadStatus>;
-    async fn assemble_media_upload(&mut self, upload_id: &str)
-        -> DbResult<db::MediaUploadAssembly>;
+    async fn assemble_media_upload(&self, upload_id: &str) -> DbResult<db::MediaUploadAssembly>;
     async fn commit_media_upload(
-        &mut self,
+        &self,
         upload_id: &str,
         assembly: &db::MediaUploadAssembly,
         derivatives: &[db::MediaDerivativeInput],
@@ -51,13 +50,13 @@ pub trait MediaRepository: Send {
 
 #[async_trait]
 impl MediaRepository for MediaDao {
-    async fn media_bytes(&mut self, id: &str) -> DbResult<Option<(String, Vec<u8>)>> {
+    async fn media_bytes(&self, id: &str) -> DbResult<Option<(String, Vec<u8>)>> {
         let id = id.to_owned();
         db::retrying_read!(MediaDao::media_bytes(self, &id))
     }
 
     async fn upload_standalone(
-        &mut self,
+        &self,
         filename: &str,
         mime_type: &str,
         bytes: &[u8],
@@ -65,26 +64,26 @@ impl MediaRepository for MediaDao {
         MediaDao::upload_standalone(self, filename, mime_type, bytes).await
     }
 
-    async fn for_property(&mut self, property_id: &str) -> DbResult<Vec<MediaAsset>> {
+    async fn for_property(&self, property_id: &str) -> DbResult<Vec<MediaAsset>> {
         MediaDao::for_property(self, property_id).await
     }
 
     async fn upload_property_media(
-        &mut self,
+        &self,
         request: &UploadPropertyMediaRequest,
     ) -> DbResult<UploadPropertyMediaResult> {
         MediaDao::upload_property_media(self, request).await
     }
 
     async fn attach_property_video(
-        &mut self,
+        &self,
         request: &AttachPropertyVideoRequest,
     ) -> DbResult<AttachPropertyVideoResult> {
         MediaDao::attach_property_video(self, request).await
     }
 
     async fn begin_media_upload(
-        &mut self,
+        &self,
         request: &db::BeginMediaUpload,
     ) -> DbResult<BeginMediaUploadResult> {
         let status = MediaDao::begin_media_upload(self, request).await?;
@@ -97,7 +96,7 @@ impl MediaRepository for MediaDao {
     }
 
     async fn stage_media_chunk(
-        &mut self,
+        &self,
         upload_id: &str,
         chunk_index: i32,
         bytes: &[u8],
@@ -105,15 +104,12 @@ impl MediaRepository for MediaDao {
         MediaDao::stage_media_chunk(self, upload_id, chunk_index, bytes).await
     }
 
-    async fn assemble_media_upload(
-        &mut self,
-        upload_id: &str,
-    ) -> DbResult<db::MediaUploadAssembly> {
+    async fn assemble_media_upload(&self, upload_id: &str) -> DbResult<db::MediaUploadAssembly> {
         MediaDao::assemble_media_upload(self, upload_id).await
     }
 
     async fn commit_media_upload(
-        &mut self,
+        &self,
         upload_id: &str,
         assembly: &db::MediaUploadAssembly,
         derivatives: &[db::MediaDerivativeInput],
@@ -162,7 +158,7 @@ pub struct MediaService<R> {
 
 impl<R: MediaRepository> MediaService<R> {
     pub async fn media_bytes(
-        &mut self,
+        &self,
         id: &str,
         context: &ServiceContext,
     ) -> Result<Option<(String, Vec<u8>)>, CoreServiceError> {
@@ -182,7 +178,7 @@ impl<R: MediaRepository> MediaService<R> {
     }
 
     pub async fn upload_standalone(
-        &mut self,
+        &self,
         filename: &str,
         mime_type: &str,
         bytes: Vec<u8>,
@@ -238,7 +234,7 @@ impl<R: MediaRepository> MediaService<R> {
     }
 
     pub async fn create_property_video_upload(
-        &mut self,
+        &self,
         mux: &MuxClient,
         cors_origin: &str,
         context: &ServiceContext,
@@ -288,7 +284,7 @@ impl<R: MediaRepository> MediaService<R> {
     }
 
     pub async fn finalize_property_video_upload(
-        &mut self,
+        &self,
         mux: &MuxClient,
         property_id: &str,
         upload_id: &str,
@@ -444,7 +440,7 @@ impl<R: MediaRepository> MediaService<R> {
     /// Opens a chunked upload. The browser calls this before it sends any bytes, so the destination Property, the
     /// role and the declared size are all known by the time the first chunk lands.
     pub async fn begin_media_upload(
-        &mut self,
+        &self,
         request: db::BeginMediaUpload,
         context: &ServiceContext,
     ) -> Result<BeginMediaUploadResult, CoreServiceError> {
@@ -460,7 +456,7 @@ impl<R: MediaRepository> MediaService<R> {
         .await?;
 
         let result = async {
-            let repository = &mut self.repository;
+            let repository = &self.repository;
             repository
                 .begin_media_upload(&request)
                 .await
@@ -478,7 +474,7 @@ impl<R: MediaRepository> MediaService<R> {
     /// business event. Auditing each of them would bury the events that are. The `init` and the `complete` are the
     /// two moments worth recording.
     pub async fn stage_media_chunk(
-        &mut self,
+        &self,
         upload_id: &str,
         chunk_index: i32,
         bytes: Vec<u8>,
@@ -495,7 +491,7 @@ impl<R: MediaRepository> MediaService<R> {
         )
         .await?;
 
-        let repository = &mut self.repository;
+        let repository = &self.repository;
         let progress = repository
             .stage_media_chunk(upload_id, chunk_index, &bytes)
             .await
@@ -516,7 +512,7 @@ impl<R: MediaRepository> MediaService<R> {
     /// A failure here leaves the staged bytes in place on purpose: the upload is unfinished rather than broken, the
     /// browser can retry `complete`, and the sweep collects it if nobody does.
     pub async fn complete_media_upload(
-        &mut self,
+        &self,
         upload_id: &str,
         context: &ServiceContext,
     ) -> Result<UploadPropertyMediaResult, CoreServiceError> {
@@ -532,7 +528,7 @@ impl<R: MediaRepository> MediaService<R> {
         .await?;
 
         let result = async {
-            let repository = &mut self.repository;
+            let repository = &self.repository;
             let assembly = repository
                 .assemble_media_upload(upload_id)
                 .await
@@ -575,7 +571,7 @@ impl<R: MediaRepository> MediaService<R> {
     }
 
     pub async fn for_property(
-        &mut self,
+        &self,
         property_id: &str,
         context: &ServiceContext,
     ) -> Result<Vec<MediaAsset>, CoreServiceError> {
@@ -599,7 +595,7 @@ impl<R: MediaRepository> MediaService<R> {
     }
 
     pub async fn attach_property_video(
-        &mut self,
+        &self,
         mut request: AttachPropertyVideoRequest,
         context: &ServiceContext,
     ) -> Result<AttachPropertyVideoResult, CoreServiceError> {
@@ -666,7 +662,7 @@ impl<R: MediaRepository> MediaService<R> {
     }
 
     pub async fn upload_property_media(
-        &mut self,
+        &self,
         mut request: UploadPropertyMediaRequest,
         context: &ServiceContext,
     ) -> Result<UploadPropertyMediaResult, CoreServiceError> {

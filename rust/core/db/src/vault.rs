@@ -11,7 +11,7 @@ use domain::{
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use sqlx::{FromRow, PgConnection};
+use sqlx::{FromRow, PgConnection, Row};
 use std::collections::BTreeMap;
 use std::future::Future;
 
@@ -397,6 +397,7 @@ async fn list_signers_on(
             } else {
                 "CLIENT".into()
             },
+            slot_id: None,
         });
     }
 
@@ -429,6 +430,7 @@ async fn list_signers_on(
                 name: client.display_name,
                 email: compact(client.email),
                 role: client.role,
+                slot_id: None,
             });
         }
 
@@ -459,6 +461,7 @@ async fn list_signers_on(
                 name: row.display_name,
                 email: compact(row.email),
                 role: role_for_form(&form.template_id, &row.role),
+                slot_id: None,
             });
         }
 
@@ -490,6 +493,7 @@ async fn list_signers_on(
                 name: row.display_name,
                 email: compact(row.email),
                 role: role_for_form(&form.template_id, &row.role),
+                slot_id: None,
             });
         }
     }
@@ -523,6 +527,7 @@ async fn list_signers_on(
             name: SELLER_BROKER_NAME.into(),
             email: compact(broker.email),
             role: "SELLER_BROKER".into(),
+            slot_id: None,
         });
     }
 
@@ -537,6 +542,94 @@ pub struct VaultDao {
 impl VaultDao {
     pub fn new(db: Database) -> Self {
         Self { db }
+    }
+
+    pub fn database(&self) -> Database {
+        self.db.clone()
+    }
+
+    /// The form as the renderer needs it. A preview reads without creating a receipt, version, or write.
+    pub async fn form_document_source(
+        &self,
+        form_instance_id: &str,
+    ) -> DbResult<Option<domain::vault::FormDocumentSource>> {
+        let row = sqlx::query(
+            r#"
+            select template_id,
+                   template_version,
+                   contract_id::text as contract_id,
+                   deal_id::text as deal_id,
+                   status,
+                   field_values,
+                   sections
+            from document_form_instance
+            where id = $1::uuid
+            limit 1
+            "#,
+        )
+        .bind(form_instance_id)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("vault.preview.form", &error))?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        Ok(Some(domain::vault::FormDocumentSource {
+            template_id: row.try_get("template_id").unwrap_or_default(),
+            template_version: row.try_get("template_version").unwrap_or_default(),
+            contract_id: row.try_get("contract_id").ok().flatten(),
+            deal_id: row.try_get("deal_id").ok().flatten(),
+            status: row.try_get("status").unwrap_or_default(),
+            field_values: string_map(
+                row.try_get("field_values")
+                    .unwrap_or(serde_json::Value::Null),
+            ),
+            sections: string_map(row.try_get("sections").unwrap_or(serde_json::Value::Null)),
+        }))
+    }
+
+    pub async fn form_signers(
+        &self,
+        form_instance_id: &str,
+    ) -> DbResult<Vec<domain::forms::FormSignerPerson>> {
+        let mut connection = self
+            .db
+            .pool()
+            .acquire()
+            .await
+            .map_err(|error| DbFailure::from_sqlx("vault.preview.signers", &error))?;
+        list_signers_on(&mut connection, form_instance_id).await
+    }
+
+    /// Resolve the brokerage pre-signature for a draft without requiring the external execution slot used at issuance.
+    pub async fn broker_signature_for_preview(
+        &self,
+        template_id: &str,
+        field_values: &BTreeMap<String, String>,
+        slots: &[domain::forms_execution::IssuedExecutionSlot],
+        actor_app_user_id: Option<&str>,
+        issued_at: &str,
+    ) -> Result<
+        Vec<domain::forms_applied_signature::FormAppliedSignature>,
+        domain::VaultArtifactFailure,
+    > {
+        let mut connection = self.db.pool().acquire().await.map_err(|error| {
+            let failure = DbFailure::from_sqlx("vault.preview.broker_signature", &error);
+            domain::VaultArtifactFailure {
+                outcome: domain::VaultCommandOutcome::PreconditionFailure,
+                message: format!("document.preview failed: {failure}"),
+            }
+        })?;
+        crate::broker_signature::resolve_for_issuance(
+            &mut connection,
+            template_id,
+            field_values,
+            slots,
+            actor_app_user_id,
+            Some(issued_at),
+            false,
+        )
+        .await
     }
 
     pub async fn list_issued_documents(
@@ -583,7 +676,7 @@ impl VaultDao {
         )
         .bind(external)
         .bind(person_id)
-        .fetch_all(self.db.pool())
+        .fetch_all(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("vault.list_issued_documents", &error))?;
 
@@ -633,7 +726,7 @@ impl VaultDao {
             "#,
         )
         .bind(document_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("vault.get_document", &error))?;
         row.map(map_document).transpose()
@@ -658,7 +751,7 @@ impl VaultDao {
             "#,
         )
         .bind(deal_id)
-        .fetch_all(self.db.pool())
+        .fetch_all(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("vault.list_by_deal", &error))?;
         rows.into_iter().map(map_document).collect()
@@ -726,7 +819,7 @@ impl VaultDao {
         .bind(evidence.map(|value| value.source_snapshot.clone()))
         .bind(evidence.map(|value| value.issued_version))
         .bind(evidence.map(|value| value.form_instance_id.as_str()))
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("vault.create_document", &error))?;
 
@@ -757,7 +850,7 @@ impl VaultDao {
         .bind(request.deal_id.as_deref())
         .bind(request.source_system.as_deref())
         .bind(request.source_external_id.as_deref())
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("vault.create_document.replay", &error))?
         .ok_or_else(|| {
@@ -929,7 +1022,7 @@ impl VaultDao {
             "#,
         )
         .bind(form_instance_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("vault.issued_for_form_instance", &error))?;
         Ok(row.map(|row| IssuedDocumentForFormInstance {
@@ -958,7 +1051,7 @@ impl VaultDao {
             )
             .bind(contract_id)
             .bind(request.template_id.trim())
-            .fetch_optional(self.db.pool())
+            .fetch_optional(&mut *self.db.connection().await?)
             .await
             .map_err(|error| DbFailure::from_sqlx("vault.next_version.contract", &error))?
         } else {
@@ -977,7 +1070,7 @@ impl VaultDao {
             )
             .bind(request.deal_id.as_deref())
             .bind(request.template_id.trim())
-            .fetch_optional(self.db.pool())
+            .fetch_optional(&mut *self.db.connection().await?)
             .await
             .map_err(|error| DbFailure::from_sqlx("vault.next_version.legacy", &error))?
         };
@@ -994,7 +1087,7 @@ impl VaultDao {
             "#,
         )
         .bind(media_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("vault.media_bytes", &error))?;
         Ok(row.map(|row| VaultMediaBytes {
@@ -1045,7 +1138,7 @@ impl VaultDao {
             "#,
         )
         .bind(media_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("vault.public_listing_document_bytes", &error))?;
         Ok(row.map(|row| VaultMediaBytes {
@@ -1065,7 +1158,7 @@ impl VaultDao {
             "#,
         )
         .bind(form_instance_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map(|value| value.flatten())
         .map_err(|error| DbFailure::from_sqlx("vault.form_contract_id", &error))
@@ -1087,7 +1180,7 @@ impl VaultDao {
         )
         .bind(form_instance_id)
         .bind(contract_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("vault.bind_form_to_contract", &error))?;
         Ok(id.is_some())
@@ -1112,7 +1205,7 @@ impl VaultDao {
         )
         .bind(contract_id)
         .bind(template_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("vault.prior_contract_document", &error))?;
 
@@ -1235,6 +1328,7 @@ impl VaultDao {
                 participants: participants.clone(),
                 actor_app_user_id: request.actor_app_user_id.clone(),
                 issued_at: request.issued_at.clone(),
+                applied_signatures: Vec::new(),
             })
             .await
             {

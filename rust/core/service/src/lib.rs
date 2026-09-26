@@ -21,7 +21,7 @@ pub use abstract_service::{
     AbstractService, ServiceCapability, ServiceDescriptor, ServiceDispatchError, ServiceEnvelope,
     ServiceFailureClass,
 };
-pub use audit::{AuditPort, CapturingAuditPort, ServiceAuditEvent, ServiceOutcome};
+pub use audit::{AuditPort, CapturingAuditPort, NoopAuditPort, ServiceAuditEvent, ServiceOutcome};
 pub use authorization::{
     AuthorizationDecision, AuthorizationPort, AuthorizationRequest, DefaultAuthorizationPort,
 };

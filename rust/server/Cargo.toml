@@ -11,6 +11,7 @@ tower-http.workspace = true
 tower.workspace = true
 auth = { path = "../core/auth" }
 chrono.workspace = true
+flate2.workspace = true
 casbin = "=2.20.0"
 db = { path = "../core/db" }
 domain = { path = "../core/domain" }
@@ -33,5 +34,5 @@ tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+unicode-normalization.workspace = true
 uuid.workspace = true
-

@@ -67,6 +67,7 @@ pub struct ServiceMailbox {
     queue_slots: Arc<Semaphore>,
     status: watch::Receiver<ServiceStatus>,
     cancel: CancellationToken,
+    abort: CancellationToken,
     tracker: TaskTracker,
 }
 
@@ -98,6 +99,7 @@ impl ServiceMailbox {
         // can wait for execution no matter how quickly the actor drains mpsc.
         let queue_slots = Arc::new(Semaphore::new(config.capacity));
         let cancel = parent_cancel.child_token();
+        let abort = CancellationToken::new();
         let tracker = TaskTracker::new();
 
         let actor = ServiceMailboxActor {
@@ -109,8 +111,10 @@ impl ServiceMailbox {
             queued: queued.clone(),
             in_flight: in_flight.clone(),
             idle_notify: idle_notify.clone(),
+            queue_slots: queue_slots.clone(),
             status: status_tx.clone(),
             cancel: cancel.clone(),
+            abort: abort.clone(),
             tracker: tracker.clone(),
             max_concurrency: config.max_concurrency,
             active: 0,
@@ -145,6 +149,7 @@ impl ServiceMailbox {
             queue_slots,
             status,
             cancel,
+            abort,
             tracker,
         })
     }
@@ -165,31 +170,6 @@ impl ServiceMailbox {
             return Err(ServiceDispatchError::ServiceDraining(
                 self.domain.to_string(),
             ));
-        }
-
-        let wrapped: WorkFuture = Box::pin(async move { Box::new(work.await) as WorkOutput });
-
-        if policy.mode == ServiceExecutionMode::Inline {
-            self.in_flight.fetch_add(1, Ordering::Relaxed);
-            let domain = self.domain.clone();
-            let in_flight = self.in_flight.clone();
-            let idle_notify = self.idle_notify.clone();
-            let operation_for_task = operation.clone();
-            let handle = self.tracker.spawn(async move {
-                let result = run_work(domain, operation_for_task, wrapped).await;
-                in_flight.fetch_sub(1, Ordering::Relaxed);
-                idle_notify.notify_waiters();
-                result
-            });
-            let boxed =
-                handle
-                    .await
-                    .map_err(|error| ServiceDispatchError::OperationPanicked {
-                        domain: self.domain.to_string(),
-                        operation: operation.clone(),
-                        message: error.to_string(),
-                    })??;
-            return downcast_work(self.domain.as_ref(), &operation, boxed);
         }
 
         let queue_permit = self
@@ -220,18 +200,27 @@ impl ServiceMailbox {
         } else {
             None
         };
+        let wrapped: WorkFuture = Box::pin(async move { Box::new(work.await) as WorkOutput });
 
         let (respond_to, response) = oneshot::channel();
-        self.sender
-            .send(ActorMessage::Work(WorkItem {
-                operation: operation.clone(),
-                partition_key,
-                future: wrapped,
-                respond_to,
-                queue_permit: Some(queue_permit),
-            }))
+        let permit = self
+            .sender
+            .reserve()
             .await
             .map_err(|_| ServiceDispatchError::ServiceStopped(self.domain.to_string()))?;
+        if !self.accepting.load(Ordering::Acquire) {
+            return Err(ServiceDispatchError::ServiceDraining(
+                self.domain.to_string(),
+            ));
+        }
+        self.queued.fetch_add(1, Ordering::Relaxed);
+        permit.send(ActorMessage::Work(WorkItem {
+            operation: operation.clone(),
+            partition_key,
+            future: wrapped,
+            respond_to,
+            queue_permit: Some(queue_permit),
+        }));
 
         let boxed = response
             .await
@@ -303,6 +292,13 @@ impl ServiceMailbox {
         self.cancel.cancel();
     }
 
+    /// Emergency shutdown for a service that did not finish during its graceful
+    /// drain deadline. Accepted work is cancelled and all task resources are released.
+    pub fn force_stop(&self) {
+        self.cancel();
+        self.abort.cancel();
+    }
+
     pub fn child_token(&self) -> CancellationToken {
         self.cancel.child_token()
     }
@@ -324,6 +320,8 @@ impl ServiceMailbox {
                     })?;
                 }
                 ServiceStatus::Failed => {
+                    self.tracker.close();
+                    self.tracker.wait().await;
                     return Err(ServiceDispatchError::infrastructure(
                         "SERVICE_FAILED",
                         format!("Service {} failed while starting.", self.domain),
@@ -406,8 +404,10 @@ struct ServiceMailboxActor {
     queued: Arc<AtomicUsize>,
     in_flight: Arc<AtomicUsize>,
     idle_notify: Arc<Notify>,
+    queue_slots: Arc<Semaphore>,
     status: watch::Sender<ServiceStatus>,
     cancel: CancellationToken,
+    abort: CancellationToken,
     tracker: TaskTracker,
     max_concurrency: usize,
     active: usize,
@@ -450,13 +450,12 @@ impl ServiceMailboxActor {
                         Some(ActorMessage::PanicForTest) => {
                             panic!("injected service mailbox actor panic");
                         }
-                        None => self.begin_stop(),
-                    }
-                }
-                else => {
-                    if self.input_closed && self.active == 0 && self.pending.is_empty() {
-                        self.finish_drain();
-                        break;
+                        None => {
+                            if self.accepting.swap(false, Ordering::AcqRel) {
+                                self.stop_requested = true;
+                            }
+                            self.input_closed = true;
+                        }
                     }
                 }
             }
@@ -470,14 +469,21 @@ impl ServiceMailboxActor {
     }
 
     fn accept(&mut self, work: WorkItem) {
-        self.queued.fetch_add(1, Ordering::Relaxed);
         self.pending.push_back(work);
     }
 
     fn begin_drain(&mut self) {
-        if !self.input_closed {
-            self.accepting.store(false, Ordering::Release);
-            self.input_closed = true;
+        self.accepting.store(false, Ordering::Release);
+        self.queue_slots.close();
+        if !self.input_closed
+            && !matches!(
+                *self.status.borrow(),
+                ServiceStatus::Draining
+                    | ServiceStatus::Stopping
+                    | ServiceStatus::Stopped
+                    | ServiceStatus::Failed
+            )
+        {
             self.receiver.close();
             let _ = self.status.send(ServiceStatus::Draining);
         }
@@ -497,7 +503,6 @@ impl ServiceMailboxActor {
 
     fn complete(&mut self, completion: Completion) {
         self.active = self.active.saturating_sub(1);
-        self.in_flight.fetch_sub(1, Ordering::Relaxed);
         if let Some(partition) = completion.partition_key {
             self.active_partitions.remove(&partition);
         }
@@ -509,22 +514,18 @@ impl ServiceMailboxActor {
             return;
         }
 
-        let candidates = self.pending.len();
-        for _ in 0..candidates {
-            if self.active >= self.max_concurrency {
-                break;
-            }
-            let Some(work) = self.pending.pop_front() else {
+        while self.active < self.max_concurrency {
+            let next = self.pending.iter().position(|work| {
+                work.partition_key
+                    .as_ref()
+                    .is_none_or(|key| !self.active_partitions.contains(key))
+            });
+            let Some(index) = next else {
                 break;
             };
-            let blocked = work
-                .partition_key
-                .as_ref()
-                .is_some_and(|key| self.active_partitions.contains(key));
-            if blocked {
-                self.pending.push_back(work);
-                continue;
-            }
+            let Some(work) = self.pending.remove(index) else {
+                break;
+            };
             self.start(work);
         }
     }
@@ -544,11 +545,26 @@ impl ServiceMailboxActor {
 
         let domain = self.domain.clone();
         let completion = self.completion_tx.clone();
+        let abort = self.abort.clone();
+        let in_flight = self.in_flight.clone();
+        let idle_notify = self.idle_notify.clone();
         self.tracker.spawn(async move {
-            let result = run_work(domain, work.operation, work.future).await;
+            let result = run_work(domain, work.operation, work.future, abort).await;
             let _ = work.respond_to.send(result);
+            in_flight.fetch_sub(1, Ordering::Relaxed);
+            idle_notify.notify_waiters();
             let _ = completion.send(Completion { partition_key });
         });
+    }
+}
+
+impl Drop for ServiceMailboxActor {
+    fn drop(&mut self) {
+        self.accepting.store(false, Ordering::Release);
+        self.queue_slots.close();
+        self.queued.store(0, Ordering::Release);
+        self.abort.cancel();
+        self.idle_notify.notify_waiters();
     }
 }
 
@@ -556,8 +572,17 @@ async fn run_work(
     domain: Arc<str>,
     operation: String,
     work: WorkFuture,
+    abort: CancellationToken,
 ) -> Result<WorkOutput, ServiceDispatchError> {
-    match tokio::spawn(work).await {
+    let mut handle = tokio::spawn(work);
+    let joined = tokio::select! {
+        result = &mut handle => result,
+        _ = abort.cancelled() => {
+            handle.abort();
+            handle.await
+        }
+    };
+    match joined {
         Ok(result) => Ok(result),
         Err(error) => Err(ServiceDispatchError::OperationPanicked {
             domain: domain.to_string(),
@@ -880,8 +905,15 @@ mod tests {
             Err(ServiceDispatchError::ServiceStopped(_))
         ));
 
-        release.notify_one();
-        assert!(first.await.unwrap().is_ok());
+        let first_result = tokio::time::timeout(Duration::from_secs(1), first)
+            .await
+            .expect("active caller was not released after actor failure")
+            .unwrap();
+        assert!(matches!(
+            first_result,
+            Err(ServiceDispatchError::OperationPanicked { .. })
+        ));
+        assert_eq!(mailbox.health().in_flight, 0);
     }
 
     #[tokio::test]
@@ -983,6 +1015,224 @@ mod tests {
         assert_eq!(mailbox.health().in_flight, 0);
 
         mailbox.cancel();
+        mailbox.wait_stopped().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn ordered_partition_preserves_fifo_when_other_partition_finishes_first() {
+        let root = CancellationToken::new();
+        let mailbox = ServiceMailbox::spawn(
+            "fifo-proof",
+            ServiceMailboxConfig {
+                capacity: 8,
+                max_concurrency: 2,
+            },
+            &root,
+        )
+        .unwrap();
+        let release_first = Arc::new(Notify::new());
+        let first_started = Arc::new(Notify::new());
+        let order = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+
+        let spawn = |id: usize, partition: &'static str, wait: bool| {
+            let mailbox = mailbox.clone();
+            let release = release_first.clone();
+            let started = first_started.clone();
+            let order = order.clone();
+            tokio::spawn(async move {
+                mailbox
+                    .submit(
+                        "fifo-proof.work",
+                        ServiceExecutionPolicy::ordered("key"),
+                        &json!({"key": partition}),
+                        async move {
+                            order.lock().await.push(id);
+                            if id == 1 {
+                                started.notify_one();
+                            }
+                            if wait {
+                                release.notified().await;
+                            }
+                            Ok(json!({}))
+                        },
+                    )
+                    .await
+            })
+        };
+
+        let first = spawn(1, "a", true);
+        first_started.notified().await;
+        let second = spawn(2, "a", false);
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while mailbox.health().queued < 1 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("second partition-a item was not admitted");
+        let other = spawn(9, "b", false);
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if order.lock().await.contains(&9) {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("independent partition did not start");
+        let third = spawn(3, "a", false);
+        sleep(Duration::from_millis(20)).await;
+        release_first.notify_one();
+        for job in [first, second, other, third] {
+            assert!(job.await.unwrap().is_ok());
+        }
+        let order = order.lock().await.clone();
+        let partition_a = order.into_iter().filter(|id| *id != 9).collect::<Vec<_>>();
+        assert_eq!(partition_a, vec![1, 2, 3]);
+        mailbox.stop().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn parent_cancellation_drains_work_buffered_before_the_fence() {
+        let root = CancellationToken::new();
+        let mailbox = ServiceMailbox::spawn(
+            "buffered-cancel-proof",
+            ServiceMailboxConfig {
+                capacity: 4,
+                max_concurrency: 1,
+            },
+            &root,
+        )
+        .unwrap();
+        let release = Arc::new(Notify::new());
+        let started = Arc::new(Notify::new());
+        let first = {
+            let mailbox = mailbox.clone();
+            let release = release.clone();
+            let started = started.clone();
+            tokio::spawn(async move {
+                mailbox
+                    .submit(
+                        "buffered.first",
+                        ServiceExecutionPolicy::queued(),
+                        &json!({}),
+                        async move {
+                            started.notify_one();
+                            release.notified().await;
+                            Ok(json!({"first": true}))
+                        },
+                    )
+                    .await
+            })
+        };
+        started.notified().await;
+        let second = {
+            let mailbox = mailbox.clone();
+            tokio::spawn(async move {
+                mailbox
+                    .submit(
+                        "buffered.second",
+                        ServiceExecutionPolicy::queued(),
+                        &json!({}),
+                        async { Ok(json!({"second": true})) },
+                    )
+                    .await
+            })
+        };
+        sleep(Duration::from_millis(10)).await;
+        root.cancel();
+        release.notify_one();
+        assert!(first.await.unwrap().is_ok());
+        assert!(second.await.unwrap().is_ok());
+        mailbox.wait_stopped().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn inline_work_obeys_the_same_concurrency_limit() {
+        let root = CancellationToken::new();
+        let mailbox = ServiceMailbox::spawn(
+            "inline-bound-proof",
+            ServiceMailboxConfig {
+                capacity: 8,
+                max_concurrency: 1,
+            },
+            &root,
+        )
+        .unwrap();
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let mut jobs = Vec::new();
+        for _ in 0..4 {
+            let mailbox = mailbox.clone();
+            let active = active.clone();
+            let peak = peak.clone();
+            jobs.push(tokio::spawn(async move {
+                mailbox
+                    .submit(
+                        "inline-bound.work",
+                        ServiceExecutionPolicy::inline(),
+                        &json!({}),
+                        async move {
+                            let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                            peak.fetch_max(now, Ordering::SeqCst);
+                            sleep(Duration::from_millis(10)).await;
+                            active.fetch_sub(1, Ordering::SeqCst);
+                            Ok(json!({}))
+                        },
+                    )
+                    .await
+            }));
+        }
+        for job in jobs {
+            assert!(job.await.unwrap().is_ok());
+        }
+        assert_eq!(peak.load(Ordering::SeqCst), 1);
+        mailbox.stop().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn force_stop_aborts_hung_work_and_releases_its_resources() {
+        struct DropProof(Arc<AtomicBool>);
+        impl Drop for DropProof {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::Release);
+            }
+        }
+
+        let root = CancellationToken::new();
+        let mailbox =
+            ServiceMailbox::spawn("force-proof", ServiceMailboxConfig::default(), &root).unwrap();
+        let dropped = Arc::new(AtomicBool::new(false));
+        let started = Arc::new(Notify::new());
+        let work = {
+            let mailbox = mailbox.clone();
+            let dropped = dropped.clone();
+            let started = started.clone();
+            tokio::spawn(async move {
+                mailbox
+                    .submit(
+                        "force-proof.hung",
+                        ServiceExecutionPolicy::queued(),
+                        &json!({}),
+                        async move {
+                            let _proof = DropProof(dropped);
+                            started.notify_one();
+                            std::future::pending::<()>().await;
+                            Ok(json!({}))
+                        },
+                    )
+                    .await
+            })
+        };
+        started.notified().await;
+        mailbox.force_stop();
+        assert!(tokio::time::timeout(Duration::from_secs(1), work)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_err());
+        assert!(dropped.load(Ordering::Acquire));
         mailbox.wait_stopped().await.unwrap();
     }
 }

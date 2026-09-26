@@ -8,12 +8,12 @@ use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRunti
 
 #[async_trait]
 pub trait GuideRepository: Send {
-    async fn items(&mut self) -> DbResult<Vec<GuideItem>>;
+    async fn items(&self) -> DbResult<Vec<GuideItem>>;
 }
 
 #[async_trait]
 impl GuideRepository for GuideDao {
-    async fn items(&mut self) -> DbResult<Vec<GuideItem>> {
+    async fn items(&self) -> DbResult<Vec<GuideItem>> {
         db::retrying_read!(GuideDao::items(self))
     }
 }
@@ -32,7 +32,7 @@ impl<R: GuideRepository> GuideService<R> {
     }
 
     pub async fn items(
-        &mut self,
+        &self,
         context: &ServiceContext,
     ) -> Result<Vec<GuideItem>, CoreServiceError> {
         const OP: &str = "guide.publicItems";

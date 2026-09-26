@@ -14,32 +14,32 @@ use std::collections::HashMap;
 #[async_trait]
 pub trait ClientRepository: Send {
     async fn directory_page(
-        &mut self,
+        &self,
         request: &ClientDirectoryPageRequest,
     ) -> DbResult<(Vec<ClientDirectoryRecord>, i64)>;
     async fn admin_page(
-        &mut self,
+        &self,
         request: &ClientAdminPageRequest,
     ) -> DbResult<(Vec<ClientAdminRow>, i64)>;
-    async fn detail(&mut self, person_id: &str) -> DbResult<Option<ClientDetail>>;
-    async fn assignable_agents(&mut self) -> DbResult<Vec<AssignableAgent>>;
+    async fn detail(&self, person_id: &str) -> DbResult<Option<ClientDetail>>;
+    async fn assignable_agents(&self) -> DbResult<Vec<AssignableAgent>>;
     async fn evidence_for_people(
-        &mut self,
+        &self,
         person_ids: &[String],
     ) -> DbResult<Vec<(String, RelationshipEvidenceRecord)>>;
     async fn history_events(
-        &mut self,
+        &self,
         person_id: &str,
         limit: i64,
         offset: i64,
     ) -> DbResult<(Vec<ClientHistoryEventRecord>, i64)>;
-    async fn covered_sources(&mut self, person_id: &str) -> DbResult<Vec<String>>;
+    async fn covered_sources(&self, person_id: &str) -> DbResult<Vec<String>>;
 }
 
 #[async_trait]
 impl ClientRepository for ClientDao {
     async fn directory_page(
-        &mut self,
+        &self,
         request: &ClientDirectoryPageRequest,
     ) -> DbResult<(Vec<ClientDirectoryRecord>, i64)> {
         // Every method on this impl is a read, so every one of them may be attempted again: a page load that meets a
@@ -48,29 +48,29 @@ impl ClientRepository for ClientDao {
     }
 
     async fn admin_page(
-        &mut self,
+        &self,
         request: &ClientAdminPageRequest,
     ) -> DbResult<(Vec<ClientAdminRow>, i64)> {
         db::retrying_read!(ClientDao::admin_page(self, request))
     }
 
-    async fn detail(&mut self, person_id: &str) -> DbResult<Option<ClientDetail>> {
+    async fn detail(&self, person_id: &str) -> DbResult<Option<ClientDetail>> {
         db::retrying_read!(ClientDao::detail(self, person_id))
     }
 
-    async fn assignable_agents(&mut self) -> DbResult<Vec<AssignableAgent>> {
+    async fn assignable_agents(&self) -> DbResult<Vec<AssignableAgent>> {
         db::retrying_read!(ClientDao::assignable_agents(self))
     }
 
     async fn evidence_for_people(
-        &mut self,
+        &self,
         person_ids: &[String],
     ) -> DbResult<Vec<(String, RelationshipEvidenceRecord)>> {
         db::retrying_read!(ClientDao::evidence_for_people(self, person_ids))
     }
 
     async fn history_events(
-        &mut self,
+        &self,
         person_id: &str,
         limit: i64,
         offset: i64,
@@ -78,7 +78,7 @@ impl ClientRepository for ClientDao {
         db::retrying_read!(ClientDao::history_events(self, person_id, limit, offset))
     }
 
-    async fn covered_sources(&mut self, person_id: &str) -> DbResult<Vec<String>> {
+    async fn covered_sources(&self, person_id: &str) -> DbResult<Vec<String>> {
         db::retrying_read!(ClientDao::covered_sources(self, person_id))
     }
 }
@@ -97,7 +97,7 @@ impl<R: ClientRepository> ClientService<R> {
     }
 
     pub async fn directory(
-        &mut self,
+        &self,
         request: &ClientDirectoryPageRequest,
         context: &ServiceContext,
     ) -> Result<ClientsPageResult, CoreServiceError> {
@@ -158,7 +158,7 @@ impl<R: ClientRepository> ClientService<R> {
     }
 
     pub async fn admin(
-        &mut self,
+        &self,
         request: &ClientAdminPageRequest,
         context: &ServiceContext,
     ) -> Result<ClientAdminPageResult, CoreServiceError> {
@@ -194,7 +194,7 @@ impl<R: ClientRepository> ClientService<R> {
     }
 
     pub async fn detail(
-        &mut self,
+        &self,
         person_id: &str,
         context: &ServiceContext,
     ) -> Result<Option<ClientDetail>, CoreServiceError> {
@@ -210,13 +210,17 @@ impl<R: ClientRepository> ClientService<R> {
         .await?;
 
         let result = async {
-            let Some(mut client) = self.repository.detail(person_id).await? else {
+            // The detail projection and relationship evidence are independent
+            // reads. Running them together removes one remote-database latency
+            // period from every client switch.
+            let requested_ids = [person_id.to_owned()];
+            let (client, evidence) = tokio::try_join!(
+                self.repository.detail(person_id),
+                self.repository.evidence_for_people(&requested_ids),
+            )?;
+            let Some(mut client) = client else {
                 return Ok(None);
             };
-            let evidence = self
-                .repository
-                .evidence_for_people(&[person_id.to_owned()])
-                .await?;
             let rows: Vec<RelationshipEvidenceRecord> = evidence
                 .into_iter()
                 .filter_map(|(id, row)| (id == person_id).then_some(row))
@@ -231,7 +235,7 @@ impl<R: ClientRepository> ClientService<R> {
     }
 
     pub async fn agents(
-        &mut self,
+        &self,
         context: &ServiceContext,
     ) -> Result<Vec<AssignableAgent>, CoreServiceError> {
         const OP: &str = "clients.agents";
@@ -254,7 +258,7 @@ impl<R: ClientRepository> ClientService<R> {
     }
 
     pub async fn history(
-        &mut self,
+        &self,
         request: &ClientHistoryRequest,
         context: &ServiceContext,
     ) -> Result<ClientContactHistoryResult, CoreServiceError> {
@@ -308,6 +312,16 @@ impl<R: ClientRepository> ClientService<R> {
 
         audit_result(&self.runtime, "clients", OP, context, decision, &result).await?;
         result
+    }
+}
+
+impl ClientService<ClientDao> {
+    pub async fn warm_read_cache(&self) -> Result<(usize, usize), CoreServiceError> {
+        self.repository.warm_read_cache().await.map_err(Into::into)
+    }
+
+    pub fn update_cached_person(&self, person: &domain::Person) {
+        self.repository.update_cached_person(person);
     }
 }
 

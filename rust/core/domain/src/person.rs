@@ -22,6 +22,7 @@ impl PersonIdentityKind {
 pub struct Person {
     pub id: String,
     pub display_name: String,
+    pub civil_status: Option<String>,
     pub status: String,
     pub archived_at: Option<String>,
     pub company: Option<String>,
@@ -56,6 +57,7 @@ pub struct SetPersonDisplayNameRequest {
 pub struct UpdatePersonAdminRequest {
     pub person_id: String,
     pub display_name: String,
+    pub civil_status: Option<String>,
     pub status: String,
     pub company: Option<String>,
 }
@@ -70,4 +72,24 @@ pub struct AttachPersonIdentityRequest {
 pub struct SearchPeopleRequest {
     pub query: String,
     pub limit: Option<i64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Person;
+
+    #[test]
+    fn person_payload_carries_civil_status() {
+        let payload = serde_json::to_value(Person {
+            id: "person-1".into(),
+            display_name: "Seller One".into(),
+            civil_status: Some("Married".into()),
+            status: "active".into(),
+            archived_at: None,
+            company: None,
+        })
+        .unwrap();
+
+        assert_eq!(payload["civil_status"], "Married");
+    }
 }

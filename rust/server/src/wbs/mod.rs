@@ -1,6 +1,6 @@
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
-use db::{DbResult, WbsDao};
+use db::{Database, DbResult, WbsDao};
 use domain::{
     AppleReminderCommandReceipt, AppleReminderUpsertRequest, CreateWbsItemRequest,
     SaveWbsItemRequest, WbsCategory, WbsEntityType, WbsItem, WbsStatus,
@@ -11,19 +11,19 @@ use std::collections::BTreeMap;
 
 #[async_trait]
 pub trait WbsRepository: Send {
-    async fn get(&mut self, id: &str) -> DbResult<Option<WbsItem>>;
-    async fn list_due(&mut self, category: Option<WbsCategory>) -> DbResult<Vec<WbsItem>>;
-    async fn list_project_items(&mut self) -> DbResult<Vec<WbsItem>>;
-    async fn list_for_entity(
-        &mut self,
-        entity_type: WbsEntityType,
-        id: &str,
-    ) -> DbResult<Vec<WbsItem>>;
-    async fn create(&mut self, request: &CreateWbsItemRequest) -> DbResult<WbsItem>;
-    async fn save(&mut self, request: &SaveWbsItemRequest) -> DbResult<Option<WbsItem>>;
-    async fn set_status(&mut self, id: &str, status: WbsStatus) -> DbResult<Option<WbsItem>>;
+    fn database(&self) -> Option<Database> {
+        None
+    }
+    async fn get(&self, id: &str) -> DbResult<Option<WbsItem>>;
+    async fn list_due(&self, category: Option<WbsCategory>) -> DbResult<Vec<WbsItem>>;
+    async fn list_project_items(&self) -> DbResult<Vec<WbsItem>>;
+    async fn list_for_entity(&self, entity_type: WbsEntityType, id: &str)
+        -> DbResult<Vec<WbsItem>>;
+    async fn create(&self, request: &CreateWbsItemRequest) -> DbResult<WbsItem>;
+    async fn save(&self, request: &SaveWbsItemRequest) -> DbResult<Option<WbsItem>>;
+    async fn set_status(&self, id: &str, status: WbsStatus) -> DbResult<Option<WbsItem>>;
     async fn queue_apple_reminder(
-        &mut self,
+        &self,
         request: &AppleReminderUpsertRequest,
         actor_app_user_id: Option<&str>,
         correlation_id: &str,
@@ -32,40 +32,43 @@ pub trait WbsRepository: Send {
 
 #[async_trait]
 impl WbsRepository for WbsDao {
-    async fn get(&mut self, id: &str) -> DbResult<Option<WbsItem>> {
+    fn database(&self) -> Option<Database> {
+        Some(WbsDao::database(self))
+    }
+    async fn get(&self, id: &str) -> DbResult<Option<WbsItem>> {
         WbsDao::get(self, id).await
     }
 
-    async fn list_due(&mut self, category: Option<WbsCategory>) -> DbResult<Vec<WbsItem>> {
+    async fn list_due(&self, category: Option<WbsCategory>) -> DbResult<Vec<WbsItem>> {
         WbsDao::list_due(self, category).await
     }
 
-    async fn list_project_items(&mut self) -> DbResult<Vec<WbsItem>> {
+    async fn list_project_items(&self) -> DbResult<Vec<WbsItem>> {
         WbsDao::list_project_items(self).await
     }
 
     async fn list_for_entity(
-        &mut self,
+        &self,
         entity_type: WbsEntityType,
         id: &str,
     ) -> DbResult<Vec<WbsItem>> {
         WbsDao::list_for_entity(self, entity_type, id).await
     }
 
-    async fn create(&mut self, request: &CreateWbsItemRequest) -> DbResult<WbsItem> {
+    async fn create(&self, request: &CreateWbsItemRequest) -> DbResult<WbsItem> {
         WbsDao::create(self, request).await
     }
 
-    async fn save(&mut self, request: &SaveWbsItemRequest) -> DbResult<Option<WbsItem>> {
+    async fn save(&self, request: &SaveWbsItemRequest) -> DbResult<Option<WbsItem>> {
         WbsDao::save(self, request).await
     }
 
-    async fn set_status(&mut self, id: &str, status: WbsStatus) -> DbResult<Option<WbsItem>> {
+    async fn set_status(&self, id: &str, status: WbsStatus) -> DbResult<Option<WbsItem>> {
         WbsDao::set_status(self, id, status).await
     }
 
     async fn queue_apple_reminder(
-        &mut self,
+        &self,
         request: &AppleReminderUpsertRequest,
         actor_app_user_id: Option<&str>,
         correlation_id: &str,
@@ -99,7 +102,7 @@ impl<R: WbsRepository> WbsService<R> {
     }
 
     pub async fn get(
-        &mut self,
+        &self,
         id: &str,
         context: &ServiceContext,
     ) -> Result<Option<WbsItem>, CoreServiceError> {
@@ -118,7 +121,7 @@ impl<R: WbsRepository> WbsService<R> {
     }
 
     pub async fn list_due(
-        &mut self,
+        &self,
         category: Option<WbsCategory>,
         context: &ServiceContext,
     ) -> Result<Vec<WbsItem>, CoreServiceError> {
@@ -137,7 +140,7 @@ impl<R: WbsRepository> WbsService<R> {
     }
 
     pub async fn list_project_items(
-        &mut self,
+        &self,
         context: &ServiceContext,
     ) -> Result<Vec<WbsItem>, CoreServiceError> {
         const OP: &str = "wbs.listProjectItems";
@@ -159,7 +162,7 @@ impl<R: WbsRepository> WbsService<R> {
     }
 
     pub async fn list_for_entity(
-        &mut self,
+        &self,
         entity_type: WbsEntityType,
         id: &str,
         context: &ServiceContext,
@@ -183,7 +186,7 @@ impl<R: WbsRepository> WbsService<R> {
     }
 
     pub async fn create(
-        &mut self,
+        &self,
         request: &CreateWbsItemRequest,
         context: &ServiceContext,
     ) -> Result<WbsItem, CoreServiceError> {
@@ -197,7 +200,7 @@ impl<R: WbsRepository> WbsService<R> {
             context,
         )
         .await?;
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             if request.title.trim().is_empty() {
                 return Err(CoreServiceError::business(
                     "WBS_TITLE_REQUIRED",
@@ -207,14 +210,14 @@ impl<R: WbsRepository> WbsService<R> {
             let item = self.repository.create(request).await?;
             self.emit("wbs.created", &item, context).await?;
             Ok(item)
-        }
+        })
         .await;
         audit_result(&self.runtime, "wbs", OP, context, decision, &result).await?;
         result
     }
 
     pub async fn save(
-        &mut self,
+        &self,
         request: &SaveWbsItemRequest,
         context: &ServiceContext,
     ) -> Result<WbsItem, CoreServiceError> {
@@ -228,7 +231,7 @@ impl<R: WbsRepository> WbsService<R> {
             context,
         )
         .await?;
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             if request.create.title.trim().is_empty() {
                 return Err(CoreServiceError::business(
                     "WBS_TITLE_REQUIRED",
@@ -243,14 +246,14 @@ impl<R: WbsRepository> WbsService<R> {
             })?;
             self.emit("wbs.updated", &item, context).await?;
             Ok(item)
-        }
+        })
         .await;
         audit_result(&self.runtime, "wbs", OP, context, decision, &result).await?;
         result
     }
 
     pub async fn complete(
-        &mut self,
+        &self,
         id: &str,
         context: &ServiceContext,
     ) -> Result<WbsItem, CoreServiceError> {
@@ -265,7 +268,7 @@ impl<R: WbsRepository> WbsService<R> {
     }
 
     pub async fn queue_apple_reminder(
-        &mut self,
+        &self,
         id: &str,
         alert: bool,
         context: &ServiceContext,
@@ -281,7 +284,7 @@ impl<R: WbsRepository> WbsService<R> {
         )
         .await?;
 
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             let item = self.repository.get(id).await?.ok_or_else(|| {
                 CoreServiceError::business("WBS_NOT_FOUND", format!("WBS item not found: {id}"))
             })?;
@@ -305,7 +308,7 @@ impl<R: WbsRepository> WbsService<R> {
                 )
                 .await
                 .map_err(Into::into)
-        }
+        })
         .await;
 
         audit_result(&self.runtime, "wbs", OP, context, decision, &result).await?;
@@ -313,7 +316,7 @@ impl<R: WbsRepository> WbsService<R> {
     }
 
     pub async fn dismiss(
-        &mut self,
+        &self,
         id: &str,
         context: &ServiceContext,
     ) -> Result<WbsItem, CoreServiceError> {
@@ -328,7 +331,7 @@ impl<R: WbsRepository> WbsService<R> {
     }
 
     async fn set_status(
-        &mut self,
+        &self,
         operation: &'static str,
         event_type: &'static str,
         id: &str,
@@ -344,7 +347,7 @@ impl<R: WbsRepository> WbsService<R> {
             context,
         )
         .await?;
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             let item = self
                 .repository
                 .set_status(id, status)
@@ -354,7 +357,7 @@ impl<R: WbsRepository> WbsService<R> {
                 })?;
             self.emit(event_type, &item, context).await?;
             Ok(item)
-        }
+        })
         .await;
         audit_result(&self.runtime, "wbs", operation, context, decision, &result).await?;
         result

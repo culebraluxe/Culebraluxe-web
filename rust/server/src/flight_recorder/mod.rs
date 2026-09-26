@@ -7,18 +7,12 @@ use crate::service_support::{audit_result, authorize, CoreServiceError};
 
 #[async_trait]
 pub trait FlightRecorderRepository: Send {
-    async fn transaction(
-        &mut self,
-        instance_id: &str,
-    ) -> DbResult<Option<FlightRecorderTransaction>>;
+    async fn transaction(&self, instance_id: &str) -> DbResult<Option<FlightRecorderTransaction>>;
 }
 
 #[async_trait]
 impl FlightRecorderRepository for FlightRecorderDao {
-    async fn transaction(
-        &mut self,
-        instance_id: &str,
-    ) -> DbResult<Option<FlightRecorderTransaction>> {
+    async fn transaction(&self, instance_id: &str) -> DbResult<Option<FlightRecorderTransaction>> {
         FlightRecorderDao::transaction(self, instance_id).await
     }
 }
@@ -37,7 +31,7 @@ impl<R: FlightRecorderRepository> FlightRecorderService<R> {
     }
 
     pub async fn transaction(
-        &mut self,
+        &self,
         instance_id: &str,
         context: &ServiceContext,
     ) -> Result<Option<FlightRecorderTransaction>, CoreServiceError> {

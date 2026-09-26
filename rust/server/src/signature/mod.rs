@@ -1,12 +1,11 @@
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
-use db::{DbResult, SignatureDao};
+use db::{Database, DbResult, SignatureDao};
 use domain::{
     validate_signature_recipients, ApplySignatureStatusRequest, SendSignatureRequest,
     SignatureArtifactDownload, SignatureCommandOutcome, SignatureCommandResult,
-    SignatureProviderActionResult, SignatureProviderSendRequest, SignatureProviderSendResult,
-    SignatureProviderStatusResult, SignatureRequest, SignatureRequestResult,
-    SignatureRequestStatus, SignatureStatusResult, SignatureWebhookVerification,
+    SignatureProviderSendRequest, SignatureRequest, SignatureRequestResult, SignatureRequestStatus,
+    SignatureStatusResult, SignatureWebhookVerification,
 };
 use serde_json::json;
 use service::{
@@ -18,44 +17,47 @@ use uuid::Uuid;
 
 #[async_trait]
 pub trait SignatureRepository: Send {
-    async fn get(&mut self, id: &str) -> DbResult<Option<SignatureRequest>>;
+    fn database(&self) -> Option<Database> {
+        None
+    }
+    async fn get(&self, id: &str) -> DbResult<Option<SignatureRequest>>;
     async fn active_for_document(
-        &mut self,
+        &self,
         transaction_document_id: &str,
     ) -> DbResult<Option<SignatureRequest>>;
     async fn list_by_document(
-        &mut self,
+        &self,
         transaction_document_id: &str,
     ) -> DbResult<Vec<SignatureRequest>>;
     async fn send(
-        &mut self,
+        &self,
         request: &SendSignatureRequest,
         actor_app_user_id: Option<&str>,
     ) -> DbResult<SignatureCommandResult>;
     async fn apply_status(
-        &mut self,
+        &self,
         request: &ApplySignatureStatusRequest,
         actor_app_user_id: Option<&str>,
     ) -> DbResult<SignatureCommandResult>;
     async fn cancel(
-        &mut self,
+        &self,
         command_id: &str,
         signature_request_id: &str,
         actor_app_user_id: Option<&str>,
     ) -> DbResult<SignatureCommandResult>;
     async fn decline(
-        &mut self,
+        &self,
         command_id: &str,
         signature_request_id: &str,
         actor_app_user_id: Option<&str>,
     ) -> DbResult<SignatureCommandResult>;
     async fn reconciliation_needs_artifact(
-        &mut self,
+        &self,
         event_id: &str,
         signature_request_id: &str,
     ) -> DbResult<bool>;
     async fn reconcile_completed(
-        &mut self,
+        &self,
         event_id: &str,
         signature_request_id: &str,
         signed_artifact: Option<&SignatureArtifactDownload>,
@@ -66,26 +68,29 @@ pub trait SignatureRepository: Send {
 
 #[async_trait]
 impl SignatureRepository for SignatureDao {
-    async fn get(&mut self, id: &str) -> DbResult<Option<SignatureRequest>> {
+    fn database(&self) -> Option<Database> {
+        Some(SignatureDao::database(self))
+    }
+    async fn get(&self, id: &str) -> DbResult<Option<SignatureRequest>> {
         SignatureDao::get(self, id).await
     }
 
     async fn active_for_document(
-        &mut self,
+        &self,
         transaction_document_id: &str,
     ) -> DbResult<Option<SignatureRequest>> {
         SignatureDao::active_for_document(self, transaction_document_id).await
     }
 
     async fn list_by_document(
-        &mut self,
+        &self,
         transaction_document_id: &str,
     ) -> DbResult<Vec<SignatureRequest>> {
         SignatureDao::list_by_document(self, transaction_document_id).await
     }
 
     async fn send(
-        &mut self,
+        &self,
         request: &SendSignatureRequest,
         actor_app_user_id: Option<&str>,
     ) -> DbResult<SignatureCommandResult> {
@@ -93,7 +98,7 @@ impl SignatureRepository for SignatureDao {
     }
 
     async fn apply_status(
-        &mut self,
+        &self,
         request: &ApplySignatureStatusRequest,
         actor_app_user_id: Option<&str>,
     ) -> DbResult<SignatureCommandResult> {
@@ -101,7 +106,7 @@ impl SignatureRepository for SignatureDao {
     }
 
     async fn cancel(
-        &mut self,
+        &self,
         command_id: &str,
         signature_request_id: &str,
         actor_app_user_id: Option<&str>,
@@ -110,7 +115,7 @@ impl SignatureRepository for SignatureDao {
     }
 
     async fn decline(
-        &mut self,
+        &self,
         command_id: &str,
         signature_request_id: &str,
         actor_app_user_id: Option<&str>,
@@ -119,7 +124,7 @@ impl SignatureRepository for SignatureDao {
     }
 
     async fn reconciliation_needs_artifact(
-        &mut self,
+        &self,
         event_id: &str,
         signature_request_id: &str,
     ) -> DbResult<bool> {
@@ -127,7 +132,7 @@ impl SignatureRepository for SignatureDao {
     }
 
     async fn reconcile_completed(
-        &mut self,
+        &self,
         event_id: &str,
         signature_request_id: &str,
         signed_artifact: Option<&SignatureArtifactDownload>,
@@ -166,7 +171,7 @@ impl<R: SignatureRepository> SignatureService<R> {
     }
 
     pub async fn get(
-        &mut self,
+        &self,
         id: &str,
         context: &ServiceContext,
     ) -> Result<Option<SignatureRequest>, CoreServiceError> {
@@ -186,7 +191,7 @@ impl<R: SignatureRepository> SignatureService<R> {
     }
 
     pub async fn active_for_document(
-        &mut self,
+        &self,
         transaction_document_id: &str,
         context: &ServiceContext,
     ) -> Result<Option<SignatureRequest>, CoreServiceError> {
@@ -210,7 +215,7 @@ impl<R: SignatureRepository> SignatureService<R> {
     }
 
     pub async fn list_by_document(
-        &mut self,
+        &self,
         transaction_document_id: &str,
         context: &ServiceContext,
     ) -> Result<Vec<SignatureRequest>, CoreServiceError> {
@@ -234,7 +239,7 @@ impl<R: SignatureRepository> SignatureService<R> {
     }
 
     pub async fn send(
-        &mut self,
+        &self,
         request: &SendSignatureRequest,
         context: &ServiceContext,
     ) -> Result<SignatureCommandResult, CoreServiceError> {
@@ -249,7 +254,7 @@ impl<R: SignatureRepository> SignatureService<R> {
         )
         .await?;
 
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             if request.transaction_document_id.trim().is_empty() {
                 return Err(CoreServiceError::business(
                     "SIGNATURE_DOCUMENT_REQUIRED",
@@ -331,7 +336,7 @@ impl<R: SignatureRepository> SignatureService<R> {
 
             emit_status_event(&self.runtime, &status, target, context).await?;
             Ok(status)
-        }
+        })
         .await;
 
         audit_result(&self.runtime, "signature", OP, context, decision, &result).await?;
@@ -339,7 +344,7 @@ impl<R: SignatureRepository> SignatureService<R> {
     }
 
     pub async fn refresh_status(
-        &mut self,
+        &self,
         signature_request_id: &str,
         context: &ServiceContext,
     ) -> Result<SignatureCommandResult, CoreServiceError> {
@@ -354,7 +359,7 @@ impl<R: SignatureRepository> SignatureService<R> {
         )
         .await?;
 
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             let observed = self
                 .provider
                 .status(signature_request_id)
@@ -375,7 +380,7 @@ impl<R: SignatureRepository> SignatureService<R> {
                 .await?;
             emit_status_event(&self.runtime, &command, observed.status, context).await?;
             Ok(command)
-        }
+        })
         .await;
 
         audit_result(&self.runtime, "signature", OP, context, decision, &result).await?;
@@ -383,7 +388,7 @@ impl<R: SignatureRepository> SignatureService<R> {
     }
 
     pub async fn cancel(
-        &mut self,
+        &self,
         command_id: &str,
         signature_request_id: &str,
         context: &ServiceContext,
@@ -399,7 +404,7 @@ impl<R: SignatureRepository> SignatureService<R> {
         )
         .await?;
 
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             let provider = self
                 .provider
                 .cancel(signature_request_id)
@@ -437,7 +442,7 @@ impl<R: SignatureRepository> SignatureService<R> {
             )
             .await?;
             Ok(command)
-        }
+        })
         .await;
 
         audit_result(&self.runtime, "signature", OP, context, decision, &result).await?;
@@ -445,7 +450,7 @@ impl<R: SignatureRepository> SignatureService<R> {
     }
 
     pub async fn decline(
-        &mut self,
+        &self,
         command_id: &str,
         signature_request_id: &str,
         context: &ServiceContext,
@@ -461,7 +466,7 @@ impl<R: SignatureRepository> SignatureService<R> {
         )
         .await?;
 
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             let command = self
                 .repository
                 .decline(command_id, signature_request_id, actor_app_user_id(context))
@@ -474,7 +479,7 @@ impl<R: SignatureRepository> SignatureService<R> {
             )
             .await?;
             Ok(command)
-        }
+        })
         .await;
 
         audit_result(&self.runtime, "signature", OP, context, decision, &result).await?;
@@ -482,7 +487,7 @@ impl<R: SignatureRepository> SignatureService<R> {
     }
 
     async fn reconcile_completed_internal(
-        &mut self,
+        &self,
         event_id: &str,
         signature_request_id: &str,
         context: &ServiceContext,
@@ -528,7 +533,7 @@ impl<R: SignatureRepository> SignatureService<R> {
     }
 
     pub async fn reconcile_completed(
-        &mut self,
+        &self,
         event_id: &str,
         signature_request_id: &str,
         context: &ServiceContext,
@@ -552,7 +557,7 @@ impl<R: SignatureRepository> SignatureService<R> {
     }
 
     pub async fn handle_webhook(
-        &mut self,
+        &self,
         raw_payload: &str,
         signature: &str,
         context: &ServiceContext,
@@ -568,7 +573,7 @@ impl<R: SignatureRepository> SignatureService<R> {
         )
         .await?;
 
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             let verified: SignatureWebhookVerification = self
                 .provider
                 .verify_webhook(raw_payload, signature)
@@ -611,7 +616,7 @@ impl<R: SignatureRepository> SignatureService<R> {
                 }
             }
             Ok(command)
-        }
+        })
         .await;
 
         audit_result(&self.runtime, "signature", OP, context, decision, &result).await?;

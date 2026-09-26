@@ -25,6 +25,19 @@ pub trait AuditPort: Send + Sync {
     async fn record(&self, event: ServiceAuditEvent) -> Result<(), ServicePortError>;
 }
 
+/// Runtime sink for installations that do not persist service-call telemetry.
+/// Business writes remain durable through their repositories and domain-event
+/// transaction; a successful read does not create an additional database row.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoopAuditPort;
+
+#[async_trait]
+impl AuditPort for NoopAuditPort {
+    async fn record(&self, _event: ServiceAuditEvent) -> Result<(), ServicePortError> {
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct CapturingAuditPort {
     events: Arc<Mutex<Vec<ServiceAuditEvent>>>,

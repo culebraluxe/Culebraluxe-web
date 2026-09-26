@@ -117,6 +117,7 @@ pub struct PropertyAdminSummary {
     pub id: String,
     pub name: String,
     pub status: String,
+    pub slug: Option<String>,
     pub location: Option<String>,
     pub list_price: Option<String>,
     pub property_type: Option<String>,

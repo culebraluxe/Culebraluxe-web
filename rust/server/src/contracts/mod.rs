@@ -1,7 +1,7 @@
 use crate::lookup::CoreEntityLookup;
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
-use db::{ContractDao, ContractTxDao, DbResult, DbTransaction};
+use db::{ContractDao, ContractTxDao, Database, DbResult, DbTransaction};
 use domain::{
     Contract, ContractEffectiveState, ContractRole, ContractSummary, CreateContractFromFormRequest,
     ExecuteContractRequest, SaveContractDraftRequest, CONTRACT_FIRM_ROLE_CODES,
@@ -16,6 +16,9 @@ use std::sync::Arc;
 
 #[async_trait]
 pub trait ContractRepository: Send + Sync {
+    fn database(&self) -> Option<Database> {
+        None
+    }
     async fn get(&self, contract_id: &str) -> DbResult<Option<Contract>>;
     async fn list(&self) -> DbResult<Vec<ContractSummary>>;
     async fn list_for_process_instance(
@@ -34,6 +37,9 @@ pub trait ContractRepository: Send + Sync {
 
 #[async_trait]
 impl ContractRepository for ContractDao {
+    fn database(&self) -> Option<Database> {
+        Some(ContractDao::database(self))
+    }
     async fn get(&self, contract_id: &str) -> DbResult<Option<Contract>> {
         ContractDao::get(self, contract_id).await
     }
@@ -202,14 +208,14 @@ impl<R: ContractRepository> ContractService<R> {
         )
         .await?;
 
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             validate_role_codes(&request.roles)?;
             self.assert_parties(request, context).await?;
             let contract = self.repository.create_from_form(request).await?;
             self.emit_created("contract.created", &contract, context)
                 .await?;
             Ok(contract)
-        }
+        })
         .await;
 
         audit_result(&self.runtime, "contract", OP, context, decision, &result).await?;
@@ -232,7 +238,7 @@ impl<R: ContractRepository> ContractService<R> {
         )
         .await?;
 
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             validate_role_codes(&request.roles)?;
             if let Some(existing) = self.repository.get(&request.contract_id).await? {
                 if existing.status != "draft" {
@@ -250,7 +256,7 @@ impl<R: ContractRepository> ContractService<R> {
             self.emit_created("contract.draft_saved", &contract, context)
                 .await?;
             Ok(contract)
-        }
+        })
         .await;
 
         audit_result(&self.runtime, "contract", OP, context, decision, &result).await?;
@@ -286,10 +292,12 @@ impl<R: ContractRepository> ContractService<R> {
         request: &ExecuteContractRequest,
         context: &ServiceContext,
     ) -> Result<Contract, CoreServiceError> {
-        let mut repository = SharedContractExecutionRepository(&self.repository);
-        let (contract, _) = self
-            .execute_with_repository(&mut repository, request, context, true)
-            .await?;
+        let (contract, _) = db::service_mutation(self.repository.database(), async {
+            let mut repository = SharedContractExecutionRepository(&self.repository);
+            self.execute_with_repository(&mut repository, request, context, true)
+                .await
+        })
+        .await?;
         Ok(contract)
     }
 
@@ -348,8 +356,11 @@ impl<R: ContractRepository> ContractService<R> {
 
             let contract = repository.execute(request).await?.ok_or_else(|| {
                 CoreServiceError::business(
-                    "CONTRACT_NOT_FOUND",
-                    format!("Contract not found: {}", request.contract_id),
+                    "CONTRACT_EXECUTION_CONFLICT",
+                    format!(
+                        "Contract {} changed while execution was being committed.",
+                        request.contract_id
+                    ),
                 )
             })?;
 
@@ -383,7 +394,9 @@ impl<R: ContractRepository> ContractService<R> {
         }
         .await;
 
-        audit_result(&self.runtime, "contract", OP, context, decision, &result).await?;
+        if emit_runtime_event {
+            audit_result(&self.runtime, "contract", OP, context, decision, &result).await?;
+        }
         result
     }
 

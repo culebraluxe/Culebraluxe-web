@@ -6,12 +6,12 @@ use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRunti
 
 #[async_trait]
 pub trait CockpitRepository: Send {
-    async fn snapshot(&mut self) -> DbResult<CockpitSnapshot>;
+    async fn snapshot(&self) -> DbResult<CockpitSnapshot>;
 }
 
 #[async_trait]
 impl CockpitRepository for CockpitDao {
-    async fn snapshot(&mut self) -> DbResult<CockpitSnapshot> {
+    async fn snapshot(&self) -> DbResult<CockpitSnapshot> {
         CockpitDao::snapshot(self).await
     }
 }
@@ -30,7 +30,7 @@ impl<R: CockpitRepository> CockpitService<R> {
     }
 
     pub async fn snapshot(
-        &mut self,
+        &self,
         context: &ServiceContext,
     ) -> Result<CockpitSnapshot, CoreServiceError> {
         const OP: &str = "cockpit.snapshot";

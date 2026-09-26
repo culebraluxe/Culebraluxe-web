@@ -33,6 +33,7 @@ pub mod public_listings;
 pub mod relationship_evidence;
 pub mod security;
 pub mod service_bootstrap;
+pub mod service_events;
 pub mod service_gateway;
 pub mod service_harness;
 pub mod service_kernel;
@@ -52,7 +53,7 @@ pub mod workflow_portal;
 
 pub use agreement_execution::Crm26AgreementExecutionSubscriber;
 pub use command_runtime::{CommandDispatchError, CommandDispatcher};
-pub use composition::CoreServices;
+pub use composition::ServiceCatalog;
 pub use mq_runtime::{
     MqProofSubscriber, MqRuntime, MqRuntimeConfig, MqSubscriber, MqSubscriberError,
 };

@@ -186,6 +186,10 @@ impl FormDao {
         Self { db }
     }
 
+    pub fn database(&self) -> Database {
+        self.db.clone()
+    }
+
     pub async fn create_instance(
         &self,
         request: &CreateFormInstanceRequest,
@@ -220,7 +224,7 @@ impl FormDao {
         .bind(field_values)
         .bind(sections)
         .bind(request.created_by_user_id.as_deref())
-        .fetch_one(self.db.pool())
+        .fetch_one(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("form.create", &error))?;
 
@@ -242,7 +246,7 @@ impl FormDao {
             "#,
         )
         .bind(form_instance_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("form.get", &error))?;
 
@@ -294,7 +298,7 @@ impl FormDao {
         .bind(sections)
         .bind(request.input.status.map(FormInstanceStatus::as_str))
         .bind(request.input.contract_id.as_deref())
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("form.update", &error))?;
 
@@ -322,7 +326,7 @@ impl FormDao {
             order by f.updated_at desc, f.id
             "#,
         )
-        .fetch_all(self.db.pool())
+        .fetch_all(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("form.list", &error))?;
 
@@ -355,7 +359,7 @@ impl FormDao {
             "#,
         )
         .bind(deal_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("form.deal_facts", &error))?;
 
@@ -472,7 +476,7 @@ impl FormDao {
         .bind(request.template_id.trim())
         .bind(&request.person_id)
         .bind(request.roles.clone())
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("form.latest_evidence", &error))?;
 
@@ -507,7 +511,7 @@ impl FormDao {
             "#,
         )
         .bind(deal_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("form.resolve_deal_launch_context", &error))?;
 
@@ -540,7 +544,7 @@ impl FormDao {
         .bind(&request.form_instance_id)
         .bind(&request.person_id)
         .bind(&request.property_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("form.bind_direct_context", &error))?;
 
@@ -572,7 +576,7 @@ impl FormDao {
         .bind(&request.form_instance_id)
         .bind(&request.person_id)
         .bind(request.property_id.as_deref())
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("form.bind_listing_context", &error))?;
 
@@ -589,7 +593,7 @@ impl FormDao {
             "#,
         )
         .bind(form_instance_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map(|value| value.flatten())
         .map_err(|error| DbFailure::from_sqlx("form.get_showing_id", &error))
@@ -607,7 +611,7 @@ impl FormDao {
         )
         .bind(&request.form_instance_id)
         .bind(&request.showing_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("form.bind_showing", &error))?;
 
@@ -632,7 +636,7 @@ impl FormDao {
             "#,
         )
         .bind(form_instance_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("form.signers.form", &error))?;
 
@@ -656,11 +660,12 @@ impl FormDao {
                 "#,
             )
             .bind(&person_id)
-            .fetch_optional(self.db.pool())
+            .fetch_optional(&mut *self.db.connection().await?)
             .await
             .map_err(|error| DbFailure::from_sqlx("form.signers.direct_email", &error))?;
 
             people.push(FormSignerPerson {
+                            slot_id: None,
                 person_id: Some(person_id),
                 name: form.person_name.unwrap_or_default(),
                 email,
@@ -692,11 +697,12 @@ impl FormDao {
                 "#,
             )
             .bind(deal_id)
-            .fetch_optional(self.db.pool())
+            .fetch_optional(&mut *self.db.connection().await?)
             .await
             .map_err(|error| DbFailure::from_sqlx("form.signers.deal_client", &error))?
             {
                 people.push(FormSignerPerson {
+                                slot_id: None,
                     person_id: client.person_id,
                     name: client.display_name,
                     email: compact(client.email),
@@ -722,12 +728,13 @@ impl FormDao {
                 "#,
             )
             .bind(form_instance_id)
-            .fetch_all(self.db.pool())
+            .fetch_all(&mut *self.db.connection().await?)
             .await
             .map_err(|error| DbFailure::from_sqlx("form.signers.form_participants", &error))?;
 
             for row in participants {
                 people.push(FormSignerPerson {
+                                slot_id: None,
                     person_id: row.person_id,
                     name: row.display_name,
                     email: compact(row.email),
@@ -754,12 +761,13 @@ impl FormDao {
                 "#,
             )
             .bind(deal_id)
-            .fetch_all(self.db.pool())
+            .fetch_all(&mut *self.db.connection().await?)
             .await
             .map_err(|error| DbFailure::from_sqlx("form.signers.deal_participants", &error))?;
 
             for row in deal_people {
                 people.push(FormSignerPerson {
+                                slot_id: None,
                     person_id: row.person_id,
                     name: row.display_name,
                     email: compact(row.email),
@@ -779,7 +787,7 @@ impl FormDao {
                 "#,
             )
             .bind(SELLER_BROKER_NAME)
-            .fetch_all(self.db.pool())
+            .fetch_all(&mut *self.db.connection().await?)
             .await
             .map_err(|error| DbFailure::from_sqlx("form.signers.broker", &error))?;
 
@@ -794,6 +802,7 @@ impl FormDao {
             }
             let broker = brokers.into_iter().next().expect("checked len == 1");
             people.push(FormSignerPerson {
+                            slot_id: None,
                 person_id: broker.person_id,
                 name: SELLER_BROKER_NAME.into(),
                 email: compact(broker.email),

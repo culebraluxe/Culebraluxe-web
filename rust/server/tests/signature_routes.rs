@@ -25,6 +25,11 @@ fn routes_source() -> String {
         .expect("routes.rs must be readable")
 }
 
+fn composition_source() -> String {
+    fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/composition.rs"))
+        .expect("composition.rs must be readable")
+}
+
 fn parity_map() -> serde_json::Value {
     let path = repo_root().join("scripts/rust-parity-map.json");
     let raw = fs::read_to_string(&path)
@@ -80,9 +85,10 @@ fn every_signature_handler_exists_and_uses_the_provider() {
             "handler {handler} is mounted by the router but not defined"
         );
     }
+    assert!(source.contains("signature_service(&state)?"));
     assert!(
-        source.contains("BoldSignSignatureProvider::new"),
-        "the BoldSign adapter is no longer constructed on this transport — the handlers would have nothing to send with"
+        composition_source().contains("BoldSignSignatureProvider::new"),
+        "the long-lived service catalog no longer constructs the BoldSign adapter"
     );
 }
 

@@ -63,7 +63,7 @@ pub async fn resolve_identity_context(
         principal: None,
     };
 
-    let mut security = state.services().security();
+    let security = state.services().security();
     let resolution = security
         .resolve_identity(provider, provider_subject, &bootstrap)
         .await

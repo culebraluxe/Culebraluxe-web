@@ -1,6 +1,6 @@
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
-use db::{DbResult, FormDao};
+use db::{Database, DbResult, FormDao};
 use domain::{
     BindFormInstanceToDirectContextRequest, BindFormInstanceToShowingRequest,
     BindListingFormContextRequest, CreateFormInstanceRequest, DealFormFacts, DirectFormContext,
@@ -13,76 +13,71 @@ use std::collections::BTreeMap;
 
 #[async_trait]
 pub trait FormRepository: Send {
-    async fn create_instance(
-        &mut self,
-        request: &CreateFormInstanceRequest,
-    ) -> DbResult<FormInstance>;
-    async fn get_instance(&mut self, form_instance_id: &str) -> DbResult<Option<FormInstance>>;
+    fn database(&self) -> Option<Database> {
+        None
+    }
+    async fn create_instance(&self, request: &CreateFormInstanceRequest) -> DbResult<FormInstance>;
+    async fn get_instance(&self, form_instance_id: &str) -> DbResult<Option<FormInstance>>;
     async fn update_instance(
-        &mut self,
+        &self,
         request: &UpdateFormInstanceRequest,
     ) -> DbResult<Option<FormInstance>>;
-    async fn list_instances(&mut self) -> DbResult<Vec<FormInstanceListItem>>;
-    async fn deal_facts(&mut self, deal_id: &str) -> DbResult<Option<DealFormFacts>>;
+    async fn list_instances(&self) -> DbResult<Vec<FormInstanceListItem>>;
+    async fn deal_facts(&self, deal_id: &str) -> DbResult<Option<DealFormFacts>>;
     async fn seed_participants_from_deal(
-        &mut self,
+        &self,
         form_instance_id: &str,
         deal_id: &str,
     ) -> DbResult<()>;
     async fn latest_evidence(
-        &mut self,
+        &self,
         request: &LatestFormEvidenceRequest,
     ) -> DbResult<Option<FormInstanceEvidence>>;
     async fn resolve_deal_launch_context(
-        &mut self,
+        &self,
         deal_id: &str,
     ) -> DbResult<Option<DirectFormContext>>;
     async fn bind_direct_context(
-        &mut self,
+        &self,
         request: &BindFormInstanceToDirectContextRequest,
     ) -> DbResult<bool>;
-    async fn bind_listing_context(
-        &mut self,
-        request: &BindListingFormContextRequest,
-    ) -> DbResult<bool>;
-    async fn get_showing_id(&mut self, form_instance_id: &str) -> DbResult<Option<String>>;
-    async fn bind_showing(&mut self, request: &BindFormInstanceToShowingRequest) -> DbResult<bool>;
-    async fn list_signer_people(
-        &mut self,
-        form_instance_id: &str,
-    ) -> DbResult<Vec<FormSignerPerson>>;
+    async fn bind_listing_context(&self, request: &BindListingFormContextRequest)
+        -> DbResult<bool>;
+    async fn get_showing_id(&self, form_instance_id: &str) -> DbResult<Option<String>>;
+    async fn bind_showing(&self, request: &BindFormInstanceToShowingRequest) -> DbResult<bool>;
+    async fn list_signer_people(&self, form_instance_id: &str) -> DbResult<Vec<FormSignerPerson>>;
 }
 
 #[async_trait]
 impl FormRepository for FormDao {
-    async fn create_instance(
-        &mut self,
-        request: &CreateFormInstanceRequest,
-    ) -> DbResult<FormInstance> {
+    fn database(&self) -> Option<Database> {
+        Some(FormDao::database(self))
+    }
+    async fn create_instance(&self, request: &CreateFormInstanceRequest) -> DbResult<FormInstance> {
         FormDao::create_instance(self, request).await
     }
 
-    async fn get_instance(&mut self, form_instance_id: &str) -> DbResult<Option<FormInstance>> {
+    async fn get_instance(&self, form_instance_id: &str) -> DbResult<Option<FormInstance>> {
         FormDao::get_instance(self, form_instance_id).await
     }
 
     async fn update_instance(
-        &mut self,
+        &self,
         request: &UpdateFormInstanceRequest,
     ) -> DbResult<Option<FormInstance>> {
         FormDao::update_instance(self, request).await
     }
 
-    async fn list_instances(&mut self) -> DbResult<Vec<FormInstanceListItem>> {
+    async fn list_instances(&self) -> DbResult<Vec<FormInstanceListItem>> {
         FormDao::list_instances(self).await
     }
 
-    async fn deal_facts(&mut self, deal_id: &str) -> DbResult<Option<DealFormFacts>> {
+    async fn deal_facts(&self, deal_id: &str) -> DbResult<Option<DealFormFacts>> {
         FormDao::deal_facts(self, deal_id).await
     }
 
     async fn seed_participants_from_deal(
-        &mut self,
+        &self,
         form_instance_id: &str,
         deal_id: &str,
     ) -> DbResult<()> {
@@ -90,45 +85,42 @@ impl FormRepository for FormDao {
     }
 
     async fn latest_evidence(
-        &mut self,
+        &self,
         request: &LatestFormEvidenceRequest,
     ) -> DbResult<Option<FormInstanceEvidence>> {
         FormDao::latest_evidence(self, request).await
     }
 
     async fn resolve_deal_launch_context(
-        &mut self,
+        &self,
         deal_id: &str,
     ) -> DbResult<Option<DirectFormContext>> {
         FormDao::resolve_deal_launch_context(self, deal_id).await
     }
 
     async fn bind_direct_context(
-        &mut self,
+        &self,
         request: &BindFormInstanceToDirectContextRequest,
     ) -> DbResult<bool> {
         FormDao::bind_direct_context(self, request).await
     }
 
     async fn bind_listing_context(
-        &mut self,
+        &self,
         request: &BindListingFormContextRequest,
     ) -> DbResult<bool> {
         FormDao::bind_listing_context(self, request).await
     }
 
-    async fn get_showing_id(&mut self, form_instance_id: &str) -> DbResult<Option<String>> {
+    async fn get_showing_id(&self, form_instance_id: &str) -> DbResult<Option<String>> {
         FormDao::get_showing_id(self, form_instance_id).await
     }
 
-    async fn bind_showing(&mut self, request: &BindFormInstanceToShowingRequest) -> DbResult<bool> {
+    async fn bind_showing(&self, request: &BindFormInstanceToShowingRequest) -> DbResult<bool> {
         FormDao::bind_showing(self, request).await
     }
 
-    async fn list_signer_people(
-        &mut self,
-        form_instance_id: &str,
-    ) -> DbResult<Vec<FormSignerPerson>> {
+    async fn list_signer_people(&self, form_instance_id: &str) -> DbResult<Vec<FormSignerPerson>> {
         FormDao::list_signer_people(self, form_instance_id).await
     }
 }
@@ -147,7 +139,7 @@ impl<R: FormRepository> FormService<R> {
     }
 
     pub async fn create_instance(
-        &mut self,
+        &self,
         request: &CreateFormInstanceRequest,
         context: &ServiceContext,
     ) -> Result<FormInstance, CoreServiceError> {
@@ -162,7 +154,7 @@ impl<R: FormRepository> FormService<R> {
         )
         .await?;
 
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             if request.template_id.trim().is_empty() {
                 return Err(CoreServiceError::business(
                     "FORM_TEMPLATE_REQUIRED",
@@ -196,7 +188,7 @@ impl<R: FormRepository> FormService<R> {
                 )
                 .await?;
             Ok(instance)
-        }
+        })
         .await;
 
         audit_result(&self.runtime, "form", OP, context, decision, &result).await?;
@@ -204,7 +196,7 @@ impl<R: FormRepository> FormService<R> {
     }
 
     pub async fn get_instance(
-        &mut self,
+        &self,
         form_instance_id: &str,
         context: &ServiceContext,
     ) -> Result<Option<FormInstance>, CoreServiceError> {
@@ -228,7 +220,7 @@ impl<R: FormRepository> FormService<R> {
     }
 
     pub async fn update_instance(
-        &mut self,
+        &self,
         request: &UpdateFormInstanceRequest,
         context: &ServiceContext,
     ) -> Result<Option<FormInstance>, CoreServiceError> {
@@ -242,7 +234,7 @@ impl<R: FormRepository> FormService<R> {
             context,
         )
         .await?;
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             let instance = self.repository.update_instance(request).await?;
             if let Some(instance) = &instance {
                 self.runtime
@@ -258,14 +250,14 @@ impl<R: FormRepository> FormService<R> {
                     .await?;
             }
             Ok(instance)
-        }
+        })
         .await;
         audit_result(&self.runtime, "form", OP, context, decision, &result).await?;
         result
     }
 
     pub async fn list_instances(
-        &mut self,
+        &self,
         context: &ServiceContext,
     ) -> Result<Vec<FormInstanceListItem>, CoreServiceError> {
         const OP: &str = "form.listInstances";
@@ -284,7 +276,7 @@ impl<R: FormRepository> FormService<R> {
     }
 
     pub async fn deal_facts(
-        &mut self,
+        &self,
         deal_id: &str,
         context: &ServiceContext,
     ) -> Result<Option<DealFormFacts>, CoreServiceError> {
@@ -308,7 +300,7 @@ impl<R: FormRepository> FormService<R> {
     }
 
     pub async fn seed_participants_from_deal(
-        &mut self,
+        &self,
         form_instance_id: &str,
         deal_id: &str,
         context: &ServiceContext,
@@ -333,7 +325,7 @@ impl<R: FormRepository> FormService<R> {
     }
 
     pub async fn latest_evidence(
-        &mut self,
+        &self,
         request: &LatestFormEvidenceRequest,
         context: &ServiceContext,
     ) -> Result<Option<FormInstanceEvidence>, CoreServiceError> {
@@ -357,7 +349,7 @@ impl<R: FormRepository> FormService<R> {
     }
 
     pub async fn resolve_deal_launch_context(
-        &mut self,
+        &self,
         deal_id: &str,
         context: &ServiceContext,
     ) -> Result<Option<DirectFormContext>, CoreServiceError> {
@@ -381,7 +373,7 @@ impl<R: FormRepository> FormService<R> {
     }
 
     pub async fn bind_direct_context(
-        &mut self,
+        &self,
         request: &BindFormInstanceToDirectContextRequest,
         context: &ServiceContext,
     ) -> Result<(), CoreServiceError> {
@@ -404,7 +396,7 @@ impl<R: FormRepository> FormService<R> {
     }
 
     pub async fn bind_listing_context(
-        &mut self,
+        &self,
         request: &BindListingFormContextRequest,
         context: &ServiceContext,
     ) -> Result<(), CoreServiceError> {
@@ -427,7 +419,7 @@ impl<R: FormRepository> FormService<R> {
     }
 
     pub async fn get_showing_id(
-        &mut self,
+        &self,
         form_instance_id: &str,
         context: &ServiceContext,
     ) -> Result<Option<String>, CoreServiceError> {
@@ -451,7 +443,7 @@ impl<R: FormRepository> FormService<R> {
     }
 
     pub async fn bind_showing(
-        &mut self,
+        &self,
         request: &BindFormInstanceToShowingRequest,
         context: &ServiceContext,
     ) -> Result<(), CoreServiceError> {
@@ -473,7 +465,7 @@ impl<R: FormRepository> FormService<R> {
     }
 
     pub async fn list_signer_people(
-        &mut self,
+        &self,
         form_instance_id: &str,
         context: &ServiceContext,
     ) -> Result<Vec<FormSignerPerson>, CoreServiceError> {
@@ -497,7 +489,7 @@ impl<R: FormRepository> FormService<R> {
     }
 
     async fn bind(
-        &mut self,
+        &self,
         operation: &'static str,
         event_type: &'static str,
         aggregate_id: String,
@@ -515,7 +507,7 @@ impl<R: FormRepository> FormService<R> {
         )
         .await?;
 
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             let bound = match bind {
                 FormBind::Direct(request) => self.repository.bind_direct_context(request).await?,
                 FormBind::Listing(request) => self.repository.bind_listing_context(request).await?,
@@ -531,7 +523,7 @@ impl<R: FormRepository> FormService<R> {
                 .emit(event_type, Some(aggregate_id), payload, context)
                 .await?;
             Ok(())
-        }
+        })
         .await;
 
         audit_result(&self.runtime, "form", operation, context, decision, &result).await?;

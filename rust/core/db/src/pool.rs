@@ -6,6 +6,7 @@ use sqlx::Connection;
 use sqlx::PgPool;
 use std::env;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,6 +35,7 @@ impl DbTarget {
 pub struct Database {
     pool: PgPool,
     target: DbTarget,
+    pub(crate) identity: Arc<()>,
 }
 
 impl Database {
@@ -134,7 +136,11 @@ impl Database {
             .await
             .map_err(|error| DbFailure::from_sqlx("db.connect", &error))?;
 
-        Ok(Self { pool, target })
+        Ok(Self {
+            pool,
+            target,
+            identity: Arc::new(()),
+        })
     }
 
     pub const fn target(&self) -> DbTarget {
@@ -194,6 +200,20 @@ impl Database {
     }
 
     pub async fn begin(&self, operation: &'static str) -> DbResult<DbTransaction> {
+        if let Some(scope) = crate::unit_of_work::current(&self.identity) {
+            let guard = scope.transaction.clone().lock_owned().await;
+            if guard.is_none()
+                || scope
+                    .rollback_only
+                    .load(std::sync::atomic::Ordering::Acquire)
+            {
+                return Err(DbFailure::configuration(
+                    operation,
+                    "Mutation transaction has already been rolled back.",
+                ));
+            }
+            return Ok(DbTransaction::scoped(guard, scope.rollback_only));
+        }
         let transaction = self
             .pool
             .begin()

@@ -51,41 +51,40 @@ pub fn policy_domain_for(action: &'static str) -> &'static str {
 #[async_trait]
 pub trait SecurityRepository: Send {
     async fn resolve_provider_subject(
-        &mut self,
+        &self,
         provider: &str,
         provider_subject: &str,
     ) -> DbResult<Option<String>>;
-    async fn get_principal(&mut self, app_user_id: &str) -> DbResult<Option<ActingUser>>;
-    async fn list_role_entitlements(&mut self) -> DbResult<Vec<RoleEntitlements>>;
+    async fn get_principal(&self, app_user_id: &str) -> DbResult<Option<ActingUser>>;
+    async fn list_role_entitlements(&self) -> DbResult<Vec<RoleEntitlements>>;
     async fn set_role_entitlement(
-        &mut self,
+        &self,
         role_code: &str,
         action: &str,
         granted: bool,
     ) -> DbResult<bool>;
-    async fn list_security_users(&mut self) -> DbResult<Vec<SecurityUserRoles>>;
-    async fn set_user_primary_role(&mut self, app_user_id: &str, role_code: &str)
-        -> DbResult<bool>;
+    async fn list_security_users(&self) -> DbResult<Vec<SecurityUserRoles>>;
+    async fn set_user_primary_role(&self, app_user_id: &str, role_code: &str) -> DbResult<bool>;
 }
 
 #[async_trait]
 impl SecurityRepository for SecurityDao {
     async fn resolve_provider_subject(
-        &mut self,
+        &self,
         provider: &str,
         provider_subject: &str,
     ) -> DbResult<Option<String>> {
         SecurityDao::resolve_provider_subject(self, provider, provider_subject).await
     }
 
-    async fn get_principal(&mut self, app_user_id: &str) -> DbResult<Option<ActingUser>> {
+    async fn get_principal(&self, app_user_id: &str) -> DbResult<Option<ActingUser>> {
         SecurityDao::get_principal(self, app_user_id).await
     }
-    async fn list_role_entitlements(&mut self) -> DbResult<Vec<RoleEntitlements>> {
+    async fn list_role_entitlements(&self) -> DbResult<Vec<RoleEntitlements>> {
         SecurityDao::list_role_entitlements(self).await
     }
     async fn set_role_entitlement(
-        &mut self,
+        &self,
         role_code: &str,
         action: &str,
         granted: bool,
@@ -93,15 +92,11 @@ impl SecurityRepository for SecurityDao {
         SecurityDao::set_role_entitlement(self, role_code, action, granted).await
     }
 
-    async fn list_security_users(&mut self) -> DbResult<Vec<SecurityUserRoles>> {
+    async fn list_security_users(&self) -> DbResult<Vec<SecurityUserRoles>> {
         SecurityDao::list_security_users(self).await
     }
 
-    async fn set_user_primary_role(
-        &mut self,
-        app_user_id: &str,
-        role_code: &str,
-    ) -> DbResult<bool> {
+    async fn set_user_primary_role(&self, app_user_id: &str, role_code: &str) -> DbResult<bool> {
         SecurityDao::set_user_primary_role(self, app_user_id, role_code).await
     }
 }
@@ -109,6 +104,7 @@ impl SecurityRepository for SecurityDao {
 pub struct SecurityService<R> {
     repository: R,
     runtime: ServiceRuntime,
+    identity_cache: identity_cache::IdentityCache,
 }
 
 impl<R: SecurityRepository> SecurityService<R> {
@@ -116,11 +112,12 @@ impl<R: SecurityRepository> SecurityService<R> {
         Self {
             repository,
             runtime: ServiceRuntime::new(infrastructure),
+            identity_cache: identity_cache::IdentityCache::default(),
         }
     }
 
     pub async fn resolve_identity(
-        &mut self,
+        &self,
         provider: &str,
         provider_subject: &str,
         context: &ServiceContext,
@@ -138,7 +135,7 @@ impl<R: SecurityRepository> SecurityService<R> {
 
         // The cache sits between the authorization decision and the two lookups, so the audit trail records this
         // operation on every request exactly as it did before; only the queries are skipped.
-        if let Some(principal) = identity_cache::get(provider, provider_subject) {
+        if let Some(principal) = self.identity_cache.get(provider, provider_subject) {
             let result: Result<SecurityIdentityResolution, CoreServiceError> =
                 Ok(SecurityIdentityResolution::Known(principal));
             audit_result(&self.runtime, "security", OP, context, decision, &result).await?;
@@ -166,7 +163,8 @@ impl<R: SecurityRepository> SecurityService<R> {
         };
 
         if let Ok(SecurityIdentityResolution::Known(principal)) = &result {
-            identity_cache::put(provider, provider_subject, principal);
+            self.identity_cache
+                .put(provider, provider_subject, principal);
         }
 
         audit_result(&self.runtime, "security", OP, context, decision, &result).await?;
@@ -186,7 +184,7 @@ impl<R: SecurityRepository> SecurityService<R> {
     /// denied) and an operation rule (the `contract.execute` level floor) on those fields, and a caller able to
     /// rename them could dodge a floor. `operation` is the action, which is what the audit row wants to name anyway.
     pub async fn decide(
-        &mut self,
+        &self,
         action: &'static str,
         kind: OperationKind,
         context: &ServiceContext,
@@ -231,7 +229,7 @@ impl<R: SecurityRepository> SecurityService<R> {
     }
 
     pub async fn list_role_entitlements(
-        &mut self,
+        &self,
         context: &ServiceContext,
     ) -> Result<Vec<RoleEntitlements>, CoreServiceError> {
         const OP: &str = "security.listRoleEntitlements";
@@ -254,7 +252,7 @@ impl<R: SecurityRepository> SecurityService<R> {
     }
 
     pub async fn set_role_entitlement(
-        &mut self,
+        &self,
         role_code: &str,
         action: &str,
         granted: bool,
@@ -287,7 +285,7 @@ impl<R: SecurityRepository> SecurityService<R> {
     }
 
     pub async fn list_security_users(
-        &mut self,
+        &self,
         context: &ServiceContext,
     ) -> Result<Vec<SecurityUserRoles>, CoreServiceError> {
         const OP: &str = "security.listUsers";
@@ -310,7 +308,7 @@ impl<R: SecurityRepository> SecurityService<R> {
     }
 
     pub async fn set_user_primary_role(
-        &mut self,
+        &self,
         app_user_id: &str,
         role_code: &str,
         context: &ServiceContext,
@@ -342,7 +340,7 @@ impl<R: SecurityRepository> SecurityService<R> {
     }
 
     pub async fn get_principal(
-        &mut self,
+        &self,
         app_user_id: &str,
         context: &ServiceContext,
     ) -> Result<Option<SecurityPrincipal>, CoreServiceError> {
@@ -369,6 +367,26 @@ impl<R: SecurityRepository> SecurityService<R> {
 
         audit_result(&self.runtime, "security", OP, context, decision, &result).await?;
         result
+    }
+}
+
+impl SecurityService<SecurityDao> {
+    pub async fn warm_identity_cache(&self) -> Result<usize, CoreServiceError> {
+        let principals = self.repository.load_identity_principals().await?;
+        let count = principals.len();
+        self.identity_cache
+            .replace(principals.into_iter().map(|entry| {
+                let level = resolve_security_level(&entry.acting_user.role_codes);
+                (
+                    entry.provider,
+                    entry.provider_subject,
+                    SecurityPrincipal {
+                        acting_user: entry.acting_user,
+                        level,
+                    },
+                )
+            }));
+        Ok(count)
     }
 }
 
@@ -419,21 +437,21 @@ mod tests {
     #[async_trait]
     impl SecurityRepository for IdentityLookupFailure {
         async fn resolve_provider_subject(
-            &mut self,
+            &self,
             _provider: &str,
             _provider_subject: &str,
         ) -> DbResult<Option<String>> {
             Err(transient("security.resolve_provider_subject"))
         }
 
-        async fn get_principal(&mut self, _app_user_id: &str) -> DbResult<Option<ActingUser>> {
+        async fn get_principal(&self, _app_user_id: &str) -> DbResult<Option<ActingUser>> {
             unreachable!("principal lookup must not run after identity lookup failure")
         }
-        async fn list_role_entitlements(&mut self) -> DbResult<Vec<RoleEntitlements>> {
+        async fn list_role_entitlements(&self) -> DbResult<Vec<RoleEntitlements>> {
             Ok(Vec::new())
         }
         async fn set_role_entitlement(
-            &mut self,
+            &self,
             _role_code: &str,
             _action: &str,
             _granted: bool,
@@ -441,11 +459,11 @@ mod tests {
             unreachable!("grant mutation must not run after identity lookup failure")
         }
 
-        async fn list_security_users(&mut self) -> DbResult<Vec<SecurityUserRoles>> {
+        async fn list_security_users(&self) -> DbResult<Vec<SecurityUserRoles>> {
             Ok(Vec::new())
         }
         async fn set_user_primary_role(
-            &mut self,
+            &self,
             _app_user_id: &str,
             _role_code: &str,
         ) -> DbResult<bool> {
@@ -458,21 +476,21 @@ mod tests {
     #[async_trait]
     impl SecurityRepository for PrincipalLookupFailure {
         async fn resolve_provider_subject(
-            &mut self,
+            &self,
             _provider: &str,
             _provider_subject: &str,
         ) -> DbResult<Option<String>> {
             Ok(Some("user-1".into()))
         }
 
-        async fn get_principal(&mut self, _app_user_id: &str) -> DbResult<Option<ActingUser>> {
+        async fn get_principal(&self, _app_user_id: &str) -> DbResult<Option<ActingUser>> {
             Err(transient("security.get_principal"))
         }
-        async fn list_role_entitlements(&mut self) -> DbResult<Vec<RoleEntitlements>> {
+        async fn list_role_entitlements(&self) -> DbResult<Vec<RoleEntitlements>> {
             Err(transient("security.list_role_entitlements"))
         }
         async fn set_role_entitlement(
-            &mut self,
+            &self,
             _role_code: &str,
             _action: &str,
             _granted: bool,
@@ -480,11 +498,11 @@ mod tests {
             Err(transient("security.set_role_entitlement"))
         }
 
-        async fn list_security_users(&mut self) -> DbResult<Vec<SecurityUserRoles>> {
+        async fn list_security_users(&self) -> DbResult<Vec<SecurityUserRoles>> {
             Err(transient("security.list_security_users"))
         }
         async fn set_user_primary_role(
-            &mut self,
+            &self,
             _app_user_id: &str,
             _role_code: &str,
         ) -> DbResult<bool> {
@@ -494,7 +512,7 @@ mod tests {
 
     #[tokio::test]
     async fn identity_database_failure_is_not_reported_as_unmapped() {
-        let mut service = SecurityService::new(IdentityLookupFailure, infrastructure());
+        let service = SecurityService::new(IdentityLookupFailure, infrastructure());
         let result = service
             .resolve_identity("test-provider-db-failure", "subject-1", &context())
             .await;
@@ -504,7 +522,7 @@ mod tests {
 
     #[tokio::test]
     async fn principal_database_failure_is_not_reported_as_inactive() {
-        let mut service = SecurityService::new(PrincipalLookupFailure, infrastructure());
+        let service = SecurityService::new(PrincipalLookupFailure, infrastructure());
         let result = service
             .resolve_identity("test-provider-principal-failure", "subject-2", &context())
             .await;
@@ -514,7 +532,7 @@ mod tests {
 
     #[tokio::test]
     async fn direct_principal_database_failure_is_not_reported_as_missing() {
-        let mut service = SecurityService::new(PrincipalLookupFailure, infrastructure());
+        let service = SecurityService::new(PrincipalLookupFailure, infrastructure());
         let result = service.get_principal("user-1", &context()).await;
 
         assert!(matches!(result, Err(CoreServiceError::Database(_))));

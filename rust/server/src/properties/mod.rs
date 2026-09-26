@@ -1,7 +1,7 @@
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
 use chrono::NaiveDate;
-use db::{DbResult, PropertyDao};
+use db::{Database, DbResult, PropertyDao};
 use domain::{
     CreatePropertyAdminRequest, FindPropertyByAddressRequest, PersonPropertyContext, Property,
     PropertyAdminPage, PropertyAdminPageRequest, PropertyAdminRecord, PropertyForPerson,
@@ -14,6 +14,9 @@ use std::collections::BTreeMap;
 
 #[async_trait]
 pub trait PropertyRepository: Send + Sync {
+    fn database(&self) -> Option<Database> {
+        None
+    }
     async fn get(&self, property_id: &str) -> DbResult<Option<Property>>;
     async fn find_by_address(
         &self,
@@ -43,6 +46,9 @@ pub trait PropertyRepository: Send + Sync {
 
 #[async_trait]
 impl PropertyRepository for PropertyDao {
+    fn database(&self) -> Option<Database> {
+        Some(PropertyDao::database(self))
+    }
     async fn get(&self, property_id: &str) -> DbResult<Option<Property>> {
         db::retrying_read!(PropertyDao::get(self, property_id))
     }
@@ -198,7 +204,7 @@ impl<R: PropertyRepository> PropertyService<R> {
             context,
         )
         .await?;
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             let linked = self.repository.upsert_for_person(request).await?;
             self.runtime
                 .emit(
@@ -220,7 +226,7 @@ impl<R: PropertyRepository> PropertyService<R> {
                 )
                 .await?;
             Ok(linked)
-        }
+        })
         .await;
         audit_result(&self.runtime, "property", OP, context, decision, &result).await?;
         result
@@ -241,7 +247,7 @@ impl<R: PropertyRepository> PropertyService<R> {
             context,
         )
         .await?;
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             let property = self
                 .repository
                 .set_display_name(request)
@@ -264,7 +270,7 @@ impl<R: PropertyRepository> PropertyService<R> {
                 )
                 .await?;
             Ok(property)
-        }
+        })
         .await;
         audit_result(&self.runtime, "property", OP, context, decision, &result).await?;
         result
@@ -333,7 +339,7 @@ impl<R: PropertyRepository> PropertyService<R> {
             context,
         )
         .await?;
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             if request.name.trim().is_empty() {
                 return Err(CoreServiceError::business(
                     "PROPERTY_NAME_REQUIRED",
@@ -353,7 +359,7 @@ impl<R: PropertyRepository> PropertyService<R> {
                 )
                 .await?;
             Ok(property)
-        }
+        })
         .await;
         audit_result(&self.runtime, "property", OP, context, decision, &result).await?;
         result
@@ -374,7 +380,7 @@ impl<R: PropertyRepository> PropertyService<R> {
             context,
         )
         .await?;
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             let current = self
                 .repository
                 .admin_get(&request.property_id)
@@ -407,7 +413,7 @@ impl<R: PropertyRepository> PropertyService<R> {
                 )
                 .await?;
             Ok(property)
-        }
+        })
         .await;
         audit_result(&self.runtime, "property", OP, context, decision, &result).await?;
         result
@@ -428,7 +434,7 @@ impl<R: PropertyRepository> PropertyService<R> {
             context,
         )
         .await?;
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             let property = self.repository.set_status(request).await?.ok_or_else(|| {
                 CoreServiceError::business(
                     "PROPERTY_NOT_FOUND",
@@ -447,10 +453,16 @@ impl<R: PropertyRepository> PropertyService<R> {
                 )
                 .await?;
             Ok(property)
-        }
+        })
         .await;
         audit_result(&self.runtime, "property", OP, context, decision, &result).await?;
         result
+    }
+}
+
+impl PropertyService<PropertyDao> {
+    pub async fn warm_read_cache(&self) -> Result<usize, CoreServiceError> {
+        self.repository.warm_read_cache().await.map_err(Into::into)
     }
 }
 

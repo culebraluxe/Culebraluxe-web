@@ -20,18 +20,18 @@ use std::sync::Arc;
 
 #[async_trait]
 pub trait WebsiteLeadRepository: Send {
-    async fn claim_for_notice(&mut self, submission_id: &str) -> DbResult<Option<WebsiteLead>>;
-    async fn release_notice(&mut self, submission_id: &str) -> DbResult<()>;
+    async fn claim_for_notice(&self, submission_id: &str) -> DbResult<Option<WebsiteLead>>;
+    async fn release_notice(&self, submission_id: &str) -> DbResult<()>;
 }
 
 #[async_trait]
 impl WebsiteLeadRepository for WebsiteLeadDao {
     // Not retried: the claim writes, and a repeated write after a lost reply would read as "already handled".
-    async fn claim_for_notice(&mut self, submission_id: &str) -> DbResult<Option<WebsiteLead>> {
+    async fn claim_for_notice(&self, submission_id: &str) -> DbResult<Option<WebsiteLead>> {
         WebsiteLeadDao::claim_for_notice(self, submission_id).await
     }
 
-    async fn release_notice(&mut self, submission_id: &str) -> DbResult<()> {
+    async fn release_notice(&self, submission_id: &str) -> DbResult<()> {
         WebsiteLeadDao::release_notice(self, submission_id).await
     }
 }
@@ -97,7 +97,7 @@ impl<R: WebsiteLeadRepository> WebsiteLeadService<R> {
     }
 
     pub async fn notify(
-        &mut self,
+        &self,
         submission_id: &str,
         context: &ServiceContext,
     ) -> Result<WebsiteLeadNotice, CoreServiceError> {
@@ -117,7 +117,7 @@ impl<R: WebsiteLeadRepository> WebsiteLeadService<R> {
     }
 
     async fn notify_authorized(
-        &mut self,
+        &self,
         submission_id: &str,
     ) -> Result<WebsiteLeadNotice, CoreServiceError> {
         if uuid::Uuid::parse_str(submission_id).is_err() {
@@ -272,7 +272,7 @@ mod tests {
 
     #[async_trait]
     impl WebsiteLeadRepository for Leads {
-        async fn claim_for_notice(&mut self, _id: &str) -> DbResult<Option<WebsiteLead>> {
+        async fn claim_for_notice(&self, _id: &str) -> DbResult<Option<WebsiteLead>> {
             let mut claimed = self.claimed.lock().unwrap();
             if *claimed {
                 return Ok(None);
@@ -291,7 +291,7 @@ mod tests {
                 property_slug: Some("casa-luar".into()),
             }))
         }
-        async fn release_notice(&mut self, _id: &str) -> DbResult<()> {
+        async fn release_notice(&self, _id: &str) -> DbResult<()> {
             *self.claimed.lock().unwrap() = false;
             *self.released.lock().unwrap() += 1;
             Ok(())
@@ -346,7 +346,7 @@ mod tests {
     #[tokio::test]
     async fn a_lead_is_emailed_to_the_team_and_confirmed_to_the_visitor_once() {
         let outbox = Arc::new(Outbox::default());
-        let mut service = service(Leads::default(), outbox.clone()).await;
+        let service = service(Leads::default(), outbox.clone()).await;
         assert_eq!(
             service.notify(ID, &public_website()).await.unwrap(),
             WebsiteLeadNotice::Sent
@@ -373,7 +373,7 @@ mod tests {
         let outbox = Arc::new(Outbox::default());
         *outbox.fail.lock().unwrap() = true;
         let leads = Leads::default();
-        let mut service = service(leads.clone(), outbox.clone()).await;
+        let service = service(leads.clone(), outbox.clone()).await;
         assert!(service.notify(ID, &public_website()).await.is_err());
         assert_eq!(*leads.released.lock().unwrap(), 1);
         *outbox.fail.lock().unwrap() = false;
@@ -386,7 +386,7 @@ mod tests {
     #[tokio::test]
     async fn only_the_public_website_may_send_and_a_bad_id_sends_nothing() {
         let outbox = Arc::new(Outbox::default());
-        let mut service = service(Leads::default(), outbox.clone()).await;
+        let service = service(Leads::default(), outbox.clone()).await;
         let stranger = ServiceContext {
             actor: ServiceActor {
                 id: Some("someone-else".into()),

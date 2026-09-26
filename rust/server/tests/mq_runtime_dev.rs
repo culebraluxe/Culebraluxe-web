@@ -15,6 +15,7 @@ use service::{
     CapturingAuditPort, CapturingDomainEventPort, DefaultAuthorizationPort, ServiceInfrastructure,
 };
 use std::{sync::Arc, time::Duration};
+use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -52,6 +53,32 @@ impl MqSubscriber for TestSubscriber {
                 self.id
             )));
         }
+        Ok(())
+    }
+}
+
+struct SlowSubscriber {
+    id: String,
+    routing_key: String,
+    delay: Duration,
+}
+
+#[async_trait]
+impl MqSubscriber for SlowSubscriber {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn routing_key(&self) -> &str {
+        &self.routing_key
+    }
+    fn max_attempts(&self) -> i32 {
+        3
+    }
+    fn retry_backoff_seconds(&self) -> i32 {
+        0
+    }
+    async fn handle(&self, _delivery: &OutboxDelivery) -> Result<(), MqSubscriberError> {
+        sleep(self.delay).await;
         Ok(())
     }
 }
@@ -425,4 +452,127 @@ async fn mq_dev_runtime_never_claims_subscription_it_does_not_own() {
 
     assert_eq!((owned.0.as_str(), owned.1), ("delivered", 1));
     assert_eq!((foreign.0.as_str(), foreign.1), ("pending", 0));
+}
+
+#[tokio::test]
+#[ignore = "needs DATABASE_URL_DEV"]
+async fn mq_dev_stale_worker_cannot_ack_or_fail_a_new_lease_generation() {
+    let db = dev_db().await;
+    let tag = Uuid::new_v4().simple().to_string();
+    let event_id = Uuid::new_v4().to_string();
+    let routing = format!("mq.dev.fence.{tag}");
+    let subscription_id = format!("mq-dev-fence-{tag}");
+    let outbox = DomainEventOutboxDao::new(db.clone());
+    outbox
+        .register_subscription(&subscription_id, &routing, 3, 0)
+        .await
+        .unwrap();
+    append_event(&db, &event_id, &routing).await;
+
+    let first = outbox
+        .claim_batch(
+            "worker-old",
+            std::slice::from_ref(&subscription_id),
+            1,
+            Utc::now() + ChronoDuration::milliseconds(100),
+        )
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+    sleep(Duration::from_millis(150)).await;
+    let second = outbox
+        .claim_batch(
+            "worker-new",
+            std::slice::from_ref(&subscription_id),
+            1,
+            Utc::now() + ChronoDuration::seconds(10),
+        )
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+    assert_eq!(second.attempt_count, first.attempt_count + 1);
+    assert!(!outbox.mark_delivered(&first, "worker-old").await.unwrap());
+    assert_eq!(
+        outbox
+            .mark_failed(&first, "worker-old", "stale")
+            .await
+            .unwrap(),
+        None
+    );
+    assert!(outbox.mark_delivered(&second, "worker-new").await.unwrap());
+
+    cleanup(
+        &db,
+        std::slice::from_ref(&event_id),
+        std::slice::from_ref(&subscription_id),
+    )
+    .await;
+}
+
+#[tokio::test]
+#[ignore = "needs DATABASE_URL_DEV"]
+async fn mq_dev_long_handler_renews_its_lease_until_acknowledged() {
+    let db = dev_db().await;
+    let tag = Uuid::new_v4().simple().to_string();
+    let event_id = Uuid::new_v4().to_string();
+    let routing = format!("mq.dev.heartbeat.{tag}");
+    let subscription_id = format!("mq-dev-heartbeat-{tag}");
+    let outbox = DomainEventOutboxDao::new(db.clone());
+    outbox
+        .register_subscription(&subscription_id, &routing, 3, 0)
+        .await
+        .unwrap();
+    append_event(&db, &event_id, &routing).await;
+
+    let runtime = MqRuntime::with_config(
+        outbox.clone(),
+        vec![Arc::new(SlowSubscriber {
+            id: subscription_id.clone(),
+            routing_key: routing,
+            delay: Duration::from_secs(6),
+        })],
+        infrastructure(),
+        CancellationToken::new(),
+        MqRuntimeConfig {
+            worker_id: format!("worker-heartbeat-{tag}"),
+            poll_interval: Duration::from_secs(60),
+            lease_duration: Duration::from_secs(3),
+            claim_limit: 1,
+            max_concurrency: 1,
+        },
+    )
+    .unwrap();
+    let dispatch = tokio::spawn(async move { runtime.dispatch_once().await });
+    sleep(Duration::from_secs(4)).await;
+    let stolen = outbox
+        .claim_batch(
+            "worker-competitor",
+            std::slice::from_ref(&subscription_id),
+            1,
+            Utc::now() + ChronoDuration::seconds(10),
+        )
+        .await
+        .unwrap();
+    assert!(
+        stolen.is_empty(),
+        "heartbeat did not preserve lease ownership"
+    );
+    dispatch.await.unwrap().unwrap();
+    let state: String = sqlx::query_scalar(
+        "select state from mq_delivery where message_id=$1::uuid and subscription_id=$2",
+    )
+    .bind(&event_id)
+    .bind(&subscription_id)
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(state, "delivered");
+    cleanup(
+        &db,
+        std::slice::from_ref(&event_id),
+        std::slice::from_ref(&subscription_id),
+    )
+    .await;
 }

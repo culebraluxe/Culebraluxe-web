@@ -3,8 +3,9 @@ use crate::people::PersonService;
 use crate::properties::PropertyService;
 use crate::service_support::CoreServiceError;
 use async_trait::async_trait;
-use db::{Database, FirmDao, PersonDao, PropertyDao};
-use service::{ServiceContext, ServiceInfrastructure};
+use db::{FirmDao, PersonDao, PropertyDao};
+use service::ServiceContext;
+use std::sync::Arc;
 
 #[async_trait]
 pub trait CoreEntityLookup: Send + Sync {
@@ -29,13 +30,22 @@ pub trait CoreEntityLookup: Send + Sync {
 
 #[derive(Clone)]
 pub struct ServiceDirectory {
-    db: Database,
-    infrastructure: ServiceInfrastructure,
+    person: Arc<PersonService<PersonDao>>,
+    firm: Arc<FirmService<FirmDao>>,
+    property: Arc<PropertyService<PropertyDao>>,
 }
 
 impl ServiceDirectory {
-    pub fn new(db: Database, infrastructure: ServiceInfrastructure) -> Self {
-        Self { db, infrastructure }
+    pub fn new(
+        person: Arc<PersonService<PersonDao>>,
+        firm: Arc<FirmService<FirmDao>>,
+        property: Arc<PropertyService<PropertyDao>>,
+    ) -> Self {
+        Self {
+            person,
+            firm,
+            property,
+        }
     }
 }
 
@@ -46,9 +56,7 @@ impl CoreEntityLookup for ServiceDirectory {
         person_id: &str,
         context: &ServiceContext,
     ) -> Result<bool, CoreServiceError> {
-        let mut service =
-            PersonService::new(PersonDao::new(self.db.clone()), self.infrastructure.clone());
-        Ok(service.get(person_id, context).await?.is_some())
+        Ok(self.person.get(person_id, context).await?.is_some())
     }
 
     async fn firm_exists(
@@ -56,9 +64,7 @@ impl CoreEntityLookup for ServiceDirectory {
         firm_id: &str,
         context: &ServiceContext,
     ) -> Result<bool, CoreServiceError> {
-        let mut service =
-            FirmService::new(FirmDao::new(self.db.clone()), self.infrastructure.clone());
-        Ok(service.get(firm_id, context).await?.is_some())
+        Ok(self.firm.get(firm_id, context).await?.is_some())
     }
 
     async fn property_exists(
@@ -66,10 +72,6 @@ impl CoreEntityLookup for ServiceDirectory {
         property_id: &str,
         context: &ServiceContext,
     ) -> Result<bool, CoreServiceError> {
-        let mut service = PropertyService::new(
-            PropertyDao::new(self.db.clone()),
-            self.infrastructure.clone(),
-        );
-        Ok(service.get(property_id, context).await?.is_some())
+        Ok(self.property.get(property_id, context).await?.is_some())
     }
 }

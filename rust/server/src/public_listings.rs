@@ -11,44 +11,44 @@ use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRunti
 
 #[async_trait]
 pub trait PublicListingRepository: Send {
-    async fn listings(&mut self) -> DbResult<Vec<PublicListing>>;
+    async fn listings(&self) -> DbResult<Vec<PublicListing>>;
     /// `None` means no such Property — a genuine not-found, not a failure.
-    async fn property(&mut self, key: &str) -> DbResult<Option<PublicProperty>>;
+    async fn property(&self, key: &str) -> DbResult<Option<PublicProperty>>;
     /// `None` means no such media, or media that is not published. The two are indistinguishable on purpose.
-    async fn media_bytes(&mut self, id: &str) -> DbResult<Option<(String, Vec<u8>)>>;
+    async fn media_bytes(&self, id: &str) -> DbResult<Option<(String, Vec<u8>)>>;
     /// Listings like this one, by the same visibility rule as the inventory.
-    async fn similar(&mut self, key: &str, limit: i64) -> DbResult<Vec<PublicListing>>;
+    async fn similar(&self, key: &str, limit: i64) -> DbResult<Vec<PublicListing>>;
     /// Every slug the site can serve, for the sitemap.
-    async fn slugs(&mut self) -> DbResult<Vec<String>>;
-    async fn listing_copy(&mut self) -> DbResult<Vec<PublicListingCopy>>;
+    async fn slugs(&self) -> DbResult<Vec<String>>;
+    async fn listing_copy(&self) -> DbResult<Vec<PublicListingCopy>>;
 }
 
 #[async_trait]
 impl PublicListingRepository for PublicListingDao {
-    async fn listings(&mut self) -> DbResult<Vec<PublicListing>> {
+    async fn listings(&self) -> DbResult<Vec<PublicListing>> {
         db::retrying_read!(PublicListingDao::listings(self))
     }
 
-    async fn property(&mut self, key: &str) -> DbResult<Option<PublicProperty>> {
+    async fn property(&self, key: &str) -> DbResult<Option<PublicProperty>> {
         let key = key.to_owned();
         db::retrying_read!(PublicListingDao::property(self, &key))
     }
 
-    async fn media_bytes(&mut self, id: &str) -> DbResult<Option<(String, Vec<u8>)>> {
+    async fn media_bytes(&self, id: &str) -> DbResult<Option<(String, Vec<u8>)>> {
         let id = id.to_owned();
         db::retrying_read!(PublicListingDao::media_bytes(self, &id))
     }
 
-    async fn similar(&mut self, key: &str, limit: i64) -> DbResult<Vec<PublicListing>> {
+    async fn similar(&self, key: &str, limit: i64) -> DbResult<Vec<PublicListing>> {
         let key = key.to_owned();
         db::retrying_read!(PublicListingDao::similar(self, &key, limit))
     }
 
-    async fn slugs(&mut self) -> DbResult<Vec<String>> {
+    async fn slugs(&self) -> DbResult<Vec<String>> {
         db::retrying_read!(PublicListingDao::slugs(self))
     }
 
-    async fn listing_copy(&mut self) -> DbResult<Vec<PublicListingCopy>> {
+    async fn listing_copy(&self) -> DbResult<Vec<PublicListingCopy>> {
         db::retrying_read!(PublicListingDao::listing_copy(self))
     }
 }
@@ -67,7 +67,7 @@ impl<R: PublicListingRepository> PublicListingService<R> {
     }
 
     pub async fn listings(
-        &mut self,
+        &self,
         context: &ServiceContext,
     ) -> Result<Vec<PublicListing>, CoreServiceError> {
         const OP: &str = "property.publicListings";
@@ -87,7 +87,7 @@ impl<R: PublicListingRepository> PublicListingService<R> {
 
     /// One Property for the public site, resolved by any identifier that names it.
     pub async fn property(
-        &mut self,
+        &self,
         key: &str,
         context: &ServiceContext,
     ) -> Result<Option<PublicProperty>, CoreServiceError> {
@@ -108,7 +108,7 @@ impl<R: PublicListingRepository> PublicListingService<R> {
 
     /// One media asset's servable bytes, for the anonymous public site.
     pub async fn media_bytes(
-        &mut self,
+        &self,
         id: &str,
         context: &ServiceContext,
     ) -> Result<Option<(String, Vec<u8>)>, CoreServiceError> {
@@ -129,7 +129,7 @@ impl<R: PublicListingRepository> PublicListingService<R> {
 
     /// Listings like this one, for the property page's strip.
     pub async fn similar(
-        &mut self,
+        &self,
         key: &str,
         limit: i64,
         context: &ServiceContext,
@@ -157,10 +157,7 @@ impl<R: PublicListingRepository> PublicListingService<R> {
     }
 
     /// Every slug the site can serve, for the sitemap.
-    pub async fn slugs(
-        &mut self,
-        context: &ServiceContext,
-    ) -> Result<Vec<String>, CoreServiceError> {
+    pub async fn slugs(&self, context: &ServiceContext) -> Result<Vec<String>, CoreServiceError> {
         const OP: &str = "property.publicSlugs";
         let decision = authorize(
             &self.runtime,
@@ -177,7 +174,7 @@ impl<R: PublicListingRepository> PublicListingService<R> {
     }
 
     pub async fn listing_copy(
-        &mut self,
+        &self,
         context: &ServiceContext,
     ) -> Result<Vec<PublicListingCopy>, CoreServiceError> {
         const OP: &str = "property.publicListingCopy";
@@ -208,7 +205,7 @@ mod tests {
 
     #[async_trait]
     impl PublicListingRepository for FakeRepository {
-        async fn listings(&mut self) -> DbResult<Vec<PublicListing>> {
+        async fn listings(&self) -> DbResult<Vec<PublicListing>> {
             Ok(vec![PublicListing {
                 key: "estate".into(),
                 id: "estate-id".into(),
@@ -222,7 +219,7 @@ mod tests {
             }])
         }
 
-        async fn property(&mut self, key: &str) -> DbResult<Option<PublicProperty>> {
+        async fn property(&self, key: &str) -> DbResult<Option<PublicProperty>> {
             if key == "estate" {
                 Ok(Some(PublicProperty {
                     key: "estate".into(),
@@ -242,7 +239,7 @@ mod tests {
             }
         }
 
-        async fn media_bytes(&mut self, id: &str) -> DbResult<Option<(String, Vec<u8>)>> {
+        async fn media_bytes(&self, id: &str) -> DbResult<Option<(String, Vec<u8>)>> {
             if id == "media-1" {
                 Ok(Some(("image/jpeg".into(), vec![1, 2, 3])))
             } else {
@@ -250,11 +247,11 @@ mod tests {
             }
         }
 
-        async fn slugs(&mut self) -> DbResult<Vec<String>> {
+        async fn slugs(&self) -> DbResult<Vec<String>> {
             Ok(vec!["estate".into()])
         }
 
-        async fn similar(&mut self, key: &str, limit: i64) -> DbResult<Vec<PublicListing>> {
+        async fn similar(&self, key: &str, limit: i64) -> DbResult<Vec<PublicListing>> {
             if key == "estate" && limit > 0 {
                 Ok(vec![])
             } else {
@@ -262,7 +259,7 @@ mod tests {
             }
         }
 
-        async fn listing_copy(&mut self) -> DbResult<Vec<PublicListingCopy>> {
+        async fn listing_copy(&self) -> DbResult<Vec<PublicListingCopy>> {
             Ok(vec![PublicListingCopy {
                 slug: "estate".into(),
                 tagline: "Two pools.".into(),
@@ -294,7 +291,7 @@ mod tests {
             Arc::new(CapturingAuditPort::default()),
             Arc::new(CapturingDomainEventPort::default()),
         );
-        let mut service = PublicListingService::new(FakeRepository, infrastructure);
+        let service = PublicListingService::new(FakeRepository, infrastructure);
         let copy = service
             .listing_copy(&public_website())
             .await

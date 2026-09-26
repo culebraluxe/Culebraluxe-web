@@ -100,7 +100,7 @@ where
             .authorize("project.write", OPERATION, OperationKind::Command, context)
             .await?;
 
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             validate_create(request)?;
             let project = self.repository.create(request).await?;
             self.runtime
@@ -115,7 +115,7 @@ where
                 )
                 .await?;
             Ok(project)
-        }
+        })
         .await;
 
         self.audit_result(OPERATION, context, decision, &result)
@@ -133,7 +133,7 @@ where
             .authorize("project.write", OPERATION, OperationKind::Command, context)
             .await?;
 
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             validate_update(request)?;
             let project = self
                 .repository
@@ -152,7 +152,7 @@ where
                 )
                 .await?;
             Ok(project)
-        }
+        })
         .await;
 
         self.audit_result(OPERATION, context, decision, &result)
@@ -170,7 +170,7 @@ where
             .authorize("project.write", OPERATION, OperationKind::Command, context)
             .await?;
 
-        let result = async {
+        let result = db::service_mutation(self.repository.database(), async {
             let project = self
                 .repository
                 .complete(request)
@@ -188,7 +188,7 @@ where
                 )
                 .await?;
             Ok(project)
-        }
+        })
         .await;
 
         self.audit_result(OPERATION, context, decision, &result)

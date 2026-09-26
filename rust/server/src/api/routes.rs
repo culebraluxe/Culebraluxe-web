@@ -4,29 +4,28 @@ use super::context::{
 };
 use super::{diagnostics, engine, ApiError, ApiState};
 use crate::service_support::CoreServiceError;
-use crate::vault::VaultArtifactPort;
-use async_trait::async_trait;
 use axum::{
     body::Body,
     extract::{DefaultBodyLimit, Multipart, Path, Query, State},
-    http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode},
-    response::Response,
+    http::{header, HeaderMap, HeaderName, HeaderValue, Request, StatusCode},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
 use domain::{
     AttachPropertyVideoRequest, ClientAdminPageRequest, ClientDirectoryPageRequest,
     ClientHistoryRequest, GetCommsPanelRequest, GetCommsTimelineRequest, SearchPeopleRequest,
-    UploadPropertyMediaRequest, VaultActorScope, VaultArtifactFailure, VaultCommandOutcome,
-    VaultRenderRequest, VaultRenderedArtifact, MAX_MEDIA_UPLOAD_BYTES,
+    UploadPropertyMediaRequest, VaultActorScope, MAX_MEDIA_UPLOAD_BYTES,
 };
-use integrations::boldsign::{BoldSignConfig, BoldSignSignatureProvider};
+#[cfg(test)]
+use domain::{VaultArtifactFailure, VaultCommandOutcome};
 use integrations::mux::{MuxClient, MuxConfig};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use service::{
     CommandRequest, CommandResult, OperationKind, ServiceContext, ServiceControlCommand,
-    ServiceControlResult, ServiceDispatchError, ServiceEnvelope, SignatureProvider,
+    ServiceControlResult, ServiceDispatchError, ServiceEnvelope,
 };
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -474,6 +473,7 @@ struct FinalizePropertyVideoUploadBody {
 #[serde(rename_all = "camelCase")]
 struct UpdatePersonAdminBody {
     display_name: String,
+    civil_status: Option<String>,
     status: String,
     company: Option<String>,
 }
@@ -528,31 +528,6 @@ struct RouteProjectWorkBody {
     alert: Option<bool>,
 }
 
-struct UnavailableVaultArtifactPort;
-
-#[async_trait]
-impl VaultArtifactPort for UnavailableVaultArtifactPort {
-    async fn render_issued_document(
-        &self,
-        _request: VaultRenderRequest,
-    ) -> Result<VaultRenderedArtifact, VaultArtifactFailure> {
-        Err(VaultArtifactFailure {
-            outcome: VaultCommandOutcome::PreconditionFailure,
-            message: "Vault artifact renderer is not configured on this transport.".into(),
-        })
-    }
-}
-
-/// Signature (BoldSign) — the HTTP attachment for the service in `rust/server/src/signature`.
-///
-/// The service has been complete in Rust for a while: send, get, refresh, cancel, decline, reconcile, and webhook
-/// handling all exist, and the BoldSign adapter behind them verifies the provider's HMAC. What was missing was this
-/// transport, which is why `docs/rust-parity-ledger.md` recorded the `signature` capability as "built, 0 routes"
-/// while the production webhook still ran through TypeScript.
-///
-/// The provider is built from the environment per request, like every other integration edge here. A host with no
-/// BoldSign configuration answers with a business failure instead of refusing to boot, because this transport also
-/// runs in environments that never sign a document.
 fn mux_video() -> Result<MuxClient, ApiError> {
     let config = MuxConfig::from_env().map_err(|message| {
         ApiError::from(CoreServiceError::business("MUX_NOT_CONFIGURED", message))
@@ -565,21 +540,15 @@ fn mux_video() -> Result<MuxClient, ApiError> {
     })
 }
 
-fn bold_sign(state: &ApiState) -> Result<Arc<dyn SignatureProvider>, ApiError> {
-    let config = BoldSignConfig::from_env().map_err(|message| {
+fn signature_service(
+    state: &ApiState,
+) -> Result<Arc<crate::signature::SignatureService<db::SignatureDao>>, ApiError> {
+    state.services().signature().map_err(|message| {
         ApiError::from(CoreServiceError::business(
             "SIGNATURE_NOT_CONFIGURED",
-            message,
+            message.to_string(),
         ))
-    })?;
-    let provider =
-        BoldSignSignatureProvider::new(state.db().clone(), config).map_err(|message| {
-            ApiError::from(CoreServiceError::business(
-                "SIGNATURE_NOT_CONFIGURED",
-                message,
-            ))
-        })?;
-    Ok(Arc::new(provider))
+    })
 }
 
 /// The provider's callback.
@@ -661,7 +630,7 @@ async fn whatsapp_webhook(
         .get("x-hub-signature-256")
         .and_then(|value| value.to_str().ok());
 
-    let mut service = state.services().whatsapp();
+    let service = state.services().whatsapp();
     let result = service
         .handle_webhook(&body, signature)
         .await
@@ -742,7 +711,7 @@ async fn signature_webhook(
         principal: None,
     };
 
-    let mut service = state.services().signature(bold_sign(&state)?);
+    let service = signature_service(&state)?;
     let value = service
         .handle_webhook(&body, &signature, &context)
         .await
@@ -760,7 +729,7 @@ async fn signature_send(
     Json(request): Json<domain::SendSignatureRequest>,
 ) -> Result<Json<ApiSuccess<domain::SignatureCommandResult>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().signature(bold_sign(&state)?);
+    let service = signature_service(&state)?;
     let value = service
         .send(&request, &resolved.service)
         .await
@@ -774,7 +743,7 @@ async fn signature_request(
     Path(id): Path<String>,
 ) -> Result<Json<ApiSuccess<domain::SignatureRequest>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().signature(bold_sign(&state)?);
+    let service = signature_service(&state)?;
     let value = service
         .get(&id, &resolved.service)
         .await
@@ -797,7 +766,7 @@ async fn signature_refresh(
     Path(id): Path<String>,
 ) -> Result<Json<ApiSuccess<domain::SignatureCommandResult>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().signature(bold_sign(&state)?);
+    let service = signature_service(&state)?;
     let value = service
         .refresh_status(&id, &resolved.service)
         .await
@@ -810,7 +779,7 @@ async fn support_security_status(
     headers: HeaderMap,
 ) -> Result<Json<ApiSuccess<domain::SupportSecurityStatus>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().support();
+    let service = state.services().support();
     let value = service
         .security_status(&resolved.service)
         .await
@@ -835,7 +804,7 @@ async fn support_break_glass_readiness(
         .is_some_and(|value| value.trim() == "true");
     let configured = app_user_id.is_some() && secret_hash_configured;
 
-    let mut service = state.services().support();
+    let service = state.services().support();
     let value = service
         .break_glass_readiness(
             configured,
@@ -853,7 +822,7 @@ async fn support_system_health(
     headers: HeaderMap,
 ) -> Result<Json<ApiSuccess<domain::SupportSystemHealth>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().support();
+    let service = state.services().support();
     let value = service
         .system_health(&resolved.service)
         .await
@@ -866,7 +835,7 @@ async fn support_workflow_diagnostics(
     headers: HeaderMap,
 ) -> Result<Json<ApiSuccess<domain::WorkflowDiagnosticsSnapshot>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().support();
+    let service = state.services().support();
     let value = service
         .workflow_diagnostics(&resolved.service)
         .await
@@ -880,7 +849,7 @@ async fn support_workflow_detail(
     Path(id): Path<String>,
 ) -> Result<Json<ApiSuccess<domain::WorkflowDiagnosticsDetail>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().support();
+    let service = state.services().support();
     let value = service
         .workflow_detail(&id, &resolved.service)
         .await
@@ -899,6 +868,7 @@ async fn support_workflow_detail(
 
 pub fn router(state: ApiState) -> Router {
     Router::new()
+        .merge(super::portal_bridge::router())
         .route("/healthz", get(health))
         .route("/readyz", get(ready))
         .route("/v1/whoami", get(whoami))
@@ -1030,7 +1000,11 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/forms", get(forms).post(create_form))
         .route("/v1/forms/deal-facts/{deal_id}", get(form_deal_facts))
         .route("/v1/forms/{id}/signers", get(form_signers))
-        .route("/v1/forms/{id}/issued-document", get(form_issued_document))
+        .route(
+            "/v1/forms/{id}/issued-document",
+            get(form_issued_document).post(form_issue_document),
+        )
+        .route("/v1/forms/{id}/preview", post(form_preview))
         .route("/v1/forms/{id}", get(form).patch(update_form))
         .route("/v1/comms/{person_id}/panel", get(comms_panel))
         .route("/v1/comms/{person_id}/timeline", get(comms_timeline))
@@ -1134,9 +1108,141 @@ pub fn router(state: ApiState) -> Router {
         )
         .merge(super::portal_ui::router())
         .merge(super::public_ui::router())
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            registered_service_mailbox,
+        ))
         // Everything the API does not claim is the website: static files, else the Yew shell (crate::site).
         .fallback_service(crate::site::service())
         .with_state(state)
+}
+
+async fn registered_service_mailbox(
+    State(state): State<ApiState>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    let path = request.uri().path().to_owned();
+    let Some(domain) = http_service_domain(&path) else {
+        return next.run(request).await;
+    };
+    let method = request.method().to_string();
+    let operation = format!("http.{}", method.to_ascii_lowercase());
+    let payload = json!({ "method": method, "path": path });
+    match state
+        .service_gateway()
+        .execute(domain, &operation, &payload, async move {
+            next.run(request).await
+        })
+        .await
+    {
+        Ok(response) => response,
+        Err(error) => service_dispatch_error(error).into_response(),
+    }
+}
+
+fn http_service_domain(path: &str) -> Option<&'static str> {
+    if path == "/api/portal/rust-ui/clients" {
+        return Some("client");
+    }
+    if path == "/v1/cockpit"
+        || path.starts_with("/v1/workflows")
+        || path.starts_with("/v1/flight-recorder")
+        || path.starts_with("/v1/tasks/")
+    {
+        return None;
+    }
+    if path == "/api/integrations/whatsapp/webhook" {
+        return Some("whatsapp");
+    }
+    if path == "/api/integrations/boldsign/webhook" || path.starts_with("/v1/signature/") {
+        return Some("signature");
+    }
+    if path.starts_with("/v1/security/") {
+        return Some(if path.contains("guest") {
+            "guest-sign-in"
+        } else {
+            "security"
+        });
+    }
+    if path.starts_with("/v1/support/") {
+        return Some("support");
+    }
+    if path.starts_with("/v1/tech/") {
+        return Some("tech");
+    }
+    if path.starts_with("/v1/projects") {
+        return Some("project");
+    }
+    if path.starts_with("/v1/wbs") {
+        return Some("wbs");
+    }
+    if path.starts_with("/v1/clients") {
+        return Some("client");
+    }
+    if path.starts_with("/v1/people/") && path.ends_with("/properties") {
+        return Some("property");
+    }
+    if path.starts_with("/v1/people") {
+        return Some("person");
+    }
+    if path.starts_with("/v1/properties/") && (path.contains("/media") || path.contains("/video")) {
+        return Some("media");
+    }
+    if path.starts_with("/v1/properties") {
+        return Some("property");
+    }
+    if path.starts_with("/v1/media") {
+        return Some("media");
+    }
+    if path.starts_with("/v1/deals") {
+        return Some("deal");
+    }
+    if path.starts_with("/v1/contracts") || path.contains("/contracts") {
+        return Some("contract");
+    }
+    if path.contains("/issued-document") || path.starts_with("/v1/vault") {
+        return Some("vault");
+    }
+    if path.starts_with("/v1/forms") {
+        return Some("forms");
+    }
+    if path.starts_with("/v1/comms") || path == "/v1/activity" {
+        return Some("communications");
+    }
+    if path == "/v1/issues" {
+        return Some("issue");
+    }
+    if path.starts_with("/v1/relationship-evidence") {
+        return Some("relationship-evidence");
+    }
+    if path.starts_with("/v1/accounting") {
+        return Some("accounting");
+    }
+    if path.starts_with("/v1/calendar") {
+        return Some("calendar");
+    }
+    if path.starts_with("/v1/public/listing")
+        || path.starts_with("/v1/public/property")
+        || path.starts_with("/v1/public/media")
+        || path.starts_with("/v1/public/similar")
+        || path.starts_with("/v1/public/slugs")
+    {
+        return Some("public-listing");
+    }
+    if path == "/v1/public/guide" {
+        return Some("guide");
+    }
+    if path == "/v1/public/marketing-content" {
+        return Some("marketing");
+    }
+    if path == "/v1/website-intake" || path == "/v1/catchup/leads" {
+        return Some("intake");
+    }
+    if path.starts_with("/v1/website-intake/") {
+        return Some("website-lead");
+    }
+    None
 }
 
 async fn health() -> Json<HealthResponse> {
@@ -1174,7 +1280,7 @@ async fn set_role_entitlement(
     Json(body): Json<SetRoleEntitlementBody>,
 ) -> Result<Json<ApiSuccess<Vec<domain::security::RoleEntitlements>>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut security = state.services().security();
+    let security = state.services().security();
     security
         .set_role_entitlement(
             &body.role_code,
@@ -1211,7 +1317,7 @@ async fn set_user_primary_role(
     Json(body): Json<SetUserPrimaryRoleBody>,
 ) -> Result<Json<ApiSuccess<Vec<domain::security::SecurityUserRoles>>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut security = state.services().security();
+    let security = state.services().security();
     security
         .set_user_primary_role(&body.app_user_id, &body.role_code, &resolved.service)
         .await
@@ -1359,7 +1465,7 @@ async fn provision_guest(
     Json(body): Json<GuestProvisionBody>,
 ) -> Result<Json<ApiSuccess<IdentityResolutionResponse>>, ApiError> {
     let (provider, provider_subject, context) = asserted_identity_context(&state, &headers)?;
-    let mut security = state.services().security();
+    let security = state.services().security();
     let resolution = match security
         .resolve_identity(&provider, &provider_subject, &context)
         .await
@@ -1717,11 +1823,17 @@ async fn cockpit(
     headers: HeaderMap,
 ) -> Result<Json<ApiSuccess<domain::CockpitSnapshot>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().cockpit();
-    let value = service
-        .snapshot(&resolved.service)
-        .await
-        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    let service = state.services().cockpit();
+    let context = resolved.service.clone();
+    let value = execute_registered(
+        &state,
+        "cockpit",
+        "cockpit.snapshot",
+        json!({}),
+        async move { service.snapshot(&context).await },
+    )
+    .await
+    .map_err(|error| correlate(error, &resolved))?;
     Ok(success(value, &resolved))
 }
 
@@ -1730,11 +1842,17 @@ async fn workflows(
     headers: HeaderMap,
 ) -> Result<Json<ApiSuccess<domain::WorkflowPortalList>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().workflow_portal();
-    let value = service
-        .list(&resolved.service)
-        .await
-        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    let service = state.services().workflow_portal();
+    let context = resolved.service.clone();
+    let value = execute_registered(
+        &state,
+        "workflow-portal",
+        "workflow.list",
+        json!({}),
+        async move { service.list(&context).await },
+    )
+    .await
+    .map_err(|error| correlate(error, &resolved))?;
     Ok(success(value, &resolved))
 }
 
@@ -1744,20 +1862,27 @@ async fn workflow_detail(
     Path(id): Path<String>,
 ) -> Result<Json<ApiSuccess<domain::WorkflowPortalDetail>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().workflow_portal();
-    let value = service
-        .detail(&id, &resolved.service)
-        .await
-        .map_err(|error| correlate(ApiError::from(error), &resolved))?
-        .ok_or_else(|| {
-            correlate(
-                ApiError::not_found(
-                    "WORKFLOW_NOT_FOUND",
-                    format!("Workflow instance not found: {id}"),
-                ),
-                &resolved,
-            )
-        })?;
+    let service = state.services().workflow_portal();
+    let context = resolved.service.clone();
+    let work_id = id.clone();
+    let value = execute_registered(
+        &state,
+        "workflow-portal",
+        "workflow.detail",
+        json!({ "id": id }),
+        async move { service.detail(&work_id, &context).await },
+    )
+    .await
+    .map_err(|error| correlate(error, &resolved))?
+    .ok_or_else(|| {
+        correlate(
+            ApiError::not_found(
+                "WORKFLOW_NOT_FOUND",
+                format!("Workflow instance not found: {id}"),
+            ),
+            &resolved,
+        )
+    })?;
     Ok(success(value, &resolved))
 }
 
@@ -1778,20 +1903,27 @@ async fn flight_recorder(
             &resolved,
         ));
     }
-    let mut service = state.services().flight_recorder();
-    let value = service
-        .transaction(&id, &resolved.service)
-        .await
-        .map_err(|error| correlate(ApiError::from(error), &resolved))?
-        .ok_or_else(|| {
-            correlate(
-                ApiError::not_found(
-                    "FLIGHT_RECORDER_NOT_FOUND",
-                    format!("Workflow instance not found: {id}"),
-                ),
-                &resolved,
-            )
-        })?;
+    let service = state.services().flight_recorder();
+    let context = resolved.service.clone();
+    let work_id = id.clone();
+    let value = execute_registered(
+        &state,
+        "flight-recorder",
+        "flight-recorder.transaction",
+        json!({ "id": id }),
+        async move { service.transaction(&work_id, &context).await },
+    )
+    .await
+    .map_err(|error| correlate(error, &resolved))?
+    .ok_or_else(|| {
+        correlate(
+            ApiError::not_found(
+                "FLIGHT_RECORDER_NOT_FOUND",
+                format!("Workflow instance not found: {id}"),
+            ),
+            &resolved,
+        )
+    })?;
     Ok(success(value, &resolved))
 }
 
@@ -1800,7 +1932,8 @@ async fn projects(
     headers: HeaderMap,
 ) -> Result<Json<ApiSuccess<Vec<domain::Project>>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().project();
+    let service = state.services().project();
+    let mut service = service.lock().await;
     let value = service
         .list(&resolved.service)
         .await
@@ -1849,6 +1982,8 @@ async fn create_project(
     let value = state
         .services()
         .project()
+        .lock()
+        .await
         .create(
             &domain::CreateProjectRequest {
                 id: body.id,
@@ -1878,7 +2013,8 @@ async fn project(
     Path(id): Path<String>,
 ) -> Result<Json<ApiSuccess<domain::Project>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().project();
+    let service = state.services().project();
+    let mut service = service.lock().await;
     let value = service
         .get(&id, &resolved.service)
         .await
@@ -1911,7 +2047,8 @@ async fn update_project(
         })?),
         None => None,
     };
-    let mut service = state.services().project();
+    let service = state.services().project();
+    let mut service = service.lock().await;
     let value = service
         .update(
             &domain::UpdateProjectRequest {
@@ -1962,11 +2099,17 @@ async fn complete_task(
     Path(id): Path<String>,
 ) -> Result<Json<ApiSuccess<domain::TaskCompletion>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().task();
-    let value = service
-        .complete(&id, &resolved.service)
-        .await
-        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    let service = state.services().task();
+    let context = resolved.service.clone();
+    let value = execute_registered(
+        &state,
+        "task",
+        "task.complete",
+        json!({ "id": id }),
+        async move { service.complete(&id, &context).await },
+    )
+    .await
+    .map_err(|error| correlate(error, &resolved))?;
     Ok(success(value, &resolved))
 }
 
@@ -2013,7 +2156,7 @@ async fn wbs_project_items(
     headers: HeaderMap,
 ) -> Result<Json<ApiSuccess<Vec<domain::WbsItem>>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().wbs();
+    let service = state.services().wbs();
     let value = service
         .list_project_items(&resolved.service)
         .await
@@ -2027,7 +2170,7 @@ async fn wbs_item(
     Path(id): Path<String>,
 ) -> Result<Json<ApiSuccess<domain::WbsItem>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().wbs();
+    let service = state.services().wbs();
     let value = service
         .get(&id, &resolved.service)
         .await
@@ -2048,7 +2191,7 @@ async fn update_wbs_item(
     Json(body): Json<UpdateWbsBody>,
 ) -> Result<Json<ApiSuccess<domain::WbsItem>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().wbs();
+    let service = state.services().wbs();
     let current = service
         .get(&id, &resolved.service)
         .await
@@ -2104,7 +2247,7 @@ async fn clients(
     Query(query): Query<ClientsQuery>,
 ) -> Result<Json<ApiSuccess<ClientPageResponse>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().clients();
+    let service = state.services().clients();
     let page = query.page.unwrap_or(1).max(1);
     let page_size = query.page_size.unwrap_or(50).clamp(1, 50);
     let search = query.search.unwrap_or_default();
@@ -2162,7 +2305,7 @@ async fn client_detail(
     Path(person_id): Path<String>,
 ) -> Result<Json<ApiSuccess<Option<domain::ClientDetail>>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().clients();
+    let service = state.services().clients();
     let value = service
         .detail(&person_id, &resolved.service)
         .await
@@ -2175,7 +2318,7 @@ async fn client_agents(
     headers: HeaderMap,
 ) -> Result<Json<ApiSuccess<Vec<domain::AssignableAgent>>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().clients();
+    let service = state.services().clients();
     let value = service
         .agents(&resolved.service)
         .await
@@ -2190,7 +2333,7 @@ async fn client_history(
     Query(query): Query<ClientHistoryQuery>,
 ) -> Result<Json<ApiSuccess<domain::ClientContactHistoryResult>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().clients();
+    let service = state.services().clients();
     let value = service
         .history(
             &ClientHistoryRequest {
@@ -2212,7 +2355,7 @@ async fn search_people(
     Query(query): Query<PeopleSearchQuery>,
 ) -> Result<Json<ApiSuccess<Vec<domain::PersonSearchResult>>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().person();
+    let service = state.services().person();
     let value = service
         .search(
             &SearchPeopleRequest {
@@ -2232,7 +2375,7 @@ async fn person(
     Path(id): Path<String>,
 ) -> Result<Json<ApiSuccess<domain::Person>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().person();
+    let service = state.services().person();
     let value = service
         .get(&id, &resolved.service)
         .await
@@ -2253,12 +2396,13 @@ async fn update_person_admin(
     Json(body): Json<UpdatePersonAdminBody>,
 ) -> Result<Json<ApiSuccess<domain::Person>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().person();
+    let service = state.services().person();
     let value = service
         .update_admin(
             &domain::UpdatePersonAdminRequest {
                 person_id: id,
                 display_name: body.display_name,
+                civil_status: body.civil_status,
                 status: body.status,
                 company: body.company,
             },
@@ -2266,6 +2410,7 @@ async fn update_person_admin(
         )
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    state.services().clients().update_cached_person(&value);
     Ok(success(value, &resolved))
 }
 
@@ -2275,7 +2420,7 @@ async fn properties_for_person(
     Path(id): Path<String>,
 ) -> Result<Json<ApiSuccess<domain::PersonPropertyContext>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().property();
+    let service = state.services().property();
     let value = service
         .for_person(&id, &resolved.service)
         .await
@@ -2289,7 +2434,7 @@ async fn property_admin_page(
     Query(query): Query<PropertyAdminQuery>,
 ) -> Result<Json<ApiSuccess<domain::PropertyAdminPage>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().property();
+    let service = state.services().property();
     let value = service
         .admin_page(
             &domain::PropertyAdminPageRequest {
@@ -2310,7 +2455,7 @@ async fn create_property_admin(
     Json(body): Json<CreatePropertyAdminBody>,
 ) -> Result<Json<ApiSuccess<domain::PropertyAdminRecord>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().property();
+    let service = state.services().property();
     let value = service
         .admin_create(
             &domain::CreatePropertyAdminRequest {
@@ -2319,6 +2464,10 @@ async fn create_property_admin(
             },
             &resolved.service,
         )
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    service
+        .warm_read_cache()
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(value, &resolved))
@@ -2330,7 +2479,7 @@ async fn property_admin_detail(
     Path(id): Path<String>,
 ) -> Result<Json<ApiSuccess<domain::PropertyAdminRecord>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().property();
+    let service = state.services().property();
     let value = service
         .admin_get(&id, &resolved.service)
         .await
@@ -2351,7 +2500,7 @@ async fn save_property_admin(
     Json(body): Json<SavePropertyAdminBody>,
 ) -> Result<Json<ApiSuccess<domain::PropertyAdminRecord>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().property();
+    let service = state.services().property();
     let value = service
         .admin_save(
             &domain::SavePropertyAdminRequest {
@@ -2444,6 +2593,10 @@ async fn save_property_admin(
         )
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    service
+        .warm_read_cache()
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(value, &resolved))
 }
 
@@ -2453,7 +2606,7 @@ async fn property(
     Path(id): Path<String>,
 ) -> Result<Json<ApiSuccess<domain::Property>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().property();
+    let service = state.services().property();
     let value = service
         .get(&id, &resolved.service)
         .await
@@ -2582,7 +2735,7 @@ async fn property_media(
     Path(id): Path<String>,
 ) -> Result<Json<ApiSuccess<Vec<domain::MediaAsset>>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().media();
+    let service = state.services().media();
     let value = service
         .for_property(&id, &resolved.service)
         .await
@@ -2598,7 +2751,7 @@ async fn create_property_video_upload(
 ) -> Result<Json<ApiSuccess<crate::media::PropertyVideoUploadSession>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
     let mux = mux_video()?;
-    let mut service = state.services().media();
+    let service = state.services().media();
     let value = service
         .create_property_video_upload(&mux, &body.cors_origin, &resolved.service)
         .await
@@ -2614,7 +2767,7 @@ async fn finalize_property_video_upload(
 ) -> Result<Json<ApiSuccess<crate::media::PropertyVideoFinalizeResult>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
     let mux = mux_video()?;
-    let mut service = state.services().media();
+    let service = state.services().media();
     let value = service
         .finalize_property_video_upload(
             &mux,
@@ -2636,7 +2789,7 @@ async fn attach_property_video(
     Json(body): Json<AttachPropertyVideoBody>,
 ) -> Result<Json<ApiSuccess<domain::AttachPropertyVideoResult>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().media();
+    let service = state.services().media();
     let value = service
         .attach_property_video(
             AttachPropertyVideoRequest {
@@ -2663,7 +2816,7 @@ async fn complete_media_upload(
     Path((_property_id, upload_id)): Path<(String, String)>,
 ) -> Result<Json<ApiSuccess<domain::UploadPropertyMediaResult>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().media();
+    let service = state.services().media();
     let value = service
         .complete_media_upload(&upload_id, &resolved.service)
         .await
@@ -2761,7 +2914,7 @@ async fn begin_media_upload(
         ));
     }
 
-    let mut service = state.services().media();
+    let service = state.services().media();
     let value = service
         .begin_media_upload(
             db::BeginMediaUpload {
@@ -2830,7 +2983,7 @@ async fn stage_media_chunk(
         )
     })?;
 
-    let mut service = state.services().media();
+    let service = state.services().media();
     let value = service
         .stage_media_chunk(&upload_id, chunk_index, bytes, &resolved.service)
         .await
@@ -2911,7 +3064,7 @@ async fn upload_property_media(
         .with_correlation(resolved.service.correlation_id.clone())
     })?;
 
-    let mut service = state.services().media();
+    let service = state.services().media();
     let value = service
         .upload_property_media(
             UploadPropertyMediaRequest {
@@ -2935,7 +3088,7 @@ async fn deals(
     headers: HeaderMap,
 ) -> Result<Json<ApiSuccess<domain::DealPortfolioSnapshot>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().deal_portal();
+    let service = state.services().deal_portal();
     let value = service
         .portfolio(&resolved.service)
         .await
@@ -2949,7 +3102,7 @@ async fn create_deal(
     Json(body): Json<domain::CreateDealRequest>,
 ) -> Result<Json<ApiSuccess<domain::CreateDealResult>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().deal_portal();
+    let service = state.services().deal_portal();
     let value = service
         .create(&body, &resolved.service)
         .await
@@ -2963,7 +3116,7 @@ async fn deal_workspace(
     Path(id): Path<String>,
 ) -> Result<Json<ApiSuccess<domain::DealWorkspaceSnapshot>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().deal_portal();
+    let service = state.services().deal_portal();
     let value = service
         .workspace(&id, &resolved.service)
         .await
@@ -2978,7 +3131,7 @@ async fn deal_workspace_command(
     Json(body): Json<domain::DealWorkspaceCommand>,
 ) -> Result<Json<ApiSuccess<domain::DealWorkspaceCommandResult>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().deal_portal();
+    let service = state.services().deal_portal();
     let value = service
         .command(&id, &body, &resolved.service)
         .await
@@ -2991,7 +3144,7 @@ async fn contracts(
     headers: HeaderMap,
 ) -> Result<Json<ApiSuccess<Vec<domain::ContractSummary>>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().contract();
+    let service = state.services().contract();
     let value = service
         .list(&resolved.service)
         .await
@@ -3005,7 +3158,7 @@ async fn contract(
     Path(id): Path<String>,
 ) -> Result<Json<ApiSuccess<domain::Contract>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().contract();
+    let service = state.services().contract();
     let value = service
         .get(&id, &resolved.service)
         .await
@@ -3025,7 +3178,7 @@ async fn contracts_for_process_instance(
     Path(id): Path<String>,
 ) -> Result<Json<ApiSuccess<Vec<domain::ContractSummary>>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().contract();
+    let service = state.services().contract();
     let value = service
         .list_for_process_instance(&id, &resolved.service)
         .await
@@ -3038,7 +3191,7 @@ async fn forms(
     headers: HeaderMap,
 ) -> Result<Json<ApiSuccess<Vec<domain::FormInstanceListItem>>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().forms();
+    let service = state.services().forms();
     let value = service
         .list_instances(&resolved.service)
         .await
@@ -3052,7 +3205,7 @@ async fn form(
     Path(id): Path<String>,
 ) -> Result<Json<ApiSuccess<domain::FormInstance>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().forms();
+    let service = state.services().forms();
     let value = service
         .get_instance(&id, &resolved.service)
         .await
@@ -3072,7 +3225,7 @@ async fn create_form(
     Json(body): Json<CreateFormBody>,
 ) -> Result<Json<ApiSuccess<domain::FormInstance>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().forms();
+    let service = state.services().forms();
     let deal_id = body.deal_id.filter(|value| !value.trim().is_empty());
     let request = domain::CreateFormInstanceRequest {
         template_id: body.template_id,
@@ -3115,7 +3268,7 @@ async fn update_form(
         ),
         None => None,
     };
-    let mut service = state.services().forms();
+    let service = state.services().forms();
     let value = service
         .update_instance(
             &domain::UpdateFormInstanceRequest {
@@ -3146,7 +3299,7 @@ async fn form_deal_facts(
     Path(deal_id): Path<String>,
 ) -> Result<Json<ApiSuccess<Option<domain::DealFormFacts>>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().forms();
+    let service = state.services().forms();
     let value = service
         .deal_facts(&deal_id, &resolved.service)
         .await
@@ -3160,7 +3313,7 @@ async fn form_signers(
     Path(id): Path<String>,
 ) -> Result<Json<ApiSuccess<Vec<domain::FormSignerPerson>>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().forms();
+    let service = state.services().forms();
     let value = service
         .list_signer_people(&id, &resolved.service)
         .await
@@ -3174,14 +3327,126 @@ async fn form_issued_document(
     Path(id): Path<String>,
 ) -> Result<Json<ApiSuccess<Option<domain::IssuedDocumentForFormInstance>>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state
-        .services()
-        .vault(Arc::new(UnavailableVaultArtifactPort));
+    let service = state.services().vault();
     let value = service
         .issued_for_form_instance(&id, &resolved.service)
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(value, &resolved))
+}
+
+/// Issue the form's document: render it, version it, store it, and record where its signatures go.
+///
+/// THIS IS THE ROUTE THAT WAS MISSING, and it is what the whole forms path turned on. The vault could list and read
+/// issued documents but had no way to CREATE one: the artifact port was a stub answering "renderer is not configured on
+/// this transport", and nothing drove it. The command itself was already here — `VaultService::issue_from_form_instance`
+/// versions the document, resolves the parties and writes the receipts — so this handler is the HTTP surface it lacked.
+///
+/// The response is the issued document's identity: its id, its version and the checksum of the rendered bytes. The
+/// checksum is what makes the artifact evidence, so it is returned rather than left to be looked up.
+async fn form_issue_document(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<ApiSuccess<serde_json::Value>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let request = domain::IssueDocumentRequest {
+        command_id: uuid::Uuid::new_v4().to_string(),
+        form_instance_id: id,
+        actor_app_user_id: Some(resolved.acting_user.app_user_id.clone()),
+        // THE COMMAND'S OWN TIMESTAMP IS THE ISSUANCE DATE, and it is not decoration: the broker's local pre-signature
+        // prints it under her signature, so a document issued without it cannot be signed by her at all — the resolver
+        // refuses rather than drawing an undated signature. It is set HERE, where the command begins.
+        issued_at: Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
+    };
+    let service = state.services().vault();
+    let command = service
+        .issue_from_form_instance(&request, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    if command.outcome != domain::VaultCommandOutcome::Success {
+        let message = command
+            .message
+            .unwrap_or_else(|| "The document could not be issued.".to_string());
+        return Err(correlate(
+            ApiError::from(CoreServiceError::business("VAULT_ISSUE_REFUSED", message)),
+            &resolved,
+        ));
+    }
+    Ok(success(
+        command.value.unwrap_or(serde_json::json!(null)),
+        &resolved,
+    ))
+}
+
+/// The draft preview's body. It is a SCHEMA, not a shape check: anything that is not a string map is refused by
+/// deserialization, before it can reach the renderer — the boundary rule for anything crossing from a browser.
+#[derive(Debug, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct FormPreviewRequest {
+    field_values: std::collections::BTreeMap<String, String>,
+    sections: std::collections::BTreeMap<String, String>,
+}
+
+/// The draft preview: the ISSUANCE RENDERER at a version that does not exist yet, writing nothing.
+///
+/// WHAT THIS REPLACES: a TypeScript route that rendered the draft with `pdf-lib`. The whole point of the port is that the
+/// preview and the issued document come from ONE composer — so the pane beside the editor shows the document the
+/// signature will be applied to, not a second implementation's approximation of it.
+async fn form_preview(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<FormPreviewRequest>,
+) -> Result<Response, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let service = state.services().vault();
+    let artifact = service
+        .preview_form_instance(
+            &id,
+            body.field_values,
+            body.sections,
+            Some(resolved.acting_user.app_user_id.clone()),
+            &resolved.service,
+        )
+        .await
+        .map_err(|failure| match failure {
+            crate::vault::PreviewFailure::NotFound(id) => correlate(
+                ApiError::not_found("FORM_NOT_FOUND", format!("Form instance not found: {id}")),
+                &resolved,
+            ),
+            crate::vault::PreviewFailure::Service(error) => {
+                correlate(ApiError::from(error), &resolved)
+            }
+            crate::vault::PreviewFailure::Db(failure) => {
+                correlate(ApiError::from(CoreServiceError::from(failure)), &resolved)
+            }
+            // A REFUSAL IS THE OPERATOR'S SENTENCE, not a stack trace: the broker configuration could not be proven, and
+            // the screen shows exactly why the document cannot be rendered.
+            crate::vault::PreviewFailure::Refused(failure) => correlate(
+                ApiError::from(CoreServiceError::business(
+                    "VAULT_PREVIEW_REFUSED",
+                    failure.message,
+                )),
+                &resolved,
+            ),
+        })?;
+    let mut response = Response::new(Body::from(artifact.bytes));
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/pdf"),
+    );
+    // Private and unstored: a draft is not a resource, and a cached preview would be a stale document on the next edit.
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-store"),
+    );
+    headers.insert(
+        HeaderName::from_static("x-content-type-options"),
+        HeaderValue::from_static("nosniff"),
+    );
+    Ok(response)
 }
 
 async fn comms_panel(
@@ -3191,7 +3456,7 @@ async fn comms_panel(
     Query(query): Query<CommsPanelQuery>,
 ) -> Result<Json<ApiSuccess<domain::CommsPanel>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().comms();
+    let service = state.services().comms();
     let value = service
         .panel(
             &GetCommsPanelRequest {
@@ -3212,7 +3477,7 @@ async fn comms_timeline(
     Query(query): Query<CommsTimelineQuery>,
 ) -> Result<Json<ApiSuccess<domain::CommsTimeline>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().comms();
+    let service = state.services().comms();
     let value = service
         .timeline(
             &GetCommsTimelineRequest {
@@ -3233,7 +3498,7 @@ async fn activity(
     Query(query): Query<ActivityQuery>,
 ) -> Result<Json<ApiSuccess<Vec<domain::ActivityFeedEntry>>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().comms();
+    let service = state.services().comms();
     let value = service
         .activity(query.limit.unwrap_or(200), &resolved.service)
         .await
@@ -3290,7 +3555,7 @@ async fn relationship_evidence_action(
     Json(body): Json<RelationshipActionBody>,
 ) -> Result<Json<ApiSuccess<serde_json::Value>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().relationship_evidence();
+    let service = state.services().relationship_evidence();
 
     let value = match body.action.as_str() {
         "inspect" => {
@@ -3429,7 +3694,7 @@ async fn accounting_dashboard(
     headers: HeaderMap,
 ) -> Result<Json<ApiSuccess<domain::AccountingDashboard>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().accounting();
+    let service = state.services().accounting();
     let value = service
         .dashboard(&resolved.service)
         .await
@@ -3442,7 +3707,7 @@ async fn accounting_receivables(
     headers: HeaderMap,
 ) -> Result<Json<ApiSuccess<Vec<domain::Receivable>>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().accounting();
+    let service = state.services().accounting();
     let value = service
         .receivables(&resolved.service)
         .await
@@ -3455,7 +3720,7 @@ async fn accounting_expenses(
     headers: HeaderMap,
 ) -> Result<Json<ApiSuccess<Vec<domain::Expense>>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().accounting();
+    let service = state.services().accounting();
     let value = service
         .expenses(&resolved.service)
         .await
@@ -3469,7 +3734,7 @@ async fn accounting_expense_categories(
     headers: HeaderMap,
 ) -> Result<Json<ApiSuccess<Vec<domain::CategoryShare>>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().accounting();
+    let service = state.services().accounting();
     let value = service
         .expense_categories(&resolved.service)
         .await
@@ -3489,7 +3754,7 @@ async fn accounting_pnl(
     Query(query): Query<AccountingPnlQuery>,
 ) -> Result<Json<ApiSuccess<domain::PnlStatement>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().accounting();
+    let service = state.services().accounting();
     let request = domain::PnlRequest {
         from: query.from,
         to: query.to,
@@ -3508,7 +3773,7 @@ async fn create_expense(
     Json(body): Json<CreateExpenseBody>,
 ) -> Result<Json<ApiSuccess<AccountingId>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().accounting();
+    let service = state.services().accounting();
     let command = domain::CreateExpenseCommand {
         vendor: body.vendor,
         category: body.category,
@@ -3533,7 +3798,7 @@ async fn create_receivable(
     Json(body): Json<CreateReceivableBody>,
 ) -> Result<Json<ApiSuccess<AccountingId>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().accounting();
+    let service = state.services().accounting();
     let command = domain::CreateReceivableCommand {
         reference: body.reference,
         description: body.description,
@@ -3563,7 +3828,7 @@ async fn mark_receivable_paid(
     Json(body): Json<MarkReceivablePaidBody>,
 ) -> Result<Json<ApiSuccess<domain::MarkReceivablePaidOutcome>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().accounting();
+    let service = state.services().accounting();
     let command = domain::MarkReceivablePaidCommand {
         receivable_id: id,
         paid_on: body.paid_on,
@@ -3588,7 +3853,7 @@ async fn route_project_work(
     Json(body): Json<RouteProjectWorkBody>,
 ) -> Result<Json<ApiSuccess<serde_json::Value>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut wbs = state.services().wbs();
+    let wbs = state.services().wbs();
     let current = wbs
         .get(&id, &resolved.service)
         .await
@@ -3654,7 +3919,7 @@ async fn route_project_work(
                     &resolved,
                 )
             })?;
-            let mut calendar = state.services().calendar();
+            let calendar = state.services().calendar();
             serde_json::to_value(
                 calendar
                     .create_apple_event(
@@ -3695,7 +3960,7 @@ async fn queue_apple_reminder(
     Json(body): Json<AppleReminderBody>,
 ) -> Result<Json<ApiSuccess<domain::AppleReminderCommandReceipt>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().wbs();
+    let service = state.services().wbs();
     let value = service
         .queue_apple_reminder(&id, body.alert.unwrap_or(false), &resolved.service)
         .await
@@ -3709,7 +3974,7 @@ async fn create_apple_calendar_event(
     Json(request): Json<domain::CreateAppleCalendarEventRequest>,
 ) -> Result<Json<ApiSuccess<domain::CalendarCommandReceipt>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().calendar();
+    let service = state.services().calendar();
     let value = service
         .create_apple_event(&request, &resolved.service)
         .await
@@ -3722,7 +3987,7 @@ async fn calendar(
     headers: HeaderMap,
 ) -> Result<Json<ApiSuccess<Vec<domain::CalendarEvent>>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state.services().calendar();
+    let service = state.services().calendar();
     let value = service
         .list(&resolved.service)
         .await
@@ -3739,9 +4004,7 @@ async fn vault_documents(
         account_type: resolved.acting_user.account_type.clone(),
         person_id: resolved.acting_user.person_id.clone(),
     };
-    let mut service = state
-        .services()
-        .vault(Arc::new(UnavailableVaultArtifactPort));
+    let service = state.services().vault();
     let value = service
         .list_issued_documents(Some(&scope), &resolved.service)
         .await
@@ -3755,9 +4018,7 @@ async fn vault_document(
     Path(id): Path<String>,
 ) -> Result<Json<ApiSuccess<domain::TransactionDocument>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state
-        .services()
-        .vault(Arc::new(UnavailableVaultArtifactPort));
+    let service = state.services().vault();
     let value = service
         .get_document(&id, &resolved.service)
         .await
@@ -3780,9 +4041,7 @@ async fn vault_documents_by_deal(
     Path(id): Path<String>,
 ) -> Result<Json<ApiSuccess<Vec<domain::TransactionDocument>>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state
-        .services()
-        .vault(Arc::new(UnavailableVaultArtifactPort));
+    let service = state.services().vault();
     let value = service
         .list_by_deal(&id, &resolved.service)
         .await
@@ -3796,9 +4055,7 @@ async fn vault_form_contract(
     Path(id): Path<String>,
 ) -> Result<Json<ApiSuccess<Option<String>>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state
-        .services()
-        .vault(Arc::new(UnavailableVaultArtifactPort));
+    let service = state.services().vault();
     let value = service
         .form_contract_id(&id, &resolved.service)
         .await
@@ -3813,9 +4070,7 @@ async fn vault_bind_form_contract(
     Json(body): Json<BindVaultFormContractBody>,
 ) -> Result<Json<ApiSuccess<()>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state
-        .services()
-        .vault(Arc::new(UnavailableVaultArtifactPort));
+    let service = state.services().vault();
     service
         .bind_form_to_contract(&id, &body.contract_id, &resolved.service)
         .await
@@ -3829,9 +4084,7 @@ async fn vault_prior_contract_document(
     Path((contract_id, template_id)): Path<(String, String)>,
 ) -> Result<Json<ApiSuccess<Option<domain::ContractIssuedLineage>>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let mut service = state
-        .services()
-        .vault(Arc::new(UnavailableVaultArtifactPort));
+    let service = state.services().vault();
     let value = service
         .prior_contract_document(&contract_id, &template_id, &resolved.service)
         .await
@@ -4137,9 +4390,7 @@ async fn vault_public_listing_document_bytes(
     let context = resolve_public_guest_context(&state, &headers)?;
     let id = uuid::Uuid::parse_str(&id)
         .map_err(|_| ApiError::not_found("VAULT_DOCUMENT_NOT_FOUND", "Document not found."))?;
-    let mut vault = state
-        .services()
-        .vault(Arc::new(UnavailableVaultArtifactPort));
+    let vault = state.services().vault();
     let document = vault
         .public_listing_document_bytes(&id.to_string(), &context)
         .await
@@ -4157,9 +4408,7 @@ async fn vault_private_document_bytes(
     let resolved = resolve_request_context(&state, &headers).await?;
     let id = uuid::Uuid::parse_str(&id)
         .map_err(|_| ApiError::not_found("VAULT_DOCUMENT_NOT_FOUND", "Document not found."))?;
-    let mut vault = state
-        .services()
-        .vault(Arc::new(UnavailableVaultArtifactPort));
+    let vault = state.services().vault();
     let document = vault
         .media_bytes(&id.to_string(), &resolved.service)
         .await
@@ -4190,6 +4439,25 @@ fn correlate(error: ApiError, resolved: &ResolvedRequestContext) -> ApiError {
     error.with_correlation(resolved.service.correlation_id.clone())
 }
 
+async fn execute_registered<T, F>(
+    state: &ApiState,
+    domain: &str,
+    operation: &str,
+    payload: serde_json::Value,
+    work: F,
+) -> Result<T, ApiError>
+where
+    T: Send + 'static,
+    F: std::future::Future<Output = Result<T, CoreServiceError>> + Send + 'static,
+{
+    state
+        .service_gateway()
+        .execute(domain, operation, &payload, work)
+        .await
+        .map_err(service_dispatch_error)?
+        .map_err(ApiError::from)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4213,5 +4481,42 @@ mod tests {
         let value = serde_json::to_value(body).unwrap();
         assert_eq!(value["correlationId"], "corr-1");
         assert_eq!(value["ok"], true);
+    }
+
+    #[test]
+    fn every_http_service_family_maps_to_its_registered_mailbox() {
+        for (path, domain) in [
+            ("/api/portal/rust-ui/clients", "client"),
+            ("/api/integrations/whatsapp/webhook", "whatsapp"),
+            ("/api/integrations/boldsign/webhook", "signature"),
+            ("/v1/security/guest-code", "guest-sign-in"),
+            ("/v1/security/users", "security"),
+            ("/v1/support/system-health", "support"),
+            ("/v1/tech/cockpit", "tech"),
+            ("/v1/projects", "project"),
+            ("/v1/wbs/project-items", "wbs"),
+            ("/v1/clients", "client"),
+            ("/v1/people/search", "person"),
+            ("/v1/people/x/properties", "property"),
+            ("/v1/properties/admin", "property"),
+            ("/v1/properties/x/media/uploads", "media"),
+            ("/v1/media/upload", "media"),
+            ("/v1/deals", "deal"),
+            ("/v1/contracts", "contract"),
+            ("/v1/forms/x/issued-document", "vault"),
+            ("/v1/forms", "forms"),
+            ("/v1/comms/x/panel", "communications"),
+            ("/v1/issues", "issue"),
+            ("/v1/relationship-evidence/review", "relationship-evidence"),
+            ("/v1/accounting/dashboard", "accounting"),
+            ("/v1/calendar", "calendar"),
+            ("/v1/public/listings", "public-listing"),
+            ("/v1/public/guide", "guide"),
+            ("/v1/public/marketing-content", "marketing"),
+            ("/v1/website-intake", "intake"),
+            ("/v1/website-intake/x/notify", "website-lead"),
+        ] {
+            assert_eq!(http_service_domain(path), Some(domain), "{path}");
+        }
     }
 }

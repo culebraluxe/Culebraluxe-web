@@ -8,6 +8,8 @@ use domain::{
     SetPropertyStatusRequest, UpsertPropertyForPersonRequest,
 };
 use sqlx::{FromRow, PgConnection};
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, RwLock};
 
 #[derive(Debug, FromRow)]
 struct PropertyRow {
@@ -60,10 +62,38 @@ struct PropertyRelationRow {
 }
 
 #[derive(Debug, FromRow)]
+struct CachedPropertyRelationRow {
+    person_id: String,
+    id: String,
+    name: Option<String>,
+    legal_owner_name: Option<String>,
+    catastro_number: Option<String>,
+    registry_entry: Option<String>,
+    finca_number: Option<String>,
+    registry_section: Option<String>,
+    status: String,
+    archived_at: Option<DateTime<Utc>>,
+    address_line1: Option<String>,
+    location: Option<String>,
+    street_number: Option<String>,
+    street_name: Option<String>,
+    unit_number: Option<String>,
+    city: Option<String>,
+    state_or_province: Option<String>,
+    neighborhood: Option<String>,
+    postal_code: Option<String>,
+    country: Option<String>,
+    iso_country_code: Option<String>,
+    relation_type: String,
+    relation_status: Option<String>,
+}
+
+#[derive(Debug, FromRow)]
 struct PropertyAdminSummaryRow {
     id: String,
     name: String,
     status: String,
+    slug: Option<String>,
     location: Option<String>,
     list_price: Option<String>,
     property_type: Option<String>,
@@ -191,6 +221,7 @@ fn map_admin_summary(row: PropertyAdminSummaryRow) -> PropertyAdminSummary {
         id: row.id,
         name: row.name,
         status: row.status,
+        slug: row.slug,
         location: row.location,
         list_price: row.list_price,
         property_type: row.property_type,
@@ -431,6 +462,35 @@ fn map_relation(row: PropertyRelationRow) -> DbResult<PropertyForPerson> {
     })
 }
 
+impl CachedPropertyRelationRow {
+    fn into_relation(self) -> PropertyRelationRow {
+        PropertyRelationRow {
+            id: self.id,
+            name: self.name,
+            legal_owner_name: self.legal_owner_name,
+            catastro_number: self.catastro_number,
+            registry_entry: self.registry_entry,
+            finca_number: self.finca_number,
+            registry_section: self.registry_section,
+            status: self.status,
+            archived_at: self.archived_at,
+            address_line1: self.address_line1,
+            location: self.location,
+            street_number: self.street_number,
+            street_name: self.street_name,
+            unit_number: self.unit_number,
+            city: self.city,
+            state_or_province: self.state_or_province,
+            neighborhood: self.neighborhood,
+            postal_code: self.postal_code,
+            country: self.country,
+            iso_country_code: self.iso_country_code,
+            relation_type: self.relation_type,
+            relation_status: self.relation_status,
+        }
+    }
+}
+
 fn normalize(value: &str) -> String {
     value
         .split_whitespace()
@@ -524,11 +584,106 @@ async fn find_by_address_on(
 #[derive(Clone)]
 pub struct PropertyDao {
     db: Database,
+    read_cache: Arc<RwLock<Option<PropertyReadCache>>>,
+}
+
+#[derive(Clone, Default)]
+struct PropertyReadCache {
+    directory: Vec<PropertyAdminSummary>,
+    by_person: HashMap<String, PersonPropertyContext>,
 }
 
 impl PropertyDao {
     pub fn new(db: Database) -> Self {
-        Self { db }
+        Self {
+            db,
+            read_cache: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    pub fn database(&self) -> Database {
+        self.db.clone()
+    }
+
+    pub async fn warm_read_cache(&self) -> DbResult<usize> {
+        let directory = sqlx::query_as::<_, PropertyAdminSummaryRow>(
+            r#"
+            select
+                p.id::text as id,
+                coalesce(nullif(trim(p.name), ''), 'Unnamed property') as name,
+                p.status,
+                p.slug,
+                coalesce(p.location, p.address_line1, p.city) as location,
+                p.list_price::text as list_price,
+                p.property_type,
+                p.is_active_listing,
+                p.is_published,
+                (p.archived_at is not null) as archived,
+                (select count(*)::bigint from property_media pm join media m on m.id = pm.media_id where pm.property_id = p.id and m.media_type = 'image') as image_count,
+                (select count(*)::bigint from property_media pm join media m on m.id = pm.media_id where pm.property_id = p.id and m.media_type = 'video') as video_count
+            from property p
+            order by
+                case when p.archived_at is null then 0 else 1 end,
+                case when p.is_active_listing then 0 else 1 end,
+                coalesce(nullif(trim(p.name), ''), p.address_line1, p.id::text)
+            "#,
+        )
+        .fetch_all(self.db.pool());
+        let canonical = sqlx::query_as::<_, CachedPropertyRelationRow>(property_sql!(
+            "select pp.person_id::text as person_id, ",
+            ", pp.relation_type, pp.relation_status
+             from person_property pp
+             join property p on p.id = pp.property_id
+             where p.archived_at is null"
+        ))
+        .fetch_all(self.db.pool());
+        let interests = sqlx::query_as::<_, CachedPropertyRelationRow>(property_sql!(
+            "select pi.person_id::text as person_id, ",
+            ", 'interest'::text as relation_type, pi.status as relation_status
+             from property_interest pi
+             join property p on p.id = pi.property_id
+             where p.archived_at is null"
+        ))
+        .fetch_all(self.db.pool());
+        let sellers = sqlx::query_as::<_, CachedPropertyRelationRow>(property_sql!(
+            "select p.seller_person_id::text as person_id, ",
+            ", 'physical_property'::text as relation_type, null::text as relation_status
+             from property p
+             where p.seller_person_id is not null and p.archived_at is null"
+        ))
+        .fetch_all(self.db.pool());
+        let (directory, canonical, interests, sellers) =
+            tokio::try_join!(directory, canonical, interests, sellers)
+                .map_err(|error| DbFailure::from_sqlx("property.warm_read_cache", &error))?;
+        let directory = directory
+            .into_iter()
+            .map(map_admin_summary)
+            .collect::<Vec<_>>();
+        let mut by_person = HashMap::<String, PersonPropertyContext>::new();
+        let mut seen = HashMap::<String, HashSet<String>>::new();
+        for row in canonical.into_iter().chain(interests).chain(sellers) {
+            let person_id = row.person_id.clone();
+            let linked = map_relation(row.into_relation())?;
+            let key = format!("{}:{}", linked.property.id, linked.relation.as_str());
+            if seen.entry(person_id.clone()).or_default().insert(key) {
+                by_person
+                    .entry(person_id.clone())
+                    .or_insert_with(|| PersonPropertyContext {
+                        person_id,
+                        properties: Vec::new(),
+                    })
+                    .properties
+                    .push(linked);
+            }
+        }
+        let count = directory.len().saturating_add(by_person.len());
+        if let Ok(mut cache) = self.read_cache.write() {
+            *cache = Some(PropertyReadCache {
+                directory,
+                by_person,
+            });
+        }
+        Ok(count)
     }
 
     pub async fn get(&self, property_id: &str) -> DbResult<Option<Property>> {
@@ -537,7 +692,7 @@ impl PropertyDao {
             " from property p where p.id = $1::uuid limit 1"
         ))
         .bind(property_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("property.get", &error))?;
         Ok(row.map(map_property))
@@ -560,7 +715,7 @@ impl PropertyDao {
         .bind(request.municipality.as_deref())
         .bind(request.state_or_province.as_deref())
         .bind(request.postal_code.as_deref())
-        .fetch_all(self.db.pool())
+        .fetch_all(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("property.find_by_address", &error))?;
 
@@ -572,6 +727,20 @@ impl PropertyDao {
     }
 
     pub async fn for_person(&self, person_id: &str) -> DbResult<PersonPropertyContext> {
+        if let Ok(cache) = self.read_cache.read() {
+            if let Some(cache) = cache.as_ref() {
+                return Ok(cache.by_person.get(person_id).cloned().unwrap_or_else(|| {
+                    PersonPropertyContext {
+                        person_id: person_id.to_owned(),
+                        properties: Vec::new(),
+                    }
+                }));
+            }
+        }
+        self.fetch_person_context(person_id).await
+    }
+
+    async fn fetch_person_context(&self, person_id: &str) -> DbResult<PersonPropertyContext> {
         let canonical = sqlx::query_as::<_, PropertyRelationRow>(property_sql!(
             "select ",
             ", pp.relation_type, pp.relation_status
@@ -580,7 +749,7 @@ impl PropertyDao {
              where pp.person_id = $1::uuid and p.archived_at is null"
         ))
         .bind(person_id)
-        .fetch_all(self.db.pool())
+        .fetch_all(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("property.for_person.canonical", &error))?;
 
@@ -592,7 +761,7 @@ impl PropertyDao {
              where pi.person_id = $1::uuid and p.archived_at is null"
         ))
         .bind(person_id)
-        .fetch_all(self.db.pool())
+        .fetch_all(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("property.for_person.interest", &error))?;
 
@@ -603,12 +772,12 @@ impl PropertyDao {
              where p.seller_person_id = $1::uuid and p.archived_at is null"
         ))
         .bind(person_id)
-        .fetch_all(self.db.pool())
+        .fetch_all(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("property.for_person.seller", &error))?;
 
         let mut properties = Vec::new();
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = HashSet::new();
         for row in canonical.into_iter().chain(interests).chain(sellers) {
             let linked = map_relation(row)?;
             let key = format!("{}:{}", linked.property.id, linked.relation.as_str());
@@ -631,6 +800,22 @@ impl PropertyDao {
         match result {
             Ok(value) => {
                 tx.commit().await?;
+                match self.fetch_person_context(&request.person_id).await {
+                    Ok(context) => {
+                        if let Ok(mut cache) = self.read_cache.write() {
+                            if let Some(cache) = cache.as_mut() {
+                                cache.by_person.insert(request.person_id.clone(), context);
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        if let Ok(mut cache) = self.read_cache.write() {
+                            if let Some(cache) = cache.as_mut() {
+                                cache.by_person.remove(&request.person_id);
+                            }
+                        }
+                    }
+                }
                 Ok(value)
             }
             Err(error) => {
@@ -651,7 +836,7 @@ impl PropertyDao {
         ))
         .bind(&request.property_id)
         .bind(request.display_name.trim())
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("property.set_display_name", &error))?;
         Ok(row.map(map_property))
@@ -668,7 +853,7 @@ impl PropertyDao {
         ))
         .bind(&request.property_id)
         .bind(request.status.trim())
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("property.set_status", &error))?;
         Ok(row.map(map_property))
@@ -678,6 +863,27 @@ impl PropertyDao {
         &self,
         request: &PropertyAdminPageRequest,
     ) -> DbResult<PropertyAdminPage> {
+        if request.search.trim().is_empty() {
+            if let Ok(cache) = self.read_cache.read() {
+                if let Some(cache) = cache.as_ref() {
+                    let page = request.page.max(1);
+                    let page_size = request.page_size.clamp(1, 100);
+                    let offset = ((page - 1) * page_size) as usize;
+                    return Ok(PropertyAdminPage {
+                        rows: cache
+                            .directory
+                            .iter()
+                            .skip(offset)
+                            .take(page_size as usize)
+                            .cloned()
+                            .collect(),
+                        total: cache.directory.len() as i64,
+                        page,
+                        page_size,
+                    });
+                }
+            }
+        }
         let search = compact(Some(request.search.as_str())).map(|value| format!("%{value}%"));
         let page = request.page.max(1);
         let page_size = request.page_size.clamp(1, 100);
@@ -699,7 +905,7 @@ impl PropertyDao {
             "#,
         )
         .bind(search.as_deref())
-        .fetch_one(self.db.pool())
+        .fetch_one(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("property.admin.count", &error))?;
 
@@ -709,6 +915,7 @@ impl PropertyDao {
                 p.id::text as id,
                 coalesce(nullif(trim(p.name), ''), 'Unnamed property') as name,
                 p.status,
+                p.slug,
                 coalesce(p.location, p.address_line1, p.city) as location,
                 p.list_price::text as list_price,
                 p.property_type,
@@ -737,7 +944,7 @@ impl PropertyDao {
         .bind(search.as_deref())
         .bind(page_size)
         .bind(offset)
-        .fetch_all(self.db.pool())
+        .fetch_all(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("property.admin.page", &error))?;
 
@@ -880,7 +1087,7 @@ impl PropertyDao {
             "#,
         )
         .bind(property_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("property.admin.get", &error))?;
 
@@ -935,7 +1142,7 @@ impl PropertyDao {
                 .map(str::trim)
                 .filter(|value| !value.is_empty()),
         )
-        .execute(self.db.pool())
+        .execute(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("property.admin.create", &error))?;
 

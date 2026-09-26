@@ -2,12 +2,15 @@ use crate::{Database, DbFailure, DbResult};
 use domain::{
     AssignableAgent, ClientAdminPageRequest, ClientAdminRow, ClientDetail,
     ClientDirectoryPageRequest, ClientDirectoryRecord, ClientHistoryEventRecord, ClientInteraction,
-    ClientLastContact, ClientNextAction, ClientPropertyInterest, RelationshipEvidenceRecord,
+    ClientLastContact, ClientNextAction, ClientPropertyInterest, Person,
+    RelationshipEvidenceRecord,
 };
 use serde_json::{json, Value};
 use sqlx::FromRow;
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, Clone, FromRow)]
 struct DirectoryRow {
     person_id: String,
     display_name: String,
@@ -80,6 +83,20 @@ struct PropertyInterestRow {
 }
 
 #[derive(Debug, FromRow)]
+struct CachedPropertyInterestRow {
+    person_id: String,
+    id: String,
+    property_id: String,
+    property_name: String,
+    location: Option<String>,
+    price: Option<String>,
+    bedrooms: Option<String>,
+    property_type: Option<String>,
+    status: String,
+    hero_media_id: Option<String>,
+}
+
+#[derive(Debug, FromRow)]
 struct InteractionRow {
     id: String,
     channel: String,
@@ -93,6 +110,20 @@ struct InteractionRow {
 }
 
 #[derive(Debug, FromRow)]
+struct CachedInteractionRow {
+    person_id: String,
+    id: String,
+    channel: String,
+    event_type: String,
+    direction: Option<String>,
+    occurred_at: String,
+    title: Option<String>,
+    summary: Option<String>,
+    duration_seconds: Option<i64>,
+    source_metadata: Option<Value>,
+}
+
+#[derive(Debug, Clone, FromRow)]
 struct EvidenceRow {
     canonical_person_id: String,
     source: String,
@@ -105,8 +136,8 @@ struct EvidenceRow {
     is_two_way: Option<bool>,
     is_automated_or_bulk: Option<bool>,
     is_organization_or_service: Option<bool>,
-    has_email: bool,
-    has_phone: bool,
+    has_email: Option<bool>,
+    has_phone: Option<bool>,
     coverage_note: Option<String>,
 }
 
@@ -123,17 +154,250 @@ struct HistoryRow {
 #[derive(Clone)]
 pub struct ClientDao {
     db: Database,
+    read_cache: Arc<RwLock<Option<ClientReadCache>>>,
+}
+
+#[derive(Clone, Default)]
+struct ClientReadCache {
+    directory: Vec<ClientDirectoryRecord>,
+    evidence: HashMap<String, Vec<RelationshipEvidenceRecord>>,
+    details: HashMap<String, ClientDetail>,
 }
 
 impl ClientDao {
     pub fn new(db: Database) -> Self {
-        Self { db }
+        Self {
+            db,
+            read_cache: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    pub async fn warm_read_cache(&self) -> DbResult<(usize, usize)> {
+        let directory = sqlx::query_as::<_, DirectoryRow>(
+            r#"
+            select
+              mv.person_id::text as person_id,
+              mv.display_name,
+              mv.role,
+              mv.status,
+              mv.location,
+              mv.primary_email,
+              mv.primary_phone,
+              mv.assigned_agent,
+              mv.last_contact_label,
+              mv.sources,
+              mv.name_sort_priority,
+              count(*) over () as total
+            from mv_client_directory mv
+            order by mv.name_sort_priority desc nulls last, mv.display_name asc, mv.person_id asc
+            "#,
+        )
+        .fetch_all(self.db.pool());
+        let evidence = sqlx::query_as::<_, EvidenceRow>(
+            r#"
+            select
+              canonical_person_id::text as canonical_person_id,
+              source,
+              first_observed_at,
+              last_observed_at,
+              last_inbound_at,
+              last_outbound_at,
+              inbound_count,
+              outbound_count,
+              is_two_way,
+              is_automated_or_bulk,
+              is_organization_or_service,
+              has_email,
+              has_phone,
+              coverage_note
+            from integration_relationship_evidence
+            where canonical_person_id is not null
+            order by canonical_person_id, coalesce(last_observed_at, created_at) desc nulls last
+            "#,
+        )
+        .fetch_all(self.db.pool());
+        let detail_bases = sqlx::query_as::<_, DetailBaseRow>(
+            r#"
+            select
+              p.id::text as id, p.display_name, p.role, p.status, p.location,
+              p.budget_min::text as budget_min, p.budget_max::text as budget_max,
+              p.preferred_areas, p.property_types, p.priorities, p.timeline, p.notes,
+              u.display_name as assigned_user_name, u.id::text as assigned_user_id,
+              email.identity_value as email, phone.identity_value as phone,
+              last_contact.channel as last_contact_channel,
+              case when last_contact.occurred_at is not null
+                then to_char(last_contact.occurred_at at time zone 'America/Puerto_Rico', 'Mon FMDD, YYYY HH12:MI AM')
+                else null end as last_contact_at,
+              coalesce(last_contact.summary, last_contact.title) as last_contact_summary,
+              next_action.title as next_action_title,
+              case when next_action.due_at is not null
+                then to_char(next_action.due_at at time zone 'America/Puerto_Rico', 'Mon FMDD, YYYY HH12:MI AM')
+                else null end as next_action_at,
+              next_action.detail as next_action_detail
+            from person p
+            left join app_user u on u.id = p.assigned_user_id
+            left join lateral (
+              select pi.identity_value from person_identity pi
+              where pi.person_id = p.id and pi.identity_type = 'email'
+              order by pi.is_primary desc, pi.created_at asc limit 1
+            ) email on true
+            left join lateral (
+              select pi.identity_value from person_identity pi
+              where pi.person_id = p.id and pi.identity_type = 'phone'
+              order by pi.is_primary desc, pi.created_at asc limit 1
+            ) phone on true
+            left join lateral (
+              select i.channel, i.occurred_at, i.title, i.summary from interaction i
+              where i.person_id = p.id order by i.occurred_at desc limit 1
+            ) last_contact on true
+            left join lateral (
+              select t.title, t.detail, t.due_at from task t
+              where t.person_id = p.id and t.status = 'open'
+              order by t.due_at asc nulls last, t.created_at asc limit 1
+            ) next_action on true
+            where p.archived_at is null
+            "#,
+        )
+        .fetch_all(self.db.pool());
+        let detail_interests = sqlx::query_as::<_, CachedPropertyInterestRow>(
+            r#"
+            select pi.person_id::text as person_id, pi.id::text as id,
+              property.id::text as property_id, property.name as property_name,
+              property.location, property.list_price::text as price,
+              property.bedrooms::text as bedrooms, property.property_type, pi.status,
+              (select pm.media_id::text from property_media pm
+               where pm.property_id = property.id and pm.role = 'hero'
+               order by pm.sort_order asc, pm.created_at asc limit 1) as hero_media_id
+            from property_interest pi
+            join property on property.id = pi.property_id
+            where property.archived_at is null
+            order by pi.person_id, pi.ranking asc nulls last, pi.created_at desc
+            "#,
+        )
+        .fetch_all(self.db.pool());
+        let detail_interactions = sqlx::query_as::<_, CachedInteractionRow>(
+            r#"
+            select i.person_id::text as person_id, i.id::text as id, i.channel,
+              i.event_type, i.direction,
+              to_char(i.occurred_at at time zone 'America/Puerto_Rico', 'Mon FMDD, YYYY HH12:MI AM') as occurred_at,
+              i.title, i.summary, i.duration_seconds::bigint as duration_seconds,
+              i.source_metadata
+            from interaction i
+            where i.person_id is not null
+            order by i.person_id, i.occurred_at desc
+            "#,
+        )
+        .fetch_all(self.db.pool());
+        let (directory, evidence, detail_bases, detail_interests, detail_interactions) =
+            tokio::try_join!(
+                directory,
+                evidence,
+                detail_bases,
+                detail_interests,
+                detail_interactions
+            )
+            .map_err(|error| DbFailure::from_sqlx("client.warm_read_cache", &error))?;
+
+        let directory = directory
+            .into_iter()
+            .map(map_directory_row)
+            .collect::<Vec<_>>();
+        let mut evidence_by_person = HashMap::<String, Vec<RelationshipEvidenceRecord>>::new();
+        for row in evidence {
+            evidence_by_person
+                .entry(row.canonical_person_id.clone())
+                .or_default()
+                .push(map_evidence_row(row));
+        }
+        let mut interests_by_person = HashMap::<String, Vec<PropertyInterestRow>>::new();
+        for row in detail_interests {
+            interests_by_person
+                .entry(row.person_id.clone())
+                .or_default()
+                .push(row.into_interest());
+        }
+        let mut interactions_by_person = HashMap::<String, Vec<InteractionRow>>::new();
+        for row in detail_interactions {
+            interactions_by_person
+                .entry(row.person_id.clone())
+                .or_default()
+                .push(row.into_interaction());
+        }
+        let mut details = HashMap::with_capacity(detail_bases.len());
+        for base in detail_bases {
+            let person_id = base.id.clone();
+            details.insert(
+                person_id.clone(),
+                map_detail(
+                    base,
+                    interests_by_person.remove(&person_id).unwrap_or_default(),
+                    interactions_by_person
+                        .remove(&person_id)
+                        .unwrap_or_default(),
+                ),
+            );
+        }
+        let counts = (
+            directory.len(),
+            evidence_by_person.len().saturating_add(details.len()),
+        );
+        if let Ok(mut cache) = self.read_cache.write() {
+            *cache = Some(ClientReadCache {
+                directory,
+                evidence: evidence_by_person,
+                details,
+            });
+        }
+        Ok(counts)
+    }
+
+    pub fn update_cached_person(&self, person: &Person) {
+        if let Ok(mut cache) = self.read_cache.write() {
+            let Some(cache) = cache.as_mut() else {
+                return;
+            };
+            if let Some(row) = cache.directory.iter_mut().find(|row| row.id == person.id) {
+                row.display_name.clone_from(&person.display_name);
+                row.status.clone_from(&person.status);
+                cache.directory.sort_by(|left, right| {
+                    left.display_name
+                        .to_lowercase()
+                        .cmp(&right.display_name.to_lowercase())
+                        .then_with(|| left.id.cmp(&right.id))
+                });
+            }
+            if let Some(detail) = cache.details.get_mut(&person.id) {
+                detail.display_name.clone_from(&person.display_name);
+                detail.status.clone_from(&person.status);
+            }
+        }
     }
 
     pub async fn directory_page(
         &self,
         request: &ClientDirectoryPageRequest,
     ) -> DbResult<(Vec<ClientDirectoryRecord>, i64)> {
+        let common_directory = request.search.trim().is_empty()
+            && request.status.is_none()
+            && request.role.is_none()
+            && request.sort == "name";
+        if common_directory {
+            if let Ok(cache) = self.read_cache.read() {
+                if let Some(cache) = cache.as_ref() {
+                    let page = request.page.max(1);
+                    let page_size = request.page_size.clamp(1, 50);
+                    let offset = ((page - 1) * page_size) as usize;
+                    let rows = cache
+                        .directory
+                        .iter()
+                        .skip(offset)
+                        .take(page_size as usize)
+                        .cloned()
+                        .collect();
+                    return Ok((rows, cache.directory.len() as i64));
+                }
+            }
+        }
         let search = compact(&request.search).map(|value| format!("%{value}%"));
         let status = request.status.as_deref();
         let role = request.role.as_deref();
@@ -196,24 +460,7 @@ impl ClientDao {
                 .map_err(|error| DbFailure::from_sqlx("client.directory.count", &error))?,
         };
 
-        Ok((
-            rows.into_iter()
-                .map(|row| ClientDirectoryRecord {
-                    id: row.person_id,
-                    display_name: row.display_name,
-                    name_resolved: row.name_sort_priority == 1,
-                    role: row.role,
-                    status: row.status,
-                    location: row.location,
-                    primary_email: row.primary_email,
-                    primary_phone: row.primary_phone,
-                    assigned_agent: row.assigned_agent,
-                    last_contact_label: row.last_contact_label,
-                    sources: row.sources,
-                })
-                .collect(),
-            total,
-        ))
+        Ok((rows.into_iter().map(map_directory_row).collect(), total))
     }
 
     /// The filtered total on its own. Only used when a page past the end has no rows for the window count to ride on.
@@ -357,6 +604,11 @@ impl ClientDao {
     }
 
     pub async fn detail(&self, person_id: &str) -> DbResult<Option<ClientDetail>> {
+        if let Ok(cache) = self.read_cache.read() {
+            if let Some(cache) = cache.as_ref() {
+                return Ok(cache.details.get(person_id).cloned());
+            }
+        }
         let base = sqlx::query_as::<_, DetailBaseRow>(
             r#"
             select
@@ -429,8 +681,9 @@ impl ClientDao {
             return Ok(None);
         };
 
-        let interests = sqlx::query_as::<_, PropertyInterestRow>(
-            r#"
+        let interests = async {
+            sqlx::query_as::<_, PropertyInterestRow>(
+                r#"
             select
               pi.id::text as id,
               property.id::text as property_id,
@@ -452,13 +705,15 @@ impl ClientDao {
             where pi.person_id = $1::uuid and property.archived_at is null
             order by pi.ranking asc nulls last, pi.created_at desc
             "#,
-        )
-        .bind(person_id)
-        .fetch_all(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("client.detail.interests", &error))?;
+            )
+            .bind(person_id)
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("client.detail.interests", &error))
+        };
 
-        let interactions = sqlx::query_as::<_, InteractionRow>(
+        let interactions = async {
+            sqlx::query_as::<_, InteractionRow>(
             r#"
             select
               i.id::text as id,
@@ -474,59 +729,16 @@ impl ClientDao {
             where i.person_id = $1::uuid
             order by i.occurred_at desc
             "#,
-        )
-        .bind(person_id)
-        .fetch_all(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("client.detail.interactions", &error))?;
+            )
+            .bind(person_id)
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("client.detail.interactions", &error))
+        };
 
-        Ok(Some(ClientDetail {
-            id: base.id,
-            display_name: base.display_name,
-            role: base.role,
-            status: base.status,
-            location: base.location,
-            email: base.email,
-            phone: base.phone,
-            budget_min: parse_number(base.budget_min.as_deref()),
-            budget_max: parse_number(base.budget_max.as_deref()),
-            preferred_areas: base.preferred_areas.unwrap_or_default(),
-            property_types: base.property_types.unwrap_or_default(),
-            priorities: base.priorities.unwrap_or_default(),
-            timeline: base.timeline,
-            assigned_agent: base.assigned_user_name,
-            assigned_user_id: base.assigned_user_id,
-            last_contact: match (base.last_contact_channel, base.last_contact_at) {
-                (Some(channel), Some(occurred_at)) => Some(ClientLastContact {
-                    channel,
-                    occurred_at,
-                    summary: base.last_contact_summary,
-                }),
-                _ => None,
-            },
-            next_action: base.next_action_title.map(|title| ClientNextAction {
-                title,
-                occurred_at: base.next_action_at.unwrap_or_else(|| "Unscheduled".into()),
-                detail: base.next_action_detail,
-            }),
-            notes: base.notes,
-            property_interests: interests.into_iter().map(map_interest).collect(),
-            interactions: interactions
-                .into_iter()
-                .map(|row| ClientInteraction {
-                    id: row.id,
-                    channel: row.channel,
-                    event_type: row.event_type,
-                    direction: row.direction,
-                    occurred_at: row.occurred_at,
-                    title: row.title.unwrap_or_else(|| "Interaction".into()),
-                    summary: row.summary,
-                    duration_seconds: row.duration_seconds,
-                    source_metadata: row.source_metadata.unwrap_or_else(|| json!({})),
-                })
-                .collect(),
-            relationship_activity: None,
-        }))
+        let (interests, interactions) = tokio::try_join!(interests, interactions)?;
+
+        Ok(Some(map_detail(base, interests, interactions)))
     }
 
     pub async fn assignable_agents(&self) -> DbResult<Vec<AssignableAgent>> {
@@ -548,6 +760,22 @@ impl ClientDao {
     ) -> DbResult<Vec<(String, RelationshipEvidenceRecord)>> {
         if person_ids.is_empty() {
             return Ok(vec![]);
+        }
+        if let Ok(cache) = self.read_cache.read() {
+            if let Some(cache) = cache.as_ref() {
+                return Ok(person_ids
+                    .iter()
+                    .flat_map(|id| {
+                        cache
+                            .evidence
+                            .get(id)
+                            .into_iter()
+                            .flatten()
+                            .cloned()
+                            .map(|row| (id.clone(), row))
+                    })
+                    .collect());
+            }
         }
         let rows = sqlx::query_as::<_, EvidenceRow>(
             r#"
@@ -579,22 +807,8 @@ impl ClientDao {
         Ok(rows
             .into_iter()
             .map(|row| {
-                let person_id = row.canonical_person_id;
-                let evidence = RelationshipEvidenceRecord {
-                    source: row.source,
-                    first_observed_at: row.first_observed_at.map(|value| value.to_rfc3339()),
-                    last_observed_at: row.last_observed_at.map(|value| value.to_rfc3339()),
-                    last_inbound_at: row.last_inbound_at.map(|value| value.to_rfc3339()),
-                    last_outbound_at: row.last_outbound_at.map(|value| value.to_rfc3339()),
-                    inbound_count: i64::from(row.inbound_count.unwrap_or(0)),
-                    outbound_count: i64::from(row.outbound_count.unwrap_or(0)),
-                    is_two_way: row.is_two_way.unwrap_or(false),
-                    is_automated_or_bulk: row.is_automated_or_bulk,
-                    is_organization_or_service: row.is_organization_or_service,
-                    has_email: Some(row.has_email),
-                    has_phone: Some(row.has_phone),
-                    coverage_note: row.coverage_note,
-                };
+                let person_id = row.canonical_person_id.clone();
+                let evidence = map_evidence_row(row);
                 (person_id, evidence)
             })
             .collect())
@@ -659,6 +873,126 @@ impl ClientDao {
         .await
         .map_err(|error| DbFailure::from_sqlx("client.history.sources", &error))?;
         Ok(rows)
+    }
+}
+
+fn map_directory_row(row: DirectoryRow) -> ClientDirectoryRecord {
+    ClientDirectoryRecord {
+        id: row.person_id,
+        display_name: row.display_name,
+        name_resolved: row.name_sort_priority == 1,
+        role: row.role,
+        status: row.status,
+        location: row.location,
+        primary_email: row.primary_email,
+        primary_phone: row.primary_phone,
+        assigned_agent: row.assigned_agent,
+        last_contact_label: row.last_contact_label,
+        sources: row.sources,
+    }
+}
+
+fn map_evidence_row(row: EvidenceRow) -> RelationshipEvidenceRecord {
+    RelationshipEvidenceRecord {
+        source: row.source,
+        first_observed_at: row.first_observed_at.map(|value| value.to_rfc3339()),
+        last_observed_at: row.last_observed_at.map(|value| value.to_rfc3339()),
+        last_inbound_at: row.last_inbound_at.map(|value| value.to_rfc3339()),
+        last_outbound_at: row.last_outbound_at.map(|value| value.to_rfc3339()),
+        inbound_count: i64::from(row.inbound_count.unwrap_or(0)),
+        outbound_count: i64::from(row.outbound_count.unwrap_or(0)),
+        is_two_way: row.is_two_way.unwrap_or(false),
+        is_automated_or_bulk: row.is_automated_or_bulk,
+        is_organization_or_service: row.is_organization_or_service,
+        has_email: row.has_email,
+        has_phone: row.has_phone,
+        coverage_note: row.coverage_note,
+    }
+}
+
+impl CachedPropertyInterestRow {
+    fn into_interest(self) -> PropertyInterestRow {
+        PropertyInterestRow {
+            id: self.id,
+            property_id: self.property_id,
+            property_name: self.property_name,
+            location: self.location,
+            price: self.price,
+            bedrooms: self.bedrooms,
+            property_type: self.property_type,
+            status: self.status,
+            hero_media_id: self.hero_media_id,
+        }
+    }
+}
+
+impl CachedInteractionRow {
+    fn into_interaction(self) -> InteractionRow {
+        InteractionRow {
+            id: self.id,
+            channel: self.channel,
+            event_type: self.event_type,
+            direction: self.direction,
+            occurred_at: self.occurred_at,
+            title: self.title,
+            summary: self.summary,
+            duration_seconds: self.duration_seconds,
+            source_metadata: self.source_metadata,
+        }
+    }
+}
+
+fn map_detail(
+    base: DetailBaseRow,
+    interests: Vec<PropertyInterestRow>,
+    interactions: Vec<InteractionRow>,
+) -> ClientDetail {
+    ClientDetail {
+        id: base.id,
+        display_name: base.display_name,
+        role: base.role,
+        status: base.status,
+        location: base.location,
+        email: base.email,
+        phone: base.phone,
+        budget_min: parse_number(base.budget_min.as_deref()),
+        budget_max: parse_number(base.budget_max.as_deref()),
+        preferred_areas: base.preferred_areas.unwrap_or_default(),
+        property_types: base.property_types.unwrap_or_default(),
+        priorities: base.priorities.unwrap_or_default(),
+        timeline: base.timeline,
+        assigned_agent: base.assigned_user_name,
+        assigned_user_id: base.assigned_user_id,
+        last_contact: match (base.last_contact_channel, base.last_contact_at) {
+            (Some(channel), Some(occurred_at)) => Some(ClientLastContact {
+                channel,
+                occurred_at,
+                summary: base.last_contact_summary,
+            }),
+            _ => None,
+        },
+        next_action: base.next_action_title.map(|title| ClientNextAction {
+            title,
+            occurred_at: base.next_action_at.unwrap_or_else(|| "Unscheduled".into()),
+            detail: base.next_action_detail,
+        }),
+        notes: base.notes,
+        property_interests: interests.into_iter().map(map_interest).collect(),
+        interactions: interactions
+            .into_iter()
+            .map(|row| ClientInteraction {
+                id: row.id,
+                channel: row.channel,
+                event_type: row.event_type,
+                direction: row.direction,
+                occurred_at: row.occurred_at,
+                title: row.title.unwrap_or_else(|| "Interaction".into()),
+                summary: row.summary,
+                duration_seconds: row.duration_seconds,
+                source_metadata: row.source_metadata.unwrap_or_else(|| json!({})),
+            })
+            .collect(),
+        relationship_activity: None,
     }
 }
 

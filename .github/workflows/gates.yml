@@ -273,6 +273,10 @@ jobs:
         working-directory: rust
         run: cargo test -p server --test command_runtime_dev -- --ignored --test-threads=1
 
+      - name: Rust service mutation and outbox atomicity proofs
+        working-directory: rust
+        run: cargo test -p server --test service_atomicity_dev -- --ignored --test-threads=1
+
       - name: Rust MQ delivery runtime proofs
         working-directory: rust
         run: cargo test -p server --test mq_runtime_dev -- --ignored --test-threads=1

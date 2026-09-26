@@ -1,26 +1,38 @@
+use crate::clients::ClientService;
 use crate::contracts::ContractService;
 use crate::firms::FirmService;
 use crate::people::PersonService;
 use crate::properties::PropertyService;
+use crate::security::SecurityService;
 use crate::service_kernel::ServiceRegistry;
 use crate::service_support::CoreServiceError;
 use async_trait::async_trait;
-use db::{ContractDao, FirmDao, PersonDao, PropertyDao};
+use db::{ClientDao, ContractDao, FirmDao, PersonDao, PropertyDao, SecurityDao};
 use domain::{PropertyAdminPageRequest, SearchPeopleRequest};
-use serde_json::{json, Value};
+#[cfg(test)]
+use serde_json::json;
+use serde_json::Value;
 use service::{
     AbstractService, OperationKind, ServiceCapability, ServiceContext, ServiceDescriptor,
     ServiceDispatchError, ServiceEnvelope, ServiceExecutionPolicy,
 };
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 #[derive(Clone)]
 pub struct ServiceGateway {
-    registry: std::sync::Arc<ServiceRegistry>,
+    registry: Arc<ServiceRegistry>,
+    accepting: Arc<AtomicBool>,
 }
 
 impl ServiceGateway {
-    pub fn new(registry: std::sync::Arc<ServiceRegistry>) -> Self {
-        Self { registry }
+    pub fn new(registry: Arc<ServiceRegistry>) -> Self {
+        Self {
+            registry,
+            accepting: Arc::new(AtomicBool::new(true)),
+        }
     }
 
     pub fn descriptors(&self) -> Vec<ServiceDescriptor> {
@@ -32,7 +44,42 @@ impl ServiceGateway {
         envelope: &ServiceEnvelope,
         context: &ServiceContext,
     ) -> Result<Value, ServiceDispatchError> {
+        self.ensure_accepting()?;
         self.registry.dispatch(envelope, context).await
+    }
+
+    /// Execute a typed service call through the registered service mailbox.
+    ///
+    /// HTTP handlers use this while a domain is being migrated to JSON envelope
+    /// dispatch. It preserves the typed response while enforcing the same
+    /// bounded queue and lifecycle controls as `dispatch`.
+    pub async fn execute<T, F>(
+        &self,
+        domain: &str,
+        operation: &str,
+        payload: &Value,
+        work: F,
+    ) -> Result<T, ServiceDispatchError>
+    where
+        T: Send + 'static,
+        F: std::future::Future<Output = T> + Send + 'static,
+    {
+        self.ensure_accepting()?;
+        self.registry
+            .run_task(domain, operation, payload, work)
+            .await
+    }
+
+    pub fn refuse_new_work(&self) {
+        self.accepting.store(false, Ordering::Release);
+    }
+
+    pub fn ensure_accepting(&self) -> Result<(), ServiceDispatchError> {
+        if self.accepting.load(Ordering::Acquire) {
+            Ok(())
+        } else {
+            Err(ServiceDispatchError::ServiceDraining("gateway".into()))
+        }
     }
 }
 
@@ -407,6 +454,10 @@ impl AbstractService for PropertyService<PropertyDao> {
         }
     }
 
+    async fn warm_cache(&self) -> Result<usize, ServiceDispatchError> {
+        self.warm_read_cache().await.map_err(core_error)
+    }
+
     async fn dispatch(
         &self,
         envelope: &ServiceEnvelope,
@@ -454,6 +505,68 @@ impl AbstractService for PropertyService<PropertyDao> {
                 operation: operation.to_owned(),
             }),
         }
+    }
+}
+
+#[async_trait]
+impl AbstractService for ClientService<ClientDao> {
+    fn descriptor(&self) -> ServiceDescriptor {
+        ServiceDescriptor {
+            domain: "client".into(),
+            version: "1".into(),
+            description: "Canonical Client service".into(),
+            capabilities: vec![
+                capability(
+                    "client.directory",
+                    OperationKind::Query,
+                    "Read the client directory.",
+                    "person.read",
+                    true,
+                ),
+                capability(
+                    "client.detail",
+                    OperationKind::Query,
+                    "Read one client workspace.",
+                    "person.read",
+                    true,
+                ),
+            ],
+            dependencies: vec![],
+            invariants: vec!["Client reads use the startup-warmed canonical directory.".into()],
+        }
+    }
+
+    async fn warm_cache(&self) -> Result<usize, ServiceDispatchError> {
+        self.warm_read_cache()
+            .await
+            .map(|(clients, evidence)| clients.saturating_add(evidence))
+            .map_err(core_error)
+    }
+}
+
+#[async_trait]
+impl AbstractService for SecurityService<SecurityDao> {
+    fn descriptor(&self) -> ServiceDescriptor {
+        ServiceDescriptor {
+            domain: "security".into(),
+            version: "1".into(),
+            description: "Canonical Security service".into(),
+            capabilities: vec![capability(
+                "security.resolveIdentity",
+                OperationKind::Query,
+                "Resolve an authenticated edge identity from the startup-warmed principal map.",
+                "security.identity.resolve",
+                true,
+            )],
+            dependencies: vec![],
+            invariants: vec![
+                "Authenticated principals are loaded before traffic is accepted.".into(),
+            ],
+        }
+    }
+
+    async fn warm_cache(&self) -> Result<usize, ServiceDispatchError> {
+        self.warm_identity_cache().await.map_err(core_error)
     }
 }
 

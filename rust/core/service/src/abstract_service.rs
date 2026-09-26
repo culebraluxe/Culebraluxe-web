@@ -139,9 +139,23 @@ impl ServiceDispatchError {
 pub trait AbstractService: Send + Sync {
     fn descriptor(&self) -> ServiceDescriptor;
 
+    /// Load the service's read state before the HTTP listener accepts traffic.
+    ///
+    /// Services with no startup cache inherit the no-op. Cache ownership and
+    /// startup sequencing belong to the common service lifecycle rather than
+    /// to the HTTP composition root.
+    async fn warm_cache(&self) -> Result<usize, ServiceDispatchError> {
+        Ok(0)
+    }
+
     async fn dispatch(
         &self,
         envelope: &ServiceEnvelope,
-        context: &ServiceContext,
-    ) -> Result<Value, ServiceDispatchError>;
+        _context: &ServiceContext,
+    ) -> Result<Value, ServiceDispatchError> {
+        Err(ServiceDispatchError::UnknownOperation {
+            domain: envelope.domain.clone(),
+            operation: envelope.operation.clone(),
+        })
+    }
 }

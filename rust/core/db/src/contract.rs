@@ -82,7 +82,7 @@ async fn load_contract_pool(db: &Database, contract_id: &str) -> DbResult<Option
         "#,
     )
     .bind(contract_id)
-    .fetch_optional(db.pool())
+    .fetch_optional(&mut *db.connection().await?)
     .await
     .map_err(|error| DbFailure::from_sqlx("contract.get", &error))?;
 
@@ -103,7 +103,7 @@ async fn load_contract_pool(db: &Database, contract_id: &str) -> DbResult<Option
         "#,
     )
     .bind(contract_id)
-    .fetch_optional(db.pool())
+    .fetch_optional(&mut *db.connection().await?)
     .await
     .map_err(|error| DbFailure::from_sqlx("contract.get.property", &error))?
     .ok_or_else(|| {
@@ -124,7 +124,7 @@ async fn load_contract_pool(db: &Database, contract_id: &str) -> DbResult<Option
         "#,
     )
     .bind(contract_id)
-    .fetch_all(db.pool())
+    .fetch_all(&mut *db.connection().await?)
     .await
     .map_err(|error| DbFailure::from_sqlx("contract.get.person_roles", &error))?;
 
@@ -139,7 +139,7 @@ async fn load_contract_pool(db: &Database, contract_id: &str) -> DbResult<Option
         "#,
     )
     .bind(contract_id)
-    .fetch_all(db.pool())
+    .fetch_all(&mut *db.connection().await?)
     .await
     .map_err(|error| DbFailure::from_sqlx("contract.get.firm_roles", &error))?;
 
@@ -406,6 +406,10 @@ impl ContractDao {
         Self { db }
     }
 
+    pub fn database(&self) -> Database {
+        self.db.clone()
+    }
+
     pub async fn get(&self, contract_id: &str) -> DbResult<Option<Contract>> {
         load_contract_pool(&self.db, contract_id).await
     }
@@ -444,7 +448,7 @@ impl ContractDao {
             "#,
         )
         .bind(process_instance_id)
-        .fetch_all(self.db.pool())
+        .fetch_all(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("contract.list", &error))?;
 
@@ -640,7 +644,7 @@ impl ContractDao {
             "#,
         )
         .bind(contract_id)
-        .fetch_all(self.db.pool())
+        .fetch_all(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("contract.get_effective_state", &error))?;
 
@@ -670,13 +674,13 @@ impl ContractDao {
                 executed_at=coalesce(executed_at, now()),
                 evidence_document_id=coalesce($2::uuid, evidence_document_id),
                 updated_at=now()
-            where id=$1::uuid
+            where id=$1::uuid and status='draft'
             returning id::text
             "#,
         )
         .bind(&request.contract_id)
         .bind(request.evidence_document_id.as_deref())
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("contract.execute", &error))?;
 
@@ -711,7 +715,7 @@ impl<'a> ContractTxDao<'a> {
                 executed_at=coalesce(executed_at, now()),
                 evidence_document_id=coalesce($2::uuid, evidence_document_id),
                 updated_at=now()
-            where id=$1::uuid
+            where id=$1::uuid and status='draft'
             returning id::text
             "#,
         )

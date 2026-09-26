@@ -78,10 +78,14 @@ impl WbsDao {
         Self { db }
     }
 
+    pub fn database(&self) -> Database {
+        self.db.clone()
+    }
+
     pub async fn get(&self, id: &str) -> DbResult<Option<WbsItem>> {
         let row = sqlx::query_as::<_, WbsRow>(wbs_sql!("where id = $1 limit 1"))
             .bind(id)
-            .fetch_optional(self.db.pool())
+            .fetch_optional(&mut *self.db.connection().await?)
             .await
             .map_err(|error| DbFailure::from_sqlx("wbs.get", &error))?;
         row.map(map_row).transpose()
@@ -94,7 +98,7 @@ impl WbsDao {
              order by due_at nulls last, id"
         ))
         .bind(category.as_ref().map(WbsCategory::as_str))
-        .fetch_all(self.db.pool())
+        .fetch_all(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("wbs.list_due", &error))?;
         rows.into_iter().map(map_row).collect()
@@ -106,7 +110,7 @@ impl WbsDao {
              order by project_id, parent_id nulls first, sort_order nulls last,
                       due_at nulls last, id"
         ))
-        .fetch_all(self.db.pool())
+        .fetch_all(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("wbs.list_project_items", &error))?;
         rows.into_iter().map(map_row).collect()
@@ -123,7 +127,7 @@ impl WbsDao {
         ))
         .bind(entity_type.as_str())
         .bind(id)
-        .fetch_all(self.db.pool())
+        .fetch_all(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("wbs.list_for_entity", &error))?;
         rows.into_iter().map(map_row).collect()
@@ -157,7 +161,7 @@ impl WbsDao {
                 .map(|entity| entity.entity_type.as_str()),
         )
         .bind(request.entity.as_ref().map(|entity| entity.id.as_str()))
-        .fetch_one(self.db.pool())
+        .fetch_one(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("wbs.create", &error))?;
         map_row(row)
@@ -193,7 +197,7 @@ impl WbsDao {
         .bind(base.entity.as_ref().map(|entity| entity.id.as_str()))
         .bind(base.project_id.as_deref())
         .bind(base.parent_id.as_deref())
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("wbs.save", &error))?;
         row.map(map_row).transpose()
@@ -229,7 +233,7 @@ impl WbsDao {
         .bind(correlation_id)
         .bind(actor_app_user_id)
         .bind(payload)
-        .execute(self.db.pool())
+        .execute(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("wbs.queue_apple_reminder", &error))?;
 
@@ -251,7 +255,7 @@ impl WbsDao {
         )
         .bind(id)
         .bind(status.as_str())
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("wbs.set_status", &error))?;
         row.map(map_row).transpose()

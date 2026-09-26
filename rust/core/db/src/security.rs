@@ -18,6 +18,27 @@ struct PrincipalRow {
 }
 
 #[derive(Debug, FromRow)]
+struct IdentityPrincipalRow {
+    provider: String,
+    provider_subject: String,
+    app_user_id: String,
+    display_name: String,
+    email: Option<String>,
+    account_type: String,
+    person_id: Option<String>,
+    role_codes: Vec<String>,
+    authority_codes: Vec<String>,
+    entitlement_codes: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct IdentityPrincipal {
+    pub provider: String,
+    pub provider_subject: String,
+    pub acting_user: ActingUser,
+}
+
+#[derive(Debug, FromRow)]
 struct RoleEntitlementRow {
     role_code: String,
     account_type: String,
@@ -42,6 +63,75 @@ pub struct SecurityDao {
 impl SecurityDao {
     pub fn new(db: Database) -> Self {
         Self { db }
+    }
+
+    /// Load the authenticated principals once when the long-lived service starts.
+    /// Requests can then translate the already authenticated provider subject
+    /// without another database lookup.
+    pub async fn load_identity_principals(&self) -> DbResult<Vec<IdentityPrincipal>> {
+        let rows = crate::retrying_read!(async {
+            sqlx::query_as::<_, IdentityPrincipalRow>(
+                r#"
+                select
+                  i.provider,
+                  i.provider_subject,
+                  u.id::text as app_user_id,
+                  u.display_name,
+                  u.email,
+                  u.account_type,
+                  u.person_id::text as person_id,
+                  array(
+                    select distinct r.code
+                    from app_user_role aur
+                    join security_role r on r.id = aur.role_id and r.active = true
+                    where aur.app_user_id = u.id
+                    order by r.code
+                  ) as role_codes,
+                  array(
+                    select distinct a.code
+                    from app_user_role aur
+                    join security_role r on r.id = aur.role_id and r.active = true
+                    join role_authority ra on ra.role_id = r.id
+                    join authority a on a.id = ra.authority_id
+                    where aur.app_user_id = u.id
+                    order by a.code
+                  ) as authority_codes,
+                  array(
+                    select distinct e.code
+                    from app_user_role aur
+                    join security_role r on r.id = aur.role_id and r.active = true
+                    join role_entitlement re on re.role_id = r.id
+                    join entitlement e on e.id = re.entitlement_id
+                    where aur.app_user_id = u.id and e.active = true
+                    order by e.code
+                  ) as entitlement_codes
+                from auth_identity i
+                join app_user u on u.id = i.app_user_id and u.active = true
+                order by i.provider, i.provider_subject
+                "#,
+            )
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("security.load_identity_principals", &error))
+        })?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| IdentityPrincipal {
+                provider: row.provider,
+                provider_subject: row.provider_subject,
+                acting_user: ActingUser {
+                    app_user_id: row.app_user_id,
+                    display_name: row.display_name,
+                    email: row.email,
+                    account_type: row.account_type,
+                    role_codes: row.role_codes,
+                    authority_codes: row.authority_codes,
+                    entitlement_codes: row.entitlement_codes,
+                    person_id: row.person_id,
+                },
+            })
+            .collect())
     }
 
     /// One statement makes the grant change atomic and refuses unknown or inactive

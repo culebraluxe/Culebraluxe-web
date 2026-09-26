@@ -303,6 +303,10 @@ impl SignatureDao {
         Self { db }
     }
 
+    pub fn database(&self) -> Database {
+        self.db.clone()
+    }
+
     pub async fn get(&self, id: &str) -> DbResult<Option<SignatureRequest>> {
         let row = sqlx::query_as::<_, SignatureRow>(
             r#"
@@ -317,7 +321,7 @@ impl SignatureDao {
             "#,
         )
         .bind(id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("signature.get", &error))?;
         row.map(map_signature).transpose()
@@ -342,7 +346,7 @@ impl SignatureDao {
             "#,
         )
         .bind(transaction_document_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("signature.active_for_document", &error))?;
         row.map(map_signature).transpose()
@@ -365,7 +369,7 @@ impl SignatureDao {
             "#,
         )
         .bind(transaction_document_id)
-        .fetch_all(self.db.pool())
+        .fetch_all(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("signature.list_by_document", &error))?;
         rows.into_iter().map(map_signature).collect()
@@ -767,7 +771,7 @@ impl SignatureDao {
             "#,
         )
         .bind(&command_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("signature.reconcile.probe_receipt", &error))?;
 
@@ -789,7 +793,7 @@ impl SignatureDao {
             "#,
         )
         .bind(signature_request_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("signature.reconcile.probe_document", &error))?;
 

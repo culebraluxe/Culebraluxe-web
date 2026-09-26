@@ -26,52 +26,52 @@ const RESOURCE: &str = "accounting";
 
 #[async_trait]
 pub trait AccountingRepository: Send {
-    async fn receivables(&mut self) -> DbResult<Vec<Receivable>>;
-    async fn expenses(&mut self) -> DbResult<Vec<Expense>>;
+    async fn receivables(&self) -> DbResult<Vec<Receivable>>;
+    async fn expenses(&self) -> DbResult<Vec<Expense>>;
     /// Every posted expense by category, for the Expenses screen's breakdown.
-    async fn expense_categories(&mut self) -> DbResult<Vec<CategoryShare>>;
-    async fn dashboard(&mut self) -> DbResult<AccountingDashboard>;
-    async fn pnl(&mut self, request: &PnlRequest) -> DbResult<PnlStatement>;
-    async fn create_expense(&mut self, command: &CreateExpenseCommand) -> DbResult<String>;
-    async fn create_receivable(&mut self, command: &CreateReceivableCommand) -> DbResult<String>;
+    async fn expense_categories(&self) -> DbResult<Vec<CategoryShare>>;
+    async fn dashboard(&self) -> DbResult<AccountingDashboard>;
+    async fn pnl(&self, request: &PnlRequest) -> DbResult<PnlStatement>;
+    async fn create_expense(&self, command: &CreateExpenseCommand) -> DbResult<String>;
+    async fn create_receivable(&self, command: &CreateReceivableCommand) -> DbResult<String>;
     async fn mark_receivable_paid(
-        &mut self,
+        &self,
         command: &MarkReceivablePaidCommand,
     ) -> DbResult<Option<MarkReceivablePaidOutcome>>;
 }
 
 #[async_trait]
 impl AccountingRepository for AccountingDao {
-    async fn receivables(&mut self) -> DbResult<Vec<Receivable>> {
+    async fn receivables(&self) -> DbResult<Vec<Receivable>> {
         AccountingDao::receivables(self).await
     }
 
-    async fn expenses(&mut self) -> DbResult<Vec<Expense>> {
+    async fn expenses(&self) -> DbResult<Vec<Expense>> {
         AccountingDao::expenses(self).await
     }
 
-    async fn expense_categories(&mut self) -> DbResult<Vec<CategoryShare>> {
+    async fn expense_categories(&self) -> DbResult<Vec<CategoryShare>> {
         AccountingDao::expense_categories(self).await
     }
 
-    async fn dashboard(&mut self) -> DbResult<AccountingDashboard> {
+    async fn dashboard(&self) -> DbResult<AccountingDashboard> {
         AccountingDao::dashboard(self).await
     }
 
-    async fn pnl(&mut self, request: &PnlRequest) -> DbResult<PnlStatement> {
+    async fn pnl(&self, request: &PnlRequest) -> DbResult<PnlStatement> {
         AccountingDao::pnl(self, request).await
     }
 
-    async fn create_expense(&mut self, command: &CreateExpenseCommand) -> DbResult<String> {
+    async fn create_expense(&self, command: &CreateExpenseCommand) -> DbResult<String> {
         AccountingDao::create_expense(self, command).await
     }
 
-    async fn create_receivable(&mut self, command: &CreateReceivableCommand) -> DbResult<String> {
+    async fn create_receivable(&self, command: &CreateReceivableCommand) -> DbResult<String> {
         AccountingDao::create_receivable(self, command).await
     }
 
     async fn mark_receivable_paid(
-        &mut self,
+        &self,
         command: &MarkReceivablePaidCommand,
     ) -> DbResult<Option<MarkReceivablePaidOutcome>> {
         AccountingDao::mark_receivable_paid(self, command).await
@@ -107,7 +107,7 @@ impl<R: AccountingRepository> AccountingService<R> {
 impl<R: AccountingRepository> AccountingService<R> {
     /// The dashboard's projections.
     pub async fn dashboard(
-        &mut self,
+        &self,
         context: &ServiceContext,
     ) -> Result<AccountingDashboard, CoreServiceError> {
         const OP: &str = "accounting.dashboard";
@@ -126,7 +126,7 @@ impl<R: AccountingRepository> AccountingService<R> {
     }
 
     pub async fn receivables(
-        &mut self,
+        &self,
         context: &ServiceContext,
     ) -> Result<Vec<Receivable>, CoreServiceError> {
         const OP: &str = "accounting.receivables";
@@ -145,7 +145,7 @@ impl<R: AccountingRepository> AccountingService<R> {
     }
 
     pub async fn expenses(
-        &mut self,
+        &self,
         context: &ServiceContext,
     ) -> Result<Vec<Expense>, CoreServiceError> {
         const OP: &str = "accounting.expenses";
@@ -165,7 +165,7 @@ impl<R: AccountingRepository> AccountingService<R> {
 
     /// The Expenses screen's breakdown: every posted expense by category, with each one's share.
     pub async fn expense_categories(
-        &mut self,
+        &self,
         context: &ServiceContext,
     ) -> Result<Vec<CategoryShare>, CoreServiceError> {
         const OP: &str = "accounting.expenseCategories";
@@ -192,7 +192,7 @@ impl<R: AccountingRepository> AccountingService<R> {
     /// THE RANGE IS THE CALLER'S AND IT IS VALIDATED HERE. A screen that filters to a period gets that period or an
     /// error saying why it cannot — never a different period that looked close enough.
     pub async fn pnl(
-        &mut self,
+        &self,
         request: &PnlRequest,
         context: &ServiceContext,
     ) -> Result<PnlStatement, CoreServiceError> {
@@ -217,7 +217,7 @@ impl<R: AccountingRepository> AccountingService<R> {
 
     /// Record an expense.
     pub async fn create_expense(
-        &mut self,
+        &self,
         command: &CreateExpenseCommand,
         context: &ServiceContext,
     ) -> Result<String, CoreServiceError> {
@@ -247,7 +247,7 @@ impl<R: AccountingRepository> AccountingService<R> {
 
     /// Record a receivable.
     pub async fn create_receivable(
-        &mut self,
+        &self,
         command: &CreateReceivableCommand,
         context: &ServiceContext,
     ) -> Result<String, CoreServiceError> {
@@ -279,7 +279,7 @@ impl<R: AccountingRepository> AccountingService<R> {
     /// the answer is a conflict — the receivable does not exist, or it is void and therefore not payable. This is the
     /// same conflict the live screen reported, so a screen that races another operator still gets the honest answer.
     pub async fn mark_receivable_paid(
-        &mut self,
+        &self,
         command: &MarkReceivablePaidCommand,
         context: &ServiceContext,
     ) -> Result<MarkReceivablePaidOutcome, CoreServiceError> {
@@ -381,39 +381,36 @@ mod tests {
 
     #[async_trait]
     impl AccountingRepository for FakeRepository {
-        async fn receivables(&mut self) -> DbResult<Vec<Receivable>> {
+        async fn receivables(&self) -> DbResult<Vec<Receivable>> {
             unreachable!("this test does not list receivables")
         }
 
-        async fn expenses(&mut self) -> DbResult<Vec<Expense>> {
+        async fn expenses(&self) -> DbResult<Vec<Expense>> {
             unreachable!("this test does not list expenses")
         }
 
-        async fn expense_categories(&mut self) -> DbResult<Vec<CategoryShare>> {
+        async fn expense_categories(&self) -> DbResult<Vec<CategoryShare>> {
             unreachable!("this test does not read the breakdown")
         }
 
-        async fn dashboard(&mut self) -> DbResult<AccountingDashboard> {
+        async fn dashboard(&self) -> DbResult<AccountingDashboard> {
             unreachable!("this test does not read the dashboard")
         }
 
-        async fn pnl(&mut self, request: &PnlRequest) -> DbResult<PnlStatement> {
+        async fn pnl(&self, request: &PnlRequest) -> DbResult<PnlStatement> {
             Ok(self.record_pnl(request))
         }
 
-        async fn create_expense(&mut self, command: &CreateExpenseCommand) -> DbResult<String> {
+        async fn create_expense(&self, command: &CreateExpenseCommand) -> DbResult<String> {
             Ok(self.record_expense(command))
         }
 
-        async fn create_receivable(
-            &mut self,
-            command: &CreateReceivableCommand,
-        ) -> DbResult<String> {
+        async fn create_receivable(&self, command: &CreateReceivableCommand) -> DbResult<String> {
             Ok(self.record_receivable(command))
         }
 
         async fn mark_receivable_paid(
-            &mut self,
+            &self,
             command: &MarkReceivablePaidCommand,
         ) -> DbResult<Option<MarkReceivablePaidOutcome>> {
             Ok(self.record_paid(command))
@@ -461,7 +458,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_pnl_projection_keeps_the_range_the_caller_asked_for() {
-        let (mut service, repository) = service();
+        let (service, repository) = service();
         let request = PnlRequest {
             from: "2026-03-01".into(),
             to: "2026-03-31".into(),
@@ -483,7 +480,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_backwards_period_is_refused_before_the_repository() {
-        let (mut service, repository) = service();
+        let (service, repository) = service();
         let error = service
             .pnl(
                 &PnlRequest {
@@ -501,7 +498,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_guest_cannot_run_an_accounting_command() {
-        let (mut service, repository) = service();
+        let (service, repository) = service();
         let command = CreateExpenseCommand {
             vendor: "Sunrise Fuel".into(),
             category: "Office".into(),
@@ -523,7 +520,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_invalid_expense_never_reaches_the_repository() {
-        let (mut service, repository) = service();
+        let (service, repository) = service();
         let command = CreateExpenseCommand {
             vendor: "Sunrise Fuel".into(),
             category: "Not A Category".into(),

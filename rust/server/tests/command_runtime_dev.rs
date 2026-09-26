@@ -18,7 +18,7 @@ struct Fixture {
 
 impl Fixture {
     async fn create() -> Self {
-        let db = Database::connect_from_env()
+        let db = Database::connect_target(DbTarget::Dev)
             .await
             .expect("connect DEV database");
         assert_eq!(
@@ -114,6 +114,10 @@ impl Fixture {
     }
 
     async fn cleanup(&self) {
+        let _ = sqlx::query("delete from security_audit_event where metadata->>'commandId'=$1")
+            .bind(&self.command_id)
+            .execute(self.db.pool())
+            .await;
         let _ = sqlx::query("delete from outbox_message where causation_id=$1")
             .bind(&self.command_id)
             .execute(self.db.pool())
@@ -186,6 +190,14 @@ async fn command_dev_commit_replay_and_intent_conflict_are_durable() {
     .unwrap();
     assert_eq!(outbox_ids.len(), 1);
     assert_eq!(outbox_ids[0], first.emitted_events[0].event_id);
+    let audit_count: i64 = sqlx::query_scalar(
+        "select count(*) from security_audit_event where metadata->>'commandId'=$1",
+    )
+    .bind(&fixture.command_id)
+    .fetch_one(fixture.db.pool())
+    .await
+    .unwrap();
+    assert_eq!(audit_count, 1);
 
     let replay = harness
         .execute_command(&request, &context)
@@ -227,5 +239,52 @@ async fn command_dev_commit_replay_and_intent_conflict_are_durable() {
     assert_eq!(post_conflict_outbox, 1);
 
     harness.kernel().shutdown().await.unwrap();
+    fixture.cleanup().await;
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL_DEV; run under the Rust DEV DB gate"]
+async fn command_dev_two_runtimes_compete_but_commit_one_effect_receipt_event_and_audit() {
+    let fixture = Fixture::create().await;
+    let first = ServiceHarness::isolated(fixture.db.clone(), infrastructure()).unwrap();
+    let second = ServiceHarness::isolated(fixture.db.clone(), infrastructure()).unwrap();
+    first.start().await.unwrap();
+    second.start().await.unwrap();
+    let context = fixture.context().await;
+    let request = fixture.request();
+
+    let (left, right) = tokio::join!(
+        first.execute_command(&request, &context),
+        second.execute_command(&request, &context),
+    );
+    let left = left.unwrap();
+    let right = right.unwrap();
+    assert_eq!(left.outcome, CommandOutcome::Success);
+    assert_eq!(right.outcome, CommandOutcome::Success);
+    assert_ne!(left.replayed, right.replayed);
+
+    let receipt_count: i64 =
+        sqlx::query_scalar("select count(*) from workflow_command_receipt where command_id=$1")
+            .bind(&fixture.command_id)
+            .fetch_one(fixture.db.pool())
+            .await
+            .unwrap();
+    let event_count: i64 =
+        sqlx::query_scalar("select count(*) from outbox_message where causation_id=$1")
+            .bind(&fixture.command_id)
+            .fetch_one(fixture.db.pool())
+            .await
+            .unwrap();
+    let audit_count: i64 = sqlx::query_scalar(
+        "select count(*) from security_audit_event where metadata->>'commandId'=$1",
+    )
+    .bind(&fixture.command_id)
+    .fetch_one(fixture.db.pool())
+    .await
+    .unwrap();
+    assert_eq!((receipt_count, event_count, audit_count), (1, 1, 1));
+
+    first.shutdown().await.unwrap();
+    second.shutdown().await.unwrap();
     fixture.cleanup().await;
 }
