@@ -21,7 +21,11 @@ use domain::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use super::routes::{apply_project_update, apply_wbs_update, execute_registered, UpdateProjectBody, UpdateWbsBody};
+use super::routes::{
+    apply_person_admin_update, apply_project_update, apply_property_admin_create, apply_property_admin_save,
+    apply_wbs_update, execute_registered, CreatePropertyAdminBody, SavePropertyAdminBody, UpdatePersonAdminBody,
+    UpdateProjectBody, UpdateWbsBody,
+};
 
 pub fn router() -> Router<ApiState> {
     Router::new()
@@ -31,6 +35,7 @@ pub fn router() -> Router<ApiState> {
         .route("/api/portal/rust-ui/deals", get(deals).post(deals_write))
         .route("/api/portal/rust-ui/projects", get(projects).post(projects_act))
         .route("/api/portal/rust-ui/accounting", axum::routing::post(accounting_act))
+        .route("/api/portal/rust-ui/opps", get(opps).post(opps_act))
 }
 
 #[derive(Debug, Deserialize)]
@@ -769,4 +774,309 @@ async fn accounting_act(
     let from = text("from");
     let to = text("to");
     Ok(Json(accounting_payload(&state, &resolved, &screen, from.as_deref(), to.as_deref()).await?))
+}
+
+const OPPS_PAGE_SIZE: i64 = 50;
+
+#[derive(Debug, Deserialize)]
+struct OppsQuery {
+    entity: Option<String>,
+    #[serde(default)]
+    search: String,
+    page: Option<String>,
+    selected: Option<String>,
+}
+
+fn opps_entity(value: Option<&str>) -> &'static str {
+    match value {
+        Some("person") => "person",
+        Some("project") => "project",
+        _ => "property",
+    }
+}
+
+fn opps_row(id: &Value, title: &Value, subtitle: &Value, status: &Value, meta: &Value) -> Value {
+    json!({ "id": id, "title": title, "subtitle": subtitle, "status": status, "meta": meta })
+}
+
+fn at<'a>(value: &'a Value, key: &str) -> &'a Value {
+    value.get(key).unwrap_or(&Value::Null)
+}
+
+/// The Data Workbench: one entity's list (property, person or project), a page of it, and the selected record.
+async fn opps_workbench(
+    state: &ApiState,
+    resolved: &ResolvedRequestContext,
+    entity: &str,
+    search: &str,
+    page_index: i64,
+    selected: Option<String>,
+) -> Result<Value, ApiError> {
+    let services = state.services();
+    let context = &resolved.service;
+    let empty = Vec::new();
+    let mut payload = json!({
+        "entity": entity, "rows": [], "total": 0, "page": page_index + 1, "pageSize": OPPS_PAGE_SIZE,
+        "selectedId": null, "property": null, "person": null, "project": null, "media": [],
+    });
+    match entity {
+        "person" => {
+            let request = domain::ClientAdminPageRequest {
+                search: search.to_owned(),
+                page: page_index + 1,
+                page_size: OPPS_PAGE_SIZE,
+            };
+            let page = to_json(services.clients().admin(&request, context).await.map_err(failed(resolved))?);
+            let rows = page.get("rows").and_then(Value::as_array).unwrap_or(&empty);
+            let selected_id = selected
+                .filter(|id| rows.iter().any(|row| str_at(row, "id") == Some(id.as_str())))
+                .or_else(|| rows.first().and_then(|row| str_at(row, "id")).map(str::to_owned));
+            if let Some(id) = &selected_id {
+                let (people, clients) = (services.person(), services.clients());
+                let (canonical, client) = tokio::join!(people.get(id, context), clients.detail(id, context));
+                let canonical = to_json(canonical.map_err(failed(resolved))?);
+                let client = to_json(client.map_err(failed(resolved))?);
+                payload["person"] = json!({
+                    "id": at(&canonical, "id"),
+                    "displayName": at(&canonical, "display_name"),
+                    "role": client.get("role").filter(|v| !v.is_null()).cloned().unwrap_or(json!("unclassified")),
+                    "status": at(&canonical, "status"),
+                    "company": at(&canonical, "company"),
+                    "civilStatus": at(&canonical, "civil_status"),
+                    "location": at(&client, "location"),
+                    "email": at(&client, "email"),
+                    "phone": at(&client, "phone"),
+                });
+            }
+            payload["rows"] = rows
+                .iter()
+                .map(|row| {
+                    let meta = row.get("primaryEmail").filter(|v| !v.is_null()).unwrap_or(at(row, "primaryPhone"));
+                    opps_row(at(row, "id"), at(row, "displayName"), at(row, "location"), at(row, "status"), meta)
+                })
+                .collect();
+            payload["total"] = at(&page, "total").clone();
+            payload["page"] = at(&page, "page").clone();
+            payload["pageSize"] = at(&page, "pageSize").clone();
+            payload["selectedId"] = json!(selected_id);
+        }
+        "project" => {
+            let all = services.project().lock().await.list(context).await;
+            let all = to_json(all.map_err(|error| correlate(ApiError::from(error), resolved))?);
+            let all = all.as_array().unwrap_or(&empty);
+            let needle = search.trim().to_lowercase();
+            let filtered: Vec<&Value> = all
+                .iter()
+                .filter(|project| {
+                    if needle.is_empty() {
+                        return true;
+                    }
+                    let mut text: Vec<String> = ["name", "owner", "status", "description", "project_type"]
+                        .iter()
+                        .filter_map(|key| str_at(project, key).map(str::to_owned))
+                        .collect();
+                    text.extend(at(project, "areas").as_array().into_iter().flatten().filter_map(|a| a.as_str().map(str::to_owned)));
+                    text.join(" ").to_lowercase().contains(&needle)
+                })
+                .collect();
+            let start = (page_index * OPPS_PAGE_SIZE) as usize;
+            let rows: Vec<&Value> = filtered.iter().skip(start).take(OPPS_PAGE_SIZE as usize).copied().collect();
+            let selected_id = selected
+                .filter(|id| rows.iter().any(|row| str_at(row, "id") == Some(id.as_str())))
+                .or_else(|| rows.first().and_then(|row| str_at(row, "id")).map(str::to_owned));
+            if let Some(project) = selected_id.as_deref().and_then(|id| all.iter().find(|p| str_at(p, "id") == Some(id))) {
+                let mut project = camel_keys(project.clone());
+                if let Some(object) = project.as_object_mut() {
+                    object.remove("createdAt");
+                    object.remove("updatedAt");
+                }
+                payload["project"] = project;
+            }
+            payload["rows"] = rows
+                .iter()
+                .map(|row| opps_row(at(row, "id"), at(row, "name"), at(row, "project_type"), at(row, "status"), at(row, "owner")))
+                .collect();
+            payload["total"] = json!(filtered.len());
+            payload["selectedId"] = json!(selected_id);
+        }
+        _ => {
+            let property = services.property();
+            let request = domain::PropertyAdminPageRequest {
+                search: search.to_owned(),
+                page: page_index + 1,
+                page_size: OPPS_PAGE_SIZE,
+            };
+            let page = to_json(property.admin_page(&request, context).await.map_err(failed(resolved))?);
+            let rows = page.get("rows").and_then(Value::as_array).cloned().unwrap_or_default();
+            let selected_id = selected.or_else(|| rows.first().and_then(|row| str_at(row, "id")).map(str::to_owned));
+            let status_of = |row: &Value| {
+                if at(row, "archived").as_bool() == Some(true) { json!("archived") } else { at(row, "status").clone() }
+            };
+            let mut out: Vec<Value> = rows
+                .iter()
+                .map(|row| opps_row(at(row, "id"), at(row, "name"), at(row, "location"), &status_of(row), at(row, "listPrice")))
+                .collect();
+            if let Some(id) = &selected_id {
+                let media_service = services.media();
+                let (detail, media) = tokio::join!(property.admin_get(id, context), media_service.for_property(id, context));
+                let detail = detail.map_err(failed(resolved))?.ok_or_else(|| {
+                    correlate(ApiError::not_found("PROPERTY_NOT_FOUND", format!("Property not found: {id}")), resolved)
+                })?;
+                let mut detail = to_json(detail);
+                let seller = match str_at(&detail, "sellerPersonId").map(str::to_owned) {
+                    Some(seller_id) => to_json(services.clients().detail(&seller_id, context).await.map_err(failed(resolved))?),
+                    None => Value::Null,
+                };
+                if let Some(object) = detail.as_object_mut() {
+                    if let Some(name) = seller.get("displayName").filter(|v| !v.is_null()) {
+                        object.insert("sellerName".into(), name.clone());
+                    }
+                    object.insert("sellerEmail".into(), at(&seller, "email").clone());
+                    object.insert("sellerPhone".into(), at(&seller, "phone").clone());
+                    object.insert("sellerLocation".into(), at(&seller, "location").clone());
+                }
+                if !out.iter().any(|row| str_at(row, "id") == Some(id.as_str())) {
+                    out.insert(0, opps_row(at(&detail, "id"), at(&detail, "name"), at(&detail, "location"), &status_of(&detail), at(&detail, "listPrice")));
+                }
+                payload["property"] = detail;
+                payload["media"] = to_json(media.map_err(failed(resolved))?);
+            }
+            payload["rows"] = Value::Array(out);
+            payload["total"] = at(&page, "total").clone();
+            payload["page"] = at(&page, "page").clone();
+            payload["pageSize"] = at(&page, "pageSize").clone();
+            payload["selectedId"] = json!(selected_id);
+        }
+    }
+    Ok(json!({ "ops": payload }))
+}
+
+async fn opps(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Query(query): Query<OppsQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    let page_index = query.page.as_deref().and_then(|page| page.trim().parse::<i64>().ok()).unwrap_or(0).max(0);
+    let selected = query.selected.map(|id| id.trim().to_owned()).filter(|id| !id.is_empty());
+    let entity = opps_entity(query.entity.as_deref());
+    Ok(Json(opps_workbench(&state, &resolved, entity, query.search.trim(), page_index, selected).await?))
+}
+
+/// The property save body, from the workbench's string fields: blanks are absent, flags are "true".
+fn property_save_body(fields: &serde_json::Map<String, Value>) -> Value {
+    const FLAGS: &[&str] = &[
+        "featured", "isActiveListing", "isPublished", "hasOceanView", "hasBayView", "hasBeachView", "hasHarborView",
+        "hasIslandView", "hasMountainView", "hasSunriseView", "hasSunsetView", "hasWaterAccess", "hasBeachAccess",
+        "hasPool", "hasGenerator", "hasSolar", "isFurnished", "isGated", "archived",
+    ];
+    const TEXT: &[&str] = &[
+        "slug", "propertyType", "listPrice", "originalListPrice", "location", "addressLine1", "streetNumber", "streetName",
+        "unitNumber", "city", "stateOrProvince", "neighborhood", "postalCode", "country", "isoCountryCode", "latitude",
+        "longitude", "bedrooms", "bathrooms", "bathroomsFull", "bathroomsHalf", "squareFeet", "lotSize", "lotSizeUnits",
+        "lotSizeAcres", "lotSizeSqft", "roadFrontageFeet", "roadSurfaceType", "lotDescription", "utilitiesNotes",
+        "catastroNumber", "buildability", "slopeDescription", "poolPotential", "roadAdjacency", "utilitiesAvailability",
+        "hoaStatus", "viewDescription", "yearBuilt", "stories", "parkingSpaces", "shortDescription",
+        "editorialDescription", "publicRemarks", "seoTitle", "seoDescription", "heroTitle", "tagline",
+        "architectureNotes", "amenitiesNotes", "lifestyleNotes", "listingAgentName", "listingAgentEmail",
+        "listingAgentPhone", "listingOffice", "legalOwnerName", "listingIdentifier", "registryEntry", "fincaNumber",
+        "registrySection", "sellerPersonId",
+    ];
+    const STELLAR: &[&str] = &[
+        "listingContractDate", "expirationDate", "listingType", "agentMlsId", "taxId", "taxYear", "annualTax",
+        "legalDescription", "zoning", "totalAreaSqft", "heatedAreaSource", "ownershipType", "hoaDetails",
+        "showingInstructions", "occupantType",
+    ];
+    let raw = |key: &str| fields.get(key).and_then(Value::as_str).unwrap_or("");
+    let clean = |key: &str| {
+        let value = raw(key).trim();
+        if value.is_empty() { Value::Null } else { json!(value) }
+    };
+    let mut body = serde_json::Map::new();
+    body.insert("name".into(), json!(raw("name")));
+    body.insert("status".into(), json!(if raw("status").is_empty() { "prospect" } else { raw("status") }));
+    for key in FLAGS {
+        body.insert((*key).into(), json!(raw(key) == "true"));
+    }
+    for key in TEXT {
+        body.insert((*key).into(), clean(key));
+    }
+    let stellar: serde_json::Map<String, Value> = STELLAR.iter().map(|key| ((*key).to_owned(), clean(key))).collect();
+    body.insert("stellar".into(), Value::Object(stellar));
+    Value::Object(body)
+}
+
+/// The Workbench's writes: create a property, or save the open property, person or project; each answers the
+/// workbench with the saved record selected.
+async fn opps_act(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(command): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    let invalid = |error: serde_json::Error| ApiError::bad_request("WORKBENCH_SAVE_INVALID", error.to_string());
+    if str_at(&command, "action") == Some("createProperty") {
+        let body: CreatePropertyAdminBody = serde_json::from_value(json!({
+            "name": at(&command, "name"),
+            "propertyType": at(&command, "propertyType"),
+        }))
+        .map_err(invalid)?;
+        let property = to_json(apply_property_admin_create(&state, &resolved, body).await?);
+        let mut record = property.clone();
+        if let Some(object) = record.as_object_mut() {
+            for key in ["sellerEmail", "sellerPhone", "sellerLocation"] {
+                object.insert(key.into(), Value::Null);
+            }
+        }
+        return Ok(Json(json!({ "ops": {
+            "entity": "property",
+            "rows": [opps_row(at(&property, "id"), at(&property, "name"), at(&property, "location"), at(&property, "status"), at(&property, "listPrice"))],
+            "total": 1, "page": 1, "pageSize": OPPS_PAGE_SIZE, "selectedId": at(&property, "id"),
+            "property": record, "person": null, "project": null, "media": [],
+        } })));
+    }
+    let id = str_at(&command, "id").map(str::trim).filter(|id| !id.is_empty()).map(str::to_owned);
+    let (Some("save"), Some(id)) = (str_at(&command, "action"), id) else {
+        return Err(ApiError::bad_request("WORKBENCH_SAVE_INVALID", "A workbench save requires an entity and id."));
+    };
+    let empty = serde_json::Map::new();
+    let fields = command.get("fields").and_then(Value::as_object).unwrap_or(&empty);
+    let field = |key: &str| fields.get(key).and_then(Value::as_str).unwrap_or("");
+    let clean = |key: &str| {
+        let value = field(key).trim();
+        if value.is_empty() { Value::Null } else { json!(value) }
+    };
+    let entity = opps_entity(str_at(&command, "entity"));
+    match entity {
+        "property" => {
+            let body: SavePropertyAdminBody = serde_json::from_value(property_save_body(fields)).map_err(invalid)?;
+            apply_property_admin_save(&state, &resolved, id.clone(), body).await?;
+        }
+        "person" => {
+            let body: UpdatePersonAdminBody = serde_json::from_value(json!({
+                "displayName": field("displayName"),
+                "status": field("status"),
+                "company": clean("company"),
+                "civilStatus": clean("civilStatus"),
+            }))
+            .map_err(invalid)?;
+            apply_person_admin_update(&state, &resolved, id.clone(), body).await?;
+        }
+        _ => {
+            let areas: Vec<String> =
+                field("areas").split(',').map(str::trim).filter(|a| !a.is_empty()).map(str::to_owned).collect();
+            let version = field("playbookVersion").trim().parse::<i64>().ok();
+            let body: UpdateProjectBody = serde_json::from_value(json!({
+                "name": clean("name"), "owner": clean("owner"), "status": clean("status"),
+                "description": field("description"), "areas": areas, "projectType": clean("projectType"),
+                "playbookId": clean("playbookId"), "playbookVersion": version, "personId": clean("personId"),
+                "propertyId": clean("propertyId"), "contractId": clean("contractId"),
+            }))
+            .map_err(invalid)?;
+            apply_project_update(&state, &resolved, id.clone(), body).await?;
+        }
+    }
+    let search = str_at(&command, "search").unwrap_or("").trim().to_owned();
+    let page_index = command.get("page").and_then(Value::as_i64).unwrap_or(0).max(0);
+    Ok(Json(opps_workbench(&state, &resolved, entity, &search, page_index, Some(id)).await?))
 }

@@ -351,14 +351,14 @@ struct PropertyAdminQuery {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct CreatePropertyAdminBody {
+pub(super) struct CreatePropertyAdminBody {
     name: String,
     property_type: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct SavePropertyAdminBody {
+pub(super) struct SavePropertyAdminBody {
     name: String,
     slug: Option<String>,
     status: String,
@@ -471,7 +471,7 @@ struct FinalizePropertyVideoUploadBody {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct UpdatePersonAdminBody {
+pub(super) struct UpdatePersonAdminBody {
     display_name: String,
     civil_status: Option<String>,
     status: String,
@@ -2414,6 +2414,17 @@ async fn update_person_admin(
     Json(body): Json<UpdatePersonAdminBody>,
 ) -> Result<Json<ApiSuccess<domain::Person>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
+    let value = apply_person_admin_update(&state, &resolved, id, body).await?;
+    Ok(success(value, &resolved))
+}
+
+/// Shared by `/v1` and the portal page (`portal_bridge`), so the write and its cache refresh live once.
+pub(super) async fn apply_person_admin_update(
+    state: &ApiState,
+    resolved: &ResolvedRequestContext,
+    id: String,
+    body: UpdatePersonAdminBody,
+) -> Result<domain::Person, ApiError> {
     let service = state.services().person();
     let value = service
         .update_admin(
@@ -2427,9 +2438,9 @@ async fn update_person_admin(
             &resolved.service,
         )
         .await
-        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+        .map_err(|error| correlate(ApiError::from(error), resolved))?;
     state.services().clients().update_cached_person(&value);
-    Ok(success(value, &resolved))
+    Ok(value)
 }
 
 async fn properties_for_person(
@@ -2473,6 +2484,16 @@ async fn create_property_admin(
     Json(body): Json<CreatePropertyAdminBody>,
 ) -> Result<Json<ApiSuccess<domain::PropertyAdminRecord>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
+    let value = apply_property_admin_create(&state, &resolved, body).await?;
+    Ok(success(value, &resolved))
+}
+
+/// Shared by `/v1` and the portal page (`portal_bridge`), so the write and its cache refresh live once.
+pub(super) async fn apply_property_admin_create(
+    state: &ApiState,
+    resolved: &ResolvedRequestContext,
+    body: CreatePropertyAdminBody,
+) -> Result<domain::PropertyAdminRecord, ApiError> {
     let service = state.services().property();
     let value = service
         .admin_create(
@@ -2483,12 +2504,12 @@ async fn create_property_admin(
             &resolved.service,
         )
         .await
-        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+        .map_err(|error| correlate(ApiError::from(error), resolved))?;
     service
         .warm_read_cache()
         .await
-        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
-    Ok(success(value, &resolved))
+        .map_err(|error| correlate(ApiError::from(error), resolved))?;
+    Ok(value)
 }
 
 async fn property_admin_detail(
@@ -2518,6 +2539,17 @@ async fn save_property_admin(
     Json(body): Json<SavePropertyAdminBody>,
 ) -> Result<Json<ApiSuccess<domain::PropertyAdminRecord>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
+    let value = apply_property_admin_save(&state, &resolved, id, body).await?;
+    Ok(success(value, &resolved))
+}
+
+/// Shared by `/v1` and the portal page (`portal_bridge`), so the write and its cache refresh live once.
+pub(super) async fn apply_property_admin_save(
+    state: &ApiState,
+    resolved: &ResolvedRequestContext,
+    id: String,
+    body: SavePropertyAdminBody,
+) -> Result<domain::PropertyAdminRecord, ApiError> {
     let service = state.services().property();
     let value = service
         .admin_save(
@@ -2610,12 +2642,12 @@ async fn save_property_admin(
             &resolved.service,
         )
         .await
-        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+        .map_err(|error| correlate(ApiError::from(error), resolved))?;
     service
         .warm_read_cache()
         .await
-        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
-    Ok(success(value, &resolved))
+        .map_err(|error| correlate(ApiError::from(error), resolved))?;
+    Ok(value)
 }
 
 async fn property(
