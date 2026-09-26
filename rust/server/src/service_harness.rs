@@ -1,5 +1,5 @@
 use crate::{
-    ServiceGateway, ServiceKernel, ServiceKernelHealth,
+    CommandDispatchError, CommandDispatcher, ServiceGateway, ServiceKernel, ServiceKernelHealth,
 };
 use db::Database;
 use serde_json::Value;
