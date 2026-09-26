@@ -31,6 +31,7 @@ pub mod properties;
 pub mod public_listings;
 pub mod relationship_evidence;
 pub mod security;
+pub mod service_bootstrap;
 pub mod service_gateway;
 pub mod service_harness;
 pub mod service_kernel;
