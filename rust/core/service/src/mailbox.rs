@@ -169,13 +169,14 @@ impl ServiceMailbox {
                 idle_notify.notify_waiters();
                 result
             });
-            let boxed = handle
-                .await
-                .map_err(|error| ServiceDispatchError::OperationPanicked {
-                    domain: self.domain.to_string(),
-                    operation: operation.clone(),
-                    message: error.to_string(),
-                })??;
+            let boxed =
+                handle
+                    .await
+                    .map_err(|error| ServiceDispatchError::OperationPanicked {
+                        domain: self.domain.to_string(),
+                        operation: operation.clone(),
+                        message: error.to_string(),
+                    })??;
             return downcast_work(self.domain.as_ref(), &operation, boxed);
         }
 
@@ -284,10 +285,9 @@ impl ServiceMailbox {
             match current {
                 ServiceStatus::Running => return Ok(()),
                 ServiceStatus::Starting => {
-                    status
-                        .changed()
-                        .await
-                        .map_err(|_| ServiceDispatchError::ServiceStopped(self.domain.to_string()))?;
+                    status.changed().await.map_err(|_| {
+                        ServiceDispatchError::ServiceStopped(self.domain.to_string())
+                    })?;
                 }
                 ServiceStatus::Failed => {
                     return Err(ServiceDispatchError::infrastructure(
@@ -532,18 +532,13 @@ fn downcast_work<T: Send + 'static>(
     operation: &str,
     value: WorkOutput,
 ) -> Result<T, ServiceDispatchError> {
-    value
-        .downcast::<T>()
-        .map(|value| *value)
-        .map_err(|_| {
-            ServiceDispatchError::infrastructure(
-                "SERVICE_MAILBOX_TYPE_MISMATCH",
-                format!(
-                    "Service mailbox returned an unexpected task type for {domain}.{operation}."
-                ),
-                false,
-            )
-        })
+    value.downcast::<T>().map(|value| *value).map_err(|_| {
+        ServiceDispatchError::infrastructure(
+            "SERVICE_MAILBOX_TYPE_MISMATCH",
+            format!("Service mailbox returned an unexpected task type for {domain}.{operation}."),
+            false,
+        )
+    })
 }
 
 #[cfg(test)]
@@ -697,7 +692,6 @@ mod tests {
         mailbox.wait_stopped().await.unwrap();
     }
 }
-
 
 fn lifecycle_error(error: ServiceDispatchError) -> ServiceLifecycleError {
     ServiceLifecycleError::new("SERVICE_LIFECYCLE", error.to_string())

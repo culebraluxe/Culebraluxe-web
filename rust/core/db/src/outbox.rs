@@ -176,11 +176,7 @@ impl DomainEventOutboxDao {
         }
     }
 
-    pub async fn mark_delivered(
-        &self,
-        event_id: &str,
-        subscriber_id: &str,
-    ) -> DbResult<()> {
+    pub async fn mark_delivered(&self, event_id: &str, subscriber_id: &str) -> DbResult<()> {
         sqlx::query(
             r#"
             update mq_delivery

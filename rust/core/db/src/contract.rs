@@ -687,7 +687,6 @@ impl ContractDao {
     }
 }
 
-
 pub struct ContractTxDao<'a> {
     tx: &'a mut DbTransaction,
 }

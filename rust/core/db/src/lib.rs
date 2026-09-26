@@ -82,10 +82,10 @@ pub use guide::GuideDao;
 pub use intake::IntakeDao;
 pub use issue::IssueDao;
 pub use marketing::MarketingDao;
-pub use outbox::{DomainEventOutboxDao, OutboxDelivery, OutboxEventInput};
 pub use media::{
     BeginMediaUpload, MediaDao, MediaDerivativeInput, MediaUploadAssembly, MediaUploadStatus,
 };
+pub use outbox::{DomainEventOutboxDao, OutboxDelivery, OutboxEventInput};
 pub use person::PersonDao;
 pub use pool::{resolve_declared_target, Database, DbTarget};
 pub use project::{ProjectDao, ProjectTxDao};

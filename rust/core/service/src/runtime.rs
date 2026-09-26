@@ -182,7 +182,10 @@ impl ServiceRuntime {
         error: &ServiceDispatchError,
     ) {
         let class = error.failure_class();
-        if !matches!(class, ServiceFailureClass::Infrastructure | ServiceFailureClass::Panic) {
+        if !matches!(
+            class,
+            ServiceFailureClass::Infrastructure | ServiceFailureClass::Panic
+        ) {
             return;
         }
 
