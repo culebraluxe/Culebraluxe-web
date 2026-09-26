@@ -1,7 +1,7 @@
 # UI Screen Architecture — the contract every screen implements
 
 Status: **framework and master shell built** (owner decision 2026-09-26). Code: `rust/ui/src/app/`. Screens on the
-trait: `db-test`, `site-account`. Cutover ledger: 39 screens still on the old loop (`app/registry.rs`). This document is the contract for all
+trait: `db-test`, `site-account`. Cutover ledger: 34 screens still on the old loop (`app/registry.rs`). This document is the contract for all
 UI work in `rust/ui`. It supersedes the ad hoc per-screen patterns: when code and this document disagree, the code is
 wrong.
 
@@ -208,7 +208,7 @@ not a screen.
 | World | Screens (drill-ins in brackets) |
 | --- | --- |
 | CORE | Cockpit [all activity, needs attention], Clients [client record], Projects [7 panes as tabs: Workplan, Timeline, Calendar, Financials, Documents, Activity, Catch-up], Contracts [contract record], Cabinet, Workflows [workflow record], Forms [form record], Seller Strategy |
-| ACCOUNTING | Dashboard, Receivables, Expenses, P&L Statement, Receipt Scanner |
+| ACCOUNTING | Dashboard, Receivables, Expenses, P&L Statement, Receipt Scanner — **ported** (`app/screens/accounting/`: one shared model and reducer, five thin screens) |
 | MARKETING | Dashboard, Syndication |
 | OPPS | Records [property record], Listing Media |
 | SUPPORT | System Health, DB Test, WhatsApp Diagnostic, WhatsApp Activation (a LIFELINE page — see below), WhatsApp Public Page (`/whatsapp`), Mux Video Test (`/video`), Security [users, roles, authorities]; plus the token review page (`/review/:token/:page`, public URL kept) |
@@ -224,6 +224,12 @@ portal-auth-proof; and (same day) showings — its data source was unwired and r
 Projects calendar — and the framer-ui-lab page, merged into UI Lab.
 
 ### Known gaps found while porting (not caused by the port)
+
+- **Accounting** contract fixtures (`portal-page-accounting*.json`) are stand-ins written from the payload type in the
+  cloud sandbox, which cannot reach the dev API; the next `scripts/ui-capture-fixtures.mjs` run replaces them. The old
+  loop's accounting reducer arms and effects in `update.rs`/`yew_effects.rs` are now unreachable and go with the legacy
+  tree. Fixed in the port: the Receipt Scanner no longer stays on "Creating…" after a save, and a refused P&L period
+  keeps the statement on screen and says why.
 
 - **System Health and Security** reads return `DATABASE` 500 from the Rust API on the dev database (2026-09-26). The
   screens show the template's failure state; their contract fixtures are marked stand-ins until a real capture works.

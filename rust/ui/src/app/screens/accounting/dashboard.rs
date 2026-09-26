@@ -11,11 +11,10 @@
 use yew::prelude::*;
 
 use crate::format::{format_date, format_money, is_zero};
-use crate::model::{Msg, PortalAccountingDashboard, PortalAccountingShare};
-use crate::yew_views::portal_accounting_shell::{
-    AccountingShell, GlassPanel, MetricCard, PnlTrendChart, Tone,
-};
-use crate::yew_views::portal_shell::PortalShell;
+use crate::model::{PortalAccountingDashboard, PortalAccountingShare};
+
+use super::shell::{GlassPanel, MetricCard, PnlTrendChart, Tone};
+use super::{Msg, Vm};
 
 /// The ring's slice colours, in the order the live screen used them.
 const DONUT_COLOURS: [&str; 9] = [
@@ -26,44 +25,20 @@ const DONUT_COLOURS: [&str; 9] = [
 /// The two-column rail the analytics row and the money-in/money-out row share, so their edges line up at desktop widths.
 const TWO_COLUMN_GRID: &str = "grid grid-cols-1 gap-4 lg:grid-cols-2";
 
-#[derive(Properties, PartialEq)]
-pub struct DashboardProps {
-    pub model: crate::model::Model,
-    pub on_msg: Callback<Msg>,
+super::accounting_screen!(Dashboard, "accounting", "Dashboard", body);
+
+/// The view's helpers. The screen above is the shared model and reducer; this is only how it is drawn.
+struct View;
+
+fn body(model: &Vm<'_>, _on_msg: &Callback<Msg>) -> Html {
+    View.body(model)
 }
 
-pub struct Dashboard;
-
-impl Component for Dashboard {
-    type Message = ();
-    type Properties = DashboardProps;
-
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
-    }
-
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let props = ctx.props();
-        let screen =
-            crate::model::screen("accounting").expect("the accounting screen is in the registry");
-        html! {
-            <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
-                <AccountingShell eyebrow="Accounting" title="Dashboard">
-                    { self.body(&props.model) }
-                </AccountingShell>
-            </PortalShell>
-        }
-    }
-}
-
-impl Dashboard {
+impl View {
     /// The whole screen, or the one thing it can honestly say without data.
-    fn body(&self, model: &crate::model::Model) -> Html {
+    fn body(&self, model: &Vm<'_>) -> Html {
         let Some(dashboard) = model
-            .page
-            .as_ref()
-            .and_then(|page| page.portal.as_ref())
-            .and_then(|portal| portal.accounting.as_ref())
+            .book
             .and_then(|accounting| accounting.dashboard.as_ref())
         else {
             // No payload yet is not an error and not a set of zeroes: the shell above already shows whether the read is
@@ -89,7 +64,7 @@ impl Dashboard {
     }
 }
 
-impl Dashboard {
+impl View {
     /// The four figures. Net income's tone follows its sign, and the overdue count warns only when there is something to
     /// be warned about — a red zero trains people to ignore red.
     fn metrics(&self, dashboard: &PortalAccountingDashboard) -> Html {
@@ -142,7 +117,7 @@ impl Dashboard {
     }
 }
 
-impl Dashboard {
+impl View {
     /// This month's cost by category, as a ring with its legend — or the live screen's own sentence when the month is
     /// empty, which is a real state on a quiet month and not a failure to load.
     ///
@@ -208,7 +183,7 @@ impl Dashboard {
     }
 }
 
-impl Dashboard {
+impl View {
     /// Money in: the six most recent live receivables, with the name that identifies each one.
     ///
     /// The identifying name is the person, else the property, else the deal — the order the live screen used, because a
@@ -293,7 +268,7 @@ impl Dashboard {
     }
 }
 
-impl Dashboard {
+impl View {
     /// Money out: the most recent posted expenses.
     fn expenses_panel(&self, dashboard: &PortalAccountingDashboard) -> Html {
         let rows = dashboard.recent_expenses.iter().take(6).collect::<Vec<_>>();

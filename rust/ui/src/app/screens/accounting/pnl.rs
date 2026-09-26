@@ -13,53 +13,28 @@
 use yew::prelude::*;
 
 use crate::format::format_money;
-use crate::model::{Msg, PortalAccountingLine, PortalAccountingPnl};
-use crate::yew_views::portal_accounting_shell::{AccountingShell, GlassPanel};
-use crate::yew_views::portal_shell::PortalShell;
+use crate::model::{PortalAccountingLine, PortalAccountingPnl};
+
+use super::shell::GlassPanel;
+use super::{Msg, Vm};
 
 const DATE_INPUT: &str =
     "mt-1 block w-44 rounded-md border border-white/15 bg-white/5 px-3 py-2 text-sm text-white \
                           focus:border-[var(--portal-gold)] focus:outline-none";
 const LABEL: &str = "block text-[11px] font-medium uppercase tracking-wide text-white/60";
 
-#[derive(Properties, PartialEq)]
-pub struct PnlProps {
-    pub model: crate::model::Model,
-    pub on_msg: Callback<Msg>,
+super::accounting_screen!(Pnl, "accounting-pnl", "P&L Statement", body);
+
+/// The view's helpers. The screen above is the shared model and reducer; this is only how it is drawn.
+struct View;
+
+fn body(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
+    View.body(model, on_msg)
 }
 
-pub struct Pnl;
-
-impl Component for Pnl {
-    type Message = ();
-    type Properties = PnlProps;
-
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
-    }
-
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let props = ctx.props();
-        let screen =
-            crate::model::screen("accounting-pnl").expect("the P&L screen is in the registry");
-        html! {
-            <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
-                <AccountingShell eyebrow="Accounting" title="P&L Statement">
-                    { self.body(&props.model, &props.on_msg) }
-                </AccountingShell>
-            </PortalShell>
-        }
-    }
-}
-
-impl Pnl {
-    fn body(&self, model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
-        let statement = model
-            .page
-            .as_ref()
-            .and_then(|page| page.portal.as_ref())
-            .and_then(|portal| portal.accounting.as_ref())
-            .and_then(|accounting| accounting.pnl.clone());
+impl View {
+    fn body(&self, model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
+        let statement = model.book.and_then(|accounting| accounting.pnl.clone());
         let Some(statement) = statement else {
             return html! {
                 <p class="text-sm font-light text-white/40">{"Loading the period…"}</p>
@@ -98,7 +73,7 @@ impl Pnl {
     /// The two fields are the reducer's, seeded from the period the statement covers. Applying sends exactly what they hold:
     /// an empty field means "the current month", which is what the bridge projects and what the echo will show, so the
     /// screen is never displaying a period it did not ask for.
-    fn range_form(&self, model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
+    fn range_form(&self, model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
         let draft = &model.accounting;
         let field = |makes: fn(String) -> Msg| {
             let on_msg = on_msg.clone();
@@ -137,7 +112,7 @@ impl Pnl {
     }
 }
 
-impl Pnl {
+impl View {
     /// The income side: each category as the database grouped it, then the period's total.
     ///
     /// The labels are the categories as stored, with their underscores shown as spaces — `MISC_INCOME` reads as

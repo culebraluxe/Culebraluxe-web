@@ -16,9 +16,10 @@
 use yew::prelude::*;
 
 use crate::format::format_money;
-use crate::model::{Msg, PortalAccountingExpense, PortalAccountingShare};
-use crate::yew_views::portal_accounting_shell::{AccountingShell, GlassPanel};
-use crate::yew_views::portal_shell::PortalShell;
+use crate::model::{PortalAccountingExpense, PortalAccountingShare};
+
+use super::shell::GlassPanel;
+use super::{Msg, Vm};
 
 /// The ring's slice colours, as the live screen drew them.
 const DONUT_COLOURS: [&str; 9] = [
@@ -48,43 +49,18 @@ const EXPENSE_CATEGORIES: [&str; 9] = [
     "Other",
 ];
 
-#[derive(Properties, PartialEq)]
-pub struct ExpensesProps {
-    pub model: crate::model::Model,
-    pub on_msg: Callback<Msg>,
+super::accounting_screen!(Expenses, "accounting-expenses", "Expenses", body);
+
+/// The view's helpers. The screen above is the shared model and reducer; this is only how it is drawn.
+struct View;
+
+fn body(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
+    View.body(model, on_msg)
 }
 
-pub struct Expenses;
-
-impl Component for Expenses {
-    type Message = ();
-    type Properties = ExpensesProps;
-
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
-    }
-
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let props = ctx.props();
-        let screen = crate::model::screen("accounting-expenses")
-            .expect("the expenses screen is in the registry");
-        html! {
-            <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
-                <AccountingShell eyebrow="Accounting" title="Expenses">
-                    { self.body(&props.model, &props.on_msg) }
-                </AccountingShell>
-            </PortalShell>
-        }
-    }
-}
-
-impl Expenses {
-    fn body(&self, model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
-        let accounting = model
-            .page
-            .as_ref()
-            .and_then(|page| page.portal.as_ref())
-            .and_then(|portal| portal.accounting.as_ref());
+impl View {
+    fn body(&self, model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
+        let accounting = model.book;
         let rows = accounting
             .map(|page| page.expenses.clone())
             .unwrap_or_default();
@@ -108,7 +84,7 @@ impl Expenses {
     }
 
     /// The count and the control that opens the form.
-    fn header(&self, count: usize, model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
+    fn header(&self, count: usize, model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
         let open = model.accounting.expense_open;
         let onclick = {
             let on_msg = on_msg.clone();
@@ -130,12 +106,12 @@ impl Expenses {
     }
 }
 
-impl Expenses {
+impl View {
     /// The create form.
     ///
     /// A `<form>` with a submit handler rather than a POST: the command is an effect, so the browser does not navigate and
     /// the page keeps its state. `prevent_default` is the one thing this file decides that the DOM would otherwise own.
-    fn form(&self, model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
+    fn form(&self, model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
         let draft = &model.accounting;
         let field = |makes: fn(String) -> Msg| {
             let on_msg = on_msg.clone();
@@ -212,7 +188,7 @@ impl Expenses {
     }
 }
 
-impl Expenses {
+impl View {
     /// Expenses by category, as the live screen drew it: a ring, and the categories with their totals.
     ///
     /// THE TOTALS ARE THE DATABASE'S. The live screen summed the rows it had in hand, in the browser, in floats; this draws
@@ -253,7 +229,7 @@ impl Expenses {
     }
 }
 
-impl Expenses {
+impl View {
     /// The book: every expense, newest first, with the name that identifies what it belongs to.
     fn table(&self, rows: &[PortalAccountingExpense]) -> Html {
         html! {

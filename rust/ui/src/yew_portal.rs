@@ -6,11 +6,6 @@
 use yew::prelude::*;
 
 use crate::model::{Msg, Screen};
-use crate::yew_views::portal_accounting_dashboard::Dashboard as AccountingDashboard;
-use crate::yew_views::portal_accounting_expenses::Expenses as AccountingExpenses;
-use crate::yew_views::portal_accounting_pnl::Pnl as AccountingPnl;
-use crate::yew_views::portal_accounting_receipt_scanner::Scanner as AccountingReceiptScanner;
-use crate::yew_views::portal_accounting_receivables::Receivables as AccountingReceivables;
 use crate::yew_views::portal_activity::Activity;
 use crate::yew_views::portal_cabinet::Cabinet;
 use crate::yew_views::portal_cockpit::Cockpit;
@@ -121,21 +116,6 @@ impl Component for PortalApp {
             }
             "cabinet" => html! { <Cabinet model={self.model.clone()} on_msg={on_msg} /> },
             "activity" => html! { <Activity model={self.model.clone()} on_msg={on_msg} /> },
-            "accounting" => {
-                html! { <AccountingDashboard model={self.model.clone()} on_msg={on_msg} /> }
-            }
-            "accounting-expenses" => {
-                html! { <AccountingExpenses model={self.model.clone()} on_msg={on_msg} /> }
-            }
-            "accounting-receivables" => {
-                html! { <AccountingReceivables model={self.model.clone()} on_msg={on_msg} /> }
-            }
-            "accounting-pnl" => {
-                html! { <AccountingPnl model={self.model.clone()} on_msg={on_msg} /> }
-            }
-            "accounting-receipt-scanner" => {
-                html! { <AccountingReceiptScanner model={self.model.clone()} on_msg={on_msg} /> }
-            }
             // SUPPORT — a bespoke component per screen, never the generic renderer.
             "property-admin" => {
                 html! { <OpsWorkbench model={self.model.clone()} on_msg={on_msg} /> }

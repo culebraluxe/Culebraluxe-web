@@ -1,0 +1,33 @@
+{
+  "accounting": {
+    "today": "2026-09-26",
+    "dashboard": {
+      "receivablesOutstanding": "18500.00",
+      "expensesThisMonth": "1612.50",
+      "netIncome": "-1612.50",
+      "openCount": 2,
+      "overdueCount": 1,
+      "pnlTrend": [
+        { "month": "Apr", "income": "0.00", "expenses": "240.00", "net": "-240.00" },
+        { "month": "May", "income": "12000.00", "expenses": "890.00", "net": "11110.00" }
+      ],
+      "trendIncome": "12000.00",
+      "trendExpenses": "1130.00",
+      "trendNet": "10870.00",
+      "recentExpenses": [
+        { "id": "exp-1", "vendor": "Vendor A", "category": "Insurance", "amount": "1200.00", "expenseOn": "2026-09-02", "status": "POSTED" }
+      ],
+      "recentActivity": [
+        { "id": "rec-1", "reference": "INV-1", "description": "Commission", "category": "COMMISSION", "amount": "18500.00", "issuedOn": "2026-08-01", "dueOn": "2026-09-01", "status": "OPEN", "propertyName": "Property A" }
+      ],
+      "expenseCategories": [
+        { "label": "Insurance", "amount": "1200.00", "percent": 74 },
+        { "label": "Marketing & Advertising", "amount": "412.50", "percent": 26 }
+      ]
+    },
+    "expenses": [],
+    "expenseCategories": [],
+    "receivables": [],
+    "pnl": null
+  }
+}

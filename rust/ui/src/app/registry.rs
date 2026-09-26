@@ -19,6 +19,7 @@ use crate::app::host::mount;
 use crate::app::rows::RowsScreen;
 use crate::app::screen::ScreenCtx;
 use crate::app::screens::account::Account;
+use crate::app::screens::accounting;
 use crate::app::screens::clients::{ClientRecord, Clients};
 use crate::app::screens::db_test::DbTest;
 use crate::app::screens::security::Security;
@@ -151,11 +152,11 @@ pub const ENTRIES: &[Entry] = &[
     entry("workflows", "/portal/workflows", Surface::Core, "Workflows", Menu::Rail("Workflows"), "portal.read", "portal.read", Kind::LegacyPortal("workflows")),
     entry("forms", "/portal/forms", Surface::Core, "Forms", Menu::Rail("Forms"), "deal.read", "form.read", Kind::External),
     entry("seller-strategy", "/portal/core/seller-strategy", Surface::Core, "Seller Strategy", Menu::Rail("Seller Strategy"), "portal.read", "portal.read", Kind::LegacyPortal("seller-strategy")),
-    entry("accounting", "/portal/accounting", Surface::Accounting, "Dashboard", Menu::Rail("Dashboard"), "portal.read", "accounting.read", Kind::LegacyPortal("accounting")),
-    entry("accounting-receivables", "/portal/accounting/receivables", Surface::Accounting, "Receivables", Menu::Rail("Receivables"), "portal.read", "accounting.read", Kind::LegacyPortal("accounting-receivables")),
-    entry("accounting-expenses", "/portal/accounting/expenses", Surface::Accounting, "Expenses", Menu::Rail("Expenses"), "portal.read", "accounting.read", Kind::LegacyPortal("accounting-expenses")),
-    entry("accounting-pnl", "/portal/accounting/pnl", Surface::Accounting, "P&L Statement", Menu::Rail("P&L Statement"), "portal.read", "accounting.read", Kind::LegacyPortal("accounting-pnl")),
-    entry("accounting-receipt-scanner", "/portal/accounting/receipt-scanner", Surface::Accounting, "Receipt Scanner", Menu::Rail("Receipt Scanner"), "portal.read", "accounting.read", Kind::LegacyPortal("accounting-receipt-scanner")),
+    entry("accounting", "/portal/accounting", Surface::Accounting, "Dashboard", Menu::Rail("Dashboard"), "portal.read", "accounting.read", Kind::Screen(mount::<accounting::Dashboard>)),
+    entry("accounting-receivables", "/portal/accounting/receivables", Surface::Accounting, "Receivables", Menu::Rail("Receivables"), "portal.read", "accounting.read", Kind::Screen(mount::<accounting::Receivables>)),
+    entry("accounting-expenses", "/portal/accounting/expenses", Surface::Accounting, "Expenses", Menu::Rail("Expenses"), "portal.read", "accounting.read", Kind::Screen(mount::<accounting::Expenses>)),
+    entry("accounting-pnl", "/portal/accounting/pnl", Surface::Accounting, "P&L Statement", Menu::Rail("P&L Statement"), "portal.read", "accounting.read", Kind::Screen(mount::<accounting::Pnl>)),
+    entry("accounting-receipt-scanner", "/portal/accounting/receipt-scanner", Surface::Accounting, "Receipt Scanner", Menu::Rail("Receipt Scanner"), "portal.read", "accounting.read", Kind::Screen(mount::<accounting::ReceiptScanner>)),
     entry("marketing", "/portal/marketing", Surface::Marketing, "Dashboard", Menu::Rail("Dashboard"), "portal.read", "property.read", Kind::LegacyPortal("marketing")),
     entry("marketing-syndication", "/portal/marketing/syndication", Surface::Marketing, "Syndication", Menu::Rail("Syndication"), "portal.read", "property.read", Kind::LegacyPortal("marketing-syndication")),
     entry("property-admin", "/portal/property-admin", Surface::Ops, "Data Workbench", Menu::Rail("Records"), "portal.read", "property.read", Kind::LegacyIsland("property-admin")),
@@ -602,5 +603,5 @@ mod tests {
         );
     }
 
-    const LEGACY_CEILING: usize = 39;
+    const LEGACY_CEILING: usize = 34;
 }

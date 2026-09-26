@@ -26,6 +26,10 @@ const ENDPOINTS = {
   // STAND-IN until the dev backend answers (2026-09-26: DATABASE 500), as for system-health.
   'portal-page-security': '/api/portal/rust-ui/page?screen=security',
   'portal-page-settings-users': '/api/portal/rust-ui/page?screen=settings-users',
+  // STAND-INS (2026-09-26, captured from the cloud sandbox, which cannot reach the dev API): the payload's shape with
+  // placeholder rows. The next successful capture overwrites them.
+  'portal-page-accounting': '/api/portal/rust-ui/page?screen=accounting',
+  'portal-page-accounting-pnl': '/api/portal/rust-ui/page?screen=accounting-pnl&from=&to=',
   'clients-list': '/api/portal/rust-ui/clients?screen=clients&page=0&search=',
   'guest-session': '/api/rust-ui/guest',
 }

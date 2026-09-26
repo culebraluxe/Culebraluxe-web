@@ -16,9 +16,10 @@
 use yew::prelude::*;
 
 use crate::format::{format_date, format_money};
-use crate::model::{Msg, PortalAccountingReceivable};
-use crate::yew_views::portal_accounting_shell::{AccountingShell, GlassPanel};
-use crate::yew_views::portal_shell::PortalShell;
+use crate::model::PortalAccountingReceivable;
+
+use super::shell::GlassPanel;
+use super::{Msg, Vm};
 
 /// The controlled input styling the live form used.
 const INPUT: &str = "mt-1 w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-sm text-white \
@@ -28,43 +29,19 @@ const LABEL: &str = "block text-[11px] font-medium uppercase tracking-wide text-
 /// The receivable categories the form offers, labelled the way the live form labelled them (`_` as a space).
 const RECEIVABLE_CATEGORIES: [&str; 4] = ["COMMISSION", "LEASING_FEE", "MISC_INCOME", "OTHER"];
 
-#[derive(Properties, PartialEq)]
-pub struct ReceivablesProps {
-    pub model: crate::model::Model,
-    pub on_msg: Callback<Msg>,
+super::accounting_screen!(Receivables, "accounting-receivables", "Receivables", body);
+
+/// The view's helpers. The screen above is the shared model and reducer; this is only how it is drawn.
+struct View;
+
+fn body(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
+    View.body(model, on_msg)
 }
 
-pub struct Receivables;
-
-impl Component for Receivables {
-    type Message = ();
-    type Properties = ReceivablesProps;
-
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
-    }
-
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let props = ctx.props();
-        let screen = crate::model::screen("accounting-receivables")
-            .expect("the receivables screen is in the registry");
-        html! {
-            <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
-                <AccountingShell eyebrow="Accounting" title="Receivables">
-                    { self.body(&props.model, &props.on_msg) }
-                </AccountingShell>
-            </PortalShell>
-        }
-    }
-}
-
-impl Receivables {
-    fn body(&self, model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
+impl View {
+    fn body(&self, model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
         let rows = model
-            .page
-            .as_ref()
-            .and_then(|page| page.portal.as_ref())
-            .and_then(|portal| portal.accounting.as_ref())
+            .book
             .map(|accounting| accounting.receivables.clone())
             .unwrap_or_default();
         html! {
@@ -78,7 +55,7 @@ impl Receivables {
         }
     }
 
-    fn header(&self, count: usize, model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
+    fn header(&self, count: usize, model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
         let open = model.accounting.receivable_open;
         let onclick = {
             let on_msg = on_msg.clone();
@@ -100,10 +77,10 @@ impl Receivables {
     }
 }
 
-impl Receivables {
+impl View {
     /// The create form. The same shape as the expense form's: a `<form>` whose submit dispatches a message, every field bound
     /// to the reducer, and no validation that Rust would then have to agree with.
-    fn form(&self, model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
+    fn form(&self, model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
         let draft = &model.accounting;
         let field = |makes: fn(String) -> Msg| {
             let on_msg = on_msg.clone();
@@ -183,12 +160,12 @@ impl Receivables {
     }
 }
 
-impl Receivables {
+impl View {
     /// The book, with each row's status and its Mark Paid control.
     fn table(
         &self,
         rows: &[PortalAccountingReceivable],
-        model: &crate::model::Model,
+        model: &Vm<'_>,
         on_msg: &Callback<Msg>,
     ) -> Html {
         html! {
@@ -226,12 +203,12 @@ impl Receivables {
     fn row(
         &self,
         receivable: &PortalAccountingReceivable,
-        model: &crate::model::Model,
+        model: &Vm<'_>,
         on_msg: &Callback<Msg>,
     ) -> Html {
         // OVERDUE IS A PRESENTATION, NOT A STATUS. The database knows OPEN, PAID and VOID; "past its due date" is what the
         // screen says about an open one, and the live screen decided it exactly this way — an ISO date compares as text.
-        let today = crate::update::accounting_today(model);
+        let today = model.today();
         let overdue = receivable.status == "OPEN"
             && receivable
                 .due_on

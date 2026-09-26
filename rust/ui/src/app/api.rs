@@ -241,3 +241,39 @@ impl Endpoint for RowsRead {
         format!("{base}?screen={}", self.screen)
     }
 }
+
+/// The P&L for a period (`from`/`to` as `YYYY-MM-DD`). Empty ends are the server's to fill: a first open asks for nothing
+/// and gets the current month, which the answer then names. Answers the portal page (`{ accounting: ... }`).
+pub struct AccountingPnl {
+    pub from: String,
+    pub to: String,
+}
+
+impl Endpoint for AccountingPnl {
+    const METHOD: Method = Method::Get;
+    type Response = crate::model::PortalPage;
+    fn path(&self) -> String {
+        format!(
+            "/api/portal/rust-ui/page?screen=accounting-pnl&from={}&to={}",
+            encode(&self.from),
+            encode(&self.to)
+        )
+    }
+}
+
+/// One Accounting write (`createExpense`, `createReceivable`, `markReceivablePaid`). The body names the screen it came
+/// from, and the answer is that screen's refreshed page — the new row is already in it.
+pub struct AccountingCommand {
+    pub body: serde_json::Value,
+}
+
+impl Endpoint for AccountingCommand {
+    const METHOD: Method = Method::Post;
+    type Response = crate::model::PortalPage;
+    fn path(&self) -> String {
+        "/api/portal/rust-ui/accounting".into()
+    }
+    fn body(&self) -> Option<serde_json::Value> {
+        Some(self.body.clone())
+    }
+}

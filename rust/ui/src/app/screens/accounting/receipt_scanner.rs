@@ -15,10 +15,9 @@
 
 use yew::prelude::*;
 
+use super::shell::GlassPanel;
+use super::{Msg, Vm};
 use crate::format::format_money;
-use crate::model::Msg;
-use crate::yew_views::portal_accounting_shell::{AccountingShell, GlassPanel};
-use crate::yew_views::portal_shell::PortalShell;
 
 /// The four steps the workflow strip shows, in the order the live screen showed them.
 const WORKFLOW_STEPS: [(&str, &str); 4] = [
@@ -47,38 +46,22 @@ const READONLY: &str =
     "mt-1 w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-sm text-white";
 const LABEL: &str = "block text-[11px] font-medium uppercase tracking-wide text-white/60";
 
-#[derive(Properties, PartialEq)]
-pub struct ScannerProps {
-    pub model: crate::model::Model,
-    pub on_msg: Callback<Msg>,
+super::accounting_screen!(
+    ReceiptScanner,
+    "accounting-receipt-scanner",
+    "Receipt Scanner",
+    body
+);
+
+/// The view's helpers. The screen above is the shared model and reducer; this is only how it is drawn.
+struct View;
+
+fn body(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
+    View.body(model, on_msg)
 }
 
-pub struct Scanner;
-
-impl Component for Scanner {
-    type Message = ();
-    type Properties = ScannerProps;
-
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
-    }
-
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let props = ctx.props();
-        let screen = crate::model::screen("accounting-receipt-scanner")
-            .expect("the receipt scanner screen is in the registry");
-        html! {
-            <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
-                <AccountingShell eyebrow="Accounting" title="Receipt Scanner">
-                    { self.body(&props.model, &props.on_msg) }
-                </AccountingShell>
-            </PortalShell>
-        }
-    }
-}
-
-impl Scanner {
-    fn body(&self, model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
+impl View {
+    fn body(&self, model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
         html! {
             <div class="space-y-4">
                 { self.workflow_strip() }
@@ -117,7 +100,7 @@ impl Scanner {
     /// THE DRAG STATE IS THE REDUCER'S, and the browser's drag events are only messages. A drop takes the file's NAME and
     /// nothing else: this screen does not read the file, because there is nothing on the other side of that read yet — the
     /// extraction below is the demonstration's, and pretending to inspect an image would be a lie the reader cannot check.
-    fn drop_surface(&self, model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
+    fn drop_surface(&self, model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
         let dragging = model.accounting.scanner.dragging;
         let file_name = model.accounting.scanner.file_name.clone();
         let on_drag_over = {
@@ -180,7 +163,7 @@ impl Scanner {
     }
 }
 
-impl Scanner {
+impl View {
     /// The reviewed draft, and the control that saves it.
     ///
     /// THE VENDOR AND THE AMOUNT ARE READ-ONLY, as the live draft showed them: what the demonstration "extracted" is not the
@@ -193,7 +176,7 @@ impl Scanner {
     /// say what the receipt was for. Making it editable is a smaller step than it looks (a message and an input) and worth
     /// doing if the workflow strip's "add context" is meant literally; it is not done here because the review step's job in
     /// V1 is to confirm what was read, and the notes in the seeds are already the context.
-    fn draft(&self, model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
+    fn draft(&self, model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
         let Some(draft) = model.accounting.scanner.draft.clone() else {
             return Html::default();
         };
