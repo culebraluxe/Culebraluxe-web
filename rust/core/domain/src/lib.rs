@@ -53,7 +53,10 @@ pub use property::{
     PropertyStellarDetails, SavePropertyAdminRequest, SetPropertyDisplayNameRequest,
     SetPropertyStatusRequest, UpsertPropertyForPersonRequest,
 };
-pub use relationship_evidence::{RelationshipDecision, RelationshipEvidenceReview, RelationshipEvidenceRow, RelationshipReconcileResult};
+pub use relationship_evidence::{
+    RelationshipDecision, RelationshipEvidenceReview, RelationshipEvidenceRow,
+    RelationshipReconcileResult,
+};
 
 pub use public_listing::{
     PublicListing, PublicListingCopy, PublicProperty, PublicPropertyImage, PublicPropertyMedia,
@@ -91,7 +94,9 @@ pub use comms::{
 
 pub use flight_recorder::*;
 pub use guide::GuideItem;
-pub use intake::{CatchupLeadRequest, CatchupLeadResult, WebsiteIntakeRequest, WebsiteIntakeResult};
+pub use intake::{
+    CatchupLeadRequest, CatchupLeadResult, WebsiteIntakeRequest, WebsiteIntakeResult,
+};
 pub use issue::{IssueQueueRow, IssuesPage};
 pub use marketing::{MarketingContentBlock, MarketingContentItem};
 
