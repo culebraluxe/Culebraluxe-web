@@ -25,8 +25,8 @@ use integrations::mux::{MuxClient, MuxConfig};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use service::{
-    CommandRequest, CommandResult, OperationKind, ServiceContext, ServiceDispatchError,
-    ServiceEnvelope, SignatureProvider,
+    CommandRequest, CommandResult, OperationKind, ServiceContext, ServiceControlCommand,
+    ServiceControlResult, ServiceDispatchError, ServiceEnvelope, SignatureProvider,
 };
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -907,6 +907,8 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/services", get(service_catalog))
         .route("/v1/services/health", get(service_health))
         .route("/v1/services/kernel/health", get(service_kernel_health))
+        .route("/v1/services/runtime/health", get(service_runtime_health))
+        .route("/v1/services/{domain}/control", post(service_control))
         .route("/v1/services/dispatch", post(service_dispatch))
         .route("/v1/commands/dispatch", post(command_dispatch))
         // THE LOGIN SEAM'S QUESTION, as opposed to whoami's. Auth.js has proved a Google subject and nobody
@@ -1533,6 +1535,54 @@ async fn service_kernel_health(
 ) -> Result<Json<ApiSuccess<crate::ServiceKernelHealth>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
     let value = state.service_harness().health();
+    Ok(success(value, &resolved))
+}
+
+async fn service_runtime_health(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<crate::ServiceHarnessHealth>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    Ok(success(state.service_harness().runtime_health(), &resolved))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ServiceControlBody {
+    command: ServiceControlCommand,
+}
+
+async fn service_control(
+    State(state): State<ApiState>,
+    Path(domain): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<ServiceControlBody>,
+) -> Result<Json<ApiSuccess<ServiceControlResult>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let authorization = authorize_decision(
+        &state,
+        &AuthorizeBody {
+            action: "tech.operate".into(),
+            _legacy_kind: None,
+        },
+        &resolved.service,
+    )
+    .await
+    .map_err(|error| correlate(error, &resolved))?;
+    if !authorization.allowed {
+        return Err(ApiError::forbidden(
+            "SERVICE_CONTROL_FORBIDDEN",
+            "Service lifecycle control requires owner/root operational authority.",
+        )
+        .with_correlation(resolved.service.correlation_id.clone()));
+    }
+
+    let correlation_id = resolved.service.correlation_id.clone();
+    let value = state
+        .service_harness()
+        .control(&domain, body.command)
+        .await
+        .map_err(|error| service_dispatch_error(error).with_correlation(correlation_id))?;
     Ok(success(value, &resolved))
 }
 
