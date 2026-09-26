@@ -36,6 +36,8 @@ pub struct ApiError {
     retryable: bool,
     incident_id: Option<String>,
     correlation_id: Option<String>,
+    /// Already recorded where it happened (an in-process `/v1` answer relayed by `v1_call`), so not recorded twice.
+    recorded: bool,
 }
 
 impl ApiError {
@@ -52,6 +54,22 @@ impl ApiError {
             retryable,
             incident_id: None,
             correlation_id: None,
+            recorded: false,
+        }
+    }
+
+    /// A failure another handler in this process already answered (and, if it was a 5xx, already recorded).
+    pub(crate) fn relayed(
+        status: StatusCode,
+        code: String,
+        message: String,
+        retryable: bool,
+        incident_id: Option<String>,
+    ) -> Self {
+        Self {
+            incident_id,
+            recorded: true,
+            ..Self::new(status, code, message, retryable)
         }
     }
 
@@ -100,6 +118,7 @@ impl ApiError {
             retryable: error.retryable,
             incident_id: Some(error.incident_id.to_string()),
             correlation_id: None,
+            recorded: false,
         }
     }
 
@@ -260,7 +279,7 @@ impl IntoResponse for ApiError {
         // and no other way of being recorded, which is how a failing Rust route could return 500s that left no trace
         // anywhere. 4xx is not captured on purpose: a validation failure or a missing record is audited control flow,
         // not error noise, which is the same rule the TypeScript side follows.
-        if self.status.is_server_error() && self.incident_id.is_none() {
+        if self.status.is_server_error() && self.incident_id.is_none() && !self.recorded {
             crate::api::error_capture::record(
                 "rust:api",
                 &self.code,

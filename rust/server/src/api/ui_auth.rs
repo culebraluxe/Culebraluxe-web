@@ -52,14 +52,13 @@ pub async fn resolve_portal_context(
             "Portal sign-in is not available on this server yet.",
         ));
     }
-    resolve_identity_context(
-        state,
-        "break-glass",
-        &format!("break-glass:{}", stub_user()),
-        correlation(headers),
-        None,
-    )
-    .await
+    let (provider, subject) = stub_provider_identity();
+    resolve_identity_context(state, &provider, &subject, correlation(headers), None).await
+}
+
+/// The provider identity the stub signs in as: the ROOT user's break-glass identity (`auth_identity`).
+pub fn stub_provider_identity() -> (String, String) {
+    ("break-glass".into(), format!("break-glass:{}", stub_user()))
 }
 
 fn correlation(headers: &HeaderMap) -> String {

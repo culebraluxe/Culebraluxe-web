@@ -13,6 +13,7 @@ mod portal_ui;
 mod public_ui;
 mod routes;
 pub mod ui_auth;
+mod v1_call;
 
 pub use error::ApiError;
 
@@ -97,7 +98,7 @@ impl ApiState {
         self.harness.clone()
     }
 
-    fn internal_api_key(&self) -> &str {
+    pub(crate) fn internal_api_key(&self) -> &str {
         &self.config.internal_api_key
     }
 }
