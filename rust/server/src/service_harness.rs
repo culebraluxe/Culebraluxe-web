@@ -3,12 +3,12 @@ use crate::{
     MqRuntime, ServiceGateway, ServiceKernel, ServiceKernelHealth,
 };
 use db::{Database, DomainEventOutboxDao};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use service::{
     CommandRequest, CommandResult, ServiceContext, ServiceControlCommand, ServiceControlResult,
     ServiceDescriptor, ServiceDispatchError, ServiceEnvelope, ServiceHealth, ServiceInfrastructure,
 };
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,17 +43,11 @@ impl ServiceHarness {
                 )
             })?;
         let outbox = DomainEventOutboxDao::new(db.clone());
-        let crm26 = Crm26AgreementExecutionSubscriber::production(
-            db,
-            commands.clone(),
-            kernel.registry(),
-        );
+        let crm26 =
+            Crm26AgreementExecutionSubscriber::production(db, commands.clone(), kernel.registry());
         let mq = MqRuntime::new(
             outbox.clone(),
-            vec![
-                Arc::new(MqProofSubscriber::new(outbox)),
-                Arc::new(crm26),
-            ],
+            vec![Arc::new(MqProofSubscriber::new(outbox)), Arc::new(crm26)],
             mq_infrastructure,
             kernel.child_token(),
         )?;
