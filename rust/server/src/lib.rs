@@ -4,6 +4,7 @@
 //! remains in the existing TypeScript application.
 
 pub mod accounting;
+pub mod agreement_execution;
 pub mod api;
 pub mod calendar;
 pub mod clients;
@@ -46,6 +47,7 @@ pub mod website_leads;
 pub mod whatsapp;
 pub mod workflow_portal;
 
+pub use agreement_execution::Crm26AgreementExecutionSubscriber;
 pub use command_runtime::{CommandDispatchError, CommandDispatcher};
 pub use composition::CoreServices;
 pub use mq_runtime::{
