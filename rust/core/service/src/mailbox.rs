@@ -97,7 +97,7 @@ impl ServiceMailbox {
             queued: queued.clone(),
             in_flight: in_flight.clone(),
             idle_notify: idle_notify.clone(),
-            status: status_tx,
+            status: status_tx.clone(),
             cancel: cancel.clone(),
             tracker: tracker.clone(),
             max_concurrency: config.max_concurrency,
@@ -260,7 +260,8 @@ impl ServiceMailbox {
     pub async fn wait_running(&self) -> Result<(), ServiceDispatchError> {
         let mut status = self.status.clone();
         loop {
-            match *status.borrow_and_update() {
+            let current = *status.borrow_and_update();
+            match current {
                 ServiceStatus::Running => return Ok(()),
                 ServiceStatus::Starting => {
                     status
@@ -292,7 +293,8 @@ impl ServiceMailbox {
     pub async fn wait_stopped(&self) -> Result<(), ServiceDispatchError> {
         let mut status = self.status.clone();
         loop {
-            match *status.borrow_and_update() {
+            let current = *status.borrow_and_update();
+            match current {
                 ServiceStatus::Stopped => return Ok(()),
                 ServiceStatus::Failed => {
                     return Err(ServiceDispatchError::infrastructure(

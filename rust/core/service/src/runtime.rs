@@ -251,6 +251,7 @@ impl ServiceRuntime {
                     code: "SERVICE_ROUTER_UNAVAILABLE".into(),
                     message: "No ServiceRouter is configured for this service.".into(),
                     retryable: true,
+                    class: ServiceFailureClass::Infrastructure,
                 })?;
 
         let envelope = ServiceEnvelope {
