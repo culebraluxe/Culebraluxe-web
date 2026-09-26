@@ -326,7 +326,7 @@ struct CreateProjectBody {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct UpdateProjectBody {
+pub(super) struct UpdateProjectBody {
     name: Option<String>,
     owner: Option<String>,
     status: Option<String>,
@@ -494,7 +494,7 @@ struct CreateWbsBody {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct UpdateWbsBody {
+pub(super) struct UpdateWbsBody {
     title: Option<String>,
     notes: Option<String>,
     status: Option<String>,
@@ -2031,6 +2031,17 @@ async fn update_project(
     Json(body): Json<UpdateProjectBody>,
 ) -> Result<Json<ApiSuccess<domain::Project>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
+    let value = apply_project_update(&state, &resolved, id, body).await?;
+    Ok(success(value, &resolved))
+}
+
+/// Shared by `/v1` and the portal page (`portal_bridge`), so the merge rules live once.
+pub(super) async fn apply_project_update(
+    state: &ApiState,
+    resolved: &ResolvedRequestContext,
+    id: String,
+    body: UpdateProjectBody,
+) -> Result<domain::Project, ApiError> {
     let status = match body.status.as_deref() {
         Some(value) => Some(domain::ProjectStatus::try_from(value).map_err(|error| {
             correlate(
@@ -2085,8 +2096,8 @@ async fn update_project(
             &resolved.service,
         )
         .await
-        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
-    Ok(success(value, &resolved))
+        .map_err(|error| correlate(ApiError::from(error), resolved))?;
+    Ok(value)
 }
 
 async fn complete_task(
@@ -2187,11 +2198,22 @@ async fn update_wbs_item(
     Json(body): Json<UpdateWbsBody>,
 ) -> Result<Json<ApiSuccess<domain::WbsItem>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
+    let value = apply_wbs_update(&state, &resolved, id, body).await?;
+    Ok(success(value, &resolved))
+}
+
+/// Shared by `/v1` and the portal page (`portal_bridge`), so the merge rules live once.
+pub(super) async fn apply_wbs_update(
+    state: &ApiState,
+    resolved: &ResolvedRequestContext,
+    id: String,
+    body: UpdateWbsBody,
+) -> Result<domain::WbsItem, ApiError> {
     let service = state.services().wbs();
     let current = service
         .get(&id, &resolved.service)
         .await
-        .map_err(|error| correlate(ApiError::from(error), &resolved))?
+        .map_err(|error| correlate(ApiError::from(error), resolved))?
         .ok_or_else(|| {
             correlate(
                 ApiError::not_found("WBS_NOT_FOUND", format!("WBS item not found: {id}")),
@@ -2233,8 +2255,8 @@ async fn update_wbs_item(
             &resolved.service,
         )
         .await
-        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
-    Ok(success(value, &resolved))
+        .map_err(|error| correlate(ApiError::from(error), resolved))?;
+    Ok(value)
 }
 
 async fn clients(

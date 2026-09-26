@@ -21,7 +21,7 @@ use domain::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use super::routes::execute_registered;
+use super::routes::{apply_project_update, apply_wbs_update, execute_registered, UpdateProjectBody, UpdateWbsBody};
 
 pub fn router() -> Router<ApiState> {
     Router::new()
@@ -29,6 +29,7 @@ pub fn router() -> Router<ApiState> {
         .route("/api/portal/rust-ui/page", get(page))
         .route("/api/portal/rust-ui/cabinet", get(cabinet))
         .route("/api/portal/rust-ui/deals", get(deals).post(deals_write))
+        .route("/api/portal/rust-ui/projects", get(projects).post(projects_act))
 }
 
 #[derive(Debug, Deserialize)]
@@ -474,4 +475,180 @@ async fn deals_write(
     };
     let created = service.create(&request, &resolved.service).await.map_err(failed(&resolved))?;
     Ok(Json(json!({ "id": created.id })))
+}
+
+/// snake_case keys to camelCase, all the way down: the project and work-item records are serialized snake_case by the
+/// domain, and the Projects screen reads them camelCase (as the relay renamed them field by field).
+fn camel_keys(value: Value) -> Value {
+    match value {
+        Value::Object(map) => Value::Object(
+            map.into_iter()
+                .map(|(key, value)| {
+                    let mut camel = String::with_capacity(key.len());
+                    let mut upper = false;
+                    for ch in key.chars() {
+                        if ch == '_' {
+                            upper = true;
+                        } else if upper {
+                            camel.extend(ch.to_uppercase());
+                            upper = false;
+                        } else {
+                            camel.push(ch);
+                        }
+                    }
+                    (camel, camel_keys(value))
+                })
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(items.into_iter().map(camel_keys).collect()),
+        other => other,
+    }
+}
+
+fn str_at<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+    value.get(key).and_then(Value::as_str).filter(|text| !text.is_empty())
+}
+
+/// The whole Projects workspace: projects, work items, documents, the properties' media, activity, calendar and the
+/// display names of everything the projects point at.
+async fn projects_page(state: &ApiState, resolved: &ResolvedRequestContext) -> Result<Json<Value>, ApiError> {
+    let services = state.services();
+    let context = &resolved.service;
+    let scope = domain::VaultActorScope {
+        account_type: resolved.acting_user.account_type.clone(),
+        person_id: resolved.acting_user.person_id.clone(),
+    };
+    let project_service = services.project();
+    let (wbs, vault) = (services.wbs(), services.vault());
+    let (projects, items, documents) = tokio::join!(
+        async { project_service.lock().await.list(context).await },
+        wbs.list_project_items(context),
+        vault.list_issued_documents(Some(&scope), context),
+    );
+    let projects = projects.map_err(|error| correlate(ApiError::from(error), resolved))?;
+    let (items, documents) = (items.map_err(failed(resolved))?, documents.map_err(failed(resolved))?);
+    let (projects, items, documents) = (to_json(projects), to_json(items), to_json(documents));
+    let empty = Vec::new();
+    let (projects, items) = (projects.as_array().unwrap_or(&empty), items.as_array().unwrap_or(&empty));
+
+    let mut people = std::collections::BTreeSet::new();
+    let mut properties = std::collections::BTreeSet::new();
+    let mut contracts = std::collections::BTreeSet::new();
+    for project in projects {
+        people.extend(str_at(project, "person_id").map(str::to_owned));
+        properties.extend(str_at(project, "property_id").map(str::to_owned));
+        contracts.extend(str_at(project, "contract_id").map(str::to_owned));
+    }
+    for item in items {
+        let Some(entity) = item.get("entity") else { continue };
+        let Some(id) = str_at(entity, "id").map(str::to_owned) else { continue };
+        match str_at(entity, "entity_type") {
+            Some("person") => { people.insert(id); }
+            Some("property") => { properties.insert(id); }
+            Some("contract") => { contracts.insert(id); }
+            _ => {}
+        }
+    }
+
+    // Names and media are supplemental: a record that cannot be read keeps its id on screen, as the relay did.
+    let mut names = serde_json::Map::new();
+    for id in &people {
+        if let Some(person) = services.person().get(id, context).await.ok().flatten().map(to_json) {
+            if let Some(name) = str_at(&person, "display_name") {
+                names.insert(format!("person:{id}"), json!(name));
+            }
+        }
+    }
+    let mut media = Vec::new();
+    for id in &properties {
+        if let Some(property) = services.property().get(id, context).await.ok().flatten().map(to_json) {
+            if let Some(name) = str_at(&property, "display_name") {
+                names.insert(format!("property:{id}"), json!(name));
+            }
+        }
+        if let Ok(assets) = services.media().for_property(id, context).await {
+            media.extend(to_json(assets).as_array().cloned().unwrap_or_default());
+        }
+    }
+    for id in &contracts {
+        if let Some(contract) = services.contract().get(id, context).await.ok().flatten().map(to_json) {
+            if let Some(kind) = str_at(&contract, "contract_type") {
+                names.insert(format!("contract:{id}"), json!(kind.replace('_', " ")));
+            }
+        }
+    }
+    let (comms, calendar) = (services.comms(), services.calendar());
+    let (activity, calendar) = tokio::join!(comms.activity(200, context), calendar.list(context));
+    let activity = activity.map(to_json).unwrap_or_else(|_| json!([]));
+    let calendar = calendar.map(to_json).unwrap_or_else(|_| json!([]));
+    let documents: Vec<Value> = documents
+        .as_array()
+        .unwrap_or(&empty)
+        .iter()
+        .map(|document| {
+            let title = str_at(document, "title").or_else(|| str_at(document, "documentTypeLabel")).unwrap_or("Document");
+            json!({
+                "id": document.get("id"),
+                "propertyId": document.get("propertyId"),
+                "title": title,
+                "state": document.get("state"),
+                "templateId": document.get("templateId"),
+                "templateVersion": document.get("templateVersion"),
+                "issuedVersion": document.get("issuedVersion"),
+                "createdAt": document.get("createdAt"),
+                "signedArtifactAvailable": document.get("signedArtifactAvailable"),
+                "signedAuditAvailable": document.get("signedAuditAvailable"),
+            })
+        })
+        .collect();
+    Ok(Json(json!({ "projects": {
+        "projects": camel_keys(Value::Array(projects.clone())),
+        "items": camel_keys(Value::Array(items.clone())),
+        "documents": documents,
+        "media": media,
+        "activity": activity,
+        "calendar": calendar,
+        "identityNames": names,
+    } })))
+}
+
+async fn projects(State(state): State<ApiState>, headers: HeaderMap) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    projects_page(&state, &resolved).await
+}
+
+/// Projects' two writes — a project's status, a work item's save — each answering the refreshed workspace.
+async fn projects_act(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    let id_of = |key: &str| str_at(&body, key).map(str::trim).filter(|id| !id.is_empty()).map(str::to_owned);
+    match str_at(&body, "action") {
+        Some("projectStatus") => {
+            let Some(id) = id_of("projectId") else {
+                return Err(ApiError::bad_request("PROJECT_ID_REQUIRED", "projectId is required."));
+            };
+            let update: UpdateProjectBody = serde_json::from_value(json!({ "status": body.get("status") }))
+                .map_err(|error| ApiError::bad_request("PROJECT_UPDATE_INVALID", error.to_string()))?;
+            apply_project_update(&state, &resolved, id, update).await?;
+        }
+        Some("wbsSave") => {
+            let Some(id) = id_of("itemId") else {
+                return Err(ApiError::bad_request("WBS_ID_REQUIRED", "itemId is required."));
+            };
+            let update: UpdateWbsBody = serde_json::from_value(json!({
+                "title": body.get("title"),
+                "notes": body.get("notes"),
+                "status": body.get("status"),
+                "dueAt": body.get("dueAt"),
+                "owner": body.get("owner"),
+            }))
+            .map_err(|error| ApiError::bad_request("WBS_UPDATE_INVALID", error.to_string()))?;
+            apply_wbs_update(&state, &resolved, id, update).await?;
+        }
+        _ => return Err(ApiError::bad_request("PROJECT_ACTION_UNSUPPORTED", "Unsupported Projects action.")),
+    }
+    projects_page(&state, &resolved).await
 }
