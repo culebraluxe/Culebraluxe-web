@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readdirSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
@@ -16,6 +16,40 @@ function walk(dir) {
 }
 
 const roots = walk(join(process.cwd(), 'app')).sort()
+
+const TRACE_TARGETS = [
+  'lib/service-runtime',
+  'lib/commands/index',
+  'lib/neon-interactive',
+  'lib/mq/outbox-repository',
+]
+
+function traceDirectImporters() {
+  const codeEntry = /\.(?:ts|tsx|js|jsx)$/
+  const matches = []
+  const scan = (dir) => {
+    for (const item of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, item.name)
+      if (item.isDirectory()) {
+        scan(full)
+        continue
+      }
+      if (!codeEntry.test(item.name)) continue
+      const body = readFileSync(full, 'utf8')
+      for (const target of TRACE_TARGETS) {
+        if (body.includes(target)) {
+          matches.push({ file: relative(process.cwd(), full), target })
+        }
+      }
+    }
+  }
+  for (const root of ['app', 'lib']) scan(join(process.cwd(), root))
+  if (matches.length === 0) return
+  console.error('runtime boundary direct-root importers:')
+  for (const match of matches.sort((a, b) => a.file.localeCompare(b.file) || a.target.localeCompare(b.target))) {
+    console.error(`  ${match.file} -> ${match.target}`)
+  }
+}
 if (roots.length === 0) {
   console.error('runtime boundary: no App Router entrypoints found')
   process.exit(1)
@@ -34,6 +68,7 @@ const run = spawnSync(
 process.stdout.write(run.stdout ?? '')
 process.stderr.write(run.stderr ?? '')
 if (run.status !== 0) {
+  traceDirectImporters()
   console.error(`runtime boundary: FAIL (${roots.length} entrypoints)`)
   process.exit(run.status ?? 1)
 }
