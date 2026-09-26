@@ -18,6 +18,7 @@ use yew::Html;
 use crate::app::host::mount;
 use crate::app::screen::ScreenCtx;
 use crate::app::screens::account::Account;
+use crate::app::screens::clients::{ClientRecord, Clients};
 use crate::app::screens::db_test::DbTest;
 use crate::model::Surface;
 use crate::navigation::{Actor, Level};
@@ -81,6 +82,9 @@ pub struct Entry {
     pub authority: &'static str,
     pub entitlement: &'static str,
     pub kind: Kind,
+    /// The screen this one is reached FROM — a record from its list, a sub-page from its screen. The menus highlight the
+    /// parent while you are here, and the template's back link returns to it.
+    pub parent: Option<&'static str>,
 }
 
 impl Entry {
@@ -116,13 +120,24 @@ const fn entry(
         authority,
         entitlement,
         kind,
+        parent: None,
+    }
+}
+
+impl Entry {
+    /// Mark this entry as a drill-in of `parent` (a key in this table).
+    const fn of(self, parent: &'static str) -> Self {
+        Entry {
+            parent: Some(parent),
+            ..self
+        }
     }
 }
 
 #[rustfmt::skip]
 pub const ENTRIES: &[Entry] = &[
     entry("dashboard", "/portal/dashboard", Surface::Core, "Cockpit", Menu::Rail("Cockpit"), "portal.read", "cockpit.read", Kind::LegacyPortal("dashboard")),
-    entry("clients", "/portal/clients", Surface::Core, "Clients", Menu::Rail("Clients"), "portal.read", "person.read", Kind::LegacyPortal("clients")),
+    entry("clients", "/portal/clients", Surface::Core, "Clients", Menu::Rail("Clients"), "portal.read", "person.read", Kind::Screen(mount::<Clients>)),
     entry("projects", "/portal/projects", Surface::Core, "Projects", Menu::Rail("Projects"), "portal.read", "project.read", Kind::LegacyIsland("projects")),
     entry("deals", "/portal/deals", Surface::Core, "Contracts", Menu::Rail("Contracts"), "deal.read", "deal.read", Kind::LegacyPortal("deals")),
     entry("cabinet", "/portal/documents", Surface::Core, "Cabinet", Menu::Rail("Cabinet"), "deal.read", "vault.read", Kind::LegacyPortal("cabinet")),
@@ -156,21 +171,21 @@ pub const ENTRIES: &[Entry] = &[
     entry("site-about", "/about", Surface::Site, "About", Menu::Header("About"), "", "", Kind::LegacySite),
     entry("site-faq", "/faq", Surface::Site, "FAQ", Menu::Header("FAQ"), "", "", Kind::LegacySite),
     entry("site-contact", "/contact", Surface::Site, "Contact", Menu::Header("Contact"), "", "", Kind::LegacySite),
-    entry("settings-authorities", "/portal/settings/authorities", Surface::Support, "Authorities", Menu::None, "portal.read", "", Kind::LegacyPortal("settings-authorities")),
-    entry("settings-roles", "/portal/settings/roles", Surface::Support, "Roles", Menu::None, "portal.read", "", Kind::LegacyPortal("settings-roles")),
-    entry("settings-users", "/portal/settings/users", Surface::Support, "Users", Menu::None, "portal.read", "", Kind::LegacyPortal("settings-users")),
-    entry("attention", "/portal/attention", Surface::Core, "Attention", Menu::None, "portal.read", "", Kind::LegacyPortal("attention")),
-    entry("activity", "/portal/activity", Surface::Core, "Activity", Menu::None, "portal.read", "", Kind::LegacyPortal("activity")),
-    entry("client-record", "/portal/clients/:personId", Surface::Core, "Client", Menu::None, "portal.read", "", Kind::LegacyPortal("client-record")),
-    entry("deal-record", "/portal/deals/:dealId", Surface::Core, "Deal", Menu::None, "portal.read", "", Kind::LegacyPortal("deal-record")),
-    entry("form-record", "/portal/forms/:formId", Surface::Core, "Form", Menu::None, "portal.read", "", Kind::External),
-    entry("workflow-record", "/portal/workflows/:instanceId", Surface::Core, "Workflow instance", Menu::None, "portal.read", "", Kind::LegacyPortal("workflow-record")),
-    entry("property-record", "/portal/property-admin/:propertyId", Surface::Ops, "Property record", Menu::None, "portal.read", "", Kind::LegacyPortal("property-record")),
-    entry("story-record", "/portal/storyboard/:id", Surface::Tech, "Story", Menu::None, "portal.read", "", Kind::LegacyPortal("story-record")),
-    entry("trace-record", "/portal/tech/flight-recorder/:instanceId", Surface::Tech, "Trace", Menu::None, "portal.read", "", Kind::LegacyIsland("trace-record")),
+    entry("settings-authorities", "/portal/settings/authorities", Surface::Support, "Authorities", Menu::None, "portal.read", "", Kind::LegacyPortal("settings-authorities")).of("security"),
+    entry("settings-roles", "/portal/settings/roles", Surface::Support, "Roles", Menu::None, "portal.read", "", Kind::LegacyPortal("settings-roles")).of("security"),
+    entry("settings-users", "/portal/settings/users", Surface::Support, "Users", Menu::None, "portal.read", "", Kind::LegacyPortal("settings-users")).of("security"),
+    entry("attention", "/portal/attention", Surface::Core, "Attention", Menu::None, "portal.read", "", Kind::LegacyPortal("attention")).of("dashboard"),
+    entry("activity", "/portal/activity", Surface::Core, "Activity", Menu::None, "portal.read", "", Kind::LegacyPortal("activity")).of("dashboard"),
+    entry("client-record", "/portal/clients/:personId", Surface::Core, "Client", Menu::None, "portal.read", "", Kind::Screen(mount::<ClientRecord>)).of("clients"),
+    entry("deal-record", "/portal/deals/:dealId", Surface::Core, "Deal", Menu::None, "portal.read", "", Kind::LegacyPortal("deal-record")).of("deals"),
+    entry("form-record", "/portal/forms/:formId", Surface::Core, "Form", Menu::None, "portal.read", "", Kind::External).of("forms"),
+    entry("workflow-record", "/portal/workflows/:instanceId", Surface::Core, "Workflow instance", Menu::None, "portal.read", "", Kind::LegacyPortal("workflow-record")).of("workflows"),
+    entry("property-record", "/portal/property-admin/:propertyId", Surface::Ops, "Property record", Menu::None, "portal.read", "", Kind::LegacyPortal("property-record")).of("property-admin"),
+    entry("story-record", "/portal/storyboard/:id", Surface::Tech, "Story", Menu::None, "portal.read", "", Kind::LegacyPortal("story-record")).of("storyboard"),
+    entry("trace-record", "/portal/tech/flight-recorder/:instanceId", Surface::Tech, "Trace", Menu::None, "portal.read", "", Kind::LegacyIsland("trace-record")).of("tech"),
     entry("site-home", "/", Surface::Site, "Home", Menu::None, "", "", Kind::LegacySite),
-    entry("site-properties", "/properties", Surface::Site, "Properties", Menu::None, "", "", Kind::LegacySite),
-    entry("site-property-detail", "/properties/:slug", Surface::Site, "Property", Menu::None, "", "", Kind::LegacySite),
+    entry("site-properties", "/properties", Surface::Site, "Properties", Menu::None, "", "", Kind::LegacySite).of("site-buyers"),
+    entry("site-property-detail", "/properties/:slug", Surface::Site, "Property", Menu::None, "", "", Kind::LegacySite).of("site-buyers"),
     entry("site-privacy", "/privacy", Surface::Site, "Privacy", Menu::None, "", "", Kind::LegacySite),
     entry("site-favorites", "/favorites", Surface::Site, "Favorites", Menu::None, "", "", Kind::LegacySite),
     entry("site-account", "/account", Surface::Site, "Account", Menu::None, "", "", Kind::Screen(mount::<Account>)),
@@ -223,6 +238,19 @@ pub fn area_of(path: &str) -> Area {
 
 pub fn by_key(key: &str) -> Option<&'static Entry> {
     ENTRIES.iter().find(|entry| entry.key == key)
+}
+
+/// Whether a menu item for `item` is the current destination at `path`: it is the screen there, or that screen's
+/// parent (a client record highlights Clients).
+pub fn is_current(item: &Entry, path: &str) -> bool {
+    resolve(path).is_some_and(|(here, _)| here.key == item.key || here.parent == Some(item.key))
+}
+
+/// The parent screen of the screen at `path`, for the template's back link.
+pub fn parent_of(path: &str) -> Option<&'static Entry> {
+    resolve(path)
+        .and_then(|(here, _)| here.parent)
+        .and_then(by_key)
 }
 
 /// The public site's header, in menu order.
@@ -510,6 +538,34 @@ mod tests {
     }
 
     #[test]
+    fn every_drill_in_names_a_real_parent_and_highlights_it() {
+        for entry in ENTRIES {
+            if let Some(parent) = entry.parent {
+                let parent = by_key(parent)
+                    .unwrap_or_else(|| panic!("{}: parent {parent} is not registered", entry.key));
+                assert_eq!(
+                    parent.area(),
+                    entry.area(),
+                    "{} and its parent must share a chrome",
+                    entry.key
+                );
+            }
+        }
+        let clients = by_key("clients").unwrap();
+        assert!(
+            is_current(clients, "/portal/clients/abc"),
+            "a client record highlights Clients"
+        );
+        assert!(is_current(clients, "/portal/clients"));
+        assert!(!is_current(clients, "/portal/deals"));
+        assert_eq!(
+            parent_of("/portal/deals/42").map(|entry| entry.key),
+            Some("deals")
+        );
+        assert!(parent_of("/portal/deals").is_none());
+    }
+
+    #[test]
     fn every_surface_home_is_a_registered_screen() {
         for surface in SURFACE_ORDER {
             let home = crate::navigation::home_path(*surface);
@@ -539,5 +595,5 @@ mod tests {
         );
     }
 
-    const LEGACY_CEILING: usize = 50;
+    const LEGACY_CEILING: usize = 48;
 }

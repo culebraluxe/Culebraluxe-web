@@ -8,6 +8,7 @@
     "mail:test": "bash scripts/mail-test.sh",
     "mail:preview": "bash scripts/mail-test.sh --preview",
     "debug:portal-nav": "node scripts/portal-nav-smoke.mjs",
+    "ui:fixtures": "node scripts/ui-capture-fixtures.mjs",
     "ui:build": "bash scripts/rust-ui-build.sh",
     "ui:build:release": "RUST_UI_PROFILE=release bash scripts/rust-ui-build.sh",
     "contacts:sync:prod": "bash scripts/contacts-sync.sh",

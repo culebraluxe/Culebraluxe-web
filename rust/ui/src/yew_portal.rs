@@ -13,7 +13,6 @@ use crate::yew_views::portal_accounting_receipt_scanner::Scanner as AccountingRe
 use crate::yew_views::portal_accounting_receivables::Receivables as AccountingReceivables;
 use crate::yew_views::portal_activity::Activity;
 use crate::yew_views::portal_cabinet::Cabinet;
-use crate::yew_views::portal_clients::{ClientRecord, Clients};
 use crate::yew_views::portal_cockpit::Cockpit;
 use crate::yew_views::portal_deals::{DealRecord, Deals};
 use crate::yew_views::portal_flight_recorder::FlightRecorder;
@@ -157,10 +156,6 @@ impl Component for PortalApp {
             }
             "property-media" => {
                 html! { <ListingMedia model={self.model.clone()} on_msg={on_msg} /> }
-            }
-            "clients" => html! { <Clients model={self.model.clone()} on_msg={on_msg} /> },
-            "client-record" => {
-                html! { <ClientRecord model={self.model.clone()} on_msg={on_msg} /> }
             }
             "deals" => html! { <Deals model={self.model.clone()} on_msg={on_msg} /> },
             "design-lab" => html! { <UiLab model={self.model.clone()} on_msg={on_msg} /> },

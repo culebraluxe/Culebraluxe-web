@@ -63,14 +63,22 @@ impl<S: Screen> Component for ScreenHost<S> {
         true
     }
 
-    /// Same screen, new context (another record id, another query): start over, and retire the old generation.
+    /// The URL changed while this screen is mounted. Another record (path or id) starts the screen over and retires
+    /// the old generation, so the previous record's answers are dropped. Only the query changing (a tab, a selection)
+    /// keeps the state and asks the screen what to do.
     fn changed(&mut self, ctx: &Context<Self>, old: &Self::Properties) -> bool {
-        if ctx.props().ctx == old.ctx {
+        let (new, old) = (&ctx.props().ctx, &old.ctx);
+        if new == old {
             return false;
         }
-        self.generation += 1;
-        let (model, cmd) = S::init(&ctx.props().ctx);
-        self.model = model;
+        let cmd = if new.path != old.path || new.id != old.id || new.actor != old.actor {
+            self.generation += 1;
+            let (model, cmd) = S::init(new);
+            self.model = model;
+            cmd
+        } else {
+            S::url_changed(&mut self.model, new)
+        };
         self.run(ctx, cmd);
         true
     }

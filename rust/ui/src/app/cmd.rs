@@ -90,6 +90,12 @@ pub enum Cmd<Msg> {
         key: String,
         value: Option<String>,
     },
+    /// Deliver `msg` after `millis` — how a search waits for typing to pause. The screen compares a token it carried
+    /// in the message with its current one, so a superseded timer does nothing.
+    After {
+        millis: u32,
+        msg: Msg,
+    },
 }
 
 impl<Msg: 'static> Cmd<Msg> {
@@ -145,6 +151,10 @@ impl<Msg: 'static> Cmd<Msg> {
         }
     }
 
+    pub fn after(millis: u32, msg: Msg) -> Self {
+        Cmd::After { millis, msg }
+    }
+
     pub fn storage_write(key: impl Into<String>, value: Option<String>) -> Self {
         Cmd::StorageWrite {
             key: key.into(),
@@ -178,6 +188,10 @@ impl<Msg: 'static> Cmd<Msg> {
                 reply: Box::new(move |value| f(reply(value))),
             },
             Cmd::StorageWrite { key, value } => Cmd::StorageWrite { key, value },
+            Cmd::After { millis, msg } => Cmd::After {
+                millis,
+                msg: f(msg),
+            },
         }
     }
 
@@ -201,6 +215,7 @@ impl<Msg> std::fmt::Debug for Cmd<Msg> {
             Cmd::Load(href) => write!(f, "Load({href})"),
             Cmd::StorageRead { key, .. } => write!(f, "StorageRead({key})"),
             Cmd::StorageWrite { key, value } => write!(f, "StorageWrite({key}, {value:?})"),
+            Cmd::After { millis, .. } => write!(f, "After({millis}ms)"),
         }
     }
 }

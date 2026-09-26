@@ -1,7 +1,7 @@
 # UI Screen Architecture — the contract every screen implements
 
 Status: **framework and master shell built** (owner decision 2026-09-26). Code: `rust/ui/src/app/`. Screens on the
-trait: `db-test`, `site-account`. Cutover ledger: 50 screens still on the old loop (`app/registry.rs`). This document is the contract for all
+trait: `db-test`, `site-account`. Cutover ledger: 48 screens still on the old loop (`app/registry.rs`). This document is the contract for all
 UI work in `rust/ui`. It supersedes the ad hoc per-screen patterns: when code and this document disagree, the code is
 wrong.
 

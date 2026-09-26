@@ -39,6 +39,14 @@ pub fn run<Msg: 'static>(cmd: Cmd<Msg>, deliver: &Callback<Msg>, navigator: Opti
             let value = storage().and_then(|storage| storage.get_item(&key).ok().flatten());
             deliver.emit(reply(value));
         }
+        Cmd::After { millis, msg } => {
+            let deliver = deliver.clone();
+            spawn_local(async move {
+                yew::platform::time::sleep(std::time::Duration::from_millis(u64::from(millis)))
+                    .await;
+                deliver.emit(msg);
+            });
+        }
         Cmd::StorageWrite { key, value } => {
             if let Some(storage) = storage() {
                 let _ = match value {

@@ -111,7 +111,7 @@ fn site_header() -> Html {
         registry::header_items()
             .map(|(label, entry)| {
                 html! {
-                    <AppLink href={entry.path} classes={classes!(class)} current={path == entry.path}>{ label }</AppLink>
+                    <AppLink href={entry.path} classes={classes!(class)} current={registry::is_current(entry, &path)}>{ label }</AppLink>
                 }
             })
             .chain(std::iter::once(html! { <a href="/portal/dashboard" class={class}>{"Portal"}</a> }))
@@ -204,7 +204,7 @@ pub fn portal_frame(props: &PortalFrameProps) -> Html {
                     <div class="overflow-x-auto px-3 py-2 sm:px-6 lg:px-10">
                         <nav aria-label={format!("{} navigation", active.label())} class="portal-glass-rail">
                             { for rail.iter().map(|(label, entry)| html! {
-                                <AppLink href={entry.path} classes={classes!("portal-glass-tab")} current={path == entry.path}>
+                                <AppLink href={entry.path} classes={classes!("portal-glass-tab")} current={registry::is_current(entry, &path)}>
                                     { *label }
                                 </AppLink>
                             }) }

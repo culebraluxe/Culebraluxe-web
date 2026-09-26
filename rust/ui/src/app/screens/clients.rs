@@ -1,163 +1,236 @@
+//! `/portal/clients` and `/portal/clients/:personId` — the people the firm works with. THE REFERENCE LIST SCREEN.
+//!
+//! The list is the `ListState` building block (search with a pause, paging) in the standard rail; the selected person
+//! is in the URL (`?selected=`), so a selection can be reloaded, shared and gone back to. The record route is the same
+//! screen with the list set aside. The detail panels are pure functions of the payload.
+
 use yew::prelude::*;
 
+use crate::app::api::ClientsRead;
+use crate::app::cmd::{ApiError, Cmd, Remote};
+use crate::app::list::{self, ListChange, ListMsg, ListState};
+use crate::app::screen::{Link, Screen, ScreenCtx};
+use crate::app::template;
 use crate::icons::icon_html;
 use crate::model::{
-    Msg, PortalClientDetail, PortalClientSummary, PortalClientsPage, PortalCommsAggregate,
-    PortalCommsSource,
+    PortalClientDetail, PortalClientSummary, PortalClientsPage, PortalCommsAggregate,
+    PortalCommsSource, PortalPage,
 };
-use crate::yew_views::portal_shell::PortalShell;
 
-#[derive(Properties, PartialEq)]
-pub struct ClientsProps {
-    pub model: crate::model::Model,
-    pub on_msg: Callback<Msg>,
-}
-
+/// The directory with the selected person beside it.
 pub struct Clients;
+/// One person, reached from the directory (or a link).
 pub struct ClientRecord;
 
-impl Component for Clients {
-    type Message = ();
-    type Properties = ClientsProps;
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Model {
+    pub list: ListState,
+    pub data: Remote<PortalClientsPage>,
+    /// A read is in flight while the previous answer is still on screen (a search, a page, another selection).
+    pub refreshing: bool,
+}
 
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
+#[derive(Debug, PartialEq)]
+pub enum Msg {
+    List(ListMsg),
+    Loaded(Result<PortalPage, ApiError>),
+    /// Just the selected person, merged into the list already on screen.
+    PersonLoaded(Result<PortalPage, ApiError>),
+}
+
+fn read(model: &Model, ctx: &ScreenCtx, record: Option<String>) -> Cmd<Msg> {
+    Cmd::request(
+        ClientsRead {
+            record,
+            selected: ctx.query("selected").map(str::to_owned),
+            search: model.list.search.clone(),
+            page: model.list.page,
+        },
+        Msg::Loaded,
+    )
+}
+
+/// A new selection reads ONLY that person and keeps the list on screen: the list did not change, so reading it again
+/// (as the relay does for a full read) would double the wait for nothing.
+fn read_person(id: &str) -> Cmd<Msg> {
+    Cmd::request(
+        ClientsRead {
+            record: Some(id.to_owned()),
+            selected: None,
+            search: String::new(),
+            page: 1,
+        },
+        Msg::PersonLoaded,
+    )
+}
+
+fn merge_person(model: &mut Model, answer: Result<PortalPage, ApiError>) {
+    model.refreshing = false;
+    let person = answer.and_then(|page| {
+        page.clients
+            .ok_or_else(|| ApiError::decode("The answer had no client in it."))
+    });
+    match (person, &mut model.data) {
+        (Ok(person), Remote::Loaded(list)) => {
+            list.selected_id = person.selected_id;
+            list.selected = person.selected;
+            list.comms = person.comms;
+            list.properties = person.properties;
+        }
+        (Ok(person), _) => model.data = Remote::Loaded(person),
+        (Err(error), _) => model.data = Remote::Failed(error),
+    }
+}
+
+fn apply(model: &mut Model, answer: Result<PortalPage, ApiError>) {
+    model.refreshing = false;
+    model.data = Remote::from_result(answer.and_then(|page| {
+        page.clients
+            .ok_or_else(|| ApiError::decode("The answer had no clients in it."))
+    }));
+}
+
+impl Screen for Clients {
+    type Model = Model;
+    type Msg = Msg;
+
+    fn init(ctx: &ScreenCtx) -> (Model, Cmd<Msg>) {
+        let model = Model {
+            data: Remote::Loading,
+            ..Model::default()
+        };
+        let cmd = read(&model, ctx, None);
+        (model, cmd)
     }
 
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let props = ctx.props();
-        let screen = crate::model::screen("clients").expect("clients screen exists");
-        html! {
-            <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
-                { workspace(&props.model, &props.on_msg) }
-            </PortalShell>
+    fn update(model: &mut Model, msg: Msg, ctx: &ScreenCtx) -> Cmd<Msg> {
+        match msg {
+            Msg::List(msg) => {
+                let pages = model
+                    .data
+                    .loaded()
+                    .map(|data| list::pages(data.total, data.page_size))
+                    .unwrap_or(1);
+                let (change, cmd) = model.list.update(msg, pages);
+                let cmd = cmd.map(Msg::List);
+                if change == ListChange::Reload {
+                    model.refreshing = true;
+                    return Cmd::batch([cmd, read(model, ctx, None)]);
+                }
+                cmd
+            }
+            Msg::Loaded(answer) => {
+                apply(model, answer);
+                Cmd::none()
+            }
+            Msg::PersonLoaded(answer) => {
+                merge_person(model, answer);
+                Cmd::none()
+            }
         }
     }
-}
 
-impl Component for ClientRecord {
-    type Message = ();
-    type Properties = ClientsProps;
-
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self
-    }
-
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let props = ctx.props();
-        let screen = crate::model::screen("client-record").expect("client record exists");
-        html! {
-            <PortalShell screen={screen} model={props.model.clone()} on_msg={props.on_msg.clone()}>
-                <a href="/portal/clients" class="mb-3 inline-flex text-sm font-light text-black/45">{"← Clients"}</a>
-                { selected_workspace(&props.model) }
-            </PortalShell>
+    /// Another person selected (`?selected=`): read just them; the list stays as it is.
+    fn url_changed(model: &mut Model, ctx: &ScreenCtx) -> Cmd<Msg> {
+        let current = model
+            .data
+            .loaded()
+            .and_then(|data| data.selected_id.as_deref());
+        match ctx.query("selected") {
+            Some(id) if current != Some(id) => {
+                model.refreshing = true;
+                read_person(id)
+            }
+            _ => Cmd::none(),
         }
     }
-}
 
-fn payload(model: &crate::model::Model) -> Option<&PortalClientsPage> {
-    model
-        .page
-        .as_ref()
-        .and_then(|page| page.portal.as_ref())
-        .and_then(|portal| portal.clients.as_ref())
-}
-
-fn workspace(model: &crate::model::Model, on_msg: &Callback<Msg>) -> Html {
-    let data = payload(model);
-    let rows = data.map(|page| page.rows.as_slice()).unwrap_or(&[]);
-    let total = data.map(|page| page.total).unwrap_or(0);
-    let current = data.map(|page| page.page).unwrap_or(1);
-    let page_size = data.map(|page| page.page_size.max(1)).unwrap_or(50);
-    let pages = ((total + page_size - 1) / page_size).max(1);
-
-    let oninput = {
-        let on_msg = on_msg.clone();
-        Callback::from(move |event: InputEvent| {
-            let value = event
-                .target_unchecked_into::<web_sys::HtmlInputElement>()
-                .value();
-            on_msg.emit(Msg::QueryChanged(value));
-        })
-    };
-    let previous = {
-        let on_msg = on_msg.clone();
-        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::PageChanged(-1)))
-    };
-    let next = {
-        let on_msg = on_msg.clone();
-        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::PageChanged(1)))
-    };
-
-    html! {
-        <div class="grid min-h-0 gap-4 md:h-[calc(100dvh-8.5rem)] md:grid-cols-[200px_minmax(0,1fr)]">
-            <aside class="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
-                <div class="shrink-0 border-b border-[var(--portal-panel-border)] p-2.5">
-                    <div class="mb-2 text-[10px] font-light uppercase tracking-[0.16em] text-black/40">
-                        { format!("People · {total}") }
-                    </div>
-                    <input
-                        type="search"
-                        {oninput}
-                        value={model.controls.query.clone()}
-                        placeholder="Search…"
-                        class="w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/40 px-2.5 py-1.5 text-sm font-light outline-none placeholder:text-black/35 focus:border-[var(--portal-navy)]"
-                    />
-                </div>
-
-                <div class="min-h-0 flex-1 overflow-y-auto">
-                    if rows.is_empty() {
-                        <p class="px-3 py-6 text-sm font-light text-black/40">
-                            { if model.loading { "Loading…" } else { "No matching clients." } }
-                        </p>
-                    } else {
-                        { for rows.iter().map(|row| row_view(row, data.and_then(|d| d.selected_id.as_deref()), on_msg)) }
-                    }
-                </div>
-
-                <div class="flex shrink-0 items-center justify-between gap-2 border-t border-[var(--portal-panel-border)] px-2 py-1.5">
-                    <button type="button" onclick={previous} disabled={current <= 1}
-                        class="text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] disabled:opacity-30">
-                        {"← Prev"}
-                    </button>
-                    <span class="text-[10px] font-light text-black/40">{ format!("{current} / {pages}") }</span>
-                    <button type="button" onclick={next} disabled={current >= pages}
-                        class="text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] disabled:opacity-30">
-                        {"Next →"}
-                    </button>
-                </div>
-            </aside>
-
-            <div class="min-h-0 overflow-hidden">
-                { selected_workspace(model) }
+    fn view(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
+        let data = model.data.loaded();
+        let rows = data.map(|page| page.rows.as_slice()).unwrap_or(&[]);
+        let selected = data.and_then(|page| page.selected_id.as_deref());
+        let pages = data
+            .map(|page| list::pages(page.total, page.page_size))
+            .unwrap_or(1);
+        let rail = list::rail(
+            "People",
+            data.map(|page| page.total).unwrap_or(0),
+            &model.list,
+            pages,
+            model.data.is_loading() || model.refreshing,
+            "No matching clients.",
+            rows.iter()
+                .map(|row| row_view(row, selected, ctx))
+                .collect(),
+            !rows.is_empty(),
+            &link.callback(Msg::List),
+        );
+        html! {
+            <div class="grid min-h-0 gap-4 md:h-[calc(100dvh-8.5rem)] md:grid-cols-[200px_minmax(0,1fr)]">
+                { rail }
+                <div class="min-h-0 overflow-hidden">{ workspace(model) }</div>
             </div>
-        </div>
+        }
     }
 }
 
-fn row_view(row: &PortalClientSummary, selected_id: Option<&str>, on_msg: &Callback<Msg>) -> Html {
+impl Screen for ClientRecord {
+    type Model = Model;
+    type Msg = Msg;
+
+    fn init(ctx: &ScreenCtx) -> (Model, Cmd<Msg>) {
+        let model = Model {
+            data: Remote::Loading,
+            ..Model::default()
+        };
+        let cmd = read(&model, ctx, ctx.id.clone());
+        (model, cmd)
+    }
+
+    fn update(model: &mut Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> {
+        if let Msg::Loaded(answer) = msg {
+            apply(model, answer);
+        }
+        Cmd::none()
+    }
+
+    fn view(model: &Model, ctx: &ScreenCtx, _link: &Link<Msg>) -> Html {
+        html! {
+            <div class="flex flex-col gap-3">
+                <div>{ template::back_link(ctx) }</div>
+                { workspace(model) }
+            </div>
+        }
+    }
+}
+
+/// A person in the list. Choosing one is a link (`?selected=`), not a message: the URL holds the selection.
+fn row_view(row: &PortalClientSummary, selected_id: Option<&str>, ctx: &ScreenCtx) -> Html {
     let selected = selected_id == Some(row.id.as_str());
-    let id = row.id.clone();
-    let onclick = {
-        let on_msg = on_msg.clone();
-        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::RowSelected(id.clone())))
-    };
     let secondary = row
         .primary_phone
         .clone()
         .or_else(|| row.primary_email.clone())
         .unwrap_or_else(|| row.role.clone());
-
+    let classes = classes!(
+        "flex",
+        "w-full",
+        "items-center",
+        "gap-2",
+        "border-b",
+        "border-[var(--portal-panel-border)]",
+        "px-2.5",
+        "py-2",
+        "text-left",
+        "transition",
+        if selected {
+            "border-l-2 border-l-[var(--portal-gold)] bg-white/40"
+        } else {
+            "border-l-2 border-l-transparent hover:bg-white/25"
+        }
+    );
     html! {
-        <button type="button" {onclick}
-            class={classes!(
-                "flex","w-full","items-center","gap-2","border-b","border-[var(--portal-panel-border)]","px-2.5","py-2","text-left","transition",
-                if selected {
-                    "border-l-2 border-l-[var(--portal-gold)] bg-white/40"
-                } else {
-                    "border-l-2 border-l-transparent hover:bg-white/25"
-                }
-            )}>
+        <crate::app::chrome::AppLink href={template::with_query(ctx, "selected", Some(&row.id))} classes={classes} current={selected}>
             <span class={format!("h-1.5 w-1.5 shrink-0 rounded-full {}", status_dot(&row.status))}></span>
             <div class="min-w-0 flex-1">
                 <div class="truncate text-[13px] font-medium text-[var(--portal-navy)]">
@@ -166,26 +239,29 @@ fn row_view(row: &PortalClientSummary, selected_id: Option<&str>, on_msg: &Callb
                 <div class="truncate text-[11px] font-light text-black/45">{ secondary }</div>
                 if row.observed_count > 0 {
                     <div class="truncate text-[10px] font-light text-black/35">
-                        { format!("{} observed{}", row.observed_count, if row.two_way { " · two-way" } else { "" }) }
+                        { format!("{} observed{}", row.observed_count, if row.two_way { " \u{b7} two-way" } else { "" }) }
                     </div>
                 }
             </div>
-        </button>
+        </crate::app::chrome::AppLink>
     }
 }
 
-fn selected_workspace(model: &crate::model::Model) -> Html {
-    let Some(data) = payload(model) else {
-        return empty_client(model.loading);
+/// The selected person, or the standard loading / failure / nothing-selected states.
+fn workspace(model: &Model) -> Html {
+    let Some(data) = model.data.loaded() else {
+        return template::remote(&model.data, "clients", |_| Html::default());
     };
     let Some(client) = data.selected.as_ref() else {
-        return empty_client(model.loading);
+        return template::empty_panel(if model.refreshing {
+            "Loading the selected client\u{2026}"
+        } else {
+            "Select a client."
+        });
     };
-
     html! {
         <div class="flex h-full min-h-0 flex-col gap-3">
             { command_status_band(model, client) }
-
             <div class="grid min-h-0 flex-1 gap-3 lg:grid-cols-2 lg:gap-4">
                 <main class="min-h-0 overflow-y-auto">
                     <div class="flex flex-col gap-4">
@@ -194,69 +270,44 @@ fn selected_workspace(model: &crate::model::Model) -> Html {
                         { notes_panel(client) }
                     </div>
                 </main>
-
                 { relationship_panel(client, data) }
             </div>
         </div>
     }
 }
 
-fn empty_client(loading: bool) -> Html {
-    html! {
-        <section class="portal-glass-panel rounded-[var(--portal-panel-radius)] p-6">
-            <p class="text-sm font-light text-black/45">
-                { if loading { "Loading selected client…" } else { "Select a client." } }
-            </p>
-        </section>
-    }
-}
-
-fn command_status_band(model: &crate::model::Model, client: &PortalClientDetail) -> Html {
-    let status_text = if model.loading {
-        "Loading client…".to_string()
-    } else if let Some(error) = model.error.as_ref() {
-        error.clone()
+fn command_status_band(model: &Model, client: &PortalClientDetail) -> Html {
+    let status_text = if model.refreshing {
+        "Loading client\u{2026}".to_string()
     } else {
-        format!("Ready · {}", client.display_name)
+        format!("Ready \u{b7} {}", client.display_name)
     };
-    let tone = if model.error.is_some() {
-        "bg-[var(--portal-archive)]"
-    } else if model.loading {
+    let tone = if model.refreshing {
         "bg-black/25"
     } else {
         "bg-[var(--portal-success)]"
     };
-
     html! {
         <div class="grid grid-cols-1 gap-3 lg:grid-cols-2 lg:gap-4">
             <section class="portal-glass-panel portal-glass-panel-lifted flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
                 <div class="shrink-0 border-b border-[var(--portal-panel-border)] px-4 py-2.5">
-                    <p class="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--portal-gold-muted)]">
-                        {"Grok"}
-                    </p>
+                    <p class="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--portal-gold-muted)]">{"Grok"}</p>
                 </div>
                 <div class="flex min-h-0 flex-1 items-center gap-2 px-4 py-2.5">
-                    <input
-                        type="text"
-                        disabled=true
-                        placeholder={format!("Ask Grok about {}…", client.display_name)}
-                        class="h-10 min-w-0 flex-1 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/55 px-3 font-serif text-[15px] font-light text-[var(--portal-navy)] outline-none placeholder:text-black/35 disabled:cursor-not-allowed disabled:opacity-70"
-                    />
+                    <input type="text" disabled=true placeholder={format!("Ask Grok about {}\u{2026}", client.display_name)}
+                        class="h-10 min-w-0 flex-1 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/55 px-3 font-serif text-[15px] font-light text-[var(--portal-navy)] outline-none placeholder:text-black/35 disabled:cursor-not-allowed disabled:opacity-70" />
                     <button type="button" disabled=true
                         class="inline-flex h-10 items-center justify-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-4 text-[10px] font-medium uppercase tracking-[0.14em] text-white disabled:cursor-not-allowed disabled:opacity-45">
                         {"Go"}
                     </button>
                 </div>
             </section>
-
-            <section aria-label="Status"
-                class="portal-glass-panel portal-glass-panel-lifted flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
+            <section aria-label="Status" class="portal-glass-panel portal-glass-panel-lifted flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
                 <div class="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--portal-panel-border)] px-4 py-2.5">
                     <p class="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--portal-gold-muted)]">{"Status"}</p>
                     <span aria-hidden=true class={classes!("h-2","w-2","shrink-0","rounded-full",tone)}></span>
                 </div>
-                <div aria-live="polite"
-                    class="min-h-0 flex-1 overflow-hidden px-4 py-2.5 font-serif text-[15px] font-light leading-6 text-[var(--portal-navy)] line-clamp-3">
+                <div aria-live="polite" class="min-h-0 flex-1 overflow-hidden px-4 py-2.5 font-serif text-[15px] font-light leading-6 text-[var(--portal-navy)] line-clamp-3">
                     { status_text }
                 </div>
             </section>
@@ -657,5 +708,77 @@ fn status_dot(status: &str) -> &'static str {
         "new" => "bg-sky-400",
         "referral" => "bg-violet-400",
         _ => "bg-black/20",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A REAL answer (captured by `pnpm ui:fixtures`, personal data scrubbed) decodes into what the screen reads.
+    #[test]
+    fn the_real_clients_answer_decodes_and_shows_its_selected_person() {
+        let ctx = ScreenCtx {
+            path: "/portal/clients".into(),
+            ..ScreenCtx::default()
+        };
+        let (mut model, cmd) = Clients::init(&ctx);
+        let request = cmd.into_requests().remove(0);
+        assert_eq!(
+            request.path,
+            "/api/portal/rust-ui/clients?screen=clients&page=0&search="
+        );
+        let answer: serde_json::Value =
+            serde_json::from_str(include_str!("../../../fixtures/clients-list.json")).unwrap();
+        Clients::update(&mut model, request.respond(Ok(answer)), &ctx);
+        let data = model.data.loaded().expect("the real payload decodes");
+        assert!(!data.rows.is_empty());
+        assert_eq!(
+            data.selected_id.as_deref(),
+            data.selected.as_ref().map(|client| client.id.as_str())
+        );
+    }
+
+    #[test]
+    fn searching_reads_page_one_and_a_selection_reads_that_person() {
+        let ctx = ScreenCtx {
+            path: "/portal/clients".into(),
+            ..ScreenCtx::default()
+        };
+        let (mut model, _) = Clients::init(&ctx);
+        model.list.page = 3;
+        Clients::update(&mut model, Msg::List(ListMsg::Typed("ale x".into())), &ctx);
+        let cmd = Clients::update(&mut model, Msg::List(ListMsg::Paused(1)), &ctx);
+        assert_eq!(
+            cmd.into_requests().remove(0).path,
+            "/api/portal/rust-ui/clients?screen=clients&page=0&search=ale%20x"
+        );
+        let selected = ScreenCtx {
+            query: crate::app::screen::parse_query("?selected=p-9"),
+            ..ctx
+        };
+        let path = Clients::url_changed(&mut model, &selected)
+            .into_requests()
+            .remove(0)
+            .path;
+        assert_eq!(
+            path, "/api/portal/rust-ui/clients?screen=client-record&scope=p-9",
+            "a selection reads only the person"
+        );
+        assert!(model.refreshing);
+    }
+
+    #[test]
+    fn the_record_reads_one_person_by_its_route_id() {
+        let ctx = ScreenCtx {
+            path: "/portal/clients/p-9".into(),
+            id: Some("p-9".into()),
+            ..ScreenCtx::default()
+        };
+        let path = ClientRecord::init(&ctx).1.into_requests().remove(0).path;
+        assert_eq!(
+            path,
+            "/api/portal/rust-ui/clients?screen=client-record&scope=p-9"
+        );
     }
 }

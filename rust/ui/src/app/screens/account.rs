@@ -295,4 +295,18 @@ mod tests {
         };
         assert_eq!(Account::init(&ctx).0.message.as_deref(), Some(REFUSED));
     }
+
+    #[test]
+    fn the_real_guest_session_answer_decodes() {
+        let ctx = ScreenCtx::default();
+        let (mut model, cmd) = Account::init(&ctx);
+        let answer: serde_json::Value =
+            serde_json::from_str(include_str!("../../../fixtures/guest-session.json")).unwrap();
+        Account::update(
+            &mut model,
+            cmd.into_requests().remove(0).respond(Ok(answer)),
+            &ctx,
+        );
+        assert!(model.session.loaded().is_some());
+    }
 }

@@ -5,11 +5,11 @@
 
 use yew::prelude::*;
 
-use crate::app::api::PortalPage;
+use crate::app::api::PortalScreenPage;
 use crate::app::cmd::{ApiError, Cmd, Remote};
 use crate::app::screen::{Link, Screen, ScreenCtx};
 use crate::app::template::{self, PANEL};
-use crate::model::{PageContent, PortalDbTest, PortalDbTestClient};
+use crate::model::{PortalDbTest, PortalDbTestClient, PortalPage};
 
 pub struct DbTest;
 
@@ -20,7 +20,7 @@ pub struct Model {
 
 #[derive(Debug, PartialEq)]
 pub enum Msg {
-    Loaded(Result<PageContent, ApiError>),
+    Loaded(Result<PortalPage, ApiError>),
 }
 
 impl Screen for DbTest {
@@ -32,7 +32,7 @@ impl Screen for DbTest {
             Model {
                 read: Remote::Loading,
             },
-            Cmd::request(PortalPage::of("db-test"), Msg::Loaded),
+            Cmd::request(PortalScreenPage::of("db-test"), Msg::Loaded),
         )
     }
 
@@ -42,8 +42,7 @@ impl Screen for DbTest {
                 // The payload is the shared page shape; this screen's answer is one field of it. An answer without that
                 // field is a failure to say so, not an empty database.
                 model.read = Remote::from_result(answer.and_then(|page| {
-                    page.portal
-                        .and_then(|portal| portal.support)
+                    page.support
                         .and_then(|support| support.db_test)
                         .ok_or_else(|| ApiError::decode("The answer had no database test in it."))
                 }));
@@ -131,9 +130,9 @@ mod tests {
         let request = cmd.into_requests().remove(0);
         assert_eq!(request.path, "/api/portal/rust-ui/page?screen=db-test&");
 
-        let answer = json!({ "portal": { "support": { "dbTest": {
+        let answer = json!({ "support": { "dbTest": {
             "connected": true, "clientCount": 1, "clients": [{ "id": "c1", "displayName": "Ada", "role": "buyer", "status": "active" }]
-        } } } });
+        } } });
         DbTest::update(&mut model, request.respond(Ok(answer)), &ctx);
         let read = model.read.loaded().expect("loaded");
         assert_eq!(
@@ -145,10 +144,31 @@ mod tests {
             (true, 1, "Ada")
         );
 
-        DbTest::update(&mut model, Msg::Loaded(Ok(PageContent::default())), &ctx);
+        DbTest::update(&mut model, Msg::Loaded(Ok(PortalPage::default())), &ctx);
         assert!(
             matches!(model.read, Remote::Failed(ref error) if error.code == "DECODE"),
             "no field is a failure, not an empty database"
+        );
+    }
+
+    #[test]
+    fn the_real_db_test_answer_decodes() {
+        let ctx = ScreenCtx::default();
+        let (mut model, cmd) = DbTest::init(&ctx);
+        let answer: serde_json::Value =
+            serde_json::from_str(include_str!("../../../fixtures/portal-page-db-test.json"))
+                .unwrap();
+        DbTest::update(
+            &mut model,
+            cmd.into_requests().remove(0).respond(Ok(answer)),
+            &ctx,
+        );
+        assert!(
+            model
+                .read
+                .loaded()
+                .expect("the real payload decodes")
+                .connected
         );
     }
 }

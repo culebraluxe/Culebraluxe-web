@@ -29,6 +29,13 @@ pub trait Screen: 'static {
 
     /// Draw the model. Controls send messages through `link`.
     fn view(model: &Self::Model, ctx: &ScreenCtx, link: &Link<Self::Msg>) -> Html;
+
+    /// The URL's QUERY changed while this screen stays open (a `?tab=`, a `?selected=`): `ctx` already has the new
+    /// query. The screen keeps its state; return what should happen (usually nothing — the view reads the query — or
+    /// a read for the newly selected row). A new PATH or record id is not this: that restarts the screen with `init`.
+    fn url_changed(_model: &mut Self::Model, _ctx: &ScreenCtx) -> Cmd<Self::Msg> {
+        Cmd::none()
+    }
 }
 
 /// What the shell tells a screen about where it is. Read-only.

@@ -1,26 +1,27 @@
 //! THE API CATALOGUE — every URL the app calls, and nowhere else.
 //!
-//! Screens name an endpoint (`Cmd::request(PortalPage::of("db-test"), ...)`); they never write a path. When the HTTP
+//! Screens name an endpoint (`Cmd::request(PortalScreenPage::of("db-test"), ...)`); they never write a path. When the HTTP
 //! layer moves from the Next relays to Axum, the paths change here and no screen changes.
 
 use serde::Deserialize;
 
 use crate::app::cmd::{Endpoint, Method};
 
-/// A portal screen's page payload (`/api/portal/rust-ui/page`), the typed read the old loop used for SUPPORT screens.
-pub struct PortalPage {
+/// A portal screen's page payload (`/api/portal/rust-ui/page`). The answer is the portal page itself (`{ support, ... }`),
+/// not wrapped in the site's `PageContent`.
+pub struct PortalScreenPage {
     pub screen: &'static str,
 }
 
-impl PortalPage {
+impl PortalScreenPage {
     pub fn of(screen: &'static str) -> Self {
         Self { screen }
     }
 }
 
-impl Endpoint for PortalPage {
+impl Endpoint for PortalScreenPage {
     const METHOD: Method = Method::Get;
-    type Response = crate::model::PageContent;
+    type Response = crate::model::PortalPage;
     fn path(&self) -> String {
         format!("/api/portal/rust-ui/page?screen={}&", self.screen)
     }
@@ -80,5 +81,49 @@ impl Endpoint for GuestRequestCode {
     }
     fn body(&self) -> Option<serde_json::Value> {
         Some(serde_json::json!({ "email": self.email }))
+    }
+}
+
+/// Percent-encode one query value.
+pub fn encode(text: &str) -> String {
+    text.bytes()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (byte as char).to_string()
+            }
+            _ => format!("%{byte:02X}"),
+        })
+        .collect()
+}
+
+/// The client directory with one person hydrated, or (with `record`) just that person. Answers `{ clients: ... }`.
+pub struct ClientsRead {
+    /// A client record route's id: read only that person.
+    pub record: Option<String>,
+    pub selected: Option<String>,
+    pub search: String,
+    /// 1-based, as the list counts; the relay counts from 0.
+    pub page: i64,
+}
+
+impl Endpoint for ClientsRead {
+    const METHOD: Method = Method::Get;
+    type Response = crate::model::PortalPage;
+    fn path(&self) -> String {
+        if let Some(id) = &self.record {
+            return format!(
+                "/api/portal/rust-ui/clients?screen=client-record&scope={}",
+                encode(id)
+            );
+        }
+        let mut path = format!(
+            "/api/portal/rust-ui/clients?screen=clients&page={}&search={}",
+            (self.page - 1).max(0),
+            encode(&self.search)
+        );
+        if let Some(selected) = &self.selected {
+            path.push_str(&format!("&selected={}", encode(selected)));
+        }
+        path
     }
 }

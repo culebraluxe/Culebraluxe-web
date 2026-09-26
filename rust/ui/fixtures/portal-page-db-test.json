@@ -1,0 +1,74 @@
+{
+  "support": {
+    "dbTest": {
+      "connected": true,
+      "clientCount": 2655,
+      "clients": [
+        {
+          "id": "4d8b0d45-e172-40f9-b864-19c8d397c563",
+          "displayName": "Sample text",
+          "nameResolved": true,
+          "role": "unclassified",
+          "status": "new",
+          "location": null,
+          "primaryEmail": null,
+          "primaryPhone": "+10000000000",
+          "assignedAgent": null,
+          "lastContactLabel": null,
+          "sources": [
+            "apple_contacts"
+          ],
+          "relationshipActivity": {
+            "hasEvidence": true,
+            "sources": [
+              "apple_contacts"
+            ],
+            "firstObservedAt": null,
+            "inboundCount": 0,
+            "outboundCount": 0,
+            "observedCommunicationCount": 0,
+            "twoWay": false,
+            "lastObservedAt": null,
+            "lastMeaningfulContactAt": null,
+            "lastInboundAt": null,
+            "lastOutboundAt": null,
+            "coverageLimited": false,
+            "channels": []
+          }
+        },
+        {
+          "id": "fc731260-0d94-4970-8ddd-738727e67351",
+          "displayName": "Sample text",
+          "nameResolved": true,
+          "role": "unclassified",
+          "status": "new",
+          "location": null,
+          "primaryEmail": "person@example.com",
+          "primaryPhone": null,
+          "assignedAgent": null,
+          "lastContactLabel": null,
+          "sources": [
+            "apple_contacts"
+          ],
+          "relationshipActivity": {
+            "hasEvidence": true,
+            "sources": [
+              "apple_contacts"
+            ],
+            "firstObservedAt": null,
+            "inboundCount": 0,
+            "outboundCount": 0,
+            "observedCommunicationCount": 0,
+            "twoWay": false,
+            "lastObservedAt": null,
+            "lastMeaningfulContactAt": null,
+            "lastInboundAt": null,
+            "lastOutboundAt": null,
+            "coverageLimited": false,
+            "channels": []
+          }
+        }
+      ]
+    }
+  }
+}

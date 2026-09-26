@@ -6,7 +6,8 @@
 //!   api.rs       the API catalogue — the only place URLs are written
 //!   exec.rs      the executor — the only place a `Cmd` touches the network, storage or location
 //!   host.rs      `ScreenHost<S>` — runs any screen
-//!   template.rs  the standard views: headings, panels, loading, failure, empty
+//!   template.rs  the standard views: headings, panels, loading, failure, empty, tabs, back link
+//!   list.rs      the list building block: search with a pause, paging, the list rail
 //!   registry.rs  every screen, in one table: routes, menus, the cutover ledger
 //!   chrome.rs    the site header/footer and the portal top nav/rail, generated from the registry
 //!   shell.rs     the master app: one router for the site and the portal
@@ -17,6 +18,7 @@ pub mod chrome;
 pub mod cmd;
 pub mod exec;
 pub mod host;
+pub mod list;
 pub mod registry;
 pub mod screen;
 pub mod screens;
