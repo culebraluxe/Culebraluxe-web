@@ -63,7 +63,7 @@ pub use client::ClientDao;
 pub use cockpit::CockpitDao;
 pub use command_receipt::{CommandReceiptDao, CommandReceiptRow};
 pub use comms::CommsDao;
-pub use contract::ContractDao;
+pub use contract::{ContractDao, ContractTxDao};
 pub use deal_portal::DealPortalDao;
 pub use domain;
 pub use error::{DbFailure, DbFailureKind, DbResult};

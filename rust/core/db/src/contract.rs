@@ -686,3 +686,45 @@ impl ContractDao {
         self.get(&request.contract_id).await
     }
 }
+
+
+pub struct ContractTxDao<'a> {
+    tx: &'a mut DbTransaction,
+}
+
+impl<'a> ContractTxDao<'a> {
+    pub fn new(tx: &'a mut DbTransaction) -> Self {
+        Self { tx }
+    }
+
+    pub async fn get(&mut self, contract_id: &str) -> DbResult<Option<Contract>> {
+        load_contract_tx(self.tx, contract_id).await
+    }
+
+    pub async fn execute(
+        &mut self,
+        request: &ExecuteContractRequest,
+    ) -> DbResult<Option<Contract>> {
+        let updated = sqlx::query_scalar::<_, String>(
+            r#"
+            update contract
+            set status='executed',
+                executed_at=coalesce(executed_at, now()),
+                evidence_document_id=coalesce($2::uuid, evidence_document_id),
+                updated_at=now()
+            where id=$1::uuid
+            returning id::text
+            "#,
+        )
+        .bind(&request.contract_id)
+        .bind(request.evidence_document_id.as_deref())
+        .fetch_optional(self.tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("contract.tx.execute", &error))?;
+
+        if updated.is_none() {
+            return Ok(None);
+        }
+        load_contract_tx(self.tx, &request.contract_id).await
+    }
+}
