@@ -470,7 +470,7 @@ impl TechCockpitDao {
             queued += 1;
         }
         sqlx::query("update forge_batch set status='Fired',fired_at=now() where id=$1::uuid and status<>'Fired'")
-          .bind(batch).execute(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.fire_batch",&e))?;
+          .bind(&batch).execute(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.fire_batch",&e))?;
         Ok(Some((batch, queued, stamped)))
     }
 }
