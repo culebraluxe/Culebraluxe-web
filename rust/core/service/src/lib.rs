@@ -30,7 +30,10 @@ pub use context::{
 };
 pub use events::{CapturingDomainEventPort, DomainEventPort, ServiceDomainEvent};
 pub use execution::{ServiceExecutionMode, ServiceExecutionPolicy};
-pub use lifecycle::{ServiceHealth, ServiceLifecycle, ServiceLifecycleError, ServiceStatus};
+pub use lifecycle::{
+    ServiceControlCommand, ServiceControlResult, ServiceHealth, ServiceLifecycle,
+    ServiceLifecycleError, ServiceStatus,
+};
 pub use mailbox::{ServiceMailbox, ServiceMailboxConfig};
 pub use observability::{
     CapturingServiceAlertPort, CapturingServiceErrorSink, ServiceAlert, ServiceAlertPort,

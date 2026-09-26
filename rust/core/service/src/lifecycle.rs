@@ -22,6 +22,25 @@ pub struct ServiceHealth {
     pub in_flight: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ServiceControlCommand {
+    Start,
+    Status,
+    Health,
+    Drain,
+    Stop,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceControlResult {
+    pub domain: String,
+    pub command: ServiceControlCommand,
+    pub status: ServiceStatus,
+    pub health: ServiceHealth,
+}
+
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("{code}: {message}")]
 pub struct ServiceLifecycleError {

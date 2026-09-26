@@ -1,7 +1,8 @@
 use crate::{
     ServiceDispatchError, ServiceExecutionMode, ServiceExecutionPolicy, ServiceHealth,
-    ServiceStatus,
+    ServiceLifecycle, ServiceLifecycleError, ServiceStatus,
 };
+use async_trait::async_trait;
 use serde_json::Value;
 use std::{
     collections::{HashSet, VecDeque},
@@ -107,7 +108,20 @@ impl ServiceMailbox {
             input_closed: false,
             stop_requested: false,
         };
-        tokio::spawn(actor.run());
+        let supervisor_status = status_tx.clone();
+        let domain_for_supervisor = domain.clone();
+        let actor_handle = tokio::spawn(actor.run());
+        tokio::spawn(async move {
+            if let Err(error) = actor_handle.await {
+                let _ = supervisor_status.send(ServiceStatus::Failed);
+                tracing::error!(
+                    target: "culebraluxe::service::lifecycle",
+                    domain = %domain_for_supervisor,
+                    %error,
+                    "service mailbox actor terminated unexpectedly"
+                );
+            }
+        });
 
         Ok(Self {
             domain,
@@ -243,15 +257,58 @@ impl ServiceMailbox {
         self.cancel.child_token()
     }
 
+    pub async fn wait_running(&self) -> Result<(), ServiceDispatchError> {
+        let mut status = self.status.clone();
+        loop {
+            match *status.borrow_and_update() {
+                ServiceStatus::Running => return Ok(()),
+                ServiceStatus::Starting => {
+                    status
+                        .changed()
+                        .await
+                        .map_err(|_| ServiceDispatchError::ServiceStopped(self.domain.to_string()))?;
+                }
+                ServiceStatus::Failed => {
+                    return Err(ServiceDispatchError::infrastructure(
+                        "SERVICE_FAILED",
+                        format!("Service {} failed while starting.", self.domain),
+                        false,
+                    ));
+                }
+                current => {
+                    return Err(ServiceDispatchError::infrastructure(
+                        "SERVICE_NOT_STARTABLE",
+                        format!(
+                            "Service {} cannot start from lifecycle state {:?}.",
+                            self.domain, current
+                        ),
+                        false,
+                    ));
+                }
+            }
+        }
+    }
+
     pub async fn wait_stopped(&self) -> Result<(), ServiceDispatchError> {
         let mut status = self.status.clone();
-        while *status.borrow_and_update() != ServiceStatus::Stopped {
-            status
-                .changed()
-                .await
-                .map_err(|_| ServiceDispatchError::ServiceStopped(self.domain.to_string()))?;
+        loop {
+            match *status.borrow_and_update() {
+                ServiceStatus::Stopped => return Ok(()),
+                ServiceStatus::Failed => {
+                    return Err(ServiceDispatchError::infrastructure(
+                        "SERVICE_FAILED",
+                        format!("Service {} terminated in Failed state.", self.domain),
+                        false,
+                    ));
+                }
+                _ => {
+                    status
+                        .changed()
+                        .await
+                        .map_err(|_| ServiceDispatchError::ServiceStopped(self.domain.to_string()))?;
+                }
+            }
         }
-        Ok(())
     }
 
     pub fn status(&self) -> ServiceStatus {
@@ -577,5 +634,33 @@ mod tests {
 
         mailbox.cancel();
         mailbox.wait_stopped().await.unwrap();
+    }
+}
+
+
+fn lifecycle_error(error: ServiceDispatchError) -> ServiceLifecycleError {
+    ServiceLifecycleError::new("SERVICE_LIFECYCLE", error.to_string())
+}
+
+#[async_trait]
+impl ServiceLifecycle for ServiceMailbox {
+    async fn start(&self) -> Result<(), ServiceLifecycleError> {
+        self.wait_running().await.map_err(lifecycle_error)
+    }
+
+    async fn drain(&self) -> Result<(), ServiceLifecycleError> {
+        ServiceMailbox::drain(self).await.map_err(lifecycle_error)
+    }
+
+    async fn stop(&self) -> Result<(), ServiceLifecycleError> {
+        ServiceMailbox::stop(self).await.map_err(lifecycle_error)
+    }
+
+    fn status(&self) -> ServiceStatus {
+        ServiceMailbox::status(self)
+    }
+
+    fn health(&self) -> ServiceHealth {
+        ServiceMailbox::health(self)
     }
 }
