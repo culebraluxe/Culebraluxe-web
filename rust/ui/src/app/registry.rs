@@ -70,7 +70,8 @@ pub enum Kind {
     Screen(fn(ScreenCtx) -> Html),
     /// Still on the old loop: the old portal app for this screen key. Temporary.
     LegacyPortal(&'static str),
-    /// Rendered by Next, not by this app.
+    /// Was a Next page; not in the Rust application yet. Shows a notice — never reloads the document, which would
+    /// only land back in this app.
     External,
 }
 

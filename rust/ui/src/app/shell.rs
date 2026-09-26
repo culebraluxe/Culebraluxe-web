@@ -118,7 +118,13 @@ fn frame_component(props: &MasterProps) -> Html {
                 <LegacyPortal screen_key={screen_key} scope={ctx.id.clone()} />
             </div>
         },
-        Kind::External => html! { <DocumentLoad href={path.clone()} /> },
+        // There is no other host any more: the Rust server answers every path with this app, so loading the document
+        // again would land right back here, forever (the WhatsApp Activation page reloaded ~60 times a second).
+        Kind::External => html! {
+            <div key={entry.key} class="min-w-0" data-screen-key={entry.key}>
+                { crate::app::template::empty_panel(&format!("{} is not available in the Rust application yet.", entry.title)) }
+            </div>
+        },
     };
     frame(entry.area(), entry.surface, content)
 }
@@ -141,23 +147,6 @@ fn legacy_portal(props: &LegacyPortalProps) -> Html {
             html! { <p role="alert">{ format!("'{}' is not a known screen.", props.screen_key) }</p> }
         }
     }
-}
-
-#[derive(Properties, PartialEq)]
-struct DocumentLoadProps {
-    href: String,
-}
-
-/// A path Next renders itself (Auth.js, the React Forms editor) reached by in-app navigation: load the document.
-#[function_component(DocumentLoad)]
-fn document_load(props: &DocumentLoadProps) -> Html {
-    let href = props.href.clone();
-    use_effect_with(href, |href| {
-        if let Some(window) = web_sys::window() {
-            let _ = window.location().replace(href);
-        }
-    });
-    Html::default()
 }
 
 fn not_found(area: Area) -> Html {
