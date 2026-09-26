@@ -1,5 +1,5 @@
 use db::Database;
-use server::api::{build_router, error_capture, ApiConfig};
+use server::api::{build_application, error_capture, ApiConfig};
 use server::security::{CasbinAuthorizationPort, DurableSecurityAuditPort};
 use service::{CapturingDomainEventPort, ServiceInfrastructure};
 use std::{error::Error, sync::Arc};
@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         ))),
         Arc::new(CapturingDomainEventPort::default()),
     );
-    let app = build_router(db.clone(), infrastructure, config);
+    let (app, service_kernel) = build_application(db.clone(), infrastructure, config);
 
     // The server is a long-lived process, so its pool is the one that stays warm. Neon suspends an idle database and a
     // suspended database turns the next user page load into a cold connect - the exact cost the retry policy exists to
@@ -66,12 +66,43 @@ async fn main() -> Result<(), Box<dyn Error>> {
     );
 
     axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
+        .with_graceful_shutdown(shutdown_signal(service_kernel.clone()))
         .await?;
+
+    service_kernel
+        .wait_stopped()
+        .await
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+
+    if let Some(keepalive) = _keepalive {
+        keepalive.abort();
+        let _ = keepalive.await;
+    }
 
     Ok(())
 }
 
-async fn shutdown_signal() {
-    let _ = tokio::signal::ctrl_c().await;
+async fn shutdown_signal(service_kernel: server::ServiceKernel) {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        match signal(SignalKind::terminate()) {
+            Ok(mut terminate) => {
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => {}
+                    _ = terminate.recv() => {}
+                }
+            }
+            Err(_) => {
+                let _ = tokio::signal::ctrl_c().await;
+            }
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
+
+    service_kernel.begin_shutdown();
 }

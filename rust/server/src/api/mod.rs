@@ -95,10 +95,20 @@ impl ApiState {
     }
 }
 
+pub fn build_application(
+    db: Database,
+    infrastructure: ServiceInfrastructure,
+    config: ApiConfig,
+) -> (axum::Router, ServiceKernel) {
+    let state = ApiState::new(db, infrastructure, config);
+    let kernel = state.service_kernel();
+    (routes::router(state), kernel)
+}
+
 pub fn build_router(
     db: Database,
     infrastructure: ServiceInfrastructure,
     config: ApiConfig,
 ) -> axum::Router {
-    routes::router(ApiState::new(db, infrastructure, config))
+    build_application(db, infrastructure, config).0
 }

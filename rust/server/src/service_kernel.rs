@@ -10,7 +10,7 @@ use service::{
     AbstractService, ServiceDescriptor, ServiceDispatchError, ServiceEnvelope, ServiceHealth,
     ServiceMailbox, ServiceMailboxConfig, ServiceContext, ServiceInfrastructure,
 };
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::{BTreeMap, HashMap}, sync::Arc};
 use tokio_util::sync::CancellationToken;
 
 #[derive(Clone)]
@@ -74,14 +74,11 @@ impl ServiceRegistry {
         values
     }
 
-    pub fn health(&self) -> Vec<(String, ServiceHealth)> {
-        let mut values = self
-            .entries
+    pub fn health(&self) -> BTreeMap<String, ServiceHealth> {
+        self.entries
             .iter()
             .map(|(domain, entry)| (domain.clone(), entry.mailbox.health()))
-            .collect::<Vec<_>>();
-        values.sort_by(|a, b| a.0.cmp(&b.0));
-        values
+            .collect()
     }
 
     pub async fn dispatch(

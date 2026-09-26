@@ -904,6 +904,7 @@ pub fn router(state: ApiState) -> Router {
         // ABSTRACT SERVICE INGRESS. The transport resolves identity/context; callers supply only
         // domain + operation + payload. Typed services remain authoritative underneath.
         .route("/v1/services", get(service_catalog))
+        .route("/v1/services/health", get(service_health))
         .route("/v1/services/dispatch", post(service_dispatch))
         // THE LOGIN SEAM'S QUESTION, as opposed to whoami's. Auth.js has proved a Google subject and nobody
         // knows yet whether it maps to an active application user; this answers known / unmapped / inactive.
@@ -1510,6 +1511,15 @@ async fn service_catalog(
 ) -> Result<Json<ApiSuccess<Vec<service::ServiceDescriptor>>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
     let value = state.service_gateway().descriptors();
+    Ok(success(value, &resolved))
+}
+
+async fn service_health(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiSuccess<std::collections::BTreeMap<String, service::ServiceHealth>>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let value = state.service_kernel().registry().health();
     Ok(success(value, &resolved))
 }
 
