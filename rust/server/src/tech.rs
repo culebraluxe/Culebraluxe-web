@@ -532,10 +532,7 @@ fn require_story_id(id: &str) -> Result<(), CoreServiceError> {
 }
 
 fn normalize_bucket(raw: &str) -> Option<&'static str> {
-    let normalized = raw
-        .trim()
-        .to_ascii_lowercase()
-        .replace([' ', '_'], "-");
+    let normalized = raw.trim().to_ascii_lowercase().replace([' ', '_'], "-");
     match normalized.as_str() {
         "next-version" | "nextversion" | "next" => Some("next"),
         "work-bench" | "workbench" | "active" | "bench" => Some("bench"),
