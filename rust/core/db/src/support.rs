@@ -467,9 +467,12 @@ impl SupportDiagnosticsDao {
               p.name as property_name
             from process_instances pi
             join process_definitions pd on pd.id=pi.definition_id
-            left join deal d on pi.subject_type='deal'
-              and pi.subject_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-              and d.id=pi.subject_id::uuid
+            -- CASE, not AND: Postgres may cast before it filters, and a non-deal subject (a Forge story key) is no uuid.
+            left join deal d on d.id = case
+                when pi.subject_type='deal'
+                 and pi.subject_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                then pi.subject_id::uuid
+              end
             left join property p on p.id=d.property_id
             order by pi.started_at desc
             "#,
@@ -638,9 +641,12 @@ impl SupportDiagnosticsDao {
               p.name as property_name
             from process_instances pi
             join process_definitions pd on pd.id=pi.definition_id
-            left join deal d on pi.subject_type='deal'
-              and pi.subject_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-              and d.id=pi.subject_id::uuid
+            -- CASE, not AND: Postgres may cast before it filters, and a non-deal subject (a Forge story key) is no uuid.
+            left join deal d on d.id = case
+                when pi.subject_type='deal'
+                 and pi.subject_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                then pi.subject_id::uuid
+              end
             left join property p on p.id=d.property_id
             where pi.id=$1::uuid
             "#,
