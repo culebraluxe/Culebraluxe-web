@@ -1,7 +1,5 @@
 use crate::{Database, DbFailure, DbResult};
-use domain::{
-    CatchupLeadRequest, CatchupLeadResult, WebsiteIntakeRequest, WebsiteIntakeResult,
-};
+use domain::{CatchupLeadRequest, CatchupLeadResult, WebsiteIntakeRequest, WebsiteIntakeResult};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -15,10 +13,7 @@ impl IntakeDao {
         Self { db }
     }
 
-    pub async fn catchup_lead(
-        &self,
-        input: &CatchupLeadRequest,
-    ) -> DbResult<CatchupLeadResult> {
+    pub async fn catchup_lead(&self, input: &CatchupLeadRequest) -> DbResult<CatchupLeadResult> {
         let mut tx = self.db.begin("intake.catchup_lead").await?;
 
         let email_owners = if let Some(email) = input.email.as_deref() {
@@ -365,10 +360,9 @@ impl IntakeDao {
                 "Follow up on private viewing request from {}",
                 input.display_name
             ),
-            "property_information" => format!(
-                "Follow up on property inquiry from {}",
-                input.display_name
-            ),
+            "property_information" => {
+                format!("Follow up on property inquiry from {}", input.display_name)
+            }
             _ => format!("Follow up on general enquiry from {}", input.display_name),
         };
 
