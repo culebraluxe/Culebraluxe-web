@@ -684,6 +684,7 @@ async fn forms_page(
     record: Option<&str>,
     deal_id: Option<&str>,
     person_id: Option<&str>,
+    property_id: Option<&str>,
 ) -> Result<Value, ApiError> {
     let services = state.services();
     let forms = services.forms();
@@ -699,6 +700,9 @@ async fn forms_page(
         }
         if let Some(person_id) = person_id.map(str::trim).filter(|value| !value.is_empty()) {
             items.retain(|item| item.instance.person_id.as_deref() == Some(person_id));
+        }
+        if let Some(property_id) = property_id.map(str::trim).filter(|value| !value.is_empty()) {
+            items.retain(|item| item.instance.property_id.as_deref() == Some(property_id));
         }
     }
 
@@ -1013,6 +1017,7 @@ async fn forms(
         record,
         query.deal_id.as_deref(),
         query.person_id.as_deref(),
+        query.property_id.as_deref(),
     )
     .await?;
     Ok(Json(json!({ "forms": page })))
@@ -1113,7 +1118,7 @@ async fn forms_write(
                     .await
                     .map_err(failed(&resolved))?;
             }
-            let page = forms_page(&state, &resolved, Some(&created.id), None, None).await?;
+            let page = forms_page(&state, &resolved, Some(&created.id), None, None, None).await?;
             Ok(Json(json!({ "formId": created.id, "forms": page })))
         }
         "save" | "issue" => {
@@ -1194,7 +1199,7 @@ async fn forms_write(
                 }
             }
 
-            let page = forms_page(&state, &resolved, Some(form_id), None, None).await?;
+            let page = forms_page(&state, &resolved, Some(form_id), None, None, None).await?;
             Ok(Json(json!({ "formId": form_id, "forms": page })))
         }
         _ => Err(correlate(
