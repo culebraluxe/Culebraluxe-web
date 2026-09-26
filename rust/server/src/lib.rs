@@ -29,6 +29,8 @@ pub mod relationship_evidence;
 pub mod security;
 pub mod service_gateway;
 pub mod service_kernel;
+pub mod service_observability;
+pub mod observability;
 pub mod service_support;
 pub mod showings;
 pub mod signature;

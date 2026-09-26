@@ -16,6 +16,7 @@ use std::{
     sync::Arc,
 };
 use tokio_util::sync::CancellationToken;
+use tracing::Instrument;
 
 #[derive(Clone)]
 struct RegisteredService {
@@ -28,12 +29,14 @@ struct RegisteredService {
 pub struct ServiceRegistry {
     root_cancel: CancellationToken,
     entries: Arc<HashMap<String, RegisteredService>>,
+    observer: ServiceRuntime,
 }
 
 impl ServiceRegistry {
     fn new(
         root_cancel: CancellationToken,
         services: Vec<Arc<dyn AbstractService>>,
+        infrastructure: ServiceInfrastructure,
     ) -> Result<Self, ServiceDispatchError> {
         let mut entries = HashMap::new();
 
@@ -65,6 +68,7 @@ impl ServiceRegistry {
         Ok(Self {
             root_cancel,
             entries: Arc::new(entries),
+            observer: ServiceRuntime::new(infrastructure),
         })
     }
 
@@ -108,15 +112,38 @@ impl ServiceRegistry {
         let service = entry.service.clone();
         let request = envelope.clone();
         let service_context = context.clone();
-        entry
+        let span = tracing::info_span!(
+            "service.dispatch",
+            domain = %envelope.domain,
+            operation = %envelope.operation,
+            correlation_id = %context.correlation_id,
+            causation_id = ?context.causation_id,
+            actor_id = ?context.actor.id,
+            actor_kind = ?context.actor.kind,
+        );
+        let work = async move { service.dispatch(&request, &service_context).await }.instrument(span);
+        let result = entry
             .mailbox
             .submit(
                 envelope.operation.clone(),
                 capability.execution.clone(),
                 &envelope.payload,
-                async move { service.dispatch(&request, &service_context).await },
+                work,
             )
-            .await
+            .await;
+
+        if let Err(error) = &result {
+            self.observer
+                .observe_dispatch_failure(
+                    &envelope.domain,
+                    &envelope.operation,
+                    context,
+                    error,
+                )
+                .await;
+        }
+
+        result
     }
 
     pub async fn drain(&self) -> Result<(), ServiceDispatchError> {
@@ -267,7 +294,11 @@ impl ServiceKernel {
             property.clone(),
             contract.clone(),
         ];
-        let registry = Arc::new(ServiceRegistry::new(root_cancel, services)?);
+        let registry = Arc::new(ServiceRegistry::new(
+            root_cancel,
+            services,
+            infrastructure.clone(),
+        )?);
         let registry_port: Arc<dyn ServiceRouter> = registry.clone();
         deferred_router.install(&registry_port)?;
 

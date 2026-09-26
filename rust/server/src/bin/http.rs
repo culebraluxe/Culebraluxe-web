@@ -1,12 +1,14 @@
 use db::Database;
 use server::api::{build_application, error_capture, ApiConfig};
 use server::security::{CasbinAuthorizationPort, DurableSecurityAuditPort};
+use server::service_observability::{DurableServiceAlertPort, DurableServiceErrorSink};
 use service::{CapturingDomainEventPort, ServiceInfrastructure};
 use std::{error::Error, sync::Arc};
 use tokio::net::TcpListener;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    server::observability::init_tracing();
     let db = Database::connect_from_env().await?;
     // Hand this pool to everything that cannot be constructed with one: the workflow engine's store, the Forge session
     // helper, the error capture sink. One pool per process instead of one per component, which is also what makes the
@@ -16,13 +18,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Every database failure this process produces lands in app_error, alongside the TypeScript ones. Best effort and
     // recursion-guarded on the db side, so a dead database cannot fail this and cannot loop on itself.
     error_capture::install(db.clone());
+    let app_error = db::AppErrorDao::new(db.clone());
     let infrastructure = ServiceInfrastructure::new(
         Arc::new(CasbinAuthorizationPort::new().await?),
         Arc::new(DurableSecurityAuditPort::new(db::SecurityAuditDao::new(
             db.clone(),
         ))),
         Arc::new(CapturingDomainEventPort::default()),
-    );
+    )
+    .with_error_sink(Arc::new(DurableServiceErrorSink::new(app_error.clone())))
+    .with_alert_port(Arc::new(DurableServiceAlertPort::new(app_error)));
     let (app, service_kernel) = build_application(db.clone(), infrastructure, config);
 
     // The server is a long-lived process, so its pool is the one that stays warm. Neon suspends an idle database and a
@@ -52,17 +57,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
     std::thread::Builder::new()
         .name("engine-warmup".into())
         .spawn(|| match forge::engine::re_runtime::re_engine() {
-            Ok(_) => println!("culebraluxe rust api: engine warmed"),
-            Err(error) => println!("culebraluxe rust api: engine warm-up deferred: {error}"),
+            Ok(_) => tracing::info!(target: "culebraluxe::engine", "engine warmed"),
+            Err(error) => tracing::warn!(target: "culebraluxe::engine", %error, "engine warm-up deferred"),
         })
         .ok();
 
     let listener = TcpListener::bind(&bind).await?;
 
-    println!(
-        "culebraluxe rust api listening bind={} target={}",
-        bind,
-        db.target().as_str()
+    tracing::info!(
+        target: "culebraluxe::server",
+        bind = %bind,
+        database_target = %db.target().as_str(),
+        "culebraluxe rust api listening"
     );
 
     axum::serve(listener, app)
