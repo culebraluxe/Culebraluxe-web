@@ -31,6 +31,8 @@ struct WorkItem {
 enum ActorMessage {
     Work(WorkItem),
     Drain { respond_to: oneshot::Sender<()> },
+    #[cfg(test)]
+    PanicForTest,
 }
 
 struct Completion {
@@ -303,6 +305,11 @@ impl ServiceMailbox {
         self.cancel.child_token()
     }
 
+    #[cfg(test)]
+    async fn panic_actor_for_test(&self) {
+        let _ = self.sender.send(ActorMessage::PanicForTest).await;
+    }
+
     pub async fn wait_running(&self) -> Result<(), ServiceDispatchError> {
         let mut status = self.status.clone();
         loop {
@@ -436,6 +443,10 @@ impl ServiceMailboxActor {
                         Some(ActorMessage::Drain { respond_to }) => {
                             self.begin_drain();
                             self.drain_waiters.push(respond_to);
+                        }
+                        #[cfg(test)]
+                        Some(ActorMessage::PanicForTest) => {
+                            panic!("injected service mailbox actor panic");
                         }
                         None => self.begin_stop(),
                     }
@@ -791,6 +802,154 @@ mod tests {
 
         mailbox.cancel();
         mailbox.wait_stopped().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn actor_panic_enters_failed_and_releases_waiting_caller() {
+        let root = CancellationToken::new();
+        let mailbox = ServiceMailbox::spawn(
+            "panic-proof",
+            ServiceMailboxConfig {
+                capacity: 4,
+                max_concurrency: 1,
+            },
+            &root,
+        )
+        .unwrap();
+        mailbox.wait_running().await.unwrap();
+
+        let release = Arc::new(Notify::new());
+        let started = Arc::new(Notify::new());
+        let first = {
+            let mailbox = mailbox.clone();
+            let release = release.clone();
+            let started = started.clone();
+            tokio::spawn(async move {
+                mailbox
+                    .submit(
+                        "panic-proof.first",
+                        ServiceExecutionPolicy::queued(),
+                        &json!({}),
+                        async move {
+                            started.notify_one();
+                            release.notified().await;
+                            Ok(json!({ "ok": true }))
+                        },
+                    )
+                    .await
+            })
+        };
+        started.notified().await;
+
+        let waiting = {
+            let mailbox = mailbox.clone();
+            tokio::spawn(async move {
+                mailbox
+                    .submit(
+                        "panic-proof.waiting",
+                        ServiceExecutionPolicy::queued(),
+                        &json!({}),
+                        async { Ok(json!({ "never": "runs" })) },
+                    )
+                    .await
+            })
+        };
+        sleep(Duration::from_millis(10)).await;
+
+        mailbox.panic_actor_for_test().await;
+
+        let failed = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if mailbox.status() == ServiceStatus::Failed {
+                    break;
+                }
+                sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await;
+        assert!(failed.is_ok(), "actor panic never reached Failed state");
+
+        let waiting_result = tokio::time::timeout(Duration::from_secs(1), waiting)
+            .await
+            .expect("waiting caller deadlocked")
+            .unwrap();
+        assert!(matches!(
+            waiting_result,
+            Err(ServiceDispatchError::ServiceStopped(_))
+        ));
+
+        release.notify_one();
+        assert!(first.await.unwrap().is_ok());
+    }
+
+    #[tokio::test]
+    async fn parent_cancellation_drains_accepted_work_before_stop() {
+        let root = CancellationToken::new();
+        let mailbox =
+            ServiceMailbox::spawn("cancel-proof", ServiceMailboxConfig::default(), &root).unwrap();
+        mailbox.wait_running().await.unwrap();
+
+        let started = Arc::new(Notify::new());
+        let accepted = {
+            let mailbox = mailbox.clone();
+            let started = started.clone();
+            tokio::spawn(async move {
+                mailbox
+                    .submit(
+                        "cancel-proof.work",
+                        ServiceExecutionPolicy::queued(),
+                        &json!({}),
+                        async move {
+                            started.notify_one();
+                            sleep(Duration::from_millis(40)).await;
+                            Ok(json!({ "committed": true }))
+                        },
+                    )
+                    .await
+            })
+        };
+        started.notified().await;
+
+        root.cancel();
+
+        assert!(
+            accepted.await.unwrap().is_ok(),
+            "accepted work was dropped by parent cancellation"
+        );
+        mailbox.wait_stopped().await.unwrap();
+        assert_eq!(mailbox.status(), ServiceStatus::Stopped);
+    }
+
+    #[tokio::test]
+    async fn child_cancellation_does_not_cancel_parent() {
+        let root = CancellationToken::new();
+        let mailbox =
+            ServiceMailbox::spawn("child-proof", ServiceMailboxConfig::default(), &root).unwrap();
+        mailbox.wait_running().await.unwrap();
+
+        mailbox.cancel();
+        mailbox.wait_stopped().await.unwrap();
+
+        assert!(
+            !root.is_cancelled(),
+            "child service cancellation propagated upward into the root token"
+        );
+    }
+
+    #[tokio::test]
+    async fn repeated_drain_and_stop_are_deterministic() {
+        let root = CancellationToken::new();
+        let mailbox =
+            ServiceMailbox::spawn("repeat-proof", ServiceMailboxConfig::default(), &root).unwrap();
+        mailbox.wait_running().await.unwrap();
+
+        mailbox.drain().await.unwrap();
+        mailbox.drain().await.unwrap();
+        mailbox.stop().await.unwrap();
+        mailbox.stop().await.unwrap();
+
+        assert_eq!(mailbox.status(), ServiceStatus::Stopped);
+        assert!(!mailbox.health().accepting);
     }
 
     #[tokio::test]
