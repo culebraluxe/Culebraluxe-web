@@ -137,9 +137,7 @@ impl AbstractService for PersonService<PersonDao> {
                 ),
             ],
             dependencies: vec![],
-            invariants: vec![
-                "A canonical identity belongs to at most one Person.".into(),
-            ],
+            invariants: vec!["A canonical identity belongs to at most one Person.".into()],
         }
     }
 
@@ -163,7 +161,10 @@ impl AbstractService for PersonService<PersonDao> {
                         .to_owned(),
                     limit: envelope.payload.get("limit").and_then(Value::as_i64),
                 };
-                encode(envelope, self.search(&request, context).await.map_err(core_error)?)
+                encode(
+                    envelope,
+                    self.search(&request, context).await.map_err(core_error)?,
+                )
             }
             operation => Err(ServiceDispatchError::UnknownOperation {
                 domain: "person".into(),
@@ -215,7 +216,9 @@ impl AbstractService for FirmService<FirmDao> {
                 let name = payload_string(envelope, "name")?;
                 encode(
                     envelope,
-                    self.find_by_name(&name, context).await.map_err(core_error)?,
+                    self.find_by_name(&name, context)
+                        .await
+                        .map_err(core_error)?,
                 )
             }
             operation => Err(ServiceDispatchError::UnknownOperation {

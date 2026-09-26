@@ -21,10 +21,7 @@ pub trait PersonRepository: Send + Sync {
         &self,
         request: &AttachPersonIdentityRequest,
     ) -> DbResult<PersonIdentity>;
-    async fn update_admin(
-        &self,
-        request: &UpdatePersonAdminRequest,
-    ) -> DbResult<Option<Person>>;
+    async fn update_admin(&self, request: &UpdatePersonAdminRequest) -> DbResult<Option<Person>>;
     async fn search(&self, request: &SearchPeopleRequest) -> DbResult<Vec<PersonSearchResult>>;
 }
 
@@ -52,10 +49,7 @@ impl PersonRepository for PersonDao {
         PersonDao::attach_identity(self, request).await
     }
 
-    async fn update_admin(
-        &self,
-        request: &UpdatePersonAdminRequest,
-    ) -> DbResult<Option<Person>> {
+    async fn update_admin(&self, request: &UpdatePersonAdminRequest) -> DbResult<Option<Person>> {
         PersonDao::update_admin(self, request).await
     }
 

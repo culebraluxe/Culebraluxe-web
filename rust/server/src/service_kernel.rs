@@ -7,9 +7,9 @@ use crate::service_support::CoreServiceError;
 use async_trait::async_trait;
 use db::{ContractDao, Database, FirmDao, PersonDao, PropertyDao};
 use service::{
-    AbstractService, DeferredServiceRouter, ServiceDescriptor, ServiceDispatchError,
-    ServiceEnvelope, ServiceHealth, ServiceMailbox, ServiceMailboxConfig, ServiceContext,
-    ServiceInfrastructure, ServiceRouter, ServiceRuntime,
+    AbstractService, DeferredServiceRouter, ServiceContext, ServiceDescriptor,
+    ServiceDispatchError, ServiceEnvelope, ServiceHealth, ServiceInfrastructure, ServiceMailbox,
+    ServiceMailboxConfig, ServiceRouter, ServiceRuntime,
 };
 use std::{
     collections::{BTreeMap, HashMap},

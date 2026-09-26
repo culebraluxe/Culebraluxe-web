@@ -28,14 +28,8 @@ pub trait PropertyRepository: Send + Sync {
         &self,
         request: &SetPropertyDisplayNameRequest,
     ) -> DbResult<Option<Property>>;
-    async fn set_status(
-        &self,
-        request: &SetPropertyStatusRequest,
-    ) -> DbResult<Option<Property>>;
-    async fn admin_page(
-        &self,
-        request: &PropertyAdminPageRequest,
-    ) -> DbResult<PropertyAdminPage>;
+    async fn set_status(&self, request: &SetPropertyStatusRequest) -> DbResult<Option<Property>>;
+    async fn admin_page(&self, request: &PropertyAdminPageRequest) -> DbResult<PropertyAdminPage>;
     async fn admin_get(&self, property_id: &str) -> DbResult<Option<PropertyAdminRecord>>;
     async fn admin_create(
         &self,
@@ -81,17 +75,11 @@ impl PropertyRepository for PropertyDao {
         PropertyDao::set_display_name(self, request).await
     }
 
-    async fn set_status(
-        &self,
-        request: &SetPropertyStatusRequest,
-    ) -> DbResult<Option<Property>> {
+    async fn set_status(&self, request: &SetPropertyStatusRequest) -> DbResult<Option<Property>> {
         PropertyDao::set_status(self, request).await
     }
 
-    async fn admin_page(
-        &self,
-        request: &PropertyAdminPageRequest,
-    ) -> DbResult<PropertyAdminPage> {
+    async fn admin_page(&self, request: &PropertyAdminPageRequest) -> DbResult<PropertyAdminPage> {
         db::retrying_read!(PropertyDao::admin_page(self, request))
     }
 

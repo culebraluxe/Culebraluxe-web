@@ -20,10 +20,8 @@ pub trait ContractRepository: Send + Sync {
         &self,
         process_instance_id: &str,
     ) -> DbResult<Vec<ContractSummary>>;
-    async fn create_from_form(
-        &self,
-        request: &CreateContractFromFormRequest,
-    ) -> DbResult<Contract>;
+    async fn create_from_form(&self, request: &CreateContractFromFormRequest)
+        -> DbResult<Contract>;
     async fn save_draft(&self, request: &SaveContractDraftRequest) -> DbResult<Contract>;
     async fn get_effective_state(
         &self,
