@@ -30,7 +30,9 @@ struct WorkItem {
 
 enum ActorMessage {
     Work(WorkItem),
-    Drain { respond_to: oneshot::Sender<()> },
+    Drain {
+        respond_to: oneshot::Sender<()>,
+    },
     #[cfg(test)]
     PanicForTest,
 }
