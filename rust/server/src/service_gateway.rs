@@ -57,14 +57,17 @@ impl ServiceGateway {
 fn capability(
     name: &str,
     kind: OperationKind,
+    description: &str,
     authorization: &str,
     idempotent: bool,
 ) -> ServiceCapability {
     ServiceCapability {
         name: name.to_owned(),
         kind,
+        description: description.to_owned(),
         authorization: authorization.to_owned(),
         idempotent,
+        execution: service::ServiceExecutionPolicy::inline(),
     }
 }
 
@@ -135,20 +138,44 @@ impl AbstractService for ContractService<ContractDao> {
             version: "1".into(),
             description: "Canonical Contract service".into(),
             capabilities: vec![
-                capability("contract.list", OperationKind::Query, "contract.read", true),
-                capability("contract.get", OperationKind::Query, "contract.read", true),
+                capability(
+                    "contract.list",
+                    OperationKind::Query,
+                    "List canonical contracts.",
+                    "contract.read",
+                    true,
+                ),
+                capability(
+                    "contract.get",
+                    OperationKind::Query,
+                    "Read one canonical contract.",
+                    "contract.read",
+                    true,
+                ),
                 capability(
                     "contract.listForProcessInstance",
                     OperationKind::Query,
+                    "List contracts attached to one process instance.",
                     "contract.read",
                     true,
                 ),
                 capability(
                     "contract.getEffectiveState",
                     OperationKind::Query,
+                    "Read effective inherited contract state.",
                     "contract.read",
                     true,
                 ),
+            ],
+            dependencies: vec!["person".into(), "firm".into(), "property".into()],
+            invariants: vec![
+                "Only draft contracts may execute.".into(),
+                "Contract role references must resolve through owning services.".into(),
+            ],
+            dependencies: vec![],
+            invariants: vec![
+                "Archived properties cannot remain publicly published.".into(),
+                "Property status and archival timestamp remain consistent.".into(),
             ],
         }
     }
@@ -198,22 +225,31 @@ impl AbstractService for PropertyService<PropertyDao> {
             version: "1".into(),
             description: "Canonical Property service".into(),
             capabilities: vec![
-                capability("property.get", OperationKind::Query, "property.read", true),
+                capability(
+                    "property.get",
+                    OperationKind::Query,
+                    "Read one canonical property.",
+                    "property.read",
+                    true,
+                ),
                 capability(
                     "property.forPerson",
                     OperationKind::Query,
+                    "Read properties attached to one Person.",
                     "property.read",
                     true,
                 ),
                 capability(
                     "property.adminPage",
                     OperationKind::Query,
+                    "Read the internal Property administration page.",
                     "property.read",
                     true,
                 ),
                 capability(
                     "property.adminGet",
                     OperationKind::Query,
+                    "Read one internal Property administration record.",
                     "property.read",
                     true,
                 ),

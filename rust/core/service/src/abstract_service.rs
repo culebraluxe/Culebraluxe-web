@@ -1,13 +1,8 @@
-use crate::{OperationKind, ServiceContext};
+use crate::{OperationKind, ServiceContext, ServiceExecutionPolicy};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// Transport-neutral service call.
-///
-/// The caller names only the service domain, operation, and DTO payload.
-/// Identity, authorization context, correlation and causation are supplied by
-/// the trusted edge and are therefore deliberately NOT client-controlled fields.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServiceEnvelope {
@@ -22,8 +17,10 @@ pub struct ServiceEnvelope {
 pub struct ServiceCapability {
     pub name: String,
     pub kind: OperationKind,
+    pub description: String,
     pub authorization: String,
     pub idempotent: bool,
+    pub execution: ServiceExecutionPolicy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -33,6 +30,8 @@ pub struct ServiceDescriptor {
     pub version: String,
     pub description: String,
     pub capabilities: Vec<ServiceCapability>,
+    pub dependencies: Vec<String>,
+    pub invariants: Vec<String>,
 }
 
 #[derive(Debug, Clone, thiserror::Error)]
@@ -75,11 +74,6 @@ impl ServiceDispatchError {
     }
 }
 
-/// Rust descendant of the original CulebraLuxe BaseService abstraction.
-///
-/// Concrete services keep their strongly typed methods. This trait is the
-/// universal, transport-neutral ingress used by registries, UI effects and
-/// adapters that cannot statically name a concrete service type.
 #[async_trait]
 pub trait AbstractService: Send {
     fn descriptor(&self) -> ServiceDescriptor;
