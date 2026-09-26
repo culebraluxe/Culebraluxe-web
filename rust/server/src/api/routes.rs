@@ -1568,6 +1568,7 @@ fn service_dispatch_error(error: ServiceDispatchError) -> ApiError {
                 "AUTHORIZATION_UNAVAILABLE"
                 | "AUDIT_UNAVAILABLE"
                 | "DOMAIN_EVENT_UNAVAILABLE"
+                | "SERVICE_ROUTER_UNAVAILABLE"
                 | "DATABASE" => StatusCode::SERVICE_UNAVAILABLE,
                 _ if code.ends_with("_NOT_FOUND") => StatusCode::NOT_FOUND,
                 _ if code.contains("CONFLICT") => StatusCode::CONFLICT,
@@ -1575,6 +1576,28 @@ fn service_dispatch_error(error: ServiceDispatchError) -> ApiError {
             };
             ApiError::new(status, code, message, retryable)
         }
+        ServiceDispatchError::ServiceDraining(domain) => ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "SERVICE_DRAINING",
+            format!("Service is draining: {domain}"),
+            true,
+        ),
+        ServiceDispatchError::ServiceStopped(domain) => ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "SERVICE_STOPPED",
+            format!("Service is stopped: {domain}"),
+            true,
+        ),
+        ServiceDispatchError::OperationPanicked {
+            domain,
+            operation,
+            message,
+        } => ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "SERVICE_OPERATION_PANICKED",
+            format!("{domain}.{operation}: {message}"),
+            true,
+        ),
     }
 }
 

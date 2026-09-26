@@ -23,7 +23,7 @@ pub enum ProjectServiceError {
 }
 
 impl ProjectServiceError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             Self::Validation { code, .. } => code,
             Self::NotFound(_) => "PROJECT_NOT_FOUND",
@@ -32,6 +32,7 @@ impl ProjectServiceError {
             Self::Runtime(ServiceRuntimeError::Forbidden { .. }) => "FORBIDDEN",
             Self::Runtime(ServiceRuntimeError::Audit(_)) => "AUDIT_UNAVAILABLE",
             Self::Runtime(ServiceRuntimeError::Event(_)) => "DOMAIN_EVENT_UNAVAILABLE",
+            Self::Runtime(ServiceRuntimeError::Router { code, .. }) => code.as_str(),
         }
     }
 }
