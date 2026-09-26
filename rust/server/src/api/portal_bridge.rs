@@ -41,6 +41,10 @@ pub fn router() -> Router<ApiState> {
         .route("/api/portal/rust-ui/rows", get(rows))
         .route("/api/portal/rust-ui/security-users", axum::routing::put(security_users_put))
         .route("/api/portal/rust-ui/role-entitlements", axum::routing::put(role_entitlements_put))
+        .route(
+            "/api/property-media/chunked",
+            axum::routing::post(property_media_chunked).layer(axum::extract::DefaultBodyLimit::max(8 * 1024 * 1024)),
+        )
 }
 
 #[derive(Debug, Deserialize)]
@@ -1977,4 +1981,89 @@ async fn role_entitlements_put(
     security.set_role_entitlement(role, action, granted, &resolved.service).await.map_err(failed(&resolved))?;
     let roles = security.list_role_entitlements(&resolved.service).await.map_err(failed(&resolved))?;
     Ok(Json(json!({ "roles": to_json(roles) })))
+}
+
+/// A photograph uploaded in chunks, one step per request (`step`: init, chunk, complete), for photos larger than one
+/// request may carry. The media service stages the chunks and assembles, stores and attaches the image.
+async fn property_media_chunked(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    mut multipart: axum::extract::Multipart,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    let bad = |code: &str, message: &str| correlate(ApiError::bad_request(code, message), &resolved);
+    let mut fields = std::collections::HashMap::<String, String>::new();
+    let mut chunk: Option<Vec<u8>> = None;
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|error| bad("MEDIA_MULTIPART_INVALID", &format!("Invalid media upload: {error}")))?
+    {
+        let name = field.name().unwrap_or_default().to_owned();
+        if name == "chunk" {
+            let bytes = field.bytes().await.map_err(|error| bad("MEDIA_CHUNK_INVALID", &format!("Invalid media chunk: {error}")))?;
+            chunk = Some(bytes.to_vec());
+        } else {
+            let value = field.text().await.map_err(|error| bad("MEDIA_MULTIPART_INVALID", &format!("Invalid media upload: {error}")))?;
+            fields.insert(name, value);
+        }
+    }
+    let field = |key: &str| fields.get(key).map(String::as_str).unwrap_or("");
+    let property_id = field("propertyId").to_owned();
+    if property_id.is_empty() {
+        return Err(bad("MEDIA_PROPERTY_REQUIRED", "Property is required."));
+    }
+    let media = state.services().media();
+    let context = &resolved.service;
+    let answer = if field("step") == "init" {
+        let number = |key: &str| field(key).trim().parse::<f64>().ok().filter(|n| n.is_finite() && *n > 0.0);
+        let filename = field("filename").to_owned();
+        if filename.is_empty() {
+            return Err(bad("MEDIA_FILENAME_REQUIRED", "An image filename is required."));
+        }
+        let (Some(byte_size), Some(chunk_count), Some(chunk_size)) = (number("byteSize"), number("chunkCount"), number("chunkSize")) else {
+            return Err(bad("MEDIA_UPLOAD_SHAPE_INVALID", "The upload must declare a positive size, chunk count and chunk size."));
+        };
+        if byte_size > domain::MAX_MEDIA_UPLOAD_BYTES as f64 {
+            return Err(bad("MEDIA_UPLOAD_TOO_LARGE", "Image is too large (max 50 MB)."));
+        }
+        let role = if field("role").is_empty() { "gallery" } else { field("role") }.to_owned();
+        if role != "hero" && role != "gallery" {
+            return Err(bad("MEDIA_ROLE_INVALID", "Invalid media role."));
+        }
+        let mime_type = field("mimeType").to_owned();
+        if !mime_type.starts_with("image/") {
+            return Err(bad("MEDIA_TYPE_UNSUPPORTED", "Only image uploads are supported."));
+        }
+        let upload = db::BeginMediaUpload {
+            upload_id: uuid::Uuid::new_v4().to_string(),
+            property_id,
+            filename,
+            mime_type,
+            byte_size: byte_size as i64,
+            chunk_count: chunk_count as i32,
+            chunk_size: chunk_size as i32,
+            sha256: Some(field("sha256").to_owned()).filter(|v| !v.is_empty()),
+            role,
+            alt_text: Some(field("altText").trim().to_owned()).filter(|v| !v.is_empty()),
+        };
+        to_json(media.begin_media_upload(upload, context).await.map_err(failed(&resolved))?)
+    } else {
+        let upload_id = field("uploadId").to_owned();
+        if upload_id.is_empty() {
+            return Err(bad("MEDIA_UPLOAD_ID_REQUIRED", "An upload id is required."));
+        }
+        match field("step") {
+            "chunk" => {
+                let index = field("chunkIndex").trim().parse::<i32>().ok().filter(|i| *i >= 0);
+                let (Some(bytes), Some(index)) = (chunk, index) else {
+                    return Err(bad("MEDIA_CHUNK_REQUIRED", "An image chunk is required."));
+                };
+                to_json(media.stage_media_chunk(&upload_id, index, bytes, context).await.map_err(failed(&resolved))?)
+            }
+            "complete" => to_json(media.complete_media_upload(&upload_id, context).await.map_err(failed(&resolved))?),
+            _ => return Err(bad("MEDIA_STEP_UNKNOWN", "Unknown upload step.")),
+        }
+    };
+    Ok(Json(answer))
 }
