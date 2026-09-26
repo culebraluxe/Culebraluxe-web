@@ -339,7 +339,7 @@ impl MqRuntime {
         }
     }
 
-    async fn dispatch_once(&self) -> Result<(), ServiceDispatchError> {
+    pub async fn dispatch_once(&self) -> Result<(), ServiceDispatchError> {
         let lease = ChronoDuration::from_std(self.config.lease_duration).map_err(|error| {
             ServiceDispatchError::infrastructure(
                 "MQ_LEASE_DURATION_INVALID",
