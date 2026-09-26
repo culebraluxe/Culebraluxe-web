@@ -524,6 +524,27 @@ fn load_form_templates(resolved: &ResolvedRequestContext) -> Result<domain::form
     })
 }
 
+const ACTIVE_FORM_TEMPLATE_VERSIONS: &[(&str, i32)] = &[
+    ("OFFER-01", 2),
+    ("PR-PNS", 3),
+    ("PR-PNS-AMD", 1),
+    ("LISTING-01", 4),
+    ("SHOW-INFO", 1),
+    ("SHOW-RPT", 1),
+];
+
+const PORTAL_FORM_TEMPLATE_IDS: &[&str] = &["SHOW-RPT", "OFFER-01", "PR-PNS", "LISTING-01"];
+
+fn active_form_template<'a>(
+    library: &'a domain::forms_template::TemplateLibrary,
+    id: &str,
+) -> Option<&'a domain::forms_template::TemplateDefinition> {
+    let version = ACTIVE_FORM_TEMPLATE_VERSIONS
+        .iter()
+        .find_map(|(template_id, version)| (*template_id == id).then_some(*version))?;
+    library.version(id, version)
+}
+
 fn form_presentation(value: domain::forms_template::TemplatePresentation) -> &'static str {
     match value {
         domain::forms_template::TemplatePresentation::Agreement => "agreement",
@@ -607,7 +628,7 @@ fn form_template_payload(
     json!({
         "id": template.id,
         "version": template.version,
-        "activeVersion": library.newest(&template.id).map(|item| item.version).unwrap_or(template.version),
+        "activeVersion": active_form_template(library, &template.id).map(|item| item.version).unwrap_or(template.version),
         "displayName": template.display_name,
         "documentTypeLabel": template.document_type_label,
         "renderingTitle": template.rendering.title,
@@ -619,10 +640,9 @@ fn form_template_payload(
 }
 
 fn form_template_choices(library: &domain::forms_template::TemplateLibrary) -> Vec<Value> {
-    library
-        .families()
-        .into_iter()
-        .filter_map(|(id, _)| library.newest(id))
+    PORTAL_FORM_TEMPLATE_IDS
+        .iter()
+        .filter_map(|id| active_form_template(library, id))
         .map(|template| {
             json!({
                 "id": template.id,
@@ -643,8 +663,7 @@ fn form_item_payload(
             .version(&item.instance.template_id, item.instance.template_version)
             .map(|template| template.display_name.clone())
             .unwrap_or_else(|| item.instance.template_id.clone());
-        let active = library
-            .newest(&item.instance.template_id)
+        let active = active_form_template(library, &item.instance.template_id)
             .map(|template| template.version)
             .unwrap_or(item.instance.template_version);
         object.insert("templateName".into(), json!(name));
@@ -664,8 +683,7 @@ fn selected_form_payload(
             .version(&form.template_id, form.template_version)
             .map(|template| template.display_name.clone())
             .unwrap_or_else(|| form.template_id.clone());
-        let active = library
-            .newest(&form.template_id)
+        let active = active_form_template(library, &form.template_id)
             .map(|template| template.version)
             .unwrap_or(form.template_version);
         object.insert("templateName".into(), json!(name));
@@ -1059,7 +1077,7 @@ async fn forms_write(
             let services = state.services();
             let forms = services.forms();
             let library = load_form_templates(&resolved)?;
-            let template = library.newest(template_id).ok_or_else(|| {
+            let template = active_form_template(&library, template_id).ok_or_else(|| {
                 correlate(
                     ApiError::not_found("FORM_TEMPLATE_NOT_FOUND", "Template not found."),
                     &resolved,
