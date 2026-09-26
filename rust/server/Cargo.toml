@@ -28,5 +28,6 @@ sha2.workspace = true
 service = { path = "../core/service" }
 thiserror.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
 uuid.workspace = true
 

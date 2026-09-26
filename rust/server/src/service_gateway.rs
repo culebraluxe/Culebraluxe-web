@@ -1,38 +1,30 @@
-use crate::composition::CoreServices;
 use crate::contracts::ContractService;
+use crate::firms::FirmService;
+use crate::people::PersonService;
 use crate::properties::PropertyService;
+use crate::service_kernel::ServiceRegistry;
 use crate::service_support::CoreServiceError;
 use async_trait::async_trait;
-use db::{ContractDao, PropertyDao};
-use domain::PropertyAdminPageRequest;
+use db::{ContractDao, FirmDao, PersonDao, PropertyDao};
+use domain::{PropertyAdminPageRequest, SearchPeopleRequest};
 use serde_json::{json, Value};
 use service::{
     AbstractService, OperationKind, ServiceCapability, ServiceContext, ServiceDescriptor,
-    ServiceDispatchError, ServiceEnvelope,
+    ServiceDispatchError, ServiceEnvelope, ServiceExecutionPolicy,
 };
 
-/// Registry-backed application service ingress.
-///
-/// Screens, transports and background adapters do not construct repositories
-/// or pick concrete service types. They send a ServiceEnvelope here. The
-/// gateway resolves the owning AbstractService; the service still owns
-/// authorization, invariants, audit, events and persistence.
 #[derive(Clone)]
 pub struct ServiceGateway {
-    services: CoreServices,
+    registry: ServiceRegistry,
 }
 
 impl ServiceGateway {
-    pub fn new(services: CoreServices) -> Self {
-        Self { services }
+    pub fn new(registry: ServiceRegistry) -> Self {
+        Self { registry }
     }
 
     pub fn descriptors(&self) -> Vec<ServiceDescriptor> {
-        let contract = self.services.contract();
-        let property = self.services.property();
-        let mut descriptors = vec![contract.descriptor(), property.descriptor()];
-        descriptors.sort_by(|a, b| a.domain.cmp(&b.domain));
-        descriptors
+        self.registry.descriptors()
     }
 
     pub async fn dispatch(
@@ -40,17 +32,7 @@ impl ServiceGateway {
         envelope: &ServiceEnvelope,
         context: &ServiceContext,
     ) -> Result<Value, ServiceDispatchError> {
-        match envelope.domain.as_str() {
-            "contract" => {
-                let mut service = self.services.contract();
-                service.dispatch(envelope, context).await
-            }
-            "property" => {
-                let mut service = self.services.property();
-                service.dispatch(envelope, context).await
-            }
-            other => Err(ServiceDispatchError::ServiceNotFound(other.to_owned())),
-        }
+        self.registry.dispatch(envelope, context).await
     }
 }
 
@@ -67,7 +49,7 @@ fn capability(
         description: description.to_owned(),
         authorization: authorization.to_owned(),
         idempotent,
-        execution: service::ServiceExecutionPolicy::inline(),
+        execution: ServiceExecutionPolicy::inline(),
     }
 }
 
@@ -131,6 +113,119 @@ fn encode<T: serde::Serialize>(
 }
 
 #[async_trait]
+impl AbstractService for PersonService<PersonDao> {
+    fn descriptor(&self) -> ServiceDescriptor {
+        ServiceDescriptor {
+            domain: "person".into(),
+            version: "1".into(),
+            description: "Canonical Person service".into(),
+            capabilities: vec![
+                capability(
+                    "person.get",
+                    OperationKind::Query,
+                    "Read one canonical Person.",
+                    "person.read",
+                    true,
+                ),
+                capability(
+                    "person.search",
+                    OperationKind::Query,
+                    "Search canonical People.",
+                    "person.read",
+                    true,
+                ),
+            ],
+            dependencies: vec![],
+            invariants: vec![
+                "A canonical identity belongs to at most one Person.".into(),
+            ],
+        }
+    }
+
+    async fn dispatch(
+        &self,
+        envelope: &ServiceEnvelope,
+        context: &ServiceContext,
+    ) -> Result<Value, ServiceDispatchError> {
+        match envelope.operation.as_str() {
+            "person.get" => {
+                let id = payload_string(envelope, "personId")?;
+                encode(envelope, self.get(&id, context).await.map_err(core_error)?)
+            }
+            "person.search" => {
+                let request = SearchPeopleRequest {
+                    query: envelope
+                        .payload
+                        .get("query")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned(),
+                    limit: envelope.payload.get("limit").and_then(Value::as_i64),
+                };
+                encode(envelope, self.search(&request, context).await.map_err(core_error)?)
+            }
+            operation => Err(ServiceDispatchError::UnknownOperation {
+                domain: "person".into(),
+                operation: operation.to_owned(),
+            }),
+        }
+    }
+}
+
+#[async_trait]
+impl AbstractService for FirmService<FirmDao> {
+    fn descriptor(&self) -> ServiceDescriptor {
+        ServiceDescriptor {
+            domain: "firm".into(),
+            version: "1".into(),
+            description: "Canonical Firm service".into(),
+            capabilities: vec![
+                capability(
+                    "firm.get",
+                    OperationKind::Query,
+                    "Read one canonical Firm.",
+                    "firm.read",
+                    true,
+                ),
+                capability(
+                    "firm.findByName",
+                    OperationKind::Query,
+                    "Find one canonical Firm by name.",
+                    "firm.read",
+                    true,
+                ),
+            ],
+            dependencies: vec![],
+            invariants: vec![],
+        }
+    }
+
+    async fn dispatch(
+        &self,
+        envelope: &ServiceEnvelope,
+        context: &ServiceContext,
+    ) -> Result<Value, ServiceDispatchError> {
+        match envelope.operation.as_str() {
+            "firm.get" => {
+                let id = payload_string(envelope, "firmId")?;
+                encode(envelope, self.get(&id, context).await.map_err(core_error)?)
+            }
+            "firm.findByName" => {
+                let name = payload_string(envelope, "name")?;
+                encode(
+                    envelope,
+                    self.find_by_name(&name, context).await.map_err(core_error)?,
+                )
+            }
+            operation => Err(ServiceDispatchError::UnknownOperation {
+                domain: "firm".into(),
+                operation: operation.to_owned(),
+            }),
+        }
+    }
+}
+
+#[async_trait]
 impl AbstractService for ContractService<ContractDao> {
     fn descriptor(&self) -> ServiceDescriptor {
         ServiceDescriptor {
@@ -171,11 +266,6 @@ impl AbstractService for ContractService<ContractDao> {
             invariants: vec![
                 "Only draft contracts may execute.".into(),
                 "Contract role references must resolve through owning services.".into(),
-            ],
-            dependencies: vec![],
-            invariants: vec![
-                "Archived properties cannot remain publicly published.".into(),
-                "Property status and archival timestamp remain consistent.".into(),
             ],
         }
     }
@@ -253,6 +343,11 @@ impl AbstractService for PropertyService<PropertyDao> {
                     "property.read",
                     true,
                 ),
+            ],
+            dependencies: vec![],
+            invariants: vec![
+                "Archived properties cannot remain publicly published.".into(),
+                "Property status and archival timestamp remain consistent.".into(),
             ],
         }
     }

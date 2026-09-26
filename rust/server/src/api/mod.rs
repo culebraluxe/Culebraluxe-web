@@ -1,4 +1,4 @@
-use crate::CoreServices;
+use crate::{CoreServices, ServiceGateway, ServiceKernel};
 use db::Database;
 use service::ServiceInfrastructure;
 use sha2::{Digest, Sha256};
@@ -56,15 +56,20 @@ impl ApiConfig {
 #[derive(Clone)]
 pub struct ApiState {
     db: Database,
-    infrastructure: ServiceInfrastructure,
+    services: CoreServices,
+    kernel: ServiceKernel,
     config: ApiConfig,
 }
 
 impl ApiState {
     pub fn new(db: Database, infrastructure: ServiceInfrastructure, config: ApiConfig) -> Self {
+        let services = CoreServices::new(db.clone(), infrastructure.clone());
+        let kernel = ServiceKernel::new(db.clone(), infrastructure)
+            .expect("default CulebraLuxe service kernel configuration must be valid");
         Self {
             db,
-            infrastructure,
+            services,
+            kernel,
             config,
         }
     }
@@ -74,7 +79,15 @@ impl ApiState {
     }
 
     pub fn services(&self) -> CoreServices {
-        CoreServices::new(self.db.clone(), self.infrastructure.clone())
+        self.services.clone()
+    }
+
+    pub fn service_gateway(&self) -> ServiceGateway {
+        ServiceGateway::new(self.kernel.registry())
+    }
+
+    pub fn service_kernel(&self) -> ServiceKernel {
+        self.kernel.clone()
     }
 
     fn internal_api_key(&self) -> &str {

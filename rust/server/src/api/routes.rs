@@ -1509,7 +1509,7 @@ async fn service_catalog(
     headers: HeaderMap,
 ) -> Result<Json<ApiSuccess<Vec<service::ServiceDescriptor>>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let value = crate::ServiceGateway::new(state.services()).descriptors();
+    let value = state.service_gateway().descriptors();
     Ok(success(value, &resolved))
 }
 
@@ -1520,7 +1520,8 @@ async fn service_dispatch(
 ) -> Result<Json<ApiSuccess<serde_json::Value>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
     let correlation_id = resolved.service.correlation_id.clone();
-    let value = crate::ServiceGateway::new(state.services())
+    let value = state
+        .service_gateway()
         .dispatch(&envelope, &resolved.service)
         .await
         .map_err(|error| service_dispatch_error(error).with_correlation(correlation_id))?;

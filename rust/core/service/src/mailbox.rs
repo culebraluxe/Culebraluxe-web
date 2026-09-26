@@ -227,8 +227,12 @@ impl ServiceMailbox {
         self.wait_stopped().await
     }
 
-    pub fn cancel(&self) {
+    pub fn refuse_new_work(&self) {
         self.accepting.store(false, Ordering::Release);
+    }
+
+    pub fn cancel(&self) {
+        self.refuse_new_work();
         self.cancel.cancel();
     }
 
