@@ -426,17 +426,7 @@ impl ServiceKernel {
         let infrastructure = infrastructure.with_router(router_port);
 
         let catalog = ServiceCatalog::new(db, infrastructure.clone());
-        let person = catalog.person();
-        let firm = catalog.firm();
-        let property = catalog.property();
-        let contract = catalog.contract();
-
-        let services: Vec<Arc<dyn AbstractService>> = vec![
-            person.clone(),
-            firm.clone(),
-            property.clone(),
-            contract.clone(),
-        ];
+        let services = catalog.registrations();
         let registry = Arc::new(ServiceRegistry::new(
             root_cancel,
             services,

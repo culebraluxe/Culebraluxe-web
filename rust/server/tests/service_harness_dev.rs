@@ -56,12 +56,63 @@ async fn external_harness_boot_dispatch_drain_and_shutdown_are_real() {
     assert!(health.mq.accepting);
 
     let descriptors = harness.descriptors();
+    assert_eq!(
+        descriptors.len(),
+        32,
+        "every route-facing service is registered"
+    );
     assert!(descriptors
         .iter()
         .any(|descriptor| descriptor.domain == "person"));
     assert!(descriptors
         .iter()
         .any(|descriptor| descriptor.domain == "contract"));
+    for domain in [
+        "accounting",
+        "calendar",
+        "client",
+        "cockpit",
+        "communications",
+        "deal",
+        "firm",
+        "flight-recorder",
+        "forms",
+        "guest-sign-in",
+        "guide",
+        "intake",
+        "issue",
+        "marketing",
+        "media",
+        "person",
+        "project",
+        "property",
+        "public-listing",
+        "relationship-evidence",
+        "security",
+        "showing",
+        "signature",
+        "support",
+        "task",
+        "tech",
+        "vault",
+        "wbs",
+        "website-lead",
+        "whatsapp",
+        "workflow-portal",
+    ] {
+        assert!(
+            descriptors
+                .iter()
+                .any(|descriptor| descriptor.domain == domain),
+            "missing registry entry for {domain}"
+        );
+    }
+
+    let accounting = harness
+        .control("accounting", ServiceControlCommand::Status)
+        .await
+        .expect("catalog-only service participates in lifecycle control");
+    assert_eq!(accounting.status, ServiceStatus::Running);
 
     let value = harness
         .dispatch(

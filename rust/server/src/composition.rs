@@ -44,7 +44,10 @@ use domain::{
     VaultArtifactFailure, VaultCommandOutcome, VaultRenderRequest, VaultRenderedArtifact,
 };
 use integrations::boldsign::{BoldSignConfig, BoldSignSignatureProvider};
-use service::ServiceInfrastructure;
+use service::{
+    AbstractService, ServiceContext, ServiceDescriptor, ServiceDispatchError, ServiceEnvelope,
+    ServiceInfrastructure,
+};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -64,6 +67,46 @@ impl VaultArtifactPort for UnavailableVaultArtifactPort {
 }
 
 type SignatureCatalogEntry = Result<Arc<SignatureService<SignatureDao>>, Arc<str>>;
+
+struct CatalogRegistration<T> {
+    domain: &'static str,
+    service: T,
+}
+
+impl<T> CatalogRegistration<T> {
+    fn new(domain: &'static str, service: T) -> Self {
+        Self { domain, service }
+    }
+}
+
+#[async_trait]
+impl<T> AbstractService for CatalogRegistration<T>
+where
+    T: Send + Sync,
+{
+    fn descriptor(&self) -> ServiceDescriptor {
+        ServiceDescriptor {
+            domain: self.domain.into(),
+            version: "1".into(),
+            description: format!("Long-lived {} service", self.domain),
+            capabilities: Vec::new(),
+            dependencies: Vec::new(),
+            invariants: Vec::new(),
+        }
+    }
+
+    async fn dispatch(
+        &self,
+        envelope: &ServiceEnvelope,
+        _context: &ServiceContext,
+    ) -> Result<serde_json::Value, ServiceDispatchError> {
+        let _keep_registered_instance_alive = &self.service;
+        Err(ServiceDispatchError::UnknownOperation {
+            domain: self.domain.into(),
+            operation: envelope.operation.clone(),
+        })
+    }
+}
 
 /// Long-lived, typed ownership for every route-facing business service.
 ///
@@ -258,6 +301,73 @@ impl ServiceCatalog {
 
     pub fn signature(&self) -> Result<Arc<SignatureService<SignatureDao>>, Arc<str>> {
         self.signature.clone()
+    }
+
+    pub(crate) fn registrations(&self) -> Vec<Arc<dyn AbstractService>> {
+        vec![
+            self.person.clone(),
+            self.firm.clone(),
+            self.property.clone(),
+            self.contract.clone(),
+            Arc::new(CatalogRegistration::new("client", self.clients.clone())),
+            Arc::new(CatalogRegistration::new("cockpit", self.cockpit.clone())),
+            Arc::new(CatalogRegistration::new("guide", self.guide.clone())),
+            Arc::new(CatalogRegistration::new("intake", self.intake.clone())),
+            Arc::new(CatalogRegistration::new("issue", self.issues.clone())),
+            Arc::new(CatalogRegistration::new(
+                "marketing",
+                self.marketing.clone(),
+            )),
+            Arc::new(CatalogRegistration::new("media", self.media.clone())),
+            Arc::new(CatalogRegistration::new("forms", self.forms.clone())),
+            Arc::new(CatalogRegistration::new(
+                "public-listing",
+                self.public_listings.clone(),
+            )),
+            Arc::new(CatalogRegistration::new(
+                "guest-sign-in",
+                self.guest_sign_in.clone(),
+            )),
+            Arc::new(CatalogRegistration::new(
+                "website-lead",
+                self.website_leads.clone(),
+            )),
+            Arc::new(CatalogRegistration::new(
+                "relationship-evidence",
+                self.relationship_evidence.clone(),
+            )),
+            Arc::new(CatalogRegistration::new("calendar", self.calendar.clone())),
+            Arc::new(CatalogRegistration::new(
+                "communications",
+                self.comms.clone(),
+            )),
+            Arc::new(CatalogRegistration::new("deal", self.deal_portal.clone())),
+            Arc::new(CatalogRegistration::new("showing", self.showing.clone())),
+            Arc::new(CatalogRegistration::new(
+                "signature",
+                self.signature.clone(),
+            )),
+            Arc::new(CatalogRegistration::new("support", self.support.clone())),
+            Arc::new(CatalogRegistration::new("security", self.security.clone())),
+            Arc::new(CatalogRegistration::new("vault", self.vault.clone())),
+            Arc::new(CatalogRegistration::new("task", self.task.clone())),
+            Arc::new(CatalogRegistration::new("wbs", self.wbs.clone())),
+            Arc::new(CatalogRegistration::new(
+                "workflow-portal",
+                self.workflow_portal.clone(),
+            )),
+            Arc::new(CatalogRegistration::new(
+                "flight-recorder",
+                self.flight_recorder.clone(),
+            )),
+            Arc::new(CatalogRegistration::new("project", self.project.clone())),
+            Arc::new(CatalogRegistration::new("tech", self.tech.clone())),
+            Arc::new(CatalogRegistration::new("whatsapp", self.whatsapp.clone())),
+            Arc::new(CatalogRegistration::new(
+                "accounting",
+                self.accounting.clone(),
+            )),
+        ]
     }
 }
 
