@@ -8,7 +8,15 @@ use service::{
     CommandRequest, CommandResult, ServiceContext, ServiceControlCommand, ServiceControlResult,
     ServiceDescriptor, ServiceDispatchError, ServiceEnvelope, ServiceHealth, ServiceInfrastructure,
 };
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceHarnessHealth {
+    pub kernel: ServiceKernelHealth,
+    pub mq: ServiceHealth,
+}
 
 #[derive(Clone)]
 pub struct ServiceHarness {
@@ -84,6 +92,13 @@ impl ServiceHarness {
 
     pub fn mq_health(&self) -> ServiceHealth {
         self.mq.health()
+    }
+
+    pub fn runtime_health(&self) -> ServiceHarnessHealth {
+        ServiceHarnessHealth {
+            kernel: self.kernel.health(),
+            mq: self.mq.health(),
+        }
     }
 
     pub async fn dispatch(
