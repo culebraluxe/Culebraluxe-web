@@ -1132,6 +1132,8 @@ pub fn router(state: ApiState) -> Router {
             "/api/integrations/boldsign/webhook",
             post(signature_webhook),
         )
+        // Everything the API does not claim is the website: static files, else the Yew shell (crate::site).
+        .fallback_service(crate::site::service())
         .with_state(state)
 }
 

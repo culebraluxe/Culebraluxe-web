@@ -10,6 +10,7 @@ mod engine;
 mod error;
 pub mod error_capture;
 mod routes;
+pub mod ui_auth;
 
 pub use error::ApiError;
 

@@ -52,6 +52,8 @@ wasm-bindgen \
 
 # The wasm itself is fetched by URL, so it has to be reachable as a static asset.
 cp "$js_out/ui_bg.wasm" "$wasm_out/ui_bg.wasm"
+# The Rust server (rust/server/src/site.rs) serves the page without a bundler, so the browser imports the glue itself.
+cp "$js_out/ui.js" "$wasm_out/ui.js"
 
 echo "==> done"
 echo "    JS glue:  lib/rust-ui/ui.js"

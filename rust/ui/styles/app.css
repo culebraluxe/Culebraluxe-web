@@ -1,0 +1,914 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+/* The Rust UI renders the same token classes this application already uses (`bg-card`, `text-muted-foreground`,
+   `rounded-lg border`), so the port reuses the design system instead of growing a second one. Tailwind only has to
+   be told to look inside the Rust view module — without this line every class the Rust UI emits is a class Tailwind
+   never generates, and the port would look unstyled for a reason that has nothing to do with styling. */
+@source '../src/**/*.rs';
+
+/* Tailwind v4 ignores node_modules by default; scan @ilamy/calendar so its
+   shadcn token utilities (bg-background, text-muted-foreground, …) generate. */
+/* (the @ilamy/calendar source was here; that widget is removed until it is rebuilt in Rust) */
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-brand-navy: var(--brand-navy);
+  --color-brand-gold: var(--brand-gold);
+  --color-brand-ivory: var(--brand-ivory);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --font-sans: var(--font-instrument), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-cormorant), ui-serif, Georgia, serif;
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  color-scheme: light;
+  /* Finalized CulebraLuxe brand palette — luxury navy + gold. The public site
+     renders through these semantic tokens (accent/primary/foreground/ring), so
+     both brand colors carry consistently across every public surface. The
+     portal has its own portal-* tokens and is unaffected by these values. */
+  --brand-navy: #030f23;
+  --brand-gold: #c6a15b;
+  /* light ivory used for text on the brand-navy surfaces */
+  --brand-ivory: #f8f5ec;
+  /* warm bone / off-white background */
+  --background: oklch(0.966 0.006 85);
+  --foreground: #030f23;
+  --card: oklch(0.982 0.005 85);
+  --card-foreground: oklch(0.245 0.008 260);
+  --popover: oklch(0.982 0.005 85);
+  --popover-foreground: oklch(0.245 0.008 260);
+  /* brand navy primary */
+  --primary: #030f23;
+  --primary-foreground: oklch(0.966 0.006 85);
+  --secondary: oklch(0.93 0.008 85);
+  --secondary-foreground: oklch(0.245 0.008 260);
+  --muted: oklch(0.93 0.008 85);
+  --muted-foreground: oklch(0.5 0.012 255);
+  /* brand gold accent */
+  --accent: #c6a15b;
+  --accent-foreground: oklch(0.98 0.006 85);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.87 0.008 85);
+  --input: oklch(0.87 0.008 85);
+  --ring: #c6a15b;
+  --chart-1: #c6a15b;
+  --chart-2: oklch(0.5 0.012 255);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.125rem;
+  --sidebar: oklch(0.982 0.005 85);
+  --sidebar-foreground: oklch(0.245 0.008 260);
+  --sidebar-primary: oklch(0.245 0.008 260);
+  --sidebar-primary-foreground: oklch(0.966 0.006 85);
+  --sidebar-accent: oklch(0.93 0.008 85);
+  --sidebar-accent-foreground: oklch(0.245 0.008 260);
+  --sidebar-border: oklch(0.87 0.008 85);
+  --sidebar-ring: oklch(0.56 0.055 205);
+}
+
+.dark {
+  color-scheme: dark;
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    color-scheme: dark;
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --card-foreground: oklch(0.985 0 0);
+    --popover: oklch(0.205 0 0);
+    --popover-foreground: oklch(0.985 0 0);
+    --primary: oklch(0.922 0 0);
+    --primary-foreground: oklch(0.205 0 0);
+    --secondary: oklch(0.269 0 0);
+    --secondary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --accent: oklch(0.269 0 0);
+    --accent-foreground: oklch(0.985 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --border: oklch(1 0 0 / 10%);
+    --input: oklch(1 0 0 / 15%);
+    --ring: oklch(0.556 0 0);
+    --chart-1: oklch(0.87 0 0);
+    --chart-2: oklch(0.556 0 0);
+    --chart-3: oklch(0.439 0 0);
+    --chart-4: oklch(0.371 0 0);
+    --chart-5: oklch(0.269 0 0);
+    --sidebar: oklch(0.205 0 0);
+    --sidebar-foreground: oklch(0.985 0 0);
+    --sidebar-primary: oklch(0.488 0.243 264.376);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-border: oklch(1 0 0 / 10%);
+    --sidebar-ring: oklch(0.556 0 0);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  ::selection {
+    background: var(--accent);
+    color: var(--accent-foreground);
+  }
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* The Rust UI's scroll reveal: what `components/reveal.tsx` did with an IntersectionObserver, done by the browser.
+   A scroll-driven animation needs no JavaScript and no WASM, so Yew views opt in with a class. Where the browser
+   cannot run it, or the visitor asked for less motion, the content is simply there - never stuck invisible.
+   `--reveal-step` staggers siblings in a row (0, 1, 2 ...). */
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .reveal {
+      animation: reveal cubic-bezier(0.22, 1, 0.36, 1) both;
+      animation-timeline: view();
+      animation-range: entry calc(var(--reveal-step, 0) * 6%) entry calc(70% + var(--reveal-step, 0) * 6%);
+    }
+  }
+}
+
+/* The FAQ answers open and close smoothly, as the React accordion's grid-rows transition did, on a native <details>. */
+@supports selector(::details-content) {
+  .faq-details {
+    interpolate-size: allow-keywords;
+  }
+  .faq-details::details-content {
+    block-size: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition:
+      block-size 400ms ease-out,
+      opacity 400ms ease-out,
+      content-visibility 400ms allow-discrete;
+  }
+  .faq-details[open]::details-content {
+    block-size: auto;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+/* ============================================================
+   CulebraLuxe Portal
+   ============================================================ */
+
+:root {
+  /* Portal theme — shared visual tokens. A change here propagates across the
+     whole portal (pages consume these tokens; no per-page one-off hexes). */
+
+  /* Page wash — cool Caribbean mist so frosted glass has something to sample.
+     Fallback solid first; the layered wash is applied by .portal-page. */
+  --portal-bg: #9eb4c8;
+  --portal-page-wash:
+    radial-gradient(1100px 520px at 8% -12%, rgba(198, 161, 91, 0.34) 0%, transparent 58%),
+    radial-gradient(900px 640px at 108% 8%, rgba(24, 43, 64, 0.4) 0%, transparent 60%),
+    radial-gradient(720px 480px at 52% 118%, rgba(64, 88, 75, 0.16) 0%, transparent 52%),
+    linear-gradient(180deg, #8fa7bd 0%, #c2d3e2 42%, #a9becf 100%);
+  --portal-surface: rgba(255, 255, 255, 0.52);
+  --portal-sidebar: #d7e2eb;
+
+  /* deep navy structural surfaces */
+  --portal-navy: #182b40;
+  --portal-navy-soft: #29445f;
+  --portal-navy-deep: #0a0f1a;
+  --portal-navy-deep-2: #0d1424;
+
+  /* cool blue-gray accents / pale fills */
+  --portal-blue-gray: #64798d;
+  --portal-blue-pale: #e7edf2;
+  --portal-mist: #e8edf2;
+  --portal-mist-2: #dfe8ef;
+  --portal-mist-3: #cbd6df;
+  --portal-mist-4: #b9c9d5;
+
+  /* restrained brand-gold accents */
+  --portal-gold: #c6a15b;
+  --portal-gold-soft: #d8b877;
+  --portal-gold-muted: #8a6d2f;
+  --portal-gold-pale: rgba(198, 161, 91, 0.14);
+
+  /* semantic status tones (cool-leaning, no mustard/tan/beige) */
+  --portal-archive: #8a4b2a;
+  --portal-archive-pale: #f3e3d8;
+  --portal-danger: #b0542f;
+  --portal-success: #40584b;
+  --portal-success-pale: #dfe9e3;
+  --portal-neutral: #5d5870;
+  --portal-neutral-pale: #e5e2ec;
+
+  /* text + light text on navy */
+  --portal-text: #20262b;
+  --portal-muted: #747b81;
+  --portal-on-navy: #cbd5e1;
+  --portal-ivory: #f8f5ec;
+
+  /* Hairline used by remaining opaque portal surfaces. Glass panels use
+     --portal-panel-border / --portal-rail-border instead. */
+  --portal-border: #c5d0da;
+
+  /* Shared panel primitives — frosted glass. Standard / Soft / Feature / Attention. */
+  --portal-panel-bg: rgba(255, 255, 255, 0.32);
+  --portal-panel-border: rgba(255, 255, 255, 0.58);
+  --portal-panel-blur: 22px;
+  --portal-panel-saturate: 1.55;
+  --portal-panel-inset: inset 0 1px 0 rgba(255, 255, 255, 0.72), inset 0 -1px 0 rgba(24, 43, 64, 0.04);
+  --portal-panel-shadow: var(--portal-panel-inset), 0 1px 2px rgba(24, 43, 64, 0.05), 0 10px 32px rgba(24, 43, 64, 0.12);
+  --portal-panel-radius: 14px;
+  --portal-panel-padding: 24px;
+  --portal-panel-heading: #182b40;
+  --portal-panel-heading-muted: #64798d;
+
+  --portal-soft-bg: rgba(238, 243, 248, 0.42);
+  --portal-soft-gradient: linear-gradient(180deg, rgba(242, 246, 250, 0.5) 0%, rgba(232, 239, 246, 0.36) 100%);
+  --portal-soft-heading: #182b40;
+
+  --portal-feature-bg: rgba(24, 43, 64, 0.78);
+  --portal-feature-gradient: linear-gradient(135deg, rgba(29, 51, 72, 0.82) 0%, rgba(20, 38, 58, 0.88) 55%, rgba(14, 28, 45, 0.92) 100%);
+  --portal-feature-border: rgba(255, 255, 255, 0.16);
+  --portal-feature-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 2px 6px rgba(24, 43, 64, 0.2), 0 16px 36px rgba(24, 43, 64, 0.28);
+  --portal-feature-heading: #ffffff;
+  --portal-feature-muted: rgba(255, 255, 255, 0.6);
+  --portal-feature-eyebrow: #d8b877;
+
+  --portal-attention-bg: rgba(243, 247, 251, 0.34);
+  --portal-attention-border: rgba(24, 43, 64, 0.35);
+  --portal-attention-heading: #182b40;
+  --portal-attention-eyebrow: #8a6d2f;
+
+  /* Sticky operating chrome — translucent so the page wash reads through. */
+  --portal-shell-bg: rgba(210, 222, 234, 0.4);
+  --portal-shell-blur: 18px;
+  --portal-shell-border: rgba(255, 255, 255, 0.38);
+
+  /* Submenu glass rail — the frosted capsule under NEXUS | MAIN | OPPS | SUPPORT | TECH. */
+  --portal-rail-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.38) 0%, rgba(255, 255, 255, 0.14) 100%);
+  --portal-rail-blur: 26px;
+  --portal-rail-saturate: 1.7;
+  --portal-rail-border: rgba(255, 255, 255, 0.7);
+  --portal-rail-inset: inset 0 1px 0 rgba(255, 255, 255, 0.85), inset 0 -1px 0 rgba(24, 43, 64, 0.06);
+  --portal-rail-shadow: var(--portal-rail-inset), 0 1px 2px rgba(24, 43, 64, 0.06), 0 10px 28px rgba(24, 43, 64, 0.12);
+  --portal-rail-radius: 14px;
+  --portal-rail-hover-bg: rgba(24, 43, 64, 0.08);
+  --portal-rail-gold-edge: linear-gradient(90deg, transparent 4%, rgba(198, 161, 91, 0.55) 50%, transparent 96%);
+  --portal-tab-height: 44px;
+  --portal-tab-radius: 10px;
+  --portal-panel-padding-compact: 16px;
+}
+
+/* Portal page canvas + glass materials. Colors stay in the tokens above. */
+.portal-page {
+  min-height: 100vh;
+  background-color: var(--portal-bg);
+  background-image: var(--portal-page-wash);
+  background-repeat: no-repeat;
+  background-size: cover;
+  color: var(--portal-text);
+}
+
+.portal-glass-nav {
+  background: var(--portal-shell-bg);
+  border-bottom: 1px solid var(--portal-shell-border);
+  backdrop-filter: blur(var(--portal-shell-blur)) saturate(1.35);
+  -webkit-backdrop-filter: blur(var(--portal-shell-blur)) saturate(1.35);
+}
+
+/* Major worlds live IN the navy header with the logo — not a second row. */
+.portal-top-nav {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.375rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.portal-top-nav::-webkit-scrollbar {
+  display: none;
+}
+/* Portal-only: tighten capsule padding at narrower widths so the four surface
+   buttons never crowd the logo or Sign Out. Shared capsule material is
+   unchanged, and the public header is not affected. */
+.portal-top-nav .top-nav-capsule {
+  padding-inline: 0.7rem;
+}
+@media (min-width: 1024px) {
+  .portal-top-nav .top-nav-capsule {
+    padding-inline: 1.1rem;
+  }
+}
+
+/* Shared top-navigation capsule — used by BOTH the public site and the portal
+   header so the two cannot drift. Translucent navy glass, faint ivory border,
+   soft inner highlight, backdrop blur. Ivory text at rest; gold on hover/focus
+   with a slightly brighter glass; darker navy + thin gold underline when active.
+   No opaque gold fills, and labels are always visible. */
+.top-nav-capsule {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  gap: 0.375rem;
+  padding-inline: 1.1rem;
+  border: 1px solid color-mix(in srgb, var(--brand-ivory) 22%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand-navy) 36%, var(--brand-ivory) 5%);
+  color: var(--brand-ivory);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 1px 2px rgba(10, 15, 26, 0.14);
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  text-decoration: none;
+  transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+.top-nav-capsule:hover {
+  color: var(--brand-gold);
+  background: color-mix(in srgb, var(--brand-navy) 30%, var(--brand-ivory) 12%);
+  border-color: color-mix(in srgb, var(--brand-ivory) 38%, transparent);
+}
+.top-nav-capsule:focus-visible {
+  outline: none;
+  color: var(--brand-gold);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-gold) 70%, transparent);
+}
+.top-nav-capsule[aria-current='page'] {
+  color: var(--brand-ivory);
+  background: color-mix(in srgb, var(--brand-navy) 80%, var(--brand-ivory) 3%);
+  border-color: color-mix(in srgb, var(--brand-ivory) 28%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 1px 2px rgba(10, 15, 26, 0.22);
+}
+.top-nav-capsule[aria-current='page']::after {
+  content: '';
+  position: absolute;
+  right: 1.1rem;
+  bottom: 4px;
+  left: 1.1rem;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--brand-gold);
+}
+/* Tighter padding for dense public navs; full-width layout for mobile menus. */
+.top-nav-capsule--tight { padding-inline: 0.9rem; }
+.top-nav-capsule--full { display: flex; width: 100%; }
+
+.portal-glass-rail {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.3rem;
+  border: 1px solid var(--portal-rail-border);
+  border-radius: var(--portal-rail-radius);
+  background: var(--portal-rail-bg);
+  box-shadow: var(--portal-rail-shadow);
+  backdrop-filter: blur(var(--portal-rail-blur)) saturate(var(--portal-rail-saturate));
+  -webkit-backdrop-filter: blur(var(--portal-rail-blur)) saturate(var(--portal-rail-saturate));
+}
+
+.portal-glass-rail::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.32) 0%, rgba(255, 255, 255, 0) 42%);
+}
+
+.portal-glass-rail::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 14px;
+  left: 14px;
+  z-index: 2;
+  height: 1px;
+  pointer-events: none;
+  background: var(--portal-rail-gold-edge);
+}
+
+.portal-glass-rail > * {
+  position: relative;
+  z-index: 1;
+}
+
+.portal-glass-tab {
+  position: relative;
+  display: flex;
+  min-height: var(--portal-tab-height);
+  flex-shrink: 0;
+  align-items: center;
+  border-radius: var(--portal-tab-radius);
+  padding-inline: 0.875rem;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--portal-navy);
+  transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.portal-glass-tab:hover {
+  background: var(--portal-rail-hover-bg);
+}
+
+.portal-glass-tab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--portal-gold) 60%, transparent);
+}
+
+.portal-glass-tab[aria-current='page'] {
+  background: color-mix(in srgb, var(--portal-navy) 90%, transparent);
+  color: #ffffff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 1px 2px rgba(10, 15, 26, 0.22);
+}
+
+.portal-glass-tab[aria-current='page']::after {
+  content: '';
+  position: absolute;
+  right: 1rem;
+  bottom: 3px;
+  left: 1rem;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--portal-gold);
+}
+
+.portal-glass-panel {
+  position: relative;
+  border: 1px solid var(--portal-panel-border);
+  background: var(--portal-panel-bg);
+  box-shadow: var(--portal-panel-shadow);
+  backdrop-filter: blur(var(--portal-panel-blur)) saturate(var(--portal-panel-saturate));
+  -webkit-backdrop-filter: blur(var(--portal-panel-blur)) saturate(var(--portal-panel-saturate));
+}
+
+.portal-glass-panel-soft {
+  background: var(--portal-soft-gradient);
+}
+
+.portal-glass-panel-feature {
+  border-color: var(--portal-feature-border);
+  background: var(--portal-feature-gradient);
+  color: #ffffff;
+  box-shadow: var(--portal-feature-shadow);
+}
+
+.portal-glass-panel-attention {
+  border-color: var(--portal-attention-border);
+  border-top-width: 2px;
+  border-top-color: var(--portal-gold);
+  background: var(--portal-attention-bg);
+}
+
+/* LIFTED GLASS — optional enhancement layered ON TOP of portal-glass-panel.
+   Adds a restrained reflected-light/specular overlay (mirroring the glass
+   rail) so a major work pane reads with more depth than the flat standard
+   panel: a subtle top-to-transparent white gradient plus a faint gold hairline
+   edge. No opaque white, no gaudy glow, no fake 3D bevel. Blur/saturation and
+   the inset edge come from portal-glass-panel itself and are retained. Layer
+   this only when a surface is a primary work pane; do not replace
+   portal-glass-panel. */
+.portal-glass-panel-lifted {
+  position: relative;
+  isolation: isolate;
+}
+.portal-glass-panel-lifted::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.26) 0%, rgba(255, 255, 255, 0) 38%);
+}
+.portal-glass-panel-lifted::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 16px;
+  left: 16px;
+  z-index: 2;
+  height: 1px;
+  pointer-events: none;
+  background: var(--portal-rail-gold-edge);
+}
+.portal-glass-panel-lifted > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Compact glass rail — a miniature of the shared portal-glass-rail for dense
+   surfaces (e.g. the Catch-Up workstream selector). Same material/blur/gold
+   hairline, tightened so all tabs fit on one row. If a very narrow pane forces
+   overflow, it scrolls quietly instead of wrapping or clipping invisibly. */
+.portal-glass-rail--compact {
+  width: 100%;
+  gap: 0.125rem;
+  padding: 0.2rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.portal-glass-rail--compact::-webkit-scrollbar {
+  display: none;
+}
+.portal-glass-tab--compact {
+  min-height: 30px;
+  padding-inline: 0.4rem;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+/* Stable shell-chrome height. The OperatingShell owns this token so any
+   viewport-bounded work surface (the Projects three-pane grid) can size itself
+   against the chrome without hardcoding a magic calc(100dvh - 10.5rem). */
+.portal-shell-main {
+  --portal-shell-chrome-height: 10.5rem;
+}
+
+/* PROJECTS-WORKSPACE-02 — three-pane geometry + visual system.
+   The frozen contract lives in ui/projects/visual-system.ts; these classes are
+   its CSS realization. Colors reference existing --portal-* tokens only
+   (navy / ivory / gold) — no new raw hex. */
+.projects-workspace-grid {
+  min-height: 0;
+}
+
+@media (min-width: 1024px) {
+  .projects-workspace-grid {
+    height: calc(100dvh - var(--portal-shell-chrome-height, 10.5rem));
+    grid-template-columns: minmax(350px, 375px) minmax(0, 1fr) minmax(295px, 315px);
+  }
+}
+
+.projects-pane {
+  min-height: 0;
+}
+
+.projects-pane.projects-pane-navigator {
+  background-color: color-mix(in srgb, var(--portal-navy) 90%, transparent);
+  color: var(--portal-on-navy);
+}
+
+.projects-pane.projects-pane-canvas {
+  background-color: var(--portal-panel-bg);
+  color: var(--portal-text);
+}
+
+.projects-pane.projects-pane-inspector {
+  background-color: color-mix(in srgb, var(--portal-ivory) 94%, transparent);
+  color: var(--portal-text);
+}
+
+.projects-scroll {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .portal-glass-nav {
+    background: #d7e2eb;
+  }
+  .portal-glass-rail,
+  .portal-glass-panel {
+    background: rgba(255, 255, 255, 0.92);
+  }
+  .portal-glass-panel-feature {
+    background: var(--portal-navy);
+  }
+}
+
+/* CAL-02 — CulebraLuxe skin for the FullCalendar candidate (Option B).
+   FullCalendar v7 classic theme colors are driven by --fc-classic-* vars;
+   override them on the .cue-fc container so the calendar matches the portal
+   (restrained navy + gold accent, portal typography, subtle borders).
+   NOTE: this is the LIGHT skin, because the Projects canvas is light glass. It was
+   briefly flipped to a dark palette while the canvas was navy; when the canvas went
+   back to light (human gate, 2026-09-12: keep the back panel light, let the vendor
+   widgets inside it be dark), the month grid had to come back with it. */
+.cue-fc {
+  --fc-classic-primary: #030f23;
+  --fc-classic-primary-foreground: #ffffff;
+  --fc-classic-event: #c6a15b;
+  --fc-classic-event-contrast: #ffffff;
+  --fc-classic-background-event: #c6a15b;
+  --fc-classic-background-event-opacity: 16%;
+  --fc-classic-background-event-foreground-opacity: 60%;
+  --fc-classic-highlight: rgba(198, 161, 91, 0.12);
+  --fc-classic-today: rgba(198, 161, 91, 0.14);
+  --fc-classic-now: #c6a15b;
+  --fc-classic-button: #030f23;
+  --fc-classic-button-border: #030f23;
+  --fc-classic-button-strong: #1d2c47;
+  --fc-classic-button-strong-border: #0f1a30;
+  --fc-classic-button-outline: rgba(3, 15, 35, 0.35);
+  --fc-classic-button-foreground: #ffffff;
+  --fc-classic-background: transparent;
+  --fc-classic-faint: rgba(3, 15, 35, 0.03);
+  --fc-classic-muted: rgba(3, 15, 35, 0.06);
+  --fc-classic-strong: rgba(3, 15, 35, 0.12);
+  --fc-classic-foreground: #030f23;
+  --fc-classic-faint-foreground: #9aa3ad;
+  --fc-classic-muted-foreground: #66707b;
+  --fc-classic-border: rgba(3, 15, 35, 0.14);
+  --fc-classic-strong-border: rgba(3, 15, 35, 0.22);
+}
+
+.cue-fc .fc {
+  font-family: var(--font-cormorant), Georgia, serif;
+  border-radius: var(--portal-panel-radius);
+  overflow: hidden;
+}
+
+/* PROJECTS — MIDNIGHT skin for the SVAR widget panes (Timeline Gantt, Documents
+   Filemanager).
+
+   Two things make this necessary rather than optional:
+
+   1. SVAR's theme declares all of its ~334 --wx-* variables ON the theme wrapper
+      (.wx-willow-theme / .wx-willow-dark-theme), so an override on our container
+      alone is silently beaten by the theme's own block. The theme-scoped
+      selectors below are what actually take effect; the bare container rule covers
+      any SVAR widget rendered outside a theme wrapper.
+   2. The theme class CHANGES with the theme (…-theme vs …-dark-theme). Both are
+      listed, so switching the host between Willow and WillowDark cannot silently
+      drop the skin.
+
+   .portal-svar-midnight is the single hook the widget hosts add to their
+   container; changing the shade here restyles every widget pane at once. */
+.portal-svar-midnight,
+.portal-svar-midnight .wx-willow-theme,
+.portal-svar-midnight .wx-willow-dark-theme {
+  /* Core surfaces + typography: brand navy ground, editorial serif, light type */
+  --wx-background: #030f23;
+  --wx-background-alt: #0b1c38;
+  --wx-background-hover: rgba(198, 161, 91, 0.14);
+  --wx-color-font: #e8edf6;
+  --wx-color-font-alt: #93a3bd;
+  --wx-color-primary: #c6a15b;
+  --wx-color-primary-font: #030f23;
+  --wx-color-primary-selected: rgba(198, 161, 91, 0.24);
+  --wx-color-link: #c6a15b;
+  --wx-border: 1px solid rgba(255, 255, 255, 0.12);
+  --wx-border-medium: 1px solid rgba(255, 255, 255, 0.08);
+  --wx-border-color: rgba(255, 255, 255, 0.12);
+  --wx-border-radius: 4px;
+  --wx-radius-major: var(--portal-panel-radius);
+  --wx-font-family: var(--font-cormorant), Georgia, serif;
+
+  /* Gantt: gold for work in flight, lifted blue for summaries so both read on navy */
+  --wx-gantt-task-color: #c6a15b;
+  --wx-gantt-task-fill-color: #c6a15b;
+  --wx-gantt-task-border-color: #b08f4d;
+  --wx-gantt-summary-color: #2b4a72;
+  --wx-gantt-summary-fill-color: #2b4a72;
+  --wx-gantt-summary-border-color: #3d6396;
+  --wx-gantt-summary-font-color: #e8edf6;
+  --wx-gantt-milestone-color: #c6a15b;
+  --wx-gantt-border-color: rgba(255, 255, 255, 0.1);
+  --wx-gantt-link-color: rgba(232, 237, 246, 0.5);
+  --wx-gantt-link-marker-background: #c6a15b;
+  --wx-gantt-link-marker-color: #030f23;
+  --wx-gantt-select-color: rgba(198, 161, 91, 0.24);
+  --wx-gantt-marker-color: #c6a15b;
+  --wx-gantt-marker-font-color: #030f23;
+  --wx-gantt-holiday-background: rgba(255, 255, 255, 0.03);
+}
+
+/* The SVAR theme wrapper (div.wx-theme.wx-willow-dark-theme) carries NO height rule
+   of its own — the vendor's theme docs claim it renders with height:100%, the shipped
+   CSS does not do it and the component sets no inline height either. The consequence
+   is not cosmetic: the wrapper is an auto-height block, so a `flex-1` child inside it
+   is a no-op, the widget sizes to its content, and the pane's remaining height goes
+   unused — that is why the Gantt sat at its min-height floor with empty space below.
+   Give the wrapper the container's height, and make it a flex column so the widget
+   inside can actually flex into the space. Applies to every SVAR widget pane. */
+.portal-svar-midnight > .wx-theme {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* The panes themselves read as midnight panels: navy ground, hairline gold edge. */
+.project-timeline,
+.project-filemanager {
+  background: #030f23;
+  border: 1px solid rgba(198, 161, 91, 0.22);
+  border-radius: var(--portal-panel-radius);
+  overflow: hidden;
+}
+
+/* ---------------------------------------------------------------------------
+   STORY KANBAN — board-specific skin, layered ON .portal-svar-midnight above.
+   That shared skin already owns the navy ground, the editorial serif and the
+   gold accents for every SVAR pane, so only what it cannot know about lives
+   here: the columns and the cards. Restyling the shared block restyles this
+   board too, which is the point of having one hook.
+   --------------------------------------------------------------------------- */
+.story-kanban .wx-column {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--portal-panel-radius);
+}
+
+.story-kanban .wx-column-header {
+  color: #ffffff;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.story-kanban .wx-column-cards {
+  gap: 6px;
+  /* The panel is a fixed-height box, so a column with more stories than fit used to be
+     clipped with no way to reach the rest. The cards area scrolls; the column header and the
+     board frame stay put. */
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* A visible, brand-consistent slider: on the midnight board the default OS bar disappears
+   against the navy, so the column gave no hint that more stories existed below. */
+.story-kanban .wx-column-cards::-webkit-scrollbar {
+  width: 8px;
+}
+
+.story-kanban .wx-column-cards::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 999px;
+}
+
+.story-kanban .wx-column-cards::-webkit-scrollbar-thumb {
+  background: rgba(198, 161, 91, 0.45);
+  border-radius: 999px;
+}
+
+.story-kanban .wx-column-cards::-webkit-scrollbar-thumb:hover {
+  background: rgba(198, 161, 91, 0.7);
+/* ---------------------------------------------------------------------------
+   RECORDER SCROLLBARS.
+
+   The Flight Recorder's panes (center view, left rail, right aside, graph) each
+   scroll independently, and on macOS the overlay scrollbars are invisible until
+   you already know to scroll — the same trap the kanban columns had. A visible,
+   brand-consistent bar makes overflow discoverable instead of looking like
+   missing content. Scoped to .recorder-scroll so nothing else changes.
+   --------------------------------------------------------------------------- */
+.recorder-scroll *::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.recorder-scroll *::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.recorder-scroll *::-webkit-scrollbar-thumb {
+  background: rgba(198, 161, 91, 0.45);
+  border-radius: 999px;
+}
+
+.recorder-scroll *::-webkit-scrollbar-thumb:hover {
+  background: rgba(198, 161, 91, 0.7);
+}
+
+.recorder-scroll * {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(198, 161, 91, 0.45) rgba(255, 255, 255, 0.04);
+}
+
+}
+
+.story-kanban .wx-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(198, 161, 91, 0.22);
+  border-radius: 6px;
+}
+
+.story-kanban .wx-card:hover {
+  background: rgba(198, 161, 91, 0.08);
+  border-color: rgba(198, 161, 91, 0.55);
+}

@@ -40,6 +40,7 @@ pub mod service_observability;
 pub mod service_support;
 pub mod showings;
 pub mod signature;
+pub mod site;
 pub mod support;
 pub mod task;
 pub mod tech;
