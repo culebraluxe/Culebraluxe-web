@@ -1418,8 +1418,7 @@ fn property_editor(
         _ => html! {
             <div class="space-y-4">
                 {section_intro("Property facts", "Start with what is known. Save and return to complete other fields in later passes.")}
-                {field_panel(model, on_msg, "Property", PROPERTY_IDENTITY)}
-                {catastro_find_bar(model, on_msg)}
+                {property_pane(model, on_msg)}
                 {field_panel(model, on_msg, "Description", PROPERTY_DESCRIPTIONS)}
                 {field_panel(model, on_msg, "Listing and building facts", PROPERTY_CORE)}
             </div>
@@ -2036,19 +2035,30 @@ pub(super) fn usd(raw: &str) -> String {
     }
 }
 
-/// Type a catastro number above, then Find: the property that already has it opens, every field filled from the
-/// property table. Unsaved typing on this record is set aside.
-fn catastro_find_bar(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
-    let catastro = value(model, "catastroNumber");
-    let onclick = on_msg.reform(|_: MouseEvent| Msg::FindByCatastro);
+/// The first pane, each box as wide as what it holds: the name takes the room, the catastro fits
+/// 476-000-005-19-000 with FIND beside it (opens the property that already has that catastro, filled from the property
+/// table), and status and price are short.
+fn property_pane(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
+    let [name, catastro, status, price] = [0, 1, 2, 3].map(|index| &PROPERTY_IDENTITY[index]);
+    let find = on_msg.reform(|_: MouseEvent| Msg::FindByCatastro);
+    let can_find = !value(model, "catastroNumber").trim().is_empty() && !model.loading;
     html! {
-        <div class="-mt-1 flex items-center justify-end gap-2">
-            <span class="text-[11px] text-black/45">{"Have the catastro? Open the property that already has it."}</span>
-            <button type="button" {onclick} disabled={catastro.trim().is_empty() || model.loading}
-                class="rounded-md bg-[var(--portal-navy)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white disabled:opacity-40">
-                {"Find by catastro"}
-            </button>
-        </div>
+        <section class="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/30 p-4">
+            <div class="mb-3 text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--portal-gold-muted)]">{"Property"}</div>
+            <div class="flex flex-wrap items-end gap-3">
+                {sized_field(model, on_msg, name, "min-w-[14rem] flex-1")}
+                <div class="flex items-end gap-1.5">
+                    {sized_field(model, on_msg, catastro, "w-[11rem]")}
+                    <button type="button" onclick={find} disabled={!can_find}
+                        title="Open the property that already has this catastro number"
+                        class="mb-px h-10 rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-white disabled:opacity-40">
+                        {"Find"}
+                    </button>
+                </div>
+                {sized_field(model, on_msg, status, "w-[9.5rem]")}
+                {sized_field(model, on_msg, price, "w-[10rem]")}
+            </div>
+        </section>
     }
 }
 
@@ -2070,8 +2080,12 @@ fn field_grid(model: &Vm<'_>, on_msg: &Callback<Msg>, fields: &[FieldSpec]) -> H
 }
 
 fn editor_field(model: &Vm<'_>, on_msg: &Callback<Msg>, field: &FieldSpec) -> Html {
+    sized_field(model, on_msg, field, if field.wide { "sm:col-span-2 xl:col-span-4" } else { "" })
+}
+
+/// A field whose box width the caller sets (the first pane sizes each box to what it holds).
+fn sized_field(model: &Vm<'_>, on_msg: &Callback<Msg>, field: &FieldSpec, wrapper: &'static str) -> Html {
     let field_value = value(model, field.key);
-    let wrapper = if field.wide { "sm:col-span-2 xl:col-span-4" } else { "" };
     let disabled = model.ops.saving;
 
     let control = match field.kind {
