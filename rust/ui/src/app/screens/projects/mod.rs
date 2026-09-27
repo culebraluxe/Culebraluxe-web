@@ -380,7 +380,7 @@ fn calendar_state_loaded(
             projects.calendar_loaded_end = None;
             calendar_viewport(projects)
         }
-        "failed" | "dead" => {
+        "dead" => {
             rollback_calendar_edit(
                 model,
                 state
@@ -389,6 +389,7 @@ fn calendar_state_loaded(
             );
             Cmd::none()
         }
+        "failed" if poll_count < 20 => Cmd::after(2_000, Msg::CalendarPoll),
         _ if poll_count < 20 => Cmd::after(1_500, Msg::CalendarPoll),
         _ => Cmd::none(),
     }
