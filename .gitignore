@@ -154,7 +154,6 @@ skills-lock.json
 !/lib/rust-ui/ui.d.ts
 !/lib/rust-ui/mount.ts
 /public/rust-ui/*
-!/public/rust-ui/ui_bg.wasm.d.ts
 
 # The Rust workspace build directory. 225M of compiler output, and `pnpm ui:build` creates it under rust/ because the
 # workspace root is rust/Cargo.toml — one `git add -A` away from being committed.
