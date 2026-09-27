@@ -790,7 +790,7 @@ fn view(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
                             </p>
                             <textarea
                                 id="deal-details"
-                                rows="14"
+                                rows={14}
                                 value={model.details_text.clone()}
                                 placeholder="Document text…"
                                 oninput={link.callback(|event: InputEvent| {
@@ -1032,7 +1032,7 @@ fn field_control(
             });
             html! {
                 <textarea
-                    rows="2"
+                    rows={2}
                     value={value}
                     oninput={changed}
                     class={format!("{INPUT_CLASS} h-auto min-h-12 resize-y py-1.5 leading-6")}
