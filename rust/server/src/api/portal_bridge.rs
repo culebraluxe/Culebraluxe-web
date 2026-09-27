@@ -784,11 +784,7 @@ async fn forms_page(
         })?;
 
     let mut field_values = form.field_values.clone();
-    if template.field("sellerCivilStatus").is_some()
-        && field_values
-            .get("sellerCivilStatus")
-            .is_none_or(|value| value.trim().is_empty())
-    {
+    if template.field("sellerCivilStatus").is_some() {
         if let Some(person_id) = form.person_id.as_deref() {
             if let Some(person) = services
                 .person()
@@ -796,10 +792,31 @@ async fn forms_page(
                 .await
                 .map_err(failed(resolved))?
             {
-                if let Some(civil_status) =
-                    person.civil_status.filter(|value| !value.trim().is_empty())
+                if let Some(civil_status) = person
+                    .civil_status
+                    .filter(|value| !value.trim().is_empty())
                 {
+                    // Person is canonical for civil status. Old form JSON must never shadow a repaired Person value.
                     field_values.insert("sellerCivilStatus".into(), civil_status);
+                }
+            }
+        }
+    }
+    if form.template_id == "LISTING-01" {
+        if let Some(property_id) = form.property_id.as_deref() {
+            if let Some(property) = services
+                .property()
+                .admin_get(property_id, &resolved.service)
+                .await
+                .map_err(failed(resolved))?
+            {
+                if let Some(listing_type) = property
+                    .stellar
+                    .listing_type
+                    .filter(|value| !value.trim().is_empty())
+                {
+                    // Property's Stellar listing record is canonical for listing type when it already has a value.
+                    field_values.insert("listingType".into(), listing_type);
                 }
             }
         }
@@ -1026,7 +1043,7 @@ async fn save_form_values(
                 .map_err(failed(resolved))?
             {
                 if person.civil_status.as_deref() != Some(civil_status) {
-                    services
+                    let updated_person = services
                         .person()
                         .update_admin(
                             &domain::UpdatePersonAdminRequest {
@@ -1040,8 +1057,32 @@ async fn save_form_values(
                         )
                         .await
                         .map_err(failed(resolved))?;
+                    services.clients().update_cached_person(&updated_person);
                 }
             }
+        }
+    }
+
+    if current.template_id == "LISTING-01" {
+        if let (Some(property_id), Some(listing_type)) = (
+            current.property_id.as_deref(),
+            field_values
+                .get("listingType")
+                .map(String::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty()),
+        ) {
+            services
+                .property()
+                .set_listing_type(
+                    &domain::SetPropertyListingTypeRequest {
+                        property_id: property_id.to_owned(),
+                        listing_type: Some(listing_type.to_owned()),
+                    },
+                    &resolved.service,
+                )
+                .await
+                .map_err(failed(resolved))?;
         }
     }
 
