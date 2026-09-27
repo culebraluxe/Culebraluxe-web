@@ -202,7 +202,7 @@ fn project_row(
                         range,
                         spec,
                         if canonical { "Project schedule" } else { "Project deadline envelope" },
-                        progress,
+                        i64::from(progress),
                         true,
                     ) }
                 }
