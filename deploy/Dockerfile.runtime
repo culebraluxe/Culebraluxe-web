@@ -1,0 +1,19 @@
+# WHAT VERCEL BUILDS: no compiler, no compile — it copies the files the Mac already built (deploy/Dockerfile.build),
+# unpacks the compressed server, and runs it. Seconds, not minutes.
+FROM debian:bookworm-slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --uid 10001 culebra
+WORKDIR /app
+COPY culebraluxe.gz /usr/local/bin/culebraluxe.gz
+RUN gunzip /usr/local/bin/culebraluxe.gz && chmod +x /usr/local/bin/culebraluxe
+COPY public ./public
+RUN gunzip /app/public/rust-ui/ui_bg.wasm.gz
+COPY templates ./templates
+ENV CULEBRA_SITE_DIR=/app/public \
+    FORMS_TEMPLATES_DIR=/app/templates \
+    PORT=8080
+EXPOSE 8080
+USER culebra
+ENTRYPOINT ["/usr/local/bin/culebraluxe"]
