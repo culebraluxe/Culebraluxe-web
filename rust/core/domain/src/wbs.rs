@@ -132,3 +132,21 @@ pub struct AppleReminderCommandReceipt {
     pub command_id: String,
     pub state: String,
 }
+
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppleReminderLanding {
+    pub source_account: String,
+    pub source_message_id: String,
+    pub external_id: Option<String>,
+    pub list_name: Option<String>,
+    pub title: Option<String>,
+    pub notes: Option<String>,
+    pub start_at: Option<String>,
+    pub due_at: Option<String>,
+    pub completed: bool,
+    pub completed_at: Option<String>,
+    pub priority: Option<i32>,
+    pub raw: serde_json::Value,
+}
