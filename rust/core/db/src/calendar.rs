@@ -209,8 +209,30 @@ impl CalendarDao {
     }
 
     pub async fn upsert_landing_event(&self, event: &CalendarLandingEvent) -> DbResult<()> {
+        let series_id = event
+            .raw
+            .get("calendarItemIdentifier")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty());
+        let occurrence_id = event
+            .raw
+            .get("occurrenceDate")
+            .and_then(Value::as_str)
+            .or_else(|| event.raw.get("startAt").and_then(Value::as_str))
+            .filter(|value| !value.trim().is_empty());
+
         sqlx::query(
             r#"
+            with retired_legacy_identity as (
+                delete from l_calendar
+                where coalesce(source_account, '') = coalesce($1, '')
+                  and source_message_id <> $2
+                  and $9::text is not null
+                  and $10::text is not null
+                  and raw->>'calendarItemIdentifier' = $9
+                  and coalesce(raw->>'occurrenceDate', raw->>'startAt') = $10
+                returning id
+            )
             insert into l_calendar (
                 source_account, source_message_id, title, starts_at, ends_at,
                 all_day, location, raw, ingested_at
@@ -235,6 +257,8 @@ impl CalendarDao {
         .bind(event.all_day)
         .bind(event.location.as_deref())
         .bind(&event.raw)
+        .bind(series_id)
+        .bind(occurrence_id)
         .execute(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("calendar.landing.upsert", &error))?;
