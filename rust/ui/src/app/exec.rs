@@ -3,6 +3,7 @@
 //! Every screen's HTTP goes through `request` below, so every screen gets the same decoding and the same failure shape.
 //! That sameness is the point. A screen that "just calls fetch" is how a screen ends up with its own idea of errors.
 
+use base64::Engine as _;
 use gloo_net::http::Request as HttpRequest;
 use yew::platform::spawn_local;
 use yew::Callback;
@@ -38,6 +39,14 @@ pub fn run<Msg: 'static>(cmd: Cmd<Msg>, deliver: &Callback<Msg>, navigator: Opti
         }
         Cmd::Load(href) => load(&href),
         Cmd::ReplacePath(path) => replace_path(&path),
+        Cmd::SharePdf {
+            data_uri,
+            filename,
+            reply,
+        } => {
+            let result = share_pdf(&data_uri, &filename);
+            deliver.emit(reply(result));
+        }
         Cmd::StorageRead { key, reply } => {
             let value = storage().and_then(|storage| storage.get_item(&key).ok().flatten());
             deliver.emit(reply(value));
@@ -182,6 +191,108 @@ fn replace_path(path: &str) {
         return;
     };
     let _ = history.replace_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some(path));
+}
+
+fn share_pdf(data_uri: &str, filename: &str) -> Result<(), ApiError> {
+    let (_, encoded) = data_uri
+        .split_once(',')
+        .ok_or_else(|| ApiError::decode("The PDF preview is not a data URI."))?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|error| ApiError::decode(format!("The PDF preview could not be decoded: {error}")))?;
+    if !bytes.starts_with(b"%PDF-") {
+        return Err(ApiError::decode("The generated file was not a PDF."));
+    }
+
+    let window =
+        web_sys::window().ok_or_else(|| ApiError::network("The browser window is unavailable."))?;
+    let window_value = wasm_bindgen::JsValue::from(window);
+
+    // Construct File([Uint8Array(bytes)], filename, { type: "application/pdf" }) in Rust/WASM.
+    // There is deliberately no JavaScript bridge: the executor owns this browser capability just like navigation.
+    let file_ctor = js_sys::Reflect::get(
+        &window_value,
+        &wasm_bindgen::JsValue::from_str("File"),
+    )
+    .map_err(|_| ApiError::network("This browser cannot create a PDF attachment."))?
+    .dyn_into::<js_sys::Function>()
+    .map_err(|_| ApiError::network("This browser cannot create a PDF attachment."))?;
+    let parts = js_sys::Array::new();
+    parts.push(&js_sys::Uint8Array::from(bytes.as_slice()));
+    let options = js_sys::Object::new();
+    js_sys::Reflect::set(
+        &options,
+        &wasm_bindgen::JsValue::from_str("type"),
+        &wasm_bindgen::JsValue::from_str("application/pdf"),
+    )
+    .map_err(|_| ApiError::network("The PDF attachment could not be prepared."))?;
+    let args = js_sys::Array::new();
+    args.push(&parts);
+    args.push(&wasm_bindgen::JsValue::from_str(filename));
+    args.push(&options);
+    let file = js_sys::Reflect::construct(&file_ctor, &args)
+        .map_err(|_| ApiError::network("The PDF attachment could not be prepared."))?;
+
+    let navigator = js_sys::Reflect::get(
+        &window_value,
+        &wasm_bindgen::JsValue::from_str("navigator"),
+    )
+    .map_err(|_| ApiError::network("Native sharing is unavailable in this browser."))?;
+    let share_data = js_sys::Object::new();
+    let files = js_sys::Array::new();
+    files.push(&file);
+    js_sys::Reflect::set(
+        &share_data,
+        &wasm_bindgen::JsValue::from_str("title"),
+        &wasm_bindgen::JsValue::from_str("CulebraLuxe Document"),
+    )
+    .map_err(|_| ApiError::network("The share sheet could not be prepared."))?;
+    js_sys::Reflect::set(
+        &share_data,
+        &wasm_bindgen::JsValue::from_str("text"),
+        &wasm_bindgen::JsValue::from_str("CulebraLuxe transaction document"),
+    )
+    .map_err(|_| ApiError::network("The share sheet could not be prepared."))?;
+    js_sys::Reflect::set(
+        &share_data,
+        &wasm_bindgen::JsValue::from_str("files"),
+        &files,
+    )
+    .map_err(|_| ApiError::network("The share sheet could not be prepared."))?;
+
+    if let Ok(can_share) = js_sys::Reflect::get(
+        &navigator,
+        &wasm_bindgen::JsValue::from_str("canShare"),
+    )
+    .and_then(|value| value.dyn_into::<js_sys::Function>())
+    {
+        let supported = can_share
+            .call1(&navigator, &share_data)
+            .ok()
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+        if !supported {
+            return Err(ApiError::network(
+                "This browser cannot attach the PDF to its native share sheet.",
+            ));
+        }
+    }
+
+    let share = js_sys::Reflect::get(
+        &navigator,
+        &wasm_bindgen::JsValue::from_str("share"),
+    )
+    .map_err(|_| ApiError::network("Native sharing is unavailable in this browser."))?
+    .dyn_into::<js_sys::Function>()
+    .map_err(|_| ApiError::network("Native sharing is unavailable in this browser."))?;
+
+    // Call synchronously while the click still owns transient user activation. Waiting for another HTTP request first
+    // is what made Safari refuse the legacy Share button. The returned Promise represents the user's share-sheet
+    // interaction; opening the sheet successfully is the executor's completed effect.
+    share
+        .call1(&navigator, &share_data)
+        .map_err(|_| ApiError::network("Share needs a direct click. Try Share again."))?;
+    Ok(())
 }
 
 /// Device storage, or `None` where it is unavailable (private mode, blocked site data). Never a panic.
