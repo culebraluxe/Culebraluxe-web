@@ -31,12 +31,15 @@ async fn recurring_occurrence_id_change_reconciles_without_duplicate_landing() {
     let original_end = original_start + Duration::hours(1);
     let target_start = original_start + Duration::minutes(30);
     let target_end = target_start + Duration::hours(1);
-    let source_message_id = format!("{}|{}", series_id, original_start.to_rfc3339());
+    let legacy_source_message_id =
+        format!("{}|{}", old_event_id, original_start.to_rfc3339());
+    let stable_source_message_id =
+        format!("{}|{}", series_id, original_start.to_rfc3339());
 
     calendar
         .upsert_landing_event(&CalendarLandingEvent {
             source_account: source_account.clone(),
-            source_message_id: source_message_id.clone(),
+            source_message_id: legacy_source_message_id.clone(),
             title: "Recurring proof".into(),
             start_at: original_start.to_rfc3339(),
             end_at: original_end.to_rfc3339(),
@@ -94,7 +97,7 @@ async fn recurring_occurrence_id_change_reconciles_without_duplicate_landing() {
     calendar
         .upsert_landing_event(&CalendarLandingEvent {
             source_account: source_account.clone(),
-            source_message_id: source_message_id.clone(),
+            source_message_id: stable_source_message_id.clone(),
             title: "Recurring proof".into(),
             start_at: target_start.to_rfc3339(),
             end_at: target_end.to_rfc3339(),
@@ -111,20 +114,29 @@ async fn recurring_occurrence_id_change_reconciles_without_duplicate_landing() {
         .await
         .unwrap();
 
-    let (count, landed_event_id): (i64, Option<String>) = sqlx::query_as(
-        r#"
-        select count(*)::bigint,
-               max(raw->>'eventIdentifier')
-        from l_calendar
-        where source_account=$1 and source_message_id=$2
-        "#,
-    )
-    .bind(&source_account)
-    .bind(&source_message_id)
-    .fetch_one(database.pool())
-    .await
-    .unwrap();
-    assert_eq!(count, 1, "the moved occurrence must update, not duplicate");
+    let (count, landed_source_id, landed_event_id): (i64, Option<String>, Option<String>) =
+        sqlx::query_as(
+            r#"
+            select count(*)::bigint,
+                   max(source_message_id),
+                   max(raw->>'eventIdentifier')
+            from l_calendar
+            where source_account=$1
+            "#,
+        )
+        .bind(&source_account)
+        .fetch_one(database.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        count, 1,
+        "the legacy occurrence row must be retired, not duplicated"
+    );
+    assert_eq!(
+        landed_source_id.as_deref(),
+        Some(stable_source_message_id.as_str()),
+        "the stable series+occurrence identity replaces the legacy event-id key"
+    );
     assert_eq!(landed_event_id.as_deref(), Some(new_event_id.as_str()));
 
     let state = calendar
