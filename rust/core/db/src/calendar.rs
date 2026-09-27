@@ -1,14 +1,16 @@
 use crate::{Database, DbFailure, DbResult};
 use chrono::{DateTime, Utc};
 use domain::{
-    CalendarCommandReceipt, CalendarEvent, CalendarEventKind, CreateAppleCalendarEventRequest,
+    CalendarCommandReceipt, CalendarEvent, CalendarEventKind, CalendarLandingEvent,
+    CreateAppleCalendarEventRequest, UpdateAppleCalendarEventRequest,
 };
-use serde_json::json;
+use serde_json::{json, Value};
 use sqlx::FromRow;
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
 const CALENDAR_CREATE_ROUTE: &str = "apple.calendar.create.requested";
+const CALENDAR_UPDATE_ROUTE: &str = "apple.calendar.update.requested";
 
 #[derive(Debug, FromRow)]
 struct ShowingCalendarRow {
@@ -27,6 +29,7 @@ struct AppleCalendarRow {
     starts_at: DateTime<Utc>,
     ends_at: Option<DateTime<Utc>>,
     all_day: Option<bool>,
+    raw: Option<Value>,
 }
 
 #[derive(Clone)]
@@ -88,7 +91,8 @@ impl CalendarDao {
                    title,
                    starts_at,
                    ends_at,
-                   all_day
+                   all_day,
+                   raw
             from l_calendar
             where starts_at is not null
               and starts_at >= $1
@@ -123,6 +127,9 @@ impl CalendarDao {
                     property_name: row.property_name,
                     kind: CalendarEventKind::Showing,
                     source: "canonical:showing".into(),
+                    provider_event_id: None,
+                    recurring: false,
+                    detached: false,
                 },
             );
         }
@@ -134,6 +141,24 @@ impl CalendarDao {
                 row.source_message_id
             };
             let all_day = row.all_day.unwrap_or(false);
+            let provider_event_id = row
+                .raw
+                .as_ref()
+                .and_then(|raw| raw.get("eventIdentifier"))
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            let recurring = row
+                .raw
+                .as_ref()
+                .and_then(|raw| raw.get("recurring"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let detached = row
+                .raw
+                .as_ref()
+                .and_then(|raw| raw.get("detached"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
             by_id.insert(
                 id.clone(),
                 CalendarEvent {
@@ -155,6 +180,9 @@ impl CalendarDao {
                         CalendarEventKind::Meeting
                     },
                     source: "apple_calendar".into(),
+                    provider_event_id,
+                    recurring,
+                    detached,
                 },
             );
         }
@@ -166,6 +194,39 @@ impl CalendarDao {
                 .then_with(|| left.id.cmp(&right.id))
         });
         Ok(events)
+    }
+
+    pub async fn upsert_landing_event(&self, event: &CalendarLandingEvent) -> DbResult<()> {
+        sqlx::query(
+            r#"
+            insert into l_calendar (
+                source_account, source_message_id, title, starts_at, ends_at,
+                all_day, location, raw, ingested_at
+            )
+            values ($1,$2,$3,$4::timestamptz,$5::timestamptz,$6,$7,$8,now())
+            on conflict ((coalesce(source_account, '')), source_message_id)
+            do update set
+                title=excluded.title,
+                starts_at=excluded.starts_at,
+                ends_at=excluded.ends_at,
+                all_day=excluded.all_day,
+                location=excluded.location,
+                raw=excluded.raw,
+                ingested_at=now()
+            "#,
+        )
+        .bind(&event.source_account)
+        .bind(&event.source_message_id)
+        .bind(&event.title)
+        .bind(&event.start_at)
+        .bind(&event.end_at)
+        .bind(event.all_day)
+        .bind(event.location.as_deref())
+        .bind(&event.raw)
+        .execute(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("calendar.landing.upsert", &error))?;
+        Ok(())
     }
 
     pub async fn create_apple_event(
@@ -205,6 +266,46 @@ impl CalendarDao {
         .execute(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("calendar.create_apple_event", &error))?;
+
+        Ok(CalendarCommandReceipt {
+            command_id,
+            state: "queued".into(),
+        })
+    }
+
+    pub async fn update_apple_event(
+        &self,
+        request: &UpdateAppleCalendarEventRequest,
+        actor_app_user_id: Option<&str>,
+        correlation_id: &str,
+    ) -> DbResult<CalendarCommandReceipt> {
+        let command_id = Uuid::new_v4().to_string();
+        let payload = json!({
+            "eventId": request.event_id.clone(),
+            "startAt": request.start_at.clone(),
+            "endAt": request.end_at.clone(),
+            "allDay": request.all_day,
+            "recurrenceScope": request.recurrence_scope.clone(),
+        });
+        sqlx::query(
+            r#"
+            insert into outbox_message (
+                id, event_type, aggregate_type, aggregate_id,
+                correlation_id, actor_app_user_id, occurred_at, payload
+            )
+            values ($1::uuid,$2,'calendar',$3,$4,$5,now(),$6)
+            on conflict (id) do nothing
+            "#,
+        )
+        .bind(&command_id)
+        .bind(CALENDAR_UPDATE_ROUTE)
+        .bind(&request.event_id)
+        .bind(correlation_id)
+        .bind(actor_app_user_id)
+        .bind(payload)
+        .execute(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("calendar.update_apple_event", &error))?;
 
         Ok(CalendarCommandReceipt {
             command_id,
