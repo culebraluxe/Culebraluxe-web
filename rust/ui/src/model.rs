@@ -2073,6 +2073,10 @@ pub struct OpsWorkbenchState {
     pub media_batch_total: usize,
     pub media_batch_done: usize,
     pub media_batch_failed: Vec<String>,
+    /// The title of the batch's first photo (`VillaDelMar_7`); the rest count on from it.
+    pub media_batch_first: Option<String>,
+    /// The property the running batch uploads to.
+    pub media_batch_property: Option<String>,
     pub media_uploader_open: bool,
 }
 
@@ -2100,6 +2104,8 @@ impl Default for OpsWorkbenchState {
             media_batch_total: 0,
             media_batch_done: 0,
             media_batch_failed: Vec::new(),
+            media_batch_first: None,
+            media_batch_property: None,
             media_uploader_open: false,
         }
     }

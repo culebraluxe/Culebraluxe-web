@@ -164,21 +164,34 @@ fn media_title_at(page: Option<&PortalOpsWorkbenchPage>, offset: usize) -> Strin
     format!("{stem}_{}", images + 1 + offset)
 }
 
+/// `VillaDelMar_7` -> 7.
+fn first_number(title: &str) -> usize {
+    title.rsplit('_').next().and_then(|n| n.parse().ok()).unwrap_or(1)
+}
+
+/// `VillaDelMar_7`, 9 -> `VillaDelMar_9`.
+fn numbered(title: &str, number: usize) -> String {
+    let stem = title.rsplit_once('_').map(|(stem, _)| stem).unwrap_or(title);
+    format!("{stem}_{number}")
+}
+
 /// Start the next photo of the batch, if any.
 fn next_upload(model: &mut Model) -> Cmd<Msg> {
     if model.upload_queue.is_empty() {
         return Cmd::none();
     }
     let file = model.upload_queue.remove(0);
-    let Some(property_id) = model.selected.clone() else {
+    // The property the batch started on, even if another is selected while it runs.
+    let Some(property_id) = model.ops.media_batch_property.clone() else {
         model.upload_queue.clear();
         model.error = Some("Select a Property before uploading.".into());
         return Cmd::none();
     };
+    // Numbered from the batch's start, so the gallery refreshing mid-batch does not shift the numbers.
     let offset = model.ops.media_batch_done + model.ops.media_batch_failed.len();
     model.ops.media_file_name = Some(file.name());
     model.ops.media_role = "gallery".into();
-    model.ops.media_alt = media_title_at(model.read.loaded(), offset);
+    model.ops.media_alt = model.ops.media_batch_first.as_ref().map(|first| numbered(first, first_number(first) + offset)).unwrap_or_default();
     model.ops.media_uploading = true;
     model.error = None;
     let mut init = vec![("role".to_string(), "gallery".to_string())];
@@ -219,7 +232,8 @@ fn update(model: &mut Model, msg: Msg) -> Cmd<Msg> {
                     model.ops.person_searching = false;
                     model.ops.selected_person = None;
                     model.ops.media_index = 0;
-                    model.ops.media_uploading = false;
+                    // A gallery refresh in the middle of a batch leaves the batch's progress showing.
+                    model.ops.media_uploading = model.ops.media_file_name.is_some();
                     if model.ops.creating {
                         model.ops.creating = false;
                         model.ops.new_name.clear();
@@ -569,11 +583,14 @@ fn update(model: &mut Model, msg: Msg) -> Cmd<Msg> {
             model.ops.media_batch_total = files.len();
             model.ops.media_batch_done = 0;
             model.ops.media_batch_failed.clear();
+            model.ops.media_batch_property = model.selected.clone();
+            model.ops.media_batch_first = Some(media_title(model.read.loaded())).filter(|title| !title.is_empty());
             model.upload_queue = files;
             next_upload(model)
         }
         Msg::MakeHero(media_id) => {
-            let Some(property_id) = model.selected.clone() else {
+            // The property the batch started on, even if another is selected while it runs.
+    let Some(property_id) = model.ops.media_batch_property.clone() else {
                 return Cmd::none();
             };
             model.error = None;
@@ -600,7 +617,9 @@ fn update(model: &mut Model, msg: Msg) -> Cmd<Msg> {
             }
             model.ops.media_file_name = None;
             if !model.upload_queue.is_empty() {
-                return next_upload(model);
+                // Each photo shows in the gallery as soon as it is saved, while the next one uploads.
+                let refresh = read(model);
+                return Cmd::batch([refresh, next_upload(model)]);
             }
             // The batch is finished: say what did not make it, then show the gallery as it now is.
             model.ops.media_alt.clear();
