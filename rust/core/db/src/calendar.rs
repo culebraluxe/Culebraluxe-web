@@ -1,8 +1,8 @@
 use crate::{Database, DbFailure, DbResult};
 use chrono::{DateTime, Utc};
 use domain::{
-    CalendarCommandReceipt, CalendarEvent, CalendarEventKind, CalendarLandingEvent,
-    CreateAppleCalendarEventRequest, UpdateAppleCalendarEventRequest,
+    CalendarCommandReceipt, CalendarCommandState, CalendarEvent, CalendarEventKind,
+    CalendarLandingEvent, CreateAppleCalendarEventRequest, UpdateAppleCalendarEventRequest,
 };
 use serde_json::{json, Value};
 use sqlx::FromRow;
@@ -29,6 +29,7 @@ struct AppleCalendarRow {
     starts_at: DateTime<Utc>,
     ends_at: Option<DateTime<Utc>>,
     all_day: Option<bool>,
+    location: Option<String>,
     raw: Option<Value>,
 }
 
@@ -92,6 +93,7 @@ impl CalendarDao {
                    starts_at,
                    ends_at,
                    all_day,
+                   location,
                    raw
             from l_calendar
             where starts_at is not null
@@ -127,7 +129,9 @@ impl CalendarDao {
                     property_name: row.property_name,
                     kind: CalendarEventKind::Showing,
                     source: "canonical:showing".into(),
+                    location: None,
                     provider_event_id: None,
+                    provider_series_id: None,
                     recurring: false,
                     detached: false,
                 },
@@ -145,6 +149,12 @@ impl CalendarDao {
                 .raw
                 .as_ref()
                 .and_then(|raw| raw.get("eventIdentifier"))
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            let provider_series_id = row
+                .raw
+                .as_ref()
+                .and_then(|raw| raw.get("calendarItemIdentifier"))
                 .and_then(Value::as_str)
                 .map(str::to_owned);
             let recurring = row
@@ -180,7 +190,9 @@ impl CalendarDao {
                         CalendarEventKind::Meeting
                     },
                     source: "apple_calendar".into(),
+                    location: row.location,
                     provider_event_id,
+                    provider_series_id,
                     recurring,
                     detached,
                 },
@@ -282,6 +294,7 @@ impl CalendarDao {
         let command_id = Uuid::new_v4().to_string();
         let payload = json!({
             "eventId": request.event_id.clone(),
+            "calendarItemId": request.calendar_item_id.clone(),
             "startAt": request.start_at.clone(),
             "endAt": request.end_at.clone(),
             "allDay": request.all_day,
@@ -299,7 +312,13 @@ impl CalendarDao {
         )
         .bind(&command_id)
         .bind(CALENDAR_UPDATE_ROUTE)
-        .bind(&request.event_id)
+        .bind(
+            request
+                .calendar_item_id
+                .as_deref()
+                .filter(|id| !id.trim().is_empty())
+                .unwrap_or(&request.event_id),
+        )
         .bind(correlation_id)
         .bind(actor_app_user_id)
         .bind(payload)
@@ -311,5 +330,82 @@ impl CalendarDao {
             command_id,
             state: "queued".into(),
         })
+    }
+
+    pub async fn command_state(
+        &self,
+        command_id: &str,
+    ) -> DbResult<Option<CalendarCommandState>> {
+        #[derive(sqlx::FromRow)]
+        struct Row {
+            command_id: String,
+            delivery_state: Option<String>,
+            delivered_at: Option<DateTime<Utc>>,
+            last_error: Option<String>,
+            reconciled_at: Option<DateTime<Utc>>,
+        }
+
+        let row = sqlx::query_as::<_, Row>(
+            r#"
+            select m.id::text as command_id,
+                   d.state as delivery_state,
+                   d.acknowledged_at as delivered_at,
+                   d.last_error,
+                   (
+                     select max(l.ingested_at)
+                     from l_calendar l
+                     where l.ingested_at >= m.occurred_at
+                       and (
+                         l.raw->>'eventIdentifier' = m.payload->>'eventId'
+                         or (
+                           nullif(m.payload->>'calendarItemId','') is not null
+                           and l.raw->>'calendarItemIdentifier' = m.payload->>'calendarItemId'
+                         )
+                       )
+                       and abs(extract(epoch from (
+                         l.starts_at - (m.payload->>'startAt')::timestamptz
+                       ))) <= 2
+                       and (
+                         m.payload->>'endAt' is null
+                         or l.ends_at is null
+                         or abs(extract(epoch from (
+                           l.ends_at - (m.payload->>'endAt')::timestamptz
+                         ))) <= 2
+                       )
+                   ) as reconciled_at
+            from outbox_message m
+            left join mq_delivery d
+              on d.message_id=m.id
+             and d.subscription_id='apple-gateway-calendar-update-v1'
+            where m.id=$1::uuid
+              and m.event_type=$2
+            limit 1
+            "#,
+        )
+        .bind(command_id)
+        .bind(CALENDAR_UPDATE_ROUTE)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("calendar.command_state", &error))?;
+
+        Ok(row.map(|row| {
+            let state = if row.reconciled_at.is_some() {
+                "reconciled".to_owned()
+            } else {
+                match row.delivery_state.as_deref() {
+                    Some("delivered") => "delivered".to_owned(),
+                    Some("dead") => "dead".to_owned(),
+                    Some("failed") => "failed".to_owned(),
+                    _ => "queued".to_owned(),
+                }
+            };
+            CalendarCommandState {
+                command_id: row.command_id,
+                state,
+                delivered_at: row.delivered_at.map(|value| value.to_rfc3339()),
+                reconciled_at: row.reconciled_at.map(|value| value.to_rfc3339()),
+                last_error: row.last_error,
+            }
+        }))
     }
 }
