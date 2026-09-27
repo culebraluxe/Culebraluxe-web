@@ -1479,6 +1479,201 @@ async fn forms_write(
                 "message": format!("Client linked · {}", chosen.display_name),
             })))
         }
+        "sendSignature" => {
+            let form_id = form_id.ok_or_else(|| {
+                correlate(
+                    ApiError::bad_request("FORM_ID_REQUIRED", "formId is required."),
+                    &resolved,
+                )
+            })?;
+            let field_values: std::collections::BTreeMap<String, String> = serde_json::from_value(
+                body.get("fieldValues")
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
+            )
+            .map_err(|error| {
+                correlate(
+                    ApiError::bad_request(
+                        "FORM_FIELDS_INVALID",
+                        format!("Invalid form fields: {error}"),
+                    ),
+                    &resolved,
+                )
+            })?;
+            let sections: std::collections::BTreeMap<String, String> =
+                serde_json::from_value(body.get("sections").cloned().unwrap_or_else(|| json!({})))
+                    .map_err(|error| {
+                        correlate(
+                            ApiError::bad_request(
+                                "FORM_SECTIONS_INVALID",
+                                format!("Invalid form sections: {error}"),
+                            ),
+                            &resolved,
+                        )
+                    })?;
+
+            save_form_values(&state, &resolved, form_id, field_values, sections).await?;
+
+            let services = state.services();
+            let signature = services.signature().map_err(|reason| {
+                correlate(
+                    ApiError::new(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "SIGNATURE_UNAVAILABLE",
+                        format!("Signature service is unavailable: {reason}"),
+                        true,
+                    ),
+                    &resolved,
+                )
+            })?;
+
+            if let Some(existing_document) = services
+                .vault()
+                .issued_for_form_instance(form_id, &resolved.service)
+                .await
+                .map_err(failed(&resolved))?
+            {
+                if let Some(active) = signature
+                    .active_for_document(&existing_document.document_id, &resolved.service)
+                    .await
+                    .map_err(failed(&resolved))?
+                {
+                    let page =
+                        forms_page(&state, &resolved, Some(form_id), None, None, None).await?;
+                    return Ok(Json(json!({
+                        "formId": form_id,
+                        "forms": page,
+                        "message": format!("Sent for signature · {}", active.status.as_str()),
+                    })));
+                }
+            }
+
+            let issue = services
+                .vault()
+                .issue_from_form_instance(
+                    &domain::IssueDocumentRequest {
+                        command_id: uuid::Uuid::new_v4().to_string(),
+                        form_instance_id: form_id.to_owned(),
+                        actor_app_user_id: Some(resolved.acting_user.app_user_id.clone()),
+                        issued_at: None,
+                    },
+                    &resolved.service,
+                )
+                .await
+                .map_err(failed(&resolved))?;
+            if issue.outcome != domain::VaultCommandOutcome::Success {
+                return Err(correlate(
+                    ApiError::new(
+                        StatusCode::CONFLICT,
+                        "FORM_ISSUE_FAILED",
+                        issue
+                            .message
+                            .unwrap_or_else(|| "Could not issue the form before signature.".into()),
+                        false,
+                    ),
+                    &resolved,
+                ));
+            }
+
+            let issued = services
+                .vault()
+                .issued_for_form_instance(form_id, &resolved.service)
+                .await
+                .map_err(failed(&resolved))?
+                .ok_or_else(|| {
+                    correlate(
+                        ApiError::new(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            "FORM_ISSUED_DOCUMENT_MISSING",
+                            "The issued document could not be loaded.",
+                            false,
+                        ),
+                        &resolved,
+                    )
+                })?;
+            let signers = services
+                .forms()
+                .list_signer_people(form_id, &resolved.service)
+                .await
+                .map_err(failed(&resolved))?;
+
+            let mut recipients = Vec::new();
+            let mut completion_recipient_emails = Vec::new();
+            for signer in &signers {
+                let Some(email) = signer
+                    .email
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                else {
+                    continue;
+                };
+                if signer.role == "SELLER_BROKER" {
+                    completion_recipient_emails.push(email.to_owned());
+                    continue;
+                }
+                recipients.push(domain::SignatureRecipient {
+                    role: domain::SignatureRecipientRole::Signer,
+                    name: signer.name.clone(),
+                    email: email.to_owned(),
+                    order: recipients.len() as i32 + 1,
+                    execution_role: Some(signer.role.clone()),
+                    execution_slot_id: signer.slot_id.clone(),
+                });
+            }
+            if recipients.is_empty() {
+                return Err(correlate(
+                    ApiError::bad_request(
+                        "FORM_SIGNER_REQUIRED",
+                        "No external signer with an email is available for this form.",
+                    ),
+                    &resolved,
+                ));
+            }
+
+            let sent = signature
+                .send(
+                    &domain::SendSignatureRequest {
+                        command_id: uuid::Uuid::new_v4().to_string(),
+                        transaction_document_id: issued.document_id.clone(),
+                        recipients: recipients.clone(),
+                        message: None,
+                        created_by_user_id: Some(resolved.acting_user.app_user_id.clone()),
+                        execution_role: None,
+                        execution_slot_id: None,
+                        slot_recipient_email: None,
+                        signature_role: None,
+                        completion_recipient_emails,
+                    },
+                    &resolved.service,
+                )
+                .await
+                .map_err(failed(&resolved))?;
+
+            if sent.outcome != domain::SignatureCommandOutcome::Success {
+                return Err(correlate(
+                    ApiError::new(
+                        StatusCode::BAD_GATEWAY,
+                        "FORM_SIGNATURE_SEND_FAILED",
+                        sent.message
+                            .unwrap_or_else(|| "Could not send document for signature.".into()),
+                        true,
+                    ),
+                    &resolved,
+                ));
+            }
+
+            let page = forms_page(&state, &resolved, Some(form_id), None, None, None).await?;
+            Ok(Json(json!({
+                "formId": form_id,
+                "forms": page,
+                "message": format!(
+                    "Sent for signature · {} external {}",
+                    recipients.len(),
+                    if recipients.len() == 1 { "party" } else { "parties" },
+                ),
+            })))
+        }
         "save" | "issue" => {
             let form_id = form_id.ok_or_else(|| {
                 correlate(
