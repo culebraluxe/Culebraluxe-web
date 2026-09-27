@@ -12,7 +12,7 @@
 //! single source of truth for "what navigation belongs under this surface", and it documents four routes as RETIRED
 //! FROM THE NAV with the code left in place. Those are ported like everything else and simply not listed.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Which operating surface a screen belongs to. The first six mirror `lib/navigation/registry.ts`; `Site` is the
 /// public site, which the registry does not cover because it is not part of the portal.
@@ -1710,6 +1710,12 @@ pub struct PortalProjectsPage {
     pub calendar_day_start_hour: u32,
     pub calendar_day_end_hour: u32,
     pub calendar_slot_minutes: u32,
+    /// Native Timeline/Gantt UI state. The view owns no scheduling truth.
+    /// "day" | "week" | "month" controls scale density only.
+    pub timeline_mode: String,
+    pub timeline_collapsed_items: BTreeSet<String>,
+    pub timeline_dragging_item_id: Option<String>,
+    pub timeline_drag_target_date: Option<String>,
     pub identity_names: BTreeMap<String, String>,
     /// Workspace state lives with the payload and changes only in update().
     pub active_domain: String,
