@@ -41,6 +41,14 @@ pub fn router() -> Router<ApiState> {
         .route("/api/portal/rust-ui/forms", get(forms).post(forms_write))
         .route("/api/portal/rust-ui/forms/preview", axum::routing::post(forms_preview))
         .route("/api/portal/rust-ui/projects", get(projects).post(projects_act))
+        .route(
+            "/api/portal/rust-ui/projects/calendar",
+            get(projects_calendar).post(projects_calendar_update),
+        )
+        .route(
+            "/api/portal/rust-ui/projects/calendar-command",
+            get(projects_calendar_command),
+        )
         .route("/api/portal/rust-ui/accounting", axum::routing::post(accounting_act))
         .route("/api/portal/rust-ui/opps", get(opps).post(opps_act))
         .route("/api/portal/rust-ui/listing-media", get(listing_media))
@@ -2031,10 +2039,12 @@ async fn projects_page(state: &ApiState, resolved: &ResolvedRequestContext) -> R
             }
         }
     }
-    let (comms, calendar) = (services.comms(), services.calendar());
-    let (activity, calendar) = tokio::join!(comms.activity(200, context), calendar.list(context));
-    let activity = activity.map(to_json).unwrap_or_else(|_| json!([]));
-    let calendar = calendar.map(to_json).unwrap_or_else(|_| json!([]));
+    let activity = services
+        .comms()
+        .activity(200, context)
+        .await
+        .map(to_json)
+        .unwrap_or_else(|_| json!([]));
     let documents: Vec<Value> = documents
         .as_array()
         .unwrap_or(&empty)
@@ -2061,8 +2071,11 @@ async fn projects_page(state: &ApiState, resolved: &ResolvedRequestContext) -> R
         "documents": documents,
         "media": media,
         "activity": activity,
-        "calendar": calendar,
+        "calendar": [],
         "calendarToday": Utc::now().format("%Y-%m-%d").to_string(),
+        "calendarDayStartHour": calendar_display_hour("CALENDAR_DISPLAY_START_HOUR", 8),
+        "calendarDayEndHour": calendar_display_hour("CALENDAR_DISPLAY_END_HOUR", 20),
+        "calendarSlotMinutes": calendar_slot_minutes(),
         "identityNames": names,
     } })))
 }
@@ -2071,6 +2084,93 @@ async fn projects(State(state): State<ApiState>, headers: HeaderMap) -> Result<J
     let resolved = resolve_portal_context(&state, &headers).await?;
     projects_page(&state, &resolved).await
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectsCalendarQuery {
+    start_at: String,
+    end_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectsCalendarCommandQuery {
+    command_id: String,
+}
+
+fn calendar_display_hour(key: &str, fallback: u32) -> u32 {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| value.trim().parse::<u32>().ok())
+        .filter(|hour| *hour <= 23)
+        .unwrap_or(fallback)
+}
+
+fn calendar_slot_minutes() -> u32 {
+    std::env::var("CALENDAR_SLOT_MINUTES")
+        .ok()
+        .and_then(|value| value.trim().parse::<u32>().ok())
+        .filter(|minutes| matches!(*minutes, 15 | 30 | 60))
+        .unwrap_or(30)
+}
+
+async fn projects_calendar(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Query(query): Query<ProjectsCalendarQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    let request = domain::CalendarViewportQuery {
+        start_at: query.start_at,
+        end_at: query.end_at,
+    };
+    let events = state
+        .services()
+        .calendar()
+        .viewport(&request, &resolved.service)
+        .await
+        .map_err(failed(&resolved))?;
+    Ok(Json(json!({ "calendar": to_json(events) })))
+}
+
+async fn projects_calendar_update(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    let request: domain::UpdateAppleCalendarEventRequest = serde_json::from_value(body)
+        .map_err(|error| ApiError::bad_request("CALENDAR_UPDATE_INVALID", error.to_string()))?;
+    let receipt = state
+        .services()
+        .calendar()
+        .update_apple_event(&request, &resolved.service)
+        .await
+        .map_err(failed(&resolved))?;
+    Ok(Json(to_json(receipt)))
+}
+
+async fn projects_calendar_command(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Query(query): Query<ProjectsCalendarCommandQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    let state_value = state
+        .services()
+        .calendar()
+        .command_state(&query.command_id, &resolved.service)
+        .await
+        .map_err(failed(&resolved))?
+        .ok_or_else(|| {
+            ApiError::not_found(
+                "CALENDAR_COMMAND_NOT_FOUND",
+                format!("Calendar command not found: {}", query.command_id),
+            )
+        })?;
+    Ok(Json(to_json(state_value)))
+}
+
 
 /// Projects' two writes — a project's status, a work item's save — each answering the refreshed workspace.
 async fn projects_act(
@@ -2088,22 +2188,6 @@ async fn projects_act(
             let update: UpdateProjectBody = serde_json::from_value(json!({ "status": body.get("status") }))
                 .map_err(|error| ApiError::bad_request("PROJECT_UPDATE_INVALID", error.to_string()))?;
             apply_project_update(&state, &resolved, id, update).await?;
-        }
-        Some("calendarUpdate") => {
-            let request: domain::UpdateAppleCalendarEventRequest = serde_json::from_value(json!({
-                "eventId": body.get("eventId"),
-                "startAt": body.get("startAt"),
-                "endAt": body.get("endAt"),
-                "allDay": body.get("allDay"),
-                "recurrenceScope": body.get("recurrenceScope"),
-            }))
-            .map_err(|error| ApiError::bad_request("CALENDAR_UPDATE_INVALID", error.to_string()))?;
-            state
-                .services()
-                .calendar()
-                .update_apple_event(&request, &resolved.service)
-                .await
-                .map_err(failed(&resolved))?;
         }
         Some("wbsSave") => {
             let Some(id) = id_of("itemId") else {
