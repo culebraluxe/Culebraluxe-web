@@ -2089,6 +2089,22 @@ async fn projects_act(
                 .map_err(|error| ApiError::bad_request("PROJECT_UPDATE_INVALID", error.to_string()))?;
             apply_project_update(&state, &resolved, id, update).await?;
         }
+        Some("calendarUpdate") => {
+            let request: domain::UpdateAppleCalendarEventRequest = serde_json::from_value(json!({
+                "eventId": body.get("eventId"),
+                "startAt": body.get("startAt"),
+                "endAt": body.get("endAt"),
+                "allDay": body.get("allDay"),
+                "recurrenceScope": body.get("recurrenceScope"),
+            }))
+            .map_err(|error| ApiError::bad_request("CALENDAR_UPDATE_INVALID", error.to_string()))?;
+            state
+                .services()
+                .calendar()
+                .update_apple_event(&request, &resolved.service)
+                .await
+                .map_err(failed(&resolved))?;
+        }
         Some("wbsSave") => {
             let Some(id) = id_of("itemId") else {
                 return Err(ApiError::bad_request("WBS_ID_REQUIRED", "itemId is required."));
