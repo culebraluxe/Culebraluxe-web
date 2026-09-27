@@ -26,7 +26,7 @@ use crate::{
     support::SupportDiagnosticsService,
     task::TaskService,
     tech::TechCockpitService,
-    vault::{VaultArtifactPort, VaultService},
+    vault::VaultService,
     wbs::WbsService,
     website_leads::WebsiteLeadService,
     whatsapp::WhatsAppService,
@@ -40,9 +40,6 @@ use db::{
     RelationshipEvidenceDao, SecurityDao, ShowingDao, SignatureDao, SupportDiagnosticsDao, TaskDao,
     TechCockpitDao, VaultDao, WbsDao, WebsiteLeadDao, WhatsAppDao, WorkflowPortalDao,
 };
-use domain::{
-    VaultArtifactFailure, VaultCommandOutcome, VaultRenderRequest, VaultRenderedArtifact,
-};
 use integrations::boldsign::{BoldSignConfig, BoldSignSignatureProvider};
 use service::{
     AbstractService, ServiceContext, ServiceDescriptor, ServiceDispatchError, ServiceEnvelope,
@@ -50,21 +47,6 @@ use service::{
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;
-
-struct UnavailableVaultArtifactPort;
-
-#[async_trait]
-impl VaultArtifactPort for UnavailableVaultArtifactPort {
-    async fn render_issued_document(
-        &self,
-        _request: VaultRenderRequest,
-    ) -> Result<VaultRenderedArtifact, VaultArtifactFailure> {
-        Err(VaultArtifactFailure {
-            outcome: VaultCommandOutcome::PreconditionFailure,
-            message: "Vault artifact renderer is not configured on this transport.".into(),
-        })
-    }
-}
 
 type SignatureCatalogEntry = Result<Arc<SignatureService<SignatureDao>>, Arc<str>>;
 
@@ -394,7 +376,7 @@ impl ServiceCatalog {
             )),
             vault: Arc::new(VaultService::new(
                 VaultDao::new(db.clone()),
-                Arc::new(UnavailableVaultArtifactPort),
+                crate::vault::artifact::shared(),
                 infrastructure.clone(),
             )),
             task: Arc::new(TaskService::new(
