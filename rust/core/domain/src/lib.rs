@@ -80,8 +80,8 @@ pub use showing::{SaveShowingReportRequest, Showing, ShowingReportOutcome};
 pub use support::*;
 
 pub use wbs::{
-    AppleReminderCommandReceipt, AppleReminderUpsertRequest, CreateWbsItemRequest,
-    SaveWbsItemRequest, WbsEntityLink, WbsEntityType, WbsItem, WbsStatus,
+    AppleReminderCommandReceipt, AppleReminderLanding, AppleReminderUpsertRequest,
+    CreateWbsItemRequest, SaveWbsItemRequest, WbsEntityLink, WbsEntityType, WbsItem, WbsStatus,
 };
 
 pub use contract::{
@@ -125,8 +125,8 @@ pub use vault::{
 };
 
 pub use calendar::{
-    CalendarCommandReceipt, CalendarEvent, CalendarEventKind, CalendarViewportQuery,
-    CreateAppleCalendarEventRequest,
+    CalendarCommandReceipt, CalendarEvent, CalendarEventKind, CalendarLandingEvent,
+    CalendarViewportQuery, CreateAppleCalendarEventRequest, UpdateAppleCalendarEventRequest,
 };
 
 pub use media::{
