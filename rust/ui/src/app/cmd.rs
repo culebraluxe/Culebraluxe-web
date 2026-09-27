@@ -81,6 +81,11 @@ pub enum Cmd<Msg> {
     Navigate(String),
     /// A full document load: another area of the app (site ↔ portal), or a server-owned route such as Auth.js.
     Load(String),
+    /// Replace the browser URL without dispatching a router transition or remounting the current Screen.
+    ///
+    /// Stateful workspaces use this after swapping their selected record in-place. The MVI Model stays mounted while
+    /// the address bar still tracks the record a reload should reopen.
+    ReplacePath(String),
     /// Read one value from the device's storage; `None` when absent or storage is unavailable.
     StorageRead {
         key: String,
@@ -155,6 +160,10 @@ impl<Msg: 'static> Cmd<Msg> {
         Cmd::Load(href.into())
     }
 
+    pub fn replace_path(path: impl Into<String>) -> Self {
+        Cmd::ReplacePath(path.into())
+    }
+
     pub fn storage_read(
         key: impl Into<String>,
         to_msg: impl FnOnce(Option<String>) -> Msg + 'static,
@@ -213,6 +222,7 @@ impl<Msg: 'static> Cmd<Msg> {
             }),
             Cmd::Navigate(path) => Cmd::Navigate(path),
             Cmd::Load(href) => Cmd::Load(href),
+            Cmd::ReplacePath(path) => Cmd::ReplacePath(path),
             Cmd::StorageRead { key, reply } => Cmd::StorageRead {
                 key,
                 reply: Box::new(move |value| f(reply(value))),
@@ -253,6 +263,7 @@ impl<Msg> std::fmt::Debug for Cmd<Msg> {
             Cmd::Request(request) => write!(f, "Request({:?} {})", request.method, request.path),
             Cmd::Navigate(path) => write!(f, "Navigate({path})"),
             Cmd::Load(href) => write!(f, "Load({href})"),
+            Cmd::ReplacePath(path) => write!(f, "ReplacePath({path})"),
             Cmd::StorageRead { key, .. } => write!(f, "StorageRead({key})"),
             Cmd::StorageWrite { key, value } => write!(f, "StorageWrite({key}, {value:?})"),
             Cmd::After { millis, .. } => write!(f, "After({millis}ms)"),
