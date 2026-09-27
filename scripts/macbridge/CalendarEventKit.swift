@@ -14,9 +14,10 @@
 // Minimal permission: requestFullAccessToEvents (calendar read). No CalDAV, no
 // Apple ID/password, no Nylas, no fake REST API, no browser credentials.
 //
-// Idempotency: each event carries its stable EKEvent.eventIdentifier, so a
-// re-run yields the same source id (no duplicates) and re-reading reflects
-// edits; a deleted event simply no longer appears in the next snapshot.
+// Recurrence: EventKit expands recurring series inside this bounded query. Each
+// occurrence gets a sourceMessageId composed from the provider event id plus its
+// original occurrence/start instant, while eventIdentifier remains available for
+// native move/resize commands.
 //
 // Run: swift CalendarEventKit.swift --out <path> --past-days 7 --future-days 60
 // ---------------------------------------------------------------------------
@@ -88,7 +89,12 @@ let iso = ISO8601DateFormatter()
 iso.formatOptions = [.withInternetDateTime]
 
 struct BridgeEvent: Codable {
+  let sourceMessageId: String
   let eventIdentifier: String
+  let calendarItemIdentifier: String
+  let occurrenceDate: String?
+  let recurring: Bool
+  let detached: Bool
   let sourceAccount: String
   let calendarName: String
   let title: String
@@ -100,8 +106,16 @@ struct BridgeEvent: Codable {
 }
 
 let items = events.map { e -> BridgeEvent in
-  BridgeEvent(
-    eventIdentifier: e.eventIdentifier,
+  let providerId = e.eventIdentifier ?? e.calendarItemIdentifier
+  let occurrence = e.occurrenceDate ?? e.startDate
+  let occurrenceText = iso.string(from: occurrence)
+  return BridgeEvent(
+    sourceMessageId: providerId + "|" + occurrenceText,
+    eventIdentifier: providerId,
+    calendarItemIdentifier: e.calendarItemIdentifier,
+    occurrenceDate: e.occurrenceDate.map { iso.string(from: $0) },
+    recurring: !(e.recurrenceRules?.isEmpty ?? true),
+    detached: e.isDetached,
     sourceAccount: e.calendar?.source?.sourceIdentifier ?? "apple-calendar",
     calendarName: e.calendar?.title ?? "",
     title: e.title ?? "",
