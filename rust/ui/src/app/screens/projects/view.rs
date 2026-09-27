@@ -12,6 +12,7 @@ use crate::model::{PortalProject, PortalProjectWorkItem, PortalProjectsPage};
 use super::{Msg, Vm};
 
 mod calendar;
+mod timeline;
 
 pub(super) fn workspace(
     model: &Vm<'_>,
@@ -355,7 +356,7 @@ fn active_view(
     on_msg: &Callback<Msg>,
 ) -> Html {
     match projects.active_view.as_str() {
-        "timeline" => timeline_view(),
+        "timeline" => timeline::view(model, projects, project, on_msg),
         "calendar" => calendar::view(model, projects, project, on_msg),
         "financials" => placeholder_view(
             "Financials",
@@ -431,10 +432,6 @@ fn work_plan_node(
             }
         </li>
     }
-}
-
-fn timeline_view() -> Html {
-    crate::app::template::widget_removed("The timeline")
 }
 
 fn documents_view() -> Html {
