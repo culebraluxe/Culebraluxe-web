@@ -29,6 +29,7 @@ pub mod ops;
 pub mod projects;
 pub mod search;
 pub mod seller_strategy;
+pub mod timeline;
 pub mod update;
 pub mod view;
 
