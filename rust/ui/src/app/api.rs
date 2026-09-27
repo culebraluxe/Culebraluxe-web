@@ -409,6 +409,36 @@ impl Endpoint for FormsWrite {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct FormPreviewResponse {
+    pub data_uri: String,
+    pub filename: String,
+}
+
+pub struct FormPreview {
+    pub form_id: String,
+    pub field_values: BTreeMap<String, String>,
+    pub sections: BTreeMap<String, String>,
+}
+
+impl Endpoint for FormPreview {
+    const METHOD: Method = Method::Post;
+    type Response = FormPreviewResponse;
+
+    fn path(&self) -> String {
+        "/api/portal/rust-ui/forms/preview".into()
+    }
+
+    fn body(&self) -> Option<serde_json::Value> {
+        Some(serde_json::json!({
+            "formId": self.form_id,
+            "fieldValues": self.field_values,
+            "sections": self.sections,
+        }))
+    }
+}
+
 /// What the signed-in portal user may do, as the Rust security service answers. Read once per portal visit by the shell.
 pub struct Entitlements;
 
