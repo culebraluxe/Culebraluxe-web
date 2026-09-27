@@ -74,6 +74,7 @@ pub enum Msg {
     SendSignature,
     SignatureSent(Result<FormsWriteResponse, ApiError>),
     Share,
+    Shared(Result<(), ApiError>),
     Cancel,
     GrokPromptChanged(String),
     GrokGo,
@@ -400,12 +401,33 @@ fn update(model: &mut Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> {
             }
         }
         Msg::Share => {
-            if let Some(uri) = model.preview_uri.clone() {
-                Cmd::load(uri)
-            } else {
+            let Some(uri) = model.preview_uri.clone() else {
                 model.error = Some("The PDF preview is not ready yet.".into());
-                Cmd::none()
+                return Cmd::none();
+            };
+            let filename = if model.preview_filename.trim().is_empty() {
+                "CulebraLuxe-Document.pdf".to_owned()
+            } else {
+                model.preview_filename.clone()
+            };
+            model.error = None;
+            Cmd::share_pdf(uri, filename, Msg::Shared)
+        }
+        Msg::Shared(result) => {
+            match result {
+                Ok(()) => {
+                    model.message = Some("Shared".into());
+                    model.error = None;
+                }
+                Err(error) => {
+                    model.message = Some(
+                        "This browser could not attach the PDF to native Share. Save the PDF and attach it in Mail or Messages."
+                            .into(),
+                    );
+                    model.error = Some(error.message);
+                }
             }
+            Cmd::none()
         }
         Msg::Cancel => {
             model.values = model.saved_values.clone();
@@ -1469,6 +1491,17 @@ mod tests {
         assert!(requests[0]
             .path
             .contains("screen=form-record&scope=form-next"));
+    }
+
+    #[test]
+    fn share_is_an_executor_effect_not_a_pdf_navigation() {
+        let mut model = Model {
+            preview_uri: Some("data:application/pdf;base64,JVBERi0=".into()),
+            preview_filename: "Agreement.pdf".into(),
+            ..Model::default()
+        };
+        let cmd = update(&mut model, Msg::Share, &ScreenCtx::default());
+        assert!(matches!(cmd, Cmd::SharePdf { .. }));
     }
 
     #[test]
