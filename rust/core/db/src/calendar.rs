@@ -367,10 +367,12 @@ impl CalendarDao {
                        ))) <= 2
                        and (
                          m.payload->>'endAt' is null
-                         or l.ends_at is null
-                         or abs(extract(epoch from (
-                           l.ends_at - (m.payload->>'endAt')::timestamptz
-                         ))) <= 2
+                         or (
+                           l.ends_at is not null
+                           and abs(extract(epoch from (
+                             l.ends_at - (m.payload->>'endAt')::timestamptz
+                           ))) <= 2
+                         )
                        )
                    ) as reconciled_at
             from outbox_message m
