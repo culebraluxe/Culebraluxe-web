@@ -1692,8 +1692,12 @@ pub struct PortalProjectsPage {
     pub calendar: Vec<PortalProjectCalendarEvent>,
     /// Server-provided date used by the reducer's Today intent; views never read the clock.
     pub calendar_today: String,
-    /// UI-only month cursor. It survives refreshed service answers through carry_over().
+    /// UI-only date cursor. Month/week/day/list project from the same value.
     pub calendar_cursor: String,
+    /// "month" | "week" | "day" | "list".
+    pub calendar_mode: String,
+    /// Recurring EventKit edits apply to "this" occurrence or "future" occurrences.
+    pub calendar_recurrence_scope: String,
     pub identity_names: BTreeMap<String, String>,
     /// Workspace state lives with the payload and changes only in update().
     pub active_domain: String,
@@ -1816,6 +1820,9 @@ pub struct PortalProjectCalendarEvent {
     pub property_name: Option<String>,
     pub kind: String,
     pub source: String,
+    pub provider_event_id: Option<String>,
+    pub recurring: bool,
+    pub detached: bool,
 }
 
 /// Everything a public page renders from.
