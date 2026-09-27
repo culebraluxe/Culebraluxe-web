@@ -30,20 +30,160 @@ pub(super) fn workspace(
 
     html! {
         <div class="grid min-h-0 gap-3 lg:h-[calc(100dvh-8.5rem)] lg:grid-cols-[390px_minmax(0,1fr)]">
-            { navigator() }
+            { navigator(model, projects, on_msg) }
             { center_panel(model, projects, on_msg) }
         </div>
     }
 }
 
-fn navigator() -> Html {
+const DOMAINS: [(&str, &str); 6] = [
+    ("properties", "Properties"),
+    ("people", "People"),
+    ("deals", "Deals"),
+    ("firm", "Firm"),
+    ("marketing", "Marketing"),
+    ("accounting", "Accounting"),
+];
+
+/// The left pane: the domain, then that domain's projects (with what each is about), then the open project's work as
+/// a tree. Search narrows projects and work; Catch-up switches the centre to the catch-up list.
+fn navigator(model: &Vm<'_>, projects: &PortalProjectsPage, on_msg: &Callback<Msg>) -> Html {
+    let query = model.controls.query.trim().to_lowercase();
+    let matches = |text: &str| query.is_empty() || text.to_lowercase().contains(&query);
+    let listed: Vec<&PortalProject> = projects
+        .projects
+        .iter()
+        .filter(|project| crate::projects::project_in_domain(project, &projects.items, &projects.active_domain))
+        .filter(|project| {
+            matches(&project.name)
+                || matches(project.owner.as_deref().unwrap_or(""))
+                || project_items(projects, &project.id).iter().any(|item| matches(&item.title))
+        })
+        .collect();
+    let about = |project: &PortalProject| {
+        [
+            project.property_id.as_ref().map(|id| format!("property:{id}")),
+            project.person_id.as_ref().map(|id| format!("person:{id}")),
+            project.contract_id.as_ref().map(|id| format!("contract:{id}")),
+        ]
+        .into_iter()
+        .flatten()
+        .find_map(|key| projects.identity_names.get(&key).cloned())
+    };
+    let search = on_msg.reform(|event: InputEvent| Msg::QueryChanged(crate::app::template::input_value(&event)));
+    let catch_up = projects.catch_up;
+    let toggle = on_msg.reform(move |_: MouseEvent| Msg::ProjectCatchUpToggled(!catch_up));
     html! {
         <aside
-            class="portal-glass-panel min-h-0 overflow-hidden rounded-[var(--portal-panel-radius)] text-white"
+            class="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)] text-white"
             style="background-color: color-mix(in srgb, var(--portal-navy) 90%, transparent);"
         >
-            { crate::app::template::widget_removed("The project navigator") }
+            <div class="shrink-0 space-y-2 border-b border-white/10 p-3">
+                <div class="flex flex-wrap gap-1">
+                    {for DOMAINS.iter().map(|(key, label)| {
+                        let active = projects.active_domain == *key;
+                        let pick = on_msg.reform(move |_: MouseEvent| Msg::ProjectDomainSelected((*key).to_owned()));
+                        html! {
+                            <button type="button" onclick={pick}
+                                class={classes!("rounded-md", "px-2", "py-1", "text-[10px]", "font-semibold", "uppercase", "tracking-[0.1em]",
+                                    if active { "bg-white text-[var(--portal-navy)]" } else { "text-white/65 hover:bg-white/10" })}>
+                                {*label}
+                            </button>
+                        }
+                    })}
+                </div>
+                <div class="flex gap-2">
+                    <input type="search" value={model.controls.query.clone()} oninput={search} placeholder="Search projects and work…"
+                        class="h-8 min-w-0 flex-1 rounded-md border border-white/15 bg-white/10 px-2 text-[12px] text-white placeholder:text-white/40 outline-none focus:border-white/40" />
+                    <button type="button" onclick={toggle}
+                        class={classes!("rounded-md", "px-2", "text-[10px]", "font-semibold", "uppercase", "tracking-[0.1em]",
+                            if catch_up { "bg-[var(--portal-gold)] text-[var(--portal-navy)]" } else { "border border-white/20 text-white/75" })}>
+                        {"Catch-up"}
+                    </button>
+                </div>
+            </div>
+            <div class="min-h-0 flex-1 overflow-y-auto p-2">
+                if listed.is_empty() {
+                    <p class="px-2 py-6 text-center text-[12px] text-white/45">{"No projects here."}</p>
+                }
+                {for listed.iter().map(|project| {
+                    let selected = projects.selected_project_id.as_deref() == Some(project.id.as_str());
+                    let id = project.id.clone();
+                    let open = on_msg.reform(move |_: MouseEvent| Msg::ProjectSelected(id.clone()));
+                    let progress = project_progress(projects, &project.id);
+                    html! {
+                        <div class="mb-1">
+                            <button type="button" onclick={open}
+                                class={classes!("w-full", "rounded-md", "px-2.5", "py-2", "text-left", "transition",
+                                    if selected { "bg-white/15" } else { "hover:bg-white/10" })}>
+                                <div class="flex items-center justify-between gap-2">
+                                    <span class="truncate text-[13px] font-medium">{&project.name}</span>
+                                    <span class="shrink-0 text-[10px] text-white/50">{format!("{progress}%")}</span>
+                                </div>
+                                if let Some(about) = about(project) {
+                                    <div class="truncate text-[11px] text-white/50">{about}</div>
+                                }
+                            </button>
+                            if selected {
+                                <div class="ml-2 border-l border-white/10 pl-1">
+                                    {work_tree(model, projects, &project.id, None, &query, on_msg, 0)}
+                                </div>
+                            }
+                        </div>
+                    }
+                })}
+            </div>
         </aside>
+    }
+}
+
+/// A project's work under `parent`, in order, each row opening that work item in the centre.
+fn work_tree(
+    model: &Vm<'_>,
+    projects: &PortalProjectsPage,
+    project_id: &str,
+    parent: Option<&str>,
+    query: &str,
+    on_msg: &Callback<Msg>,
+    depth: usize,
+) -> Html {
+    if depth > 8 {
+        return Html::default();
+    }
+    let mut children: Vec<&PortalProjectWorkItem> = project_items(projects, project_id)
+        .into_iter()
+        .filter(|item| item.parent_id.as_deref() == parent)
+        .collect();
+    children.sort_by(|a, b| {
+        a.order
+            .unwrap_or(i32::MAX)
+            .cmp(&b.order.unwrap_or(i32::MAX))
+            .then_with(|| a.due_at.as_deref().unwrap_or("9999").cmp(b.due_at.as_deref().unwrap_or("9999")))
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    html! {
+        {for children.into_iter().filter(|item| query.is_empty() || item.title.to_lowercase().contains(query) || parent.is_some()).map(|item| {
+            let selected = projects.selected_node_id.as_deref() == Some(item.id.as_str());
+            let id = item.id.clone();
+            let open = on_msg.reform(move |_: MouseEvent| Msg::ProjectNodeSelected(Some(id.clone())));
+            let due = due_label(item.due_at.as_deref());
+            html! {
+                <>
+                    <button type="button" onclick={open}
+                        class={classes!("flex", "w-full", "items-center", "gap-2", "rounded", "px-2", "py-1.5", "text-left", "text-[12px]",
+                            if selected { "bg-white/15 text-white" } else { "text-white/75 hover:bg-white/10" })}>
+                        <span class={classes!("h-1.5", "w-1.5", "shrink-0", "rounded-full", status_dot(&item.status))}></span>
+                        <span class="min-w-0 flex-1 truncate">{&item.title}</span>
+                        if due != "—" {
+                            <span class="shrink-0 text-[10px] text-white/45">{due}</span>
+                        }
+                    </button>
+                    <div class="ml-3">
+                        {work_tree(model, projects, project_id, Some(item.id.as_str()), query, on_msg, depth + 1)}
+                    </div>
+                </>
+            }
+        })}
     }
 }
 
