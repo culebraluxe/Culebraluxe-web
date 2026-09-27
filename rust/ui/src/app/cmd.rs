@@ -86,6 +86,15 @@ pub enum Cmd<Msg> {
     /// Stateful workspaces use this after swapping their selected record in-place. The MVI Model stays mounted while
     /// the address bar still tracks the record a reload should reopen.
     ReplacePath(String),
+    /// Invoke the browser's native share sheet with an already-rendered PDF.
+    ///
+    /// This is an executor-owned browser capability, not screen logic. Keeping it a first-class Cmd means Forms can
+    /// preserve the immediate user gesture Apple/Safari requires without adding a JavaScript escape hatch.
+    SharePdf {
+        data_uri: String,
+        filename: String,
+        reply: Box<dyn FnOnce(Result<(), ApiError>) -> Msg>,
+    },
     /// Read one value from the device's storage; `None` when absent or storage is unavailable.
     StorageRead {
         key: String,
@@ -164,6 +173,18 @@ impl<Msg: 'static> Cmd<Msg> {
         Cmd::ReplacePath(path.into())
     }
 
+    pub fn share_pdf(
+        data_uri: impl Into<String>,
+        filename: impl Into<String>,
+        to_msg: impl FnOnce(Result<(), ApiError>) -> Msg + 'static,
+    ) -> Self {
+        Cmd::SharePdf {
+            data_uri: data_uri.into(),
+            filename: filename.into(),
+            reply: Box::new(to_msg),
+        }
+    }
+
     pub fn storage_read(
         key: impl Into<String>,
         to_msg: impl FnOnce(Option<String>) -> Msg + 'static,
@@ -223,6 +244,15 @@ impl<Msg: 'static> Cmd<Msg> {
             Cmd::Navigate(path) => Cmd::Navigate(path),
             Cmd::Load(href) => Cmd::Load(href),
             Cmd::ReplacePath(path) => Cmd::ReplacePath(path),
+            Cmd::SharePdf {
+                data_uri,
+                filename,
+                reply,
+            } => Cmd::SharePdf {
+                data_uri,
+                filename,
+                reply: Box::new(move |answer| f(reply(answer))),
+            },
             Cmd::StorageRead { key, reply } => Cmd::StorageRead {
                 key,
                 reply: Box::new(move |value| f(reply(value))),
@@ -264,6 +294,7 @@ impl<Msg> std::fmt::Debug for Cmd<Msg> {
             Cmd::Navigate(path) => write!(f, "Navigate({path})"),
             Cmd::Load(href) => write!(f, "Load({href})"),
             Cmd::ReplacePath(path) => write!(f, "ReplacePath({path})"),
+            Cmd::SharePdf { filename, .. } => write!(f, "SharePdf({filename})"),
             Cmd::StorageRead { key, .. } => write!(f, "StorageRead({key})"),
             Cmd::StorageWrite { key, value } => write!(f, "StorageWrite({key}, {value:?})"),
             Cmd::After { millis, .. } => write!(f, "After({millis}ms)"),
