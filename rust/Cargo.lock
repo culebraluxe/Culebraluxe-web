@@ -2388,6 +2388,7 @@ dependencies = [
  "domain",
  "flate2",
  "forge",
+ "hmac 0.12.1",
  "image",
  "integrations",
  "reqwest",

@@ -13,6 +13,7 @@ pub mod forms;
 pub mod listing_media;
 pub mod projects;
 pub mod security;
+pub mod sign_in;
 pub mod security_users;
 pub mod seller_strategy;
 pub mod site;

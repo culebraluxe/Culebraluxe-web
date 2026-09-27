@@ -205,10 +205,10 @@ pub const ENTRIES: &[Entry] = &[
     entry("site-privacy", "/privacy", Surface::Site, "Privacy", Menu::None, "", "", Kind::Screen(mount::<site::notices::PrivacyPage>)),
     entry("site-favorites", "/favorites", Surface::Site, "Favorites", Menu::None, "", "", Kind::Screen(mount::<site::pages::Favorites>)),
     entry("site-account", "/account", Surface::Site, "Account", Menu::None, "", "", Kind::Screen(mount::<Account>)),
-    entry("login", "/login", Surface::Site, "Login", Menu::None, "", "", Kind::External),
+    entry("login", "/login", Surface::Site, "Login", Menu::None, "", "", Kind::Screen(crate::app::screens::sign_in::login)),
     entry("login-recovery", "/login/recovery", Surface::Site, "Login recovery", Menu::None, "", "", Kind::Screen(mount::<site::notices::Recovery>)),
     entry("login-unauthorized", "/login/unauthorized", Surface::Site, "Login unauthorized", Menu::None, "", "", Kind::Screen(mount::<site::notices::UnauthorizedPage>)),
-    entry("auth-error", "/auth/error", Surface::Site, "Auth error", Menu::None, "", "", Kind::External),
+    entry("auth-error", "/auth/error", Surface::Site, "Auth error", Menu::None, "", "", Kind::Screen(crate::app::screens::sign_in::auth_error)),
     entry("portal-root", "/portal", Surface::Core, "Portal", Menu::None, "portal.read", "", Kind::External),
 ];
 

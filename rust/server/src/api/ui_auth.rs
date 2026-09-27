@@ -1,14 +1,14 @@
 //! WHO THE BROWSER IS — for the Yew application calling this server directly.
 //!
-//! TEMPORARY, BY THE OWNER'S DECISION (2026-09-26): Google sign-in is not in Rust yet, so an allowed portal request
-//! acts as the ROOT user. Who is allowed:
-//!   * development — everyone, when `CULEBRA_UI_AUTH_STUB=root` (the dev launcher sets it);
-//!   * production — only a browser holding the PORTAL KEY: visit `/portal-key?key=<key>` once and a cookie carries it.
-//!     The key is `CULEBRA_PORTAL_KEY`, else `PORTAL_REVIEW_TOKEN` (16+ characters). With no key configured, production
-//!     portal requests are 401. The owner asked for an open portal for the first production deploy; the key keeps it
-//!     open to the owner without publishing every client's name, phone and email to the internet.
+//! A portal request is signed in by the SESSION COOKIE that Google sign-in sets (`google_auth`): it carries the Google
+//! identity (provider + subject), signed with AUTH_SECRET, and every request resolves it through the Security service —
+//! the same `auth_identity` rows Auth.js used, so every existing user signs in unchanged. In development, when
+//! `CULEBRA_UI_AUTH_STUB=root` (the dev launcher sets it), a request without a session acts as the ROOT user; the stub
+//! is refused whenever the environment says production.
 
 use axum::http::{header, HeaderMap};
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 use uuid::Uuid;
 
 use super::context::{resolve_identity_context, ResolvedRequestContext};
@@ -17,11 +17,16 @@ use super::{ApiError, ApiState};
 /// The ROOT app user the stub acts as (the DEV database's "CulebraLuxe Root"); override with `CULEBRA_UI_AUTH_STUB_USER`.
 const DEFAULT_ROOT_USER: &str = "1fc6dc61-d842-4d29-a20b-93c79e07c718";
 
-/// The cookie `/portal-key` sets.
-pub const PORTAL_KEY_COOKIE: &str = "culebra_portal_key";
+/// The signed-in session's cookie.
+pub const SESSION_COOKIE: &str = "culebra_session";
 
-fn production() -> bool {
-    ["APP_ENV", "VERCEL_ENV"].iter().any(|key| std::env::var(key).is_ok_and(|value| value.eq_ignore_ascii_case("production")))
+/// How long a sign-in lasts.
+pub const SESSION_SECONDS: i64 = 7 * 24 * 60 * 60;
+
+pub fn production() -> bool {
+    ["APP_ENV", "VERCEL_ENV"]
+        .iter()
+        .any(|key| std::env::var(key).is_ok_and(|value| value.eq_ignore_ascii_case("production")))
 }
 
 /// The development stub: on when asked for, never in production.
@@ -29,20 +34,7 @@ pub fn stub_enabled() -> bool {
     std::env::var("CULEBRA_UI_AUTH_STUB").is_ok_and(|value| value == "root") && !production()
 }
 
-/// The production portal key, when one is configured (16+ characters).
-pub fn portal_key() -> Option<String> {
-    ["CULEBRA_PORTAL_KEY", "PORTAL_REVIEW_TOKEN"]
-        .iter()
-        .filter_map(|key| std::env::var(key).ok())
-        .map(|value| value.trim().to_owned())
-        .find(|value| value.len() >= 16)
-}
-
-fn same(a: &str, b: &str) -> bool {
-    a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
-}
-
-fn cookie<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+pub fn cookie<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
     headers
         .get_all(header::COOKIE)
         .iter()
@@ -53,18 +45,56 @@ fn cookie<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
         .map(|(_, value)| value)
 }
 
-/// Whether this request may use the portal (as ROOT, until sign-in is in Rust).
-pub fn portal_open(headers: &HeaderMap) -> bool {
-    if stub_enabled() {
-        return true;
-    }
-    production()
-        && portal_key().is_some_and(|key| cookie(headers, PORTAL_KEY_COOKIE).is_some_and(|given| same(given, &key)))
+fn signature(payload: &str) -> Option<String> {
+    let secret = std::env::var("AUTH_SECRET").ok().filter(|secret| secret.len() >= 16)?;
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).ok()?;
+    mac.update(payload.as_bytes());
+    Some(mac.finalize().into_bytes().iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
-/// Whether a key someone presented is the portal key.
-pub fn is_portal_key(given: &str) -> bool {
-    portal_key().is_some_and(|key| same(given.trim(), &key))
+/// A session cookie's value for a provider identity: `provider|subject|expires.signature`.
+pub fn session_value(provider: &str, subject: &str, now: i64) -> Option<String> {
+    let payload = format!("{provider}|{subject}|{}", now + SESSION_SECONDS);
+    let signature = signature(&payload)?;
+    Some(format!("{}.{signature}", base64_url(&payload)))
+}
+
+fn base64_url(text: &str) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(text)
+}
+
+/// The provider identity a valid, unexpired session cookie carries.
+pub fn session_identity(headers: &HeaderMap, now: i64) -> Option<(String, String)> {
+    use base64::Engine;
+    let (encoded, given) = cookie(headers, SESSION_COOKIE)?.split_once('.')?;
+    let payload = String::from_utf8(base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(encoded).ok()?).ok()?;
+    let expected = signature(&payload)?;
+    let same = expected.len() == given.len()
+        && expected.bytes().zip(given.bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0;
+    if !same {
+        return None;
+    }
+    let mut parts = payload.splitn(3, '|');
+    let (provider, subject, expires) = (parts.next()?, parts.next()?, parts.next()?.parse::<i64>().ok()?);
+    (expires > now).then(|| (provider.to_owned(), subject.to_owned()))
+}
+
+pub fn now_seconds() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// The identity this request signs in as: its session, else (development only) the ROOT stub.
+fn request_identity(headers: &HeaderMap) -> Option<(String, String)> {
+    session_identity(headers, now_seconds()).or_else(|| stub_enabled().then(stub_provider_identity))
+}
+
+/// Whether this request may use the portal.
+pub fn portal_open(headers: &HeaderMap) -> bool {
+    request_identity(headers).is_some()
 }
 
 pub fn stub_user() -> String {
@@ -72,17 +102,16 @@ pub fn stub_user() -> String {
 }
 
 /// The portal chrome's projection of the signed-in user (`#rust-actor` in the shell): what it may be offered.
-pub fn actor_projection_json(headers: &HeaderMap) -> Option<String> {
-    portal_open(headers).then(|| {
-        serde_json::json!({
-            "accountType": "internal",
-            "securityLevel": "ROOT",
-            "authorityCodes": ["portal.read", "crm.write", "listing.write", "deal.read", "deal.write",
-                               "settings.read", "settings.manage", "tech.access"],
-            "entitlementCodes": [],
-        })
-        .to_string()
+pub fn actor_projection(resolved: &ResolvedRequestContext) -> String {
+    let user = &resolved.acting_user;
+    let level = resolved.service.principal.as_ref().map(|p| p.level.clone()).unwrap_or_else(|| "GUEST".into());
+    serde_json::json!({
+        "accountType": user.account_type,
+        "securityLevel": level,
+        "authorityCodes": user.authority_codes,
+        "entitlementCodes": user.entitlement_codes,
     })
+    .to_string()
 }
 
 /// A portal request's resolved user: under the stub, the ROOT user's break-glass identity resolved by the Security
@@ -91,13 +120,9 @@ pub async fn resolve_portal_context(
     state: &ApiState,
     headers: &HeaderMap,
 ) -> Result<ResolvedRequestContext, ApiError> {
-    if !portal_open(headers) {
-        return Err(ApiError::unauthorized(
-            "SIGN_IN_REQUIRED",
-            "Portal sign-in is not available on this server yet.",
-        ));
-    }
-    let (provider, subject) = stub_provider_identity();
+    let Some((provider, subject)) = request_identity(headers) else {
+        return Err(ApiError::unauthorized("SIGN_IN_REQUIRED", "Sign in to use the portal."));
+    };
     resolve_identity_context(state, &provider, &subject, correlation(headers), None).await
 }
 
@@ -120,27 +145,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_stub_is_refused_in_production() {
+    fn the_stub_is_refused_in_production_and_a_session_signs_in() {
         // One test owns these variables so parallel tests cannot interleave them.
+        std::env::set_var("AUTH_SECRET", "test-secret-that-is-long-enough");
         std::env::set_var("CULEBRA_UI_AUTH_STUB", "root");
         std::env::remove_var("VERCEL_ENV");
         std::env::set_var("APP_ENV", "development");
-        assert!(stub_enabled());
-        assert!(actor_projection_json(&HeaderMap::new()).is_some_and(|json| json.contains("ROOT")));
+        assert!(stub_enabled() && portal_open(&HeaderMap::new()), "development: the stub opens the portal");
         std::env::set_var("APP_ENV", "production");
-        assert!(!stub_enabled(), "never in production");
-        assert!(actor_projection_json(&HeaderMap::new()).is_none(), "production needs the key");
-        std::env::set_var("CULEBRA_PORTAL_KEY", "k3y-that-is-long-enough");
+        assert!(!portal_open(&HeaderMap::new()), "production: nothing without a session");
+
+        let now = 1_000_000;
+        let value = session_value("google", "sub-123", now).unwrap();
         let with = |value: &str| {
             let mut headers = HeaderMap::new();
-            headers.insert(axum::http::header::COOKIE, format!("a=b; {PORTAL_KEY_COOKIE}={value}").parse().unwrap());
+            headers.insert(header::COOKIE, format!("x=y; {SESSION_COOKIE}={value}").parse().unwrap());
             headers
         };
-        assert!(portal_open(&with("k3y-that-is-long-enough")), "the key opens production");
-        assert!(!portal_open(&with("k3y-that-is-long-enougH")), "a wrong key does not");
-        assert!(!portal_open(&HeaderMap::new()), "no key, no portal");
-        assert!(is_portal_key(" k3y-that-is-long-enough "));
-        std::env::remove_var("CULEBRA_PORTAL_KEY");
+        assert_eq!(session_identity(&with(&value), now), Some(("google".into(), "sub-123".into())));
+        assert_eq!(session_identity(&with(&value), now + SESSION_SECONDS + 1), None, "an expired session");
+        let forged = value.replace("Z29vZ2xl", "Z29vZ2xm");
+        assert_eq!(session_identity(&with(&forged), now), None, "a changed payload fails the signature");
         std::env::remove_var("CULEBRA_UI_AUTH_STUB");
         std::env::remove_var("APP_ENV");
     }

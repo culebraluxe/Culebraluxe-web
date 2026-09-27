@@ -8,6 +8,7 @@ mod context;
 mod diagnostics;
 mod engine;
 mod error;
+pub mod google_auth;
 pub mod error_capture;
 mod portal_bridge;
 mod public_ui;

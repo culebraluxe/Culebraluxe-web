@@ -27,53 +27,56 @@ pub fn site_dir() -> PathBuf {
 }
 
 /// The router's fallback: static files first, then the shell.
-pub fn service() -> ServeDir<axum::routing::MethodRouter> {
+pub fn service(state: crate::api::ApiState) -> ServeDir<axum::routing::MethodRouter> {
     ServeDir::new(site_dir())
         .append_index_html_on_directories(false)
-        .fallback(axum::routing::get(shell_now))
+        .fallback(axum::routing::get(shell_now).with_state(state))
 }
 
-async fn shell_now(uri: Uri, headers: axum::http::HeaderMap) -> Response {
-    // An API address nobody answers is a 404, never a web page a caller would try to parse as JSON.
+async fn shell_now(
+    axum::extract::State(state): axum::extract::State<crate::api::ApiState>,
+    uri: Uri,
+    headers: axum::http::HeaderMap,
+) -> Response {
     let path = uri.path();
-    // The production portal key: a valid key sets the cookie that opens the portal (see api::ui_auth).
-    if path == "/portal-key" {
-        let key = uri
-            .query()
-            .and_then(|query| query.split('&').find_map(|pair| pair.strip_prefix("key=")))
-            .unwrap_or("");
-        if !crate::api::ui_auth::is_portal_key(key) {
-            return StatusCode::UNAUTHORIZED.into_response();
-        }
-        let cookie = format!(
-            "{}={}; Path=/; Max-Age=2592000; HttpOnly; Secure; SameSite=Lax",
-            crate::api::ui_auth::PORTAL_KEY_COOKIE,
-            key.trim()
-        );
-        let mut response = axum::response::Redirect::to("/portal/dashboard").into_response();
-        if let Ok(value) = header::HeaderValue::from_str(&cookie) {
-            response.headers_mut().insert(header::SET_COOKIE, value);
-        }
-        return response;
+    if let Some(answer) = early_answer(path) {
+        return answer;
     }
-    if path.starts_with("/v1/") || path.starts_with("/api/") {
-        return StatusCode::NOT_FOUND.into_response();
-    }
-    // The portal has no page of its own; it opens on the dashboard (as `app/portal/page.tsx` did).
-    if path == "/portal" || path == "/portal/" {
-        return axum::response::Redirect::temporary("/portal/dashboard").into_response();
-    }
-    shell(path, &headers)
-}
-
-/// The application shell for `path`.
-pub fn shell(path: &str, headers: &axum::http::HeaderMap) -> Response {
-    let portal = path == "/portal" || path.starts_with("/portal/");
+    let portal = path.starts_with("/portal/");
+    // A portal page for someone not signed in goes to the sign-in page, and comes back here after.
     let actor = if portal {
-        crate::api::ui_auth::actor_projection_json(headers).unwrap_or_default()
+        match crate::api::ui_auth::resolve_portal_context(&state, &headers).await {
+            Ok(resolved) => crate::api::ui_auth::actor_projection(&resolved),
+            Err(_) => {
+                let back = uri.path_and_query().map(|p| p.as_str()).unwrap_or("/portal/dashboard");
+                return axum::response::Redirect::to(&format!(
+                    "/login?callbackUrl={}",
+                    crate::api::google_auth::encode(back)
+                ))
+                .into_response();
+            }
+        }
     } else {
         String::new()
     };
+    shell(path, &actor)
+}
+
+/// The answers that need no page: an API address nobody answers is a 404 (never a web page a caller would try to parse
+/// as JSON), and the portal, which has no page of its own, opens on the dashboard.
+fn early_answer(path: &str) -> Option<Response> {
+    if path.starts_with("/v1/") || path.starts_with("/api/") {
+        return Some(StatusCode::NOT_FOUND.into_response());
+    }
+    if path == "/portal" || path == "/portal/" {
+        return Some(axum::response::Redirect::temporary("/portal/dashboard").into_response());
+    }
+    None
+}
+
+/// The application shell for `path`.
+pub fn shell(path: &str, actor: &str) -> Response {
+    let portal = path == "/portal" || path.starts_with("/portal/");
     let actor_script = if actor.is_empty() {
         String::new()
     } else {
@@ -135,27 +138,20 @@ mod tests {
             )
             .unwrap()
         };
-        let site = body(shell("/buyers", &axum::http::HeaderMap::new())).await;
+        let site = body(shell("/buyers", "")).await;
         assert!(site.contains(r#"data-rust-app="site""#));
         assert!(site.contains("import init, { start_in } from '/rust-ui/ui.js'"));
-        let portal = body(shell("/portal/clients/abc", &axum::http::HeaderMap::new())).await;
+        let portal = body(shell("/portal/clients/abc", "")).await;
         assert!(portal.contains(r#"data-rust-app="portal""#));
     }
 
     #[tokio::test]
     async fn an_unknown_api_address_is_a_404_not_the_page() {
         for path in ["/v1/nothing", "/api/portal/rust-ui/nothing"] {
-            assert_eq!(
-                shell_now(path.parse().unwrap(), axum::http::HeaderMap::new()).await.status(),
-                StatusCode::NOT_FOUND,
-                "{path}"
-            );
+            assert_eq!(early_answer(path).unwrap().status(), StatusCode::NOT_FOUND, "{path}");
         }
-        assert_eq!(
-            shell_now("/buyers".parse().unwrap(), axum::http::HeaderMap::new()).await.status(),
-            StatusCode::OK
-        );
-        let portal = shell_now("/portal".parse().unwrap(), axum::http::HeaderMap::new()).await;
+        assert!(early_answer("/buyers").is_none(), "a page is the shell");
+        let portal = early_answer("/portal").unwrap();
         assert_eq!(portal.headers()[header::LOCATION], "/portal/dashboard");
     }
 }

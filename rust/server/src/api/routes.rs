@@ -878,6 +878,7 @@ async fn support_workflow_detail(
 pub fn router(state: ApiState) -> Router {
     Router::new()
         .merge(super::portal_bridge::router())
+        .merge(super::google_auth::router())
         .route("/healthz", get(health))
         .route("/readyz", get(ready))
         .route("/v1/whoami", get(whoami))
@@ -1117,7 +1118,7 @@ pub fn router(state: ApiState) -> Router {
             registered_service_mailbox,
         ))
         // Everything the API does not claim is the website: static files, else the Yew shell (crate::site).
-        .fallback_service(crate::site::service())
+        .fallback_service(crate::site::service(state.clone()))
         .with_state(state)
 }
 
