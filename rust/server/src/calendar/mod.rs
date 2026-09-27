@@ -3,8 +3,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use db::{CalendarDao, DbResult};
 use domain::{
-    CalendarCommandReceipt, CalendarEvent, CalendarViewportQuery, CreateAppleCalendarEventRequest,
-    UpdateAppleCalendarEventRequest,
+    CalendarCommandReceipt, CalendarCommandState, CalendarEvent, CalendarViewportQuery,
+    CreateAppleCalendarEventRequest, UpdateAppleCalendarEventRequest,
 };
 use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
 
@@ -28,6 +28,7 @@ pub trait CalendarRepository: Send {
         actor_app_user_id: Option<&str>,
         correlation_id: &str,
     ) -> DbResult<CalendarCommandReceipt>;
+    async fn command_state(&self, command_id: &str) -> DbResult<Option<CalendarCommandState>>;
 }
 
 #[async_trait]
@@ -60,6 +61,10 @@ impl CalendarRepository for CalendarDao {
         correlation_id: &str,
     ) -> DbResult<CalendarCommandReceipt> {
         CalendarDao::update_apple_event(self, request, actor_app_user_id, correlation_id).await
+    }
+
+    async fn command_state(&self, command_id: &str) -> DbResult<Option<CalendarCommandState>> {
+        CalendarDao::command_state(self, command_id).await
     }
 }
 
@@ -205,6 +210,11 @@ impl<R: CalendarRepository> CalendarService<R> {
             }
             let normalized = UpdateAppleCalendarEventRequest {
                 event_id: request.event_id.trim().to_owned(),
+                calendar_item_id: request
+                    .calendar_item_id
+                    .as_ref()
+                    .map(|id| id.trim().to_owned())
+                    .filter(|id| !id.is_empty()),
                 start_at: request.start_at.clone(),
                 end_at: request.end_at.clone(),
                 all_day: request.all_day,
@@ -222,6 +232,35 @@ impl<R: CalendarRepository> CalendarService<R> {
         }
         .await;
 
+        audit_result(&self.runtime, "calendar", OP, context, decision, &result).await?;
+        result
+    }
+
+    pub async fn command_state(
+        &self,
+        command_id: &str,
+        context: &ServiceContext,
+    ) -> Result<Option<CalendarCommandState>, CoreServiceError> {
+        const OP: &str = "calendar.commandState";
+        let decision = authorize(
+            &self.runtime,
+            "calendar",
+            "calendar.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+
+        let command_id = command_id.trim();
+        let result = if command_id.is_empty() {
+            Err(CoreServiceError::business(
+                "CALENDAR_COMMAND_ID_REQUIRED",
+                "Calendar command id is required.",
+            ))
+        } else {
+            self.repository.command_state(command_id).await.map_err(Into::into)
+        };
         audit_result(&self.runtime, "calendar", OP, context, decision, &result).await?;
         result
     }
