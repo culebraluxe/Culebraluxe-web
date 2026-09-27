@@ -1736,13 +1736,29 @@ fn media_editor(
                                 {format!("{} / {}", active_index + 1, images.len())}
                             </span>
                         </div>
-                        if image.role != "hero" {
+                        // What can be done to this photo: make it the hero, or delete it. Delete asks once — the second
+                        // press, on the same photo, deletes it and its web copies.
+                        <div class="absolute right-4 top-4 z-10 flex gap-2">
+                            if image.role != "hero" {
+                                <button type="button"
+                                    onclick={ { let id = image.id.clone(); on_msg.reform(move |_: MouseEvent| Msg::MakeHero(id.clone())) } }
+                                    class="rounded-full border border-white/40 bg-black/40 px-3 py-1 text-[9px] font-semibold uppercase tracking-[0.13em] text-white backdrop-blur-sm hover:bg-black/60">
+                                    {"Make hero"}
+                                </button>
+                            }
                             <button type="button"
-                                onclick={ { let id = image.id.clone(); on_msg.reform(move |_: MouseEvent| Msg::MakeHero(id.clone())) } }
-                                class="absolute right-4 top-4 z-10 rounded-full border border-white/40 bg-black/40 px-3 py-1 text-[9px] font-semibold uppercase tracking-[0.13em] text-white backdrop-blur-sm hover:bg-black/60">
-                                {"Make hero"}
+                                onclick={ { let id = image.id.clone(); on_msg.reform(move |_: MouseEvent| Msg::DeletePhoto(id.clone())) } }
+                                class={classes!(
+                                    "rounded-full", "border", "px-3", "py-1", "text-[9px]", "font-semibold", "uppercase", "tracking-[0.13em]", "text-white", "backdrop-blur-sm",
+                                    if model.ops.media_confirm_delete.as_deref() == Some(image.id.as_str()) {
+                                        "border-red-300 bg-red-600/85 hover:bg-red-600"
+                                    } else {
+                                        "border-white/40 bg-black/40 hover:bg-black/60"
+                                    }
+                                )}>
+                                { if model.ops.media_confirm_delete.as_deref() == Some(image.id.as_str()) { "Confirm delete" } else { "Delete" } }
                             </button>
-                        }
+                        </div>
                         if images.len() > 1 {
                             <button
                                 type="button"

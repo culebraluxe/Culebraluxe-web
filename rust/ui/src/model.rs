@@ -2083,6 +2083,8 @@ pub struct OpsWorkbenchState {
     pub media_batch_first: Option<String>,
     /// The property the running batch uploads to.
     pub media_batch_property: Option<String>,
+    /// The photo whose Delete was pressed once: a second press deletes it.
+    pub media_confirm_delete: Option<String>,
     pub media_uploader_open: bool,
 }
 
@@ -2112,6 +2114,7 @@ impl Default for OpsWorkbenchState {
             media_batch_failed: Vec::new(),
             media_batch_first: None,
             media_batch_property: None,
+            media_confirm_delete: None,
             media_uploader_open: false,
         }
     }

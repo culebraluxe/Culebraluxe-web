@@ -15,7 +15,7 @@ mod view;
 
 use yew::prelude::*;
 
-use crate::app::api::{DealPeopleSearch, OpsCommand, OpsRead, PropertyHero, PROPERTY_MEDIA_CHUNKED};
+use crate::app::api::{DealPeopleSearch, OpsCommand, OpsRead, PropertyHero, PropertyMediaRemove, PROPERTY_MEDIA_CHUNKED};
 use crate::app::cmd::{ApiError, Cmd, Remote};
 use crate::app::screen::{Link, Screen, ScreenCtx};
 use crate::app::template;
@@ -43,6 +43,10 @@ pub struct Model {
     pub error: Option<String>,
     /// Photos chosen together, waiting their turn (uploaded one at a time).
     upload_queue: Vec<web_sys::File>,
+    /// The photo uploading now, kept so a failure can put it back in the queue.
+    upload_current: Option<web_sys::File>,
+    /// Photos already put back once: a second failure is reported instead of retried again.
+    upload_retried: Vec<String>,
     /// The newest read's number; an answer with another is stale and dropped.
     seq: u32,
     /// The newest keystroke's number, for the search pause.
@@ -90,6 +94,9 @@ pub enum Msg {
     OpsMediaFilesChosen(Vec<web_sys::File>),
     /// Make this photograph the hero.
     MakeHero(String),
+    /// Delete pressed on a photo: the first press asks, the second deletes.
+    DeletePhoto(String),
+    PhotoDeleted(Result<serde_json::Value, ApiError>),
     HeroSet(Result<serde_json::Value, ApiError>),
     OpsVideoRefreshRequested,
 }
@@ -181,6 +188,7 @@ fn next_upload(model: &mut Model) -> Cmd<Msg> {
         return Cmd::none();
     }
     let file = model.upload_queue.remove(0);
+    model.upload_current = Some(file.clone());
     // The property the batch started on, even if another is selected while it runs.
     let Some(property_id) = model.ops.media_batch_property.clone() else {
         model.upload_queue.clear();
@@ -527,6 +535,7 @@ fn update(model: &mut Model, msg: Msg) -> Cmd<Msg> {
 
         // ---- photographs and video -----------------------------------------------------------------------------------
         Msg::OpsMediaSelected(index) => {
+            model.ops.media_confirm_delete = None;
             let images = model
                 .read
                 .loaded()
@@ -583,19 +592,41 @@ fn update(model: &mut Model, msg: Msg) -> Cmd<Msg> {
             model.ops.media_batch_total = files.len();
             model.ops.media_batch_done = 0;
             model.ops.media_batch_failed.clear();
+            model.upload_retried.clear();
             model.ops.media_batch_property = model.selected.clone();
             model.ops.media_batch_first = Some(media_title(model.read.loaded())).filter(|title| !title.is_empty());
             model.upload_queue = files;
             next_upload(model)
         }
         Msg::MakeHero(media_id) => {
-            // The property the batch started on, even if another is selected while it runs.
-    let Some(property_id) = model.ops.media_batch_property.clone() else {
+            let Some(property_id) = model.selected.clone() else {
                 return Cmd::none();
             };
             model.error = None;
             Cmd::request(PropertyHero { property_id, media_id }, Msg::HeroSet)
         }
+        Msg::DeletePhoto(media_id) => {
+            if model.ops.media_confirm_delete.as_deref() != Some(media_id.as_str()) {
+                model.ops.media_confirm_delete = Some(media_id);
+                return Cmd::none();
+            }
+            model.ops.media_confirm_delete = None;
+            let Some(property_id) = model.selected.clone() else {
+                return Cmd::none();
+            };
+            model.error = None;
+            Cmd::request(PropertyMediaRemove { property_id, media_id }, Msg::PhotoDeleted)
+        }
+        Msg::PhotoDeleted(result) => match result {
+            Ok(_) => {
+                model.ops.media_index = model.ops.media_index.saturating_sub(1);
+                read(model)
+            }
+            Err(error) => {
+                model.error = Some(format!("The photo was not deleted: {}", error.message));
+                Cmd::none()
+            }
+        },
         Msg::HeroSet(result) => match result {
             Ok(_) => {
                 model.ops.media_index = 0;
@@ -612,7 +643,14 @@ fn update(model: &mut Model, msg: Msg) -> Cmd<Msg> {
                 Ok(()) => model.ops.media_batch_done += 1,
                 Err(error) => {
                     let name = model.ops.media_file_name.clone().unwrap_or_default();
-                    model.ops.media_batch_failed.push(format!("{name} ({})", error.message));
+                    match model.upload_current.take() {
+                        // One more try, at the back of the line: it resumes with the pieces the server kept.
+                        Some(file) if !model.upload_retried.contains(&name) => {
+                            model.upload_retried.push(name);
+                            model.upload_queue.push(file);
+                        }
+                        _ => model.ops.media_batch_failed.push(format!("{name} ({})", error.message)),
+                    }
                 }
             }
             model.ops.media_file_name = None;

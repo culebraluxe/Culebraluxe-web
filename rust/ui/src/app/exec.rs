@@ -87,6 +87,61 @@ pub fn run<Msg: 'static>(cmd: Cmd<Msg>, deliver: &Callback<Msg>, navigator: Opti
 /// 3 MB per request: comfortably under the gateway's ~4.5 MB cap, so a 13 MB photograph uploads.
 const CHUNK_BYTES: f64 = 3.0 * 1024.0 * 1024.0;
 
+/// THE WAY OUT. No upload request may take longer than this: past it, the request is abandoned (aborted, so the
+/// browser lets go of it) and answers as a network failure, which is retried. A request that neither answers nor
+/// fails used to stall the whole batch silently — the failure was never reported because it never happened.
+const REQUEST_SECONDS: u64 = 50;
+
+/// Tries per request, waiting 4, 8, 16, 32 seconds between them: a dropped connection or a server restart is
+/// ridden out instead of costing the photograph.
+const ATTEMPTS: u32 = 5;
+
+/// One request, with the way out: it answers, fails, or is aborted at `REQUEST_SECONDS` — never hangs.
+async fn post_once(path: &str, form: web_sys::FormData) -> Result<serde_json::Value, ApiError> {
+    let controller = web_sys::AbortController::new()
+        .map_err(|_| ApiError::network("The browser could not start the upload."))?;
+    let signal = controller.signal();
+    yew::platform::spawn_local(async move {
+        yew::platform::time::sleep(std::time::Duration::from_secs(REQUEST_SECONDS)).await;
+        // Aborting a request that already finished does nothing.
+        controller.abort();
+    });
+    let response = HttpRequest::post(path)
+        .abort_signal(Some(&signal))
+        .body(form)
+        .map_err(|error| ApiError::network(error.to_string()))?
+        .send()
+        .await
+        .map_err(|error| ApiError::network(format!("the request did not complete ({error})")))?;
+    let status = response.status();
+    // A body that could not be read is a failure to report, not an empty answer.
+    let text = response
+        .text()
+        .await
+        .map_err(|error| ApiError::network(format!("the answer did not arrive ({error})")))?;
+    interpret(status, response.ok(), &text)
+}
+
+/// One request, retried: a network failure or a server error is tried again; a refusal is final.
+async fn post_form(
+    path: &str,
+    build: impl Fn() -> Result<web_sys::FormData, ApiError>,
+) -> Result<serde_json::Value, ApiError> {
+    let mut attempt = 1;
+    loop {
+        match post_once(path, build()?).await {
+            Err(error) if attempt < ATTEMPTS && (error.code == "NETWORK" || error.status >= 500) => {
+                yew::platform::time::sleep(std::time::Duration::from_secs(2u64 << attempt)).await;
+                attempt += 1;
+            }
+            answer => return answer,
+        }
+    }
+}
+
+/// A photograph, sent the way a torrent is: in pieces, each its own short request, and only the pieces the server
+/// does not already have. Every request is safe to send again, so any of them can be retried, and choosing the same
+/// file again later resumes it (or skips it, when the property already shows it).
 async fn upload_chunked(
     file: web_sys::File,
     path: &str,
@@ -111,19 +166,9 @@ async fn upload_chunked(
         }
         Ok(form)
     };
-    let post = |form: web_sys::FormData| async move {
-        let response = HttpRequest::post(path)
-            .body(form)
-            .map_err(|error| ApiError::network(error.to_string()))?
-            .send()
-            .await
-            .map_err(|error| ApiError::network(error.to_string()))?;
-        let status = response.status();
-        let text = response.text().await.unwrap_or_default();
-        interpret(status, response.ok(), &text)
-    };
 
-    // One: declare the file; everything needed to check the bytes later is settled here.
+    // One: declare the file. The server answers what it already has: `done` (the property shows this file already),
+    // `processing` (an earlier try is being finished), or an upload id with the pieces it holds.
     let mut declared: Vec<(&str, String)> = vec![
         ("filename", file.name()),
         ("mimeType", file.type_()),
@@ -136,60 +181,67 @@ async fn upload_chunked(
             .iter()
             .map(|(key, value)| (key.as_str(), value.clone())),
     );
-    let opened = post(form("init", &declared)?).await?;
+    let opened = post_form(path, || form("init", &declared)).await?;
+    let state = opened.get("state").and_then(|state| state.as_str()).unwrap_or("uploading");
+    if state == "done" {
+        return Ok(());
+    }
     let upload_id = opened
         .get("uploadId")
         .and_then(|id| id.as_str())
         .map(str::to_owned)
         .ok_or_else(|| ApiError::decode("The upload was opened but no upload id came back."))?;
 
-    // Two: the pieces, in order — the receiver refuses an index beyond the declared count, so they are not raced.
-    for index in 0..chunk_count {
-        let start = f64::from(index) * CHUNK_BYTES;
-        let end = (start + CHUNK_BYTES).min(size);
-        let piece = file
-            .unchecked_ref::<web_sys::Blob>()
-            .slice_with_f64_and_f64(start, end)
-            .map_err(|_| {
-                ApiError::network(format!(
-                    "Part {} of {chunk_count} could not be read.",
-                    index + 1
-                ))
+    if state != "processing" {
+        let received: std::collections::HashSet<i64> = opened
+            .get("received")
+            .and_then(|received| received.as_array())
+            .map(|indexes| indexes.iter().filter_map(serde_json::Value::as_i64).collect())
+            .unwrap_or_default();
+
+        // Two: the pieces the server lacks, in order — the receiver refuses an index beyond the declared count.
+        for index in 0..chunk_count {
+            if received.contains(&i64::from(index)) {
+                continue;
+            }
+            let start = f64::from(index) * CHUNK_BYTES;
+            let end = (start + CHUNK_BYTES).min(size);
+            let chunk = || -> Result<web_sys::FormData, ApiError> {
+                let piece = file
+                    .unchecked_ref::<web_sys::Blob>()
+                    .slice_with_f64_and_f64(start, end)
+                    .map_err(|_| ApiError::network(format!("Part {} of {chunk_count} could not be read.", index + 1)))?;
+                let chunk = form("chunk", &[("uploadId", upload_id.clone()), ("chunkIndex", index.to_string())])?;
+                chunk
+                    .append_with_blob_and_filename("chunk", &piece, &file.name())
+                    .map_err(|_| ApiError::network("The browser could not prepare the upload."))?;
+                Ok(chunk)
+            };
+            post_form(path, chunk).await.map_err(|error| ApiError {
+                message: format!("Part {} of {chunk_count}: {}", index + 1, error.message),
+                ..error
             })?;
-        let chunk = form(
-            "chunk",
-            &[
-                ("uploadId", upload_id.clone()),
-                ("chunkIndex", index.to_string()),
-            ],
-        )?;
-        chunk
-            .append_with_blob_and_filename("chunk", &piece, &file.name())
-            .map_err(|_| ApiError::network("The browser could not prepare the upload."))?;
-        post(chunk).await.map_err(|error| ApiError {
-            message: format!("Part {} of {chunk_count}: {}", index + 1, error.message),
-            ..error
-        })?;
+        }
+
+        // Three: finish. The server claims the upload and finishes it in the background (the image is re-encoded,
+        // which takes a while); this answers at once.
+        post_form(path, || form("complete", &[("uploadId", upload_id.clone())])).await?;
     }
 
-    // Three: assemble, make it servable, attach it. The slow step — the image is re-encoded — so the server does it in
-    // the background and this asks, in short requests, until it is done. One request held open for a minute is one
-    // Safari gives up on, and a dropped request used to take the photo down with it.
-    post(form("complete", &[("uploadId", upload_id.clone())])?).await?;
+    // Four: ask, in short requests, until the photograph is stored — or has failed, and says why.
     // Twenty minutes of asking: past that, something is wrong that waiting will not fix.
     for _ in 0..400 {
         yew::platform::time::sleep(std::time::Duration::from_secs(3)).await;
-        let answer = match post(form("status", &[("uploadId", upload_id.clone())])?).await {
-            Ok(answer) => answer,
-            // A question that did not get through is asked again; the photo is being finished either way.
-            Err(error) if error.code == "NETWORK" => continue,
-            Err(error) => return Err(error),
-        };
+        let answer = post_form(path, || form("status", &[("uploadId", upload_id.clone())])).await?;
         match answer.get("state").and_then(|state| state.as_str()) {
             Some("done") => return Ok(()),
             Some("failed") => {
                 let message = answer.get("message").and_then(|m| m.as_str()).unwrap_or("The photo could not be saved.");
                 return Err(ApiError::network(message.to_owned()));
+            }
+            // Pieces all there but nobody finishing it (the server restarted mid-way): finish it again.
+            Some("uploading") => {
+                post_form(path, || form("complete", &[("uploadId", upload_id.clone())])).await?;
             }
             _ => {}
         }

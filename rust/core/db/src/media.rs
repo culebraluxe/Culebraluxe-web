@@ -324,6 +324,85 @@ impl MediaDao {
         self.media_upload_status(&request.upload_id).await
     }
 
+    /// Takes a photograph off a property. The photograph itself (and, by cascade, its web and thumbnail copies) goes
+    /// too unless another property still shows it. `false` when the photograph was not on this property.
+    pub async fn remove_property_media(&self, property_id: &str, media_id: &str) -> DbResult<bool> {
+        let mut tx = self.db.begin("media.remove").await?;
+        let removed = sqlx::query("delete from property_media where property_id = $1::uuid and media_id = $2::uuid")
+            .bind(property_id)
+            .bind(media_id)
+            .execute(tx.connection())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("media.remove.unlink", &error))?
+            .rows_affected();
+        if removed == 0 {
+            return Ok(false);
+        }
+        sqlx::query(
+            "delete from media where id = $1::uuid and not exists (select 1 from property_media where media_id = $1::uuid)",
+        )
+        .bind(media_id)
+        .execute(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("media.remove.delete", &error))?;
+        tx.commit().await?;
+        Ok(true)
+    }
+
+    /// Whether this property already shows this file (same name, same size): a folder chosen again skips it.
+    pub async fn property_has_photo(&self, property_id: &str, filename: &str, byte_size: i64) -> DbResult<bool> {
+        sqlx::query_scalar::<_, bool>(
+            r#"
+            select exists (
+                select 1 from property_media pm join media m on m.id = pm.media_id
+                 where pm.property_id = $1::uuid and m.filename = $2 and m.file_size = $3 and m.derivative_of is null
+            )
+            "#,
+        )
+        .bind(property_id)
+        .bind(filename)
+        .bind(byte_size)
+        .fetch_one(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("media.upload.already_stored", &error))
+    }
+
+    /// An unfinished upload of this same file to this property, to resume: its id, status, and the chunks it has.
+    pub async fn resumable_media_upload(
+        &self,
+        property_id: &str,
+        filename: &str,
+        byte_size: i64,
+        chunk_size: i32,
+    ) -> DbResult<Option<(String, String, Vec<i32>)>> {
+        let found = sqlx::query_as::<_, (String, String)>(
+            r#"
+            select upload_id::text, status from media_upload
+             where property_id = $1::uuid and filename = $2 and byte_size = $3 and chunk_size = $4
+             order by created_at desc
+             limit 1
+            "#,
+        )
+        .bind(property_id)
+        .bind(filename)
+        .bind(byte_size)
+        .bind(chunk_size)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("media.upload.resumable", &error))?;
+        let Some((upload_id, status)) = found else {
+            return Ok(None);
+        };
+        let received = sqlx::query_scalar::<_, i32>(
+            "select chunk_index from media_upload_chunk where upload_id = $1::uuid order by chunk_index",
+        )
+        .bind(&upload_id)
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("media.upload.received", &error))?;
+        Ok(Some((upload_id, status, received)))
+    }
+
     /// Claims an upload for finishing: `uploading` (or a `failed` one being retried) becomes `complete`, atomically, so
     /// two requests can never both assemble and store the same photograph. `false` when nothing was claimable.
     pub async fn claim_media_upload(&self, upload_id: &str) -> DbResult<bool> {

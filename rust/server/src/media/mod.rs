@@ -40,6 +40,15 @@ pub trait MediaRepository: Send {
         chunk_index: i32,
         bytes: &[u8],
     ) -> DbResult<db::MediaUploadStatus>;
+    async fn remove_property_media(&self, property_id: &str, media_id: &str) -> DbResult<bool>;
+    async fn property_has_photo(&self, property_id: &str, filename: &str, byte_size: i64) -> DbResult<bool>;
+    async fn resumable_media_upload(
+        &self,
+        property_id: &str,
+        filename: &str,
+        byte_size: i64,
+        chunk_size: i32,
+    ) -> DbResult<Option<(String, String, Vec<i32>)>>;
     async fn claim_media_upload(&self, upload_id: &str) -> DbResult<bool>;
     async fn fail_media_upload(&self, upload_id: &str) -> DbResult<()>;
     async fn media_upload_state(&self, upload_id: &str) -> DbResult<Option<String>>;
@@ -116,6 +125,24 @@ impl MediaRepository for MediaDao {
         MediaDao::assemble_media_upload(self, upload_id).await
     }
 
+    async fn remove_property_media(&self, property_id: &str, media_id: &str) -> DbResult<bool> {
+        MediaDao::remove_property_media(self, property_id, media_id).await
+    }
+
+    async fn property_has_photo(&self, property_id: &str, filename: &str, byte_size: i64) -> DbResult<bool> {
+        MediaDao::property_has_photo(self, property_id, filename, byte_size).await
+    }
+
+    async fn resumable_media_upload(
+        &self,
+        property_id: &str,
+        filename: &str,
+        byte_size: i64,
+        chunk_size: i32,
+    ) -> DbResult<Option<(String, String, Vec<i32>)>> {
+        MediaDao::resumable_media_upload(self, property_id, filename, byte_size, chunk_size).await
+    }
+
     async fn claim_media_upload(&self, upload_id: &str) -> DbResult<bool> {
         MediaDao::claim_media_upload(self, upload_id).await
     }
@@ -169,6 +196,16 @@ pub struct PropertyVideoFinalizeResult {
     pub media_id: Option<String>,
     pub mux_asset_id: Option<String>,
     pub mux_playback_id: Option<String>,
+}
+
+/// What the server already has of a file about to be uploaded.
+#[derive(Debug, Clone, Serialize)]
+pub enum UploadLookup {
+    /// The property already shows this file: nothing to send.
+    AlreadyStored,
+    /// An earlier try left this upload: send only the chunks it lacks (`status` `complete` means it is being finished).
+    Unfinished { upload_id: String, status: String, received: Vec<i32> },
+    New,
 }
 
 pub struct MediaService<R> {
@@ -543,6 +580,50 @@ impl<R: MediaRepository> MediaService<R> {
             )),
             Err(error) => Err(error.into()),
         };
+        audit_result(&self.runtime, "media", OP, context, decision, &result).await?;
+        result
+    }
+
+    /// Takes a photograph off a property (and deletes it, with its copies, unless another property shows it).
+    pub async fn remove_property_media(
+        &self,
+        property_id: &str,
+        media_id: &str,
+        context: &ServiceContext,
+    ) -> Result<(), CoreServiceError> {
+        const OP: &str = "media.removePropertyMedia";
+        let decision = authorize(&self.runtime, "media", "property.write", OP, OperationKind::Command, context).await?;
+        let result = match self.repository.remove_property_media(property_id.trim(), media_id.trim()).await {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(CoreServiceError::business("MEDIA_NOT_ON_PROPERTY", "That photo is not on this property.")),
+            Err(error) => Err(error.into()),
+        };
+        audit_result(&self.runtime, "media", OP, context, decision, &result).await?;
+        result
+    }
+
+    /// Before a file is uploaded: is it already on the property, or partly uploaded (so it resumes)?
+    pub async fn find_media_upload(
+        &self,
+        property_id: &str,
+        filename: &str,
+        byte_size: i64,
+        chunk_size: i32,
+        context: &ServiceContext,
+    ) -> Result<UploadLookup, CoreServiceError> {
+        const OP: &str = "media.findMediaUpload";
+        let decision = authorize(&self.runtime, "media", "property.write", OP, OperationKind::Query, context).await?;
+        let result = async {
+            if self.repository.property_has_photo(property_id, filename, byte_size).await? {
+                return Ok(UploadLookup::AlreadyStored);
+            }
+            Ok(match self.repository.resumable_media_upload(property_id, filename, byte_size, chunk_size).await? {
+                Some((upload_id, status, received)) => UploadLookup::Unfinished { upload_id, status, received },
+                None => UploadLookup::New,
+            })
+        }
+        .await
+        .map_err(|error: db::DbFailure| CoreServiceError::from(error));
         audit_result(&self.runtime, "media", OP, context, decision, &result).await?;
         result
     }

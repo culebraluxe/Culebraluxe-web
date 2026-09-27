@@ -56,6 +56,7 @@ pub fn router() -> Router<ApiState> {
         .route("/api/portal/rust-ui/security-users", axum::routing::put(security_users_put))
         .route("/api/portal/rust-ui/role-entitlements", axum::routing::put(role_entitlements_put))
         .route("/api/property-media/hero", axum::routing::post(property_media_hero))
+        .route("/api/property-media/remove", axum::routing::post(property_media_remove))
         .route(
             "/api/property-media/chunked",
             axum::routing::post(property_media_chunked).layer(axum::extract::DefaultBodyLimit::max(8 * 1024 * 1024)),
@@ -2810,6 +2811,26 @@ async fn property_media_chunked(
         if !mime_type.starts_with("image/") {
             return Err(bad("MEDIA_TYPE_UNSUPPORTED", "Only image uploads are supported."));
         }
+        // LIKE A TORRENT: what the server already has is not sent again. A file this property already shows is
+        // skipped, and a file an earlier try left unfinished resumes with only the chunks it lacks — so choosing the
+        // same folder again, after a failure or a closed tab, picks up where it stopped.
+        let lookup = media
+            .find_media_upload(&property_id, &filename, byte_size as i64, chunk_size as i32, context)
+            .await
+            .map_err(failed(&resolved))?;
+        match lookup {
+            crate::media::UploadLookup::AlreadyStored => {
+                return Ok(Json(serde_json::json!({ "ok": true, "state": "done", "skipped": true })));
+            }
+            crate::media::UploadLookup::Unfinished { upload_id, status, received } => {
+                let state = match status.as_str() {
+                    "complete" => "processing",
+                    _ => "uploading",
+                };
+                return Ok(Json(serde_json::json!({ "ok": true, "state": state, "uploadId": upload_id, "received": received })));
+            }
+            crate::media::UploadLookup::New => {}
+        }
         let upload = db::BeginMediaUpload {
             upload_id: uuid::Uuid::new_v4().to_string(),
             property_id,
@@ -2840,7 +2861,15 @@ async fn property_media_chunked(
             // than Safari holds a request open, and a request the browser drops must not cancel the save with it.
             // The browser asks `status` until the answer is `done` or `failed`.
             "complete" => {
-                media.claim_media_upload(&upload_id, context).await.map_err(failed(&resolved))?;
+                // Sent twice (a retry after an answer that never arrived) is not an error: the upload is already
+                // being finished, or already is.
+                if let Err(error) = media.claim_media_upload(&upload_id, context).await {
+                    let already = media.media_upload_state(&upload_id, context).await.map_err(failed(&resolved))?;
+                    if already == "processing" || already == "done" {
+                        return Ok(Json(serde_json::json!({ "ok": true, "state": already, "uploadId": upload_id })));
+                    }
+                    return Err(failed(&resolved)(error));
+                }
                 let (state, context, id) = (state.clone(), context.clone(), upload_id.clone());
                 tokio::spawn(async move {
                     if let Err(error) = state.services().media().finish_media_upload(&id, &context).await {
@@ -3155,6 +3184,20 @@ async fn tech_act(
 }
 
 /// Make a photograph the property's hero after upload.
+/// Takes a photograph off a property (and deletes it, with its copies, unless another property shows it).
+async fn property_media_remove(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    let (Some(property_id), Some(media_id)) = (str_at(&body, "propertyId"), str_at(&body, "mediaId")) else {
+        return Err(ApiError::bad_request("MEDIA_REMOVE_INVALID", "propertyId and mediaId are required."));
+    };
+    state.services().media().remove_property_media(property_id, media_id, &resolved.service).await.map_err(failed(&resolved))?;
+    Ok(Json(json!({ "ok": true })))
+}
+
 async fn property_media_hero(
     State(state): State<ApiState>,
     headers: HeaderMap,

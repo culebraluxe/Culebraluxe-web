@@ -934,6 +934,23 @@ impl Endpoint for PropertyHero {
     }
 }
 
+/// Take a photograph off a property (deleted with its copies unless another property shows it).
+pub struct PropertyMediaRemove {
+    pub property_id: String,
+    pub media_id: String,
+}
+
+impl Endpoint for PropertyMediaRemove {
+    const METHOD: Method = Method::Post;
+    type Response = serde_json::Value;
+    fn path(&self) -> String {
+        "/api/property-media/remove".into()
+    }
+    fn body(&self) -> Option<serde_json::Value> {
+        Some(serde_json::json!({ "propertyId": self.property_id, "mediaId": self.media_id }))
+    }
+}
+
 /// Listing Media: listings with their photo counts, one opened when `selected` is set. Answers `{ listingMedia: ... }`.
 pub struct ListingMediaRead {
     pub selected: Option<String>,
