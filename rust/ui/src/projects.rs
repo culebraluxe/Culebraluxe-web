@@ -141,6 +141,16 @@ pub fn carry_over(previous: Option<&PortalProjectsPage>, projects: &mut PortalPr
         } else {
             previous.calendar_cursor.clone()
         };
+        projects.calendar_mode = if previous.calendar_mode.is_empty() {
+            "month".into()
+        } else {
+            previous.calendar_mode.clone()
+        };
+        projects.calendar_recurrence_scope = if previous.calendar_recurrence_scope.is_empty() {
+            "this".into()
+        } else {
+            previous.calendar_recurrence_scope.clone()
+        };
     } else {
         projects.active_domain = initial_project_domain(projects);
         projects.selected_project_id = first_project_for_domain(projects, &projects.active_domain);
@@ -149,6 +159,8 @@ pub fn carry_over(previous: Option<&PortalProjectsPage>, projects: &mut PortalPr
         projects.active_view = "work-plan".into();
         projects.work_collapsed = false;
         projects.calendar_cursor = calendar_anchor(projects);
+        projects.calendar_mode = "month".into();
+        projects.calendar_recurrence_scope = "this".into();
     }
     projects.work_dirty = false;
     projects.saving = false;
