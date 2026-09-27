@@ -750,6 +750,7 @@ async fn forms_page(
             "template": Value::Null,
             "issued": Value::Null,
             "signers": [],
+            "signature": Value::Null,
             "templateChoices": form_template_choices(&library),
         }));
     };
@@ -813,6 +814,18 @@ async fn forms_page(
         .issued_for_form_instance(form_id, &resolved.service)
         .await
         .map_err(failed(resolved))?;
+    let signature = if let Some(document) = issued.as_ref() {
+        match services.signature() {
+            Ok(signature) => signature
+                .active_for_document(&document.document_id, &resolved.service)
+                .await
+                .ok()
+                .flatten(),
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
 
     Ok(json!({
         "items": item_payloads,
@@ -820,6 +833,7 @@ async fn forms_page(
         "template": form_template_payload(template, &library),
         "issued": issued,
         "signers": signers,
+        "signature": signature,
         "templateChoices": form_template_choices(&library),
     }))
 }
@@ -1264,6 +1278,206 @@ async fn forms_write(
             }
             let page = forms_page(&state, &resolved, Some(&created.id), None, None, None).await?;
             Ok(Json(json!({ "formId": created.id, "forms": page })))
+        }
+        "fillClient" => {
+            let form_id = form_id.ok_or_else(|| {
+                correlate(
+                    ApiError::bad_request("FORM_ID_REQUIRED", "formId is required."),
+                    &resolved,
+                )
+            })?;
+            let seller_name = str_at(&body, "sellerName")
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    correlate(
+                        ApiError::bad_request(
+                            "FORM_SELLER_REQUIRED",
+                            "Enter the seller name before filling from Clients.",
+                        ),
+                        &resolved,
+                    )
+                })?;
+
+            let services = state.services();
+            let forms = services.forms();
+            let current = forms
+                .get_instance(form_id, &resolved.service)
+                .await
+                .map_err(failed(&resolved))?
+                .ok_or_else(|| {
+                    correlate(
+                        ApiError::not_found(
+                            "FORM_NOT_FOUND",
+                            format!("Form instance not found: {form_id}"),
+                        ),
+                        &resolved,
+                    )
+                })?;
+            if current.template_id != "LISTING-01" {
+                return Err(correlate(
+                    ApiError::bad_request(
+                        "FORM_CLIENT_BIND_UNSUPPORTED",
+                        "Fill Client is only available for the Listing Agreement.",
+                    ),
+                    &resolved,
+                ));
+            }
+
+            let directory = services
+                .clients()
+                .directory(
+                    &domain::ClientDirectoryPageRequest {
+                        search: seller_name.to_owned(),
+                        status: None,
+                        role: None,
+                        sort: "name".into(),
+                        page: 1,
+                        page_size: 8,
+                    },
+                    &resolved.service,
+                )
+                .await
+                .map_err(failed(&resolved))?;
+            let normalized = |value: &str| {
+                value
+                    .trim()
+                    .to_lowercase()
+                    .replace(['’', '\''], "")
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            };
+            let needle = normalized(seller_name);
+            let exact = directory
+                .rows
+                .iter()
+                .filter(|row| normalized(&row.display_name) == needle)
+                .collect::<Vec<_>>();
+            let chosen = if exact.len() == 1 {
+                exact[0]
+            } else if directory.rows.len() == 1 {
+                &directory.rows[0]
+            } else if directory.rows.is_empty() {
+                return Err(correlate(
+                    ApiError::not_found(
+                        "FORM_CLIENT_NOT_FOUND",
+                        format!("No Client found for “{seller_name}”."),
+                    ),
+                    &resolved,
+                ));
+            } else {
+                let choices = directory
+                    .rows
+                    .iter()
+                    .take(5)
+                    .map(|row| row.display_name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return Err(correlate(
+                    ApiError::new(
+                        StatusCode::CONFLICT,
+                        "FORM_CLIENT_AMBIGUOUS",
+                        format!("More than one Client matches “{seller_name}”: {choices}."),
+                        false,
+                    ),
+                    &resolved,
+                ));
+            };
+
+            let property_id = if current.property_id.is_some() {
+                current.property_id.clone()
+            } else if let Some(deal_id) = current.deal_id.as_deref() {
+                forms
+                    .resolve_deal_launch_context(deal_id, &resolved.service)
+                    .await
+                    .map_err(failed(&resolved))?
+                    .map(|context| context.property_id)
+            } else {
+                None
+            };
+
+            forms
+                .bind_listing_context(
+                    &domain::BindListingFormContextRequest {
+                        form_instance_id: form_id.to_owned(),
+                        person_id: chosen.id.clone(),
+                        property_id: property_id.clone(),
+                    },
+                    &resolved.service,
+                )
+                .await
+                .map_err(failed(&resolved))?;
+
+            let person = services
+                .person()
+                .get(&chosen.id, &resolved.service)
+                .await
+                .map_err(failed(&resolved))?;
+            let property = if let Some(property_id) = property_id.as_deref() {
+                services
+                    .property()
+                    .get(property_id, &resolved.service)
+                    .await
+                    .map_err(failed(&resolved))?
+            } else {
+                None
+            };
+            let library = load_form_templates(&resolved)?;
+            let template = library
+                .version(&current.template_id, current.template_version)
+                .ok_or_else(|| {
+                    correlate(
+                        ApiError::not_found(
+                            "FORM_TEMPLATE_NOT_FOUND",
+                            "The saved Listing template is unavailable.",
+                        ),
+                        &resolved,
+                    )
+                })?;
+            let canonical = prefill_form_values(
+                template,
+                None,
+                person.as_ref(),
+                property.as_ref(),
+            );
+            let mut values = current.field_values.clone();
+            for field in &template.fields {
+                let canonical_owned = field
+                    .binding
+                    .as_deref()
+                    .is_some_and(|binding| {
+                        binding.starts_with("person.") || binding.starts_with("property.")
+                    })
+                    || field.name == "sellerCivilStatus";
+                if canonical_owned {
+                    if let Some(value) = canonical.get(&field.name) {
+                        values.insert(field.name.clone(), value.clone());
+                    }
+                }
+            }
+            forms
+                .update_instance(
+                    &domain::UpdateFormInstanceRequest {
+                        form_instance_id: form_id.to_owned(),
+                        input: domain::UpdateFormInstanceInput {
+                            field_values: Some(values),
+                            sections: None,
+                            status: None,
+                            contract_id: None,
+                        },
+                    },
+                    &resolved.service,
+                )
+                .await
+                .map_err(failed(&resolved))?;
+
+            let page = forms_page(&state, &resolved, Some(form_id), None, None, None).await?;
+            Ok(Json(json!({
+                "formId": form_id,
+                "forms": page,
+                "message": format!("Client linked · {}", chosen.display_name),
+            })))
         }
         "save" | "issue" => {
             let form_id = form_id.ok_or_else(|| {
