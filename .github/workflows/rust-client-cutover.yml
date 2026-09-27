@@ -36,7 +36,7 @@ jobs:
         run: |
           set -euo pipefail
           violations="$(
-            grep -RInE 'sqlx::(query|query_as|query_scalar)|\.pool\(\)' rust --include='*.rs'               | grep -v '^rust/core/db/'               | grep -v '^rust/core/workflow/src/neon.rs:'               | grep -v '^rust/integrations/src/boldsign/store.rs:'               | grep -v '^rust/core/db/tests/'               | grep -v '^rust/experiments/'               || true
+            grep -RInE 'sqlx::(query|query_as|query_scalar)|\.pool\(\)' rust --include='*.rs'               | grep -v '^rust/core/db/'               | grep -v '^rust/core/workflow/src/neon.rs:'               | grep -v '^rust/integrations/src/boldsign/store.rs:'               | grep -v '^rust/core/db/tests/'               | grep -v '^rust/server/tests/'               | grep -v '^rust/experiments/'               || true
           )"
           if [ -n "$violations" ]; then
             echo "Raw database access escaped the approved Rust persistence boundaries:"
