@@ -45,6 +45,12 @@ pub(super) struct PendingCalendarEdit {
     pub poll_count: u8,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct PendingTimelineEdit {
+    pub item_id: String,
+    pub old_due_at: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Model {
     pub read: Remote<PortalProjectsPage>,
@@ -52,6 +58,7 @@ pub struct Model {
     /// Why the last write did not happen, in the service's words.
     pub error: Option<String>,
     pending_calendar: Option<PendingCalendarEdit>,
+    pending_timeline: Option<PendingTimelineEdit>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -67,6 +74,16 @@ pub enum Msg {
     ProjectSelected(String),
     ProjectNodeSelected(Option<String>),
     ProjectViewSelected(String),
+    ProjectTimelineModeSelected(String),
+    ProjectTimelineGroupToggled(String),
+    ProjectTimelineDragStarted(String),
+    ProjectTimelineDragTargetChanged(Option<String>),
+    ProjectTimelineDragEnded,
+    ProjectTimelineDueMoved {
+        item_id: String,
+        due_at: String,
+    },
+    TimelineSaved(Result<PortalPage, ApiError>),
     ProjectCalendarPrevious,
     ProjectCalendarNext,
     ProjectCalendarToday,
@@ -159,6 +176,83 @@ fn edit(model: &mut Model, change: impl FnOnce(&mut PortalProjectWorkItem)) {
         change(item);
         projects.work_dirty = true;
         model.error = None;
+    }
+}
+
+fn queue_timeline_due_move(model: &mut Model, item_id: String, due_at: String) -> Cmd<Msg> {
+    if model.pending_timeline.is_some() {
+        return Cmd::none();
+    }
+    let Remote::Loaded(projects) = &mut model.read else {
+        return Cmd::none();
+    };
+    if projects.saving {
+        return Cmd::none();
+    }
+    let Some(index) = projects.items.iter().position(|item| {
+        item.id == item_id
+            && item.project_id.as_deref() == projects.selected_project_id.as_deref()
+    }) else {
+        model.error = Some("The timeline item no longer belongs to this project.".into());
+        return Cmd::none();
+    };
+
+    let old_due_at = projects.items[index].due_at.clone();
+    let mut item = projects.items[index].clone();
+    item.due_at = Some(due_at);
+    projects.items[index].due_at = item.due_at.clone();
+    projects.selected_node_id = Some(item_id.clone());
+    projects.work_collapsed = false;
+    projects.work_dirty = false;
+    projects.timeline_dragging_item_id = None;
+    projects.timeline_drag_target_date = None;
+    projects.saving = true;
+    model.pending_timeline = Some(PendingTimelineEdit {
+        item_id,
+        old_due_at,
+    });
+    model.error = None;
+
+    Cmd::request(
+        ProjectsCommand {
+            body: serde_json::json!({
+                "action": "wbsSave",
+                "itemId": item.id,
+                "title": item.title,
+                "notes": item.notes,
+                "status": item.status,
+                "dueAt": item.due_at,
+                "owner": item.owner,
+            }),
+        },
+        Msg::TimelineSaved,
+    )
+}
+
+fn timeline_saved(model: &mut Model, result: Result<PortalPage, ApiError>) {
+    match result {
+        Ok(page) => {
+            model.pending_timeline = None;
+            if let Err(error) = answer(model, Ok(page)) {
+                model.error = Some(error.message);
+            } else {
+                model.error = None;
+            }
+        }
+        Err(error) => {
+            let pending = model.pending_timeline.take();
+            if let Remote::Loaded(projects) = &mut model.read {
+                projects.saving = false;
+                projects.timeline_dragging_item_id = None;
+                projects.timeline_drag_target_date = None;
+                if let Some(pending) = pending {
+                    if let Some(item) = projects.items.iter_mut().find(|item| item.id == pending.item_id) {
+                        item.due_at = pending.old_due_at;
+                    }
+                }
+            }
+            model.error = Some(error.message);
+        }
     }
 }
 
@@ -427,6 +521,10 @@ impl Screen for Projects {
                 }
                 return Cmd::none();
             }
+            Msg::TimelineSaved(result) => {
+                timeline_saved(model, result);
+                return Cmd::none();
+            }
             Msg::Saved(result) => {
                 if let Err(error) = answer(model, result) {
                     if let Remote::Loaded(projects) = &mut model.read {
@@ -472,6 +570,9 @@ impl Screen for Projects {
             }
             Msg::CalendarStateLoaded(result) => {
                 return calendar_state_loaded(model, result);
+            }
+            Msg::ProjectTimelineDueMoved { item_id, due_at } => {
+                return queue_timeline_due_move(model, item_id, due_at);
             }
             Msg::ProjectCalendarEditRequested {
                 occurrence_id,
@@ -522,6 +623,7 @@ impl Screen for Projects {
                     controls: &model.controls,
                     error: model.error.as_ref(),
                     calendar_pending: model.pending_calendar.as_ref(),
+                    timeline_pending: model.pending_timeline.as_ref(),
                 },
                 projects,
                 &on_msg,
@@ -578,6 +680,35 @@ fn selection(projects: &mut PortalProjectsPage, error: &mut Option<String>, msg:
                 projects.calendar_selected_event_id = None;
                 projects.work_dirty = false;
             }
+        }
+        Msg::ProjectTimelineModeSelected(mode) => {
+            if matches!(mode.as_str(), "day" | "week" | "month") {
+                projects.timeline_mode = mode;
+            }
+        }
+        Msg::ProjectTimelineGroupToggled(item_id) => {
+            if projects.timeline_collapsed_items.contains(&item_id) {
+                projects.timeline_collapsed_items.remove(&item_id);
+            } else {
+                projects.timeline_collapsed_items.insert(item_id);
+            }
+        }
+        Msg::ProjectTimelineDragStarted(item_id) => {
+            if projects.items.iter().any(|item| {
+                item.id == item_id
+                    && item.project_id.as_deref() == projects.selected_project_id.as_deref()
+                    && item.due_at.is_some()
+            }) {
+                projects.timeline_dragging_item_id = Some(item_id);
+                projects.timeline_drag_target_date = None;
+            }
+        }
+        Msg::ProjectTimelineDragTargetChanged(date) => {
+            projects.timeline_drag_target_date = date;
+        }
+        Msg::ProjectTimelineDragEnded => {
+            projects.timeline_dragging_item_id = None;
+            projects.timeline_drag_target_date = None;
         }
         Msg::ProjectViewSelected(view) => {
             if matches!(
@@ -748,6 +879,7 @@ pub struct Vm<'a> {
     pub controls: &'a Controls,
     pub error: Option<&'a String>,
     pub calendar_pending: Option<&'a PendingCalendarEdit>,
+    pub timeline_pending: Option<&'a PendingTimelineEdit>,
 }
 
 #[cfg(test)]
