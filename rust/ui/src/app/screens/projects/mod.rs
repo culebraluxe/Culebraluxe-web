@@ -537,7 +537,11 @@ mod tests {
             ("properties", Some("p1"), Some("w1"))
         );
         Projects::update(&mut model, Msg::ProjectSelected("p2".into()), &ctx);
-        Projects::update(&mut model, Msg::ProjectNodeSelected(Some("w2".into())), &ctx);
+        Projects::update(
+            &mut model,
+            Msg::ProjectNodeSelected(Some("w2".into())),
+            &ctx,
+        );
         let projects = model.read.loaded().unwrap();
         assert_eq!(
             (
@@ -597,8 +601,7 @@ mod tests {
         assert_eq!(body["recurrenceScope"], "future");
         let projects = model.read.loaded().unwrap();
         assert_eq!(
-            projects.calendar[0].start_at,
-            "2026-09-29T11:00:00+00:00",
+            projects.calendar[0].start_at, "2026-09-29T11:00:00+00:00",
             "drag/resize is optimistic while Apple delivery is queued"
         );
         assert!(projects.saving);

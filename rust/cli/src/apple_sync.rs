@@ -43,9 +43,9 @@ fn path_arg<'a>(
     index: usize,
     command: &str,
 ) -> Result<&'a Path, Box<dyn Error>> {
-    args.get(index)
-        .map(Path::new)
-        .ok_or_else(|| io::Error::other(format!("apple-sync {command} requires a snapshot path")).into())
+    args.get(index).map(Path::new).ok_or_else(|| {
+        io::Error::other(format!("apple-sync {command} requires a snapshot path")).into()
+    })
 }
 
 fn text(value: &Value, key: &str) -> Option<String> {
@@ -73,9 +73,8 @@ async fn intake_calendar(path: &Path) -> Result<(), Box<dyn Error>> {
     for raw in items {
         let provider = text(raw, "eventIdentifier");
         let start = text(raw, "startAt");
-        let source_message_id = text(raw, "sourceMessageId").or_else(|| {
-            Some(format!("{}|{}", provider.as_deref()?, start.as_deref()?))
-        });
+        let source_message_id = text(raw, "sourceMessageId")
+            .or_else(|| Some(format!("{}|{}", provider.as_deref()?, start.as_deref()?)));
         let (Some(source_message_id), Some(start_at), Some(end_at)) =
             (source_message_id, start, text(raw, "endAt"))
         else {
@@ -132,7 +131,10 @@ async fn intake_reminders(path: &Path) -> Result<(), Box<dyn Error>> {
             notes: optional_text(raw, "notes"),
             start_at: optional_text(raw, "startAt"),
             due_at: optional_text(raw, "dueAt"),
-            completed: raw.get("completed").and_then(Value::as_bool).unwrap_or(false),
+            completed: raw
+                .get("completed")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
             completed_at: optional_text(raw, "completedAt"),
             priority: raw
                 .get("priority")

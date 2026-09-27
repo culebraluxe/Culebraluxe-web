@@ -78,8 +78,18 @@ pub fn shift_cursor(cursor: &str, mode: &str, delta: i32) -> String {
 
 pub fn month_title(cursor: &str) -> String {
     const MONTHS: [&str; 12] = [
-        "January", "February", "March", "April", "May", "June", "July", "August",
-        "September", "October", "November", "December",
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
     ];
     month_start(cursor)
         .map(|date| format!("{} {}", MONTHS[date.month0() as usize], date.year()))
@@ -115,7 +125,11 @@ pub fn week_dates(cursor: &str) -> Vec<String> {
     };
     let sunday = date - Duration::days(date.weekday().num_days_from_sunday() as i64);
     (0..7)
-        .map(|offset| (sunday + Duration::days(offset)).format("%Y-%m-%d").to_string())
+        .map(|offset| {
+            (sunday + Duration::days(offset))
+                .format("%Y-%m-%d")
+                .to_string()
+        })
         .collect()
 }
 
@@ -128,7 +142,13 @@ pub fn week_title(cursor: &str) -> String {
         return "Calendar".into();
     };
     if first.year() == last.year() && first.month() == last.month() {
-        format!("{} {}–{}, {}", first.format("%B"), first.day(), last.day(), first.year())
+        format!(
+            "{} {}–{}, {}",
+            first.format("%B"),
+            first.day(),
+            last.day(),
+            first.year()
+        )
     } else if first.year() == last.year() {
         format!(
             "{} {} – {} {}, {}",
@@ -278,9 +298,12 @@ mod tests {
     #[test]
     fn drag_and_resize_math_preserves_duration_and_snaps_end() {
         let target = slot_timestamp("2026-09-28", 2).unwrap();
-        let (start, end) =
-            move_span("2026-09-27T09:00:00+00:00", Some("2026-09-27T10:30:00+00:00"), &target)
-                .unwrap();
+        let (start, end) = move_span(
+            "2026-09-27T09:00:00+00:00",
+            Some("2026-09-27T10:30:00+00:00"),
+            &target,
+        )
+        .unwrap();
         assert_eq!(start, "2026-09-28T09:00:00+00:00");
         assert_eq!(end, "2026-09-28T10:30:00+00:00");
 

@@ -61,11 +61,7 @@ pub(super) fn view(
     }
 }
 
-fn toolbar(
-    projects: &PortalProjectsPage,
-    chips: &[CalendarChip],
-    on_msg: &Callback<Msg>,
-) -> Html {
+fn toolbar(projects: &PortalProjectsPage, chips: &[CalendarChip], on_msg: &Callback<Msg>) -> Html {
     let previous = {
         let on_msg = on_msg.clone();
         Callback::from(move |_: MouseEvent| on_msg.emit(Msg::ProjectCalendarPrevious))
@@ -83,7 +79,9 @@ fn toolbar(
         "day" => crate::calendar::date_title(&projects.calendar_cursor),
         _ => crate::calendar::month_title(&projects.calendar_cursor),
     };
-    let recurrence_visible = chips.iter().any(|event| event.recurring && event.editable());
+    let recurrence_visible = chips
+        .iter()
+        .any(|event| event.recurring && event.editable());
     let recurrence_change = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: Event| {
@@ -548,11 +546,7 @@ fn text_field<'a>(value: &'a serde_json::Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(serde_json::Value::as_str)
 }
 
-fn timed_drop(
-    on_msg: &Callback<Msg>,
-    date: String,
-    slot: usize,
-) -> Callback<web_sys::DragEvent> {
+fn timed_drop(on_msg: &Callback<Msg>, date: String, slot: usize) -> Callback<web_sys::DragEvent> {
     let on_msg = on_msg.clone();
     Callback::from(move |event: web_sys::DragEvent| {
         event.prevent_default();
@@ -613,7 +607,8 @@ fn all_day_drop(on_msg: &Callback<Msg>, date: String) -> Callback<web_sys::DragE
         let Some(target) = crate::calendar::midnight_timestamp(&date) else {
             return;
         };
-        let Some((start_at, end_at)) = crate::calendar::move_span(old_start, old_end, &target) else {
+        let Some((start_at, end_at)) = crate::calendar::move_span(old_start, old_end, &target)
+        else {
             return;
         };
         on_msg.emit(Msg::ProjectCalendarEditRequested {
