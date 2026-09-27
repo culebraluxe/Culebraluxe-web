@@ -164,6 +164,7 @@ pub struct FormsPage {
     pub template: Option<FormTemplate>,
     pub issued: Option<FormIssuedDocument>,
     pub signers: Vec<FormSigner>,
+    pub signature: Option<FormSignatureState>,
     pub template_choices: Vec<FormTemplateChoice>,
 }
 
@@ -261,10 +262,18 @@ pub struct FormSignatureGroup {
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct FormSigner {
+    pub slot_id: Option<String>,
     pub person_id: Option<String>,
     pub name: String,
     pub email: Option<String>,
     pub role: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct FormSignatureState {
+    pub id: String,
+    pub status: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
@@ -350,6 +359,15 @@ pub enum FormsAction {
         field_values: BTreeMap<String, String>,
         sections: BTreeMap<String, String>,
     },
+    FillClient {
+        form_id: String,
+        seller_name: String,
+    },
+    SendSignature {
+        form_id: String,
+        field_values: BTreeMap<String, String>,
+        sections: BTreeMap<String, String>,
+    },
 }
 
 pub struct FormsWrite {
@@ -361,6 +379,7 @@ pub struct FormsWrite {
 pub struct FormsWriteResponse {
     pub form_id: String,
     pub forms: FormsPage,
+    pub message: Option<String>,
 }
 
 impl Endpoint for FormsWrite {
@@ -401,6 +420,24 @@ impl Endpoint for FormsWrite {
                 sections,
             } => serde_json::json!({
                 "action": "issue",
+                "formId": form_id,
+                "fieldValues": field_values,
+                "sections": sections,
+            }),
+            FormsAction::FillClient {
+                form_id,
+                seller_name,
+            } => serde_json::json!({
+                "action": "fillClient",
+                "formId": form_id,
+                "sellerName": seller_name,
+            }),
+            FormsAction::SendSignature {
+                form_id,
+                field_values,
+                sections,
+            } => serde_json::json!({
+                "action": "sendSignature",
                 "formId": form_id,
                 "fieldValues": field_values,
                 "sections": sections,
