@@ -5,8 +5,8 @@ use db::{Database, DbResult, PropertyDao};
 use domain::{
     CreatePropertyAdminRequest, FindPropertyByAddressRequest, PersonPropertyContext, Property,
     PropertyAdminPage, PropertyAdminPageRequest, PropertyAdminRecord, PropertyForPerson,
-    SavePropertyAdminRequest, SetPropertyDisplayNameRequest, SetPropertyStatusRequest,
-    UpsertPropertyForPersonRequest,
+    SavePropertyAdminRequest, SetPropertyDisplayNameRequest, SetPropertyListingTypeRequest,
+    SetPropertyStatusRequest, UpsertPropertyForPersonRequest,
 };
 use serde_json::json;
 use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
@@ -32,6 +32,7 @@ pub trait PropertyRepository: Send + Sync {
         request: &SetPropertyDisplayNameRequest,
     ) -> DbResult<Option<Property>>;
     async fn set_status(&self, request: &SetPropertyStatusRequest) -> DbResult<Option<Property>>;
+    async fn set_listing_type(&self, request: &SetPropertyListingTypeRequest) -> DbResult<()>;
     async fn admin_page(&self, request: &PropertyAdminPageRequest) -> DbResult<PropertyAdminPage>;
     async fn admin_get(&self, property_id: &str) -> DbResult<Option<PropertyAdminRecord>>;
     async fn admin_create(
@@ -83,6 +84,10 @@ impl PropertyRepository for PropertyDao {
 
     async fn set_status(&self, request: &SetPropertyStatusRequest) -> DbResult<Option<Property>> {
         PropertyDao::set_status(self, request).await
+    }
+
+    async fn set_listing_type(&self, request: &SetPropertyListingTypeRequest) -> DbResult<()> {
+        PropertyDao::set_listing_type(self, request).await
     }
 
     async fn admin_page(&self, request: &PropertyAdminPageRequest) -> DbResult<PropertyAdminPage> {
@@ -458,6 +463,58 @@ impl<R: PropertyRepository> PropertyService<R> {
         audit_result(&self.runtime, "property", OP, context, decision, &result).await?;
         result
     }
+    pub async fn set_listing_type(
+        &self,
+        request: &SetPropertyListingTypeRequest,
+        context: &ServiceContext,
+    ) -> Result<(), CoreServiceError> {
+        const OP: &str = "property.setListingType";
+        let decision = authorize(
+            &self.runtime,
+            "property",
+            "property.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+
+        if let Some(value) = request
+            .listing_type
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            const LISTING_TYPES: &[&str] = &["Exclusive Right to Sell", "Exclusive Agency"];
+            if !LISTING_TYPES.contains(&value) {
+                return Err(CoreServiceError::business(
+                    "PROPERTY_LISTING_TYPE_INVALID",
+                    "Listing type must be Exclusive Right to Sell or Exclusive Agency.",
+                ));
+            }
+        }
+
+        let result = db::service_mutation(self.repository.database(), async {
+            self.repository.set_listing_type(request).await?;
+            self.runtime
+                .emit(
+                    "property.listing_type_changed",
+                    Some(request.property_id.clone()),
+                    BTreeMap::from([
+                        ("propertyId".into(), json!(request.property_id.clone())),
+                        ("listingType".into(), json!(request.listing_type.clone())),
+                    ]),
+                    context,
+                )
+                .await?;
+            Ok(())
+        })
+        .await;
+
+        audit_result(&self.runtime, "property", OP, context, decision, &result).await?;
+        result
+    }
+
 }
 
 impl PropertyService<PropertyDao> {
