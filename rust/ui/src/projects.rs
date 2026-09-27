@@ -151,6 +151,23 @@ pub fn carry_over(previous: Option<&PortalProjectsPage>, projects: &mut PortalPr
         } else {
             previous.calendar_recurrence_scope.clone()
         };
+        // Calendar data is owned by the viewport endpoint, not by a refreshed
+        // Projects workspace answer. Preserve it across unrelated project/WBS writes.
+        projects.calendar = previous.calendar.clone();
+        projects.calendar_filter = if previous.calendar_filter.is_empty() {
+            "all".into()
+        } else {
+            previous.calendar_filter.clone()
+        };
+        projects.calendar_selected_event_id = previous
+            .calendar_selected_event_id
+            .clone()
+            .filter(|id| projects.calendar.iter().any(|event| &event.id == id));
+        projects.calendar_dragging_event_id = None;
+        projects.calendar_drag_target = None;
+        projects.calendar_loading = previous.calendar_loading;
+        projects.calendar_loaded_start = previous.calendar_loaded_start.clone();
+        projects.calendar_loaded_end = previous.calendar_loaded_end.clone();
     } else {
         projects.active_domain = initial_project_domain(projects);
         projects.selected_project_id = first_project_for_domain(projects, &projects.active_domain);
@@ -161,6 +178,20 @@ pub fn carry_over(previous: Option<&PortalProjectsPage>, projects: &mut PortalPr
         projects.calendar_cursor = calendar_anchor(projects);
         projects.calendar_mode = "month".into();
         projects.calendar_recurrence_scope = "this".into();
+        projects.calendar_filter = "all".into();
+        projects.calendar_selected_event_id = None;
+        projects.calendar_dragging_event_id = None;
+        projects.calendar_drag_target = None;
+        projects.calendar_loading = false;
+        projects.calendar_loaded_start = None;
+        projects.calendar_loaded_end = None;
+    }
+    if projects.calendar_day_start_hour >= projects.calendar_day_end_hour {
+        projects.calendar_day_start_hour = 8;
+        projects.calendar_day_end_hour = 20;
+    }
+    if !matches!(projects.calendar_slot_minutes, 15 | 30 | 60) {
+        projects.calendar_slot_minutes = 30;
     }
     projects.work_dirty = false;
     projects.saving = false;
