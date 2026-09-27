@@ -51,8 +51,9 @@ RUST_PROJECT_ID="$(
 )" || fail "Could not resolve the Rust project '${RUST_PROJECT_NAME}'."
 printf '  project: %s (%s)\n' "$RUST_PROJECT_NAME" "$RUST_PROJECT_ID"
 
-printf '\nBuilding the site (release wasm + CSS)...\n'
-RUST_UI_PROFILE=release bash "$ROOT_DIR/scripts/site-build.sh" || fail "The site build failed. Nothing was shipped."
+printf '\nBuilding the stylesheet (the wasm is built inside the image)...\n'
+(cd "$ROOT_DIR" && npx --no-install tailwindcss -i rust/ui/styles/app.css -o public/app.css --minify) \
+  || fail "The stylesheet build failed. Nothing was shipped."
 
 # THE WHOLE APPLICATION IS ONE IMAGE: the Rust server, the built site (public/) and the form templates. The CLI
 # deploys one folder, so it is assembled here — rust/ without its build output, public/, lib/forms/templates — with
@@ -61,11 +62,12 @@ STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 printf '\nAssembling the image context in %s...\n' "$STAGE"
 rsync -a --exclude target --exclude '* 2.*' --exclude '* 2' "$ROOT_DIR/rust/" "$STAGE/rust/"
-rsync -a --exclude '* 2.*' "$ROOT_DIR/public/" "$STAGE/public/"
+rsync -a --exclude '* 2.*' --exclude rust-ui "$ROOT_DIR/public/" "$STAGE/public/"
+mkdir -p "$STAGE/scripts" && cp "$ROOT_DIR/scripts/rust-ui-build.sh" "$STAGE/scripts/rust-ui-build.sh"
 mkdir -p "$STAGE/lib/forms" && rsync -a "$ROOT_DIR/lib/forms/templates/" "$STAGE/lib/forms/templates/"
 cp "$ROOT_DIR/Dockerfile" "$STAGE/Dockerfile"
 cp "$ROOT_DIR/Dockerfile" "$STAGE/Dockerfile.vercel"
-[ -f "$STAGE/public/rust-ui/ui_bg.wasm" ] || fail "The built wasm is missing from the image context."
+[ -f "$STAGE/public/app.css" ] || fail "The stylesheet is missing from the image context."
 
 printf '\nDeploying the application image...\n'
 cd "$STAGE"

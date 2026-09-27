@@ -13,8 +13,9 @@ cd "$root"
 image="culebraluxe-site:dry-run"
 port="${SITE_CONTAINER_PORT:-8090}"
 
+# The wasm is built inside the image; only the stylesheet is built here.
 if [ -z "${SKIP_SITE_BUILD:-}" ]; then
-  RUST_UI_PROFILE=release bash scripts/site-build.sh
+  npx --no-install tailwindcss -i rust/ui/styles/app.css -o public/app.css --minify
 fi
 
 echo "==> docker build ($image)"

@@ -1,6 +1,9 @@
-# Only what the application image needs: the Rust sources, the built site, the form templates.
+# Only what the application image needs: the Rust sources, the UI build script, the site's static files, the form
+# templates. The wasm is built inside the image, so any local build of it is left out.
 *
 !rust
 rust/target
+!scripts/rust-ui-build.sh
 !public
+public/rust-ui
 !lib/forms/templates
