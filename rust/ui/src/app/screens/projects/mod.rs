@@ -826,6 +826,7 @@ mod tests {
             Msg::ProjectCalendarEditRequested {
                 occurrence_id: "occ-1".into(),
                 provider_event_id: "ek-1".into(),
+                provider_series_id: None,
                 start_at: "2026-09-29T11:00:00+00:00".into(),
                 end_at: "2026-09-29T12:00:00+00:00".into(),
                 all_day: false,
@@ -835,7 +836,7 @@ mod tests {
         .into_requests()
         .remove(0);
         let body = request.body.clone().unwrap();
-        assert_eq!(body["action"], "calendarUpdate");
+        assert_eq!(request.path, "/api/portal/rust-ui/projects/calendar");
         assert_eq!(body["eventId"], "ek-1");
         assert_eq!(body["recurrenceScope"], "future");
         let projects = model.read.loaded().unwrap();
