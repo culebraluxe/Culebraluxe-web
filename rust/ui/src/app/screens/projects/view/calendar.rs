@@ -1,14 +1,16 @@
 use yew::prelude::*;
 
+use crate::calendar::GridSpec;
 use crate::model::{
     PortalProject, PortalProjectCalendarEvent, PortalProjectWorkItem, PortalProjectsPage,
 };
 
-use super::super::Msg;
+use super::super::{Msg, Vm};
 
 #[derive(Clone)]
 struct CalendarChip {
     id: String,
+    work_item_id: Option<String>,
     title: String,
     date: String,
     time: Option<String>,
@@ -17,7 +19,9 @@ struct CalendarChip {
     all_day: bool,
     source: String,
     kind: String,
+    location: Option<String>,
     provider_event_id: Option<String>,
+    provider_series_id: Option<String>,
     recurring: bool,
     detached: bool,
 }
@@ -38,7 +42,16 @@ impl CalendarChip {
     }
 }
 
+fn grid(projects: &PortalProjectsPage) -> GridSpec {
+    GridSpec::new(
+        projects.calendar_day_start_hour,
+        projects.calendar_day_end_hour,
+        projects.calendar_slot_minutes,
+    )
+}
+
 pub(super) fn view(
+    model: &Vm<'_>,
     projects: &PortalProjectsPage,
     project: &PortalProject,
     on_msg: &Callback<Msg>,
@@ -46,14 +59,14 @@ pub(super) fn view(
     let chips = project_calendar_chips(projects, project);
     html! {
         <section class="flex h-full min-h-0 flex-col overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/35">
-            { toolbar(projects, &chips, on_msg) }
+            { toolbar(model, projects, &chips, on_msg) }
             <div class="min-h-0 flex-1">
                 {
                     match projects.calendar_mode.as_str() {
-                        "week" => time_grid(projects, &chips, crate::calendar::week_dates(&projects.calendar_cursor), on_msg),
-                        "day" => time_grid(projects, &chips, vec![projects.calendar_cursor.clone()], on_msg),
-                        "list" => list_view(projects, &chips),
-                        _ => month_view(projects, &chips),
+                        "week" => time_grid(model, projects, &chips, crate::calendar::week_dates(&projects.calendar_cursor), on_msg),
+                        "day" => time_grid(model, projects, &chips, vec![projects.calendar_cursor.clone()], on_msg),
+                        "list" => list_view(model, projects, &chips, on_msg),
+                        _ => month_view(model, projects, &chips, on_msg),
                     }
                 }
             </div>
@@ -61,7 +74,12 @@ pub(super) fn view(
     }
 }
 
-fn toolbar(projects: &PortalProjectsPage, chips: &[CalendarChip], on_msg: &Callback<Msg>) -> Html {
+fn toolbar(
+    model: &Vm<'_>,
+    projects: &PortalProjectsPage,
+    chips: &[CalendarChip],
+    on_msg: &Callback<Msg>,
+) -> Html {
     let previous = {
         let on_msg = on_msg.clone();
         Callback::from(move |_: MouseEvent| on_msg.emit(Msg::ProjectCalendarPrevious))
@@ -91,6 +109,16 @@ fn toolbar(projects: &PortalProjectsPage, chips: &[CalendarChip], on_msg: &Callb
             on_msg.emit(Msg::ProjectCalendarRecurrenceScopeSelected(value));
         })
     };
+    let filter_change = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |event: Event| {
+            let value = event
+                .target_unchecked_into::<web_sys::HtmlSelectElement>()
+                .value();
+            on_msg.emit(Msg::ProjectCalendarFilterSelected(value));
+        })
+    };
+    let grid = grid(projects);
 
     html! {
         <div class="shrink-0 border-b border-[var(--portal-panel-border)] bg-white/35 px-3 py-2">
@@ -113,6 +141,18 @@ fn toolbar(projects: &PortalProjectsPage, chips: &[CalendarChip], on_msg: &Callb
                 <h2 class="min-w-[180px] flex-1 text-center font-serif text-[20px] font-light text-[var(--portal-navy)]">
                     { title }
                 </h2>
+
+                <label class="flex h-8 items-center gap-1.5 rounded-md border border-[var(--portal-panel-border)] bg-white/65 px-2 text-[9px] font-semibold uppercase tracking-[0.08em] text-[var(--portal-blue-gray)]">
+                    {"Schedule"}
+                    <select
+                        value={projects.calendar_filter.clone()}
+                        onchange={filter_change}
+                        class="bg-transparent text-[10px] font-medium normal-case tracking-normal text-[var(--portal-navy)] outline-none"
+                    >
+                        <option value="all" selected={projects.calendar_filter == "all"}>{"Project + Apple"}</option>
+                        <option value="project" selected={projects.calendar_filter == "project"}>{"Project only"}</option>
+                    </select>
+                </label>
 
                 if recurrence_visible {
                     <label class="flex h-8 items-center gap-1.5 rounded-md border border-[var(--portal-panel-border)] bg-white/65 px-2 text-[9px] font-semibold uppercase tracking-[0.08em] text-[var(--portal-blue-gray)]">
@@ -149,11 +189,30 @@ fn toolbar(projects: &PortalProjectsPage, chips: &[CalendarChip], on_msg: &Callb
                     }) }
                 </nav>
             </div>
-            if projects.saving {
-                <p class="mt-1 text-right text-[9px] font-medium uppercase tracking-[0.09em] text-[var(--portal-gold-muted)]">
-                    {"Queueing Apple calendar change…"}
-                </p>
-            }
+            <div class="mt-1 flex items-center justify-between text-[9px] font-medium uppercase tracking-[0.08em] text-[var(--portal-blue-gray)]">
+                <span>
+                    { format!(
+                        "{:02}:00–{:02}:00 · {} min",
+                        grid.start_hour, grid.end_hour, grid.slot_minutes
+                    ) }
+                </span>
+                <span class="text-[var(--portal-gold-muted)]">
+                    {
+                        if projects.calendar_loading {
+                            "Loading visible dates…".to_owned()
+                        } else if let Some(pending) = model.calendar_pending {
+                            match pending.phase.as_str() {
+                                "queueing" => "Queueing Apple change…".into(),
+                                "queued" => "Apple change queued".into(),
+                                "delivered" => "EventKit confirmed · awaiting sync".into(),
+                                other => other.replace('_', " "),
+                            }
+                        } else {
+                            String::new()
+                        }
+                    }
+                </span>
+            </div>
         </div>
     }
 }
@@ -163,10 +222,8 @@ fn calendar_event_linked_to_project(
     project: &PortalProject,
     event: &PortalProjectCalendarEvent,
 ) -> bool {
-    // The Apple schedule is the user's schedule and remains visible while a
-    // project is selected. Canonical showings are narrowed to project context.
     if event.source == "apple_calendar" {
-        return true;
+        return projects.calendar_filter == "all";
     }
     if project
         .person_id
@@ -203,6 +260,7 @@ fn project_calendar_chips(
             let due = item.due_at.as_deref()?;
             Some(CalendarChip {
                 id: format!("wbs:{}", item.id),
+                work_item_id: Some(item.id.clone()),
                 title: item.title.clone(),
                 date: crate::calendar::date_key(due)?,
                 time: None,
@@ -211,7 +269,9 @@ fn project_calendar_chips(
                 all_day: true,
                 source: "wbs".into(),
                 kind: item.category.clone(),
+                location: None,
                 provider_event_id: None,
+                provider_series_id: None,
                 recurring: false,
                 detached: false,
             })
@@ -226,6 +286,7 @@ fn project_calendar_chips(
             .filter_map(|event| {
                 Some(CalendarChip {
                     id: event.id.clone(),
+                    work_item_id: None,
                     title: event.title.clone(),
                     date: crate::calendar::date_key(&event.start_at)?,
                     time: (!event.all_day)
@@ -236,7 +297,9 @@ fn project_calendar_chips(
                     all_day: event.all_day,
                     source: event.source.clone(),
                     kind: event.kind.clone(),
+                    location: event.location.clone(),
                     provider_event_id: event.provider_event_id.clone(),
+                    provider_series_id: event.provider_series_id.clone(),
                     recurring: event.recurring,
                     detached: event.detached,
                 })
@@ -252,7 +315,40 @@ fn project_calendar_chips(
     chips
 }
 
-fn month_view(projects: &PortalProjectsPage, chips: &[CalendarChip]) -> Html {
+fn select_event(event: &CalendarChip, on_msg: &Callback<Msg>) -> Callback<MouseEvent> {
+    let on_msg = on_msg.clone();
+    if let Some(item_id) = event.work_item_id.clone() {
+        Callback::from(move |_: MouseEvent| {
+            on_msg.emit(Msg::ProjectNodeSelected(Some(item_id.clone())))
+        })
+    } else {
+        let id = event.id.clone();
+        Callback::from(move |_: MouseEvent| {
+            on_msg.emit(Msg::ProjectCalendarEventSelected(Some(id.clone())))
+        })
+    }
+}
+
+fn selected(projects: &PortalProjectsPage, event: &CalendarChip) -> bool {
+    event
+        .work_item_id
+        .as_deref()
+        .is_some_and(|id| projects.selected_node_id.as_deref() == Some(id))
+        || projects.calendar_selected_event_id.as_deref() == Some(event.id.as_str())
+}
+
+fn pending(model: &Vm<'_>, event: &CalendarChip) -> bool {
+    model
+        .calendar_pending
+        .is_some_and(|pending| pending.occurrence_id == event.id)
+}
+
+fn month_view(
+    model: &Vm<'_>,
+    projects: &PortalProjectsPage,
+    chips: &[CalendarChip],
+    on_msg: &Callback<Msg>,
+) -> Html {
     let days = crate::calendar::month_cells(&projects.calendar_cursor);
     html! {
         <div class="flex h-full min-h-0 flex-col">
@@ -285,7 +381,7 @@ fn month_view(projects: &PortalProjectsPage, chips: &[CalendarChip]) -> Html {
                                 </span>
                             </div>
                             <div class="space-y-0.5">
-                                { for day_events.iter().take(4).map(|event| month_chip(event)) }
+                                { for day_events.iter().take(4).map(|event| month_chip(model, projects, event, on_msg)) }
                                 if extra > 0 {
                                     <div class="px-1 text-[9px] font-medium text-[var(--portal-blue-gray)]">
                                         { format!("+{extra} more") }
@@ -300,17 +396,29 @@ fn month_view(projects: &PortalProjectsPage, chips: &[CalendarChip]) -> Html {
     }
 }
 
-fn month_chip(event: &&CalendarChip) -> Html {
+fn month_chip(
+    model: &Vm<'_>,
+    projects: &PortalProjectsPage,
+    event: &&CalendarChip,
+    on_msg: &Callback<Msg>,
+) -> Html {
     let tooltip = event
         .time
         .as_ref()
         .map(|time| format!("{time} · {}", event.title))
         .unwrap_or_else(|| event.title.clone());
     html! {
-        <div
+        <button
+            type="button"
             key={event.id.clone()}
             title={tooltip}
-            class={classes!("truncate","rounded","border","px-1.5","py-0.5","text-[9px]","leading-tight",event.tone())}
+            onclick={select_event(event, on_msg)}
+            class={classes!(
+                "block","w-full","truncate","rounded","border","px-1.5","py-0.5","text-left","text-[9px]","leading-tight",
+                event.tone(),
+                selected(projects, event).then_some("ring-1 ring-[var(--portal-gold)]"),
+                pending(model, event).then_some("opacity-70")
+            )}
         >
             if event.recurring {
                 <span class="mr-1" aria-label="Recurring">{"↻"}</span>
@@ -319,11 +427,12 @@ fn month_chip(event: &&CalendarChip) -> Html {
                 <span class="mr-1 font-semibold">{ time }</span>
             }
             { event.title.clone() }
-        </div>
+        </button>
     }
 }
 
 fn time_grid(
+    model: &Vm<'_>,
     projects: &PortalProjectsPage,
     chips: &[CalendarChip],
     days: Vec<String>,
@@ -337,6 +446,7 @@ fn time_grid(
         days.len(),
         64 + days.len() * 120
     );
+    let grid = grid(projects);
 
     html! {
         <div class="h-full min-h-0 overflow-auto bg-white/20">
@@ -364,39 +474,65 @@ fn time_grid(
                 <div class="border-r border-[var(--portal-panel-border)] px-2 py-2 text-right text-[9px] font-semibold uppercase tracking-[0.08em] text-black/35">
                     {"All day"}
                 </div>
-                { for days.iter().map(|date| all_day_cell(date, chips, on_msg)) }
+                { for days.iter().map(|date| all_day_cell(model, projects, date, chips, on_msg)) }
             </div>
 
             <div style={columns} class="grid">
-                { time_labels() }
-                { for days.iter().map(|date| timed_day_column(date, chips, on_msg)) }
+                { time_labels(grid) }
+                { for days.iter().map(|date| timed_day_column(model, projects, date, chips, on_msg, grid)) }
             </div>
         </div>
     }
 }
 
-fn time_labels() -> Html {
+fn time_labels(grid: GridSpec) -> Html {
+    let slots = grid.slot_count();
     html! {
         <div
             class="grid border-r border-[var(--portal-panel-border)] bg-white/45"
-            style={format!("grid-template-rows: repeat({}, 28px);", crate::calendar::SLOT_COUNT)}
+            style={format!("grid-template-rows: repeat({slots}, 28px);")}
         >
-            { for (0..crate::calendar::SLOT_COUNT).map(|slot| html! {
+            { for (0..slots).map(|slot| html! {
                 <div
                     key={format!("time-{slot}")}
                     class="border-b border-[var(--portal-panel-border)]/45 pr-2 pt-1 text-right text-[8px] font-light text-black/35"
                 >
-                    { if slot % 2 == 0 { crate::calendar::slot_label(slot) } else { String::new() } }
+                    { if slot % (60 / grid.slot_minutes) as usize == 0 {
+                        crate::calendar::slot_label(slot, grid)
+                    } else {
+                        String::new()
+                    } }
                 </div>
             }) }
         </div>
     }
 }
 
-fn all_day_cell(date: &str, chips: &[CalendarChip], on_msg: &Callback<Msg>) -> Html {
-    let date_owned = date.to_owned();
-    let ondrop = all_day_drop(on_msg, date_owned);
+fn drag_target(
+    key: String,
+    on_msg: &Callback<Msg>,
+) -> (Callback<web_sys::DragEvent>, Callback<web_sys::DragEvent>) {
+    let enter_msg = on_msg.clone();
+    let enter_key = key;
+    let ondragenter = Callback::from(move |event: web_sys::DragEvent| {
+        event.prevent_default();
+        enter_msg.emit(Msg::ProjectCalendarDragTargetChanged(Some(enter_key.clone())));
+    });
     let ondragover = Callback::from(|event: web_sys::DragEvent| event.prevent_default());
+    (ondragenter, ondragover)
+}
+
+fn all_day_cell(
+    model: &Vm<'_>,
+    projects: &PortalProjectsPage,
+    date: &str,
+    chips: &[CalendarChip],
+    on_msg: &Callback<Msg>,
+) -> Html {
+    let target_key = format!("all-day:{date}");
+    let target_active = projects.calendar_drag_target.as_deref() == Some(target_key.as_str());
+    let ondrop = all_day_drop(on_msg, date.to_owned());
+    let (ondragenter, ondragover) = drag_target(target_key, on_msg);
     let events = chips
         .iter()
         .filter(|event| event.date == date && event.all_day)
@@ -405,94 +541,178 @@ fn all_day_cell(date: &str, chips: &[CalendarChip], on_msg: &Callback<Msg>) -> H
         <div
             key={format!("all-day-{date}")}
             {ondrop}
+            {ondragenter}
             {ondragover}
-            class="min-h-10 border-r border-[var(--portal-panel-border)] px-1 py-1"
+            class={classes!(
+                "min-h-10","border-r","border-[var(--portal-panel-border)]","px-1","py-1","transition",
+                target_active.then_some("bg-[var(--portal-gold)]/15 ring-1 ring-inset ring-[var(--portal-gold)]/40")
+            )}
         >
-            { for events.iter().map(|event| all_day_chip(event)) }
+            { for events.iter().map(|event| all_day_chip(model, projects, event, on_msg)) }
         </div>
     }
 }
 
-fn all_day_chip(event: &&CalendarChip) -> Html {
+fn all_day_chip(
+    model: &Vm<'_>,
+    projects: &PortalProjectsPage,
+    event: &&CalendarChip,
+    on_msg: &Callback<Msg>,
+) -> Html {
     let editable = event.editable();
-    let ondragstart = drag_start(event, "move");
+    let ondragstart = drag_start(event, "move", on_msg);
+    let ondragend = drag_end(on_msg);
     html! {
-        <div
+        <button
+            type="button"
             key={event.id.clone()}
             draggable={editable.to_string()}
-            ondragstart={ondragstart}
+            {ondragstart}
+            {ondragend}
+            onclick={select_event(event, on_msg)}
             title={event.title.clone()}
             class={classes!(
-                "mb-0.5","truncate","rounded","border","px-1.5","py-0.5","text-[9px]","leading-tight",
+                "mb-0.5","block","w-full","truncate","rounded","border","px-1.5","py-0.5","text-left","text-[9px]","leading-tight",
                 event.tone(),
-                editable.then_some("cursor-grab")
+                editable.then_some("cursor-grab"),
+                selected(projects, event).then_some("ring-1 ring-[var(--portal-gold)]"),
+                (projects.calendar_dragging_event_id.as_deref() == Some(event.id.as_str())).then_some("opacity-40"),
+                pending(model, event).then_some("opacity-70")
             )}
         >
             if event.recurring { <span class="mr-1">{"↻"}</span> }
             { event.title.clone() }
-        </div>
+        </button>
     }
 }
 
-fn timed_day_column(date: &str, chips: &[CalendarChip], on_msg: &Callback<Msg>) -> Html {
-    let events = chips
+#[derive(Clone)]
+struct TimedPosition<'a> {
+    event: &'a CalendarChip,
+    slot: usize,
+    span: usize,
+    lane: usize,
+    lanes: usize,
+}
+
+fn timed_positions<'a>(
+    chips: &'a [CalendarChip],
+    date: &str,
+    grid: GridSpec,
+) -> Vec<TimedPosition<'a>> {
+    let mut base = chips
         .iter()
         .filter(|event| event.date == date && !event.all_day)
-        .filter_map(|event| crate::calendar::event_slot(&event.start_at).map(|slot| (event, slot)))
+        .filter_map(|event| {
+            let slot = crate::calendar::event_slot(&event.start_at, grid)?;
+            let span = crate::calendar::event_span_slots(&event.start_at, event.end_at.as_deref(), grid)
+                .min(grid.slot_count().saturating_sub(slot).max(1));
+            Some((event, slot, span))
+        })
         .collect::<Vec<_>>();
+    base.sort_by(|left, right| left.1.cmp(&right.1).then_with(|| right.2.cmp(&left.2)));
+
+    let layout_input = base
+        .iter()
+        .map(|(_, slot, span)| (*slot, *span))
+        .collect::<Vec<_>>();
+    let layout = crate::calendar::overlap_lanes(&layout_input);
+
+    base.into_iter()
+        .zip(layout)
+        .map(|((event, slot, span), (lane, lanes))| TimedPosition {
+            event,
+            slot,
+            span,
+            lane,
+            lanes,
+        })
+        .collect()
+}
+
+fn timed_day_column(
+    model: &Vm<'_>,
+    projects: &PortalProjectsPage,
+    date: &str,
+    chips: &[CalendarChip],
+    on_msg: &Callback<Msg>,
+    grid: GridSpec,
+) -> Html {
+    let slots = grid.slot_count();
+    let events = timed_positions(chips, date, grid);
     html! {
         <div
             key={format!("timed-{date}")}
             class="grid border-r border-[var(--portal-panel-border)] bg-white/15"
-            style={format!("grid-template-rows: repeat({}, 28px);", crate::calendar::SLOT_COUNT)}
+            style={format!("grid-template-rows: repeat({slots}, 28px);")}
         >
-            { for (0..crate::calendar::SLOT_COUNT).map(|slot| {
-                let ondrop = timed_drop(on_msg, date.to_owned(), slot);
-                let ondragover = Callback::from(|event: web_sys::DragEvent| event.prevent_default());
+            { for (0..slots).map(|slot| {
+                let target_key = format!("timed:{date}:{slot}");
+                let target_active = projects.calendar_drag_target.as_deref() == Some(target_key.as_str());
+                let ondrop = timed_drop(on_msg, date.to_owned(), slot, grid);
+                let (ondragenter, ondragover) = drag_target(target_key, on_msg);
                 html! {
                     <div
                         key={format!("slot-{date}-{slot}")}
                         {ondrop}
+                        {ondragenter}
                         {ondragover}
                         style={format!("grid-row: {}; grid-column: 1;", slot + 1)}
                         class={classes!(
-                            "border-b","border-[var(--portal-panel-border)]/45",
-                            (slot % 2 == 0).then_some("bg-white/15")
+                            "border-b","border-[var(--portal-panel-border)]/45","transition",
+                            (slot % (60 / grid.slot_minutes) as usize == 0).then_some("bg-white/15"),
+                            target_active.then_some("bg-[var(--portal-gold)]/15 ring-1 ring-inset ring-[var(--portal-gold)]/35")
                         )}
                     ></div>
                 }
             }) }
-            { for events.into_iter().map(|(event, slot)| timed_event(event, slot)) }
+            { for events.into_iter().map(|position| timed_event(model, projects, position, on_msg)) }
         </div>
     }
 }
 
-fn timed_event(event: &CalendarChip, slot: usize) -> Html {
-    let span = crate::calendar::event_span_slots(&event.start_at, event.end_at.as_deref())
-        .min(crate::calendar::SLOT_COUNT.saturating_sub(slot).max(1));
+fn timed_event(
+    model: &Vm<'_>,
+    projects: &PortalProjectsPage,
+    position: TimedPosition<'_>,
+    on_msg: &Callback<Msg>,
+) -> Html {
+    let event = position.event;
     let editable = event.editable();
-    let move_start = drag_start(&event, "move");
-    let resize_start = drag_start(&event, "resize");
+    let move_start = drag_start(event, "move", on_msg);
+    let resize_start = drag_start(event, "resize", on_msg);
+    let move_end = drag_end(on_msg);
+    let resize_end = drag_end(on_msg);
+    let onclick = select_event(event, on_msg);
     let tooltip = event
         .time
         .as_ref()
         .map(|time| format!("{time} · {}", event.title))
         .unwrap_or_else(|| event.title.clone());
+    let width = 100.0 / position.lanes.max(1) as f64;
+    let left = width * position.lane as f64;
+    let style = format!(
+        "grid-row: {} / span {}; grid-column: 1; z-index: 10; margin-top: 1px; margin-bottom: 1px; margin-left: calc({left:.3}% + 2px); width: calc({width:.3}% - 4px); min-height: 26px;",
+        position.slot + 1,
+        position.span,
+    );
+
     html! {
         <article
             key={event.id.clone()}
             draggable={editable.to_string()}
             ondragstart={move_start}
+            ondragend={move_end}
+            onclick={onclick}
             title={tooltip}
-            style={format!(
-                "grid-row: {} / span {}; grid-column: 1; z-index: 10; margin: 1px 3px; min-height: 26px;",
-                slot + 1,
-                span
-            )}
+            style={style}
             class={classes!(
-                "relative","overflow-hidden","rounded","border","px-1.5","py-1","text-[9px]","shadow-sm",
+                "relative","overflow-hidden","rounded","border","px-1.5","py-1","text-[9px]","shadow-sm","transition-opacity",
                 event.tone(),
-                editable.then_some("cursor-grab")
+                editable.then_some("cursor-grab"),
+                selected(projects, event).then_some("ring-2 ring-[var(--portal-gold)]"),
+                (projects.calendar_dragging_event_id.as_deref() == Some(event.id.as_str())).then_some("opacity-40"),
+                pending(model, event).then_some("opacity-70")
             )}
         >
             <div class="truncate font-semibold">
@@ -510,30 +730,46 @@ fn timed_event(event: &CalendarChip, slot: usize) -> Html {
                         event.stop_propagation();
                         resize_start.emit(event);
                     })}
-                    title="Drag to resize"
-                    class="absolute inset-x-1 bottom-0 h-1.5 cursor-ns-resize border-t border-current/20"
-                ></div>
+                    ondragend={resize_end}
+                    title="Drag bottom edge to resize"
+                    class="absolute inset-x-0 bottom-0 flex h-2.5 cursor-ns-resize items-end justify-center bg-gradient-to-t from-black/10 to-transparent"
+                >
+                    <span class="mb-0.5 block h-0.5 w-6 rounded-full bg-current/40"></span>
+                </div>
             }
         </article>
     }
 }
 
-fn drag_start(event: &CalendarChip, kind: &'static str) -> Callback<web_sys::DragEvent> {
+fn drag_start(
+    event: &CalendarChip,
+    kind: &'static str,
+    on_msg: &Callback<Msg>,
+) -> Callback<web_sys::DragEvent> {
     let payload = serde_json::json!({
         "kind": kind,
         "occurrenceId": event.id,
         "providerEventId": event.provider_event_id,
+        "providerSeriesId": event.provider_series_id,
         "startAt": event.start_at,
         "endAt": event.end_at,
         "allDay": event.all_day,
     })
     .to_string();
+    let id = event.id.clone();
+    let on_msg = on_msg.clone();
     Callback::from(move |event: web_sys::DragEvent| {
         if let Some(data) = event.data_transfer() {
             let _ = data.set_data("text/plain", &payload);
             data.set_effect_allowed("move");
+            on_msg.emit(Msg::ProjectCalendarDragStarted(id.clone()));
         }
     })
+}
+
+fn drag_end(on_msg: &Callback<Msg>) -> Callback<web_sys::DragEvent> {
+    let on_msg = on_msg.clone();
+    Callback::from(move |_: web_sys::DragEvent| on_msg.emit(Msg::ProjectCalendarDragEnded))
 }
 
 fn drop_payload(event: &web_sys::DragEvent) -> Option<serde_json::Value> {
@@ -546,7 +782,12 @@ fn text_field<'a>(value: &'a serde_json::Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(serde_json::Value::as_str)
 }
 
-fn timed_drop(on_msg: &Callback<Msg>, date: String, slot: usize) -> Callback<web_sys::DragEvent> {
+fn timed_drop(
+    on_msg: &Callback<Msg>,
+    date: String,
+    slot: usize,
+    grid: GridSpec,
+) -> Callback<web_sys::DragEvent> {
     let on_msg = on_msg.clone();
     Callback::from(move |event: web_sys::DragEvent| {
         event.prevent_default();
@@ -563,13 +804,21 @@ fn timed_drop(on_msg: &Callback<Msg>, date: String, slot: usize) -> Callback<web
             return;
         };
         let old_end = text_field(&payload, "endAt");
-        let Some(target) = crate::calendar::slot_timestamp(&date, slot) else {
+        let was_all_day = payload
+            .get("allDay")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let Some(target) = crate::calendar::slot_timestamp(&date, slot, grid) else {
             return;
         };
         let span = if text_field(&payload, "kind") == Some("resize") {
-            crate::calendar::resize_span(old_start, &target)
+            if was_all_day {
+                None
+            } else {
+                crate::calendar::resize_span(old_start, &target, grid)
+            }
         } else {
-            crate::calendar::move_span(old_start, old_end, &target)
+            crate::calendar::move_to_timed(old_start, old_end, was_all_day, &target)
         };
         let Some((start_at, end_at)) = span else {
             return;
@@ -577,6 +826,7 @@ fn timed_drop(on_msg: &Callback<Msg>, date: String, slot: usize) -> Callback<web
         on_msg.emit(Msg::ProjectCalendarEditRequested {
             occurrence_id: occurrence_id.to_owned(),
             provider_event_id: provider_event_id.to_owned(),
+            provider_series_id: text_field(&payload, "providerSeriesId").map(str::to_owned),
             start_at,
             end_at,
             all_day: false,
@@ -591,7 +841,7 @@ fn all_day_drop(on_msg: &Callback<Msg>, date: String) -> Callback<web_sys::DragE
         let Some(payload) = drop_payload(&event) else {
             return;
         };
-        if payload.get("allDay").and_then(serde_json::Value::as_bool) != Some(true) {
+        if text_field(&payload, "kind") == Some("resize") {
             return;
         }
         let Some(occurrence_id) = text_field(&payload, "occurrenceId") else {
@@ -604,16 +854,19 @@ fn all_day_drop(on_msg: &Callback<Msg>, date: String) -> Callback<web_sys::DragE
             return;
         };
         let old_end = text_field(&payload, "endAt");
-        let Some(target) = crate::calendar::midnight_timestamp(&date) else {
-            return;
-        };
-        let Some((start_at, end_at)) = crate::calendar::move_span(old_start, old_end, &target)
+        let was_all_day = payload
+            .get("allDay")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let Some((start_at, end_at)) =
+            crate::calendar::move_to_all_day(old_start, old_end, was_all_day, &date)
         else {
             return;
         };
         on_msg.emit(Msg::ProjectCalendarEditRequested {
             occurrence_id: occurrence_id.to_owned(),
             provider_event_id: provider_event_id.to_owned(),
+            provider_series_id: text_field(&payload, "providerSeriesId").map(str::to_owned),
             start_at,
             end_at,
             all_day: true,
@@ -621,7 +874,12 @@ fn all_day_drop(on_msg: &Callback<Msg>, date: String) -> Callback<web_sys::DragE
     })
 }
 
-fn list_view(projects: &PortalProjectsPage, chips: &[CalendarChip]) -> Html {
+fn list_view(
+    model: &Vm<'_>,
+    projects: &PortalProjectsPage,
+    chips: &[CalendarChip],
+    on_msg: &Callback<Msg>,
+) -> Html {
     let dates = crate::calendar::week_dates(&projects.calendar_cursor);
     html! {
         <div class="h-full overflow-y-auto px-3 py-2">
@@ -641,19 +899,32 @@ fn list_view(projects: &PortalProjectsPage, chips: &[CalendarChip]) -> Html {
                             <p class="px-3 py-3 text-[11px] font-light text-black/35">{"No events"}</p>
                         } else {
                             <div class="divide-y divide-[var(--portal-panel-border)]/60">
-                                { for events.into_iter().map(|event| html! {
-                                    <div key={event.id.clone()} class="grid grid-cols-[72px_minmax(0,1fr)_100px] items-center gap-3 px-3 py-2">
-                                        <span class="text-[10px] font-medium text-[var(--portal-blue-gray)]">
-                                            { event.time.clone().unwrap_or_else(|| "All day".into()) }
-                                        </span>
-                                        <span class="min-w-0 truncate text-[13px] text-[var(--portal-navy)]">
-                                            if event.recurring { <span class="mr-1 text-[var(--portal-gold-muted)]">{"↻"}</span> }
-                                            { event.title.clone() }
-                                        </span>
-                                        <span class="truncate text-right text-[9px] font-medium uppercase tracking-[0.07em] text-black/35">
-                                            { if event.source == "wbs" { "Work" } else if event.kind == "showing" { "Showing" } else { "Calendar" } }
-                                        </span>
-                                    </div>
+                                { for events.into_iter().map(|event| {
+                                    let onclick = select_event(event, on_msg);
+                                    html! {
+                                        <button
+                                            type="button"
+                                            key={event.id.clone()}
+                                            onclick={onclick}
+                                            class={classes!(
+                                                "grid","w-full","grid-cols-[72px_minmax(0,1fr)_100px]","items-center","gap-3","px-3","py-2","text-left",
+                                                "hover:bg-white/45",
+                                                selected(projects, event).then_some("bg-[var(--portal-gold)]/[0.08]"),
+                                                pending(model, event).then_some("opacity-70")
+                                            )}
+                                        >
+                                            <span class="text-[10px] font-medium text-[var(--portal-blue-gray)]">
+                                                { event.time.clone().unwrap_or_else(|| "All day".into()) }
+                                            </span>
+                                            <span class="min-w-0 truncate text-[13px] text-[var(--portal-navy)]">
+                                                if event.recurring { <span class="mr-1 text-[var(--portal-gold-muted)]">{"↻"}</span> }
+                                                { event.title.clone() }
+                                            </span>
+                                            <span class="truncate text-right text-[9px] font-medium uppercase tracking-[0.07em] text-black/35">
+                                                { if event.source == "wbs" { "Work" } else if event.kind == "showing" { "Showing" } else { "Calendar" } }
+                                            </span>
+                                        </button>
+                                    }
                                 }) }
                             </div>
                         }
