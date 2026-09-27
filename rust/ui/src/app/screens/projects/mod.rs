@@ -334,7 +334,7 @@ fn calendar_poll(model: &mut Model) -> Cmd<Msg> {
     let Some(command_id) = pending.command_id.clone() else {
         return Cmd::none();
     };
-    if pending.poll_count >= 20 {
+    if pending.poll_count >= 70 {
         return Cmd::none();
     }
     pending.poll_count += 1;
@@ -352,9 +352,9 @@ fn calendar_state_loaded(
         if model
             .pending_calendar
             .as_ref()
-            .is_some_and(|pending| pending.poll_count < 20)
+            .is_some_and(|pending| pending.poll_count < 70)
         {
-            return Cmd::after(2_000, Msg::CalendarPoll);
+            return Cmd::after(30_000, Msg::CalendarPoll);
         }
         return Cmd::none();
     };
@@ -389,8 +389,9 @@ fn calendar_state_loaded(
             );
             Cmd::none()
         }
-        "failed" if poll_count < 20 => Cmd::after(2_000, Msg::CalendarPoll),
-        _ if poll_count < 20 => Cmd::after(1_500, Msg::CalendarPoll),
+        "delivered" if poll_count < 70 => Cmd::after(2_000, Msg::CalendarPoll),
+        "failed" if poll_count < 70 => Cmd::after(30_000, Msg::CalendarPoll),
+        _ if poll_count < 70 => Cmd::after(30_000, Msg::CalendarPoll),
         _ => Cmd::none(),
     }
 }
