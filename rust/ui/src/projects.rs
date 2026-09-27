@@ -154,7 +154,6 @@ pub fn carry_over(previous: Option<&PortalProjectsPage>, projects: &mut PortalPr
     projects.saving = false;
 }
 
-
 /// Stable initial cursor for the calendar. The server supplies today so the
 /// reducer remains deterministic; older fixtures fall back to a dated event/work item.
 pub fn calendar_anchor(projects: &PortalProjectsPage) -> String {

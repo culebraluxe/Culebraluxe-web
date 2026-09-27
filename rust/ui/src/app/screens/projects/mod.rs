@@ -399,7 +399,11 @@ mod tests {
         Projects::update(&mut model, Msg::QueryChanged("villa".into()), &ctx);
         assert_eq!(model.controls.query, "villa");
 
-        Projects::update(&mut model, Msg::ProjectViewSelected("calendar".into()), &ctx);
+        Projects::update(
+            &mut model,
+            Msg::ProjectViewSelected("calendar".into()),
+            &ctx,
+        );
         Projects::update(&mut model, Msg::ProjectCalendarNext, &ctx);
         assert_eq!(model.read.loaded().unwrap().calendar_cursor, "2026-10-27");
         Projects::update(&mut model, Msg::ProjectCalendarToday, &ctx);

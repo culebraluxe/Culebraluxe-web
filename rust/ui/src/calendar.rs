@@ -55,8 +55,18 @@ pub fn shift_month(cursor: &str, delta: i32) -> String {
 
 pub fn month_title(cursor: &str) -> String {
     const MONTHS: [&str; 12] = [
-        "January", "February", "March", "April", "May", "June",
-        "July", "August", "September", "October", "November", "December",
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
     ];
     month_start(cursor)
         .map(|date| format!("{} {}", MONTHS[date.month0() as usize], date.year()))

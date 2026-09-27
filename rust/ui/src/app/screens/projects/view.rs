@@ -419,8 +419,7 @@ fn calendar_event_linked_to_project(
         .property_id
         .as_ref()
         .and_then(|id| projects.identity_names.get(&format!("property:{id}")));
-    property_name
-        .is_some_and(|name| event.property_name.as_deref() == Some(name.as_str()))
+    property_name.is_some_and(|name| event.property_name.as_deref() == Some(name.as_str()))
 }
 
 fn project_calendar_chips(

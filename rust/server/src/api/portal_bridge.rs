@@ -8,14 +8,14 @@ use super::context::ResolvedRequestContext;
 use super::ui_auth::resolve_portal_context;
 use super::{ApiError, ApiState};
 use crate::service_support::CoreServiceError;
-use base64::Engine as _;
-use chrono::Utc;
 use axum::{
     extract::{Query, State},
     http::{HeaderMap, StatusCode},
     routing::get,
     Json, Router,
 };
+use base64::Engine as _;
+use chrono::Utc;
 use domain::{
     ClientDetail, ClientDirectoryPageRequest, ClientsPageResult, CommsPanel, GetCommsPanelRequest,
     PersonPropertyContext,
