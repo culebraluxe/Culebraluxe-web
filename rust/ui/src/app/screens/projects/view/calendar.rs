@@ -204,6 +204,7 @@ fn toolbar(
                             match pending.phase.as_str() {
                                 "queueing" => "Queueing Apple change…".into(),
                                 "queued" => "Apple change queued".into(),
+                                "failed" => "Apple retry scheduled".into(),
                                 "delivered" => "EventKit confirmed · awaiting sync".into(),
                                 other => other.replace('_', " "),
                             }
