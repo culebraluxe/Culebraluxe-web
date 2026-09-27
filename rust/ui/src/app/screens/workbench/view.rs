@@ -13,6 +13,8 @@ use super::{Msg, Vm};
 #[derive(Clone, Copy)]
 enum FieldKind {
     Text,
+    /// US dollars: shown as $1,250,000, stored as the digits.
+    Money,
     Number,
     Date,
     Textarea(u32),
@@ -55,43 +57,22 @@ const PROJECT_STATUS: &[(&str, &str)] = &[
     ("archived", "Archived"),
 ];
 
-/// The record's first lines, in the order a listing is written: what it is called and its parcel, then how it is
-/// described. Everything else (status, prices, the building) follows in "Listing and building facts".
+/// The record's first pane: what it is called, its parcel, where it stands, and what it asks.
 const PROPERTY_IDENTITY: &[FieldSpec] = &[
     FieldSpec {
         key: "name",
         label: "Property name",
         kind: FieldKind::Text,
-        wide: true,
-        hint: Some("Canonical property name."),
+        wide: false,
+        hint: None,
     },
     FieldSpec {
         key: "catastroNumber",
         label: "Catastro number",
         kind: FieldKind::Text,
         wide: false,
-        hint: Some("Puerto Rico parcel identifier, distinct from a listing ID."),
-    },
-];
-
-const PROPERTY_DESCRIPTIONS: &[FieldSpec] = &[
-    FieldSpec {
-        key: "shortDescription",
-        label: "Short description",
-        kind: FieldKind::Textarea(3),
-        wide: true,
         hint: None,
     },
-    FieldSpec {
-        key: "editorialDescription",
-        label: "Long description",
-        kind: FieldKind::Textarea(6),
-        wide: true,
-        hint: Some("The property page's main description."),
-    },
-];
-
-const PROPERTY_CORE: &[FieldSpec] = &[
     FieldSpec {
         key: "status",
         label: "Status",
@@ -100,6 +81,27 @@ const PROPERTY_CORE: &[FieldSpec] = &[
         hint: None,
     },
     FieldSpec {
+        key: "listPrice",
+        label: "Asking price",
+        kind: FieldKind::Money,
+        wide: false,
+        hint: None,
+    },
+];
+
+/// How the property is described on its page (the property card and page show this one description).
+const PROPERTY_DESCRIPTIONS: &[FieldSpec] = &[
+    FieldSpec {
+        key: "editorialDescription",
+        label: "Description",
+        kind: FieldKind::Textarea(6),
+        wide: true,
+        hint: Some("The property page's main description."),
+    },
+];
+
+const PROPERTY_CORE: &[FieldSpec] = &[
+    FieldSpec {
         key: "propertyType",
         label: "Property type",
         kind: FieldKind::Text,
@@ -107,16 +109,9 @@ const PROPERTY_CORE: &[FieldSpec] = &[
         hint: None,
     },
     FieldSpec {
-        key: "listPrice",
-        label: "List price",
-        kind: FieldKind::Number,
-        wide: false,
-        hint: None,
-    },
-    FieldSpec {
         key: "originalListPrice",
         label: "Original list price",
-        kind: FieldKind::Number,
+        kind: FieldKind::Money,
         wide: false,
         hint: None,
     },
@@ -385,6 +380,23 @@ const PROPERTY_SITE: &[FieldSpec] = &[
     },
 ];
 
+const PROPERTY_GPS: &[FieldSpec] = &[
+    FieldSpec {
+        key: "latitude",
+        label: "Latitude",
+        kind: FieldKind::Number,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "longitude",
+        label: "Longitude",
+        kind: FieldKind::Number,
+        wide: false,
+        hint: None,
+    },
+];
+
 const PROPERTY_ADDRESS: &[FieldSpec] = &[
     FieldSpec {
         key: "location",
@@ -460,20 +472,6 @@ const PROPERTY_ADDRESS: &[FieldSpec] = &[
         key: "isoCountryCode",
         label: "ISO country",
         kind: FieldKind::Text,
-        wide: false,
-        hint: None,
-    },
-    FieldSpec {
-        key: "latitude",
-        label: "Latitude",
-        kind: FieldKind::Number,
-        wide: false,
-        hint: None,
-    },
-    FieldSpec {
-        key: "longitude",
-        label: "Longitude",
-        kind: FieldKind::Number,
         wide: false,
         hint: None,
     },
@@ -893,7 +891,7 @@ pub(super) fn workbench(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
             <div class={rail_class}>
                 { selector_rail(model, on_msg, total, current, pages) }
                 <main class="min-h-0 overflow-hidden">
-                    <fieldset disabled={!model.can(write_action)}>
+                    <fieldset disabled={!model.can(write_action)} class="h-full min-h-0 min-w-0">
                         { editor(model, on_msg) }
                     </fieldset>
                 </main>
@@ -1369,6 +1367,7 @@ fn property_editor(
         "site" => html! {
             <div class="space-y-4">
                 {section_intro("Site and land", "Lot, location and parcel facts apply to every property, including houses. Enter what is known now and return later.")}
+                {field_panel(model, on_msg, "GPS coordinates", PROPERTY_GPS)}
                 {field_panel(model, on_msg, "Land area", PROPERTY_SITE_AREA)}
                 {field_panel(model, on_msg, "Terrain, roads and utilities", PROPERTY_SITE)}
                 {feature_panel(model, on_msg)}
@@ -1419,8 +1418,9 @@ fn property_editor(
         _ => html! {
             <div class="space-y-4">
                 {section_intro("Property facts", "Start with what is known. Save and return to complete other fields in later passes.")}
-                {field_panel(model, on_msg, "Title and parcel", PROPERTY_IDENTITY)}
-                {field_panel(model, on_msg, "Descriptions", PROPERTY_DESCRIPTIONS)}
+                {field_panel(model, on_msg, "Property", PROPERTY_IDENTITY)}
+                {catastro_find_bar(model, on_msg)}
+                {field_panel(model, on_msg, "Description", PROPERTY_DESCRIPTIONS)}
                 {field_panel(model, on_msg, "Listing and building facts", PROPERTY_CORE)}
             </div>
         },
@@ -2013,6 +2013,45 @@ fn project_editor(
     }
 }
 
+/// A stored amount ("2350000" or "2350000.50") as US dollars: $2,350,000 / $2,350,000.50. Empty stays empty.
+pub(super) fn usd(raw: &str) -> String {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return String::new();
+    }
+    let (whole, fraction) = raw.split_once('.').map_or((raw, None), |(w, f)| (w, Some(f)));
+    let digits: String = whole.chars().filter(char::is_ascii_digit).collect();
+    let digits = digits.trim_start_matches('0');
+    let digits = if digits.is_empty() { "0" } else { digits };
+    let mut grouped = String::new();
+    for (index, ch) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index) % 3 == 0 {
+            grouped.push(',');
+        }
+        grouped.push(ch);
+    }
+    match fraction {
+        Some(cents) => format!("${grouped}.{}", cents.chars().filter(char::is_ascii_digit).take(2).collect::<String>()),
+        None => format!("${grouped}"),
+    }
+}
+
+/// Type a catastro number above, then Find: the property that already has it opens, every field filled from the
+/// property table. Unsaved typing on this record is set aside.
+fn catastro_find_bar(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
+    let catastro = value(model, "catastroNumber");
+    let onclick = on_msg.reform(|_: MouseEvent| Msg::FindByCatastro);
+    html! {
+        <div class="-mt-1 flex items-center justify-end gap-2">
+            <span class="text-[11px] text-black/45">{"Have the catastro? Open the property that already has it."}</span>
+            <button type="button" {onclick} disabled={catastro.trim().is_empty() || model.loading}
+                class="rounded-md bg-[var(--portal-navy)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white disabled:opacity-40">
+                {"Find by catastro"}
+            </button>
+        </div>
+    }
+}
+
 fn field_panel(model: &Vm<'_>, on_msg: &Callback<Msg>, title: &str, fields: &[FieldSpec]) -> Html {
     html! {
         <section class="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/30 p-4">
@@ -2024,7 +2063,7 @@ fn field_panel(model: &Vm<'_>, on_msg: &Callback<Msg>, title: &str, fields: &[Fi
 
 fn field_grid(model: &Vm<'_>, on_msg: &Callback<Msg>, fields: &[FieldSpec]) -> Html {
     html! {
-        <div class="grid gap-4 lg:grid-cols-2">
+        <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {for fields.iter().map(|field| editor_field(model, on_msg, field))}
         </div>
     }
@@ -2032,7 +2071,7 @@ fn field_grid(model: &Vm<'_>, on_msg: &Callback<Msg>, fields: &[FieldSpec]) -> H
 
 fn editor_field(model: &Vm<'_>, on_msg: &Callback<Msg>, field: &FieldSpec) -> Html {
     let field_value = value(model, field.key);
-    let wrapper = if field.wide { "lg:col-span-2" } else { "" };
+    let wrapper = if field.wide { "sm:col-span-2 xl:col-span-4" } else { "" };
     let disabled = model.ops.saving;
 
     let control = match field.kind {
@@ -2087,6 +2126,25 @@ fn editor_field(model: &Vm<'_>, on_msg: &Callback<Msg>, field: &FieldSpec) -> Ht
                         <option value={*value} selected={field_value.as_str() == *value}>{*label}</option>
                     })}
                 </select>
+            }
+        }
+        FieldKind::Money => {
+            let key = field.key.to_string();
+            let on_msg = on_msg.clone();
+            html! {
+                <input
+                    type="text"
+                    inputmode="decimal"
+                    placeholder="$0"
+                    value={usd(&field_value)}
+                    disabled={disabled}
+                    oninput={Callback::from(move |event: InputEvent| {
+                        let typed = event.target_unchecked_into::<web_sys::HtmlInputElement>().value();
+                        let digits: String = typed.chars().filter(|c| c.is_ascii_digit() || *c == '.').collect();
+                        on_msg.emit(Msg::OpsFieldChanged { key: key.clone(), value: digits });
+                    })}
+                    class="mt-1.5 h-10 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 px-3 text-[13px] font-light text-black/75 outline-none focus:border-[var(--portal-navy)] disabled:opacity-50"
+                />
             }
         }
         FieldKind::Date | FieldKind::Number | FieldKind::Text => {

@@ -69,6 +69,8 @@ pub enum Msg {
         key: String,
         value: String,
     },
+    /// Open the property whose catastro number is the one typed on this record (the property table is the source).
+    FindByCatastro,
     OpsSaveRequested,
     OpsRevertRequested,
     OpsCreateToggled,
@@ -209,6 +211,19 @@ fn update(model: &mut Model, msg: Msg) -> Cmd<Msg> {
             model.controls.query = query;
             model.typed += 1;
             Cmd::after(SEARCH_PAUSE_MS, Msg::SearchPaused(model.typed))
+        }
+        Msg::FindByCatastro => {
+            let catastro = model.ops.form.get("catastroNumber").map(|value| value.trim().to_owned()).unwrap_or_default();
+            if catastro.is_empty() {
+                return Cmd::none();
+            }
+            // Finding is why the number was typed: the typing is not a draft to protect.
+            model.ops.dirty = false;
+            model.controls.query = catastro;
+            model.controls.page = 0;
+            model.selected = None;
+            model.error = None;
+            read(model)
         }
         Msg::SearchPaused(typed) => {
             if typed != model.typed || model.ops.dirty {
@@ -730,6 +745,29 @@ mod tests {
             Some("p1"),
             "the late answer for the record the operator left is dropped"
         );
+    }
+
+    #[test]
+    fn prices_read_as_us_dollars() {
+        assert_eq!(view::usd("2350000"), "$2,350,000");
+        assert_eq!(view::usd("950000.5"), "$950,000.5");
+        assert_eq!(view::usd(""), "");
+        assert_eq!(view::usd("0"), "$0");
+    }
+
+    #[test]
+    fn find_by_catastro_searches_the_property_table_even_over_a_draft() {
+        let ctx = ScreenCtx::default();
+        let mut model = opened(&ctx);
+        Workbench::update(
+            &mut model,
+            Msg::OpsFieldChanged { key: "catastroNumber".into(), value: " 476-000-005-19-000 ".into() },
+            &ctx,
+        );
+        let request = Workbench::update(&mut model, Msg::FindByCatastro, &ctx).into_requests().remove(0);
+        assert!(request.path.contains("search=476-000-005-19-000"), "{}", request.path);
+        assert!(request.path.contains("page=0"));
+        assert!(!request.path.contains("selected="), "the first match opens");
     }
 
     #[test]
