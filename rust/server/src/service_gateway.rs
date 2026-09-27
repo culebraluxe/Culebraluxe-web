@@ -1,3 +1,4 @@
+use crate::calendar::CalendarService;
 use crate::clients::ClientService;
 use crate::contracts::ContractService;
 use crate::firms::FirmService;
@@ -7,8 +8,11 @@ use crate::security::SecurityService;
 use crate::service_kernel::ServiceRegistry;
 use crate::service_support::CoreServiceError;
 use async_trait::async_trait;
-use db::{ClientDao, ContractDao, FirmDao, PersonDao, PropertyDao, SecurityDao};
-use domain::{PropertyAdminPageRequest, SearchPeopleRequest};
+use db::{CalendarDao, ClientDao, ContractDao, FirmDao, PersonDao, PropertyDao, SecurityDao};
+use domain::{
+    CalendarViewportQuery, CreateAppleCalendarEventRequest, PropertyAdminPageRequest,
+    SearchPeopleRequest,
+};
 #[cfg(test)]
 use serde_json::json;
 use serde_json::Value;
@@ -196,6 +200,89 @@ fn encode<T: serde::Serialize>(
             false,
         )
     })
+}
+
+#[async_trait]
+impl AbstractService for CalendarService<CalendarDao> {
+    fn descriptor(&self) -> ServiceDescriptor {
+        ServiceDescriptor {
+            domain: "calendar".into(),
+            version: "1".into(),
+            description: "Canonical calendar service".into(),
+            capabilities: vec![
+                capability(
+                    "calendar.list",
+                    OperationKind::Query,
+                    "Read the default bounded calendar window.",
+                    "calendar.read",
+                    true,
+                ),
+                capability(
+                    "calendar.viewport",
+                    OperationKind::Query,
+                    "Read calendar events for an explicit viewport.",
+                    "calendar.read",
+                    true,
+                ),
+                capability(
+                    "calendar.createAppleEvent",
+                    OperationKind::Command,
+                    "Queue an Apple Calendar event through the trusted macOS edge.",
+                    "calendar.write",
+                    false,
+                ),
+            ],
+            dependencies: vec![],
+            invariants: vec![
+                "Calendar viewport reads are range-bounded.".into(),
+                "Apple Calendar writes cross the outbox/edge boundary; the web process never writes EventKit directly.".into(),
+            ],
+        }
+    }
+
+    async fn dispatch(
+        &self,
+        envelope: &ServiceEnvelope,
+        context: &ServiceContext,
+    ) -> Result<Value, ServiceDispatchError> {
+        match envelope.operation.as_str() {
+            "calendar.list" => encode(envelope, self.list(context).await.map_err(core_error)?),
+            "calendar.viewport" => {
+                let request: CalendarViewportQuery =
+                    serde_json::from_value(envelope.payload.clone()).map_err(|error| {
+                        ServiceDispatchError::InvalidPayload {
+                            domain: envelope.domain.clone(),
+                            operation: envelope.operation.clone(),
+                            message: error.to_string(),
+                        }
+                    })?;
+                encode(
+                    envelope,
+                    self.viewport(&request, context).await.map_err(core_error)?,
+                )
+            }
+            "calendar.createAppleEvent" => {
+                let request: CreateAppleCalendarEventRequest =
+                    serde_json::from_value(envelope.payload.clone()).map_err(|error| {
+                        ServiceDispatchError::InvalidPayload {
+                            domain: envelope.domain.clone(),
+                            operation: envelope.operation.clone(),
+                            message: error.to_string(),
+                        }
+                    })?;
+                encode(
+                    envelope,
+                    self.create_apple_event(&request, context)
+                        .await
+                        .map_err(core_error)?,
+                )
+            }
+            operation => Err(ServiceDispatchError::UnknownOperation {
+                domain: "calendar".into(),
+                operation: operation.to_owned(),
+            }),
+        }
+    }
 }
 
 #[async_trait]

@@ -1,13 +1,20 @@
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
-use chrono::DateTime;
+use chrono::{DateTime, Utc};
 use db::{CalendarDao, DbResult};
-use domain::{CalendarCommandReceipt, CalendarEvent, CreateAppleCalendarEventRequest};
+use domain::{
+    CalendarCommandReceipt, CalendarEvent, CalendarViewportQuery, CreateAppleCalendarEventRequest,
+};
 use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
 
 #[async_trait]
 pub trait CalendarRepository: Send {
     async fn list(&self) -> DbResult<Vec<CalendarEvent>>;
+    async fn list_between(
+        &self,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> DbResult<Vec<CalendarEvent>>;
     async fn create_apple_event(
         &self,
         request: &CreateAppleCalendarEventRequest,
@@ -20,6 +27,14 @@ pub trait CalendarRepository: Send {
 impl CalendarRepository for CalendarDao {
     async fn list(&self) -> DbResult<Vec<CalendarEvent>> {
         CalendarDao::list(self).await
+    }
+
+    async fn list_between(
+        &self,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> DbResult<Vec<CalendarEvent>> {
+        CalendarDao::list_between(self, start, end).await
     }
 
     async fn create_apple_event(
@@ -60,6 +75,61 @@ impl<R: CalendarRepository> CalendarService<R> {
         )
         .await?;
         let result = self.repository.list().await.map_err(Into::into);
+        audit_result(&self.runtime, "calendar", OP, context, decision, &result).await?;
+        result
+    }
+
+    /// Read only the time window the UI is actually rendering. This is the
+    /// service boundary for month/week/day views and future recurrence expansion.
+    pub async fn viewport(
+        &self,
+        request: &CalendarViewportQuery,
+        context: &ServiceContext,
+    ) -> Result<Vec<CalendarEvent>, CoreServiceError> {
+        const OP: &str = "calendar.viewport";
+        let decision = authorize(
+            &self.runtime,
+            "calendar",
+            "calendar.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+
+        let result = async {
+            let start = DateTime::parse_from_rfc3339(&request.start_at).map_err(|_| {
+                CoreServiceError::business(
+                    "CALENDAR_VIEWPORT_INVALID",
+                    "Calendar viewport start/end must be RFC 3339 timestamps.",
+                )
+            })?;
+            let end = DateTime::parse_from_rfc3339(&request.end_at).map_err(|_| {
+                CoreServiceError::business(
+                    "CALENDAR_VIEWPORT_INVALID",
+                    "Calendar viewport start/end must be RFC 3339 timestamps.",
+                )
+            })?;
+            if end <= start {
+                return Err(CoreServiceError::business(
+                    "CALENDAR_VIEWPORT_INVALID",
+                    "Calendar viewport end must be after its start.",
+                ));
+            }
+            if end.signed_duration_since(start).num_days() > 370 {
+                return Err(CoreServiceError::business(
+                    "CALENDAR_VIEWPORT_TOO_LARGE",
+                    "Calendar viewport cannot exceed 370 days.",
+                ));
+            }
+
+            self.repository
+                .list_between(start.with_timezone(&Utc), end.with_timezone(&Utc))
+                .await
+                .map_err(Into::into)
+        }
+        .await;
+
         audit_result(&self.runtime, "calendar", OP, context, decision, &result).await?;
         result
     }

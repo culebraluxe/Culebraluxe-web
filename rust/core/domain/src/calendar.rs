@@ -26,6 +26,15 @@ pub struct CalendarEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CalendarViewportQuery {
+    /// Inclusive viewport boundary. RFC 3339 preserves the caller's offset.
+    pub start_at: String,
+    /// Exclusive viewport boundary.
+    pub end_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateAppleCalendarEventRequest {
     pub title: String,
     pub start_at: String,

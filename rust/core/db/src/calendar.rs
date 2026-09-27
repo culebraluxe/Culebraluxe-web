@@ -40,6 +40,21 @@ impl CalendarDao {
     }
 
     pub async fn list(&self) -> DbResult<Vec<CalendarEvent>> {
+        let now = Utc::now();
+        self.list_between(
+            now - chrono::Duration::days(7),
+            now + chrono::Duration::days(60),
+        )
+        .await
+    }
+
+    /// Range-bounded calendar read used by viewport clients. The end boundary is
+    /// exclusive so adjacent month/week requests cannot duplicate an occurrence.
+    pub async fn list_between(
+        &self,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> DbResult<Vec<CalendarEvent>> {
         let showings = sqlx::query_as::<_, ShowingCalendarRow>(
             r#"
             select s.id::text as id,
@@ -54,14 +69,17 @@ impl CalendarDao {
             left join property deal_property on deal_property.id = d.property_id
             where s.status in ('scheduled', 'completed')
               and s.scheduled_at is not null
-              and s.scheduled_at >= now() - interval '7 days'
+              and s.scheduled_at >= $1
+              and s.scheduled_at < $2
             order by s.scheduled_at asc
-            limit 60
+            limit 1000
             "#,
         )
+        .bind(&start)
+        .bind(&end)
         .fetch_all(self.db.pool())
         .await
-        .map_err(|error| DbFailure::from_sqlx("calendar.list.showings", &error))?;
+        .map_err(|error| DbFailure::from_sqlx("calendar.viewport.showings", &error))?;
 
         let apple = sqlx::query_as::<_, AppleCalendarRow>(
             r#"
@@ -73,15 +91,17 @@ impl CalendarDao {
                    all_day
             from l_calendar
             where starts_at is not null
-              and starts_at >= now() - interval '7 days'
-              and starts_at < now() + interval '60 days'
+              and starts_at >= $1
+              and starts_at < $2
             order by starts_at asc
-            limit 500
+            limit 2000
             "#,
         )
+        .bind(&start)
+        .bind(&end)
         .fetch_all(self.db.pool())
         .await
-        .map_err(|error| DbFailure::from_sqlx("calendar.list.apple", &error))?;
+        .map_err(|error| DbFailure::from_sqlx("calendar.viewport.apple", &error))?;
 
         let mut by_id = BTreeMap::new();
         for row in showings {

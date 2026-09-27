@@ -115,7 +115,6 @@ abstract_service!(
     "relationship-evidence",
     "Relationship evidence service"
 );
-abstract_service!(CalendarService<CalendarDao>, "calendar", "Calendar service");
 #[async_trait]
 impl AbstractService for CommsService<CommsDao> {
     fn descriptor(&self) -> ServiceDescriptor {
