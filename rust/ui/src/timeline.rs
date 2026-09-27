@@ -72,9 +72,8 @@ pub fn range<'a>(
 ) -> TimelineRange {
     let spec = spec(mode);
     let mut dates = values.into_iter().filter_map(date);
-    let fallback = date(fallback).unwrap_or_else(|| {
-        NaiveDate::from_ymd_opt(1970, 1, 1).expect("the epoch is a valid date")
-    });
+    let fallback = date(fallback)
+        .unwrap_or_else(|| NaiveDate::from_ymd_opt(1970, 1, 1).expect("the epoch is a valid date"));
     let Some(first) = dates.next() else {
         return TimelineRange {
             start: fallback - Duration::days(spec.margin_before),
@@ -145,10 +144,7 @@ mod tests {
         );
         assert_eq!(range.start.to_string(), "2026-09-03");
         assert_eq!(range.end.to_string(), "2026-10-17");
-        assert_eq!(
-            x(date("2026-09-10").unwrap(), range, spec("day")),
-            7 * 34
-        );
+        assert_eq!(x(date("2026-09-10").unwrap(), range, spec("day")), 7 * 34);
     }
 
     #[test]
