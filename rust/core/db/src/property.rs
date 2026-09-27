@@ -5,7 +5,7 @@ use domain::{
     PersonPropertyRelation, Property, PropertyAddress, PropertyAddressPatch, PropertyAdminPage,
     PropertyAdminPageRequest, PropertyAdminRecord, PropertyAdminSummary, PropertyForPerson,
     PropertyStellarDetails, SavePropertyAdminRequest, SetPropertyDisplayNameRequest,
-    SetPropertyStatusRequest, UpsertPropertyForPersonRequest,
+    SetPropertyListingTypeRequest, SetPropertyStatusRequest, UpsertPropertyForPersonRequest,
 };
 use sqlx::{FromRow, PgConnection};
 use std::collections::{HashMap, HashSet};
@@ -857,6 +857,27 @@ impl PropertyDao {
         .await
         .map_err(|error| DbFailure::from_sqlx("property.set_status", &error))?;
         Ok(row.map(map_property))
+    }
+
+    pub async fn set_listing_type(
+        &self,
+        request: &SetPropertyListingTypeRequest,
+    ) -> DbResult<()> {
+        sqlx::query(
+            r#"
+            insert into property_stellar_listing (property_id, listing_type)
+            values ($1::uuid, nullif($2::text, ''))
+            on conflict (property_id) do update set
+                listing_type = excluded.listing_type,
+                updated_at = now()
+            "#,
+        )
+        .bind(&request.property_id)
+        .bind(request.listing_type.as_deref())
+        .execute(&mut *self.db.connection().await?)
+        .await
+        .map_err(|error| DbFailure::from_sqlx("property.set_listing_type", &error))?;
+        Ok(())
     }
 
     pub async fn admin_page(
