@@ -11,7 +11,7 @@ use axum::Router;
 use serde_json::{json, Value};
 
 use super::context::public_guest_context;
-use super::ui_auth::{resolve_portal_context, stub_enabled};
+use super::ui_auth::{portal_open, resolve_portal_context};
 use super::{ApiError, ApiState};
 
 pub fn router() -> Router<ApiState> {
@@ -28,7 +28,7 @@ async fn media(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Response, ApiError> {
-    let (found, cache) = if stub_enabled() {
+    let (found, cache) = if portal_open(&headers) {
         let resolved = resolve_portal_context(&state, &headers).await?;
         let found = state
             .services()

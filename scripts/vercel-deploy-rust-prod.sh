@@ -51,18 +51,35 @@ RUST_PROJECT_ID="$(
 )" || fail "Could not resolve the Rust project '${RUST_PROJECT_NAME}'."
 printf '  project: %s (%s)\n' "$RUST_PROJECT_NAME" "$RUST_PROJECT_ID"
 
-printf '\nDeploying rust/Dockerfile.vercel...\n'
-# THE DEPLOY RUNS FROM rust/, AND THAT IS NOT COSMETIC. Vercel looks for a Dockerfile in the directory being deployed;
-# run this from the repository root and the only thing it can find is the Next app, so it refuses with
-# "Container service must specify an entrypoint". The project link is passed as an id, so no `.vercel` directory is
-# needed here — only the right working directory.
-cd "$ROOT_DIR/rust"
+printf '\nBuilding the site (release wasm + CSS)...\n'
+RUST_UI_PROFILE=release bash "$ROOT_DIR/scripts/site-build.sh" || fail "The site build failed. Nothing was shipped."
+
+# THE WHOLE APPLICATION IS ONE IMAGE: the Rust server, the built site (public/) and the form templates. The CLI
+# deploys one folder, so it is assembled here — rust/ without its build output, public/, lib/forms/templates — with
+# the repository's Dockerfile (proven by `pnpm container:dry-run`) under both names the project may build from.
+STAGE="$(mktemp -d)"
+trap 'rm -rf "$STAGE"' EXIT
+printf '\nAssembling the image context in %s...\n' "$STAGE"
+rsync -a --exclude target --exclude '* 2.*' --exclude '* 2' "$ROOT_DIR/rust/" "$STAGE/rust/"
+rsync -a --exclude '* 2.*' "$ROOT_DIR/public/" "$STAGE/public/"
+mkdir -p "$STAGE/lib/forms" && rsync -a "$ROOT_DIR/lib/forms/templates/" "$STAGE/lib/forms/templates/"
+cp "$ROOT_DIR/Dockerfile" "$STAGE/Dockerfile"
+cp "$ROOT_DIR/Dockerfile" "$STAGE/Dockerfile.vercel"
+[ -f "$STAGE/public/rust-ui/ui_bg.wasm" ] || fail "The built wasm is missing from the image context."
+
+printf '\nDeploying the application image...\n'
+cd "$STAGE"
 if ! VERCEL_ORG_ID="$TEAM_ID" VERCEL_PROJECT_ID="$RUST_PROJECT_ID" vc deploy --prod --yes; then
   fail "The container deploy failed. Nothing was shipped."
 fi
+cd "$ROOT_DIR"
 
-# THE CHECK THAT MATTERS. A route that exists answers 400/401/403; a route that does not exist answers 404. Asking
-# the live container is the only way to know the code actually arrived.
+printf '\nVerifying the site answers from the container...\n'
+for path in / /buyers /app.css /rust-ui/ui.js /rust-ui/ui_bg.wasm "/api/rust-ui/public-page?screen=site-home"; do
+  code="$(curl -s -o /dev/null -w '%{http_code}' "https://culebraluxe-rust-api.vercel.app${path}")"
+  printf '  %s  %s\n' "$code" "$path"
+done
+
 printf '\nVerifying the live container knows its routes...\n'
 node --input-type=module -e '
 const base = "https://culebraluxe-rust-api.vercel.app"

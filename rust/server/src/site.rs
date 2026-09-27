@@ -33,9 +33,29 @@ pub fn service() -> ServeDir<axum::routing::MethodRouter> {
         .fallback(axum::routing::get(shell_now))
 }
 
-async fn shell_now(uri: Uri) -> Response {
+async fn shell_now(uri: Uri, headers: axum::http::HeaderMap) -> Response {
     // An API address nobody answers is a 404, never a web page a caller would try to parse as JSON.
     let path = uri.path();
+    // The production portal key: a valid key sets the cookie that opens the portal (see api::ui_auth).
+    if path == "/portal-key" {
+        let key = uri
+            .query()
+            .and_then(|query| query.split('&').find_map(|pair| pair.strip_prefix("key=")))
+            .unwrap_or("");
+        if !crate::api::ui_auth::is_portal_key(key) {
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
+        let cookie = format!(
+            "{}={}; Path=/; Max-Age=2592000; HttpOnly; Secure; SameSite=Lax",
+            crate::api::ui_auth::PORTAL_KEY_COOKIE,
+            key.trim()
+        );
+        let mut response = axum::response::Redirect::to("/portal/dashboard").into_response();
+        if let Ok(value) = header::HeaderValue::from_str(&cookie) {
+            response.headers_mut().insert(header::SET_COOKIE, value);
+        }
+        return response;
+    }
     if path.starts_with("/v1/") || path.starts_with("/api/") {
         return StatusCode::NOT_FOUND.into_response();
     }
@@ -43,14 +63,14 @@ async fn shell_now(uri: Uri) -> Response {
     if path == "/portal" || path == "/portal/" {
         return axum::response::Redirect::temporary("/portal/dashboard").into_response();
     }
-    shell(path)
+    shell(path, &headers)
 }
 
 /// The application shell for `path`.
-pub fn shell(path: &str) -> Response {
+pub fn shell(path: &str, headers: &axum::http::HeaderMap) -> Response {
     let portal = path == "/portal" || path.starts_with("/portal/");
     let actor = if portal {
-        crate::api::ui_auth::actor_projection_json().unwrap_or_default()
+        crate::api::ui_auth::actor_projection_json(headers).unwrap_or_default()
     } else {
         String::new()
     };
@@ -115,10 +135,10 @@ mod tests {
             )
             .unwrap()
         };
-        let site = body(shell("/buyers")).await;
+        let site = body(shell("/buyers", &axum::http::HeaderMap::new())).await;
         assert!(site.contains(r#"data-rust-app="site""#));
         assert!(site.contains("import init, { start_in } from '/rust-ui/ui.js'"));
-        let portal = body(shell("/portal/clients/abc")).await;
+        let portal = body(shell("/portal/clients/abc", &axum::http::HeaderMap::new())).await;
         assert!(portal.contains(r#"data-rust-app="portal""#));
     }
 
@@ -126,16 +146,16 @@ mod tests {
     async fn an_unknown_api_address_is_a_404_not_the_page() {
         for path in ["/v1/nothing", "/api/portal/rust-ui/nothing"] {
             assert_eq!(
-                shell_now(path.parse().unwrap()).await.status(),
+                shell_now(path.parse().unwrap(), axum::http::HeaderMap::new()).await.status(),
                 StatusCode::NOT_FOUND,
                 "{path}"
             );
         }
         assert_eq!(
-            shell_now("/buyers".parse().unwrap()).await.status(),
+            shell_now("/buyers".parse().unwrap(), axum::http::HeaderMap::new()).await.status(),
             StatusCode::OK
         );
-        let portal = shell_now("/portal".parse().unwrap()).await;
+        let portal = shell_now("/portal".parse().unwrap(), axum::http::HeaderMap::new()).await;
         assert_eq!(portal.headers()[header::LOCATION], "/portal/dashboard");
     }
 }
