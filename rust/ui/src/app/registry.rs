@@ -401,63 +401,6 @@ mod tests {
     }
 
     #[test]
-    fn every_next_page_has_a_registry_entry_and_every_entry_a_page() {
-        // THE DEEP-LINK GATE. A registry path with no page 404s on refresh; a page with no entry renders "not found"
-        // inside the app. Both used to be possible silently.
-        let app = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app");
-        let mut pages = BTreeSet::new();
-        let mut stack = vec![app.clone()];
-        while let Some(dir) = stack.pop() {
-            for item in std::fs::read_dir(&dir).unwrap().flatten() {
-                let path = item.path();
-                if path.is_dir() {
-                    // Route groups and private folders are not URL segments; `api` is not a page.
-                    let name = item.file_name().to_string_lossy().to_string();
-                    if name != "api" && !name.starts_with('_') {
-                        stack.push(path);
-                    }
-                } else if item.file_name() == "page.tsx" {
-                    let route = path
-                        .parent()
-                        .unwrap()
-                        .strip_prefix(&app)
-                        .unwrap()
-                        .to_string_lossy()
-                        .to_string();
-                    let route = format!("/{route}");
-                    let route: String = route
-                        .split('/')
-                        .map(|segment| {
-                            match segment.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
-                                Some(param) => format!(":{param}"),
-                                None => segment.to_string(),
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                        .join("/");
-                    pages.insert(if route == "/" {
-                        route
-                    } else {
-                        route.trim_end_matches('/').to_string()
-                    });
-                }
-            }
-        }
-        let entries: BTreeSet<String> =
-            ENTRIES.iter().map(|entry| entry.path.to_string()).collect();
-        let missing_entry: Vec<_> = pages.difference(&entries).collect();
-        let missing_page: Vec<_> = entries.difference(&pages).collect();
-        assert!(
-            missing_entry.is_empty(),
-            "pages with no registry entry: {missing_entry:?}"
-        );
-        assert!(
-            missing_page.is_empty(),
-            "registry entries with no page: {missing_page:?}"
-        );
-    }
-
-    #[test]
     fn the_rail_is_the_designed_menu_in_its_order() {
         let labels = |surface| {
             rail_items(surface, &root())

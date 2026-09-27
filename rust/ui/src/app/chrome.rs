@@ -249,8 +249,8 @@ mod tests {
             "portal to site loads the document"
         );
         assert!(
-            !in_app("/portal/dashboard", "/portal/forms"),
-            "a page Next renders"
+            in_app("/portal/dashboard", "/portal/forms"),
+            "Forms is a screen of this app"
         );
         assert!(
             !in_app("/portal/dashboard", "/api/auth/signout"),
@@ -258,8 +258,8 @@ mod tests {
         );
         assert!(!in_app("/buyers", "https://example.com/"), "another site");
         assert!(
-            !in_app("/portal/forms", "/portal/clients"),
-            "from a page Next renders"
+            in_app("/portal/forms", "/portal/clients"),
+            "from Forms, a screen of this app, to another"
         );
         assert!(
             in_app("/portal/dashboard", "/portal/property-admin"),
