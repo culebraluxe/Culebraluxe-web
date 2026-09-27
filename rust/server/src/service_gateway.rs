@@ -238,6 +238,13 @@ impl AbstractService for CalendarService<CalendarDao> {
                     "calendar.write",
                     false,
                 ),
+                capability(
+                    "calendar.commandState",
+                    OperationKind::Query,
+                    "Read durable Apple delivery and reconciliation state for a calendar command.",
+                    "calendar.read",
+                    true,
+                ),
             ],
             dependencies: vec![],
             invariants: vec![
@@ -266,6 +273,19 @@ impl AbstractService for CalendarService<CalendarDao> {
                 encode(
                     envelope,
                     self.viewport(&request, context).await.map_err(core_error)?,
+                )
+            }
+            "calendar.commandState" => {
+                let command_id = envelope
+                    .payload
+                    .get("commandId")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                encode(
+                    envelope,
+                    self.command_state(command_id, context)
+                        .await
+                        .map_err(core_error)?,
                 )
             }
             "calendar.updateAppleEvent" => {
