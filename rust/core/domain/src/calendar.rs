@@ -22,6 +22,11 @@ pub struct CalendarEvent {
     pub property_name: Option<String>,
     pub kind: CalendarEventKind,
     pub source: String,
+    /// Native provider identifier used only when an edge supports mutation.
+    pub provider_event_id: Option<String>,
+    /// EventKit expands recurring series into bounded occurrences before landing.
+    pub recurring: bool,
+    pub detached: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,6 +48,30 @@ pub struct CreateAppleCalendarEventRequest {
     pub location: Option<String>,
     pub notes: Option<String>,
     pub alert: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateAppleCalendarEventRequest {
+    pub event_id: String,
+    pub start_at: String,
+    pub end_at: String,
+    pub all_day: Option<bool>,
+    /// "this" or "future". Named-timezone semantics are intentionally deferred.
+    pub recurrence_scope: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarLandingEvent {
+    pub source_account: String,
+    pub source_message_id: String,
+    pub title: String,
+    pub start_at: String,
+    pub end_at: String,
+    pub all_day: bool,
+    pub location: Option<String>,
+    pub raw: serde_json::Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
