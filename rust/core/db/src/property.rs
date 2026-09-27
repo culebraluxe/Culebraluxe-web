@@ -922,6 +922,12 @@ impl PropertyDao {
                 or coalesce(p.neighborhood, '') ilike $1
                 or coalesce(p.listing_identifier, '') ilike $1
                 or coalesce(p.catastro_number, '') ilike $1
+                -- The Regrid feed's identifiers and address: a parcel loaded from Regrid is found by its catastro
+                -- before anyone has copied it into catastro_number.
+                or coalesce(p.regrid_num_catastro::text, '') ilike $1
+                or coalesce(p.regrid_parcel_number::text, '') ilike $1
+                or coalesce(p.regrid_match_address::text, '') ilike $1
+                or coalesce(p.regrid_owner_name::text, '') ilike $1
             ))
             "#,
         )
@@ -954,6 +960,12 @@ impl PropertyDao {
                 or coalesce(p.neighborhood, '') ilike $1
                 or coalesce(p.listing_identifier, '') ilike $1
                 or coalesce(p.catastro_number, '') ilike $1
+                -- The Regrid feed's identifiers and address: a parcel loaded from Regrid is found by its catastro
+                -- before anyone has copied it into catastro_number.
+                or coalesce(p.regrid_num_catastro::text, '') ilike $1
+                or coalesce(p.regrid_parcel_number::text, '') ilike $1
+                or coalesce(p.regrid_match_address::text, '') ilike $1
+                or coalesce(p.regrid_owner_name::text, '') ilike $1
             ))
             order by
                 case when p.archived_at is null then 0 else 1 end,
