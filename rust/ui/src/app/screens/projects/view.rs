@@ -7,11 +7,11 @@ use std::collections::BTreeSet;
 
 use yew::prelude::*;
 
-use crate::model::{
-    PortalProject, PortalProjectCalendarEvent, PortalProjectWorkItem, PortalProjectsPage,
-};
+use crate::model::{PortalProject, PortalProjectWorkItem, PortalProjectsPage};
 
 use super::{Msg, Vm};
+
+mod calendar;
 
 pub(super) fn workspace(
     model: &Vm<'_>,
@@ -311,7 +311,7 @@ fn active_view(
 ) -> Html {
     match projects.active_view.as_str() {
         "timeline" => timeline_view(),
-        "calendar" => calendar_view(projects, project, on_msg),
+        "calendar" => calendar::view(projects, project, on_msg),
         "financials" => placeholder_view(
             "Financials",
             "No project-scoped accounting read model is attached to the Rust workspace yet.",
@@ -390,190 +390,6 @@ fn work_plan_node(
 
 fn timeline_view() -> Html {
     crate::app::template::widget_removed("The timeline")
-}
-
-#[derive(Clone)]
-struct CalendarChip {
-    id: String,
-    title: String,
-    date: String,
-    time: Option<String>,
-    source: String,
-    kind: String,
-}
-
-fn calendar_event_linked_to_project(
-    projects: &PortalProjectsPage,
-    project: &PortalProject,
-    event: &PortalProjectCalendarEvent,
-) -> bool {
-    if project
-        .person_id
-        .as_deref()
-        .is_some_and(|id| event.person_id.as_deref() == Some(id))
-    {
-        return true;
-    }
-
-    let property_name = project
-        .property_id
-        .as_ref()
-        .and_then(|id| projects.identity_names.get(&format!("property:{id}")));
-    property_name.is_some_and(|name| event.property_name.as_deref() == Some(name.as_str()))
-}
-
-fn project_calendar_chips(
-    projects: &PortalProjectsPage,
-    project: &PortalProject,
-) -> Vec<CalendarChip> {
-    let mut chips = project_items(projects, &project.id)
-        .into_iter()
-        .filter_map(|item| {
-            let due = item.due_at.as_deref()?;
-            Some(CalendarChip {
-                id: format!("wbs:{}", item.id),
-                title: item.title.clone(),
-                date: crate::calendar::date_key(due)?,
-                time: None,
-                source: "wbs".into(),
-                kind: item.category.clone(),
-            })
-        })
-        .collect::<Vec<_>>();
-
-    chips.extend(
-        projects
-            .calendar
-            .iter()
-            .filter(|event| calendar_event_linked_to_project(projects, project, event))
-            .filter_map(|event| {
-                Some(CalendarChip {
-                    id: event.id.clone(),
-                    title: event.title.clone(),
-                    date: crate::calendar::date_key(&event.start_at)?,
-                    time: (!event.all_day)
-                        .then(|| crate::calendar::time_label(&event.start_at))
-                        .flatten(),
-                    source: event.source.clone(),
-                    kind: event.kind.clone(),
-                })
-            }),
-    );
-
-    chips.sort_by(|left, right| {
-        left.date
-            .cmp(&right.date)
-            .then_with(|| left.time.cmp(&right.time))
-            .then_with(|| left.id.cmp(&right.id))
-    });
-    chips
-}
-
-fn calendar_view(
-    projects: &PortalProjectsPage,
-    project: &PortalProject,
-    on_msg: &Callback<Msg>,
-) -> Html {
-    let days = crate::calendar::month_cells(&projects.calendar_cursor);
-    let title = crate::calendar::month_title(&projects.calendar_cursor);
-    let chips = project_calendar_chips(projects, project);
-    let previous = {
-        let on_msg = on_msg.clone();
-        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::ProjectCalendarPrevious))
-    };
-    let today = {
-        let on_msg = on_msg.clone();
-        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::ProjectCalendarToday))
-    };
-    let next = {
-        let on_msg = on_msg.clone();
-        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::ProjectCalendarNext))
-    };
-
-    html! {
-        <section class="flex h-full min-h-0 flex-col overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/35">
-            <div class="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--portal-panel-border)] px-3 py-2">
-                <div class="flex items-center gap-1">
-                    <button type="button" onclick={previous} aria-label="Previous month"
-                        class="h-8 rounded-md border border-[var(--portal-panel-border)] bg-white/70 px-2.5 text-[15px] text-[var(--portal-navy)] hover:bg-white">
-                        {"‹"}
-                    </button>
-                    <button type="button" onclick={today}
-                        class="h-8 rounded-md border border-[var(--portal-panel-border)] bg-white/70 px-3 text-[11px] font-medium uppercase tracking-[0.08em] text-[var(--portal-navy)] hover:bg-white">
-                        {"Today"}
-                    </button>
-                    <button type="button" onclick={next} aria-label="Next month"
-                        class="h-8 rounded-md border border-[var(--portal-panel-border)] bg-white/70 px-2.5 text-[15px] text-[var(--portal-navy)] hover:bg-white">
-                        {"›"}
-                    </button>
-                </div>
-                <h2 class="font-serif text-[20px] font-light text-[var(--portal-navy)]">{ title }</h2>
-                <span class="rounded-full bg-[var(--portal-navy)] px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.1em] text-white">
-                    {"Month"}
-                </span>
-            </div>
-            <div class="grid shrink-0 grid-cols-7 border-b border-[var(--portal-panel-border)] bg-white/45">
-                { for ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].into_iter().map(|label| html! {
-                    <div class="px-2 py-1.5 text-center text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--portal-blue-gray)]">{ label }</div>
-                }) }
-            </div>
-            <div class="grid min-h-0 flex-1 grid-cols-7 grid-rows-6">
-                { for days.into_iter().map(|day| {
-                    let is_today = day.date == projects.calendar_today;
-                    let day_events = chips.iter().filter(|event| event.date == day.date).collect::<Vec<_>>();
-                    let extra = day_events.len().saturating_sub(4);
-                    html! {
-                        <div
-                            key={day.date.clone()}
-                            class={classes!(
-                                "min-h-0","overflow-hidden","border-b","border-r","border-[var(--portal-panel-border)]/70","p-1.5",
-                                (!day.in_month).then_some("bg-black/[0.025]"),
-                                is_today.then_some("bg-[var(--portal-gold)]/[0.09]")
-                            )}
-                        >
-                            <div class="mb-1 flex items-center justify-between">
-                                <span class={classes!(
-                                    "flex","h-5","w-5","items-center","justify-center","rounded-full","text-[10px]",
-                                    if is_today { "bg-[var(--portal-gold)] font-semibold text-[var(--portal-navy)]" }
-                                    else if day.in_month { "text-[var(--portal-navy)]" } else { "text-black/25" }
-                                )}>
-                                    { day.day }
-                                </span>
-                            </div>
-                            <div class="space-y-0.5">
-                                { for day_events.iter().take(4).map(|event| {
-                                    let tone = if event.source == "wbs" {
-                                        "border-[var(--portal-navy)]/15 bg-[var(--portal-navy)]/[0.07] text-[var(--portal-navy)]"
-                                    } else if event.kind == "showing" {
-                                        "border-[var(--portal-gold)]/30 bg-[var(--portal-gold)]/15 text-[var(--portal-navy)]"
-                                    } else {
-                                        "border-[var(--portal-blue-gray)]/20 bg-white/70 text-[var(--portal-navy)]"
-                                    };
-                                    let tooltip = event.time.as_ref()
-                                        .map(|time| format!("{time} · {}", event.title))
-                                        .unwrap_or_else(|| event.title.clone());
-                                    html! {
-                                        <div key={event.id.clone()} title={tooltip}
-                                            class={classes!("truncate","rounded","border","px-1.5","py-0.5","text-[9px]","leading-tight",tone)}>
-                                            if let Some(time) = event.time.as_ref() {
-                                                <span class="mr-1 font-semibold">{ time }</span>
-                                            }
-                                            { event.title.clone() }
-                                        </div>
-                                    }
-                                }) }
-                                if extra > 0 {
-                                    <div class="px-1 text-[9px] font-medium text-[var(--portal-blue-gray)]">
-                                        { format!("+{extra} more") }
-                                    </div>
-                                }
-                            </div>
-                        </div>
-                    }
-                }) }
-            </div>
-        </section>
-    }
 }
 
 fn documents_view() -> Html {
