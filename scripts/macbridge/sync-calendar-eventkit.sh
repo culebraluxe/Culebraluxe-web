@@ -44,11 +44,10 @@ if ! command -v swift >/dev/null 2>&1; then
   log "result=failure reason=swift-not-found attempted-at=$attempted_at"
   exit 1
 fi
-if ! command -v node >/dev/null 2>&1; then
-  log "result=failure reason=node-not-found attempted-at=$attempted_at"
+if ! command -v cargo >/dev/null 2>&1; then
+  log "result=failure reason=cargo-not-found attempted-at=$attempted_at"
   exit 1
 fi
-NODE_BIN="$(command -v node)"
 
 before_mtime=""
 if [ -f "$SNAPSHOT" ]; then
@@ -67,8 +66,8 @@ fi
 # FORGE/application MQ deliveries. It writes command payloads through private
 # temp files and logs aggregate counts only.
 if ! APP_ENV=production EXECUTION_ENV=PROD \
-  "$NODE_BIN" --env-file="$REPO_ROOT/.env.local" --import tsx \
-  scripts/apple-gateway-worker.ts >>"$LOG_FILE" 2>&1; then
+  cargo run --quiet --release --manifest-path "$REPO_ROOT/rust/Cargo.toml" -p cli -- \
+  apple-sync drain >>"$LOG_FILE" 2>&1; then
   log "result=failure stage=apple-outbound attempted-at=$attempted_at"
   exit 1
 fi
@@ -91,8 +90,8 @@ fi
 
 after_mtime="$(stat -f '%m' "$SNAPSHOT" 2>/dev/null || echo '')"
 generated_at="$(date -u -r "$after_mtime" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo "$after_mtime")"
-count="$("$NODE_BIN" -e "try{const a=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));console.log(Array.isArray(a)?a.length:'?')}catch{console.log('?')}" "$SNAPSHOT" 2>/dev/null || echo '?')"
-reminder_count="$("$NODE_BIN" -e "try{const a=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));console.log(Array.isArray(a)?a.length:'?')}catch{console.log('?')}" "$REMINDERS_SNAPSHOT" 2>/dev/null || echo '?')"
+count="$(grep -c '"sourceMessageId"' "$SNAPSHOT" 2>/dev/null || echo '?')"
+reminder_count="$(grep -c '"reminderIdentifier"' "$REMINDERS_SNAPSHOT" 2>/dev/null || echo '?')"
 changed="no"
 if [ -n "$before_mtime" ] && [ "$before_mtime" != "$after_mtime" ]; then
   changed="yes"
@@ -100,15 +99,15 @@ fi
 
 # --- Inbound: EventKit snapshots -> PROD landing -----------------------------
 if ! APP_ENV=production EXECUTION_ENV=PROD \
-  "$NODE_BIN" --env-file="$REPO_ROOT/.env.local" --import tsx \
-  scripts/calendar-eventkit-intake.ts "$SNAPSHOT" >>"$LOG_FILE" 2>&1; then
+  cargo run --quiet --release --manifest-path "$REPO_ROOT/rust/Cargo.toml" -p cli -- \
+  apple-sync calendar-intake "$SNAPSHOT" >>"$LOG_FILE" 2>&1; then
   log "result=failure stage=calendar-landing snapshot=$SNAPSHOT generated-at=$generated_at events=$count changed=$changed"
   exit 1
 fi
 
 if ! APP_ENV=production EXECUTION_ENV=PROD \
-  "$NODE_BIN" --env-file="$REPO_ROOT/.env.local" --import tsx \
-  scripts/apple-reminders-intake.ts "$REMINDERS_SNAPSHOT" >>"$LOG_FILE" 2>&1; then
+  cargo run --quiet --release --manifest-path "$REPO_ROOT/rust/Cargo.toml" -p cli -- \
+  apple-sync reminder-intake "$REMINDERS_SNAPSHOT" >>"$LOG_FILE" 2>&1; then
   log "result=failure stage=reminder-landing snapshot=$REMINDERS_SNAPSHOT reminders=$reminder_count"
   exit 1
 fi
