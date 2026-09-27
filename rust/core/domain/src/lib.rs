@@ -125,7 +125,8 @@ pub use vault::{
 };
 
 pub use calendar::{
-    CalendarCommandReceipt, CalendarEvent, CalendarEventKind, CreateAppleCalendarEventRequest,
+    CalendarCommandReceipt, CalendarEvent, CalendarEventKind, CalendarViewportQuery,
+    CreateAppleCalendarEventRequest,
 };
 
 pub use media::{
