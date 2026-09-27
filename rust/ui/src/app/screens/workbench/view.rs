@@ -1419,11 +1419,32 @@ fn property_editor(
         _ => html! {
             <div class="space-y-4">
                 {section_intro("Property facts", "Start with what is known. Save and return to complete other fields in later passes.")}
+                {regrid_fill_bar(model, property, on_msg)}
                 {field_panel(model, on_msg, "Title and parcel", PROPERTY_IDENTITY)}
                 {field_panel(model, on_msg, "Descriptions", PROPERTY_DESCRIPTIONS)}
                 {field_panel(model, on_msg, "Listing and building facts", PROPERTY_CORE)}
             </div>
         },
+    }
+}
+
+/// "Fill from Regrid": offered when the parcel's Regrid data can fill fields this record leaves empty.
+fn regrid_fill_bar(model: &Vm<'_>, property: &PortalOpsProperty, on_msg: &Callback<Msg>) -> Html {
+    let fillable = super::regrid_fill(&model.ops.form, &property.regrid_fields).len();
+    if fillable == 0 {
+        return Html::default();
+    }
+    let onclick = on_msg.reform(|_: MouseEvent| Msg::FillFromRegrid);
+    html! {
+        <div class="flex flex-wrap items-center justify-between gap-3 rounded-[var(--portal-tab-radius)] border border-[var(--portal-gold)]/40 bg-[var(--portal-gold)]/10 px-4 py-3">
+            <p class="text-[13px] text-[var(--portal-navy)]">
+                { format!("Regrid has {fillable} field{} this record leaves empty (catastro, owner, address, lot size…).", if fillable == 1 { "" } else { "s" }) }
+            </p>
+            <button type="button" {onclick} disabled={model.ops.saving}
+                class="rounded-md bg-[var(--portal-navy)] px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.12em] text-white disabled:opacity-40">
+                {"Fill from Regrid"}
+            </button>
+        </div>
     }
 }
 

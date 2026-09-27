@@ -69,6 +69,8 @@ pub enum Msg {
         key: String,
         value: String,
     },
+    /// Copy the property's Regrid values into the record's fields that are still empty (the draft only; Save writes).
+    FillFromRegrid,
     OpsSaveRequested,
     OpsRevertRequested,
     OpsCreateToggled,
@@ -124,6 +126,38 @@ fn reset_aux(ops: &mut OpsWorkbenchState) {
     ops.media_file_name = None;
     ops.media_uploading = false;
     ops.media_uploader_open = false;
+}
+
+/// Record field <- the Regrid columns that can fill it, first one with a value wins.
+const REGRID_FILL: &[(&str, &[&str])] = &[
+    ("catastroNumber", &["regrid_num_catastro", "regrid_parcel_number"]),
+    ("legalOwnerName", &["regrid_owner_name"]),
+    ("addressLine1", &["regrid_match_address", "regrid_original_address"]),
+    ("neighborhood", &["regrid_urbanization"]),
+    ("city", &["regrid_municipio"]),
+    ("lotSizeAcres", &["regrid_gis_acreage"]),
+    ("lotSizeSqft", &["regrid_gis_square_feet"]),
+    ("zoning", &["regrid_zoning"]),
+];
+
+/// The fields Regrid can fill on this record: only those the record leaves empty, so nothing a person entered is ever
+/// replaced. Numbers arrive as JSON numbers and become the text the form holds.
+pub(crate) fn regrid_fill(
+    form: &std::collections::BTreeMap<String, String>,
+    regrid: &std::collections::BTreeMap<String, serde_json::Value>,
+) -> Vec<(String, String)> {
+    let text = |value: &serde_json::Value| match value {
+        serde_json::Value::String(text) => Some(text.trim().to_owned()).filter(|t| !t.is_empty()),
+        serde_json::Value::Number(number) => Some(number.to_string()),
+        _ => None,
+    };
+    REGRID_FILL
+        .iter()
+        .filter(|(field, _)| form.get(*field).is_none_or(|value| value.trim().is_empty()))
+        .filter_map(|(field, sources)| {
+            sources.iter().find_map(|column| regrid.get(*column).and_then(text)).map(|value| ((*field).to_owned(), value))
+        })
+        .collect()
 }
 
 /// `VillaDelMar_7` — the title a photograph gets when nobody typed one: the property's name and the next photo number.
@@ -313,6 +347,18 @@ fn update(model: &mut Model, msg: Msg) -> Cmd<Msg> {
                 model.ops.form.insert(key, value);
                 model.ops.dirty = true;
                 model.error = None;
+            }
+            Cmd::none()
+        }
+        Msg::FillFromRegrid => {
+            let regrid = model
+                .read
+                .loaded()
+                .and_then(|page| page.property.as_ref())
+                .map(|property| property.regrid_fields.clone())
+                .unwrap_or_default();
+            for (key, value) in regrid_fill(&model.ops.form, &regrid) {
+                update(model, Msg::OpsFieldChanged { key, value });
             }
             Cmd::none()
         }
@@ -730,6 +776,25 @@ mod tests {
             Some("p1"),
             "the late answer for the record the operator left is dropped"
         );
+    }
+
+    #[test]
+    fn regrid_fills_only_what_the_record_leaves_empty() {
+        let form: std::collections::BTreeMap<String, String> =
+            [("legalOwnerName".to_owned(), "Kept As Typed".to_owned()), ("city".to_owned(), " ".to_owned())].into();
+        let regrid: std::collections::BTreeMap<String, serde_json::Value> = [
+            ("regrid_num_catastro".to_owned(), json!("")),
+            ("regrid_parcel_number".to_owned(), json!("476-000-005-19-000")),
+            ("regrid_owner_name".to_owned(), json!("Regrid Owner")),
+            ("regrid_municipio".to_owned(), json!("Culebra")),
+            ("regrid_gis_acreage".to_owned(), json!(1.25)),
+        ]
+        .into();
+        let filled = regrid_fill(&form, &regrid);
+        assert!(filled.contains(&("catastroNumber".into(), "476-000-005-19-000".into())), "falls back to the parcel number");
+        assert!(filled.contains(&("city".into(), "Culebra".into())), "a blank field is empty");
+        assert!(filled.contains(&("lotSizeAcres".into(), "1.25".into())));
+        assert!(!filled.iter().any(|(key, _)| key == "legalOwnerName"), "a typed value is never replaced");
     }
 
     #[test]
