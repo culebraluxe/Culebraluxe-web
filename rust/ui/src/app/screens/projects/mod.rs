@@ -895,7 +895,7 @@ mod tests {
                 { "id": "p2", "name": "Firm ops", "status": "open" }
             ],
             "items": [
-                { "id": "w1", "projectId": "p1", "title": "Photos", "status": "doing" },
+                { "id": "w1", "projectId": "p1", "title": "Photos", "status": "doing", "dueAt": "2026-09-30T00:00:00+00:00" },
                 { "id": "w2", "projectId": "p2", "title": "Books", "status": "open" }
             ],
             "calendar": [
@@ -1014,6 +1014,72 @@ mod tests {
         assert_eq!(projects.calendar[0].start_at, "2026-09-28T09:00:00+00:00");
         assert!(!projects.saving);
         assert_eq!(model.error.as_deref(), Some("Apple queue unavailable."));
+    }
+
+    #[test]
+    fn timeline_scale_and_deadline_drag_stay_in_mvi_and_use_wbs_save() {
+        let ctx = ScreenCtx::default();
+        let mut model = opened();
+
+        Projects::update(
+            &mut model,
+            Msg::ProjectTimelineModeSelected("month".into()),
+            &ctx,
+        );
+        Projects::update(
+            &mut model,
+            Msg::ProjectTimelineGroupToggled("w1".into()),
+            &ctx,
+        );
+        let projects = model.read.loaded().unwrap();
+        assert_eq!(projects.timeline_mode, "month");
+        assert!(projects.timeline_collapsed_items.contains("w1"));
+
+        let request = Projects::update(
+            &mut model,
+            Msg::ProjectTimelineDueMoved {
+                item_id: "w1".into(),
+                due_at: "2026-10-05T00:00:00+00:00".into(),
+            },
+            &ctx,
+        )
+        .into_requests()
+        .remove(0);
+        let body = request.body.clone().unwrap();
+        assert_eq!(request.path, "/api/portal/rust-ui/projects");
+        assert_eq!(body["action"], "wbsSave");
+        assert_eq!(body["itemId"], "w1");
+        assert_eq!(body["dueAt"], "2026-10-05T00:00:00+00:00");
+        assert_eq!(
+            model
+                .read
+                .loaded()
+                .unwrap()
+                .items
+                .iter()
+                .find(|item| item.id == "w1")
+                .and_then(|item| item.due_at.as_deref()),
+            Some("2026-10-05T00:00:00+00:00"),
+            "timeline drag is optimistic"
+        );
+
+        Projects::update(
+            &mut model,
+            request.respond(Err(ApiError::network("WBS save unavailable."))),
+            &ctx,
+        );
+        let projects = model.read.loaded().unwrap();
+        assert_eq!(
+            projects
+                .items
+                .iter()
+                .find(|item| item.id == "w1")
+                .and_then(|item| item.due_at.as_deref()),
+            Some("2026-09-30T00:00:00+00:00"),
+            "a rejected WBS save restores the old due date"
+        );
+        assert!(!projects.saving);
+        assert_eq!(model.error.as_deref(), Some("WBS save unavailable."));
     }
 
     #[test]
