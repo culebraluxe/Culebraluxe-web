@@ -8,6 +8,7 @@ use super::context::ResolvedRequestContext;
 use super::ui_auth::resolve_portal_context;
 use super::{ApiError, ApiState};
 use crate::service_support::CoreServiceError;
+use base64::Engine as _;
 use axum::{
     extract::{Query, State},
     http::{HeaderMap, StatusCode},
@@ -36,6 +37,7 @@ pub fn router() -> Router<ApiState> {
         .route("/api/portal/rust-ui/cabinet", get(cabinet))
         .route("/api/portal/rust-ui/deals", get(deals).post(deals_write))
         .route("/api/portal/rust-ui/forms", get(forms).post(forms_write))
+        .route("/api/portal/rust-ui/forms/preview", axum::routing::post(forms_preview))
         .route("/api/portal/rust-ui/projects", get(projects).post(projects_act))
         .route("/api/portal/rust-ui/accounting", axum::routing::post(accounting_act))
         .route("/api/portal/rust-ui/opps", get(opps).post(opps_act))
@@ -1071,6 +1073,87 @@ async fn forms(
     )
     .await?;
     Ok(Json(json!({ "forms": page })))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FormsPreviewBody {
+    form_id: String,
+    #[serde(default)]
+    field_values: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    sections: std::collections::BTreeMap<String, String>,
+}
+
+async fn forms_preview(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<FormsPreviewBody>,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    let form_id = body.form_id.trim();
+    if form_id.is_empty() {
+        return Err(correlate(
+            ApiError::bad_request("FORM_ID_REQUIRED", "formId is required."),
+            &resolved,
+        ));
+    }
+
+    let services = state.services();
+    let forms = services.forms();
+    let form = forms
+        .get_instance(form_id, &resolved.service)
+        .await
+        .map_err(failed(&resolved))?
+        .ok_or_else(|| {
+            correlate(
+                ApiError::not_found(
+                    "FORM_NOT_FOUND",
+                    format!("Form instance not found: {form_id}"),
+                ),
+                &resolved,
+            )
+        })?;
+    let participants = forms
+        .list_signer_people(form_id, &resolved.service)
+        .await
+        .map_err(failed(&resolved))?;
+    let issued = services
+        .vault()
+        .issued_for_form_instance(form_id, &resolved.service)
+        .await
+        .map_err(failed(&resolved))?;
+    let issued_version = issued
+        .as_ref()
+        .map(|document| document.issued_version.max(1))
+        .unwrap_or(1);
+
+    let artifact = services
+        .vault()
+        .render_form_preview(
+            domain::VaultRenderRequest {
+                form_instance_id: form.id.clone(),
+                contract_id: form.contract_id.clone(),
+                template_id: form.template_id.clone(),
+                template_version: form.template_version,
+                field_values: body.field_values,
+                sections: body.sections,
+                issued_version,
+                participants,
+                actor_app_user_id: Some(resolved.acting_user.app_user_id.clone()),
+                issued_at: None,
+                applied_signatures: Vec::new(),
+            },
+            &resolved.service,
+        )
+        .await
+        .map_err(failed(&resolved))?;
+
+    let encoded = base64::engine::general_purpose::STANDARD.encode(artifact.bytes);
+    Ok(Json(json!({
+        "dataUri": format!("data:application/pdf;base64,{encoded}"),
+        "filename": artifact.filename,
+    })))
 }
 
 async fn forms_write(
