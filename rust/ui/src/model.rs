@@ -1690,6 +1690,10 @@ pub struct PortalProjectsPage {
     pub media: Vec<PortalProjectMedia>,
     pub activity: Vec<PortalProjectActivity>,
     pub calendar: Vec<PortalProjectCalendarEvent>,
+    /// Server-provided date used by the reducer's Today intent; views never read the clock.
+    pub calendar_today: String,
+    /// UI-only month cursor. It survives refreshed service answers through carry_over().
+    pub calendar_cursor: String,
     pub identity_names: BTreeMap<String, String>,
     /// Workspace state lives with the payload and changes only in update().
     pub active_domain: String,

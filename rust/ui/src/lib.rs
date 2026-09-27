@@ -20,6 +20,7 @@
 //! SCOPE: the portal menu. `SCREENS` is the port's to-do list, `Screen::path` names the live route each
 //! entry replaces, and Project Management is deliberately a placeholder.
 
+pub mod calendar;
 pub mod document;
 pub mod format;
 pub mod model;

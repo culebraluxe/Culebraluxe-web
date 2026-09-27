@@ -9,6 +9,7 @@ use super::ui_auth::resolve_portal_context;
 use super::{ApiError, ApiState};
 use crate::service_support::CoreServiceError;
 use base64::Engine as _;
+use chrono::Utc;
 use axum::{
     extract::{Query, State},
     http::{HeaderMap, StatusCode},
@@ -2061,6 +2062,7 @@ async fn projects_page(state: &ApiState, resolved: &ResolvedRequestContext) -> R
         "media": media,
         "activity": activity,
         "calendar": calendar,
+        "calendarToday": Utc::now().format("%Y-%m-%d").to_string(),
         "identityNames": names,
     } })))
 }

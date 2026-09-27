@@ -136,6 +136,11 @@ pub fn carry_over(previous: Option<&PortalProjectsPage>, projects: &mut PortalPr
         };
         projects.catch_up = previous.catch_up;
         projects.work_collapsed = previous.work_collapsed;
+        projects.calendar_cursor = if previous.calendar_cursor.is_empty() {
+            calendar_anchor(projects)
+        } else {
+            previous.calendar_cursor.clone()
+        };
     } else {
         projects.active_domain = initial_project_domain(projects);
         projects.selected_project_id = first_project_for_domain(projects, &projects.active_domain);
@@ -143,7 +148,28 @@ pub fn carry_over(previous: Option<&PortalProjectsPage>, projects: &mut PortalPr
             first_node_for_project(projects, projects.selected_project_id.as_deref());
         projects.active_view = "work-plan".into();
         projects.work_collapsed = false;
+        projects.calendar_cursor = calendar_anchor(projects);
     }
     projects.work_dirty = false;
     projects.saving = false;
+}
+
+
+/// Stable initial cursor for the calendar. The server supplies today so the
+/// reducer remains deterministic; older fixtures fall back to a dated event/work item.
+pub fn calendar_anchor(projects: &PortalProjectsPage) -> String {
+    if !projects.calendar_today.is_empty() {
+        return projects.calendar_today.clone();
+    }
+    projects
+        .calendar
+        .iter()
+        .find_map(|event| crate::calendar::date_key(&event.start_at))
+        .or_else(|| {
+            projects
+                .items
+                .iter()
+                .find_map(|item| item.due_at.as_deref().and_then(crate::calendar::date_key))
+        })
+        .unwrap_or_else(|| "1970-01-01".into())
 }

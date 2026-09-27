@@ -41,6 +41,9 @@ pub enum Msg {
     ProjectSelected(String),
     ProjectNodeSelected(Option<String>),
     ProjectViewSelected(String),
+    ProjectCalendarPrevious,
+    ProjectCalendarNext,
+    ProjectCalendarToday,
     ProjectCatchUpToggled(bool),
     ProjectCatchUpItemSelected {
         project_id: String,
@@ -243,6 +246,15 @@ fn selection(projects: &mut PortalProjectsPage, error: &mut Option<String>, msg:
                 projects.catch_up = false;
             }
         }
+        Msg::ProjectCalendarPrevious => {
+            projects.calendar_cursor = crate::calendar::shift_month(&projects.calendar_cursor, -1);
+        }
+        Msg::ProjectCalendarNext => {
+            projects.calendar_cursor = crate::calendar::shift_month(&projects.calendar_cursor, 1);
+        }
+        Msg::ProjectCalendarToday => {
+            projects.calendar_cursor = crate::projects::calendar_anchor(projects);
+        }
         Msg::ProjectCatchUpToggled(on) => {
             projects.catch_up = on;
             projects.work_dirty = false;
@@ -340,6 +352,7 @@ mod tests {
 
     fn page() -> serde_json::Value {
         json!({ "projects": {
+            "calendarToday": "2026-09-27",
             "projects": [
                 { "id": "p1", "name": "Villa listing", "propertyId": "prop-1", "status": "doing" },
                 { "id": "p2", "name": "Firm ops", "status": "open" }
@@ -385,6 +398,12 @@ mod tests {
         );
         Projects::update(&mut model, Msg::QueryChanged("villa".into()), &ctx);
         assert_eq!(model.controls.query, "villa");
+
+        Projects::update(&mut model, Msg::ProjectViewSelected("calendar".into()), &ctx);
+        Projects::update(&mut model, Msg::ProjectCalendarNext, &ctx);
+        assert_eq!(model.read.loaded().unwrap().calendar_cursor, "2026-10-27");
+        Projects::update(&mut model, Msg::ProjectCalendarToday, &ctx);
+        assert_eq!(model.read.loaded().unwrap().calendar_cursor, "2026-09-27");
     }
 
     #[test]

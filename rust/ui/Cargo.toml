@@ -15,6 +15,7 @@ publish = false
 # credentials in the WASM module.
 [dependencies]
 base64.workspace = true
+chrono.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 console_error_panic_hook = { version = "0.1", optional = true }
