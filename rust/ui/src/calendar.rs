@@ -157,6 +157,18 @@ pub fn time_label(value: &str) -> Option<String> {
         .map(|date| date.format("%-I:%M %p").to_string())
 }
 
+pub fn day_heading(value: &str) -> String {
+    cursor_date(value)
+        .map(|date| date.format("%a %-m/%-d").to_string())
+        .unwrap_or_else(|| value.to_owned())
+}
+
+pub fn midnight_timestamp(date: &str) -> Option<String> {
+    cursor_date(date)?
+        .and_hms_opt(0, 0, 0)
+        .map(|value| value.and_utc().to_rfc3339())
+}
+
 pub fn slot_label(index: usize) -> String {
     let total = DAY_START_HOUR as i64 * 60 + index as i64 * SLOT_MINUTES;
     let hour = (total / 60) as u32;
