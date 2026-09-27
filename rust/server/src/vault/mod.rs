@@ -1,3 +1,7 @@
+pub mod artifact;
+pub mod forms_render;
+pub mod pdf;
+
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
 use db::{Database, DbResult, VaultDao};
