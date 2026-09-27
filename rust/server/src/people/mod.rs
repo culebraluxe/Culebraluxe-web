@@ -25,6 +25,7 @@ pub trait PersonRepository: Send + Sync {
         request: &AttachPersonIdentityRequest,
     ) -> DbResult<PersonIdentity>;
     async fn update_admin(&self, request: &UpdatePersonAdminRequest) -> DbResult<Option<Person>>;
+    async fn set_contact(&self, person_id: &str, kind: &str, value: &str) -> DbResult<Option<String>>;
     async fn search(&self, request: &SearchPeopleRequest) -> DbResult<Vec<PersonSearchResult>>;
 }
 
@@ -57,6 +58,10 @@ impl PersonRepository for PersonDao {
 
     async fn update_admin(&self, request: &UpdatePersonAdminRequest) -> DbResult<Option<Person>> {
         PersonDao::update_admin(self, request).await
+    }
+
+    async fn set_contact(&self, person_id: &str, kind: &str, value: &str) -> DbResult<Option<String>> {
+        PersonDao::set_contact(self, person_id, kind, value).await
     }
 
     async fn search(&self, request: &SearchPeopleRequest) -> DbResult<Vec<PersonSearchResult>> {
@@ -231,6 +236,19 @@ impl<R: PersonRepository> PersonService<R> {
                         format!("Person not found: {}", request.person_id),
                     )
                 })?;
+
+            // What is typed here overrides what any intake gave: the record shows these, as typed.
+            for (kind, label, value) in [("email", "email", &request.email), ("phone", "phone number", &request.phone)] {
+                let Some(value) = value.as_deref().map(str::trim).filter(|value| !value.is_empty()) else {
+                    continue;
+                };
+                if let Some(owner) = self.repository.set_contact(&person.id, kind, value).await? {
+                    return Err(CoreServiceError::business(
+                        "PERSON_CONTACT_TAKEN",
+                        format!("That {label} already belongs to {owner}."),
+                    ));
+                }
+            }
 
             self.runtime
                 .emit(

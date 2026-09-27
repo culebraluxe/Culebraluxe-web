@@ -476,6 +476,12 @@ pub(super) struct UpdatePersonAdminBody {
     civil_status: Option<String>,
     status: String,
     company: Option<String>,
+    #[serde(default)]
+    location: Option<String>,
+    #[serde(default)]
+    email: Option<String>,
+    #[serde(default)]
+    phone: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2435,6 +2441,7 @@ pub(super) async fn apply_person_admin_update(
     body: UpdatePersonAdminBody,
 ) -> Result<domain::Person, ApiError> {
     let service = state.services().person();
+    let (location, email, phone) = (body.location.clone(), body.email.clone(), body.phone.clone());
     let value = service
         .update_admin(
             &domain::UpdatePersonAdminRequest {
@@ -2443,12 +2450,16 @@ pub(super) async fn apply_person_admin_update(
                 civil_status: body.civil_status,
                 status: body.status,
                 company: body.company,
+                location: body.location,
+                email: body.email,
+                phone: body.phone,
             },
             &resolved.service,
         )
         .await
         .map_err(|error| correlate(ApiError::from(error), resolved))?;
     state.services().clients().update_cached_person(&value);
+    state.services().clients().update_cached_contact(&value.id, location.as_deref(), email.as_deref(), phone.as_deref());
     Ok(value)
 }
 

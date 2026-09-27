@@ -775,6 +775,27 @@ const PERSON_FIELDS: &[FieldSpec] = &[
         wide: false,
         hint: None,
     },
+    FieldSpec {
+        key: "email",
+        label: "Email",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "phone",
+        label: "Phone",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: None,
+    },
+    FieldSpec {
+        key: "location",
+        label: "Location",
+        kind: FieldKind::Text,
+        wide: true,
+        hint: None,
+    },
 ];
 
 const PROJECT_FIELDS: &[FieldSpec] = &[

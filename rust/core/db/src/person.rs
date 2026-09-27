@@ -178,6 +178,7 @@ impl PersonDao {
                 civil_status = coalesce(nullif($3::text, ''), civil_status),
                 status = $4,
                 company = nullif($5::text, ''),
+                location = case when $6::boolean then nullif(trim($7::text), '') else location end,
                 updated_at = now()
             where id = $1::uuid and archived_at is null
             returning id::text as id, display_name, civil_status, status, archived_at, company
@@ -188,11 +189,86 @@ impl PersonDao {
         .bind(request.civil_status.as_deref().map(str::trim))
         .bind(request.status.trim())
         .bind(request.company.as_deref())
+        .bind(request.location.is_some())
+        .bind(request.location.as_deref())
         .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("person.update_admin", &error))?;
 
         Ok(row.map(map_person))
+    }
+
+    /// Sets the email or phone a person's record shows, as typed: the one shown now is replaced, and so is any copy
+    /// of the same address or number on this person written another way (`787-555-1234` and `(787) 555 1234` are
+    /// one phone). Answers the other person's name, and changes nothing, when someone else already has it.
+    pub async fn set_contact(&self, person_id: &str, kind: &str, value: &str) -> DbResult<Option<String>> {
+        let value = if kind == "email" { value.trim().to_lowercase() } else { value.trim().to_owned() };
+        let normalized = if kind == "phone" { semantic_phone(&value) } else { value.clone() };
+        let matches = sqlx::query_as::<_, (String, String, String)>(
+            r#"
+            select pi.id::text, pi.person_id::text, p.display_name
+              from person_identity pi
+              join person p on p.id = pi.person_id
+             where pi.identity_type = $1
+               and (
+                 ($1 = 'phone' and
+                   (case
+                     when length(regexp_replace(pi.identity_value, '[^0-9]', '', 'g')) = 11
+                       and left(regexp_replace(pi.identity_value, '[^0-9]', '', 'g'), 1) = '1'
+                     then substring(regexp_replace(pi.identity_value, '[^0-9]', '', 'g') from 2)
+                     else regexp_replace(pi.identity_value, '[^0-9]', '', 'g')
+                   end) = $2)
+                 or ($1 = 'email' and lower(trim(pi.identity_value)) = $2)
+               )
+            "#,
+        )
+        .bind(kind)
+        .bind(&normalized)
+        .fetch_all(&mut *self.db.connection().await?)
+        .await
+        .map_err(|error| DbFailure::from_sqlx("person.set_contact.lookup", &error))?;
+        if let Some((_, _, owner)) = matches.iter().find(|(_, owner_id, _)| owner_id != person_id) {
+            return Ok(Some(owner.clone()));
+        }
+        let mut replaced: Vec<String> = matches.into_iter().map(|(id, _, _)| id).collect();
+        let shown = sqlx::query_scalar::<_, String>(
+            r#"
+            select id::text from person_identity
+             where person_id = $1::uuid and identity_type = $2
+             order by is_primary desc, created_at asc
+             limit 1
+            "#,
+        )
+        .bind(person_id)
+        .bind(kind)
+        .fetch_optional(&mut *self.db.connection().await?)
+        .await
+        .map_err(|error| DbFailure::from_sqlx("person.set_contact.shown", &error))?;
+        replaced.extend(shown);
+        sqlx::query("delete from person_identity where id = any($1::uuid[])")
+            .bind(&replaced)
+            .execute(&mut *self.db.connection().await?)
+            .await
+            .map_err(|error| DbFailure::from_sqlx("person.set_contact.replace", &error))?;
+        sqlx::query("update person_identity set is_primary = false where person_id = $1::uuid and identity_type = $2")
+            .bind(person_id)
+            .bind(kind)
+            .execute(&mut *self.db.connection().await?)
+            .await
+            .map_err(|error| DbFailure::from_sqlx("person.set_contact.demote", &error))?;
+        sqlx::query(
+            r#"
+            insert into person_identity (person_id, identity_type, identity_value, source_system, is_primary)
+            values ($1::uuid, $2, $3, 'portal', true)
+            "#,
+        )
+        .bind(person_id)
+        .bind(kind)
+        .bind(&value)
+        .execute(&mut *self.db.connection().await?)
+        .await
+        .map_err(|error| DbFailure::from_sqlx("person.set_contact.insert", &error))?;
+        Ok(None)
     }
 
     pub async fn attach_identity(

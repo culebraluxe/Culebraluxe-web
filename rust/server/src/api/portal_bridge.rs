@@ -1122,6 +1122,9 @@ async fn save_form_values(
                                 civil_status: desired,
                                 status: person.status,
                                 company: person.company,
+                                location: None,
+                                email: None,
+                                phone: None,
                             },
                             &resolved.service,
                         )
@@ -2603,6 +2606,9 @@ async fn opps_act(
                 "status": field("status"),
                 "company": clean("company"),
                 "civilStatus": clean("civilStatus"),
+                "location": field("location"),
+                "email": field("email"),
+                "phone": field("phone"),
             }))
             .map_err(invalid)?;
             apply_person_admin_update(&state, &resolved, id.clone(), body).await?;

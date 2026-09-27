@@ -60,6 +60,12 @@ pub struct UpdatePersonAdminRequest {
     pub civil_status: Option<String>,
     pub status: String,
     pub company: Option<String>,
+    /// `None` leaves it as it is; the Records screen sends all three.
+    pub location: Option<String>,
+    /// Replaces the email the record shows (and any copy of it typed another way). Empty leaves it as it is.
+    pub email: Option<String>,
+    /// Replaces the phone the record shows (and any copy of it typed another way). Empty leaves it as it is.
+    pub phone: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
