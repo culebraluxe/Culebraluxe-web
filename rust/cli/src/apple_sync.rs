@@ -61,6 +61,33 @@ fn optional_text(value: &Value, key: &str) -> Option<String> {
     value.get(key).and_then(Value::as_str).map(str::to_owned)
 }
 
+fn calendar_source_message_id(raw: &Value) -> Option<String> {
+    if let Some(series_id) = text(raw, "calendarItemIdentifier") {
+        let occurrence = text(raw, "occurrenceDate");
+        let recurring = raw
+            .get("recurring")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+            || occurrence.is_some();
+        if recurring {
+            let occurrence = occurrence.or_else(|| text(raw, "startAt"))?;
+            return Some(format!("{series_id}|{occurrence}"));
+        }
+        return Some(series_id);
+    }
+
+    text(raw, "sourceMessageId")
+        .or_else(|| text(raw, "eventIdentifier"))
+        .or_else(|| {
+            Some(format!(
+                "{}|{}",
+                text(raw, "eventIdentifier")?,
+                text(raw, "startAt")?
+            ))
+        })
+}
+
+
 async fn intake_calendar(path: &Path) -> Result<(), Box<dyn Error>> {
     let parsed: Value = serde_json::from_slice(&fs::read(path)?)?;
     let items = parsed
@@ -71,13 +98,12 @@ async fn intake_calendar(path: &Path) -> Result<(), Box<dyn Error>> {
     let mut rejected = 0usize;
 
     for raw in items {
-        let provider = text(raw, "eventIdentifier");
-        let start = text(raw, "startAt");
-        let source_message_id = text(raw, "sourceMessageId")
-            .or_else(|| Some(format!("{}|{}", provider.as_deref()?, start.as_deref()?)));
-        let (Some(source_message_id), Some(start_at), Some(end_at)) =
-            (source_message_id, start, text(raw, "endAt"))
-        else {
+        let source_message_id = calendar_source_message_id(raw);
+        let (Some(source_message_id), Some(start_at), Some(end_at)) = (
+            source_message_id,
+            text(raw, "startAt"),
+            text(raw, "endAt"),
+        ) else {
             rejected += 1;
             continue;
         };
@@ -293,4 +319,62 @@ fn command_payload(delivery: &OutboxDelivery) -> Result<Value, Box<dyn Error>> {
             return Err(io::Error::other(format!("unsupported Apple route: {other}")).into());
         }
     })
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn calendar_landing_identity_survives_moves_and_occurrence_id_changes() {
+        let one_time_before = json!({
+            "sourceMessageId": "old-event|2026-09-27T09:00:00Z",
+            "eventIdentifier": "old-event",
+            "calendarItemIdentifier": "stable-item",
+            "startAt": "2026-09-27T09:00:00Z",
+            "recurring": false
+        });
+        let one_time_after = json!({
+            "sourceMessageId": "new-event|2026-09-27T11:00:00Z",
+            "eventIdentifier": "new-event",
+            "calendarItemIdentifier": "stable-item",
+            "startAt": "2026-09-27T11:00:00Z",
+            "recurring": false
+        });
+        assert_eq!(
+            calendar_source_message_id(&one_time_before),
+            calendar_source_message_id(&one_time_after),
+            "one-time identity is independent of eventIdentifier and moved start"
+        );
+        assert_eq!(
+            calendar_source_message_id(&one_time_after).as_deref(),
+            Some("stable-item")
+        );
+
+        let occurrence_before = json!({
+            "eventIdentifier": "occ-old",
+            "calendarItemIdentifier": "series-1",
+            "occurrenceDate": "2026-10-05T13:00:00Z",
+            "startAt": "2026-10-05T13:00:00Z",
+            "recurring": true
+        });
+        let occurrence_after = json!({
+            "eventIdentifier": "occ-new",
+            "calendarItemIdentifier": "series-1",
+            "occurrenceDate": "2026-10-05T13:00:00Z",
+            "startAt": "2026-10-05T15:00:00Z",
+            "recurring": true,
+            "detached": true
+        });
+        assert_eq!(
+            calendar_source_message_id(&occurrence_before),
+            calendar_source_message_id(&occurrence_after),
+            "recurring identity is series plus original occurrence date"
+        );
+        assert_eq!(
+            calendar_source_message_id(&occurrence_after).as_deref(),
+            Some("series-1|2026-10-05T13:00:00Z")
+        );
+    }
 }
