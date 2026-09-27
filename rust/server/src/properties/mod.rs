@@ -479,22 +479,21 @@ impl<R: PropertyRepository> PropertyService<R> {
         )
         .await?;
 
-        if let Some(value) = request
-            .listing_type
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            const LISTING_TYPES: &[&str] = &["Exclusive Right to Sell", "Exclusive Agency"];
-            if !LISTING_TYPES.contains(&value) {
-                return Err(CoreServiceError::business(
-                    "PROPERTY_LISTING_TYPE_INVALID",
-                    "Listing type must be Exclusive Right to Sell or Exclusive Agency.",
-                ));
-            }
-        }
-
         let result = db::service_mutation(self.repository.database(), async {
+            if let Some(value) = request
+                .listing_type
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                const LISTING_TYPES: &[&str] = &["Exclusive Right to Sell", "Exclusive Agency"];
+                if !LISTING_TYPES.contains(&value) {
+                    return Err(CoreServiceError::business(
+                        "PROPERTY_LISTING_TYPE_INVALID",
+                        "Listing type must be Exclusive Right to Sell or Exclusive Agency.",
+                    ));
+                }
+            }
             self.repository.set_listing_type(request).await?;
             self.runtime
                 .emit(
@@ -514,7 +513,6 @@ impl<R: PropertyRepository> PropertyService<R> {
         audit_result(&self.runtime, "property", OP, context, decision, &result).await?;
         result
     }
-
 }
 
 impl PropertyService<PropertyDao> {
