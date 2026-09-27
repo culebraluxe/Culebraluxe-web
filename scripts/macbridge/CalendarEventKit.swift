@@ -110,12 +110,14 @@ let items = events.map { e -> BridgeEvent in
   let seriesId = e.calendarItemIdentifier
   let occurrence = e.occurrenceDate ?? e.startDate
   let occurrenceText = iso.string(from: occurrence)
+  let isRecurring = e.occurrenceDate != nil || !(e.recurrenceRules?.isEmpty ?? true)
+  let sourceMessageId = isRecurring ? seriesId + "|" + occurrenceText : seriesId
   return BridgeEvent(
-    sourceMessageId: seriesId + "|" + occurrenceText,
+    sourceMessageId: sourceMessageId,
     eventIdentifier: providerId,
     calendarItemIdentifier: seriesId,
     occurrenceDate: e.occurrenceDate.map { iso.string(from: $0) },
-    recurring: !(e.recurrenceRules?.isEmpty ?? true),
+    recurring: isRecurring,
     detached: e.isDetached,
     sourceAccount: e.calendar?.source?.sourceIdentifier ?? "apple-calendar",
     calendarName: e.calendar?.title ?? "",
