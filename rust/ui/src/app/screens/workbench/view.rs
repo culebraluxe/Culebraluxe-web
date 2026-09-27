@@ -1736,6 +1736,13 @@ fn media_editor(
                                 {format!("{} / {}", active_index + 1, images.len())}
                             </span>
                         </div>
+                        if image.role != "hero" {
+                            <button type="button"
+                                onclick={ { let id = image.id.clone(); on_msg.reform(move |_: MouseEvent| Msg::MakeHero(id.clone())) } }
+                                class="absolute right-4 top-4 z-10 rounded-full border border-white/40 bg-black/40 px-3 py-1 text-[9px] font-semibold uppercase tracking-[0.13em] text-white backdrop-blur-sm hover:bg-black/60">
+                                {"Make hero"}
+                            </button>
+                        }
                         if images.len() > 1 {
                             <button
                                 type="button"
@@ -1815,7 +1822,17 @@ fn media_editor(
                 id="ops-media-file"
                 type="file"
                 accept="image/*"
+                multiple=true
                 onchange={file_change}
+                class="hidden"
+            />
+            // A whole folder: every photo in it uploads, one after another.
+            <input
+                id="ops-media-folder"
+                type="file"
+                webkitdirectory=true
+                multiple=true
+                onchange={media_file_change(on_msg)}
                 class="hidden"
             />
 
@@ -1837,6 +1854,15 @@ fn media_editor(
 /// If the element is missing this does nothing at all, deliberately: the uploader's own "Choose file" button is the
 /// fallback, so a lookup that fails leaves a usable screen rather than a panic.
 fn open_file_picker() {
+    open_picker("ops-media-file");
+}
+
+/// Opens the folder picker (every photo in the chosen folder uploads).
+fn open_folder_picker() {
+    open_picker("ops-media-folder");
+}
+
+fn open_picker(id: &str) {
     // `web_sys` re-exports the cast trait, and this file's other casts come from Yew's prelude which does not include
     // it — so it is brought in here, locally, rather than widening the module's imports for one call.
     use web_sys::wasm_bindgen::JsCast;
@@ -1847,7 +1873,7 @@ fn open_file_picker() {
     let Some(document) = window.document() else {
         return;
     };
-    let Some(element) = document.get_element_by_id("ops-media-file") else {
+    let Some(element) = document.get_element_by_id(id) else {
         return;
     };
     if let Ok(input) = element.dyn_into::<web_sys::HtmlInputElement>() {
@@ -1860,10 +1886,13 @@ fn media_file_change(on_msg: &Callback<Msg>) -> Callback<Event> {
     let on_msg = on_msg.clone();
     Callback::from(move |event: Event| {
         let input = event.target_unchecked_into::<web_sys::HtmlInputElement>();
-        let file = input.files().and_then(|files| files.get(0));
-        // Cleared, so choosing the same file again (after a failure) is a new choice.
+        let files: Vec<web_sys::File> = input
+            .files()
+            .map(|list| (0..list.length()).filter_map(|index| list.get(index)).collect())
+            .unwrap_or_default();
+        // Cleared, so choosing the same files again (after a failure) is a new choice.
         input.set_value("");
-        on_msg.emit(Msg::OpsMediaFileChosen(file));
+        on_msg.emit(Msg::OpsMediaFilesChosen(files));
     })
 }
 
@@ -1887,6 +1916,11 @@ fn ops_media_uploader(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
         })
     };
     let choose_again = Callback::from(move |_: MouseEvent| open_file_picker());
+    let choose_folder = Callback::from(move |_: MouseEvent| open_folder_picker());
+    let batch = (model.ops.media_batch_total > 1).then(|| {
+        let at = (model.ops.media_batch_done + model.ops.media_batch_failed.len() + 1).min(model.ops.media_batch_total);
+        format!("Uploading {at} of {}…", model.ops.media_batch_total)
+    });
 
     html! {
         <section class="min-w-0 max-w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/35 p-3">
@@ -1899,19 +1933,27 @@ fn ops_media_uploader(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
             // come after it.
             <div class="flex flex-wrap items-center justify-between gap-3">
                 <span class="min-w-0 flex-1 truncate text-[11px] font-light text-black/45">
-                    {model.ops.media_file_name.clone().unwrap_or_else(|| "Choose a photo — the upload starts by itself".into())}
+                    {model.ops.media_file_name.clone().unwrap_or_else(|| "Choose photos or a whole folder — the upload starts by itself".into())}
                 </span>
                 // RIGHT-ALIGNED, because every other action on this screen is. A single button sitting on the left while
                 // Save, Revert and the rest sit on the right reads as a different kind of control than it is.
                 if model.ops.media_uploading {
-                    <span class="shrink-0 text-[11px] font-light text-[var(--portal-gold-muted)]">{"Uploading…"}</span>
+                    <span class="shrink-0 text-[11px] font-light text-[var(--portal-gold-muted)]">{ batch.clone().unwrap_or_else(|| "Uploading…".into()) }</span>
                 }
+                <button
+                    type="button"
+                    onclick={choose_folder}
+                    disabled={model.ops.media_uploading}
+                    class="inline-flex h-9 shrink-0 items-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-navy)] px-4 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--portal-navy)] disabled:opacity-40"
+                >
+                    {"Add folder"}
+                </button>
                 <button
                     type="button"
                     onclick={choose_again}
                     class="inline-flex h-9 shrink-0 items-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-4 text-[10px] font-semibold uppercase tracking-[0.12em] text-white"
                 >
-                    {"Add photo"}
+                    {"Add photos"}
                 </button>
             </div>
             <div class="mt-2 grid gap-2 sm:grid-cols-2">

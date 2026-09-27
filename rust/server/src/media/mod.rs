@@ -21,6 +21,7 @@ pub trait MediaRepository: Send {
         bytes: &[u8],
     ) -> DbResult<(String, String, String, i64)>;
     async fn for_property(&self, property_id: &str) -> DbResult<Vec<MediaAsset>>;
+    async fn set_property_hero(&self, property_id: &str, media_id: &str) -> DbResult<bool>;
     async fn upload_property_media(
         &self,
         request: &UploadPropertyMediaRequest,
@@ -66,6 +67,10 @@ impl MediaRepository for MediaDao {
 
     async fn for_property(&self, property_id: &str) -> DbResult<Vec<MediaAsset>> {
         MediaDao::for_property(self, property_id).await
+    }
+
+    async fn set_property_hero(&self, property_id: &str, media_id: &str) -> DbResult<bool> {
+        MediaDao::set_property_hero(self, property_id, media_id).await
     }
 
     async fn upload_property_media(
@@ -566,6 +571,24 @@ impl<R: MediaRepository> MediaService<R> {
         }
         .await;
 
+        audit_result(&self.runtime, "media", OP, context, decision, &result).await?;
+        result
+    }
+
+    /// Make one of the property's photographs its hero (the previous hero returns to the gallery).
+    pub async fn set_property_hero(
+        &self,
+        property_id: &str,
+        media_id: &str,
+        context: &ServiceContext,
+    ) -> Result<(), CoreServiceError> {
+        const OP: &str = "media.setPropertyHero";
+        let decision = authorize(&self.runtime, "media", "property.write", OP, OperationKind::Command, context).await?;
+        let result = match self.repository.set_property_hero(property_id.trim(), media_id.trim()).await {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(CoreServiceError::business("MEDIA_NOT_ON_PROPERTY", "That photo is not on this property.")),
+            Err(error) => Err(error.into()),
+        };
         audit_result(&self.runtime, "media", OP, context, decision, &result).await?;
         result
     }

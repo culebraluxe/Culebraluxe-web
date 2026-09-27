@@ -2069,6 +2069,10 @@ pub struct OpsWorkbenchState {
     pub media_alt: String,
     pub media_file_name: Option<String>,
     pub media_uploading: bool,
+    /// A batch of photos (several files or a folder): how many, how many done, which failed.
+    pub media_batch_total: usize,
+    pub media_batch_done: usize,
+    pub media_batch_failed: Vec<String>,
     pub media_uploader_open: bool,
 }
 
@@ -2093,6 +2097,9 @@ impl Default for OpsWorkbenchState {
             media_alt: String::new(),
             media_file_name: None,
             media_uploading: false,
+            media_batch_total: 0,
+            media_batch_done: 0,
+            media_batch_failed: Vec::new(),
             media_uploader_open: false,
         }
     }

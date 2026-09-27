@@ -15,7 +15,7 @@ mod view;
 
 use yew::prelude::*;
 
-use crate::app::api::{DealPeopleSearch, OpsCommand, OpsRead, PROPERTY_MEDIA_CHUNKED};
+use crate::app::api::{DealPeopleSearch, OpsCommand, OpsRead, PropertyHero, PROPERTY_MEDIA_CHUNKED};
 use crate::app::cmd::{ApiError, Cmd, Remote};
 use crate::app::screen::{Link, Screen, ScreenCtx};
 use crate::app::template;
@@ -41,6 +41,8 @@ pub struct Model {
     pub ops: OpsWorkbenchState,
     pub controls: Controls,
     pub error: Option<String>,
+    /// Photos chosen together, waiting their turn (uploaded one at a time).
+    upload_queue: Vec<web_sys::File>,
     /// The newest read's number; an answer with another is stale and dropped.
     seq: u32,
     /// The newest keystroke's number, for the search pause.
@@ -84,6 +86,11 @@ pub enum Msg {
     OpsMediaRoleChanged(String),
     OpsMediaAltChanged(String),
     OpsMediaFileChosen(Option<web_sys::File>),
+    /// Several photos, or a whole folder: uploaded one after another.
+    OpsMediaFilesChosen(Vec<web_sys::File>),
+    /// Make this photograph the hero.
+    MakeHero(String),
+    HeroSet(Result<serde_json::Value, ApiError>),
     OpsVideoRefreshRequested,
 }
 
@@ -130,6 +137,11 @@ fn reset_aux(ops: &mut OpsWorkbenchState) {
 
 /// `VillaDelMar_7` — the title a photograph gets when nobody typed one: the property's name and the next photo number.
 fn media_title(page: Option<&PortalOpsWorkbenchPage>) -> String {
+    media_title_at(page, 0)
+}
+
+/// The title of the photo `offset` places after the next one (a batch numbers its photos in order).
+fn media_title_at(page: Option<&PortalOpsWorkbenchPage>, offset: usize) -> String {
     let Some(page) = page else {
         return String::new();
     };
@@ -149,7 +161,31 @@ fn media_title(page: Option<&PortalOpsWorkbenchPage>) -> String {
         .iter()
         .filter(|media| media.media_type == "image")
         .count();
-    format!("{stem}_{}", images + 1)
+    format!("{stem}_{}", images + 1 + offset)
+}
+
+/// Start the next photo of the batch, if any.
+fn next_upload(model: &mut Model) -> Cmd<Msg> {
+    if model.upload_queue.is_empty() {
+        return Cmd::none();
+    }
+    let file = model.upload_queue.remove(0);
+    let Some(property_id) = model.selected.clone() else {
+        model.upload_queue.clear();
+        model.error = Some("Select a Property before uploading.".into());
+        return Cmd::none();
+    };
+    let offset = model.ops.media_batch_done + model.ops.media_batch_failed.len();
+    model.ops.media_file_name = Some(file.name());
+    model.ops.media_role = "gallery".into();
+    model.ops.media_alt = media_title_at(model.read.loaded(), offset);
+    model.ops.media_uploading = true;
+    model.error = None;
+    let mut init = vec![("role".to_string(), "gallery".to_string())];
+    if !model.ops.media_alt.trim().is_empty() {
+        init.push(("altText".to_string(), model.ops.media_alt.trim().to_string()));
+    }
+    Cmd::upload(file, PROPERTY_MEDIA_CHUNKED, vec![("propertyId".to_string(), property_id)], init, Msg::Uploaded)
 }
 
 /// Refuse a list change while the draft is unsaved, and say which action was refused.
@@ -512,54 +548,73 @@ fn update(model: &mut Model, msg: Msg) -> Cmd<Msg> {
             Cmd::none()
         }
         Msg::OpsMediaFileChosen(file) => {
-            // ONE BUTTON: choosing IS uploading. The role defaults to gallery and the title is derived.
+            // ONE BUTTON: choosing IS uploading — a single photo is a batch of one.
             let Some(file) = file else {
                 model.ops.media_file_name = None;
                 return Cmd::none();
             };
+            update(model, Msg::OpsMediaFilesChosen(vec![file]))
+        }
+        Msg::OpsMediaFilesChosen(files) => {
             if model.ops.entity != "property" || model.ops.media_uploading {
                 return Cmd::none();
             }
+            // Photos only, in name order (a folder uploads in the order it is sorted on disk).
+            let mut files: Vec<web_sys::File> = files.into_iter().filter(|file| file.type_().starts_with("image/")).collect();
+            files.sort_by_key(|file| file.name().to_lowercase());
+            if files.is_empty() {
+                model.error = Some("No photos were chosen.".into());
+                return Cmd::none();
+            }
+            model.ops.media_batch_total = files.len();
+            model.ops.media_batch_done = 0;
+            model.ops.media_batch_failed.clear();
+            model.upload_queue = files;
+            next_upload(model)
+        }
+        Msg::MakeHero(media_id) => {
             let Some(property_id) = model.selected.clone() else {
-                model.error = Some("Select a Property before uploading.".into());
                 return Cmd::none();
             };
-            model.ops.media_file_name = Some(file.name());
-            model.ops.media_role = "gallery".into();
-            model.ops.media_alt = media_title(model.read.loaded());
-            model.ops.media_uploading = true;
             model.error = None;
-            let mut init = vec![("role".to_string(), model.ops.media_role.clone())];
-            if !model.ops.media_alt.trim().is_empty() {
-                init.push((
-                    "altText".to_string(),
-                    model.ops.media_alt.trim().to_string(),
-                ));
-            }
-            Cmd::upload(
-                file,
-                PROPERTY_MEDIA_CHUNKED,
-                vec![("propertyId".to_string(), property_id)],
-                init,
-                Msg::Uploaded,
-            )
+            Cmd::request(PropertyHero { property_id, media_id }, Msg::HeroSet)
         }
+        Msg::HeroSet(result) => match result {
+            Ok(_) => {
+                model.ops.media_index = 0;
+                read(model)
+            }
+            Err(error) => {
+                model.error = Some(format!("The hero was not changed: {}", error.message));
+                Cmd::none()
+            }
+        },
         Msg::Uploaded(result) => {
             model.ops.media_uploading = false;
-            model.ops.media_file_name = None;
             match result {
-                Ok(()) => {
-                    model.ops.media_alt.clear();
-                    model.ops.media_uploader_open = false;
-                    model.ops.media_index = 0;
-                    model.error = None;
-                    read(model)
-                }
+                Ok(()) => model.ops.media_batch_done += 1,
                 Err(error) => {
-                    model.error = Some(format!("The photo was not added: {}", error.message));
-                    Cmd::none()
+                    let name = model.ops.media_file_name.clone().unwrap_or_default();
+                    model.ops.media_batch_failed.push(format!("{name} ({})", error.message));
                 }
             }
+            model.ops.media_file_name = None;
+            if !model.upload_queue.is_empty() {
+                return next_upload(model);
+            }
+            // The batch is finished: say what did not make it, then show the gallery as it now is.
+            model.ops.media_alt.clear();
+            model.ops.media_uploader_open = false;
+            model.ops.media_index = 0;
+            model.error = (!model.ops.media_batch_failed.is_empty()).then(|| {
+                format!(
+                    "{} of {} photos added. Not added: {}",
+                    model.ops.media_batch_done,
+                    model.ops.media_batch_total,
+                    model.ops.media_batch_failed.join("; ")
+                )
+            });
+            read(model)
         }
         Msg::OpsVideoRefreshRequested => read(model),
     }

@@ -917,6 +917,23 @@ impl Endpoint for OpsCommand {
 /// Where property photographs are sent, in pieces (`Cmd::upload`).
 pub const PROPERTY_MEDIA_CHUNKED: &str = "/api/property-media/chunked";
 
+/// Make one of a property's photographs its hero (the previous hero returns to the gallery).
+pub struct PropertyHero {
+    pub property_id: String,
+    pub media_id: String,
+}
+
+impl Endpoint for PropertyHero {
+    const METHOD: Method = Method::Post;
+    type Response = serde_json::Value;
+    fn path(&self) -> String {
+        "/api/property-media/hero".into()
+    }
+    fn body(&self) -> Option<serde_json::Value> {
+        Some(serde_json::json!({ "propertyId": self.property_id, "mediaId": self.media_id }))
+    }
+}
+
 /// Listing Media: listings with their photo counts, one opened when `selected` is set. Answers `{ listingMedia: ... }`.
 pub struct ListingMediaRead {
     pub selected: Option<String>,

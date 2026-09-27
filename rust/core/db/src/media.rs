@@ -621,6 +621,36 @@ impl MediaDao {
 
     /// Drops uploads nobody finished — a browser closed at chunk 3 of 5, a laptop that slept. Without this, staged
     /// bytes accumulate in Neon forever and nothing notices, because every row involved is individually valid.
+    /// Make one of a property's photographs its hero: the previous hero goes back to the gallery, in one transaction.
+    /// `false` when the photograph is not this property's.
+    pub async fn set_property_hero(&self, property_id: &str, media_id: &str) -> DbResult<bool> {
+        let mut tx = self.db.begin("media.set_hero").await?;
+        let linked = sqlx::query_scalar::<_, i64>(
+            "select count(*)::bigint from property_media where property_id = $1::uuid and media_id = $2::uuid",
+        )
+        .bind(property_id)
+        .bind(media_id)
+        .fetch_one(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("media.set_hero.check", &error))?;
+        if linked == 0 {
+            return Ok(false);
+        }
+        sqlx::query("update property_media set role = 'gallery' where property_id = $1::uuid and role = 'hero'")
+            .bind(property_id)
+            .execute(tx.connection())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("media.set_hero.demote", &error))?;
+        sqlx::query("update property_media set role = 'hero' where property_id = $1::uuid and media_id = $2::uuid")
+            .bind(property_id)
+            .bind(media_id)
+            .execute(tx.connection())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("media.set_hero.promote", &error))?;
+        tx.commit().await?;
+        Ok(true)
+    }
+
     pub async fn sweep_stale_media_uploads(&self, older_than_hours: i32) -> DbResult<u64> {
         let mut tx = self.db.begin("media.upload.sweep").await?;
 

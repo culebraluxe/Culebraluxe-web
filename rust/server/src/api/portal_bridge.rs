@@ -55,6 +55,7 @@ pub fn router() -> Router<ApiState> {
         .route("/api/portal/rust-ui/rows", get(rows))
         .route("/api/portal/rust-ui/security-users", axum::routing::put(security_users_put))
         .route("/api/portal/rust-ui/role-entitlements", axum::routing::put(role_entitlements_put))
+        .route("/api/property-media/hero", axum::routing::post(property_media_hero))
         .route(
             "/api/property-media/chunked",
             axum::routing::post(property_media_chunked).layer(axum::extract::DefaultBodyLimit::max(8 * 1024 * 1024)),
@@ -3110,4 +3111,18 @@ async fn tech_act(
     }
     let result = state.services().tech().command(body, &resolved.service).await.map_err(failed(&resolved))?;
     Ok(Json(to_json(result)))
+}
+
+/// Make a photograph the property's hero after upload.
+async fn property_media_hero(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    let (Some(property_id), Some(media_id)) = (str_at(&body, "propertyId"), str_at(&body, "mediaId")) else {
+        return Err(ApiError::bad_request("MEDIA_HERO_INVALID", "propertyId and mediaId are required."));
+    };
+    state.services().media().set_property_hero(property_id, media_id, &resolved.service).await.map_err(failed(&resolved))?;
+    Ok(Json(json!({ "ok": true })))
 }
