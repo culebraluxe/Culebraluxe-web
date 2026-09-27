@@ -1077,28 +1077,33 @@ async fn save_form_values(
         })?;
 
     if template.field("sellerCivilStatus").is_some() {
-        if let (Some(person_id), Some(civil_status)) = (
+        if let (Some(person_id), Some(raw_civil_status)) = (
             current.person_id.as_deref(),
-            field_values
-                .get("sellerCivilStatus")
-                .map(String::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty()),
+            field_values.get("sellerCivilStatus"),
         ) {
+            let desired = raw_civil_status
+                .trim()
+                .to_owned();
+            let desired = (!desired.is_empty()).then_some(desired);
             if let Some(person) = services
                 .person()
                 .get(person_id, &resolved.service)
                 .await
                 .map_err(failed(resolved))?
             {
-                if person.civil_status.as_deref() != Some(civil_status) {
+                let current_status = person
+                    .civil_status
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty());
+                if current_status != desired.as_deref() {
                     let updated_person = services
                         .person()
                         .update_admin(
                             &domain::UpdatePersonAdminRequest {
                                 person_id: person.id,
                                 display_name: person.display_name,
-                                civil_status: Some(civil_status.to_owned()),
+                                civil_status: desired,
                                 status: person.status,
                                 company: person.company,
                             },
@@ -1113,20 +1118,17 @@ async fn save_form_values(
     }
 
     if current.template_id == "LISTING-01" {
-        if let (Some(property_id), Some(listing_type)) = (
+        if let (Some(property_id), Some(raw_listing_type)) = (
             current.property_id.as_deref(),
-            field_values
-                .get("listingType")
-                .map(String::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty()),
+            field_values.get("listingType"),
         ) {
+            let desired = raw_listing_type.trim().to_owned();
             services
                 .property()
                 .set_listing_type(
                     &domain::SetPropertyListingTypeRequest {
                         property_id: property_id.to_owned(),
-                        listing_type: Some(listing_type.to_owned()),
+                        listing_type: (!desired.is_empty()).then_some(desired),
                     },
                     &resolved.service,
                 )
