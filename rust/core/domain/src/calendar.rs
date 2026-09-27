@@ -22,8 +22,12 @@ pub struct CalendarEvent {
     pub property_name: Option<String>,
     pub kind: CalendarEventKind,
     pub source: String,
-    /// Native provider identifier used only when an edge supports mutation.
+    pub location: Option<String>,
+    /// Native occurrence identifier used by EventKit mutation.
     pub provider_event_id: Option<String>,
+    /// Native series/item identifier used to reconcile an EventKit mutation even
+    /// when the occurrence eventIdentifier changes after a save.
+    pub provider_series_id: Option<String>,
     /// EventKit expands recurring series into bounded occurrences before landing.
     pub recurring: bool,
     pub detached: bool,
@@ -54,6 +58,7 @@ pub struct CreateAppleCalendarEventRequest {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateAppleCalendarEventRequest {
     pub event_id: String,
+    pub calendar_item_id: Option<String>,
     pub start_at: String,
     pub end_at: String,
     pub all_day: Option<bool>,
@@ -79,4 +84,16 @@ pub struct CalendarLandingEvent {
 pub struct CalendarCommandReceipt {
     pub command_id: String,
     pub state: String,
+}
+
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarCommandState {
+    pub command_id: String,
+    /// queued | delivered | reconciled | failed | dead
+    pub state: String,
+    pub delivered_at: Option<String>,
+    pub reconciled_at: Option<String>,
+    pub last_error: Option<String>,
 }
