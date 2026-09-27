@@ -37,6 +37,7 @@ pub fn run<Msg: 'static>(cmd: Cmd<Msg>, deliver: &Callback<Msg>, navigator: Opti
             }
         }
         Cmd::Load(href) => load(&href),
+        Cmd::ReplacePath(path) => replace_path(&path),
         Cmd::StorageRead { key, reply } => {
             let value = storage().and_then(|storage| storage.get_item(&key).ok().flatten());
             deliver.emit(reply(value));
@@ -171,6 +172,16 @@ pub fn load(href: &str) {
     if let Some(window) = web_sys::window() {
         let _ = window.location().set_href(href);
     }
+}
+
+fn replace_path(path: &str) {
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let Ok(history) = window.history() else {
+        return;
+    };
+    let _ = history.replace_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some(path));
 }
 
 /// Device storage, or `None` where it is unavailable (private mode, blocked site data). Never a panic.
