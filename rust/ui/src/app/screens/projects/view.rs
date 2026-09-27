@@ -205,10 +205,18 @@ fn center_panel(model: &Vm<'_>, projects: &PortalProjectsPage, on_msg: &Callback
         <section class="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
             { project_header(model, projects, project, on_msg) }
             <div class="min-h-0 flex-1 overflow-hidden px-3 py-2">
-                { active_view(projects, project, on_msg) }
+                { active_view(model, projects, project, on_msg) }
             </div>
             <div class="shrink-0 px-3 pb-3">
-                { selected_work_editor(model, projects, selected, on_msg) }
+                {
+                    if projects.active_view == "calendar"
+                        && projects.calendar_selected_event_id.is_some()
+                    {
+                        selected_calendar_event_panel(model, projects)
+                    } else {
+                        selected_work_editor(model, projects, selected, on_msg)
+                    }
+                }
             </div>
         </section>
     }
@@ -305,13 +313,14 @@ fn project_tabs(projects: &PortalProjectsPage, on_msg: &Callback<Msg>) -> Html {
 }
 
 fn active_view(
+    model: &Vm<'_>,
     projects: &PortalProjectsPage,
     project: &PortalProject,
     on_msg: &Callback<Msg>,
 ) -> Html {
     match projects.active_view.as_str() {
         "timeline" => timeline_view(),
-        "calendar" => calendar::view(projects, project, on_msg),
+        "calendar" => calendar::view(model, projects, project, on_msg),
         "financials" => placeholder_view(
             "Financials",
             "No project-scoped accounting read model is attached to the Rust workspace yet.",
@@ -403,6 +412,97 @@ fn placeholder_view(title: &str, message: &str) -> Html {
                 <h2 class="font-serif text-xl font-light text-[var(--portal-navy)]">{ title }</h2>
                 <p class="mt-2 max-w-xl text-sm font-light text-black/45">{ message }</p>
             </div>
+        </div>
+    }
+}
+
+fn selected_calendar_event_panel(model: &Vm<'_>, projects: &PortalProjectsPage) -> Html {
+    let event = projects
+        .calendar_selected_event_id
+        .as_deref()
+        .and_then(|id| projects.calendar.iter().find(|event| event.id == id));
+    let Some(event) = event else {
+        return html! {};
+    };
+
+    let pending = model
+        .calendar_pending
+        .filter(|pending| pending.occurrence_id == event.id);
+    let ownership = if event.source == "apple_calendar" && event.provider_event_id.is_some() {
+        "Apple · move/resize"
+    } else {
+        "Canonical · read only"
+    };
+    let schedule = if event.all_day {
+        "All day".to_owned()
+    } else {
+        match event.end_at.as_deref() {
+            Some(end) => format!(
+                "{} – {}",
+                crate::calendar::time_label(&event.start_at).unwrap_or_else(|| event.start_at.clone()),
+                crate::calendar::time_label(end).unwrap_or_else(|| end.to_owned())
+            ),
+            None => crate::calendar::time_label(&event.start_at)
+                .unwrap_or_else(|| event.start_at.clone()),
+        }
+    };
+
+    html! {
+        <section class="shrink-0 overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-[var(--portal-soft-bg)] shadow-sm">
+            <div class="flex min-h-10 items-center gap-3 px-3 py-2">
+                <span class="shrink-0 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--portal-gold-muted)]">
+                    {"Selected event"}
+                </span>
+                <span class="min-w-0 flex-1 truncate text-[15px] font-medium text-[var(--portal-navy)]">
+                    { event.title.clone() }
+                </span>
+                <span class="shrink-0 rounded-full bg-white/60 px-2 py-1 text-[9px] font-medium uppercase tracking-[0.08em] text-[var(--portal-blue-gray)]">
+                    { ownership }
+                </span>
+            </div>
+            <div class="grid gap-x-5 gap-y-2 border-t border-[var(--portal-panel-border)] px-3 py-3 text-[11px] md:grid-cols-3 xl:grid-cols-6">
+                { event_detail("Date", crate::calendar::date_key(&event.start_at).unwrap_or_default()) }
+                { event_detail("Time", schedule) }
+                { event_detail("Source", event.source.replace('_', " ")) }
+                { event_detail(
+                    "Repeat",
+                    if event.recurring {
+                        if event.detached { "Modified occurrence".into() } else { "Recurring".into() }
+                    } else {
+                        "One time".into()
+                    }
+                ) }
+                { event_detail("Person", event.person_name.clone().unwrap_or_else(|| "—".into())) }
+                { event_detail("Property", event.property_name.clone().unwrap_or_else(|| "—".into())) }
+                if let Some(location) = event.location.as_ref().filter(|value| !value.trim().is_empty()) {
+                    <div class="md:col-span-2 xl:col-span-3">
+                        { event_detail("Location", location.clone()) }
+                    </div>
+                }
+                if let Some(pending) = pending {
+                    <div class="md:col-span-1 xl:col-span-3">
+                        { event_detail(
+                            "Apple state",
+                            match pending.phase.as_str() {
+                                "queueing" => "Queueing…".into(),
+                                "queued" => "Queued for Mac".into(),
+                                "delivered" => "Delivered to EventKit · awaiting sync".into(),
+                                "reconciled" => "Reconciled".into(),
+                                other => other.replace('_', " "),
+                            }
+                        ) }
+                    </div>
+                }
+            </div>
+        </section>
+    }
+}
+
+fn event_detail(label: &str, value: String) -> Html {
+    html! {
+        <div class="min-w-0">
+            <p class="text-[9px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">{ label }</p>
+            <p class="mt-0.5 truncate text-[12px] font-light text-[var(--portal-navy)]">{ value }</p>
         </div>
     }
 }
