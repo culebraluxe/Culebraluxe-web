@@ -24,12 +24,21 @@ pub struct Controls {
     pub query: String,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct PendingCalendarEdit {
+    occurrence_id: String,
+    old_start: String,
+    old_end: Option<String>,
+    old_all_day: bool,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Model {
     pub read: Remote<PortalProjectsPage>,
     pub controls: Controls,
     /// Why the last write did not happen, in the service's words.
     pub error: Option<String>,
+    pending_calendar: Option<PendingCalendarEdit>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -44,6 +53,16 @@ pub enum Msg {
     ProjectCalendarPrevious,
     ProjectCalendarNext,
     ProjectCalendarToday,
+    ProjectCalendarModeSelected(String),
+    ProjectCalendarRecurrenceScopeSelected(String),
+    ProjectCalendarEditRequested {
+        occurrence_id: String,
+        provider_event_id: String,
+        start_at: String,
+        end_at: String,
+        all_day: bool,
+    },
+    CalendarQueued(Result<PortalPage, ApiError>),
     ProjectCatchUpToggled(bool),
     ProjectCatchUpItemSelected {
         project_id: String,
@@ -113,6 +132,88 @@ fn edit(model: &mut Model, change: impl FnOnce(&mut PortalProjectWorkItem)) {
     }
 }
 
+fn queue_calendar_edit(
+    model: &mut Model,
+    occurrence_id: String,
+    provider_event_id: String,
+    start_at: String,
+    end_at: String,
+    all_day: bool,
+) -> Cmd<Msg> {
+    if model.pending_calendar.is_some() {
+        return Cmd::none();
+    }
+    let Remote::Loaded(projects) = &mut model.read else {
+        return Cmd::none();
+    };
+    let Some(event) = projects.calendar.iter_mut().find(|event| {
+        event.id == occurrence_id
+            && event.source == "apple_calendar"
+            && event.provider_event_id.as_deref() == Some(provider_event_id.as_str())
+    }) else {
+        model.error = Some("Only writable Apple Calendar events can be moved or resized.".into());
+        return Cmd::none();
+    };
+
+    let old = PendingCalendarEdit {
+        occurrence_id: occurrence_id.clone(),
+        old_start: event.start_at.clone(),
+        old_end: event.end_at.clone(),
+        old_all_day: event.all_day,
+    };
+    event.start_at = start_at.clone();
+    event.end_at = Some(end_at.clone());
+    event.all_day = all_day;
+    projects.saving = true;
+    model.pending_calendar = Some(old);
+    model.error = None;
+
+    Cmd::request(
+        ProjectsCommand {
+            body: serde_json::json!({
+                "action": "calendarUpdate",
+                "eventId": provider_event_id,
+                "startAt": start_at,
+                "endAt": end_at,
+                "allDay": all_day,
+                "recurrenceScope": projects.calendar_recurrence_scope,
+            }),
+        },
+        Msg::CalendarQueued,
+    )
+}
+
+fn calendar_queued(model: &mut Model, result: Result<PortalPage, ApiError>) {
+    let pending = model.pending_calendar.take();
+    let Remote::Loaded(projects) = &mut model.read else {
+        return;
+    };
+    projects.saving = false;
+
+    match result {
+        Ok(_) => {
+            // The HTTP command only proves that the durable Apple outbox accepted
+            // the mutation. Keep the optimistic position until EventKit lands the
+            // authoritative snapshot on the next Mac sync.
+            model.error = None;
+        }
+        Err(error) => {
+            if let Some(pending) = pending {
+                if let Some(event) = projects
+                    .calendar
+                    .iter_mut()
+                    .find(|event| event.id == pending.occurrence_id)
+                {
+                    event.start_at = pending.old_start;
+                    event.end_at = pending.old_end;
+                    event.all_day = pending.old_all_day;
+                }
+            }
+            model.error = Some(error.message);
+        }
+    }
+}
+
 impl Screen for Projects {
     type Model = Model;
     type Msg = Msg;
@@ -150,6 +251,26 @@ impl Screen for Projects {
             Msg::QueryChanged(query) => {
                 model.controls.query = query;
                 return Cmd::none();
+            }
+            Msg::CalendarQueued(result) => {
+                calendar_queued(model, result);
+                return Cmd::none();
+            }
+            Msg::ProjectCalendarEditRequested {
+                occurrence_id,
+                provider_event_id,
+                start_at,
+                end_at,
+                all_day,
+            } => {
+                return queue_calendar_edit(
+                    model,
+                    occurrence_id,
+                    provider_event_id,
+                    start_at,
+                    end_at,
+                    all_day,
+                );
             }
             Msg::ProjectWorkTitleChanged(value) => edit(model, |item| item.title = value),
             Msg::ProjectWorkNotesChanged(value) => edit(model, |item| item.notes = value),
@@ -247,13 +368,31 @@ fn selection(projects: &mut PortalProjectsPage, error: &mut Option<String>, msg:
             }
         }
         Msg::ProjectCalendarPrevious => {
-            projects.calendar_cursor = crate::calendar::shift_month(&projects.calendar_cursor, -1);
+            projects.calendar_cursor = crate::calendar::shift_cursor(
+                &projects.calendar_cursor,
+                &projects.calendar_mode,
+                -1,
+            );
         }
         Msg::ProjectCalendarNext => {
-            projects.calendar_cursor = crate::calendar::shift_month(&projects.calendar_cursor, 1);
+            projects.calendar_cursor = crate::calendar::shift_cursor(
+                &projects.calendar_cursor,
+                &projects.calendar_mode,
+                1,
+            );
         }
         Msg::ProjectCalendarToday => {
             projects.calendar_cursor = crate::projects::calendar_anchor(projects);
+        }
+        Msg::ProjectCalendarModeSelected(mode) => {
+            if matches!(mode.as_str(), "month" | "week" | "day" | "list") {
+                projects.calendar_mode = mode;
+            }
+        }
+        Msg::ProjectCalendarRecurrenceScopeSelected(scope) => {
+            if matches!(scope.as_str(), "this" | "future") {
+                projects.calendar_recurrence_scope = scope;
+            }
         }
         Msg::ProjectCatchUpToggled(on) => {
             projects.catch_up = on;
@@ -360,6 +499,17 @@ mod tests {
             "items": [
                 { "id": "w1", "projectId": "p1", "title": "Photos", "status": "doing" },
                 { "id": "w2", "projectId": "p2", "title": "Books", "status": "open" }
+            ],
+            "calendar": [
+                {
+                    "id": "occ-1",
+                    "title": "Seller meeting",
+                    "startAt": "2026-09-28T09:00:00+00:00",
+                    "endAt": "2026-09-28T10:00:00+00:00",
+                    "source": "apple_calendar",
+                    "providerEventId": "ek-1",
+                    "recurring": true
+                }
             ]
         } })
     }
@@ -408,6 +558,60 @@ mod tests {
         assert_eq!(model.read.loaded().unwrap().calendar_cursor, "2026-10-27");
         Projects::update(&mut model, Msg::ProjectCalendarToday, &ctx);
         assert_eq!(model.read.loaded().unwrap().calendar_cursor, "2026-09-27");
+    }
+
+    #[test]
+    fn calendar_mode_navigation_and_optimistic_edit_stay_in_mvi() {
+        let ctx = ScreenCtx::default();
+        let mut model = opened();
+
+        Projects::update(
+            &mut model,
+            Msg::ProjectCalendarModeSelected("week".into()),
+            &ctx,
+        );
+        Projects::update(&mut model, Msg::ProjectCalendarNext, &ctx);
+        assert_eq!(model.read.loaded().unwrap().calendar_cursor, "2026-10-04");
+
+        Projects::update(
+            &mut model,
+            Msg::ProjectCalendarRecurrenceScopeSelected("future".into()),
+            &ctx,
+        );
+        let request = Projects::update(
+            &mut model,
+            Msg::ProjectCalendarEditRequested {
+                occurrence_id: "occ-1".into(),
+                provider_event_id: "ek-1".into(),
+                start_at: "2026-09-29T11:00:00+00:00".into(),
+                end_at: "2026-09-29T12:00:00+00:00".into(),
+                all_day: false,
+            },
+            &ctx,
+        )
+        .into_requests()
+        .remove(0);
+        let body = request.body.clone().unwrap();
+        assert_eq!(body["action"], "calendarUpdate");
+        assert_eq!(body["eventId"], "ek-1");
+        assert_eq!(body["recurrenceScope"], "future");
+        let projects = model.read.loaded().unwrap();
+        assert_eq!(
+            projects.calendar[0].start_at,
+            "2026-09-29T11:00:00+00:00",
+            "drag/resize is optimistic while Apple delivery is queued"
+        );
+        assert!(projects.saving);
+
+        Projects::update(
+            &mut model,
+            request.respond(Err(ApiError::network("Apple queue unavailable."))),
+            &ctx,
+        );
+        let projects = model.read.loaded().unwrap();
+        assert_eq!(projects.calendar[0].start_at, "2026-09-28T09:00:00+00:00");
+        assert!(!projects.saving);
+        assert_eq!(model.error.as_deref(), Some("Apple queue unavailable."));
     }
 
     #[test]
