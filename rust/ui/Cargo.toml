@@ -14,6 +14,7 @@ publish = false
 # from the application's own routes, and hands the result to `rows_loaded` as JSON. One bridge, one direction, no
 # credentials in the WASM module.
 [dependencies]
+base64.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 console_error_panic_hook = { version = "0.1", optional = true }
