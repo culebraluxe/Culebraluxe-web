@@ -50,7 +50,11 @@ pub(super) fn view(
     let days = timeline::days(range);
     let segments = header_segments(range, timeline_spec, &projects.timeline_mode);
     let project_bounds = project_span(projects, project);
-    let grid_days = if projects.timeline_mode == "day" { 1 } else { 7 };
+    let grid_days = if projects.timeline_mode == "day" {
+        1
+    } else {
+        7
+    };
     let grid_px = timeline_spec.pixels_per_day * grid_days;
     let grid_style = format!(
         "background-image: linear-gradient(to right, var(--portal-panel-border) 1px, transparent 1px); background-size: {grid_px}px 100%;"
@@ -617,11 +621,7 @@ fn project_items<'a>(
         .collect()
 }
 
-fn header_segments(
-    range: TimelineRange,
-    spec: TimelineSpec,
-    mode: &str,
-) -> Vec<HeaderSegment> {
+fn header_segments(range: TimelineRange, spec: TimelineSpec, mode: &str) -> Vec<HeaderSegment> {
     match mode {
         "month" => month_segments(range, spec),
         "day" => timeline::days(range)
