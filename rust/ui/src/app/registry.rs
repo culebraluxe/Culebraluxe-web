@@ -194,7 +194,7 @@ pub const ENTRIES: &[Entry] = &[
     entry("activity", "/portal/activity", Surface::Core, "Activity", Menu::None, "portal.read", "", Kind::Screen(mount::<Activity>)).of("dashboard"),
     entry("client-record", "/portal/clients/:personId", Surface::Core, "Client", Menu::None, "portal.read", "", Kind::Screen(mount::<ClientRecord>)).of("clients"),
     entry("deal-record", "/portal/deals/:dealId", Surface::Core, "Deal", Menu::None, "portal.read", "", Kind::Screen(mount::<DealRecord>)).of("deals"),
-    entry("form-record", "/portal/forms/:formId", Surface::Core, "Form", Menu::None, "portal.read", "", Kind::Screen(mount::<FormRecord>)).of("forms"),
+    entry("form-record", "/portal/forms/:formId", Surface::Core, "Form", Menu::None, "deal.read", "form.read", Kind::Screen(mount::<FormRecord>)).of("forms"),
     entry("workflow-record", "/portal/workflows/:instanceId", Surface::Core, "Workflow instance", Menu::None, "portal.read", "", Kind::Screen(mount::<WorkflowRecord>)).of("workflows"),
     entry("property-record", "/portal/property-admin/:propertyId", Surface::Ops, "Property record", Menu::None, "portal.read", "", Kind::Screen(mount::<Workbench>)).of("property-admin"),
     entry("story-record", "/portal/storyboard/:id", Surface::Tech, "Story", Menu::None, "portal.read", "", Kind::Screen(mount::<StoryRecord>)).of("storyboard"),
