@@ -2046,7 +2046,7 @@ fn property_pane(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
         <section class="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/30 p-4">
             <div class="mb-3 text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--portal-gold-muted)]">{"Property"}</div>
             <div class="flex flex-wrap items-end gap-3">
-                {sized_field(model, on_msg, name, "w-[22rem]")}
+                {sized_field(model, on_msg, name, "min-w-[14rem] flex-1")}
                 <div class="flex items-end gap-1.5">
                     {sized_field(model, on_msg, catastro, "w-[13rem]")}
                     <button type="button" onclick={find} disabled={!can_find}
