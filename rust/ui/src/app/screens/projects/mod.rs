@@ -11,7 +11,11 @@ mod view;
 
 use yew::prelude::*;
 
-use crate::app::api::{ProjectsCommand, ProjectsRead};
+use crate::app::api::{
+    CalendarCommandReceipt, CalendarCommandState, ProjectsCalendarCommandState,
+    ProjectsCalendarRead, ProjectsCalendarUpdate, ProjectsCalendarViewportResponse,
+    ProjectsCommand, ProjectsRead,
+};
 use crate::app::cmd::{ApiError, Cmd, Remote};
 use crate::app::screen::{Link, Screen, ScreenCtx};
 use crate::app::template;
@@ -25,11 +29,16 @@ pub struct Controls {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-struct PendingCalendarEdit {
-    occurrence_id: String,
-    old_start: String,
-    old_end: Option<String>,
-    old_all_day: bool,
+pub(super) struct PendingCalendarEdit {
+    pub occurrence_id: String,
+    pub old_start: String,
+    pub old_end: Option<String>,
+    pub old_all_day: bool,
+    pub provider_event_id: String,
+    pub provider_series_id: Option<String>,
+    pub command_id: Option<String>,
+    pub phase: String,
+    pub poll_count: u8,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -55,14 +64,27 @@ pub enum Msg {
     ProjectCalendarToday,
     ProjectCalendarModeSelected(String),
     ProjectCalendarRecurrenceScopeSelected(String),
+    ProjectCalendarFilterSelected(String),
+    ProjectCalendarEventSelected(Option<String>),
+    ProjectCalendarDragStarted(String),
+    ProjectCalendarDragTargetChanged(Option<String>),
+    ProjectCalendarDragEnded,
     ProjectCalendarEditRequested {
         occurrence_id: String,
         provider_event_id: String,
+        provider_series_id: Option<String>,
         start_at: String,
         end_at: String,
         all_day: bool,
     },
-    CalendarQueued(Result<PortalPage, ApiError>),
+    CalendarViewportLoaded {
+        start_at: String,
+        end_at: String,
+        result: Result<ProjectsCalendarViewportResponse, ApiError>,
+    },
+    CalendarQueued(Result<CalendarCommandReceipt, ApiError>),
+    CalendarPoll,
+    CalendarStateLoaded(Result<CalendarCommandState, ApiError>),
     ProjectCatchUpToggled(bool),
     ProjectCatchUpItemSelected {
         project_id: String,
@@ -132,10 +154,96 @@ fn edit(model: &mut Model, change: impl FnOnce(&mut PortalProjectWorkItem)) {
     }
 }
 
+fn calendar_viewport(projects: &mut PortalProjectsPage) -> Cmd<Msg> {
+    let Some((start_at, end_at)) =
+        crate::calendar::viewport_bounds(&projects.calendar_cursor, &projects.calendar_mode)
+    else {
+        return Cmd::none();
+    };
+    if projects.calendar_loading
+        || (projects.calendar_loaded_start.as_deref() == Some(start_at.as_str())
+            && projects.calendar_loaded_end.as_deref() == Some(end_at.as_str()))
+    {
+        return Cmd::none();
+    }
+
+    projects.calendar_loading = true;
+    let response_start = start_at.clone();
+    let response_end = end_at.clone();
+    Cmd::request(
+        ProjectsCalendarRead { start_at, end_at },
+        move |result| Msg::CalendarViewportLoaded {
+            start_at: response_start,
+            end_at: response_end,
+            result,
+        },
+    )
+}
+
+fn apply_calendar_viewport(
+    model: &mut Model,
+    start_at: String,
+    end_at: String,
+    result: Result<ProjectsCalendarViewportResponse, ApiError>,
+) {
+    let Remote::Loaded(projects) = &mut model.read else {
+        return;
+    };
+    let Some((wanted_start, wanted_end)) =
+        crate::calendar::viewport_bounds(&projects.calendar_cursor, &projects.calendar_mode)
+    else {
+        projects.calendar_loading = false;
+        return;
+    };
+
+    // A quick second navigation can finish before the first HTTP response.
+    // Never let the stale answer replace the currently requested interval.
+    if start_at != wanted_start || end_at != wanted_end {
+        return;
+    }
+
+    projects.calendar_loading = false;
+    match result {
+        Ok(answer) => {
+            projects.calendar = answer.calendar;
+            projects.calendar_loaded_start = Some(start_at);
+            projects.calendar_loaded_end = Some(end_at);
+            projects.calendar_selected_event_id = projects
+                .calendar_selected_event_id
+                .clone()
+                .filter(|id| projects.calendar.iter().any(|event| &event.id == id));
+            model.error = None;
+        }
+        Err(error) => model.error = Some(error.message),
+    }
+}
+
+fn rollback_calendar_edit(model: &mut Model, message: String) {
+    let pending = model.pending_calendar.take();
+    let Remote::Loaded(projects) = &mut model.read else {
+        model.error = Some(message);
+        return;
+    };
+    projects.saving = false;
+    if let Some(pending) = pending {
+        if let Some(event) = projects
+            .calendar
+            .iter_mut()
+            .find(|event| event.id == pending.occurrence_id)
+        {
+            event.start_at = pending.old_start;
+            event.end_at = pending.old_end;
+            event.all_day = pending.old_all_day;
+        }
+    }
+    model.error = Some(message);
+}
+
 fn queue_calendar_edit(
     model: &mut Model,
     occurrence_id: String,
     provider_event_id: String,
+    provider_series_id: Option<String>,
     start_at: String,
     end_at: String,
     all_day: bool,
@@ -155,62 +263,131 @@ fn queue_calendar_edit(
         return Cmd::none();
     };
 
-    let old = PendingCalendarEdit {
+    let pending = PendingCalendarEdit {
         occurrence_id: occurrence_id.clone(),
         old_start: event.start_at.clone(),
         old_end: event.end_at.clone(),
         old_all_day: event.all_day,
+        provider_event_id: provider_event_id.clone(),
+        provider_series_id: provider_series_id.clone(),
+        command_id: None,
+        phase: "queueing".into(),
+        poll_count: 0,
     };
     event.start_at = start_at.clone();
     event.end_at = Some(end_at.clone());
     event.all_day = all_day;
     projects.saving = true;
-    model.pending_calendar = Some(old);
+    projects.calendar_dragging_event_id = None;
+    projects.calendar_drag_target = None;
+    model.pending_calendar = Some(pending);
     model.error = None;
 
     Cmd::request(
-        ProjectsCommand {
-            body: serde_json::json!({
-                "action": "calendarUpdate",
-                "eventId": provider_event_id,
-                "startAt": start_at,
-                "endAt": end_at,
-                "allDay": all_day,
-                "recurrenceScope": projects.calendar_recurrence_scope,
-            }),
+        ProjectsCalendarUpdate {
+            event_id: provider_event_id,
+            calendar_item_id: provider_series_id,
+            start_at,
+            end_at,
+            all_day,
+            recurrence_scope: projects.calendar_recurrence_scope.clone(),
         },
         Msg::CalendarQueued,
     )
 }
 
-fn calendar_queued(model: &mut Model, result: Result<PortalPage, ApiError>) {
-    let pending = model.pending_calendar.take();
+fn calendar_queued(
+    model: &mut Model,
+    result: Result<CalendarCommandReceipt, ApiError>,
+) -> Cmd<Msg> {
     let Remote::Loaded(projects) = &mut model.read else {
-        return;
+        return Cmd::none();
     };
     projects.saving = false;
 
     match result {
-        Ok(_) => {
-            // The HTTP command only proves that the durable Apple outbox accepted
-            // the mutation. Keep the optimistic position until EventKit lands the
-            // authoritative snapshot on the next Mac sync.
+        Ok(receipt) => {
+            let Some(pending) = model.pending_calendar.as_mut() else {
+                return Cmd::none();
+            };
+            pending.command_id = Some(receipt.command_id);
+            pending.phase = if receipt.state.is_empty() {
+                "queued".into()
+            } else {
+                receipt.state
+            };
+            pending.poll_count = 0;
             model.error = None;
+            Cmd::after(750, Msg::CalendarPoll)
         }
         Err(error) => {
-            if let Some(pending) = pending {
-                if let Some(event) = projects
-                    .calendar
-                    .iter_mut()
-                    .find(|event| event.id == pending.occurrence_id)
-                {
-                    event.start_at = pending.old_start;
-                    event.end_at = pending.old_end;
-                    event.all_day = pending.old_all_day;
-                }
-            }
-            model.error = Some(error.message);
+            rollback_calendar_edit(model, error.message);
+            Cmd::none()
         }
+    }
+}
+
+fn calendar_poll(model: &mut Model) -> Cmd<Msg> {
+    let Some(pending) = model.pending_calendar.as_mut() else {
+        return Cmd::none();
+    };
+    let Some(command_id) = pending.command_id.clone() else {
+        return Cmd::none();
+    };
+    if pending.poll_count >= 20 {
+        return Cmd::none();
+    }
+    pending.poll_count += 1;
+    Cmd::request(
+        ProjectsCalendarCommandState { command_id },
+        Msg::CalendarStateLoaded,
+    )
+}
+
+fn calendar_state_loaded(
+    model: &mut Model,
+    result: Result<CalendarCommandState, ApiError>,
+) -> Cmd<Msg> {
+    let Ok(state) = result else {
+        if model
+            .pending_calendar
+            .as_ref()
+            .is_some_and(|pending| pending.poll_count < 20)
+        {
+            return Cmd::after(2_000, Msg::CalendarPoll);
+        }
+        return Cmd::none();
+    };
+
+    let Some(pending) = model.pending_calendar.as_mut() else {
+        return Cmd::none();
+    };
+    if pending.command_id.as_deref() != Some(state.command_id.as_str()) {
+        return Cmd::none();
+    }
+    pending.phase = state.state.clone();
+
+    match state.state.as_str() {
+        "reconciled" => {
+            model.pending_calendar = None;
+            let Remote::Loaded(projects) = &mut model.read else {
+                return Cmd::none();
+            };
+            projects.calendar_loaded_start = None;
+            projects.calendar_loaded_end = None;
+            calendar_viewport(projects)
+        }
+        "failed" | "dead" => {
+            rollback_calendar_edit(
+                model,
+                state
+                    .last_error
+                    .unwrap_or_else(|| "Apple Calendar could not apply the change.".into()),
+            );
+            Cmd::none()
+        }
+        _ if pending.poll_count < 20 => Cmd::after(1_500, Msg::CalendarPoll),
+        _ => Cmd::none(),
     }
 }
 
