@@ -168,10 +168,12 @@ fn update(model: &mut Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> {
         }
         Msg::OpenForm(id) => {
             if model.dirty || model.draft_saving {
-                model.error = Some("Save is still settling. Wait a moment before changing forms.".into());
+                model.error =
+                    Some("Save is still settling. Wait a moment before changing forms.".into());
                 Cmd::none()
             } else {
-                Cmd::navigate(format!("/portal/forms/{id}"))
+                model.error = None;
+                Cmd::request(FormsRead::record(id), Msg::RecordLoaded)
             }
         }
         Msg::SessionQueryChanged(value) => {
@@ -196,7 +198,11 @@ fn update(model: &mut Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> {
                         Some("Save is still settling. Wait a moment before changing form type.".into());
                     return Cmd::none();
                 }
-                return Cmd::navigate(format!("/portal/forms/{}", existing.id));
+                model.error = None;
+                return Cmd::request(
+                    FormsRead::record(existing.id.clone()),
+                    Msg::RecordLoaded,
+                );
             }
             create_form(model, &template_id)
         }
@@ -207,7 +213,7 @@ fn update(model: &mut Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> {
         Msg::Created(result) => {
             model.busy = false;
             match result {
-                Ok(answer) => Cmd::navigate(format!("/portal/forms/{}", answer.form_id)),
+                Ok(answer) => install_record(model, answer.forms, Some("New form".into())),
                 Err(error) => {
                     model.error = Some(error.message);
                     Cmd::none()
@@ -467,6 +473,7 @@ fn install_record(model: &mut Model, page: FormsPage, message: Option<String>) -
     model.saved_values = model.values.clone();
     model.saved_sections = model.sections.clone();
     model.saved_details_text = model.details_text.clone();
+    let path = format!("/portal/forms/{}", form.id);
     model.selected_template = form.template_id.clone();
     model.page = Some(page);
     model.dirty = false;
@@ -474,7 +481,7 @@ fn install_record(model: &mut Model, page: FormsPage, message: Option<String>) -
     model.message = message;
     model.loading = false;
     model.generation = model.generation.wrapping_add(1);
-    request_preview(model)
+    Cmd::batch([request_preview(model), Cmd::replace_path(path)])
 }
 
 fn request_preview(model: &mut Model) -> Cmd<Msg> {
@@ -759,7 +766,7 @@ fn view(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
                                         </span>
                                         <button
                                             type="button"
-                                            disabled={working || listing_locked || !ctx.can("form.write")}
+                                            disabled={working || listing_locked}
                                             onclick={link.callback(|_: MouseEvent| Msg::FillClient)}
                                             class="inline-flex min-h-7 items-center justify-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] px-2.5 text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] transition hover:border-[var(--portal-navy)] hover:text-[var(--portal-navy)] disabled:cursor-not-allowed disabled:opacity-35"
                                             title="Fill this Listing from the seller Client"
@@ -1041,14 +1048,14 @@ fn field_control(
         }
         "select" => {
             let name = field.name.clone();
-            let changed = link.callback(move |event: Event| Msg::FieldChanged {
+            let changed = link.callback(move |event: InputEvent| Msg::FieldChanged {
                 name: name.clone(),
                 value: event
                     .target_unchecked_into::<web_sys::HtmlSelectElement>()
                     .value(),
             });
             html! {
-                <select value={value} onchange={changed} class={INPUT_CLASS}>
+                <select value={value} oninput={changed} class={INPUT_CLASS}>
                     <option value="">{"—"}</option>
                     {
                         for field.options.iter().map(|option| html! {
@@ -1447,6 +1454,21 @@ mod tests {
         );
         assert!(model.dirty);
         assert!(matches!(cmd, Cmd::Batch(_)));
+    }
+
+    #[test]
+    fn switching_saved_forms_reuses_the_mounted_screen_instead_of_navigating() {
+        let mut model = Model::default();
+        let cmd = update(
+            &mut model,
+            Msg::OpenForm("form-next".into()),
+            &ScreenCtx::default(),
+        );
+        let requests = cmd.into_requests();
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0]
+            .path
+            .contains("screen=form-record&scope=form-next"));
     }
 
     #[test]
