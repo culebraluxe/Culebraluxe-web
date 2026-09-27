@@ -32,6 +32,7 @@ pub fn router() -> Router<ApiState> {
     Router::new()
         .route("/api/portal/rust-ui/entitlements", get(entitlements))
         .route("/api/portal/rust-ui/cockpit", get(cockpit).post(cockpit_act))
+        .route("/api/portal/rust-ui/tech", get(tech).post(tech_act))
         .route("/api/portal/rust-ui/clients", get(clients))
         .route("/api/portal/rust-ui/page", get(page))
         .route("/api/portal/rust-ui/cabinet", get(cabinet))
@@ -355,6 +356,10 @@ async fn page(
         }
         screen if SUPPORT_SCREENS.contains(&screen) => {
             Ok(Json(json!({ "support": support_payload(&state, &resolved, screen, scope).await? })))
+        }
+        "storyboard" => {
+            let snapshot = state.services().tech().snapshot(None, &resolved.service).await.map_err(failed(&resolved))?;
+            Ok(Json(super::tech_page::storyboard(&to_json(snapshot))))
         }
         "workflows" | "tech-flight-recorder" => {
             let service = state.services().workflow_portal();
@@ -2971,4 +2976,36 @@ async fn meta_phones() -> Value {
         "codeVerificationStatus": at(phone, "code_verification_status"),
     })).collect();
     answer(phones, None, true)
+}
+
+#[derive(Debug, Deserialize)]
+struct TechQuery {
+    selected: Option<String>,
+}
+
+/// The TECH Cockpit: KPIs, the workbench, the selected story and its runs, the Kanban, flights and the engine.
+async fn tech(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Query(query): Query<TechQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    let selected = query.selected.as_deref().map(str::trim).filter(|id| !id.is_empty());
+    let snapshot = state.services().tech().snapshot(selected, &resolved.service).await.map_err(failed(&resolved))?;
+    let now = chrono::Utc::now().to_rfc3339();
+    Ok(Json(super::tech_page::cockpit(&to_json(snapshot), selected, &now)))
+}
+
+/// A Cockpit command (a Kanban move, the workbench, a flight): the tech service's own command, answered as it answers.
+async fn tech_act(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<domain::TechCommandRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    if body.action.trim().is_empty() {
+        return Err(ApiError::bad_request("TECH_COMMAND_REQUIRED", "Missing TECH Cockpit command."));
+    }
+    let result = state.services().tech().command(body, &resolved.service).await.map_err(failed(&resolved))?;
+    Ok(Json(to_json(result)))
 }

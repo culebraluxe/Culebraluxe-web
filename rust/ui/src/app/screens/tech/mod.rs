@@ -53,6 +53,10 @@ pub enum Msg {
     /// The Workbench's open state, as it was when the toggle was pressed.
     Toggled(bool),
     CommandAnswered(Result<serde_json::Value, ApiError>),
+    /// A Kanban card was picked up.
+    SorterDragStarted(String),
+    /// The picked-up card was dropped on a column: move its story there.
+    SorterDropped(String),
 }
 
 pub struct TechCockpit;
@@ -189,6 +193,29 @@ impl Screen for TechCockpit {
             Msg::TechScheduleFlightRequested { .. } | Msg::TechCancelFlightRequested(_) => {
                 Cmd::none()
             }
+            Msg::SorterDragStarted(card) => {
+                model.tech.dragging = Some(card);
+                Cmd::none()
+            }
+            Msg::SorterDropped(column) => {
+                let Some(card) = model.tech.dragging.take() else {
+                    return Cmd::none();
+                };
+                let current = model
+                    .read
+                    .loaded()
+                    .and_then(|page| page.sorter_cards.iter().find(|c| c.id == card))
+                    .map(|c| c.column.clone());
+                if current.as_deref() == Some(column.as_str()) {
+                    return Cmd::none();
+                }
+                let story = card.split('#').next().unwrap_or(&card).to_owned();
+                command(
+                    model,
+                    format!("Moving {story}"),
+                    serde_json::json!({ "action": "moveStoryBucket", "storyId": story, "target": column }),
+                )
+            }
             Msg::CommandAnswered(answer) => {
                 model.tech.busy_action = None;
                 model.tech.notice = Some(match answer {
@@ -238,6 +265,28 @@ pub struct Vm<'a> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn dropping_a_card_on_another_column_moves_its_story_there() {
+        let ctx = ScreenCtx::default();
+        let mut model = Model {
+            read: Remote::Loaded(PortalTechPage {
+                sorter_cards: vec![crate::model::PortalTechSorterCard {
+                    id: "FORGE-9#handoff".into(),
+                    column: "engine".into(),
+                    ..Default::default()
+                }],
+                ..PortalTechPage::default()
+            }),
+            ..Model::default()
+        };
+        TechCockpit::update(&mut model, Msg::SorterDragStarted("FORGE-9#handoff".into()), &ctx);
+        assert!(TechCockpit::update(&mut model, Msg::SorterDropped("engine".into()), &ctx).into_requests().is_empty(), "same column: nothing");
+        TechCockpit::update(&mut model, Msg::SorterDragStarted("FORGE-9#handoff".into()), &ctx);
+        let request = TechCockpit::update(&mut model, Msg::SorterDropped("backlog".into()), &ctx).into_requests().remove(0);
+        let body = request.body.clone().unwrap();
+        assert_eq!((body["action"].as_str(), body["storyId"].as_str(), body["target"].as_str()), (Some("moveStoryBucket"), Some("FORGE-9"), Some("backlog")));
+    }
 
     #[test]
     fn selection_rereads_commands_run_alone_and_every_answer_rereads() {

@@ -28,7 +28,7 @@ pub(super) fn cockpit(model: &Vm<'_>, tech: &PortalTechPage, on_msg: &Callback<M
             { header(tech, model, on_msg) }
             { kpis(tech) }
             { command_notice(model) }
-            { sorter() }
+            { sorter(model, tech, on_msg) }
             { flight_strip(model, tech, on_msg) }
             { workbench(model, tech, on_msg) }
             { engine_line(tech) }
@@ -121,7 +121,10 @@ fn kpis(tech: &PortalTechPage) -> Html {
     }
 }
 
-fn sorter() -> Html {
+/// The Kanban: every story in one column; drag a card to another column to move its story (the tech service's
+/// moveStoryBucket). Click a card to open its story in the Cockpit.
+fn sorter(model: &Vm<'_>, tech: &PortalTechPage, on_msg: &Callback<Msg>) -> Html {
+    let busy = model.tech.busy_action.is_some();
     html! {
         <section class="mb-4 overflow-hidden rounded-lg border border-white/10 bg-white/[0.02]">
             <div class="flex flex-wrap items-baseline justify-between gap-2 border-b border-white/10 px-4 py-3">
@@ -133,7 +136,40 @@ fn sorter() -> Html {
                     {"Drag freely · WORK BENCH is daily intent · FLIGHT STAGING does not dispatch · ENGINE RUN Q does"}
                 </p>
             </div>
-            { crate::app::template::widget_removed("The story sorter") }
+            <div class="grid grid-cols-2 gap-2 p-2 md:grid-cols-3 xl:grid-cols-6">
+                {for tech.sorter_columns.iter().map(|column| {
+                    let cards: Vec<_> = tech.sorter_cards.iter().filter(|card| card.column == column.id).collect();
+                    let target = column.id.clone();
+                    let drop = on_msg.reform(move |event: DragEvent| { event.prevent_default(); Msg::SorterDropped(target.clone()) });
+                    html! {
+                        <div ondragover={Callback::from(|event: DragEvent| event.prevent_default())} ondrop={drop}
+                            class="flex min-h-[8rem] flex-col rounded-md border border-white/10 bg-black/20">
+                            <div class="flex items-center justify-between border-b border-white/10 px-2 py-1.5">
+                                <span class="text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-300">{&column.label}</span>
+                                <span class="text-[9px] text-slate-500">{cards.len()}</span>
+                            </div>
+                            <div class="max-h-[420px] min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
+                                {for cards.into_iter().map(|card| {
+                                    let id = card.id.clone();
+                                    let story = card.id.split('#').next().unwrap_or(&card.id).to_owned();
+                                    let start = on_msg.reform(move |_: DragEvent| Msg::SorterDragStarted(id.clone()));
+                                    let open = on_msg.reform(move |_: MouseEvent| Msg::TechStorySelected(story.clone()));
+                                    html! {
+                                        <div draggable={(!busy).to_string()} ondragstart={start} onclick={open}
+                                            class="cursor-grab rounded border border-white/10 bg-white/[0.04] px-2 py-1.5 hover:border-[#c6a15b]/50">
+                                            <div class="flex items-center justify-between gap-1">
+                                                <span class="truncate font-mono text-[9px] text-[#e0c489]">{card.id.split('#').next().unwrap_or(&card.id)}</span>
+                                                <span class="shrink-0 text-[8px] uppercase text-slate-500">{&card.priority}</span>
+                                            </div>
+                                            <div class="mt-0.5 line-clamp-2 text-[11px] leading-snug text-slate-200">{&card.title}</div>
+                                        </div>
+                                    }
+                                })}
+                            </div>
+                        </div>
+                    }
+                })}
+            </div>
         </section>
     }
 }

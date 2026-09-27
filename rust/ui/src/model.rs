@@ -2100,6 +2100,8 @@ pub struct TechCockpitState {
     pub busy_action: Option<String>,
     /// The last operator command result. Reads do not erase it; a new command does.
     pub notice: Option<CommandNotice>,
+    /// The Kanban card being dragged (its card id), until it is dropped.
+    pub dragging: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]

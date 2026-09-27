@@ -13,6 +13,7 @@ pub mod error_capture;
 mod portal_bridge;
 mod public_ui;
 mod routes;
+mod tech_page;
 pub mod ui_auth;
 
 pub use error::ApiError;
