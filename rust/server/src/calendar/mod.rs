@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use db::{CalendarDao, DbResult};
 use domain::{
     CalendarCommandReceipt, CalendarEvent, CalendarViewportQuery, CreateAppleCalendarEventRequest,
+    UpdateAppleCalendarEventRequest,
 };
 use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
 
@@ -18,6 +19,12 @@ pub trait CalendarRepository: Send {
     async fn create_apple_event(
         &self,
         request: &CreateAppleCalendarEventRequest,
+        actor_app_user_id: Option<&str>,
+        correlation_id: &str,
+    ) -> DbResult<CalendarCommandReceipt>;
+    async fn update_apple_event(
+        &self,
+        request: &UpdateAppleCalendarEventRequest,
         actor_app_user_id: Option<&str>,
         correlation_id: &str,
     ) -> DbResult<CalendarCommandReceipt>;
@@ -44,6 +51,15 @@ impl CalendarRepository for CalendarDao {
         correlation_id: &str,
     ) -> DbResult<CalendarCommandReceipt> {
         CalendarDao::create_apple_event(self, request, actor_app_user_id, correlation_id).await
+    }
+
+    async fn update_apple_event(
+        &self,
+        request: &UpdateAppleCalendarEventRequest,
+        actor_app_user_id: Option<&str>,
+        correlation_id: &str,
+    ) -> DbResult<CalendarCommandReceipt> {
+        CalendarDao::update_apple_event(self, request, actor_app_user_id, correlation_id).await
     }
 }
 
@@ -125,6 +141,82 @@ impl<R: CalendarRepository> CalendarService<R> {
 
             self.repository
                 .list_between(start.with_timezone(&Utc), end.with_timezone(&Utc))
+                .await
+                .map_err(Into::into)
+        }
+        .await;
+
+        audit_result(&self.runtime, "calendar", OP, context, decision, &result).await?;
+        result
+    }
+
+    pub async fn update_apple_event(
+        &self,
+        request: &UpdateAppleCalendarEventRequest,
+        context: &ServiceContext,
+    ) -> Result<CalendarCommandReceipt, CoreServiceError> {
+        const OP: &str = "calendar.updateAppleEvent";
+        let decision = authorize(
+            &self.runtime,
+            "calendar",
+            "calendar.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+
+        let result = async {
+            if request.event_id.trim().is_empty() {
+                return Err(CoreServiceError::business(
+                    "CALENDAR_EVENT_ID_REQUIRED",
+                    "Calendar provider event id is required.",
+                ));
+            }
+            let start = DateTime::parse_from_rfc3339(&request.start_at).map_err(|_| {
+                CoreServiceError::business(
+                    "CALENDAR_TIME_INVALID",
+                    "Calendar event start/end time is invalid.",
+                )
+            })?;
+            let end = DateTime::parse_from_rfc3339(&request.end_at).map_err(|_| {
+                CoreServiceError::business(
+                    "CALENDAR_TIME_INVALID",
+                    "Calendar event start/end time is invalid.",
+                )
+            })?;
+            if end <= start {
+                return Err(CoreServiceError::business(
+                    "CALENDAR_END_BEFORE_START",
+                    "Calendar event end must be after its start.",
+                ));
+            }
+            let scope = request
+                .recurrence_scope
+                .as_deref()
+                .unwrap_or("this")
+                .trim()
+                .to_ascii_lowercase();
+            if !matches!(scope.as_str(), "this" | "future") {
+                return Err(CoreServiceError::business(
+                    "CALENDAR_RECURRENCE_SCOPE_INVALID",
+                    "Recurrence scope must be 'this' or 'future'.",
+                ));
+            }
+            let normalized = UpdateAppleCalendarEventRequest {
+                event_id: request.event_id.trim().to_owned(),
+                start_at: request.start_at.clone(),
+                end_at: request.end_at.clone(),
+                all_day: request.all_day,
+                recurrence_scope: Some(scope),
+            };
+            let actor = context
+                .principal
+                .as_ref()
+                .map(|principal| principal.app_user_id.as_str())
+                .or(context.actor.id.as_deref());
+            self.repository
+                .update_apple_event(&normalized, actor, &context.correlation_id)
                 .await
                 .map_err(Into::into)
         }
