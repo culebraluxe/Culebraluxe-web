@@ -365,6 +365,12 @@ pub struct SetPropertyDisplayNameRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SetPropertyListingTypeRequest {
+    pub property_id: String,
+    pub listing_type: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SetPropertyStatusRequest {
     pub property_id: String,
     pub status: String,
