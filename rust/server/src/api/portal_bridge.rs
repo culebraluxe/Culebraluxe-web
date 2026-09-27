@@ -882,6 +882,60 @@ fn date_default(field_name: &str) -> String {
         .to_string()
 }
 
+fn one_line_address_part(value: Option<&str>) -> Option<String> {
+    let parts = value?
+        .replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .split('\n')
+        .map(|part| part.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    (!parts.is_empty()).then(|| parts.join(", "))
+}
+
+fn redundant_pr_country(country: Option<&str>, state: Option<&str>) -> bool {
+    if state.map(str::trim).unwrap_or_default().to_ascii_uppercase() != "PR" {
+        return false;
+    }
+    let country = country
+        .map(str::trim)
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .replace('.', "");
+    matches!(
+        country.as_str(),
+        "united states" | "united states of america" | "us" | "usa"
+    )
+}
+
+fn format_property_address(address: &domain::PropertyAddress) -> String {
+    let state_postal = [
+        one_line_address_part(address.state_or_province.as_deref()),
+        one_line_address_part(address.postal_code.as_deref()),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" ");
+    [
+        one_line_address_part(address.address_line1.as_deref()),
+        one_line_address_part(address.neighborhood.as_deref()),
+        one_line_address_part(address.city.as_deref()),
+        (!state_postal.is_empty()).then_some(state_postal),
+        (!redundant_pr_country(
+            address.country.as_deref(),
+            address.state_or_province.as_deref(),
+        ))
+        .then(|| one_line_address_part(address.country.as_deref()))
+        .flatten(),
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|value| !value.trim().is_empty())
+    .collect::<Vec<_>>()
+    .join(", ")
+}
+
 fn binding_value(
     binding: &str,
     facts: Option<&domain::DealFormFacts>,
@@ -903,13 +957,8 @@ fn binding_value(
             .or_else(|| facts.and_then(|facts| facts.property_name.clone()))
             .or_else(|| facts.and_then(|facts| facts.property_label.clone())),
         "property.location" => property
-            .and_then(|property| {
-                property
-                    .address_line1
-                    .clone()
-                    .or_else(|| property.address.city.clone())
-                    .or_else(|| property.municipality.clone())
-            })
+            .map(|property| format_property_address(&property.address))
+            .filter(|value| !value.trim().is_empty())
             .or_else(|| facts.and_then(|facts| facts.property_location.clone())),
         _ => None,
     }
@@ -1364,6 +1413,17 @@ async fn forms_write(
                     &resolved,
                 ));
             }
+            if current.status == domain::FormInstanceStatus::Issued {
+                return Err(correlate(
+                    ApiError::new(
+                        StatusCode::CONFLICT,
+                        "FORM_CLIENT_BIND_LOCKED",
+                        "Issued Listing Agreements cannot change client context.",
+                        false,
+                    ),
+                    &resolved,
+                ));
+            }
 
             let directory = services
                 .clients()
@@ -1429,8 +1489,36 @@ async fn forms_write(
 
             let chosen_id = chosen.id.clone();
             let chosen_display_name = chosen.display_name.clone();
+            let person = services
+                .person()
+                .get(&chosen_id, &resolved.service)
+                .await
+                .map_err(failed(&resolved))?
+                .ok_or_else(|| {
+                    correlate(
+                        ApiError::not_found(
+                            "FORM_CLIENT_NOT_FOUND",
+                            format!("Client Person not found: {chosen_id}"),
+                        ),
+                        &resolved,
+                    )
+                })?;
+            let property_context = services
+                .property()
+                .for_person(&chosen_id, &resolved.service)
+                .await
+                .map_err(failed(&resolved))?;
 
-            let property_id = if current.property_id.is_some() {
+            let legal_address = property_context
+                .properties
+                .iter()
+                .find(|row| row.relation == domain::PersonPropertyRelation::LegalAddress);
+            let related_physical = property_context
+                .properties
+                .iter()
+                .find(|row| row.relation == domain::PersonPropertyRelation::PhysicalProperty);
+
+            let fallback_property_id = if current.property_id.is_some() {
                 current.property_id.clone()
             } else if let Some(deal_id) = current.deal_id.as_deref() {
                 forms
@@ -1441,25 +1529,9 @@ async fn forms_write(
             } else {
                 None
             };
-
-            forms
-                .bind_listing_context(
-                    &domain::BindListingFormContextRequest {
-                        form_instance_id: form_id.to_owned(),
-                        person_id: chosen_id.clone(),
-                        property_id: property_id.clone(),
-                    },
-                    &resolved.service,
-                )
-                .await
-                .map_err(failed(&resolved))?;
-
-            let person = services
-                .person()
-                .get(&chosen_id, &resolved.service)
-                .await
-                .map_err(failed(&resolved))?;
-            let property = if let Some(property_id) = property_id.as_deref() {
+            let physical = if let Some(physical) = related_physical {
+                Some(physical.property.clone())
+            } else if let Some(property_id) = fallback_property_id.as_deref() {
                 services
                     .property()
                     .get(property_id, &resolved.service)
@@ -1468,39 +1540,81 @@ async fn forms_write(
             } else {
                 None
             };
-            let library = load_form_templates(&resolved)?;
-            let template = library
-                .version(&current.template_id, current.template_version)
-                .ok_or_else(|| {
-                    correlate(
-                        ApiError::not_found(
-                            "FORM_TEMPLATE_NOT_FOUND",
-                            "The saved Listing template is unavailable.",
-                        ),
-                        &resolved,
-                    )
-                })?;
-            let canonical = prefill_form_values(
-                template,
-                None,
-                person.as_ref(),
-                property.as_ref(),
-            );
+            let physical_property_id = physical
+                .as_ref()
+                .map(|property| property.id.clone())
+                .or(fallback_property_id);
+
+            forms
+                .bind_listing_context(
+                    &domain::BindListingFormContextRequest {
+                        form_instance_id: form_id.to_owned(),
+                        person_id: chosen_id.clone(),
+                        property_id: physical_property_id.clone(),
+                    },
+                    &resolved.service,
+                )
+                .await
+                .map_err(failed(&resolved))?;
+
+            // Port of the legacy Listing canonical binder: switching the Client deliberately replaces
+            // only Person/Property-owned fields. Listing terms (price, commission, dates, etc.) stay untouched.
+            let legal_address_text = legal_address
+                .map(|row| format_property_address(&row.property.address))
+                .unwrap_or_default();
+            let physical_address = physical
+                .as_ref()
+                .map(|property| format_property_address(&property.address))
+                .unwrap_or_default();
+            let property_known_as = physical
+                .as_ref()
+                .and_then(|property| property.local_name.clone())
+                .filter(|value| !value.trim().is_empty())
+                .or_else(|| (!physical_address.is_empty()).then(|| physical_address.clone()))
+                .unwrap_or_else(|| person.display_name.clone());
+
             let mut values = current.field_values.clone();
-            for field in &template.fields {
-                let canonical_owned = field
-                    .binding
-                    .as_deref()
-                    .is_some_and(|binding| {
-                        binding.starts_with("person.") || binding.starts_with("property.")
-                    })
-                    || field.name == "sellerCivilStatus";
-                if canonical_owned {
-                    if let Some(value) = canonical.get(&field.name) {
-                        values.insert(field.name.clone(), value.clone());
+            values.insert("sellerName".into(), person.display_name.clone());
+            values.insert("sellerResidenceAddress".into(), legal_address_text);
+            values.insert("property".into(), property_known_as);
+            values.insert("propertyLocation".into(), physical_address);
+            if let Some(property) = physical.as_ref() {
+                values.insert(
+                    "legalOwnerName".into(),
+                    property.legal_owner_name.clone().unwrap_or_default(),
+                );
+                values.insert(
+                    "catastroNumber".into(),
+                    property.catastro_number.clone().unwrap_or_default(),
+                );
+            } else {
+                values.insert("legalOwnerName".into(), String::new());
+                values.insert("catastroNumber".into(), String::new());
+            }
+            if let Some(civil_status) = person
+                .civil_status
+                .clone()
+                .filter(|value| !value.trim().is_empty())
+            {
+                values.insert("sellerCivilStatus".into(), civil_status);
+            }
+            if let Some(property_id) = physical_property_id.as_deref() {
+                if let Some(property) = services
+                    .property()
+                    .admin_get(property_id, &resolved.service)
+                    .await
+                    .map_err(failed(&resolved))?
+                {
+                    if let Some(listing_type) = property
+                        .stellar
+                        .listing_type
+                        .filter(|value| !value.trim().is_empty())
+                    {
+                        values.insert("listingType".into(), listing_type);
                     }
                 }
             }
+
             forms
                 .update_instance(
                     &domain::UpdateFormInstanceRequest {
