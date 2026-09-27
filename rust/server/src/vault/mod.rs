@@ -345,6 +345,38 @@ impl<R: VaultRepository> VaultService<R> {
         result
     }
 
+    /// Render the current mutable form draft without issuing or persisting a document.
+    ///
+    /// The browser preview uses the same artifact port as issuance, but remains a query:
+    /// no transaction_document row, receipt, version transition, or signature state is written.
+    pub async fn render_form_preview(
+        &self,
+        request: VaultRenderRequest,
+        context: &ServiceContext,
+    ) -> Result<VaultRenderedArtifact, CoreServiceError> {
+        const OP: &str = "vault.renderFormPreview";
+        let decision = authorize(
+            &self.runtime,
+            "vault",
+            "vault.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+
+        let result = self
+            .artifacts
+            .render_issued_document(request)
+            .await
+            .map_err(|failure| {
+                CoreServiceError::business("VAULT_PREVIEW_RENDER_FAILED", failure.message)
+            });
+
+        audit_result(&self.runtime, "vault", OP, context, decision, &result).await?;
+        result
+    }
+
     pub async fn next_issued_version(
         &self,
         request: &NextIssuedVersionRequest,
