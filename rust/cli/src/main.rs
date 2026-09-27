@@ -1,3 +1,5 @@
+mod apple_sync;
+
 use db::{Database, DbTarget, ProjectDao, ProjectTxDao};
 use domain::{CreateProjectRequest, ProjectStatus, UpdateProjectRequest, WbsCategory};
 use reqwest::Method;
@@ -32,6 +34,7 @@ async fn dispatch_cli(args: &[String]) -> Result<(), Box<dyn Error>> {
         "db-smoke" => db_smoke().await,
         "tx-smoke" => tx_smoke().await,
         "service" => service_cli(&args[1..]).await,
+        "apple-sync" => apple_sync::dispatch(&args[1..]).await,
         _ => {
             print_usage();
             Err(io::Error::other("unknown or missing command").into())
@@ -43,6 +46,9 @@ fn print_usage() {
     eprintln!("usage:");
     eprintln!("  cargo run -p cli -- db-smoke");
     eprintln!("  cargo run -p cli -- tx-smoke");
+    eprintln!("  cargo run -p cli -- apple-sync drain");
+    eprintln!("  cargo run -p cli -- apple-sync calendar-intake <snapshot.json>");
+    eprintln!("  cargo run -p cli -- apple-sync reminder-intake <snapshot.json>");
     eprintln!("  cargo run -p cli -- service serve");
     eprintln!("  cargo run -p cli -- service catalog");
     eprintln!("  cargo run -p cli -- service health");
