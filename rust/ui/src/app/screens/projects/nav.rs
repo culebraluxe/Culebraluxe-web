@@ -120,8 +120,8 @@ pub fn status_class(status: Option<&str>) -> &'static str {
         Some("blocked") => "text-[var(--portal-archive)]",
         Some("waiting") => "text-[var(--portal-gold)]",
         Some("in-progress") => "text-[var(--portal-gold)]/80",
-        Some("dismissed") => "text-white/35",
-        _ => "text-white/55",
+        Some("dismissed") => "text-black/30",
+        _ => "text-black/45",
     }
 }
 
