@@ -61,13 +61,13 @@ fn navigator(model: &Vm<'_>, projects: &PortalProjectsPage, on_msg: &Callback<Ms
             <button type="button" onclick={click} title={label}
                 class={classes!("group", "relative", "flex", "w-full", "flex-col", "items-center", "gap-1.5", "py-2.5", "transition", (!active).then_some("opacity-95 hover:opacity-100"))}>
                 <span class={classes!("absolute", "inset-y-2", "left-0", "w-[3px]", "rounded-r-full", "transition",
-                    if active { "bg-[var(--portal-gold)]" } else { "bg-transparent group-hover:bg-[var(--portal-navy)]/25" })}></span>
+                    if active { "bg-[var(--portal-gold)]" } else { "bg-transparent group-hover:bg-white/30" })}></span>
                 <span class={classes!("flex", "h-10", "w-10", "items-center", "justify-center", "rounded-xl", "transition",
-                    if active { "bg-[var(--portal-navy)] text-[var(--portal-gold)] shadow-sm" } else { "bg-white/50 text-[var(--portal-navy)]/80 group-hover:bg-white/80 group-hover:text-[var(--portal-navy)]" })}>
+                    if active { "bg-black/25 text-[var(--portal-gold)] shadow-sm ring-1 ring-inset ring-white/25" } else { "bg-white/[0.07] text-white/85 group-hover:bg-white/[0.16] group-hover:text-white" })}>
                     { glyph(icon, "h-[23px] w-[23px]") }
                 </span>
                 <span class={classes!("text-center", "text-[14px]", "font-medium", "uppercase", "leading-tight", "tracking-[0.02em]",
-                    if active { "text-[var(--portal-navy)]" } else { "text-[var(--portal-navy)]/65 group-hover:text-[var(--portal-navy)]" })}>{label}</span>
+                    if active { "text-white" } else { "text-white/70 group-hover:text-white/95" })}>{label}</span>
             </button>
         }
     };
@@ -80,26 +80,27 @@ fn navigator(model: &Vm<'_>, projects: &PortalProjectsPage, on_msg: &Callback<Ms
         on_msg,
     };
     html! {
-        <aside class="portal-glass-panel flex min-h-0 overflow-hidden rounded-[var(--portal-panel-radius)] text-[var(--portal-navy)]">
-            <div class="flex w-[86px] shrink-0 flex-col items-center overflow-y-auto border-r border-[var(--portal-panel-border)] py-3" aria-label="Project scope and domain">
+        <aside class="flex min-h-0 overflow-hidden rounded-[var(--portal-panel-radius)] text-white shadow-[var(--portal-panel-shadow)]"
+            style="background-color: var(--portal-navy);">
+            <div class="flex w-[86px] shrink-0 flex-col items-center overflow-y-auto border-r border-white/10 py-3" aria-label="Project scope and domain">
                 { rail_button(projects.catch_up, "list-checks", "Catch-Up", Msg::ProjectCatchUpToggled(true)) }
-                <div class="my-1 w-[60%] border-b border-[var(--portal-panel-border)]" aria-hidden="true"></div>
+                <div class="my-1 w-[60%] border-b border-white/15" aria-hidden="true"></div>
                 {for super::nav::DOMAINS.iter().map(|(key, label, icon)| {
                     rail_button(!projects.catch_up && projects.active_domain == *key, icon, label, Msg::ProjectDomainSelected((*key).to_owned()))
                 })}
             </div>
             <div class="flex min-h-0 min-w-0 flex-1 flex-col">
-                <div class="border-b border-[var(--portal-panel-border)] px-3 pb-2 pt-3">
+                <div class="border-b border-white/10 px-3 pb-2 pt-3">
                     <p class="text-[14px] font-medium uppercase tracking-[0.14em] text-[var(--portal-gold)]">{ super::nav::domain_label(&projects.active_domain) }</p>
-                    <label class="mt-2 flex h-11 items-center gap-2 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/55 px-3">
-                        { glyph("search", "h-4 w-4 shrink-0 text-black/40") }
+                    <label class="mt-2 flex h-11 items-center gap-2 rounded-[var(--portal-tab-radius)] border border-white/15 bg-white/10 px-3">
+                        { glyph("search", "h-4 w-4 shrink-0 text-white/50") }
                         <input value={model.controls.query.clone()} oninput={search} placeholder="Find work…"
-                            class="min-w-0 flex-1 bg-transparent text-[16px] font-light text-[var(--portal-navy)] outline-none placeholder:text-black/35" />
+                            class="min-w-0 flex-1 bg-transparent text-[16px] font-light text-white outline-none placeholder:text-white/55" />
                     </label>
                 </div>
                 <div class="min-h-0 flex-1 overflow-y-auto px-1 pt-1.5">
                     if tree.is_empty() {
-                        <div class="px-3 py-8 text-sm font-light text-black/45">{"No matching projects in this perspective."}</div>
+                        <div class="px-3 py-8 text-sm font-light text-white/45">{"No matching projects in this perspective."}</div>
                     }
                     {for tree.iter().map(|node| nav_node(&ctx, node, 0))}
                 </div>
@@ -120,7 +121,7 @@ struct NavCtx<'a> {
 fn progress_bar(value: i64) -> Html {
     let clamped = value.clamp(0, 100);
     html! {
-        <div class="h-1 w-11 overflow-hidden rounded-full bg-black/10">
+        <div class="h-1 w-11 overflow-hidden rounded-full bg-white/15">
             <div class="h-full rounded-full bg-[var(--portal-gold)]" style={format!("width: {clamped}%")}></div>
         </div>
     }
@@ -149,7 +150,7 @@ fn nav_node(ctx: &NavCtx<'_>, node: &super::nav::NavNode, depth: usize) -> Html 
     } else {
         html! {
             <button type="button" onclick={toggle.clone()} aria-label={if is_open { "Collapse" } else { "Expand" }}
-                class="flex h-6 w-4 shrink-0 items-center justify-center rounded text-black/40 transition hover:text-[var(--portal-navy)]">
+                class="flex h-6 w-4 shrink-0 items-center justify-center rounded text-white/55 transition hover:text-white">
                 { glyph("chevron-down", if is_open { "h-3.5 w-3.5 transition" } else { "h-3.5 w-3.5 -rotate-90 transition" }) }
             </button>
         }
@@ -168,21 +169,21 @@ fn nav_node(ctx: &NavCtx<'_>, node: &super::nav::NavNode, depth: usize) -> Html 
     let indent = format!("padding-left: {}px", depth * 7);
     let row = match node.kind {
         NodeKind::Pole => html! {
-            <div onclick={pick} style={indent} class={classes!("flex", "h-[70px]", "cursor-pointer", "items-center", "gap-2", "rounded-xl", "px-1", selected.then_some("bg-white/60 shadow-[0_2px_12px_rgba(0,0,0,0.08)]"))}>
+            <div onclick={pick} style={indent} class={classes!("flex", "h-[70px]", "cursor-pointer", "items-center", "gap-2", "rounded-xl", "px-1", selected.then_some("bg-white/10 shadow-[0_2px_12px_rgba(0,0,0,0.16)]"))}>
                 { chevron }
-                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px] bg-[var(--portal-navy)] text-[var(--portal-gold)]">
+                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px] bg-white/10 text-[var(--portal-gold)] ring-1 ring-inset ring-white/15">
                     { glyph(super::nav::domain_icon(&node.domain), "h-[18px] w-[18px]") }
                 </span>
                 <span class="min-w-0 flex-1">
-                    <span class="block truncate font-serif text-[23px] font-bold leading-tight text-[var(--portal-navy)]">{ &node.label }</span>
+                    <span class="block truncate font-serif text-[23px] font-bold leading-tight text-white/95">{ &node.label }</span>
                     if let Some(subtitle) = node.subtitle.as_deref().filter(|s| !s.is_empty()) {
-                        <span class="mt-0.5 block truncate text-[15px] font-light leading-snug text-black/50">{ subtitle }</span>
+                        <span class="mt-0.5 block truncate text-[15px] font-light leading-snug text-white/60">{ subtitle }</span>
                     }
                 </span>
                 if let Some(progress) = node.progress {
                     <span class="flex shrink-0 items-center gap-1.5 pr-1">
                         { progress_bar(progress) }
-                        <span class="text-[14px] font-light text-black/50">{ format!("{progress}%") }</span>
+                        <span class="text-[14px] font-light text-white/55">{ format!("{progress}%") }</span>
                     </span>
                 }
             </div>
@@ -190,12 +191,12 @@ fn nav_node(ctx: &NavCtx<'_>, node: &super::nav::NavNode, depth: usize) -> Html 
         NodeKind::Project => {
             let kind = node.meta.split(" · ").next().unwrap_or("");
             html! {
-                <div onclick={pick} style={indent} class={classes!("flex", "h-[50px]", "cursor-pointer", "items-center", "gap-2", "rounded-lg", "px-1", selected.then_some("bg-white/60"))}>
+                <div onclick={pick} style={indent} class={classes!("flex", "h-[50px]", "cursor-pointer", "items-center", "gap-2", "rounded-lg", "px-1", selected.then_some("bg-white/10"))}>
                     { chevron }
                     if !kind.is_empty() { { glyph(super::nav::project_kind_icon(kind), "h-[18px] w-[18px] shrink-0 text-[var(--portal-gold)]") } }
-                    <span class="min-w-0 flex-1 truncate text-[19px] font-light leading-tight text-[var(--portal-navy)]">{ &node.label }</span>
+                    <span class="min-w-0 flex-1 truncate text-[19px] font-light leading-tight text-white/95">{ &node.label }</span>
                     if let Some(progress) = node.progress {
-                        <span class="shrink-0 pr-1 text-[14px] font-light text-black/50">{ format!("{progress}%") }</span>
+                        <span class="shrink-0 pr-1 text-[14px] font-light text-white/55">{ format!("{progress}%") }</span>
                     }
                 </div>
             }
@@ -205,10 +206,10 @@ fn nav_node(ctx: &NavCtx<'_>, node: &super::nav::NavNode, depth: usize) -> Html 
             let icon_class = format!("h-[18px] w-[18px] shrink-0 {}", super::nav::status_class(node.status.as_deref()));
             html! {
                 <div onclick={pick} style={indent} title={node.meta.clone()}
-                    class={classes!("flex", "h-[46px]", "cursor-pointer", "items-center", "gap-2", "rounded-md", "px-1", selected.then_some("bg-white/70 ring-1 ring-inset ring-[var(--portal-navy)]/20"))}>
+                    class={classes!("flex", "h-[46px]", "cursor-pointer", "items-center", "gap-2", "rounded-md", "px-1", selected.then_some("bg-white/15 ring-1 ring-inset ring-white/25"))}>
                     { chevron }
                     { glyph(super::nav::work_type_icon(kind, &node.label), &icon_class) }
-                    <span class="min-w-0 flex-1 truncate text-[17px] font-light leading-tight text-[var(--portal-navy)]">{ &node.label }</span>
+                    <span class="min-w-0 flex-1 truncate text-[17px] font-light leading-tight text-white/95">{ &node.label }</span>
                 </div>
             }
         }
