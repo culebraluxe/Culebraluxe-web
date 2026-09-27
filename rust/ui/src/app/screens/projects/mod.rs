@@ -7,6 +7,7 @@
 //!
 //! A WRITE ANSWERS WITH THE REFRESHED PAGE, and `crate::projects::carry_over` keeps what the user was looking at.
 
+mod nav;
 mod view;
 
 use yew::prelude::*;
@@ -26,6 +27,9 @@ use crate::projects::{carry_over, first_node_for_project, first_project_for_doma
 pub struct Controls {
     /// The navigator's filter, as typed.
     pub query: String,
+    /// Tree branches the operator opened, and ones they closed (the selection's branch is open unless closed).
+    pub nav_open: std::collections::BTreeSet<String>,
+    pub nav_closed: std::collections::BTreeSet<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -55,6 +59,10 @@ pub enum Msg {
     Loaded(Result<PortalPage, ApiError>),
     Saved(Result<PortalPage, ApiError>),
     QueryChanged(String),
+    /// A navigator branch toggled; `open` is whether it was open when clicked.
+    NavToggled { id: String, open: bool },
+    /// A work item picked in the navigator: its project, then the item.
+    NavWorkSelected { project_id: String, node_id: String },
     ProjectDomainSelected(String),
     ProjectSelected(String),
     ProjectNodeSelected(Option<String>),
@@ -429,6 +437,20 @@ impl Screen for Projects {
                     model.error = None;
                 }
                 return Cmd::none();
+            }
+            Msg::NavToggled { id, open } => {
+                if open {
+                    model.controls.nav_open.remove(&id);
+                    model.controls.nav_closed.insert(id);
+                } else {
+                    model.controls.nav_closed.remove(&id);
+                    model.controls.nav_open.insert(id);
+                }
+                return Cmd::none();
+            }
+            Msg::NavWorkSelected { project_id, node_id } => {
+                Self::update(model, Msg::ProjectSelected(project_id), _ctx);
+                return Self::update(model, Msg::ProjectNodeSelected(Some(node_id)), _ctx);
             }
             Msg::QueryChanged(query) => {
                 model.controls.query = query;
