@@ -55,7 +55,9 @@ const PROJECT_STATUS: &[(&str, &str)] = &[
     ("archived", "Archived"),
 ];
 
-const PROPERTY_CORE: &[FieldSpec] = &[
+/// The record's first lines, in the order a listing is written: what it is called and its parcel, then how it is
+/// described. Everything else (status, prices, the building) follows in "Listing and building facts".
+const PROPERTY_IDENTITY: &[FieldSpec] = &[
     FieldSpec {
         key: "name",
         label: "Property name",
@@ -63,6 +65,33 @@ const PROPERTY_CORE: &[FieldSpec] = &[
         wide: true,
         hint: Some("Canonical property name."),
     },
+    FieldSpec {
+        key: "catastroNumber",
+        label: "Catastro number",
+        kind: FieldKind::Text,
+        wide: false,
+        hint: Some("Puerto Rico parcel identifier, distinct from a listing ID."),
+    },
+];
+
+const PROPERTY_DESCRIPTIONS: &[FieldSpec] = &[
+    FieldSpec {
+        key: "shortDescription",
+        label: "Short description",
+        kind: FieldKind::Textarea(3),
+        wide: true,
+        hint: None,
+    },
+    FieldSpec {
+        key: "editorialDescription",
+        label: "Long description",
+        kind: FieldKind::Textarea(6),
+        wide: true,
+        hint: Some("The property page's main description."),
+    },
+];
+
+const PROPERTY_CORE: &[FieldSpec] = &[
     FieldSpec {
         key: "status",
         label: "Status",
@@ -469,13 +498,6 @@ const PROPERTY_LEGAL: &[FieldSpec] = &[
 
 const PROPERTY_PARCEL: &[FieldSpec] = &[
     FieldSpec {
-        key: "catastroNumber",
-        label: "Catastro number",
-        kind: FieldKind::Text,
-        wide: false,
-        hint: Some("Puerto Rico parcel identifier, distinct from a listing ID."),
-    },
-    FieldSpec {
         key: "registryEntry",
         label: "Registry entry",
         kind: FieldKind::Text,
@@ -556,20 +578,6 @@ const WEBSITE_FIELDS: &[FieldSpec] = &[
         label: "Published",
         kind: FieldKind::Toggle,
         wide: false,
-        hint: None,
-    },
-    FieldSpec {
-        key: "shortDescription",
-        label: "Short description",
-        kind: FieldKind::Textarea(3),
-        wide: true,
-        hint: None,
-    },
-    FieldSpec {
-        key: "editorialDescription",
-        label: "Editorial description",
-        kind: FieldKind::Textarea(6),
-        wide: true,
         hint: None,
     },
     FieldSpec {
@@ -1411,6 +1419,8 @@ fn property_editor(
         _ => html! {
             <div class="space-y-4">
                 {section_intro("Property facts", "Start with what is known. Save and return to complete other fields in later passes.")}
+                {field_panel(model, on_msg, "Title and parcel", PROPERTY_IDENTITY)}
+                {field_panel(model, on_msg, "Descriptions", PROPERTY_DESCRIPTIONS)}
                 {field_panel(model, on_msg, "Listing and building facts", PROPERTY_CORE)}
             </div>
         },
