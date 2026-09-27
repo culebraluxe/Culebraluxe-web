@@ -1698,6 +1698,18 @@ pub struct PortalProjectsPage {
     pub calendar_mode: String,
     /// Recurring EventKit edits apply to "this" occurrence or "future" occurrences.
     pub calendar_recurrence_scope: String,
+    /// all = Apple schedule + project data; project = only project-linked work/showings.
+    pub calendar_filter: String,
+    pub calendar_selected_event_id: Option<String>,
+    pub calendar_dragging_event_id: Option<String>,
+    pub calendar_drag_target: Option<String>,
+    pub calendar_loading: bool,
+    pub calendar_loaded_start: Option<String>,
+    pub calendar_loaded_end: Option<String>,
+    /// Server-configurable display preference; timezone identity is deliberately separate.
+    pub calendar_day_start_hour: u32,
+    pub calendar_day_end_hour: u32,
+    pub calendar_slot_minutes: u32,
     pub identity_names: BTreeMap<String, String>,
     /// Workspace state lives with the payload and changes only in update().
     pub active_domain: String,
@@ -1820,7 +1832,9 @@ pub struct PortalProjectCalendarEvent {
     pub property_name: Option<String>,
     pub kind: String,
     pub source: String,
+    pub location: Option<String>,
     pub provider_event_id: Option<String>,
+    pub provider_series_id: Option<String>,
     pub recurring: bool,
     pub detached: bool,
 }
