@@ -1,0 +1,6 @@
+# Only what the application image needs: the Rust sources, the built site, the form templates.
+*
+!rust
+rust/target
+!public
+!lib/forms/templates

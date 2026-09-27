@@ -57,6 +57,7 @@
     "whatsapp:webhook:test": "bash scripts/send-whatsapp-webhook-fixture.sh",
     "build": "RUST_UI_PROFILE=release bash scripts/site-build.sh && cargo build --release --manifest-path rust/Cargo.toml -p server --bin http",
     "build:all": "bash scripts/build-all.sh",
+    "container:dry-run": "bash scripts/site-container.sh",
     "start": "rust/target/release/http",
     "lint": "eslint . --suppressions-location eslint-suppressions.json",
     "typecheck": "tsc --noEmit",
