@@ -206,12 +206,12 @@ fn share_pdf(data_uri: &str, filename: &str) -> Result<(), ApiError> {
 
     let window =
         web_sys::window().ok_or_else(|| ApiError::network("The browser window is unavailable."))?;
-    let window_value = wasm_bindgen::JsValue::from(window);
+    let window_value: &wasm_bindgen::JsValue = window.as_ref();
 
     // Construct File([Uint8Array(bytes)], filename, { type: "application/pdf" }) in Rust/WASM.
     // There is deliberately no JavaScript bridge: the executor owns this browser capability just like navigation.
     let file_ctor = js_sys::Reflect::get(
-        &window_value,
+        window_value,
         &wasm_bindgen::JsValue::from_str("File"),
     )
     .map_err(|_| ApiError::network("This browser cannot create a PDF attachment."))?
@@ -234,7 +234,7 @@ fn share_pdf(data_uri: &str, filename: &str) -> Result<(), ApiError> {
         .map_err(|_| ApiError::network("The PDF attachment could not be prepared."))?;
 
     let navigator = js_sys::Reflect::get(
-        &window_value,
+        window_value,
         &wasm_bindgen::JsValue::from_str("navigator"),
     )
     .map_err(|_| ApiError::network("Native sharing is unavailable in this browser."))?;
