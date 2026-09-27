@@ -160,9 +160,9 @@ fn calendar_viewport(projects: &mut PortalProjectsPage) -> Cmd<Msg> {
     else {
         return Cmd::none();
     };
-    if projects.calendar_loading
-        || (projects.calendar_loaded_start.as_deref() == Some(start_at.as_str())
-            && projects.calendar_loaded_end.as_deref() == Some(end_at.as_str()))
+    if !projects.calendar_loading
+        && projects.calendar_loaded_start.as_deref() == Some(start_at.as_str())
+        && projects.calendar_loaded_end.as_deref() == Some(end_at.as_str())
     {
         return Cmd::none();
     }
@@ -359,13 +359,16 @@ fn calendar_state_loaded(
         return Cmd::none();
     };
 
-    let Some(pending) = model.pending_calendar.as_mut() else {
+    let Some(pending) = model.pending_calendar.as_ref() else {
         return Cmd::none();
     };
     if pending.command_id.as_deref() != Some(state.command_id.as_str()) {
         return Cmd::none();
     }
-    pending.phase = state.state.clone();
+    let poll_count = pending.poll_count;
+    if let Some(pending) = model.pending_calendar.as_mut() {
+        pending.phase = state.state.clone();
+    }
 
     match state.state.as_str() {
         "reconciled" => {
@@ -386,7 +389,7 @@ fn calendar_state_loaded(
             );
             Cmd::none()
         }
-        _ if pending.poll_count < 20 => Cmd::after(1_500, Msg::CalendarPoll),
+        _ if poll_count < 20 => Cmd::after(1_500, Msg::CalendarPoll),
         _ => Cmd::none(),
     }
 }
