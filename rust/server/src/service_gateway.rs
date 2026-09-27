@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use db::{CalendarDao, ClientDao, ContractDao, FirmDao, PersonDao, PropertyDao, SecurityDao};
 use domain::{
     CalendarViewportQuery, CreateAppleCalendarEventRequest, PropertyAdminPageRequest,
-    SearchPeopleRequest,
+    SearchPeopleRequest, UpdateAppleCalendarEventRequest,
 };
 #[cfg(test)]
 use serde_json::json;
@@ -231,6 +231,13 @@ impl AbstractService for CalendarService<CalendarDao> {
                     "calendar.write",
                     false,
                 ),
+                capability(
+                    "calendar.updateAppleEvent",
+                    OperationKind::Command,
+                    "Queue an Apple Calendar move/resize through the trusted macOS edge.",
+                    "calendar.write",
+                    false,
+                ),
             ],
             dependencies: vec![],
             invariants: vec![
@@ -259,6 +266,22 @@ impl AbstractService for CalendarService<CalendarDao> {
                 encode(
                     envelope,
                     self.viewport(&request, context).await.map_err(core_error)?,
+                )
+            }
+            "calendar.updateAppleEvent" => {
+                let request: UpdateAppleCalendarEventRequest =
+                    serde_json::from_value(envelope.payload.clone()).map_err(|error| {
+                        ServiceDispatchError::InvalidPayload {
+                            domain: envelope.domain.clone(),
+                            operation: envelope.operation.clone(),
+                            message: error.to_string(),
+                        }
+                    })?;
+                encode(
+                    envelope,
+                    self.update_apple_event(&request, context)
+                        .await
+                        .map_err(core_error)?,
                 )
             }
             "calendar.createAppleEvent" => {
