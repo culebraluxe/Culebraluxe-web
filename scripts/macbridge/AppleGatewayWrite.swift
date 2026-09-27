@@ -6,6 +6,7 @@
 //
 // Supported commands:
 //   calendar_create  -> EKEvent
+//   calendar_update  -> existing EKEvent (move/resize; occurrence/future scope)
 //   reminder_upsert  -> EKReminder (stable by CulebraLuxe WBS marker)
 // ---------------------------------------------------------------------------
 
@@ -16,7 +17,8 @@ struct GatewayCommand: Codable {
   let kind: String
   let commandId: String
   let wbsId: String?
-  let title: String
+  let eventId: String?
+  let title: String?
   let startAt: String?
   let endAt: String?
   let allDay: Bool?
@@ -25,6 +27,7 @@ struct GatewayCommand: Codable {
   let dueAt: String?
   let completed: Bool?
   let alert: Bool?
+  let recurrenceScope: String?
 }
 
 func fail(_ message: String) -> Never {
@@ -138,9 +141,12 @@ case "calendar_create":
     exit(0)
   }
 
+  guard let title = command.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else {
+    fail("apple-gateway-write: calendar title required")
+  }
   let event = EKEvent(eventStore: store)
   event.calendar = calendar
-  event.title = command.title
+  event.title = title
   event.startDate = start
   event.endDate = end
   event.isAllDay = command.allDay ?? false
@@ -156,6 +162,30 @@ case "calendar_create":
     fail("apple-gateway-write: calendar save failed: \(error.localizedDescription)")
   }
 
+case "calendar_update":
+  guard requestEvents() else { fail("apple-gateway-write: calendar access denied") }
+  guard let eventId = command.eventId, !eventId.isEmpty,
+        let event = store.event(withIdentifier: eventId) else {
+    fail("apple-gateway-write: calendar event not found")
+  }
+  guard event.calendar?.allowsContentModifications == true else {
+    fail("apple-gateway-write: calendar event is read-only")
+  }
+  guard let start = parseDate(command.startAt), let end = parseDate(command.endAt), end > start else {
+    fail("apple-gateway-write: invalid calendar start/end")
+  }
+
+  event.startDate = start
+  event.endDate = end
+  if let allDay = command.allDay { event.isAllDay = allDay }
+  let span: EKSpan = command.recurrenceScope == "future" ? .futureEvents : .thisEvent
+  do {
+    try store.save(event, span: span, commit: true)
+    print("result=updated kind=calendar_update external_id=\(event.eventIdentifier ?? "")")
+  } catch {
+    fail("apple-gateway-write: calendar update failed: \(error.localizedDescription)")
+  }
+
 case "reminder_upsert":
   guard requestReminders() else { fail("apple-gateway-write: reminders access denied") }
   guard let wbsId = command.wbsId, !wbsId.isEmpty else {
@@ -165,6 +195,9 @@ case "reminder_upsert":
     fail("apple-gateway-write: no writable reminder list")
   }
 
+  guard let title = command.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else {
+    fail("apple-gateway-write: reminder title required")
+  }
   let marker = "CulebraLuxe WBS: \(wbsId)"
   let sem = DispatchSemaphore(value: 0)
   var reminders: [EKReminder] = []
@@ -178,7 +211,7 @@ case "reminder_upsert":
   let existingReminder = reminders.first(where: { ($0.notes ?? "").contains(marker) })
   let reminder = existingReminder ?? EKReminder(eventStore: store)
   if reminder.calendar == nil { reminder.calendar = calendar }
-  reminder.title = command.title
+  reminder.title = title
   reminder.notes = mergedNotes(command.notes, marker: marker)
   reminder.isCompleted = command.completed ?? false
 
