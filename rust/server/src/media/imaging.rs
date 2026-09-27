@@ -55,11 +55,19 @@ pub fn derive_web_and_thumb(original: &[u8]) -> Result<Vec<Derivative>, String> 
         ));
     }
 
-    let decoded = ImageReader::new(Cursor::new(original))
+    let mut decoder = ImageReader::new(Cursor::new(original))
         .with_guessed_format()
         .map_err(|error| format!("this file could not be read as an image ({error})"))?
-        .decode()
+        .into_decoder()
         .map_err(|error| format!("this image could not be decoded ({error})"))?;
+    // TURNED THE WAY IT WAS SHOT. A phone stores the sensor's pixels as they came off it — landscape — and a tag
+    // saying how to turn them. The copies made here carry no tag, so the turn has to happen in the pixels: without it
+    // every portrait photograph came out on its side.
+    let orientation = image::ImageDecoder::orientation(&mut decoder)
+        .unwrap_or(image::metadata::Orientation::NoTransforms);
+    let mut decoded = image::DynamicImage::from_decoder(decoder)
+        .map_err(|error| format!("this image could not be decoded ({error})"))?;
+    decoded.apply_orientation(orientation);
 
     let thumb = fit(&decoded, THUMB_EDGE);
     let thumb_bytes = encode_jpeg(&thumb, THUMB_QUALITY)?;
@@ -120,6 +128,31 @@ mod tests {
             *pixel = image::Rgb([(x % 256) as u8, (y % 256) as u8, ((x + y) % 256) as u8]);
         }
         encode_jpeg(&image::DynamicImage::ImageRgb8(image), 95).expect("the fixture encodes")
+    }
+
+    /// The fixture with an EXIF Orientation tag, as a phone writes it: 6 is "turn 90° clockwise to view".
+    fn with_orientation(jpeg: Vec<u8>, orientation: u8) -> Vec<u8> {
+        let tiff: Vec<u8> = [
+            b"MM\x00\x2a\x00\x00\x00\x08".as_slice(),
+            &[0x00, 0x01],
+            &[0x01, 0x12, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, 0x00, orientation, 0x00, 0x00],
+            &[0x00, 0x00, 0x00, 0x00],
+        ]
+        .concat();
+        let payload = [b"Exif\x00\x00".as_slice(), &tiff].concat();
+        let length = (payload.len() + 2) as u16;
+        [&jpeg[..2], &[0xff, 0xe1], &length.to_be_bytes(), &payload, &jpeg[2..]].concat()
+    }
+
+    #[test]
+    fn a_portrait_photograph_is_turned_upright() {
+        let shot = with_orientation(jpeg(60, 40), 6);
+        let copies = derive_web_and_thumb(&shot).expect("the photograph derives");
+        for copy in &copies {
+            assert_eq!((copy.width, copy.height), (40, 60), "the {} copy is on its side", copy.kind);
+            let decoded = image::load_from_memory(&copy.bytes).expect("the copy decodes");
+            assert_eq!((decoded.width(), decoded.height()), (40, 60));
+        }
     }
 
     #[test]
