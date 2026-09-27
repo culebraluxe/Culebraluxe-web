@@ -168,6 +168,14 @@ pub fn carry_over(previous: Option<&PortalProjectsPage>, projects: &mut PortalPr
         projects.calendar_loading = previous.calendar_loading;
         projects.calendar_loaded_start = previous.calendar_loaded_start.clone();
         projects.calendar_loaded_end = previous.calendar_loaded_end.clone();
+        projects.timeline_mode = if previous.timeline_mode.is_empty() {
+            "week".into()
+        } else {
+            previous.timeline_mode.clone()
+        };
+        projects.timeline_collapsed_items = previous.timeline_collapsed_items.clone();
+        projects.timeline_dragging_item_id = None;
+        projects.timeline_drag_target_date = None;
     } else {
         projects.active_domain = initial_project_domain(projects);
         projects.selected_project_id = first_project_for_domain(projects, &projects.active_domain);
@@ -185,6 +193,10 @@ pub fn carry_over(previous: Option<&PortalProjectsPage>, projects: &mut PortalPr
         projects.calendar_loading = false;
         projects.calendar_loaded_start = None;
         projects.calendar_loaded_end = None;
+        projects.timeline_mode = "week".into();
+        projects.timeline_collapsed_items.clear();
+        projects.timeline_dragging_item_id = None;
+        projects.timeline_drag_target_date = None;
     }
     if projects.calendar_day_start_hour >= projects.calendar_day_end_hour {
         projects.calendar_day_start_hour = 8;
@@ -192,6 +204,9 @@ pub fn carry_over(previous: Option<&PortalProjectsPage>, projects: &mut PortalPr
     }
     if !matches!(projects.calendar_slot_minutes, 15 | 30 | 60) {
         projects.calendar_slot_minutes = 30;
+    }
+    if !matches!(projects.timeline_mode.as_str(), "day" | "week" | "month") {
+        projects.timeline_mode = "week".into();
     }
     projects.work_dirty = false;
     projects.saving = false;
