@@ -172,7 +172,9 @@ impl PublicListingDao {
                 p.bathrooms::float8 as bathrooms,
                 p.square_feet::int as square_feet,
                 coalesce(p.lot_size_acres, p.lot_size)::float8 as lot_size,
-                p.lot_size_units,
+                -- The unit of the number chosen above: Lot acres (the Records field) is acres whatever the legacy
+                -- lot_size_units says, which describes lot_size only. Taking it alone printed acres as "SF".
+                case when p.lot_size_acres is not null then 'acres' else p.lot_size_units end as lot_size_units,
                 coalesce(p.has_ocean_view, false) as has_ocean_view,
                 coalesce(p.has_bay_view, false) as has_bay_view,
                 coalesce(p.has_beach_view, false) as has_beach_view,
@@ -238,7 +240,9 @@ impl PublicListingDao {
                 p.bathrooms_half::float8 as bathrooms_half,
                 p.square_feet::int as square_feet,
                 coalesce(p.lot_size_acres, p.lot_size)::float8 as lot_size,
-                p.lot_size_units,
+                -- The unit of the number chosen above: Lot acres (the Records field) is acres whatever the legacy
+                -- lot_size_units says, which describes lot_size only. Taking it alone printed acres as "SF".
+                case when p.lot_size_acres is not null then 'acres' else p.lot_size_units end as lot_size_units,
                 p.lot_size_sqft::float8 as lot_size_sqft,
                 p.road_frontage_feet::float8 as road_frontage_feet,
                 p.road_surface_type,
@@ -527,7 +531,9 @@ impl PublicListingDao {
                 p.bathrooms::float8 as bathrooms,
                 p.square_feet::int as square_feet,
                 coalesce(p.lot_size_acres, p.lot_size)::float8 as lot_size,
-                p.lot_size_units,
+                -- The unit of the number chosen above: Lot acres (the Records field) is acres whatever the legacy
+                -- lot_size_units says, which describes lot_size only. Taking it alone printed acres as "SF".
+                case when p.lot_size_acres is not null then 'acres' else p.lot_size_units end as lot_size_units,
                 coalesce(p.has_ocean_view, false) as has_ocean_view,
                 coalesce(p.has_bay_view, false) as has_bay_view,
                 coalesce(p.has_beach_view, false) as has_beach_view,
