@@ -220,6 +220,11 @@ impl CalendarDao {
             .and_then(Value::as_str)
             .or_else(|| event.raw.get("startAt").and_then(Value::as_str))
             .filter(|value| !value.trim().is_empty());
+        let recurring = event
+            .raw
+            .get("recurring")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
 
         sqlx::query(
             r#"
@@ -228,9 +233,14 @@ impl CalendarDao {
                 where coalesce(source_account, '') = coalesce($1, '')
                   and source_message_id <> $2
                   and $9::text is not null
-                  and $10::text is not null
                   and raw->>'calendarItemIdentifier' = $9
-                  and coalesce(raw->>'occurrenceDate', raw->>'startAt') = $10
+                  and (
+                    not $11::boolean
+                    or (
+                      $10::text is not null
+                      and coalesce(raw->>'occurrenceDate', raw->>'startAt') = $10
+                    )
+                  )
                 returning id
             )
             insert into l_calendar (
@@ -259,6 +269,7 @@ impl CalendarDao {
         .bind(&event.raw)
         .bind(series_id)
         .bind(occurrence_id)
+        .bind(recurring)
         .execute(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("calendar.landing.upsert", &error))?;
