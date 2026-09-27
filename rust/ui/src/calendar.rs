@@ -355,6 +355,55 @@ pub fn event_span_slots(start: &str, end: Option<&str>, grid: GridSpec) -> usize
         .clamp(1, grid.slot_count())
 }
 
+pub fn overlap_lanes(ranges: &[(usize, usize)]) -> Vec<(usize, usize)> {
+    if ranges.is_empty() {
+        return Vec::new();
+    }
+
+    let mut answer = vec![(0usize, 1usize); ranges.len()];
+    let mut lane_ends: Vec<usize> = Vec::new();
+    let mut cluster_start = 0usize;
+    let mut cluster_end = 0usize;
+
+    let finalize_cluster = |answer: &mut Vec<(usize, usize)>,
+                            cluster_start: usize,
+                            cluster_end_index: usize,
+                            lanes: usize| {
+        let lanes = lanes.max(1);
+        for item in answer
+            .iter_mut()
+            .take(cluster_end_index)
+            .skip(cluster_start)
+        {
+            item.1 = lanes;
+        }
+    };
+
+    for (index, (slot, span)) in ranges.iter().copied().enumerate() {
+        let event_end = slot.saturating_add(span.max(1));
+        if index > cluster_start && slot >= cluster_end {
+            finalize_cluster(&mut answer, cluster_start, index, lane_ends.len());
+            cluster_start = index;
+            lane_ends.clear();
+            cluster_end = slot;
+        }
+
+        let lane = lane_ends
+            .iter()
+            .position(|end| *end <= slot)
+            .unwrap_or_else(|| {
+                lane_ends.push(slot);
+                lane_ends.len() - 1
+            });
+        lane_ends[lane] = event_end;
+        cluster_end = cluster_end.max(event_end);
+        answer[index].0 = lane;
+    }
+
+    finalize_cluster(&mut answer, cluster_start, ranges.len(), lane_ends.len());
+    answer
+}
+
 pub fn now_utc_date() -> String {
     Utc::now().date_naive().format("%Y-%m-%d").to_string()
 }
@@ -415,6 +464,15 @@ mod tests {
         let (_, resized) =
             resize_span(&start, &slot_timestamp("2026-09-28", 5, grid).unwrap(), grid).unwrap();
         assert_eq!(resized, "2026-09-28T11:00:00+00:00");
+    }
+
+    #[test]
+    fn overlapping_events_get_stable_lanes_per_collision_cluster() {
+        assert_eq!(
+            overlap_lanes(&[(2, 4), (3, 2), (7, 2), (8, 1)]),
+            vec![(0, 2), (1, 2), (0, 2), (1, 2)]
+        );
+        assert_eq!(overlap_lanes(&[(1, 1), (2, 1)]), vec![(0, 1), (0, 1)]);
     }
 
     #[test]
