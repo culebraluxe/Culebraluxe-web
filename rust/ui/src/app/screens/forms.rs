@@ -1342,12 +1342,14 @@ fn when_visible(when: Option<&FormWhen>, values: &BTreeMap<String, String>) -> b
             .any(|allowed| allowed.eq_ignore_ascii_case(actual))
 }
 
+/// Who a form is about, from the names written ON the form: buyer (or visitor) and seller. The linked client is only a
+/// last resort — it is the DEAL's client, so on a listing agreement (no buyer) it used to show up as a phantom buyer
+/// ("James Lee / Juan A. Santa Cruz") on every agreement attached to that deal.
 fn party_name(item: &FormItem) -> String {
     let buyer = item
         .field_values
         .get("buyerName")
         .or_else(|| item.field_values.get("visitorName"))
-        .or_else(|| item.client_name.as_ref())
         .map(String::as_str)
         .filter(|value| !value.trim().is_empty());
     let seller = item
@@ -1359,7 +1361,12 @@ fn party_name(item: &FormItem) -> String {
         (Some(left), Some(right)) if left != right => format!("{left} / {right}"),
         (Some(left), _) => left.to_owned(),
         (_, Some(right)) => right.to_owned(),
-        _ => "Untitled".into(),
+        _ => item
+            .client_name
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or("Untitled")
+            .to_owned(),
     }
 }
 
@@ -1424,6 +1431,19 @@ fn error_band(error: Option<&str>) -> Html {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_listing_agreement_is_named_by_its_seller_not_the_deals_client() {
+        let item = |values: &[(&str, &str)], client: Option<&str>| FormItem {
+            field_values: values.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect(),
+            client_name: client.map(str::to_owned),
+            ..FormItem::default()
+        };
+        assert_eq!(party_name(&item(&[("sellerName", "Juan A. Santa Cruz")], Some("James Lee"))), "Juan A. Santa Cruz");
+        assert_eq!(party_name(&item(&[("buyerName", "Ana"), ("sellerName", "Luis")], Some("James Lee"))), "Ana / Luis");
+        assert_eq!(party_name(&item(&[], Some("James Lee"))), "James Lee", "no names on the form: the linked client");
+        assert_eq!(party_name(&item(&[], None)), "Untitled");
+    }
 
     #[test]
     fn forms_landing_asks_only_for_the_typed_forms_read() {
