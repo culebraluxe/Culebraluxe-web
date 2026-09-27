@@ -1,8 +1,9 @@
 use crate::{Database, DbFailure, DbResult};
 use chrono::{DateTime, Utc};
 use domain::{
-    AppleReminderCommandReceipt, AppleReminderUpsertRequest, CreateWbsItemRequest,
-    SaveWbsItemRequest, WbsCategory, WbsEntityLink, WbsEntityType, WbsItem, WbsStatus,
+    AppleReminderCommandReceipt, AppleReminderLanding, AppleReminderUpsertRequest,
+    CreateWbsItemRequest, SaveWbsItemRequest, WbsCategory, WbsEntityLink, WbsEntityType, WbsItem,
+    WbsStatus,
 };
 use serde_json::json;
 use sqlx::FromRow;
@@ -201,6 +202,54 @@ impl WbsDao {
         .await
         .map_err(|error| DbFailure::from_sqlx("wbs.save", &error))?;
         row.map(map_row).transpose()
+    }
+
+    pub async fn upsert_apple_reminder_landing(
+        &self,
+        reminder: &AppleReminderLanding,
+    ) -> DbResult<()> {
+        sqlx::query(
+            r#"
+            insert into l_reminder (
+                source_account, source_message_id, external_id, list_name, title, notes,
+                starts_at, due_at, completed, completed_at, priority, raw,
+                first_seen_at, last_seen_at
+            )
+            values (
+                $1,$2,$3,$4,$5,$6,$7::timestamptz,$8::timestamptz,$9,
+                $10::timestamptz,$11,$12,now(),now()
+            )
+            on conflict ((coalesce(source_account, '')), source_message_id)
+            do update set
+                external_id=excluded.external_id,
+                list_name=excluded.list_name,
+                title=excluded.title,
+                notes=excluded.notes,
+                starts_at=excluded.starts_at,
+                due_at=excluded.due_at,
+                completed=excluded.completed,
+                completed_at=excluded.completed_at,
+                priority=excluded.priority,
+                raw=excluded.raw,
+                last_seen_at=now()
+            "#,
+        )
+        .bind(&reminder.source_account)
+        .bind(&reminder.source_message_id)
+        .bind(reminder.external_id.as_deref())
+        .bind(reminder.list_name.as_deref())
+        .bind(reminder.title.as_deref())
+        .bind(reminder.notes.as_deref())
+        .bind(reminder.start_at.as_deref())
+        .bind(reminder.due_at.as_deref())
+        .bind(reminder.completed)
+        .bind(reminder.completed_at.as_deref())
+        .bind(reminder.priority)
+        .bind(&reminder.raw)
+        .execute(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("reminder.landing.upsert", &error))?;
+        Ok(())
     }
 
     pub async fn queue_apple_reminder(
