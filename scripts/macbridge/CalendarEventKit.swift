@@ -15,9 +15,9 @@
 // Apple ID/password, no Nylas, no fake REST API, no browser credentials.
 //
 // Recurrence: EventKit expands recurring series inside this bounded query. Each
-// occurrence gets a sourceMessageId composed from the provider event id plus its
-// original occurrence/start instant, while eventIdentifier remains available for
-// native move/resize commands.
+// occurrence gets a sourceMessageId composed from the stable calendar-item id
+// plus its original occurrence/start instant. eventIdentifier stays separate
+// because EventKit may replace an occurrence id after a save.
 //
 // Run: swift CalendarEventKit.swift --out <path> --past-days 7 --future-days 60
 // ---------------------------------------------------------------------------
@@ -107,12 +107,13 @@ struct BridgeEvent: Codable {
 
 let items = events.map { e -> BridgeEvent in
   let providerId = e.eventIdentifier ?? e.calendarItemIdentifier
+  let seriesId = e.calendarItemIdentifier
   let occurrence = e.occurrenceDate ?? e.startDate
   let occurrenceText = iso.string(from: occurrence)
   return BridgeEvent(
-    sourceMessageId: providerId + "|" + occurrenceText,
+    sourceMessageId: seriesId + "|" + occurrenceText,
     eventIdentifier: providerId,
-    calendarItemIdentifier: e.calendarItemIdentifier,
+    calendarItemIdentifier: seriesId,
     occurrenceDate: e.occurrenceDate.map { iso.string(from: $0) },
     recurring: !(e.recurrenceRules?.isEmpty ?? true),
     detached: e.isDetached,
