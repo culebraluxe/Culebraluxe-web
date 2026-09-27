@@ -59,7 +59,7 @@ pub use property::{
     PersonPropertyRelation, Property, PropertyAddress, PropertyAddressPatch, PropertyAdminPage,
     PropertyAdminPageRequest, PropertyAdminRecord, PropertyAdminSummary, PropertyForPerson,
     PropertyStellarDetails, SavePropertyAdminRequest, SetPropertyDisplayNameRequest,
-    SetPropertyStatusRequest, UpsertPropertyForPersonRequest,
+    SetPropertyListingTypeRequest, SetPropertyStatusRequest, UpsertPropertyForPersonRequest,
 };
 pub use relationship_evidence::{
     RelationshipDecision, RelationshipEvidenceReview, RelationshipEvidenceRow,
