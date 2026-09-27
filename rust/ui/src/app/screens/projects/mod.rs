@@ -429,13 +429,27 @@ impl Screen for Projects {
                 model.controls.query = query;
                 return Cmd::none();
             }
-            Msg::CalendarQueued(result) => {
-                calendar_queued(model, result);
+            Msg::CalendarViewportLoaded {
+                start_at,
+                end_at,
+                result,
+            } => {
+                apply_calendar_viewport(model, start_at, end_at, result);
                 return Cmd::none();
+            }
+            Msg::CalendarQueued(result) => {
+                return calendar_queued(model, result);
+            }
+            Msg::CalendarPoll => {
+                return calendar_poll(model);
+            }
+            Msg::CalendarStateLoaded(result) => {
+                return calendar_state_loaded(model, result);
             }
             Msg::ProjectCalendarEditRequested {
                 occurrence_id,
                 provider_event_id,
+                provider_series_id,
                 start_at,
                 end_at,
                 all_day,
@@ -444,6 +458,7 @@ impl Screen for Projects {
                     model,
                     occurrence_id,
                     provider_event_id,
+                    provider_series_id,
                     start_at,
                     end_at,
                     all_day,
@@ -479,6 +494,7 @@ impl Screen for Projects {
                 &Vm {
                     controls: &model.controls,
                     error: model.error.as_ref(),
+                    calendar_pending: model.pending_calendar.as_ref(),
                 },
                 projects,
                 &on_msg,
@@ -532,6 +548,7 @@ fn selection(projects: &mut PortalProjectsPage, error: &mut Option<String>, msg:
                     projects.work_collapsed = false;
                 }
                 projects.selected_node_id = node_id;
+                projects.calendar_selected_event_id = None;
                 projects.work_dirty = false;
             }
         }
@@ -540,8 +557,12 @@ fn selection(projects: &mut PortalProjectsPage, error: &mut Option<String>, msg:
                 view.as_str(),
                 "work-plan" | "timeline" | "calendar" | "financials" | "documents" | "activity"
             ) {
+                let calendar_opened = view == "calendar" && projects.active_view != "calendar";
                 projects.active_view = view;
                 projects.catch_up = false;
+                if calendar_opened {
+                    return calendar_viewport(projects);
+                }
             }
         }
         Msg::ProjectCalendarPrevious => {
@@ -550,6 +571,9 @@ fn selection(projects: &mut PortalProjectsPage, error: &mut Option<String>, msg:
                 &projects.calendar_mode,
                 -1,
             );
+            projects.calendar_loaded_start = None;
+            projects.calendar_loaded_end = None;
+            return calendar_viewport(projects);
         }
         Msg::ProjectCalendarNext => {
             projects.calendar_cursor = crate::calendar::shift_cursor(
@@ -557,19 +581,56 @@ fn selection(projects: &mut PortalProjectsPage, error: &mut Option<String>, msg:
                 &projects.calendar_mode,
                 1,
             );
+            projects.calendar_loaded_start = None;
+            projects.calendar_loaded_end = None;
+            return calendar_viewport(projects);
         }
         Msg::ProjectCalendarToday => {
             projects.calendar_cursor = crate::projects::calendar_anchor(projects);
+            projects.calendar_loaded_start = None;
+            projects.calendar_loaded_end = None;
+            return calendar_viewport(projects);
         }
         Msg::ProjectCalendarModeSelected(mode) => {
-            if matches!(mode.as_str(), "month" | "week" | "day" | "list") {
+            if matches!(mode.as_str(), "month" | "week" | "day" | "list")
+                && projects.calendar_mode != mode
+            {
                 projects.calendar_mode = mode;
+                projects.calendar_loaded_start = None;
+                projects.calendar_loaded_end = None;
+                return calendar_viewport(projects);
             }
         }
         Msg::ProjectCalendarRecurrenceScopeSelected(scope) => {
             if matches!(scope.as_str(), "this" | "future") {
                 projects.calendar_recurrence_scope = scope;
             }
+        }
+        Msg::ProjectCalendarFilterSelected(filter) => {
+            if matches!(filter.as_str(), "all" | "project") {
+                projects.calendar_filter = filter;
+                projects.calendar_selected_event_id = None;
+            }
+        }
+        Msg::ProjectCalendarEventSelected(event_id) => {
+            let valid = event_id
+                .as_deref()
+                .is_none_or(|id| projects.calendar.iter().any(|event| event.id == id));
+            if valid {
+                projects.calendar_selected_event_id = event_id;
+                projects.work_collapsed = false;
+            }
+        }
+        Msg::ProjectCalendarDragStarted(event_id) => {
+            projects.calendar_dragging_event_id = Some(event_id);
+            projects.calendar_drag_target = None;
+        }
+        Msg::ProjectCalendarDragTargetChanged(target) => {
+            projects.calendar_drag_target = target;
+        }
+        Msg::ProjectCalendarDragEnded => {
+            projects.calendar_dragging_event_id = None;
+            projects.calendar_drag_target = None;
         }
         Msg::ProjectCatchUpToggled(on) => {
             projects.catch_up = on;
@@ -659,6 +720,7 @@ fn selection(projects: &mut PortalProjectsPage, error: &mut Option<String>, msg:
 pub struct Vm<'a> {
     pub controls: &'a Controls,
     pub error: Option<&'a String>,
+    pub calendar_pending: Option<&'a PendingCalendarEdit>,
 }
 
 #[cfg(test)]
