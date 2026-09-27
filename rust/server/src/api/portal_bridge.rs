@@ -1343,7 +1343,8 @@ async fn forms_write(
                 value
                     .trim()
                     .to_lowercase()
-                    .replace(['’', '\''], "")
+                    .replace('’', "")
+                    .replace('\'', "")
                     .split_whitespace()
                     .collect::<Vec<_>>()
                     .join(" ")
@@ -1385,6 +1386,9 @@ async fn forms_write(
                 ));
             };
 
+            let chosen_id = chosen.id.clone();
+            let chosen_display_name = chosen.display_name.clone();
+
             let property_id = if current.property_id.is_some() {
                 current.property_id.clone()
             } else if let Some(deal_id) = current.deal_id.as_deref() {
@@ -1401,7 +1405,7 @@ async fn forms_write(
                 .bind_listing_context(
                     &domain::BindListingFormContextRequest {
                         form_instance_id: form_id.to_owned(),
-                        person_id: chosen.id.clone(),
+                        person_id: chosen_id.clone(),
                         property_id: property_id.clone(),
                     },
                     &resolved.service,
@@ -1411,7 +1415,7 @@ async fn forms_write(
 
             let person = services
                 .person()
-                .get(&chosen.id, &resolved.service)
+                .get(&chosen_id, &resolved.service)
                 .await
                 .map_err(failed(&resolved))?;
             let property = if let Some(property_id) = property_id.as_deref() {
@@ -1476,7 +1480,7 @@ async fn forms_write(
             Ok(Json(json!({
                 "formId": form_id,
                 "forms": page,
-                "message": format!("Client linked · {}", chosen.display_name),
+                "message": format!("Client linked · {}", chosen_display_name),
             })))
         }
         "sendSignature" => {
@@ -1612,13 +1616,17 @@ async fn forms_write(
                     completion_recipient_emails.push(email.to_owned());
                     continue;
                 }
+                let execution_slot_id = signer.slot_id.clone();
+                let execution_role = execution_slot_id
+                    .as_ref()
+                    .map(|_| signer.role.clone());
                 recipients.push(domain::SignatureRecipient {
                     role: domain::SignatureRecipientRole::Signer,
                     name: signer.name.clone(),
                     email: email.to_owned(),
                     order: recipients.len() as i32 + 1,
-                    execution_role: Some(signer.role.clone()),
-                    execution_slot_id: signer.slot_id.clone(),
+                    execution_role,
+                    execution_slot_id,
                 });
             }
             if recipients.is_empty() {
