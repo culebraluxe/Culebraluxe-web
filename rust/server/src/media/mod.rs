@@ -40,6 +40,9 @@ pub trait MediaRepository: Send {
         chunk_index: i32,
         bytes: &[u8],
     ) -> DbResult<db::MediaUploadStatus>;
+    async fn claim_media_upload(&self, upload_id: &str) -> DbResult<bool>;
+    async fn fail_media_upload(&self, upload_id: &str) -> DbResult<()>;
+    async fn media_upload_state(&self, upload_id: &str) -> DbResult<Option<String>>;
     async fn assemble_media_upload(&self, upload_id: &str) -> DbResult<db::MediaUploadAssembly>;
     async fn commit_media_upload(
         &self,
@@ -111,6 +114,18 @@ impl MediaRepository for MediaDao {
 
     async fn assemble_media_upload(&self, upload_id: &str) -> DbResult<db::MediaUploadAssembly> {
         MediaDao::assemble_media_upload(self, upload_id).await
+    }
+
+    async fn claim_media_upload(&self, upload_id: &str) -> DbResult<bool> {
+        MediaDao::claim_media_upload(self, upload_id).await
+    }
+
+    async fn fail_media_upload(&self, upload_id: &str) -> DbResult<()> {
+        MediaDao::fail_media_upload(self, upload_id).await
+    }
+
+    async fn media_upload_state(&self, upload_id: &str) -> DbResult<Option<String>> {
+        MediaDao::media_upload_state(self, upload_id).await
     }
 
     async fn commit_media_upload(
@@ -516,7 +531,52 @@ impl<R: MediaRepository> MediaService<R> {
     ///
     /// A failure here leaves the staged bytes in place on purpose: the upload is unfinished rather than broken, the
     /// browser can retry `complete`, and the sweep collects it if nobody does.
+    /// Claims an upload for finishing (fast): after this, `finish_media_upload` is the only thing that may finish it.
+    pub async fn claim_media_upload(&self, upload_id: &str, context: &ServiceContext) -> Result<(), CoreServiceError> {
+        const OP: &str = "media.claimMediaUpload";
+        let decision = authorize(&self.runtime, "media", "property.write", OP, OperationKind::Command, context).await?;
+        let result = match self.repository.claim_media_upload(upload_id).await {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(CoreServiceError::business(
+                "MEDIA_UPLOAD_NOT_CLAIMABLE",
+                "This photo is already being finished, or the upload is unknown.",
+            )),
+            Err(error) => Err(error.into()),
+        };
+        audit_result(&self.runtime, "media", OP, context, decision, &result).await?;
+        result
+    }
+
+    /// Where a chunked upload stands: `done` (stored and attached), `processing`, `failed`, or `uploading`.
+    pub async fn media_upload_state(&self, upload_id: &str, context: &ServiceContext) -> Result<&'static str, CoreServiceError> {
+        const OP: &str = "media.uploadState";
+        let decision = authorize(&self.runtime, "media", "property.read", OP, OperationKind::Query, context).await?;
+        let result = match self.repository.media_upload_state(upload_id).await {
+            Ok(None) => Ok("done"),
+            Ok(Some(status)) => Ok(match status.as_str() {
+                "complete" => "processing",
+                "failed" => "failed",
+                _ => "uploading",
+            }),
+            Err(error) => Err(error.into()),
+        };
+        audit_result(&self.runtime, "media", OP, context, decision, &result).await?;
+        result
+    }
+
+    /// Claim and finish, in one call (the synchronous API route).
     pub async fn complete_media_upload(
+        &self,
+        upload_id: &str,
+        context: &ServiceContext,
+    ) -> Result<UploadPropertyMediaResult, CoreServiceError> {
+        self.claim_media_upload(upload_id, context).await?;
+        self.finish_media_upload(upload_id, context).await
+    }
+
+    /// Assembles, re-encodes, stores and attaches a CLAIMED upload. The slow step. A failure marks the upload failed,
+    /// with its chunks kept, so it can be finished again.
+    pub async fn finish_media_upload(
         &self,
         upload_id: &str,
         context: &ServiceContext,
@@ -571,6 +631,10 @@ impl<R: MediaRepository> MediaService<R> {
         }
         .await;
 
+        if result.is_err() {
+            // A database failure here reaches the durable capture through the DbFailure sink.
+            let _ = self.repository.fail_media_upload(upload_id).await;
+        }
         audit_result(&self.runtime, "media", OP, context, decision, &result).await?;
         result
     }

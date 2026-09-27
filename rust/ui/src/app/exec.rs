@@ -172,9 +172,29 @@ async fn upload_chunked(
         })?;
     }
 
-    // Three: assemble, make it servable, attach it. The slow step — the image is re-encoded.
-    post(form("complete", &[("uploadId", upload_id)])?).await?;
-    Ok(())
+    // Three: assemble, make it servable, attach it. The slow step — the image is re-encoded — so the server does it in
+    // the background and this asks, in short requests, until it is done. One request held open for a minute is one
+    // Safari gives up on, and a dropped request used to take the photo down with it.
+    post(form("complete", &[("uploadId", upload_id.clone())])?).await?;
+    // Twenty minutes of asking: past that, something is wrong that waiting will not fix.
+    for _ in 0..400 {
+        yew::platform::time::sleep(std::time::Duration::from_secs(3)).await;
+        let answer = match post(form("status", &[("uploadId", upload_id.clone())])?).await {
+            Ok(answer) => answer,
+            // A question that did not get through is asked again; the photo is being finished either way.
+            Err(error) if error.code == "NETWORK" => continue,
+            Err(error) => return Err(error),
+        };
+        match answer.get("state").and_then(|state| state.as_str()) {
+            Some("done") => return Ok(()),
+            Some("failed") => {
+                let message = answer.get("message").and_then(|m| m.as_str()).unwrap_or("The photo could not be saved.");
+                return Err(ApiError::network(message.to_owned()));
+            }
+            _ => {}
+        }
+    }
+    Err(ApiError::network("The photo is taking too long to finish."))
 }
 
 pub fn load(href: &str) {

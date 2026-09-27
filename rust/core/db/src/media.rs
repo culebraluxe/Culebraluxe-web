@@ -324,6 +324,38 @@ impl MediaDao {
         self.media_upload_status(&request.upload_id).await
     }
 
+    /// Claims an upload for finishing: `uploading` (or a `failed` one being retried) becomes `complete`, atomically, so
+    /// two requests can never both assemble and store the same photograph. `false` when nothing was claimable.
+    pub async fn claim_media_upload(&self, upload_id: &str) -> DbResult<bool> {
+        let claimed = sqlx::query_scalar::<_, String>(
+            "update media_upload set status = 'complete' where upload_id = $1::uuid and status in ('uploading', 'failed') returning status",
+        )
+        .bind(upload_id)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("media.upload.claim", &error))?;
+        Ok(claimed.is_some())
+    }
+
+    /// Marks a claimed upload as failed; its chunks stay, so finishing can be tried again.
+    pub async fn fail_media_upload(&self, upload_id: &str) -> DbResult<()> {
+        sqlx::query("update media_upload set status = 'failed' where upload_id = $1::uuid and status = 'complete'")
+            .bind(upload_id)
+            .execute(self.db.pool())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("media.upload.fail", &error))?;
+        Ok(())
+    }
+
+    /// The upload's status, or `None` once it is gone (a finished upload's manifest is deleted with its chunks).
+    pub async fn media_upload_state(&self, upload_id: &str) -> DbResult<Option<String>> {
+        sqlx::query_scalar::<_, String>("select status from media_upload where upload_id = $1::uuid")
+            .bind(upload_id)
+            .fetch_optional(self.db.pool())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("media.upload.state", &error))
+    }
+
     /// Where an upload stands: bytes and chunks received, against what was declared.
     pub async fn media_upload_status(&self, upload_id: &str) -> DbResult<MediaUploadStatus> {
         let row = sqlx::query_as::<_, (String, i64, i32, i64, i32, String)>(
@@ -445,7 +477,8 @@ impl MediaDao {
     /// reader downstream.
     pub async fn assemble_media_upload(&self, upload_id: &str) -> DbResult<MediaUploadAssembly> {
         let status = self.media_upload_status(upload_id).await?;
-        if status.status != "uploading" {
+        // `complete` is the claim `claim_media_upload` took: exactly one finisher assembles an upload.
+        if status.status != "complete" {
             return Err(DbFailure::configuration(
                 "media.upload.complete",
                 format!("this upload is {}", status.status),

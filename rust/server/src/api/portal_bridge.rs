@@ -2753,7 +2753,12 @@ async fn role_entitlements_put(
     Ok(Json(json!({ "roles": to_json(roles) })))
 }
 
-/// A photograph uploaded in chunks, one step per request (`step`: init, chunk, complete), for photos larger than one
+/// Why a background finish failed, for the browser's next `status` question (this process only; elsewhere the
+/// answer is the generic message).
+static UPLOAD_FAILURES: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, String>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// A photograph uploaded in chunks, one step per request (`step`: init, chunk, complete, status), for photos larger than one
 /// request may carry. The media service stages the chunks and assembles, stores and attaches the image.
 async fn property_media_chunked(
     State(state): State<ApiState>,
@@ -2831,7 +2836,43 @@ async fn property_media_chunked(
                 };
                 to_json(media.stage_media_chunk(&upload_id, index, bytes, context).await.map_err(failed(&resolved))?)
             }
-            "complete" => to_json(media.complete_media_upload(&upload_id, context).await.map_err(failed(&resolved))?),
+            // Claimed here, finished in the background: finishing a large photograph takes about a minute, longer
+            // than Safari holds a request open, and a request the browser drops must not cancel the save with it.
+            // The browser asks `status` until the answer is `done` or `failed`.
+            "complete" => {
+                media.claim_media_upload(&upload_id, context).await.map_err(failed(&resolved))?;
+                let (state, context, id) = (state.clone(), context.clone(), upload_id.clone());
+                tokio::spawn(async move {
+                    if let Err(error) = state.services().media().finish_media_upload(&id, &context).await {
+                        // A business refusal is written for a person; anything else is not theirs to read.
+                        let reason = match &error {
+                            CoreServiceError::Business { message, .. } => message.clone(),
+                            _ => "The photo could not be saved.".to_owned(),
+                        };
+                        UPLOAD_FAILURES.lock().map(|mut failures| failures.insert(id.clone(), reason)).ok();
+                        crate::api::error_capture::record(
+                            "rust:api",
+                            "media.completeMediaUpload",
+                            &error.to_string(),
+                            "error",
+                            None,
+                            serde_json::json!({ "uploadId": id }),
+                        );
+                    }
+                });
+                serde_json::json!({ "ok": true, "state": "processing", "uploadId": upload_id })
+            }
+            "status" => {
+                let upload_state = media.media_upload_state(&upload_id, context).await.map_err(failed(&resolved))?;
+                let message = (upload_state == "failed").then(|| {
+                    UPLOAD_FAILURES
+                        .lock()
+                        .ok()
+                        .and_then(|failures| failures.get(&upload_id).cloned())
+                        .unwrap_or_else(|| "The photo could not be saved.".to_owned())
+                });
+                serde_json::json!({ "ok": true, "state": upload_state, "message": message })
+            }
             _ => return Err(bad("MEDIA_STEP_UNKNOWN", "Unknown upload step.")),
         }
     };
