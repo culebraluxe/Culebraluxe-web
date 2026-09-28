@@ -280,6 +280,8 @@ pub struct IssuedDocumentListItem {
     /// The person the document is for: its party, or the person on the form it was issued from.
     pub party_person_id: Option<String>,
     pub signed_at: Option<String>,
+    /// The form the document was issued from: every version of one contract shares it.
+    pub form_instance_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

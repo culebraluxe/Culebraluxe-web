@@ -67,6 +67,7 @@ struct IssuedListRow {
     signed_audit_media_id: Option<String>,
     party_person_id: Option<String>,
     signed_at: Option<DateTime<Utc>>,
+    form_instance_id: Option<String>,
 }
 
 #[derive(Debug, FromRow)]
@@ -577,7 +578,8 @@ impl VaultDao {
                    td.signed_media_id::text as signed_media_id,
                    td.signed_audit_media_id::text as signed_audit_media_id,
                    coalesce(td.party_person_id, fi.person_id)::text as party_person_id,
-                   td.signed_at
+                   td.signed_at,
+                   td.form_instance_id::text as form_instance_id
             from transaction_document td
             left join app_user u on u.id = td.prepared_by_user_id
             left join person p on p.id = td.party_person_id
@@ -627,6 +629,7 @@ impl VaultDao {
                     signed_audit_available: row.signed_audit_media_id.is_some(),
                     party_person_id: row.party_person_id,
                     signed_at: row.signed_at.map(|at| at.to_rfc3339()),
+                    form_instance_id: row.form_instance_id,
                 })
             })
             .collect()

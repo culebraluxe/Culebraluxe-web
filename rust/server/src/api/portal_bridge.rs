@@ -2135,6 +2135,7 @@ async fn projects_page(state: &ApiState, resolved: &ResolvedRequestContext) -> R
                 "signedAuditAvailable": document.get("signedAuditAvailable"),
                 "partyPersonId": document.get("partyPersonId"),
                 "signedAt": document.get("signedAt"),
+                "formInstanceId": document.get("formInstanceId"),
             })
         })
         .collect();

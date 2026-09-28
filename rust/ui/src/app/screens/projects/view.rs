@@ -479,8 +479,21 @@ fn documents_view(projects: &PortalProjectsPage, project: &PortalProject, on_msg
             (property_id.is_some() && document.property_id.as_deref() == property_id)
                 || (person_id.is_some() && document.party_person_id.as_deref() == person_id)
         })
-        // The current version only: superseded and voided copies are history, not the file.
-        .filter(|document| matches!(document.state.as_str(), "ready" | "sent" | "signed"))
+        // The current version of each contract — or, for a contract whose every copy was re-issued away (all
+        // superseded), its latest copy, so the contract is never missing from its project.
+        .filter(|document| {
+            if matches!(document.state.as_str(), "ready" | "sent" | "signed") {
+                return true;
+            }
+            let Some(form) = document.form_instance_id.as_deref() else { return false };
+            document.state == "superseded"
+                && !projects.documents.iter().any(|other| {
+                    other.form_instance_id.as_deref() == Some(form) && matches!(other.state.as_str(), "ready" | "sent" | "signed")
+                })
+                && !projects.documents.iter().any(|other| {
+                    other.form_instance_id.as_deref() == Some(form) && other.state == "superseded" && other.created_at > document.created_at
+                })
+        })
         .map(|document| {
             let signed = document.state == "signed";
             ProjectAsset {
@@ -489,6 +502,7 @@ fn documents_view(projects: &PortalProjectsPage, project: &PortalProject, on_msg
                 name: document.title.clone(),
                 caption: Some(match (signed, document.state.as_str(), &signing_step_done) {
                     (true, _, _) => format!("Signed {}", asset_date(document.signed_at.as_deref())),
+                    (false, "superseded", _) => "Latest issued copy".to_owned(),
                     (false, "sent", Some(day)) => format!("Signed {day} · copy to come"),
                     _ => "Issued — awaiting signature".to_owned(),
                 }),
@@ -501,7 +515,8 @@ fn documents_view(projects: &PortalProjectsPage, project: &PortalProject, on_msg
                 type_label: "PDF",
                 source: "Vault",
                 date: Some(document.created_at.clone()),
-                signable: (!signed).then(|| document.id.clone()),
+                // A superseded copy cannot move to signed in the Vault; only a live one can be recorded.
+                signable: (!signed && document.state != "superseded").then(|| document.id.clone()),
             }
         })
         .collect();

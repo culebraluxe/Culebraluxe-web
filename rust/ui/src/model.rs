@@ -1818,6 +1818,8 @@ pub struct PortalProjectDocument {
     /// The person the document is for.
     pub party_person_id: Option<String>,
     pub signed_at: Option<String>,
+    /// The contract (form) this version belongs to.
+    pub form_instance_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
