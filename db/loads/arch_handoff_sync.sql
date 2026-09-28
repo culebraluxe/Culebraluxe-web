@@ -817,7 +817,7 @@ top-nav item is removed; the public-site Portal link is the far-right final navi
 **As of 2026-09-28** (each line names the check that proves it):
 
 - **UI.** `rust/ui/src/app/registry.rs` has 59 entries: 57 on the `Screen` trait (Marketing became the
-  native Publishing Center on 2026-09-28, `LEGACY_CEILING = 0`, the old loop unused and due for deletion), 2 external
+  native Publishing Center on 2026-09-28, and the old global loop was then deleted), 2 external
   (WhatsApp Activation, `/portal`). `docs/agent/UI-SCREEN-ARCHITECTURE.md` STATUS.
 - **TypeScript.** No Next.js application; Google sign-in is Rust. `pnpm broken:ts:sweep`: 251 files
   scanned under `scripts/` + `agent-runtime/`, 187 marked broken on purpose, tree and inventory
