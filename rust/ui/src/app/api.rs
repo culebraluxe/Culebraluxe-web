@@ -674,6 +674,17 @@ impl Endpoint for AccountingCommand {
     }
 }
 
+/// Listing publication readiness. Answers `{ publishing: ... }`.
+pub struct PublishingRead;
+
+impl Endpoint for PublishingRead {
+    const METHOD: Method = Method::Get;
+    type Response = PortalPage;
+    fn path(&self) -> String {
+        "/api/portal/rust-ui/publishing".into()
+    }
+}
+
 /// Relationship Catch-Up queue. Answers `{ catchUp: ... }`.
 pub struct CatchUpRead;
 
