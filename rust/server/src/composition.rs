@@ -19,6 +19,7 @@ use crate::{
     media::MediaService,
     people::PersonService,
     projects::ProjectService,
+    publishing::PublishingService,
     properties::PropertyService,
     public_listings::PublicListingService,
     relationship_evidence::RelationshipEvidenceService,
@@ -38,7 +39,7 @@ use async_trait::async_trait;
 use db::{
     AccountingDao, CalendarDao, CatchUpDao, ClientDao, ClientRoomDao, CockpitDao, CommsDao, ContractDao, Database,
     DealPortalDao, FirmDao, FlightRecorderDao, FormDao, GuestDao, GuideDao, IntakeDao, IssueDao,
-    MarketingDao, MediaDao, PersonDao, ProjectDao, PropertyDao, PublicListingDao,
+    MarketingDao, MediaDao, PersonDao, ProjectDao, PublishingDao, PropertyDao, PublicListingDao,
     RelationshipEvidenceDao, SecurityDao, ShowingDao, SignatureDao, SupportDiagnosticsDao, TaskDao,
     TechCockpitDao, VaultDao, WbsDao, WebsiteLeadDao, WhatsAppDao, WorkflowPortalDao,
 };
