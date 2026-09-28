@@ -247,6 +247,74 @@ fn trimmed_number(value: f64) -> String {
     }
 }
 
+/// What the process is talking to, for the header of the terminal report.
+///
+/// The retired `lib/execution-target.ts` printed `APP_ENV` and the resolved target side by side and that
+/// habit is kept: every number below is a number about ONE database, so the line says which. `app_env` is
+/// the raw variable — `unset` when it is absent, never a guessed default, because a guessed environment in
+/// a header is worse than a blank one.
+pub struct RoiPlane {
+    pub app_env: String,
+    pub target: String,
+}
+
+/// The window a command line asked for: `--days N` when N parses, the default when it does not, and
+/// [`clamp_window_days`] either way.
+///
+/// A typo falls back to the default instead of refusing, which is what the retired `parseArgs` did; what
+/// keeps that safe is the clamp, and what keeps it honest is the header, which prints the window actually
+/// used rather than the one that was typed. `--days` with nothing after it is the same case as a typo.
+pub fn parse_window_days(args: &[String]) -> i64 {
+    let mut days = ROI_DEFAULT_WINDOW_DAYS;
+    let mut index = 0;
+    while index < args.len() {
+        if args[index] == "--days" {
+            if let Some(value) = args
+                .get(index + 1)
+                .and_then(|raw| raw.trim().parse::<i64>().ok())
+            {
+                days = value;
+            }
+            index += 2;
+            continue;
+        }
+        index += 1;
+    }
+    clamp_window_days(days)
+}
+
+/// The terminal report, rendered raw (no trailing newline) so the caller decides how it lands.
+///
+/// An empty window is a real answer and says so — it is not an average over nothing. The totals line is
+/// deliberately followed by a coverage line: a rollup over 3 of 20 attempts must not read as the story.
+pub fn render_roi_report(summary: &RoiSummary, plane: &RoiPlane) -> String {
+    let mut lines = vec![
+        format!(
+            "forge:roi — last {} days (APP_ENV={} → {})",
+            summary.window_days, plane.app_env, plane.target
+        ),
+        format!("  unit: {}", summary.unit),
+    ];
+    if summary.rows.is_empty() {
+        lines.push("  no finished attempts in the window".to_string());
+        return lines.join("\n");
+    }
+    for row in &summary.rows {
+        lines.push(format!("  {}", describe_roi_row(row)));
+    }
+    lines.push(String::new());
+    lines.push(format!(
+        "  totals: {} attempt(s) · {} done · {} failed · {} widgets",
+        summary.attempts, summary.completed, summary.failed, summary.total_cost_widgets
+    ));
+    lines.push(format!(
+        "  coverage: cost captured on {}/{} · wall time on {}/{}",
+        summary.cost_known, summary.attempts, summary.wall_time_known, summary.attempts
+    ));
+    lines.push(format!("  {}", summary.note));
+    lines.join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -352,5 +420,83 @@ mod tests {
     fn a_whole_number_of_widgets_prints_without_a_decimal_tail() {
         assert_eq!(trimmed_number(480.0), "480");
         assert_eq!(trimmed_number(480.5), "480.5");
+    }
+
+    #[test]
+    fn the_requested_window_is_read_from_the_flags_and_a_typo_cannot_ask_for_everything() {
+        assert_eq!(parse_window_days(&[]), ROI_DEFAULT_WINDOW_DAYS);
+        assert_eq!(parse_window_days(&["roi".to_string()]), ROI_DEFAULT_WINDOW_DAYS);
+        assert_eq!(
+            parse_window_days(&["roi".to_string(), "--days".to_string(), "30".to_string()]),
+            30
+        );
+        // A flag with nothing after it, a non-number, and a nonsense number all land on a bounded window.
+        assert_eq!(
+            parse_window_days(&["roi".to_string(), "--days".to_string()]),
+            ROI_DEFAULT_WINDOW_DAYS
+        );
+        assert_eq!(
+            parse_window_days(&["roi".to_string(), "--days".to_string(), "lots".to_string()]),
+            ROI_DEFAULT_WINDOW_DAYS
+        );
+        assert_eq!(
+            parse_window_days(&["roi".to_string(), "--days".to_string(), "5000".to_string()]),
+            ROI_MAX_WINDOW_DAYS
+        );
+        assert_eq!(
+            parse_window_days(&["roi".to_string(), "--days".to_string(), "-1".to_string()]),
+            ROI_DEFAULT_WINDOW_DAYS
+        );
+        assert_eq!(
+            parse_window_days(&[
+                "roi".to_string(),
+                "--format".to_string(),
+                "json".to_string(),
+                "--days".to_string(),
+                "30".to_string()
+            ]),
+            30
+        );
+    }
+
+    fn plane() -> RoiPlane {
+        RoiPlane {
+            app_env: "dev".to_string(),
+            target: "dev".to_string(),
+        }
+    }
+
+    #[test]
+    fn the_report_says_which_database_and_which_unit_before_it_says_any_number() {
+        let summary = summarize_roi(&[attempt(Some("fix"), Some("cheap"), "Done", Some(4.0), Some(12.0))], 7);
+        let text = render_roi_report(&summary, &plane());
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], "forge:roi — last 7 days (APP_ENV=dev → dev)");
+        assert_eq!(lines[1], format!("  unit: {ROI_UNIT}"));
+        assert!(lines.iter().any(|line| line.starts_with("  fix/cheap · 1 attempt")));
+        assert!(text.contains("  totals: 1 attempt(s) · 1 done · 0 failed · 12 widgets"));
+        assert!(text.contains("  coverage: cost captured on 1/1 · wall time on 1/1"));
+        assert!(text.contains("not currency."));
+        assert!(text.trim_end().ends_with("vendor-reported actuals."));
+    }
+
+    #[test]
+    fn an_empty_window_is_a_stated_answer_not_a_rollup_of_nothing() {
+        let text = render_roi_report(&summarize_roi(&[], 7), &plane());
+        assert!(text.contains("  no finished attempts in the window"));
+        assert!(!text.contains("totals"), "no total over an empty set");
+        assert!(!text.contains("coverage"));
+    }
+
+    #[test]
+    fn a_partial_rollup_states_its_coverage_beside_the_total() {
+        let attempts = vec![
+            attempt(Some("fix"), Some("cheap"), "Done", Some(4.0), Some(12.0)),
+            attempt(Some("fix"), Some("cheap"), "Error", None, None),
+            attempt(Some("fix"), Some("cheap"), "Done", Some(6.0), None),
+        ];
+        let text = render_roi_report(&summarize_roi(&attempts, 30), &plane());
+        assert!(text.contains("  totals: 3 attempt(s) · 2 done · 1 failed · 12 widgets"));
+        assert!(text.contains("  coverage: cost captured on 1/3 · wall time on 2/3"));
     }
 }

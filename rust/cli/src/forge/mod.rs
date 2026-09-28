@@ -23,6 +23,7 @@ pub mod lint;
 pub mod manifest;
 pub mod read_tools;
 pub mod reset;
+pub mod roi;
 pub mod secret_shapes;
 pub mod sync_agents;
 pub mod vendor_block;
@@ -89,11 +90,14 @@ pub async fn dispatch(args: &[String]) -> Result<u8, Failure> {
         // above are pure file checks and stay synchronous.
         "board" | "story-show" | "story:show" | "batch-status" => read_tools::run(args).await,
         "doctor" => doctor::run(args).await,
+        // The session rollup: read-only, one query, and it names the database it read (a cost figure
+        // without its environment is a figure someone will quote about the wrong one).
+        "roi" => roi::run(args).await,
         // The writer. Its guard rails (PROD only, --force, a positive stale window) are checked before
         // anything touches the database.
         "reset" | "recover" | "clean" => reset::run(args).await,
         other => Err(Failure::usage(format!(
-            "unknown forge command `{other}`; usage: forge <harness-lint|sync-agents|manifest|board|story-show|batch-status|doctor|reset|recover|clean> [options]"
+            "unknown forge command `{other}`; usage: forge <harness-lint|sync-agents|manifest|board|story-show|batch-status|doctor|roi|reset|recover|clean> [options]"
         ))),
     }
 }
