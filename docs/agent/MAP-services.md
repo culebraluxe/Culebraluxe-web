@@ -182,11 +182,7 @@ The authoritative list is `registrations()` in `rust/server/src/composition.rs`.
 | `forms` | `rust/server/src/forms/mod.rs` | `rust/core/db/src/forms.rs` |
 | `vault` | `rust/server/src/vault/mod.rs` | `rust/core/db/src/vault.rs` |
 
-Two registration doors exist. Most services take the `abstract_service!` macro in `composition.rs`. Seven older, larger
-domains (`calendar`, `person`, `firm`, `contract`, `property`, `client`, `security`) carry a hand-written
-`impl AbstractService for ...` in `rust/server/src/service_gateway.rs`, and two more (`CommsService`, `ProjectServiceHost`)
-do the same in `composition.rs`. **New services use the macro door**; the hand-written ones are history, not a pattern to
-copy.
+**The door is not the design; the trait is.** Every service implements `AbstractService` and is registered in the catalog, and all 32 do. `abstract_service!` is a shortcut that stamps a trivial descriptor: empty `capabilities`, empty `invariants`, inherited `UnknownOperation` dispatch. Because the kernel treats empty capabilities as inline policy (`rust/server/src/service_kernel.rs:211-236`), such a service cannot declare an operation or refuse an unknown one. So a service with real operations implements the trait itself and declares them — which is what the seven larger domains below do, calendar's 5 capabilities among them. That is the OO design used properly, not a violation. What this paragraph means: do not hand-copy boilerplate into a new service that needs only a trivial descriptor. (Corrected 2026-09-28: I had read the shortcut as the design and recorded a violation that was not there. Calendar is correctly built.)
 
 **If no domain fits what you are doing, that is a design question.** Extend the closest existing service rather than
 adding a folder (AGENTS.md: extend existing abstractions before inventing parallel systems).
