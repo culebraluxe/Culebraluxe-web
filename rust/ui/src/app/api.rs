@@ -348,6 +348,10 @@ pub enum FormsAction {
         deal_id: Option<String>,
         person_id: Option<String>,
         property_id: Option<String>,
+        /// The seller as named on the contract: the server finds that person (or makes them).
+        seller_name: Option<String>,
+        /// The property's catastro number: the server finds that property.
+        catastro: Option<String>,
     },
     Save {
         form_id: String,
@@ -438,12 +442,16 @@ impl Endpoint for FormsWrite {
                 deal_id,
                 person_id,
                 property_id,
+                seller_name,
+                catastro,
             } => serde_json::json!({
                 "action": "create",
                 "templateId": template_id,
                 "dealId": deal_id,
                 "personId": person_id,
                 "propertyId": property_id,
+                "sellerName": seller_name,
+                "catastro": catastro,
             }),
             FormsAction::Save {
                 form_id,

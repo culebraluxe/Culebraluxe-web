@@ -198,6 +198,22 @@ impl PersonDao {
         Ok(row.map(map_person))
     }
 
+    /// A new person, as named on a contract: the seller the Forms screen was given, when no one has that name yet.
+    pub async fn create_seller(&self, display_name: &str) -> DbResult<Person> {
+        let row = sqlx::query_as::<_, PersonRow>(
+            r#"
+            insert into person (display_name, role, status)
+            values ($1, 'seller', 'new')
+            returning id::text as id, display_name, civil_status, status, archived_at, company
+            "#,
+        )
+        .bind(display_name.trim())
+        .fetch_one(&mut *self.db.connection().await?)
+        .await
+        .map_err(|error| DbFailure::from_sqlx("person.create_seller", &error))?;
+        Ok(map_person(row))
+    }
+
     /// Sets the email or phone a person's record shows, as typed: the one shown now is replaced, and so is any copy
     /// of the same address or number on this person written another way (`787-555-1234` and `(787) 555 1234` are
     /// one phone). Answers the other person's name, and changes nothing, when someone else already has it.

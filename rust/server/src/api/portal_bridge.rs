@@ -1360,10 +1360,24 @@ async fn forms_write(
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(str::to_owned);
-            let property_id = str_at(&body, "propertyId")
+            let mut person_id = person_id;
+            let mut property_id = str_at(&body, "propertyId")
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(str::to_owned);
+            // A NEW FORM IS FOR SOMEONE: the seller as named on the contract, and its property by catastro. Never an
+            // inherited deal — new forms used to take the open form's deal, and every contract ended up filed under
+            // one demo deal ("Sunset Point").
+            if person_id.is_none() {
+                if let Some(seller) = str_at(&body, "sellerName").map(str::trim).filter(|name| !name.is_empty()) {
+                    person_id = Some(seller_person(&state, &resolved, seller).await?);
+                }
+            }
+            if property_id.is_none() {
+                if let Some(catastro) = str_at(&body, "catastro").map(str::trim).filter(|value| !value.is_empty()) {
+                    property_id = property_by_catastro(&state, &resolved, catastro).await?;
+                }
+            }
             if deal_id.is_none() && person_id.is_none() && property_id.is_none() {
                 return Err(correlate(
                     ApiError::bad_request(
@@ -3404,6 +3418,83 @@ async fn project_document_signed(
 
     let step_done = mark_signing_step(&state, &resolved, &project_id, signed_day).await?;
     Ok(Json(json!({ "ok": true, "signed": true, "signedAt": signed_day.to_string(), "stepDone": step_done })))
+}
+
+/// The words of a name, lowercased and sorted, titles dropped: "LAMKEN WAYNE" and "Wayne Lamken" are one key.
+fn name_key(name: &str) -> String {
+    let mut words: Vec<String> = name
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .map(str::to_lowercase)
+        .filter(|word| !matches!(word.as_str(), "dr" | "mr" | "mrs" | "ms"))
+        .collect();
+    words.sort();
+    words.join(" ")
+}
+
+/// The person a contract names as seller: the one person with that name (any word order), or a new person made
+/// from it. Two people with that name is a question for a person, not a guess.
+async fn seller_person(state: &ApiState, resolved: &ResolvedRequestContext, seller: &str) -> Result<String, ApiError> {
+    let people = state.services().person();
+    let key = name_key(seller);
+    let request = domain::SearchPeopleRequest { query: seller.to_owned(), limit: Some(50) };
+    let found: Vec<_> = people
+        .search(&request, &resolved.service)
+        .await
+        .map_err(failed(resolved))?
+        .into_iter()
+        .filter(|person| name_key(&person.display_name) == key)
+        .collect();
+    match found.as_slice() {
+        [one] => Ok(one.id.clone()),
+        [] => Ok(people.create_seller(seller, &resolved.service).await.map_err(failed(resolved))?.id),
+        _ => Err(correlate(
+            ApiError::bad_request(
+                "FORM_SELLER_AMBIGUOUS",
+                format!("{} people are named {seller} — merge them on Records → Person first.", found.len()),
+            ),
+            resolved,
+        )),
+    }
+}
+
+/// The one live property carrying this catastro number, if there is exactly one.
+async fn property_by_catastro(
+    state: &ApiState,
+    resolved: &ResolvedRequestContext,
+    catastro: &str,
+) -> Result<Option<String>, ApiError> {
+    let digits: String = catastro.chars().filter(char::is_ascii_digit).collect();
+    if digits.is_empty() {
+        return Ok(None);
+    }
+    let page = state
+        .services()
+        .property()
+        .admin_page(
+            &domain::PropertyAdminPageRequest { search: catastro.to_owned(), page: 1, page_size: 20 },
+            &resolved.service,
+        )
+        .await
+        .map_err(failed(resolved))?;
+    // The search matches catastro numbers; each hit is confirmed on its full record.
+    let properties = state.services().property();
+    let mut matches = Vec::new();
+    for row in page.rows.iter().filter(|row| !row.archived) {
+        if let Some(record) = properties.admin_get(&row.id, &resolved.service).await.map_err(failed(resolved))? {
+            let stored: String = to_json(&record)
+                .get("catastroNumber")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .chars()
+                .filter(char::is_ascii_digit)
+                .collect();
+            if stored == digits {
+                matches.push(row.id.clone());
+            }
+        }
+    }
+    Ok((matches.len() == 1).then(|| matches[0].clone()))
 }
 
 /// The project's "Listing Contract Signed" step, done on the day the contract was signed — the same for a signed copy

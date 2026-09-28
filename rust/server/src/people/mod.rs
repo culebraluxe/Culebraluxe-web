@@ -26,6 +26,7 @@ pub trait PersonRepository: Send + Sync {
     ) -> DbResult<PersonIdentity>;
     async fn update_admin(&self, request: &UpdatePersonAdminRequest) -> DbResult<Option<Person>>;
     async fn set_contact(&self, person_id: &str, kind: &str, value: &str) -> DbResult<Option<String>>;
+    async fn create_seller(&self, display_name: &str) -> DbResult<Person>;
     async fn search(&self, request: &SearchPeopleRequest) -> DbResult<Vec<PersonSearchResult>>;
 }
 
@@ -62,6 +63,10 @@ impl PersonRepository for PersonDao {
 
     async fn set_contact(&self, person_id: &str, kind: &str, value: &str) -> DbResult<Option<String>> {
         PersonDao::set_contact(self, person_id, kind, value).await
+    }
+
+    async fn create_seller(&self, display_name: &str) -> DbResult<Person> {
+        PersonDao::create_seller(self, display_name).await
     }
 
     async fn search(&self, request: &SearchPeopleRequest) -> DbResult<Vec<PersonSearchResult>> {
@@ -177,6 +182,35 @@ impl<R: PersonRepository> PersonService<R> {
         })
         .await;
 
+        audit_result(&self.runtime, "person", OP, context, decision, &result).await?;
+        result
+    }
+
+    /// The seller a contract names, as a new person — used when no one with that name exists yet (the contract is the
+    /// accurate source of a seller's legal name).
+    pub async fn create_seller(&self, display_name: &str, context: &ServiceContext) -> Result<Person, CoreServiceError> {
+        const OP: &str = "person.createSeller";
+        let decision = authorize(&self.runtime, "person", "person.write", OP, OperationKind::Command, context).await?;
+        let result = db::service_mutation(self.repository.database(), async {
+            if display_name.trim().is_empty() {
+                return Err(CoreServiceError::business("PERSON_NAME_REQUIRED", "Person display name is required."));
+            }
+            let person = self.repository.create_seller(display_name).await?;
+            self.runtime
+                .emit(
+                    "person.created",
+                    Some(person.id.clone()),
+                    BTreeMap::from([
+                        ("personId".into(), json!(person.id.clone())),
+                        ("displayName".into(), json!(person.display_name.clone())),
+                        ("source".into(), json!("contract")),
+                    ]),
+                    context,
+                )
+                .await?;
+            Ok(person)
+        })
+        .await;
         audit_result(&self.runtime, "person", OP, context, decision, &result).await?;
         result
     }

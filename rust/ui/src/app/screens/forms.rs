@@ -37,6 +37,10 @@ pub struct Model {
     selected_template: String,
     session_query: String,
     grok_prompt: String,
+    /// "Who is this form for?" — open with the template to create, the seller and the catastro typed.
+    new_form_template: Option<String>,
+    new_seller: String,
+    new_catastro: String,
     /// Grok is being asked.
     grok_working: bool,
     /// The mic is listening.
@@ -82,6 +86,10 @@ pub enum Msg {
     Cancel,
     GrokPromptChanged(String),
     GrokGo,
+    NewSellerChanged(String),
+    NewCatastroChanged(String),
+    NewFormCreate,
+    NewFormCancel,
     GrokFilled(Result<FormsGrokAnswer, ApiError>),
     MicPressed,
     Heard(Result<String, ApiError>),
@@ -214,6 +222,44 @@ fn update(model: &mut Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> {
             }
             create_form(model, &template_id)
         }
+        Msg::NewSellerChanged(value) => {
+            model.new_seller = value;
+            Cmd::none()
+        }
+        Msg::NewCatastroChanged(value) => {
+            model.new_catastro = value;
+            Cmd::none()
+        }
+        Msg::NewFormCancel => {
+            model.new_form_template = None;
+            Cmd::none()
+        }
+        Msg::NewFormCreate => {
+            let Some(template_id) = model.new_form_template.clone() else {
+                return Cmd::none();
+            };
+            let seller = model.new_seller.trim().to_owned();
+            let catastro = model.new_catastro.trim().to_owned();
+            if seller.is_empty() && catastro.is_empty() {
+                model.error = Some("Who is this form for? Type the seller as on the contract, or the catastro number.".into());
+                return Cmd::none();
+            }
+            model.busy = true;
+            model.error = None;
+            Cmd::request(
+                FormsWrite {
+                    action: FormsAction::Create {
+                        template_id,
+                        deal_id: None,
+                        person_id: None,
+                        property_id: None,
+                        seller_name: Some(seller).filter(|value| !value.is_empty()),
+                        catastro: Some(catastro).filter(|value| !value.is_empty()),
+                    },
+                },
+                Msg::Created,
+            )
+        }
         Msg::NewForm => {
             let template_id = current_template_id(model);
             create_form(model, &template_id)
@@ -221,7 +267,20 @@ fn update(model: &mut Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> {
         Msg::Created(result) => {
             model.busy = false;
             match result {
-                Ok(answer) => install_record(model, answer.forms, Some("New form".into())),
+                Ok(answer) => {
+                    let (seller, catastro) = (model.new_seller.trim().to_owned(), model.new_catastro.trim().to_owned());
+                    model.new_form_template = None;
+                    let installed = install_record(model, answer.forms, Some("New form".into()));
+                    // What was typed to find the seller and the property belongs on the contract too.
+                    let mut typed = false;
+                    for (field, value) in [("sellerName", seller), ("catastroNumber", catastro)] {
+                        if !value.is_empty() && model.values.get(field).map_or(true, |current| current.trim().is_empty()) {
+                            model.values.insert(field.to_owned(), value);
+                            typed = true;
+                        }
+                    }
+                    if typed { Cmd::batch([installed, local_edit(model)]) } else { installed }
+                }
                 Err(error) => {
                     model.error = Some(error.message);
                     Cmd::none()
@@ -593,27 +652,18 @@ fn request_preview(model: &mut Model) -> Cmd<Msg> {
     )
 }
 
+/// A NEW FORM IS FOR SOMEONE. It used to take the open form's deal, client and property — so every contract
+/// inherited the first one's demo deal ("Sunset Point"). Now it asks: the seller as named on the contract and the
+/// property's catastro, and the server finds (or makes) that person and that property. No deal is inherited.
 fn create_form(model: &mut Model, template_id: &str) -> Cmd<Msg> {
     if model.busy {
         return Cmd::none();
     }
-    let Some(form) = model.page.as_ref().and_then(|page| page.selected.as_ref()) else {
-        model.error = Some("Open an existing form before starting another form.".into());
-        return Cmd::none();
-    };
-    model.busy = true;
+    model.new_form_template = Some(template_id.to_owned());
+    model.new_seller.clear();
+    model.new_catastro.clear();
     model.error = None;
-    Cmd::request(
-        FormsWrite {
-            action: FormsAction::Create {
-                template_id: template_id.to_owned(),
-                deal_id: form.deal_id.clone(),
-                person_id: form.person_id.clone(),
-                property_id: form.property_id.clone(),
-            },
-        },
-        Msg::Created,
-    )
+    Cmd::none()
 }
 
 fn view(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
@@ -1009,6 +1059,23 @@ fn forms_rail(
                         {"New"}
                     </button>
                 </div>
+                if model.new_form_template.is_some() {
+                    <div class="mb-2 space-y-1.5 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/60 p-2">
+                        <p class="text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--portal-gold-muted)]">{"Who is this form for?"}</p>
+                        <input value={model.new_seller.clone()} placeholder="Seller, as on the contract"
+                            oninput={link.callback(|event: InputEvent| Msg::NewSellerChanged(event.target_unchecked_into::<web_sys::HtmlInputElement>().value()))}
+                            class="block h-8 w-full rounded-md border border-[var(--portal-panel-border)] bg-white px-2 text-[12px] text-[var(--portal-navy)]" />
+                        <input value={model.new_catastro.clone()} placeholder="Catastro number (optional)"
+                            oninput={link.callback(|event: InputEvent| Msg::NewCatastroChanged(event.target_unchecked_into::<web_sys::HtmlInputElement>().value()))}
+                            class="block h-8 w-full rounded-md border border-[var(--portal-panel-border)] bg-white px-2 text-[12px] text-[var(--portal-navy)]" />
+                        <div class="flex justify-end gap-1.5">
+                            <button type="button" onclick={link.callback(|_: MouseEvent| Msg::NewFormCancel)}
+                                class="h-7 rounded-md px-2 text-[10px] uppercase tracking-[0.1em] text-black/50 hover:text-black/80">{"Cancel"}</button>
+                            <button type="button" disabled={model.busy} onclick={link.callback(|_: MouseEvent| Msg::NewFormCreate)}
+                                class="h-7 rounded-md bg-[var(--portal-navy)] px-3 text-[10px] font-medium uppercase tracking-[0.12em] text-white disabled:opacity-40">{"Create"}</button>
+                        </div>
+                    </div>
+                }
                 <input
                     type="search"
                     value={model.session_query.clone()}
@@ -1524,6 +1591,32 @@ mod tests {
         assert_eq!(party_name(&item(&[("buyerName", "Ana"), ("sellerName", "Luis")], Some("James Lee"))), "Ana / Luis");
         assert_eq!(party_name(&item(&[], Some("James Lee"))), "James Lee", "no names on the form: the linked client");
         assert_eq!(party_name(&item(&[], None)), "Untitled");
+    }
+
+    #[test]
+    fn a_new_form_is_for_the_seller_typed_never_the_open_forms_deal() {
+        // The open form sits on a deal — the way every contract once inherited the demo deal "Sunset Point".
+        let mut page = FormsPage::default();
+        page.selected = Some(FormItem {
+            id: "open".into(),
+            template_id: "LISTING-01".into(),
+            deal_id: Some("60000000-0000-4000-8000-000000000003".into()),
+            person_id: Some("someone-else".into()),
+            ..FormItem::default()
+        });
+        let mut model = Model { page: Some(page), ..Model::default() };
+        let ctx = ScreenCtx::default();
+
+        assert!(Forms::update(&mut model, Msg::NewForm, &ctx).into_requests().is_empty(), "New asks first");
+        assert!(Forms::update(&mut model, Msg::NewFormCreate, &ctx).into_requests().is_empty(), "nobody named yet");
+
+        Forms::update(&mut model, Msg::NewSellerChanged(" Julio Pimentel Ortiz ".into()), &ctx);
+        let request = Forms::update(&mut model, Msg::NewFormCreate, &ctx).into_requests().remove(0);
+        let body = request.body.expect("a create body");
+        assert_eq!(body["action"], "create");
+        assert_eq!(body["sellerName"], "Julio Pimentel Ortiz");
+        assert!(body["dealId"].is_null(), "no deal is inherited: {body}");
+        assert!(body["personId"].is_null(), "no client is inherited: {body}");
     }
 
     #[test]
