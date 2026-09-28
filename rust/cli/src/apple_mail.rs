@@ -191,34 +191,35 @@ pub(crate) fn positive_int(args: &[String], name: &str, fallback: i64) -> Result
 
 /// The accounts one run reads, lowercased and de-duplicated. The list is configuration, not
 /// discovery: a run must never guess which mailbox it is about.
+/// Every address this machine syncs mail for: the configured account list plus the
+/// single-mailbox fallbacks. One source of truth, because the same list answers two questions —
+/// which accounts to read, and which addresses can never be the counterparty.
+fn own_addresses() -> Vec<String> {
+    let mut addresses: Vec<String> = Vec::new();
+    let mut push = |value: &str| {
+        if let Some(normalized) = domain::applemail::normalize_mailbox(value) {
+            if !addresses.contains(&normalized) {
+                addresses.push(normalized);
+            }
+        }
+    };
+    for key in [
+        "MAIL_APP_ACCOUNTS",
+        "APPLE_MAILBOX_ADDRESS",
+        "ICLOUD_MAIL_ADDRESS",
+    ] {
+        for entry in std::env::var(key).unwrap_or_default().split(',') {
+            push(entry);
+        }
+    }
+    addresses
+}
+
 fn configured_accounts(only: Option<&str>) -> Result<Vec<String>, Box<dyn Error>> {
     if let Some(account) = only.map(str::trim).filter(|value| !value.is_empty()) {
         return Ok(vec![account.to_lowercase()]);
     }
-    let mut accounts: Vec<String> = Vec::new();
-    let push = |value: &str, accounts: &mut Vec<String>| {
-        let normalized = value.trim().to_lowercase();
-        if !normalized.is_empty() && !accounts.contains(&normalized) {
-            accounts.push(normalized);
-        }
-    };
-    match std::env::var("MAIL_APP_ACCOUNTS")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-    {
-        Some(configured) => {
-            for entry in configured.split(',') {
-                push(entry, &mut accounts);
-            }
-        }
-        None => {
-            let fallback = std::env::var("APPLE_MAILBOX_ADDRESS")
-                .ok()
-                .or_else(|| std::env::var("ICLOUD_MAIL_ADDRESS").ok())
-                .unwrap_or_default();
-            push(&fallback, &mut accounts);
-        }
-    }
+    let accounts = own_addresses();
     if accounts.is_empty() {
         return Err(io::Error::other(
             "no Mail.app account configured (MAIL_APP_ACCOUNTS / APPLE_MAILBOX_ADDRESS / ICLOUD_MAIL_ADDRESS)",
@@ -232,7 +233,7 @@ fn configured_accounts(only: Option<&str>) -> Result<Vec<String>, Box<dyn Error>
 /// every message would be classified against nothing, silently.
 fn internal_addresses() -> Result<BTreeSet<String>, Box<dyn Error>> {
     let raw = std::env::var("EMAIL_INTERNAL_ADDRESSES").unwrap_or_default();
-    let addresses: BTreeSet<String> = raw
+    let mut addresses: BTreeSet<String> = raw
         .split(',')
         .filter_map(domain::applemail::normalize_mailbox)
         .collect();
@@ -242,6 +243,9 @@ fn internal_addresses() -> Result<BTreeSet<String>, Box<dyn Error>> {
         )
         .into());
     }
+    // An account's own address is internal by construction: it is never the counterparty of
+    // the mail it sends or receives, whether or not EMAIL_INTERNAL_ADDRESSES lists it.
+    addresses.extend(own_addresses());
     Ok(addresses)
 }
 

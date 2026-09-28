@@ -4,7 +4,8 @@
 Purpose:
   * never enumerate Mail.app messages through Apple Events;
   * read a consistent snapshot of Mail's local Envelope Index;
-  * return one bounded Inbox/Sent page for one account;
+  * return one bounded Inbox/Sent page for one account, plus mail that sits only in an
+    archive mailbox (Gmail's All Mail), which is where a Gmail account's mail lives;
   * use keyset pagination on (occurred_at, ROWID);
   * emit metadata only (no bodies, snippets, attachments, or raw MIME).
 
@@ -30,6 +31,13 @@ MAIL_ROOT = Path.home() / "Library" / "Mail"
 MAILBOX_URL = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://([^/]+)/(.*)$")
 INBOX_LEAVES = {"inbox"}
 SENT_LEAVES = {"sent", "sent mail", "sent messages", "sent items"}
+# Mailboxes that hold a message outside Inbox/Sent: Gmail's "[Gmail]/All Mail", an IMAP
+# "Archive". Business mail lives here when it was archived rather than deleted, and for a
+# Gmail account behind Mail.app it is the only place recent mail appears at all (measured
+# 2026-09-28: penfield33 All Mail 3091 / INBOX 0 recent, culebraluxe All Mail 1148 /
+# INBOX 0 recent). An archive row that Mail also keeps in Inbox/Sent is the same mail and is
+# excluded in SQL, so nothing lands twice.
+ARCHIVE_LEAVES = {"all mail", "archive", "all messages"}
 MESSAGE_ID_HEADER = re.compile(r"<([^<>]+)>")
 
 
@@ -125,10 +133,13 @@ def leaf(path: str) -> str:
     return path.rstrip("/").split("/")[-1].strip().lower()
 
 
-def resolve_mailboxes(db: sqlite3.Connection, account_id: str) -> tuple[list[int], list[int], dict[int, str]]:
+def resolve_mailboxes(
+    db: sqlite3.Connection, account_id: str
+) -> tuple[list[int], list[int], list[int], dict[int, str]]:
     rows = db.execute("SELECT ROWID, url FROM mailboxes WHERE url IS NOT NULL").fetchall()
     inbox: list[int] = []
     sent: list[int] = []
+    archive: list[int] = []
     names: dict[int, str] = {}
     seen_accounts: set[str] = set()
     for rowid, url in rows:
@@ -143,8 +154,10 @@ def resolve_mailboxes(db: sqlite3.Connection, account_id: str) -> tuple[list[int
         lname = leaf(path)
         if lname in INBOX_LEAVES:
             inbox.append(int(rowid))
-        if lname in SENT_LEAVES:
+        elif lname in SENT_LEAVES:
             sent.append(int(rowid))
+        elif lname in ARCHIVE_LEAVES:
+            archive.append(int(rowid))
     if not inbox or not sent:
         available = sorted({a for a in seen_accounts if a})
         fail(
@@ -152,7 +165,7 @@ def resolve_mailboxes(db: sqlite3.Connection, account_id: str) -> tuple[list[int
             f"{account_id}. inbox={len(inbox)} sent={len(sent)}; "
             f"known account ids={available[:12]}"
         )
-    return inbox, sent, names
+    return inbox, sent, archive, names
 
 
 def detect_epoch(db: sqlite3.Connection, mailbox_ids: list[int]) -> str:
@@ -261,9 +274,13 @@ def cursor_in_window(
 
 
 def build_page_query(
-    inbox_ids: list[int], sent_ids: list[int], has_header: bool
+    inbox_ids: list[int],
+    sent_ids: list[int],
+    archive_ids: list[int],
+    has_header: bool,
 ) -> tuple[str, list[int]]:
-    all_ids = inbox_ids + sent_ids
+    all_ids = inbox_ids + sent_ids + archive_ids
+    inbox_sent_ids = inbox_ids + sent_ids
     all_ph = ",".join("?" for _ in all_ids)
     sent_ph = ",".join("?" for _ in sent_ids)
     occurred_expr = (
@@ -271,6 +288,23 @@ def build_page_query(
         "THEN COALESCE(NULLIF(m.date_sent,0), m.date_received) "
         "ELSE COALESCE(NULLIF(m.date_received,0), m.date_sent) END"
     )
+    # An archive copy of a message Mail also keeps in Inbox/Sent is the same mail: the landing
+    # identity is the RFC Message-ID, so keeping both rows would land one message twice. The
+    # archive arm exists for mail that is in NO Inbox/Sent mailbox - Gmail's All Mail, where
+    # every message lives and where a Gmail account behind Mail.app keeps all of its recent
+    # mail. It is only usable when the RFC Message-ID is available to make that comparison.
+    dedup_sql = ""
+    dedup_params: list[int] = []
+    if archive_ids and has_header:
+        archive_ph = ",".join("?" for _ in archive_ids)
+        inbox_sent_ph = ",".join("?" for _ in inbox_sent_ids)
+        dedup_sql = (
+            f"AND NOT (m.mailbox IN ({archive_ph}) AND m.global_message_id IS NOT NULL "
+            "AND EXISTS (SELECT 1 FROM messages x "
+            "WHERE x.global_message_id = m.global_message_id "
+            f"AND x.mailbox IN ({inbox_sent_ph})))"
+        )
+        dedup_params = [*archive_ids, *inbox_sent_ids]
     # The RFC Message-ID lives in message_global_data, keyed by
     # messages.global_message_id. messages.message_id is an INTEGER, shared by the
     # same mail sitting in different mailboxes, and matches nothing Mail's
@@ -298,6 +332,7 @@ def build_page_query(
             {header_join}
             WHERE m.mailbox IN ({all_ph})
               {{deleted_filter}}
+              {dedup_sql}
         )
         SELECT * FROM base
         WHERE occurred_store >= ?
@@ -310,7 +345,7 @@ def build_page_query(
         ORDER BY occurred_store DESC, rowid DESC
         LIMIT ?
     """
-    return sql, [*sent_ids, *all_ids]
+    return sql, [*sent_ids, *all_ids, *dedup_params]
 
 
 def recipient_map(db: sqlite3.Connection, rowids: list[int]) -> dict[int, dict[str, list[dict[str, Any]]]]:
@@ -363,16 +398,20 @@ def main() -> None:
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA query_only=ON")
         schema = require_schema(db)
-        inbox_ids, sent_ids, mailbox_names = resolve_mailboxes(db, args.account_id)
-        all_ids = inbox_ids + sent_ids
+        inbox_ids, sent_ids, archive_ids, mailbox_names = resolve_mailboxes(db, args.account_id)
+        has_message_id = "message_id" in schema["messages"]
+        has_header = has_message_id_header(db)
+        # Archive rows are only usable when the RFC Message-ID is readable: that identity is
+        # what makes an archive copy the SAME mail as its Inbox copy instead of a second event.
+        if not (has_header and "global_message_id" in schema["messages"]):
+            archive_ids = []
+        all_ids = inbox_ids + sent_ids + archive_ids
         epoch = detect_epoch(db, all_ids)
         since_iso, before_iso = band_window(args.band)
         since_store = unix_to_store(since_iso.timestamp(), epoch)
         before_store = unix_to_store(before_iso.timestamp(), epoch) if before_iso else None
 
-        has_message_id = "message_id" in schema["messages"]
-        has_header = has_message_id_header(db)
-        sql, prefix = build_page_query(inbox_ids, sent_ids, has_header)
+        sql, prefix = build_page_query(inbox_ids, sent_ids, archive_ids, has_header)
         sql = sql.replace(
             "{deleted_filter}",
             "AND COALESCE(m.deleted,0)=0" if "deleted" in schema["messages"] else "",
@@ -391,7 +430,11 @@ def main() -> None:
         for row in rows:
             rowid = int(row["rowid"])
             mailbox_id = int(row["mailbox_id"])
-            kind = "sent" if mailbox_id in sent_ids else "inbox"
+            kind = (
+                "sent"
+                if mailbox_id in sent_ids
+                else ("archive" if mailbox_id in archive_ids else "inbox")
+            )
             sender_addr = str(row["sender_address"] or "")
             sender_name = str(row["sender_name"] or "")
             sender = f"{sender_name} <{sender_addr}>" if sender_name and sender_addr else (sender_addr or sender_name or None)
@@ -433,6 +476,7 @@ def main() -> None:
             "mailboxes": {
                 "inbox": [mailbox_names[i] for i in inbox_ids],
                 "sent": [mailbox_names[i] for i in sent_ids],
+                "archive": [mailbox_names[i] for i in archive_ids],
             },
             "records": records,
             "nextCursor": next_cursor,

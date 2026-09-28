@@ -243,7 +243,9 @@ fn external_recipients(
 ///
 /// The rules, unchanged from the deleted TypeScript:
 ///   * inbox (or `received`) -> inbound; the external sender is the counterparty
-///   * anything else (sent)  -> outbound; exactly ONE external recipient or it is ambiguous
+///   * sent                   -> outbound; exactly ONE external recipient or it is ambiguous
+///   * archive (Gmail's All Mail, an IMAP Archive) -> the mailbox holds both directions, so
+///     the sender decides: external sender = inbound, our own address = outbound
 ///   * internal-only, unaddressed and timestamp-less rows are skipped, never invented
 ///   * a second landing of the same `source_message_id` is a duplicate, not a second event
 pub fn normalize_landed_mail(
@@ -266,28 +268,48 @@ pub fn normalize_landed_mail(
             .trim()
             .to_lowercase();
 
-        let (direction, external_email, display_name) = if kind == "inbox" || kind == "received" {
-            let Some((address, name)) = parse_sender_address(row.sender.as_deref()) else {
+        let sender = parse_sender_address(row.sender.as_deref());
+        // An archive copy (Gmail's "All Mail", an IMAP Archive) holds BOTH directions, so the
+        // mailbox cannot say which one this is: the sender does. Everything else keeps the
+        // original rule - an inbox copy is inbound, anything else is outbound.
+        let is_archive = kind == "archive" || kind == "all mail";
+        let sender_address = sender.as_ref().map(|(address, _)| address.clone());
+        let sender_is_external = sender_address
+            .as_deref()
+            .is_some_and(|address| !internal.contains(address));
+        let inbound_sender = if kind == "inbox" || kind == "received" || is_archive {
+            if sender_is_external {
+                sender.clone()
+            } else if is_archive {
+                // An archive copy from one of our own addresses is mail we sent, which the
+                // recipient rule below decides; a missing sender has only that rule left.
+                None
+            } else if sender_address.is_none() {
                 out.skip("unaddressed");
                 continue;
-            };
-            if internal.contains(&address) {
+            } else {
                 out.skip("internal_only");
                 continue;
             }
-            ("inbound", address, name)
         } else {
-            let external = external_recipients(row, internal);
-            if external.is_empty() {
-                out.skip("internal_only");
-                continue;
+            None
+        };
+
+        let (direction, external_email, display_name) = match inbound_sender {
+            Some((address, name)) => ("inbound", address, name),
+            None => {
+                let external = external_recipients(row, internal);
+                if external.is_empty() {
+                    out.skip("internal_only");
+                    continue;
+                }
+                if external.len() > 1 {
+                    out.skip("ambiguous");
+                    continue;
+                }
+                let (address, name) = external.into_iter().next().unwrap_or_default();
+                ("outbound", address, name)
             }
-            if external.len() > 1 {
-                out.skip("ambiguous");
-                continue;
-            }
-            let (address, name) = external.into_iter().next().unwrap_or_default();
-            ("outbound", address, name)
         };
 
         // One message can surface in two mailboxes (an inbox copy and a sent copy); the
@@ -651,6 +673,56 @@ mod tests {
         let out = normalize_landed_mail(&unaddressed, &internal());
         assert!(out.observations.is_empty());
         assert_eq!(out.skipped.get("unaddressed"), Some(&1));
+    }
+
+    #[test]
+    fn an_archive_copy_takes_its_direction_from_the_sender() {
+        // Gmail's "[Gmail]/All Mail" holds both directions, so the mailbox cannot decide: the
+        // sender does. Without this, every archive row was read as outbound — a Gmail account's
+        // inbound business mail became outbound mail addressed to a stranger.
+        let mut inbound = inbound_row("arc-1", "Dana <dana@example.com>", "2026-09-01T09:00:00Z");
+        inbound.mailbox_kind = Some("archive".into());
+        inbound.mailbox_name = Some("[Gmail]/All Mail".into());
+
+        let mut outbound = inbound_row("arc-2", "lisa@culebraluxe.com", "2026-09-01T10:00:00Z");
+        outbound.mailbox_kind = Some("all mail".into());
+        outbound.mailbox_name = Some("[Gmail]/All Mail".into());
+        outbound.to_recipients = vec![address("Dana@Example.com")];
+
+        let mut self_mail = inbound_row("arc-3", "lisa@culebraluxe.com", "2026-09-01T11:00:00Z");
+        self_mail.mailbox_kind = Some("archive".into());
+        self_mail.to_recipients = vec![address("lisa@culebraluxe.com")];
+
+        let mut ambiguous = inbound_row("arc-4", "lisa@culebraluxe.com", "2026-09-01T12:00:00Z");
+        ambiguous.mailbox_kind = Some("archive".into());
+        ambiguous.to_recipients = vec![address("dana@example.com"), address("bob@example.com")];
+
+        let out = normalize_landed_mail(&[inbound, outbound, self_mail, ambiguous], &internal());
+
+        assert_eq!(out.observations.len(), 2);
+        assert_eq!(out.observations[0].direction, "inbound");
+        assert_eq!(out.observations[0].external_email, "dana@example.com");
+        assert_eq!(out.observations[0].mailbox, "[Gmail]/All Mail");
+        assert_eq!(out.observations[1].direction, "outbound");
+        assert_eq!(out.observations[1].external_email, "dana@example.com");
+        // Mail we sent to ourselves, and mail with two possible counterparties, is not guessed.
+        assert_eq!(out.skipped.get("internal_only"), Some(&1));
+        assert_eq!(out.skipped.get("ambiguous"), Some(&1));
+    }
+
+    #[test]
+    fn an_inbox_copy_and_its_archive_copy_are_one_message() {
+        // Mail keeps the same message in INBOX and in All Mail. The landing identity is the RFC
+        // Message-ID, so the second surfacing is a duplicate, never a second event.
+        let inbox = inbound_row("dup-1", "Dana <dana@example.com>", "2026-09-01T09:00:00Z");
+        let mut archive = inbound_row("dup-1", "Dana <dana@example.com>", "2026-09-01T09:00:00Z");
+        archive.mailbox_kind = Some("archive".into());
+        archive.mailbox_name = Some("[Gmail]/All Mail".into());
+
+        let out = normalize_landed_mail(&[inbox, archive], &internal());
+        assert_eq!(out.observations.len(), 1);
+        assert_eq!(out.observations[0].direction, "inbound");
+        assert_eq!(out.skipped.get("duplicate"), Some(&1));
     }
 
     fn mail_observations() -> Vec<MailObservation> {

@@ -162,3 +162,8 @@ skills-lock.json
 # Built by scripts/site-build.sh (pnpm dev, the container dry run, the deploy) — never committed, so a build
 # never blocks a pull.
 /public/app.css
+
+# The Mail bridge is a Python module, so running it (the launchd sync, a check) writes bytecode beside it —
+# one `git add -A` away from being committed. 2026-09-28: it was.
+__pycache__/
+*.py[cod]

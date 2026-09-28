@@ -226,3 +226,63 @@ so `mail-intake` can be run against the real store; (2) say `contacts port` to t
 next, or `calls port` for the small one first; (3) put `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` /
 `GOOGLE_REFRESH_TOKEN` (the `gmail.readonly` scope) into `.env.local` when Gmail should actually run.
 
+
+## 9. GMAIL IS CAPTURED — measured, no Google credentials needed (2026-09-28, latest)
+
+The Captain's answer to §8's ask was: *"as long as code can access gmail and grab if something
+there"*. It does now, and it needed no credential.
+
+**Why Gmail was captured by neither path.** A Gmail account behind Mail.app keeps its mail in
+`[Gmail]/All Mail`, not in INBOX — measured `penfield33@gmail.com` INBOX 0 recent / All Mail 3091,
+`culebraluxe@gmail.com` INBOX 0 recent / All Mail 1148 — and the bridge read INBOX + Sent only. The
+API job (`rust/cli gmail-sync`) is ported but has no credentials, and `.env.local:197-200`'s claim
+that Gmail arrives through the Mail bridge was measured false.
+
+**The fix — read the archive mailbox, still no credential:**
+
+1. `scripts/macbridge/apple-mail-envelope-sqlite.py`: `ARCHIVE_LEAVES` (`all mail`, `archive`,
+   `all messages`) is resolved beside Inbox/Sent. An archive row whose `global_message_id` also sits
+   in an Inbox/Sent mailbox is excluded in SQL, so one message lands once; archive rows are labelled
+   `archive`. The arm is enabled only when the RFC Message-ID is readable (`message_global_data`) —
+   that identity is what makes the comparison possible.
+2. `domain::applemail::normalize_landed_mail`: an archive copy holds **both** directions, so the
+   mailbox cannot decide — the sender does (external sender = inbound; our own address = the
+   recipient rule, exactly one external recipient or nothing). Tests:
+   `an_archive_copy_takes_its_direction_from_the_sender`,
+   `an_inbox_copy_and_its_archive_copy_are_one_message`.
+3. `rust/cli`: `own_addresses()` is the single list of this machine's mail addresses
+   (`MAIL_APP_ACCOUNTS` + `APPLE_MAILBOX_ADDRESS` + `ICLOUD_MAIL_ADDRESS`). It chooses the accounts
+   to read **and** keeps an account's own address off the counterparty side. `MAIL_APP_ACCOUNTS`
+   omitted `lisapenfield@icloud.com`; that account is now read without editing `.env.local`.
+
+**Measured against the real store, DEV target (2026-09-28, band 0-1 = last month):**
+
+| account | before | after |
+| --- | --- | --- |
+| `penfield33@gmail.com` (Gmail) | 0 records — INBOX empty, All Mail unread | **3,197 records → 3,179 landed**, `mailbox_kind=archive` |
+| `lisapenfield@icloud.com` | never read — not in `MAIL_APP_ACCOUNTS` | **476 records → 476 landed** |
+| `lisa@culebraluxe.com` (Workspace) | 216 records → 120 landed (INBOX+Sent) | 434 records → 122 landed, **312 replayed** (the de-duplication refusing the same message twice), +2 genuinely archived |
+
+`mail-promote dev --days 30` on top of it: 4,140 landed rows → 4,066 observations → **469
+counterparties** (evidence is one row per address, not per message: `exact_linked` 9,
+`review_required` 17, `unmatched` 443) → 39 interactions inserted, 27 replayed, 4,000 unlinked.
+Direction attribution from the archive arm is live: `[Gmail]/All Mail` interactions came out
+**18 inbound / 7 outbound** — the sender rule working, where all 25 would previously have been
+outbound.
+
+**The Warehouse question, answered with counts.** Before → after, same DEV database, across that
+promotion: `person` 2683 → 2683, `property` 2156 → 2156, `person_identity` 2710 → 2710,
+`interaction` 2322 → 2361 (+39 = exactly the inserts), `integration_relationship_evidence`
+10147 → 10565. The mail chain writes exactly five tables — `l_applemail`, `l_email`, `interaction`,
+`integration_intake_checkpoint`, `integration_relationship_evidence` — and never inserts or updates
+`person` or `property`. The warehouse's priority logic (`promote-warehouse.ts` +
+`db/migrations/228_person_merge.sql`) reads `l_person` / `l_property`, which the **Contacts** chain
+writes, not mail. Mail cannot reach it. An interaction is written only for an address already linked
+to a canonical person (`candidates(… "exact_linked")`); everything else stays staged as evidence,
+which is why 4,000 of 4,066 observations wrote no comms event.
+
+**Still open:** the Gmail API job (`rust/cli gmail-sync`) is ported and fails closed; it needs
+`GOOGLE_CLIENT_ID` / `_SECRET` / `_REFRESH_TOKEN` only if the All Mail route ever misses something.
+The PROD run of the same chain is the Captain's word — `email-sync.sh` runs it with
+`APP_ENV=production`.
+
