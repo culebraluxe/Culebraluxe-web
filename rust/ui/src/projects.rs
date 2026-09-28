@@ -129,6 +129,7 @@ pub fn carry_over(previous: Option<&PortalProjectsPage>, projects: &mut PortalPr
                 })
             })
             .or_else(|| first_node_for_project(projects, projects.selected_project_id.as_deref()));
+        projects.documents_filter = previous.documents_filter.clone();
         projects.active_view = if previous.active_view.is_empty() {
             "work-plan".into()
         } else {

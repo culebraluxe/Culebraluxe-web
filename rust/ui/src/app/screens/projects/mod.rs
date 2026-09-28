@@ -77,6 +77,12 @@ pub enum Msg {
     ProjectNodeSelected(Option<String>),
     ProjectViewSelected(String),
     ProjectDocumentsFilterChanged(String),
+    /// "Record signed copy" pressed on a document (again, to close it).
+    ProjectSignedCopyStart(String),
+    ProjectSignedCopyDate(String),
+    /// The signed PDF chosen: it uploads at once, with the date given.
+    ProjectSignedCopyChosen(web_sys::File),
+    ProjectSignedCopySaved(Result<serde_json::Value, ApiError>),
     ProjectTimelineModeSelected(String),
     ProjectTimelineSortSelected(String),
     ProjectTimelineFocusChanged(String),
@@ -842,8 +848,54 @@ fn selection(projects: &mut PortalProjectsPage, error: &mut Option<String>, msg:
             }
         }
         Msg::ProjectDocumentsFilterChanged(filter) => {
-            if matches!(filter.as_str(), "all" | "document" | "photo") {
+            if matches!(filter.as_str(), "all" | "document" | "photo" | "video") {
                 projects.documents_filter = filter;
+            }
+        }
+        Msg::ProjectSignedCopyStart(document_id) => {
+            if projects.signing_document_id.as_deref() == Some(document_id.as_str()) {
+                projects.signing_document_id = None;
+            } else {
+                projects.signing_document_id = Some(document_id);
+                projects.signing_date = projects.calendar_today.clone();
+            }
+        }
+        Msg::ProjectSignedCopyDate(date) => projects.signing_date = date,
+        Msg::ProjectSignedCopyChosen(file) => {
+            let Some(document_id) = projects.signing_document_id.clone() else {
+                return Cmd::none();
+            };
+            // One request carries the PDF; the gateway takes about 4.5 MB.
+            if file.size() > 4.0 * 1024.0 * 1024.0 {
+                *error = Some("That PDF is over 4 MB — save it smaller (fewer pages or a lower scan resolution) and choose it again.".into());
+                return Cmd::none();
+            }
+            if projects.signing_date.trim().is_empty() {
+                *error = Some("Give the date it was signed, then choose the PDF.".into());
+                return Cmd::none();
+            }
+            projects.signing_busy = true;
+            *error = None;
+            let fields = vec![
+                ("signedAt".to_string(), projects.signing_date.clone()),
+                ("projectId".to_string(), projects.selected_project_id.clone().unwrap_or_default()),
+            ];
+            return Cmd::post_form(
+                format!("/api/portal/projects/documents/{document_id}/signed"),
+                fields,
+                file,
+                Msg::ProjectSignedCopySaved,
+            );
+        }
+        Msg::ProjectSignedCopySaved(result) => {
+            projects.signing_busy = false;
+            match result {
+                Ok(_) => {
+                    projects.signing_document_id = None;
+                    *error = None;
+                    return Cmd::request(ProjectsRead, Msg::Loaded);
+                }
+                Err(failure) => *error = Some(format!("The signed copy was not recorded: {}", failure.message)),
             }
         }
         Msg::ProjectCalendarPrevious => {

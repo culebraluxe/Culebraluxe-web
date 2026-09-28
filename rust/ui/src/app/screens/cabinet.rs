@@ -305,8 +305,13 @@ fn download_links(document: &PortalCabinetDocument, mobile: bool) -> Html {
     } else {
         "Issued PDF"
     };
-    let pdf_href = format!("/portal/documents/{}/download", document.id);
-    let audit_href = format!("/portal/documents/{}/download?artifact=audit", document.id);
+    // The Rust file route: the executed copy once signed, the issued PDF before; the audit trail on its own.
+    let pdf_href = format!(
+        "/api/portal/documents/{}/file{}",
+        document.id,
+        if document.signed_artifact_available { "?artifact=signed" } else { "" }
+    );
+    let audit_href = format!("/api/portal/documents/{}/file?artifact=audit", document.id);
 
     if mobile {
         html! {

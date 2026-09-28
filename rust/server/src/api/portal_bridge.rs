@@ -59,6 +59,11 @@ pub fn router() -> Router<ApiState> {
         .route("/api/property-media/hero", axum::routing::post(property_media_hero))
         .route("/api/property-media/remove", axum::routing::post(property_media_remove))
         .route("/api/portal/property/merge-parcel", axum::routing::post(property_merge_parcel))
+        .route("/api/portal/documents/{id}/file", get(portal_document_file))
+        .route(
+            "/api/portal/projects/documents/{id}/signed",
+            axum::routing::post(project_document_signed).layer(axum::extract::DefaultBodyLimit::max(20 * 1024 * 1024)),
+        )
         .route("/api/portal/property-video/upload", axum::routing::post(property_video_upload))
         .route("/api/portal/property-video/finalize", axum::routing::post(property_video_finalize))
         .route(
@@ -2113,6 +2118,8 @@ async fn projects_page(state: &ApiState, resolved: &ResolvedRequestContext) -> R
                 "createdAt": document.get("createdAt"),
                 "signedArtifactAvailable": document.get("signedArtifactAvailable"),
                 "signedAuditAvailable": document.get("signedAuditAvailable"),
+                "partyPersonId": document.get("partyPersonId"),
+                "signedAt": document.get("signedAt"),
             })
         })
         .collect();
@@ -3298,6 +3305,134 @@ async fn property_video_finalize(
         "mediaId": result.media_id,
         "muxPlaybackId": result.mux_playback_id,
     })))
+}
+
+#[derive(Debug, Deserialize)]
+struct DocumentFileQuery {
+    /// `signed` (the executed copy), `audit` (the signing audit trail); otherwise the issued PDF.
+    artifact: Option<String>,
+}
+
+/// A Vault document's PDF, opened from the portal: the issued copy, the signed copy, or the audit trail.
+async fn portal_document_file(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Query(query): Query<DocumentFileQuery>,
+) -> Result<axum::response::Response, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    let missing = || correlate(ApiError::not_found("VAULT_DOCUMENT_NOT_FOUND", "That document has no such file."), &resolved);
+    let vault = state.services().vault();
+    let document = vault.get_document(&id, &resolved.service).await.map_err(failed(&resolved))?.ok_or_else(missing)?;
+    let media_id = match query.artifact.as_deref() {
+        Some("signed") => document.signed_artifact.map(|artifact| artifact.media_id),
+        Some("audit") => document.signed_audit_media_id,
+        _ => document.media_id,
+    }
+    .ok_or_else(missing)?;
+    let bytes = vault.media_bytes(&media_id, &resolved.service).await.map_err(failed(&resolved))?.ok_or_else(missing)?;
+    super::routes::vault_document_response(bytes, false)
+}
+
+/// RECORD A SIGNED COPY — the signing done outside the system (a PDF signed by email, until BoldSign is on). The
+/// dual-signed PDF is stored as the document's executed copy with its signing date, through the Vault's own steps
+/// (issued -> sent -> signed, the history it really had), and the project's "Listing Contract Signed" step is done.
+async fn project_document_signed(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    mut multipart: axum::extract::Multipart,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    let bad = |code: &str, message: &str| correlate(ApiError::bad_request(code, message), &resolved);
+    let (mut file, mut filename, mut signed_on, mut project_id) = (None::<Vec<u8>>, String::new(), String::new(), String::new());
+    while let Some(field) = multipart.next_field().await.map_err(|_| bad("SIGNED_COPY_INVALID", "The upload could not be read."))? {
+        match field.name().unwrap_or_default() {
+            "file" => {
+                filename = field.file_name().unwrap_or("signed.pdf").to_owned();
+                file = Some(field.bytes().await.map_err(|_| bad("SIGNED_COPY_INVALID", "The PDF could not be read."))?.to_vec());
+            }
+            "signedAt" => signed_on = field.text().await.unwrap_or_default().trim().to_owned(),
+            "projectId" => project_id = field.text().await.unwrap_or_default().trim().to_owned(),
+            _ => {}
+        }
+    }
+    let Some(bytes) = file.filter(|bytes| bytes.starts_with(b"%PDF-")) else {
+        return Err(bad("SIGNED_COPY_NOT_PDF", "Choose the signed contract as a PDF."));
+    };
+    let Ok(signed_day) = chrono::NaiveDate::parse_from_str(&signed_on, "%Y-%m-%d") else {
+        return Err(bad("SIGNED_DATE_REQUIRED", "Give the date it was signed."));
+    };
+    let signed_at = format!("{signed_day}T12:00:00Z");
+
+    let services = state.services();
+    let vault = services.vault();
+    let document = vault
+        .get_document(&id, &resolved.service)
+        .await
+        .map_err(failed(&resolved))?
+        .ok_or_else(|| correlate(ApiError::not_found("VAULT_DOCUMENT_NOT_FOUND", "That document was not found."), &resolved))?;
+    if !matches!(document.state, domain::TransactionDocumentState::Ready | domain::TransactionDocumentState::Sent) {
+        return Err(bad("SIGNED_COPY_STATE", &format!("This document is {} — only an issued one can be recorded as signed.", document.state.as_str())));
+    }
+
+    let (media_id, ..) = services
+        .media()
+        .upload_standalone(&filename, "application/pdf", bytes, &resolved.service)
+        .await
+        .map_err(failed(&resolved))?;
+    let transition = |to: domain::TransactionDocumentState, signed_artifact: Option<domain::SignedArtifactRef>| {
+        domain::TransitionTransactionDocumentRequest {
+            command_id: uuid::Uuid::new_v4().to_string(),
+            document_id: id.clone(),
+            to,
+            signed_artifact,
+            actor_app_user_id: resolved.service.actor.id.clone(),
+        }
+    };
+    if document.state == domain::TransactionDocumentState::Ready {
+        vault.transition_state(&transition(domain::TransactionDocumentState::Sent, None), &resolved.service).await.map_err(failed(&resolved))?;
+    }
+    vault
+        .transition_state(
+            &transition(domain::TransactionDocumentState::Signed, Some(domain::SignedArtifactRef { media_id, signed_at })),
+            &resolved.service,
+        )
+        .await
+        .map_err(failed(&resolved))?;
+
+    // The project's step, done on the day it was signed.
+    let mut step_done = false;
+    if !project_id.is_empty() {
+        let wbs = services.wbs();
+        let items = wbs.list_project_items(&resolved.service).await.map_err(failed(&resolved))?;
+        if let Some(step) = items
+            .into_iter()
+            .find(|item| item.project_id.as_deref() == Some(project_id.as_str()) && item.title == "Listing Contract Signed")
+        {
+            let day = signed_day.to_string();
+            let request = domain::SaveWbsItemRequest {
+                create: domain::CreateWbsItemRequest {
+                    id: step.id,
+                    title: step.title,
+                    notes: Some(step.notes),
+                    category: step.category,
+                    project_id: step.project_id,
+                    parent_id: step.parent_id,
+                    due_at: step.due_at,
+                    planned_start: Some(day.clone()),
+                    planned_finish: Some(day),
+                    owner: step.owner,
+                    order: step.order,
+                    entity: step.entity,
+                },
+                status: Some(domain::WbsStatus::Done),
+            };
+            wbs.save(&request, &resolved.service).await.map_err(failed(&resolved))?;
+            step_done = true;
+        }
+    }
+    Ok(Json(json!({ "ok": true, "signed": true, "signedAt": signed_day.to_string(), "stepDone": step_done })))
 }
 
 /// FIND by catastro on the Records screen: the other record for that parcel is merged into the open one.

@@ -65,6 +65,8 @@ struct IssuedListRow {
     created_at: DateTime<Utc>,
     signed_media_id: Option<String>,
     signed_audit_media_id: Option<String>,
+    party_person_id: Option<String>,
+    signed_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, FromRow)]
@@ -558,7 +560,8 @@ impl VaultDao {
             r#"
             select td.id::text as id,
                    td.deal_id::text as deal_id,
-                   pr.id::text as property_id,
+                   -- A contract made without a deal (a listing agreement) still names its property: on its form.
+                   coalesce(pr.id, fpr.id)::text as property_id,
                    td.document_type_label,
                    td.title,
                    td.state,
@@ -568,16 +571,20 @@ impl VaultDao {
                    td.issued_checksum_sha256,
                    u.display_name as issued_by_display_name,
                    p.display_name as party_name,
-                   pr.name as property_name,
+                   coalesce(pr.name, fpr.name) as property_name,
                    null::text as deal_name,
                    td.created_at,
                    td.signed_media_id::text as signed_media_id,
-                   td.signed_audit_media_id::text as signed_audit_media_id
+                   td.signed_audit_media_id::text as signed_audit_media_id,
+                   coalesce(td.party_person_id, fi.person_id)::text as party_person_id,
+                   td.signed_at
             from transaction_document td
             left join app_user u on u.id = td.prepared_by_user_id
             left join person p on p.id = td.party_person_id
             left join deal d on d.id = td.deal_id
             left join property pr on pr.id = d.property_id
+            left join document_form_instance fi on fi.id = td.form_instance_id
+            left join property fpr on fpr.id = fi.property_id
             where td.source = 'generated'
               and td.template_id is not null
               and ($1::boolean = false
@@ -618,6 +625,8 @@ impl VaultDao {
                     created_at: row.created_at.to_rfc3339(),
                     signed_artifact_available: row.signed_media_id.is_some(),
                     signed_audit_available: row.signed_audit_media_id.is_some(),
+                    party_person_id: row.party_person_id,
+                    signed_at: row.signed_at.map(|at| at.to_rfc3339()),
                 })
             })
             .collect()

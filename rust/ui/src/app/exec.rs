@@ -63,6 +63,24 @@ pub fn run<Msg: 'static>(cmd: Cmd<Msg>, deliver: &Callback<Msg>, navigator: Opti
                 deliver.emit(reply(result));
             });
         }
+        Cmd::PostForm { path, fields, file, reply } => {
+            let deliver = deliver.clone();
+            spawn_local(async move {
+                let result = async {
+                    let form = web_sys::FormData::new()
+                        .map_err(|_| ApiError::network("The browser could not create the upload form."))?;
+                    for (key, value) in &fields {
+                        form.append_with_str(key, value)
+                            .map_err(|_| ApiError::network("The browser could not prepare the upload."))?;
+                    }
+                    form.append_with_blob_and_filename("file", &file, &file.name())
+                        .map_err(|_| ApiError::network("The browser could not prepare the upload."))?;
+                    post_once(&path, form).await
+                }
+                .await;
+                deliver.emit(reply(result));
+            });
+        }
         Cmd::Listen { reply } => {
             listen(reply, deliver.clone());
         }

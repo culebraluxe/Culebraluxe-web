@@ -277,6 +277,9 @@ pub struct IssuedDocumentListItem {
     pub created_at: String,
     pub signed_artifact_available: bool,
     pub signed_audit_available: bool,
+    /// The person the document is for: its party, or the person on the form it was issued from.
+    pub party_person_id: Option<String>,
+    pub signed_at: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

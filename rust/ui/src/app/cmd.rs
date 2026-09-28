@@ -119,6 +119,13 @@ pub enum Cmd<Msg> {
     Upload(Upload<Msg>),
     /// A property film, sent from the browser straight to Mux (see `exec::upload_video`).
     VideoUpload(VideoUpload<Msg>),
+    /// One form post with a file (a signed contract): fields, the file, and the answer — with the way out.
+    PostForm {
+        path: String,
+        fields: Vec<(String, String)>,
+        file: web_sys::File,
+        reply: Box<dyn FnOnce(Result<serde_json::Value, ApiError>) -> Msg>,
+    },
 }
 
 /// A file sent in pieces, so no single request reaches the gateway's body limit: `init` declares it (the executor adds
@@ -226,6 +233,15 @@ impl<Msg: 'static> Cmd<Msg> {
         }
     }
 
+    pub fn post_form(
+        path: impl Into<String>,
+        fields: Vec<(String, String)>,
+        file: web_sys::File,
+        to_msg: impl FnOnce(Result<serde_json::Value, ApiError>) -> Msg + 'static,
+    ) -> Self {
+        Cmd::PostForm { path: path.into(), fields, file, reply: Box::new(to_msg) }
+    }
+
     pub fn listen(to_msg: impl FnOnce(Result<String, ApiError>) -> Msg + 'static) -> Self {
         Cmd::Listen { reply: Box::new(to_msg) }
     }
@@ -298,6 +314,12 @@ impl<Msg: 'static> Cmd<Msg> {
                 filename,
                 reply: Box::new(move |answer| f(reply(answer))),
             },
+            Cmd::PostForm { path, fields, file, reply } => Cmd::PostForm {
+                path,
+                fields,
+                file,
+                reply: Box::new(move |answer| f(reply(answer))),
+            },
             Cmd::Listen { reply } => Cmd::Listen {
                 reply: Box::new(move |answer| f(reply(answer))),
             },
@@ -358,6 +380,7 @@ impl<Msg> std::fmt::Debug for Cmd<Msg> {
             Cmd::ReplacePath(path) => write!(f, "ReplacePath({path})"),
             Cmd::SharePdf { filename, .. } => write!(f, "SharePdf({filename})"),
             Cmd::Listen { .. } => write!(f, "Listen"),
+            Cmd::PostForm { path, .. } => write!(f, "PostForm({path})"),
             Cmd::StorageRead { key, .. } => write!(f, "StorageRead({key})"),
             Cmd::StorageWrite { key, value } => write!(f, "StorageWrite({key}, {value:?})"),
             Cmd::After { millis, .. } => write!(f, "After({millis}ms)"),

@@ -4125,7 +4125,7 @@ struct VaultDownloadQuery {
     download: Option<String>,
 }
 
-fn vault_document_response(
+pub(super) fn vault_document_response(
     document: domain::VaultMediaBytes,
     download: bool,
 ) -> Result<Response, ApiError> {

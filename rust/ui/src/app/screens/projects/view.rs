@@ -434,17 +434,19 @@ fn work_plan_node(
     }
 }
 
-/// One row of the project's asset browser: a Vault document or a photograph of the project's property.
+/// One row of the project's file cabinet: a Vault document, a photograph or a film of the project's property or person.
 struct ProjectAsset {
     key: String,
-    photo: bool,
+    kind: &'static str,
     name: String,
     caption: Option<String>,
     thumbnail: Option<String>,
     href: String,
-    kind: &'static str,
+    type_label: &'static str,
     source: &'static str,
     date: Option<String>,
+    /// A document still to be signed: its id, for "Record signed copy".
+    signable: Option<String>,
 }
 
 /// "Sep 27, 2026" from a stored timestamp, or a dash.
@@ -456,59 +458,88 @@ fn asset_date(value: Option<&str>) -> String {
         .unwrap_or_else(|| "—".into())
 }
 
-/// THE PROJECT'S DOCUMENTS AND PHOTOS, IN ONE READ-ONLY LIST. A view, not a storage system: Vault documents and the
-/// property's media stay where they live, and the list only shows what belongs to this project — its property's
-/// issued documents and photographs. Nothing is invented for a project that has none.
+/// THE PROJECT'S FILE CABINET — its documents, photographs and films, in one read-only list. A view, not a store:
+/// Vault documents and the property's media stay where they live. What belongs here is what is linked to the
+/// project's property or person. A contract still to be signed can have its signed copy recorded here — the PDF
+/// signed by email, until BoldSign is on.
 fn documents_view(projects: &PortalProjectsPage, project: &PortalProject, on_msg: &Callback<Msg>) -> Html {
     let property_id = project.property_id.as_deref();
+    let person_id = project.person_id.as_deref();
     let mut assets: Vec<ProjectAsset> = projects
         .documents
         .iter()
-        .filter(|document| property_id.is_some() && document.property_id.as_deref() == property_id)
-        .map(|document| ProjectAsset {
-            key: format!("document:{}", document.id),
-            photo: false,
-            name: document.title.clone(),
-            caption: Some(document.state.replace('_', " ")).filter(|state| !state.is_empty()),
-            thumbnail: None,
-            href: format!("/portal/documents/{}/download", document.id),
-            kind: "PDF",
-            source: "Vault",
-            date: Some(document.created_at.clone()),
+        .filter(|document| {
+            (property_id.is_some() && document.property_id.as_deref() == property_id)
+                || (person_id.is_some() && document.party_person_id.as_deref() == person_id)
+        })
+        // The current version only: superseded and voided copies are history, not the file.
+        .filter(|document| matches!(document.state.as_str(), "ready" | "sent" | "signed"))
+        .map(|document| {
+            let signed = document.state == "signed";
+            ProjectAsset {
+                key: format!("document:{}", document.id),
+                kind: "document",
+                name: document.title.clone(),
+                caption: Some(if signed {
+                    format!("Signed {}", asset_date(document.signed_at.as_deref()))
+                } else {
+                    "Issued — awaiting signature".to_owned()
+                }),
+                thumbnail: None,
+                href: format!(
+                    "/api/portal/documents/{}/file{}",
+                    document.id,
+                    if signed && document.signed_artifact_available { "?artifact=signed" } else { "" }
+                ),
+                type_label: "PDF",
+                source: "Vault",
+                date: Some(document.created_at.clone()),
+                signable: (!signed).then(|| document.id.clone()),
+            }
         })
         .collect();
     assets.extend(
         projects
             .media
             .iter()
-            .filter(|media| Some(media.property_id.as_str()) == property_id && media.media_type == "image")
-            .map(|media| ProjectAsset {
-                key: format!("photo:{}", media.id),
-                photo: true,
-                name: media.filename.clone().or_else(|| media.alt_text.clone()).unwrap_or_else(|| "Photo".into()),
-                caption: media.caption.clone().or_else(|| media.alt_text.clone()),
-                thumbnail: Some(media.url.clone()),
-                href: media.url.clone(),
-                kind: "Photo",
-                source: "Property media",
-                date: media.created_at.clone(),
+            .filter(|media| Some(media.property_id.as_str()) == property_id)
+            .filter_map(|media| match media.media_type.as_str() {
+                "image" => Some(ProjectAsset {
+                    key: format!("photo:{}", media.id),
+                    kind: "photo",
+                    name: media.filename.clone().or_else(|| media.alt_text.clone()).unwrap_or_else(|| "Photo".into()),
+                    caption: media.caption.clone().or_else(|| media.alt_text.clone()),
+                    thumbnail: Some(media.url.clone()),
+                    href: media.url.clone(),
+                    type_label: "Photo",
+                    source: "Property media",
+                    date: media.created_at.clone(),
+                    signable: None,
+                }),
+                "video" => media.mux_playback_id.clone().map(|playback| ProjectAsset {
+                    key: format!("video:{}", media.id),
+                    kind: "video",
+                    name: media.caption.clone().unwrap_or_else(|| if media.role == "short" { "Short film".into() } else { "Property film".into() }),
+                    caption: None,
+                    thumbnail: Some(format!("https://image.mux.com/{playback}/thumbnail.jpg?width=160")),
+                    href: format!("https://player.mux.com/{playback}"),
+                    type_label: "Video",
+                    source: "Mux",
+                    date: media.created_at.clone(),
+                    signable: None,
+                }),
+                _ => None,
             }),
     );
     let filter = match projects.documents_filter.as_str() {
         "document" => "document",
         "photo" => "photo",
+        "video" => "video",
         _ => "all",
     };
-    let documents = assets.iter().filter(|asset| !asset.photo).count();
-    let photos = assets.len() - documents;
-    let visible: Vec<&ProjectAsset> = assets
-        .iter()
-        .filter(|asset| match filter {
-            "document" => !asset.photo,
-            "photo" => asset.photo,
-            _ => true,
-        })
-        .collect();
+    let count = |kind: &str| assets.iter().filter(|asset| asset.kind == kind).count();
+    let (documents, photos, videos) = (count("document"), count("photo"), count("video"));
+    let visible: Vec<&ProjectAsset> = assets.iter().filter(|asset| filter == "all" || asset.kind == filter).collect();
     let chip = |key: &'static str, label: &'static str, count: usize| {
         let active = filter == key;
         html! {
@@ -521,6 +552,21 @@ fn documents_view(projects: &PortalProjectsPage, project: &PortalProject, on_msg
         }
     };
     let columns = "grid grid-cols-[minmax(0,1.7fr)_90px_135px_105px] gap-3";
+    let signing = projects.signing_document_id.clone();
+    let date_change = on_msg.reform(|event: InputEvent| {
+        Msg::ProjectSignedCopyDate(event.target_unchecked_into::<web_sys::HtmlInputElement>().value())
+    });
+    let file_change = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |event: Event| {
+            let input = event.target_unchecked_into::<web_sys::HtmlInputElement>();
+            let file = input.files().and_then(|list| list.get(0));
+            input.set_value("");
+            if let Some(file) = file {
+                on_msg.emit(Msg::ProjectSignedCopyChosen(file));
+            }
+        })
+    };
     html! {
         <section class="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[var(--portal-tab-radius)] border border-white/20 bg-[color-mix(in_srgb,var(--portal-navy)_94%,transparent)] shadow-sm">
             <div class="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-3 py-2">
@@ -528,8 +574,9 @@ fn documents_view(projects: &PortalProjectsPage, project: &PortalProject, on_msg
                     { chip("all", "All", assets.len()) }
                     { chip("document", "Documents", documents) }
                     { chip("photo", "Photos", photos) }
+                    { chip("video", "Videos", videos) }
                 </div>
-                <span class="hidden text-[10px] font-light uppercase tracking-[0.12em] text-white/35 sm:inline">{"Read-only · Vault + Property media"}</span>
+                <span class="hidden text-[10px] font-light uppercase tracking-[0.12em] text-white/35 sm:inline">{"Vault + Property media + Mux · this project's property and person"}</span>
             </div>
             <div class={classes!(columns, "shrink-0", "border-b", "border-white/10", "px-3", "py-2", "text-[9px]", "font-semibold", "uppercase", "tracking-[0.12em]", "text-white/35")}>
                 <span>{"Name"}</span><span>{"Type"}</span><span>{"Source"}</span><span>{"Updated"}</span>
@@ -539,43 +586,83 @@ fn documents_view(projects: &PortalProjectsPage, project: &PortalProject, on_msg
                     <div class="flex h-full min-h-48 items-center justify-center px-6 text-center">
                         <p class="text-[13px] font-light text-white/45">
                             { if assets.is_empty() {
-                                if property_id.is_none() { "No property is linked to this project yet, so it has no documents or photos to show.".to_owned() }
-                                else { "No project assets are linked yet.".to_owned() }
-                            } else if filter == "photo" { "No photos are linked to this project.".to_owned() }
-                            else { "No documents are linked to this project.".to_owned() } }
+                                if property_id.is_none() && person_id.is_none() { "No property or person is linked to this project yet.".to_owned() }
+                                else { "No documents, photos or films are linked to this project's property or person yet.".to_owned() }
+                            } else { format!("No {} are linked to this project.", match filter { "photo" => "photos", "video" => "films", _ => "documents" }) } }
                         </p>
                     </div>
                 } else {
                     <ul class="divide-y divide-white/[0.08]">
-                        { for visible.iter().map(|asset| html! {
-                            <li key={asset.key.clone()} class={classes!(columns, "items-center", "px-3", "py-2.5", "transition", "hover:bg-white/[0.04]")}>
-                                <a href={asset.href.clone()} target="_blank" rel="noreferrer" class="group block min-w-0" title="Open">
-                                    <div class="flex min-w-0 items-center gap-3">
-                                        if let Some(thumbnail) = asset.thumbnail.clone() {
-                                            <img src={thumbnail} alt={asset.caption.clone().unwrap_or_else(|| asset.name.clone())} loading="lazy"
-                                                class="h-11 w-14 shrink-0 rounded-md border border-white/15 object-cover" />
-                                        } else {
-                                            <span class="flex h-11 w-14 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.06] text-[var(--portal-gold)]">
-                                                { glyph(if asset.photo { "image" } else { "file-text" }, "h-5 w-5") }
-                                            </span>
-                                        }
-                                        <span class="min-w-0">
-                                            <span class="block truncate text-[14px] font-medium text-white/95">{asset.name.clone()}</span>
-                                            if let Some(caption) = asset.caption.clone().filter(|caption| *caption != asset.name) {
-                                                <span class="mt-0.5 block truncate text-[11px] font-light text-white/45">{caption}</span>
+                        { for visible.iter().map(|asset| {
+                            let open_signing = asset.signable.is_some() && asset.signable == signing;
+                            html! {
+                            <li key={asset.key.clone()} class="px-3 py-2.5 transition hover:bg-white/[0.04]">
+                                <div class={classes!(columns, "items-center")}>
+                                    <a href={asset.href.clone()} target="_blank" rel="noreferrer" class="group block min-w-0" title="Open">
+                                        <div class="flex min-w-0 items-center gap-3">
+                                            if let Some(thumbnail) = asset.thumbnail.clone() {
+                                                <img src={thumbnail} alt={asset.name.clone()} loading="lazy"
+                                                    class="h-11 w-14 shrink-0 rounded-md border border-white/15 object-cover" />
+                                            } else {
+                                                <span class="flex h-11 w-14 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.06] text-[var(--portal-gold)]">
+                                                    { glyph("file-text", "h-5 w-5") }
+                                                </span>
                                             }
-                                        </span>
+                                            <span class="min-w-0">
+                                                <span class="block truncate text-[14px] font-medium text-white/95">{asset.name.clone()}</span>
+                                                if let Some(caption) = asset.caption.clone().filter(|caption| *caption != asset.name) {
+                                                    <span class="mt-0.5 block truncate text-[11px] font-light text-white/45">{caption}</span>
+                                                }
+                                            </span>
+                                        </div>
+                                    </a>
+                                    <span class="text-[12px] font-light text-white/65">{asset.type_label}</span>
+                                    <span class="flex items-center gap-2 text-[12px] font-light text-white/65">
+                                        {asset.source}
+                                        if let Some(document_id) = asset.signable.clone() {
+                                            <button type="button"
+                                                onclick={on_msg.reform(move |_: MouseEvent| Msg::ProjectSignedCopyStart(document_id.clone()))}
+                                                class="rounded-full border border-[var(--portal-gold)]/60 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-gold)] hover:bg-white/10">
+                                                { if open_signing { "Cancel" } else { "Record signed" } }
+                                            </button>
+                                        }
+                                    </span>
+                                    <span class="text-[11px] font-light text-white/45">{asset_date(asset.date.as_deref())}</span>
+                                </div>
+                                if open_signing {
+                                    <div class="mt-2 flex flex-wrap items-end gap-3 rounded-md border border-white/10 bg-white/[0.05] px-3 py-2">
+                                        <label class="text-[10px] font-semibold uppercase tracking-[0.1em] text-white/55">
+                                            {"Signed on"}
+                                            <input type="date" value={projects.signing_date.clone()} oninput={date_change.clone()} disabled={projects.signing_busy}
+                                                class="mt-1 block h-9 rounded-md border border-white/20 bg-white/90 px-2 text-[13px] font-normal normal-case tracking-normal text-[var(--portal-navy)]" />
+                                        </label>
+                                        <input id="project-signed-copy" type="file" accept="application/pdf" onchange={file_change.clone()} class="hidden" />
+                                        <button type="button" disabled={projects.signing_busy}
+                                            onclick={Callback::from(|_: MouseEvent| open_signed_copy_picker())}
+                                            class="h-9 rounded-md bg-[var(--portal-gold)] px-4 text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-navy)] disabled:opacity-50">
+                                            { if projects.signing_busy { "Recording…" } else { "Choose the signed PDF" } }
+                                        </button>
+                                        <span class="text-[11px] font-light text-white/50">{"Stored as the executed copy; the project's signing step is marked done."}</span>
                                     </div>
-                                </a>
-                                <span class="text-[12px] font-light text-white/65">{asset.kind}</span>
-                                <span class="text-[12px] font-light text-white/65">{asset.source}</span>
-                                <span class="text-[11px] font-light text-white/45">{asset_date(asset.date.as_deref())}</span>
+                                }
                             </li>
-                        }) }
+                        }}) }
                     </ul>
                 }
             </div>
         </section>
+    }
+}
+
+/// Opens the hidden PDF picker for "Record signed".
+fn open_signed_copy_picker() {
+    use web_sys::wasm_bindgen::JsCast;
+    if let Some(input) = web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| document.get_element_by_id("project-signed-copy"))
+        .and_then(|element| element.dyn_into::<web_sys::HtmlElement>().ok())
+    {
+        input.click();
     }
 }
 

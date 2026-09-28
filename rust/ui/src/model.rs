@@ -1737,8 +1737,12 @@ pub struct PortalProjectsPage {
     pub work_collapsed: bool,
     pub work_dirty: bool,
     pub saving: bool,
-    /// The Documents tab's filter: `all`, `document` or `photo` (empty means all).
+    /// The Documents tab's filter: `all`, `document`, `photo` or `video` (empty means all).
     pub documents_filter: String,
+    /// The document whose signed copy is being recorded, the date it was signed, and whether it is uploading.
+    pub signing_document_id: Option<String>,
+    pub signing_date: String,
+    pub signing_busy: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
@@ -1811,6 +1815,9 @@ pub struct PortalProjectDocument {
     pub created_at: String,
     pub signed_artifact_available: bool,
     pub signed_audit_available: bool,
+    /// The person the document is for.
+    pub party_person_id: Option<String>,
+    pub signed_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
@@ -1828,6 +1835,8 @@ pub struct PortalProjectMedia {
     pub caption: Option<String>,
     pub created_at: Option<String>,
     pub url: String,
+    /// A film's Mux playback id (videos only).
+    pub mux_playback_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
