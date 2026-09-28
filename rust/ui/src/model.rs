@@ -2106,6 +2106,12 @@ pub struct OpsWorkbenchState {
     pub media_batch_property: Option<String>,
     /// The photo whose Delete was pressed once: a second press deletes it.
     pub media_confirm_delete: Option<String>,
+    /// The film being uploaded: its name, and how far it has got.
+    pub video_file_name: Option<String>,
+    pub video_progress: Option<(f64, f64, String)>,
+    /// `video` (a property film) or `short`.
+    pub video_role: String,
+    pub video_caption: String,
     pub media_uploader_open: bool,
 }
 
@@ -2136,6 +2142,10 @@ impl Default for OpsWorkbenchState {
             media_batch_first: None,
             media_batch_property: None,
             media_confirm_delete: None,
+            video_file_name: None,
+            video_progress: None,
+            video_role: "video".into(),
+            video_caption: String::new(),
             media_uploader_open: false,
         }
     }

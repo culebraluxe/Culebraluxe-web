@@ -1434,7 +1434,7 @@ fn property_editor(
             </div>
         },
         "photos" => media_editor(model, property, media, on_msg),
-        "video" => video_editor(property, media),
+        "video" => video_editor(model, property, media, on_msg),
         "person" => property_person_editor(model, property, on_msg),
         _ => html! {
             <div class="space-y-4">
@@ -1637,7 +1637,7 @@ fn property_person_editor(
     }
 }
 
-fn video_editor(property: &PortalOpsProperty, media: &[PortalOpsMediaAsset]) -> Html {
+fn video_editor(model: &Vm<'_>, property: &PortalOpsProperty, media: &[PortalOpsMediaAsset], on_msg: &Callback<Msg>) -> Html {
     let videos = media
         .iter()
         .filter(|item| item.media_type == "video" && item.mux_playback_id.is_some())
@@ -1655,7 +1655,118 @@ fn video_editor(property: &PortalOpsProperty, media: &[PortalOpsMediaAsset]) -> 
                 {count_card("Property films", films)}
                 {count_card("Short films", shorts)}
             </div>
-            { crate::app::template::widget_removed("The video panel") }
+            if let Some(error) = model.error.clone() {
+                <div class="rounded-[var(--portal-tab-radius)] border border-red-400/60 bg-red-50 px-3 py-2 text-[12px] font-light text-red-700">
+                    {error}
+                </div>
+            }
+            {video_uploader(model, on_msg)}
+            // The films this property shows, played by Mux's own player — what a buyer sees on the property page.
+            <div class="grid gap-3 lg:grid-cols-2">
+                { for videos.iter().map(|video| {
+                    let playback = video.mux_playback_id.clone().unwrap_or_default();
+                    html! {
+                        <figure class="overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-[var(--portal-navy)]">
+                            <div class="relative aspect-video">
+                                <iframe src={format!("https://player.mux.com/{playback}")}
+                                    title={video.caption.clone().unwrap_or_else(|| "Property film".into())}
+                                    allow="autoplay; fullscreen; picture-in-picture; airplay" allowfullscreen=true
+                                    class="absolute inset-0 h-full w-full border-0"></iframe>
+                            </div>
+                            <figcaption class="flex items-center justify-between gap-2 px-3 py-2 text-[11px] font-light text-white/85">
+                                <span class="truncate">{video.caption.clone().unwrap_or_else(|| "Property film".into())}</span>
+                                <span class="shrink-0 uppercase tracking-[0.12em] text-white/60">{ if video.role == "short" { "Short" } else { "Film" } }</span>
+                            </figcaption>
+                        </figure>
+                    }
+                }) }
+            </div>
+        </div>
+    }
+}
+
+/// Choose a film: it goes to Mux in pieces, straight from the browser, and appears here when Mux has it ready.
+fn video_uploader(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
+    let file_change = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |event: Event| {
+            let input = event.target_unchecked_into::<web_sys::HtmlInputElement>();
+            let file = input.files().and_then(|list| list.get(0));
+            input.set_value("");
+            if let Some(file) = file {
+                on_msg.emit(Msg::VideoChosen(file));
+            }
+        })
+    };
+    let role_change = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |event: Event| {
+            on_msg.emit(Msg::VideoRoleChanged(event.target_unchecked_into::<web_sys::HtmlSelectElement>().value()))
+        })
+    };
+    let caption_change = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |event: InputEvent| {
+            on_msg.emit(Msg::VideoCaptionChanged(event.target_unchecked_into::<web_sys::HtmlInputElement>().value()))
+        })
+    };
+    let busy = model.ops.video_file_name.is_some();
+    let status = match &model.ops.video_progress {
+        Some((sent, total, stage)) if stage == "preparing" => {
+            let _ = (sent, total);
+            "Uploaded — Mux is preparing the video…".to_owned()
+        }
+        Some((sent, total, _)) => format!(
+            "Uploading {:.0}% ({:.0} of {:.0} MB)",
+            if *total > 0.0 { sent / total * 100.0 } else { 0.0 },
+            sent / 1_048_576.0,
+            total / 1_048_576.0
+        ),
+        None => "Choose a video — it uploads straight to Mux, and resumes if it is interrupted".to_owned(),
+    };
+    let percent = model
+        .ops
+        .video_progress
+        .as_ref()
+        .map(|(sent, total, stage)| if stage == "preparing" || *total <= 0.0 { 100.0 } else { sent / total * 100.0 })
+        .unwrap_or(0.0);
+    html! {
+        <div class="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/45 p-3">
+            <input id="ops-video-file" type="file" accept="video/*" onchange={file_change} class="hidden" />
+            <div class="flex flex-wrap items-center gap-3">
+                <span class="min-w-0 flex-1 truncate text-[11px] font-light text-black/55">
+                    { match &model.ops.video_file_name { Some(name) => format!("{name} — {status}"), None => status.clone() } }
+                </span>
+                <button
+                    type="button"
+                    disabled={busy}
+                    onclick={Callback::from(|_: MouseEvent| open_picker("ops-video-file"))}
+                    class="inline-flex h-9 shrink-0 items-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-4 text-[10px] font-semibold uppercase tracking-[0.12em] text-white disabled:opacity-40"
+                >
+                    {"Add video"}
+                </button>
+            </div>
+            if busy {
+                <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--portal-navy)]/10">
+                    <div class="h-full bg-[var(--portal-gold-muted)] transition-all" style={format!("width: {percent:.1}%")}></div>
+                </div>
+            }
+            <div class="mt-2 grid gap-2 sm:grid-cols-[12rem_minmax(0,1fr)]">
+                <label class="text-[10px] font-semibold uppercase tracking-[0.11em] text-[var(--portal-blue-gray)]">
+                    {"Kind"}
+                    <select onchange={role_change} disabled={busy}
+                        class="mt-1 block h-10 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/80 px-3 text-[13px] font-light normal-case tracking-normal text-[var(--portal-navy)]">
+                        <option value="video" selected={model.ops.video_role != "short"}>{"Property film"}</option>
+                        <option value="short" selected={model.ops.video_role == "short"}>{"Short film"}</option>
+                    </select>
+                </label>
+                <label class="text-[10px] font-semibold uppercase tracking-[0.11em] text-[var(--portal-blue-gray)]">
+                    {"Caption"}
+                    <input value={model.ops.video_caption.clone()} oninput={caption_change} disabled={busy}
+                        placeholder="Sunset over Flamenco from the terrace"
+                        class="mt-1 block h-10 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/80 px-3 text-[13px] font-light normal-case tracking-normal text-[var(--portal-navy)]" />
+                </label>
+            </div>
         </div>
     }
 }

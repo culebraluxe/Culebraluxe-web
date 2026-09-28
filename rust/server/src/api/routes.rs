@@ -568,7 +568,7 @@ struct RouteProjectWorkBody {
     alert: Option<bool>,
 }
 
-fn mux_video() -> Result<MuxClient, ApiError> {
+pub(super) fn mux_video() -> Result<MuxClient, ApiError> {
     let config = MuxConfig::from_env().map_err(|message| {
         ApiError::from(CoreServiceError::business("MUX_NOT_CONFIGURED", message))
     })?;

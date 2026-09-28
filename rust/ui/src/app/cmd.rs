@@ -117,6 +117,8 @@ pub enum Cmd<Msg> {
     },
     /// Send one file with the chunked-upload protocol (see `Upload`).
     Upload(Upload<Msg>),
+    /// A property film, sent from the browser straight to Mux (see `exec::upload_video`).
+    VideoUpload(VideoUpload<Msg>),
 }
 
 /// A file sent in pieces, so no single request reaches the gateway's body limit: `init` declares it (the executor adds
@@ -130,7 +132,42 @@ pub struct Upload<Msg> {
     pub reply: Box<dyn FnOnce(Result<(), ApiError>) -> Msg>,
 }
 
+/// How far a film has got: bytes sent of the total, and the stage (`uploading`, then `preparing` while Mux encodes).
+#[derive(Debug, Clone, PartialEq)]
+pub struct VideoProgress {
+    pub sent: f64,
+    pub total: f64,
+    pub stage: &'static str,
+}
+
+pub struct VideoUpload<Msg> {
+    pub file: web_sys::File,
+    pub property_id: String,
+    pub role: String,
+    pub caption: String,
+    pub progress: std::rc::Rc<dyn Fn(VideoProgress) -> Msg>,
+    pub reply: Box<dyn FnOnce(Result<(), ApiError>) -> Msg>,
+}
+
 impl<Msg: 'static> Cmd<Msg> {
+    pub fn video_upload(
+        file: web_sys::File,
+        property_id: String,
+        role: String,
+        caption: String,
+        progress: impl Fn(VideoProgress) -> Msg + 'static,
+        reply: impl FnOnce(Result<(), ApiError>) -> Msg + 'static,
+    ) -> Self {
+        Cmd::VideoUpload(VideoUpload {
+            file,
+            property_id,
+            role,
+            caption,
+            progress: std::rc::Rc::new(progress),
+            reply: Box::new(reply),
+        })
+    }
+
     pub fn none() -> Self {
         Cmd::None
     }
@@ -283,6 +320,20 @@ impl<Msg: 'static> Cmd<Msg> {
                     Box::new(move |answer| f(reply(answer)))
                 },
             }),
+            Cmd::VideoUpload(upload) => {
+                let (progress, g) = (upload.progress, f.clone());
+                Cmd::VideoUpload(VideoUpload {
+                    file: upload.file,
+                    property_id: upload.property_id,
+                    role: upload.role,
+                    caption: upload.caption,
+                    progress: std::rc::Rc::new(move |step| g(progress(step))),
+                    reply: {
+                        let reply = upload.reply;
+                        Box::new(move |answer| f(reply(answer)))
+                    },
+                })
+            }
         }
     }
 
@@ -311,6 +362,7 @@ impl<Msg> std::fmt::Debug for Cmd<Msg> {
             Cmd::StorageWrite { key, value } => write!(f, "StorageWrite({key}, {value:?})"),
             Cmd::After { millis, .. } => write!(f, "After({millis}ms)"),
             Cmd::Upload(upload) => write!(f, "Upload({})", upload.path),
+            Cmd::VideoUpload(upload) => write!(f, "VideoUpload({})", upload.file.name()),
         }
     }
 }

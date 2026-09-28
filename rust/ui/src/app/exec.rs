@@ -51,6 +51,18 @@ pub fn run<Msg: 'static>(cmd: Cmd<Msg>, deliver: &Callback<Msg>, navigator: Opti
                 Err(error) => deliver.emit(reply(Err(error))),
             }
         }
+        Cmd::VideoUpload(upload) => {
+            let deliver = deliver.clone();
+            spawn_local(async move {
+                let reply = upload.reply;
+                let progress = {
+                    let (progress, deliver) = (upload.progress.clone(), deliver.clone());
+                    move |step: crate::app::cmd::VideoProgress| deliver.emit(progress(step))
+                };
+                let result = upload_video(&upload.file, &upload.property_id, &upload.role, &upload.caption, &progress).await;
+                deliver.emit(reply(result));
+            });
+        }
         Cmd::Listen { reply } => {
             listen(reply, deliver.clone());
         }
@@ -254,6 +266,200 @@ async fn upload_chunked(
         }
     }
     Err(ApiError::network("The photo is taking too long to finish."))
+}
+
+/// 8 MiB per request to Mux: a multiple of 256 KiB, as its upload store requires, and short enough on a slow line.
+const VIDEO_CHUNK_BYTES: f64 = 8.0 * 1024.0 * 1024.0;
+
+/// A video piece may take longer than a photo request: the way out is further away, but it is there.
+const VIDEO_REQUEST_SECONDS: u64 = 120;
+
+/// A signal that aborts its request after `seconds` — every request in an upload has a way out.
+fn way_out(seconds: u64) -> Result<web_sys::AbortSignal, ApiError> {
+    let controller = web_sys::AbortController::new()
+        .map_err(|_| ApiError::network("The browser could not start the upload."))?;
+    let signal = controller.signal();
+    yew::platform::spawn_local(async move {
+        yew::platform::time::sleep(std::time::Duration::from_secs(seconds)).await;
+        controller.abort();
+    });
+    Ok(signal)
+}
+
+/// A JSON POST to this server, with the way out and retries.
+async fn post_json(path: &str, body: &serde_json::Value) -> Result<serde_json::Value, ApiError> {
+    let mut attempt = 1;
+    loop {
+        let answer = async {
+            let signal = way_out(REQUEST_SECONDS)?;
+            let response = HttpRequest::post(path)
+                .abort_signal(Some(&signal))
+                .json(body)
+                .map_err(|error| ApiError::network(error.to_string()))?
+                .send()
+                .await
+                .map_err(|error| ApiError::network(format!("the request did not complete ({error})")))?;
+            let status = response.status();
+            let text = response
+                .text()
+                .await
+                .map_err(|error| ApiError::network(format!("the answer did not arrive ({error})")))?;
+            interpret(status, response.ok(), &text)
+        }
+        .await;
+        match answer {
+            Err(error) if attempt < ATTEMPTS && (error.code == "NETWORK" || error.status >= 500) => {
+                yew::platform::time::sleep(std::time::Duration::from_secs(2u64 << attempt)).await;
+                attempt += 1;
+            }
+            answer => return answer,
+        }
+    }
+}
+
+/// Where Mux's upload store stands: `Ok(Some(next byte))` while incomplete, `Ok(None)` once it has the whole file.
+/// `Err` when the answer says nothing usable (the session expired, or its progress is not readable here).
+async fn video_offset(url: &str, total: f64) -> Result<Option<f64>, ApiError> {
+    let signal = way_out(30)?;
+    let response = HttpRequest::put(url)
+        .abort_signal(Some(&signal))
+        .header("Content-Range", &format!("bytes */{total}"))
+        .send()
+        .await
+        .map_err(|error| ApiError::network(format!("Mux did not answer ({error})")))?;
+    match response.status() {
+        200 | 201 => Ok(None),
+        308 => Ok(Some(
+            response
+                .headers()
+                .get("range")
+                .and_then(|range| range.rsplit('-').next().and_then(|end| end.trim().parse::<f64>().ok()))
+                .map(|end| end + 1.0)
+                .unwrap_or(0.0),
+        )),
+        status => Err(ApiError::network(format!("Mux answered {status}."))),
+    }
+}
+
+/// A PROPERTY FILM, SENT THE WAY THE PHOTOS ARE — in pieces, each its own short request with a way out, retried when
+/// it fails, and resumed when the same file is chosen again within the hour. Unlike the photos, the pieces go straight
+/// from the browser to Mux (a direct upload URL this server asks Mux for), so a gigabyte never passes through here.
+/// Then Mux encodes it; this asks until it is ready, and the server attaches it to the property.
+async fn upload_video(
+    file: &web_sys::File,
+    property_id: &str,
+    role: &str,
+    caption: &str,
+    progress: &dyn Fn(crate::app::cmd::VideoProgress),
+) -> Result<(), ApiError> {
+    use crate::app::cmd::VideoProgress;
+    let total = file.size();
+    if total <= 0.0 {
+        return Err(ApiError::network("That file is empty."));
+    }
+    let step = |sent: f64, stage: &'static str| progress(VideoProgress { sent, total, stage });
+    let resume_key = format!("culebra-video:{property_id}:{}:{total}", file.name());
+    let now = js_sys::Date::now();
+
+    // An upload of this same file started within the hour resumes where Mux says it stands.
+    let saved: Option<(String, String)> = storage()
+        .and_then(|storage| storage.get_item(&resume_key).ok().flatten())
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .filter(|saved| saved.get("at").and_then(serde_json::Value::as_f64).is_some_and(|at| now - at < 55.0 * 60_000.0))
+        .and_then(|saved| {
+            Some((saved.get("uploadId")?.as_str()?.to_owned(), saved.get("uploadUrl")?.as_str()?.to_owned()))
+        });
+    let mut resumed: Option<(String, String, Option<f64>)> = None;
+    if let Some((upload_id, url)) = saved {
+        if let Ok(offset) = video_offset(&url, total).await {
+            resumed = Some((upload_id, url, offset));
+        }
+    }
+    let (upload_id, url, mut offset) = match resumed {
+        Some((upload_id, url, offset)) => (upload_id, url, offset),
+        None => {
+            let session = post_json("/api/portal/property-video/upload", &serde_json::json!({})).await?;
+            let text = |key: &str| session.get(key).and_then(serde_json::Value::as_str).map(str::to_owned);
+            let (Some(upload_id), Some(url)) = (text("uploadId"), text("uploadUrl")) else {
+                return Err(ApiError::decode("Mux did not give an upload address."));
+            };
+            if let Some(storage) = storage() {
+                let saved = serde_json::json!({ "uploadId": upload_id, "uploadUrl": url, "at": now });
+                let _ = storage.set_item(&resume_key, &saved.to_string());
+            }
+            (upload_id, url, Some(0.0))
+        }
+    };
+
+    // The pieces. A piece that fails is retried from where Mux says it stands (or from its own start).
+    while let Some(start) = offset {
+        step(start, "uploading");
+        let end = (start + VIDEO_CHUNK_BYTES).min(total);
+        let mut attempt = 1;
+        let next = loop {
+            let sent = async {
+                let piece = file
+                    .slice_with_f64_and_f64(start, end)
+                    .map_err(|_| ApiError::network("Part of the video could not be read."))?;
+                let signal = way_out(VIDEO_REQUEST_SECONDS)?;
+                let response = HttpRequest::put(&url)
+                    .abort_signal(Some(&signal))
+                    .header("Content-Range", &format!("bytes {start}-{}/{total}", end - 1.0))
+                    .body(piece)
+                    .map_err(|error| ApiError::network(error.to_string()))?
+                    .send()
+                    .await
+                    .map_err(|error| ApiError::network(format!("the piece did not arrive ({error})")))?;
+                match response.status() {
+                    200 | 201 => Ok(None),
+                    308 => Ok(Some(
+                        response
+                            .headers()
+                            .get("range")
+                            .and_then(|range| range.rsplit('-').next().and_then(|e| e.trim().parse::<f64>().ok()))
+                            .map(|last| last + 1.0)
+                            .unwrap_or(end),
+                    )),
+                    status => Err(ApiError { status, code: "NETWORK".into(), message: format!("Mux answered {status}.") }),
+                }
+            }
+            .await;
+            match sent {
+                Ok(next) => break next,
+                Err(error) if attempt < ATTEMPTS => {
+                    yew::platform::time::sleep(std::time::Duration::from_secs(2u64 << attempt)).await;
+                    attempt += 1;
+                    // Mux may hold part of the failed piece: continue from what it has, if it says.
+                    if let Ok(position) = video_offset(&url, total).await {
+                        if position != Some(start) {
+                            break position;
+                        }
+                    }
+                    let _ = error;
+                }
+                Err(error) => return Err(ApiError { message: format!("The video stopped uploading: {}", error.message), ..error }),
+            }
+        };
+        offset = next;
+    }
+    step(total, "preparing");
+    if let Some(storage) = storage() {
+        let _ = storage.remove_item(&resume_key);
+    }
+
+    // Mux encodes the film; ask until it is ready (the server attaches it then). An hour is the ceiling.
+    for _ in 0..720 {
+        let answer = post_json(
+            "/api/portal/property-video/finalize",
+            &serde_json::json!({ "propertyId": property_id, "uploadId": upload_id, "role": role, "caption": caption }),
+        )
+        .await?;
+        if answer.get("attached").and_then(serde_json::Value::as_bool) == Some(true) {
+            return Ok(());
+        }
+        yew::platform::time::sleep(std::time::Duration::from_secs(5)).await;
+    }
+    Err(ApiError::network("Mux is taking too long to prepare the video. Look again on the Video tab later."))
 }
 
 pub fn load(href: &str) {

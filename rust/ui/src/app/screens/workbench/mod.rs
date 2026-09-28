@@ -99,6 +99,11 @@ pub enum Msg {
     PhotoDeleted(Result<serde_json::Value, ApiError>),
     HeroSet(Result<serde_json::Value, ApiError>),
     OpsVideoRefreshRequested,
+    VideoChosen(web_sys::File),
+    VideoRoleChanged(String),
+    VideoCaptionChanged(String),
+    VideoProgressed(crate::app::cmd::VideoProgress),
+    VideoUploaded(Result<(), ApiError>),
 }
 
 pub struct Workbench;
@@ -674,6 +679,59 @@ fn update(model: &mut Model, msg: Msg) -> Cmd<Msg> {
             read(model)
         }
         Msg::OpsVideoRefreshRequested => read(model),
+        Msg::VideoRoleChanged(role) => {
+            model.ops.video_role = role;
+            Cmd::none()
+        }
+        Msg::VideoCaptionChanged(caption) => {
+            model.ops.video_caption = caption;
+            Cmd::none()
+        }
+        Msg::VideoChosen(file) => {
+            if model.ops.video_file_name.is_some() {
+                return Cmd::none();
+            }
+            let Some(property_id) = model.selected.clone() else {
+                model.error = Some("Select a Property before uploading.".into());
+                return Cmd::none();
+            };
+            if !file.type_().starts_with("video/") {
+                model.error = Some(format!("{} is not a video.", file.name()));
+                return Cmd::none();
+            }
+            model.error = None;
+            model.ops.video_file_name = Some(file.name());
+            model.ops.video_progress = Some((0.0, file.size(), "uploading".into()));
+            Cmd::video_upload(
+                file,
+                property_id,
+                model.ops.video_role.clone(),
+                model.ops.video_caption.trim().to_owned(),
+                Msg::VideoProgressed,
+                Msg::VideoUploaded,
+            )
+        }
+        Msg::VideoProgressed(step) => {
+            model.ops.video_progress = Some((step.sent, step.total, step.stage.to_owned()));
+            Cmd::none()
+        }
+        Msg::VideoUploaded(result) => {
+            let name = model.ops.video_file_name.take().unwrap_or_default();
+            model.ops.video_progress = None;
+            match result {
+                Ok(()) => {
+                    model.ops.video_caption.clear();
+                    read(model)
+                }
+                Err(error) => {
+                    model.error = Some(format!(
+                        "{name} was not added: {} Choose it again to resume where it stopped.",
+                        error.message
+                    ));
+                    Cmd::none()
+                }
+            }
+        }
     }
 }
 

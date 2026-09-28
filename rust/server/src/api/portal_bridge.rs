@@ -58,6 +58,8 @@ pub fn router() -> Router<ApiState> {
         .route("/api/portal/rust-ui/role-entitlements", axum::routing::put(role_entitlements_put))
         .route("/api/property-media/hero", axum::routing::post(property_media_hero))
         .route("/api/property-media/remove", axum::routing::post(property_media_remove))
+        .route("/api/portal/property-video/upload", axum::routing::post(property_video_upload))
+        .route("/api/portal/property-video/finalize", axum::routing::post(property_video_finalize))
         .route(
             "/api/property-media/chunked",
             axum::routing::post(property_media_chunked).layer(axum::extract::DefaultBodyLimit::max(8 * 1024 * 1024)),
@@ -3257,6 +3259,49 @@ async fn tech_act(
 }
 
 /// Make a photograph the property's hero after upload.
+/// A Mux direct upload for a property film: the browser sends the video straight to Mux, in pieces, never through
+/// this server. The upload is allowed from the page's own origin only.
+async fn property_video_upload(State(state): State<ApiState>, headers: HeaderMap) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    let origin = headers.get("origin").and_then(|value| value.to_str().ok()).unwrap_or("").to_owned();
+    let mux = super::routes::mux_video().map_err(|error| correlate(error, &resolved))?;
+    let session = state
+        .services()
+        .media()
+        .create_property_video_upload(&mux, &origin, &resolved.service)
+        .await
+        .map_err(failed(&resolved))?;
+    Ok(Json(json!({ "ok": true, "uploadId": session.upload_id, "uploadUrl": session.upload_url })))
+}
+
+/// Where a Mux upload stands (`waiting`, `preparing`, …); once Mux has it ready, the film is attached to the property.
+async fn property_video_finalize(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    let (Some(property_id), Some(upload_id)) = (str_at(&body, "propertyId"), str_at(&body, "uploadId")) else {
+        return Err(correlate(ApiError::bad_request("VIDEO_UPLOAD_REQUIRED", "propertyId and uploadId are required."), &resolved));
+    };
+    let role = str_at(&body, "role").unwrap_or("video").to_owned();
+    let caption = str_at(&body, "caption").map(str::trim).filter(|c| !c.is_empty()).map(str::to_owned);
+    let mux = super::routes::mux_video().map_err(|error| correlate(error, &resolved))?;
+    let result = state
+        .services()
+        .media()
+        .finalize_property_video_upload(&mux, property_id, upload_id, &role, caption, &resolved.service)
+        .await
+        .map_err(failed(&resolved))?;
+    Ok(Json(json!({
+        "ok": true,
+        "status": result.status,
+        "attached": result.attached,
+        "mediaId": result.media_id,
+        "muxPlaybackId": result.mux_playback_id,
+    })))
+}
+
 /// Takes a photograph off a property (and deletes it, with its copies, unless another property shows it).
 async fn property_media_remove(
     State(state): State<ApiState>,
