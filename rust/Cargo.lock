@@ -302,6 +302,7 @@ dependencies = [
  "forge",
  "integrations",
  "reqwest",
+ "serde",
  "serde_json",
  "server",
  "service",
