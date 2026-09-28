@@ -83,6 +83,24 @@ impl Endpoint for GuestWhoAmI {
     }
 }
 
+/// The signed-in external account's own transaction room.
+pub struct ClientRoomRead;
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ClientRoomResponse {
+    pub linked: bool,
+    pub room: Option<crate::model::PortalClientRoom>,
+}
+
+impl Endpoint for ClientRoomRead {
+    const METHOD: Method = Method::Get;
+    type Response = ClientRoomResponse;
+    fn path(&self) -> String {
+        "/api/rust-ui/client-room".into()
+    }
+}
+
 /// Email a guest a sign-in code.
 pub struct GuestRequestCode {
     pub email: String,
