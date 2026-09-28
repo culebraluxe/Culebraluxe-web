@@ -183,7 +183,7 @@ fn first_name(display_name: &str) -> &str {
 /// The team's notice: everything needed to answer, and Reply goes straight to the visitor.
 pub fn team_notice(lead: &WebsiteLead, settings: &LeadMailSettings) -> OutgoingMail {
     let label = request_label(&lead.request_type);
-    let mut subject = format!("New website lead: {} \u{2014} {label}", lead.display_name);
+    let mut subject = format!("LEAD: {} \u{2014} {label}", lead.display_name);
     let mut text = format!(
         "New enquiry from the CulebraLuxe website.\n\nName:     {}\nEmail:    {}\nRequest:  {label}\n",
         lead.display_name, lead.email
