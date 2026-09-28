@@ -208,6 +208,57 @@ fn client_room(room: &Remote<ClientRoomResponse>) -> Html {
                         </div>
                     </div>
 
+                    if !room.seller_listings.is_empty() {
+                        <section>
+                            <div class="flex flex-wrap items-end justify-between gap-3">
+                                <div>
+                                    <p class="text-xs font-light uppercase tracking-[0.22em] text-accent">{"Seller command center"}</p>
+                                    <h3 class="mt-1 font-serif text-2xl font-light">{"Your listings"}</h3>
+                                </div>
+                                <p class="text-xs font-light text-muted-foreground">{"Live facts from listing execution, showings and offers."}</p>
+                            </div>
+                            <div class="mt-4 grid gap-4">
+                                { for room.seller_listings.iter().map(|listing| html! {
+                                    <article class="border border-border p-5">
+                                        <div class="flex flex-wrap items-start justify-between gap-4">
+                                            <div>
+                                                <h4 class="font-serif text-2xl font-light">{ listing.name.clone() }</h4>
+                                                if let Some(location) = &listing.location {
+                                                    <p class="mt-1 text-xs font-light text-muted-foreground">{ location.clone() }</p>
+                                                }
+                                            </div>
+                                            <span class="text-[10px] font-light uppercase tracking-[0.14em] text-accent">
+                                                { if listing.is_published { "Published" } else if listing.is_active_listing { "Preparing" } else { title_case(&listing.status).as_str() } }
+                                            </span>
+                                        </div>
+
+                                        <div class="mt-5 grid gap-3 sm:grid-cols-4">
+                                            { room_fact("Showings", &listing.showing_count.to_string()) }
+                                            { room_fact("Offers", &listing.offer_count.to_string()) }
+                                            { room_fact("Photos / Video", &format!("{} / {}", listing.image_count, listing.video_count)) }
+                                            { room_fact("Deal stage", listing.latest_deal_stage.as_deref().map(title_case).as_deref().unwrap_or("—")) }
+                                        </div>
+
+                                        if let Some(project_name) = &listing.project_name {
+                                            <div class="mt-5 border-t border-border pt-4">
+                                                <div class="flex items-center justify-between gap-4">
+                                                    <p class="text-sm font-light">{ project_name.clone() }</p>
+                                                    <p class="text-sm font-light tabular-nums">{ format!("{}%", listing.progress_percent) }</p>
+                                                </div>
+                                                <div class="mt-2 h-1.5 overflow-hidden bg-muted">
+                                                    <div class="h-full bg-foreground" style={format!("width:{}%", listing.progress_percent)} />
+                                                </div>
+                                                <p class="mt-2 text-xs font-light text-muted-foreground">
+                                                    { format!("{} of {} preparation steps complete", listing.completed_work_items, listing.total_work_items) }
+                                                </p>
+                                            </div>
+                                        }
+                                    </article>
+                                }) }
+                            </div>
+                        </section>
+                    }
+
                     if room.transactions.is_empty() {
                         <p class="text-sm font-light text-muted-foreground">{"No active transaction is linked to your client record."}</p>
                     } else {
