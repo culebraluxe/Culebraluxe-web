@@ -19,13 +19,12 @@ Code: `rust/ui/src/app/`.
 
 | # | Held | Who holds it | What an agent must do |
 | --- | --- | --- | --- |
-| H1 | **Both Marketing entries** (S3: `marketing`, `marketing-syndication`). What Grok built there never worked | the owner | **Do not port. Do not repair. Do not delete.** The owner decides what replaces them, and has not yet. Consequence: **there is no "next screen to convert"** while this hold stands — the only two legacy entries live inside it |
-| H2 | **The services layer**: `abstract_service!` and the composition root, i.e. `rust/server/src/composition.rs` — and the stray `rust/server/src/composition 2.rs` | GPT, who wrote the services layer | What `main` holds now is the correct pattern, `abstract_service!` included. The stray ` 2` file is handoff mess, not a finding. **Ask GPT before touching either; do not clean it up on your own authority** |
+| H1 | **MARKETING — HELD FOR REDESIGN.** Both Marketing entries (S3): `marketing` (`/portal/marketing`, "Dashboard") and `marketing-syndication`. What Grok built there never worked, and nothing has replaced it | the owner | **MARKETING HELD FOR REDESIGN.** Do not port it, do not repair it, do not delete it, and never propose it as next work. Both old-loop entries live inside this hold, so the count stays at 2 until the owner redesigns the surface |
+| H2 | **The services layer**: `abstract_service!` and the composition root (`rust/server/src/composition.rs`) | GPT wrote the services layer; the owner required the `abstract_service!` pattern of it | **`abstract_service!` is an absolute requirement, not a preference.** The composition root on `main` is the correct one; do not restructure it, do not add a second catalog, and do not migrate a service between the macro and its hand-written descriptor without the owner's word. Two facts settle most questions here: the macro can only express a **descriptor-only** service (it emits empty `capabilities`/`dependencies`/`invariants` and inherits `dispatch() = UnknownOperation`), so the 7 services with real capabilities and dispatch arms — calendar's 5 capabilities among them — *must* hand-write theirs in `service_gateway.rs`; and `ServiceCatalog::registrations()` coerces all 32 to `Arc<dyn AbstractService>`, so the compiler refuses a missing descriptor (build error) and a duplicate (`E0119`). The stray `rust/server/src/composition 2.rs` was deleted 2026-09-28 — see `MEMORY.md` for the measurement |
 | H3 | **WhatsApp Activation** (S4, `Kind::External`) | the owner | It is a lifeline, not a cutover target: the Meta Embedded Signup page is the only proven way back if activation must be redone. Do not convert it, do not test it against Meta, do not "clean it up" — see "Decisions recorded" |
 
 Nothing else about screens is held: the 54 ported screens, the shared machinery (§4–§9) and any NEW route that is not one
-of the held entries are open for work. What is *not* open is picking up one of the two old-loop entries as a
-convenient next job — that decision is H1's.
+of the held entries are open for work.
 
 ## WHERE TO LOOK — task → the one place
 
@@ -347,7 +346,8 @@ not a screen.
 | TECH | Cockpit [Flight Recorder trace record], Story Board [story record], UI Lab — **ported**; the sorter is the screen's own (`Msg::SorterDropped`), and there is no island left on the Cockpit |
 
 Public URLs filed under SUPPORT keep their URLs (they may be registered with Meta or sent in email) and render in the
-site chrome; the SUPPORT rail links to them.
+site chrome; the SUPPORT rail links to them. **The WhatsApp entries under SUPPORT — Diagnostic, Activation and the Public
+Page — are the owner's reminders, not cutover targets: they work as they are and are left exactly as they are** (H3).
 
 **Retired (routes deleted 2026-09-26):** client-admin, decision-analysis, identity-quality, issues, media-admin,
 needs-review, reporting, runtime-inspector, command-center, command-console (+ story), media-test, tech rust-lab,
