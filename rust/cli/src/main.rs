@@ -1,3 +1,4 @@
+mod apple_messages;
 mod apple_sync;
 mod db_tool;
 
@@ -66,6 +67,7 @@ fn print_usage() {
     eprintln!("  cargo run -p cli -- apple-sync drain");
     eprintln!("  cargo run -p cli -- apple-sync calendar-intake <snapshot.json>");
     eprintln!("  cargo run -p cli -- apple-sync reminder-intake <snapshot.json>");
+    eprintln!("  cargo run -p cli -- apple-sync messages-intake <export-dir> [--evidence-only]");
     eprintln!("  cargo run -p cli -- service serve");
     eprintln!("  cargo run -p cli -- service catalog");
     eprintln!("  cargo run -p cli -- service health");

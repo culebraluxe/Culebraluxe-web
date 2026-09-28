@@ -3,6 +3,7 @@
 //! This crate must not depend on database, HTTP, process, or provider adapters.
 
 pub mod accounting;
+pub mod apple_messages;
 pub mod calendar;
 pub mod client;
 pub mod cockpit;
@@ -42,6 +43,14 @@ pub mod website_lead;
 pub mod workflow_portal;
 
 pub use accounting::*;
+pub use apple_messages::{
+    APPLE_LOCAL_SOURCE_ACCOUNT, APPLE_MESSAGES_SOURCE, APPLE_PREVIEW_MAX_LENGTH,
+    AppleHandleEvidence, AppleHandleLookup, AppleMessagesExport, AppleMessagesHandle,
+    AppleMessagesMessage, IdentityEvidence, REL_INTEL_RULE_VERSION, apple_nanos_to_iso,
+    apple_service_to_channel, bounded_preview, build_handle_evidence, decide_apple_handle,
+    derive_source_account, effective_date_iso, fingerprint, handle_to_identities,
+    is_group_chat_guid, normalize_email, normalize_phone,
+};
 pub use client::*;
 pub use cockpit::*;
 pub use firm::{FieldPatch, Firm, UpsertFirmRequest};

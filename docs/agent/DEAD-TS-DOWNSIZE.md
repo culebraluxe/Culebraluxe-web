@@ -1,6 +1,7 @@
 # Dead TypeScript — the downsize decision
 
-**187 files are broken. 8 of them describe work that still has to happen. The other 179 are junk — not
+**187 files are broken. 8 of them described work that still had to happen. One is now ported
+(`apple-messages-intake.ts` → `rust/cli` apple-sync messages-intake); 7 are left to port. The other 179 are junk — not
 translated, not kept alive, not paid for.** This page is the whole decision; the file-by-file list is
 `BROKEN-TS-INVENTORY.md`, and `pnpm broken:ts:sweep` keeps the count honest.
 
@@ -8,7 +9,7 @@ translated, not kept alive, not paid for.** This page is the whole decision; the
 
 | file | what it does, plainly | lines | verdict |
 | --- | --- | --- | --- |
-| `apple-messages-intake.ts` | reads the iMessage/SMS export, writes text threads into the client timeline | 365 | **PORT** |
+| `apple-messages-intake.ts` | reads the iMessage/SMS export, writes text threads into the client timeline | 365 | **PORTED** — `rust/cli/src/apple_messages.rs` + `domain::apple_messages` + `db::{RelationshipEvidenceDao, LandingDao}`; live check `scripts/rust-live-check/apple-messages-intake.mjs` |
 | `apple-calls-intake.ts` | same for phone calls | 186 | **PORT** |
 | `load-apple-contacts.ts` | reads the Apple Contacts export into the landing tables | 545 | **PORT** |
 | `project-apple-contacts.ts` | landing tables → client records | 346 | **PORT** |

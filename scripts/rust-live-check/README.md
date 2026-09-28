@@ -19,6 +19,7 @@ how the internal API key is derived.
 | --- | --- |
 | `engine-routes.mjs` | Do the engine routes refuse what they should, and serve what they should? A 401 / 401 / 401 / 200 / 200 matrix, and it exits non-zero on any surprise. |
 | `pool-counters.mjs` | Is the pool reusing connections, how many checkouts does a page cost, and has anything been written to `app_error` recently? |
+| `apple-messages-intake.mjs` | Does the Rust Apple Messages intake actually write what it claims — evidence, exact link, `l_imessage` landing, `latest:<person>:<channel>` interaction — and does a second run replay to zero new rows? Runs the real CLI against DEV with a synthetic package tied to one real DEV phone identity, and deletes every synthetic row afterwards. |
 
 `pool-counters.mjs` prints the **target** first. If it does not say `dev`, stop: you are pointed at production.
 

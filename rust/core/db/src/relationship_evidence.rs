@@ -421,4 +421,202 @@ impl RelationshipEvidenceDao {
         .map_err(|error| DbFailure::from_sqlx("relationship_evidence.record_decision", &error))?;
         Ok(updated.is_some())
     }
+
+    /// Upsert one source-neutral evidence row. Replay-safe through the identity unique key
+    /// `(source, source_account, source_identity_key)`, so a re-run refreshes counts instead of
+    /// appending a second row for the same identity.
+    pub async fn upsert_evidence(&self, evidence: &EvidenceUpsert) -> DbResult<String> {
+        let id = sqlx::query_scalar::<_, String>(
+            r#"
+            insert into integration_relationship_evidence (
+              source, source_account, source_identity_key, source_label,
+              display_name, organization, emails, phones,
+              first_observed_at, last_observed_at, last_inbound_at, last_outbound_at,
+              inbound_count, outbound_count, is_two_way, is_owner_initiated,
+              is_automated_or_bulk, is_organization_or_service, known_apple_contact,
+              has_email, has_phone, coverage_note, evidence_fingerprint
+            ) values (
+              $1, $2, $3, $4,
+              $5, $6, $7, $8,
+              $9::timestamptz, $10::timestamptz, $11::timestamptz, $12::timestamptz,
+              $13::int, $14::int, $15, $16,
+              $17, $18, $19,
+              $20, $21, $22, $23
+            )
+            on conflict (source, source_account, source_identity_key) do update set
+              source_label = excluded.source_label,
+              display_name = excluded.display_name,
+              organization = excluded.organization,
+              emails = excluded.emails,
+              phones = excluded.phones,
+              first_observed_at = excluded.first_observed_at,
+              last_observed_at = excluded.last_observed_at,
+              last_inbound_at = excluded.last_inbound_at,
+              last_outbound_at = excluded.last_outbound_at,
+              inbound_count = excluded.inbound_count,
+              outbound_count = excluded.outbound_count,
+              is_two_way = excluded.is_two_way,
+              is_owner_initiated = excluded.is_owner_initiated,
+              is_automated_or_bulk = excluded.is_automated_or_bulk,
+              is_organization_or_service = excluded.is_organization_or_service,
+              known_apple_contact = excluded.known_apple_contact,
+              has_email = excluded.has_email,
+              has_phone = excluded.has_phone,
+              coverage_note = excluded.coverage_note,
+              evidence_fingerprint = excluded.evidence_fingerprint,
+              updated_at = now()
+            returning id::text
+            "#,
+        )
+        .bind(&evidence.source)
+        .bind(&evidence.source_account)
+        .bind(&evidence.source_identity_key)
+        .bind(&evidence.source_label)
+        .bind(&evidence.display_name)
+        .bind(&evidence.organization)
+        .bind(&evidence.emails)
+        .bind(&evidence.phones)
+        .bind(&evidence.first_observed_at)
+        .bind(&evidence.last_observed_at)
+        .bind(&evidence.last_inbound_at)
+        .bind(&evidence.last_outbound_at)
+        .bind(evidence.inbound_count)
+        .bind(evidence.outbound_count)
+        .bind(evidence.is_two_way)
+        .bind(evidence.is_owner_initiated)
+        .bind(evidence.is_automated_or_bulk)
+        .bind(evidence.is_organization_or_service)
+        .bind(evidence.known_apple_contact)
+        .bind(evidence.has_email)
+        .bind(evidence.has_phone)
+        .bind(&evidence.coverage_note)
+        .bind(&evidence.evidence_fingerprint)
+        .fetch_one(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("relationship_evidence.upsert", &error))?;
+        Ok(id)
+    }
+
+    /// Every canonical identity owner, in one read. A bulk intake reconciles tens of thousands of
+    /// handles; looking each one up separately is thousands of round trips for the same answer.
+    pub async fn identity_owners(&self) -> DbResult<Vec<PersonIdentityOwner>> {
+        sqlx::query_as::<_, PersonIdentityOwner>(
+            r#"
+            select pi.person_id::text as person_id, pi.identity_type, pi.identity_value
+              from person_identity pi
+              join person p on p.id = pi.person_id
+             where p.archived_at is null
+             order by pi.person_id::text
+            "#,
+        )
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("relationship_evidence.identity_owners", &error))
+    }
+
+    /// Every durable source link for one source, in one read.
+    pub async fn source_links(&self, source: &str) -> DbResult<Vec<SourcePersonLink>> {
+        let dedicated = sqlx::query_scalar::<_, bool>(
+            "select to_regclass('public.integration_source_person_link') is not null",
+        )
+        .fetch_one(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("relationship_evidence.link_table", &error))?;
+
+        let sql = if dedicated {
+            r#"
+            select source_account, source_identity_key, canonical_person_id::text as canonical_person_id
+              from integration_source_person_link
+             where source = $1
+            "#
+        } else {
+            r#"
+            select source_account, source_identity_key, canonical_person_id::text as canonical_person_id
+              from integration_relationship_evidence
+             where source = $1 and canonical_person_id is not null
+            "#
+        };
+        sqlx::query_as::<_, SourcePersonLink>(sql)
+            .bind(source)
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("relationship_evidence.source_links", &error))
+    }
+}
+
+/// One canonical identity owner (`person_identity` joined to a live person).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct PersonIdentityOwner {
+    pub person_id: String,
+    pub identity_type: String,
+    pub identity_value: String,
+}
+
+/// One durable source link: a source identity key already resolved to a canonical person.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct SourcePersonLink {
+    pub source_account: String,
+    pub source_identity_key: String,
+    pub canonical_person_id: String,
+}
+
+/// Input for [`RelationshipEvidenceDao::upsert_evidence`]. Counts and windows only: this row never
+/// carries message content.
+#[derive(Debug, Clone)]
+pub struct EvidenceUpsert {
+    pub source: String,
+    pub source_account: String,
+    pub source_identity_key: String,
+    pub source_label: Option<String>,
+    pub display_name: Option<String>,
+    pub organization: Option<String>,
+    pub emails: Value,
+    pub phones: Value,
+    pub first_observed_at: Option<String>,
+    pub last_observed_at: Option<String>,
+    pub last_inbound_at: Option<String>,
+    pub last_outbound_at: Option<String>,
+    pub inbound_count: Option<i64>,
+    pub outbound_count: Option<i64>,
+    pub is_two_way: Option<bool>,
+    pub is_owner_initiated: Option<bool>,
+    pub is_automated_or_bulk: Option<bool>,
+    pub is_organization_or_service: Option<bool>,
+    pub known_apple_contact: Option<bool>,
+    pub has_email: bool,
+    pub has_phone: bool,
+    pub coverage_note: Option<String>,
+    pub evidence_fingerprint: String,
+}
+
+impl From<&domain::AppleHandleEvidence> for EvidenceUpsert {
+    fn from(evidence: &domain::AppleHandleEvidence) -> Self {
+        Self {
+            source: evidence.source.clone(),
+            source_account: evidence.source_account.clone(),
+            source_identity_key: evidence.source_identity_key.clone(),
+            source_label: evidence.source_label.clone(),
+            display_name: evidence.display_name.clone(),
+            organization: evidence.organization.clone(),
+            emails: serde_json::to_value(&evidence.emails)
+                .unwrap_or_else(|_| Value::Array(Vec::new())),
+            phones: serde_json::to_value(&evidence.phones)
+                .unwrap_or_else(|_| Value::Array(Vec::new())),
+            first_observed_at: evidence.first_observed_at.clone(),
+            last_observed_at: evidence.last_observed_at.clone(),
+            last_inbound_at: evidence.last_inbound_at.clone(),
+            last_outbound_at: evidence.last_outbound_at.clone(),
+            inbound_count: Some(evidence.inbound_count),
+            outbound_count: Some(evidence.outbound_count),
+            is_two_way: evidence.is_two_way,
+            is_owner_initiated: evidence.is_owner_initiated,
+            is_automated_or_bulk: evidence.is_automated_or_bulk,
+            is_organization_or_service: evidence.is_organization_or_service,
+            known_apple_contact: evidence.known_apple_contact,
+            has_email: evidence.has_email,
+            has_phone: evidence.has_phone,
+            coverage_note: evidence.coverage_note.clone(),
+            evidence_fingerprint: evidence.evidence_fingerprint.clone(),
+        }
+    }
 }

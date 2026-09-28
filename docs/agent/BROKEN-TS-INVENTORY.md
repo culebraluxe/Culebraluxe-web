@@ -59,8 +59,8 @@ capabilities are not "dead weight", they are **broken in production** (checked 2
 
 | live caller | calls | consequence |
 | --- | --- | --- |
-| `scripts/apple-sync.sh:170` — launchd `com.culebraluxe.apple-sync`, twice daily | `scripts/apple-messages-intake.ts` | the Apple Messages → PROD client-timeline step fails; the launcher is recorded as exit status **1** |
-| `scripts/apple-message-repair.sh:37` (`apple:repair:prod`) | same file | the evidence-repair path cannot run either |
+| `scripts/apple-sync.sh` — launchd `com.culebraluxe.apple-sync`, twice daily | **`rust/cli` apple-sync messages-intake** (was `scripts/apple-messages-intake.ts`) | **fixed 2026-09-27**: the launchd job's exit status 1 was the deleted intake script; the step is Rust now and the job needs re-arming (see §"Apple intake — ported") |
+| `scripts/apple-message-repair.sh:37` (`apple:repair:prod`) | the same deleted file | the evidence-repair path cannot run either |
 | `scripts/contacts-sync.sh:135,143,149` | `load-apple-contacts.ts`, `project-apple-contacts.ts`, `promote-warehouse.ts` | **the warehouse promotion is down**: the Contacts chain fails before it reaches `l_person`/`l_property` → `person`/`property` |
 | `scripts/apple-calls-sync.sh:20` | `scripts/apple-calls-intake.ts` | Calls intake does not run |
 | `scripts/gmail-sync.sh:26` | `scripts/gmail-metadata-sync.ts` | Gmail metadata intake does not run |
@@ -292,8 +292,16 @@ The product is largely Rust already. What is stranded here is intake and proof t
    is **not in the dead list and still runs**. So inbound mail is not stranded: the live intake is
    alive, and the only missing half is **promotion** — which is DEV_OPS 2, not this file. The
    dead-list count is unchanged; only this file's verdict is.
-2. `scripts/apple-messages-intake.ts` (+ `-proof`, `-real-load`) — iMessage → ODS. **PORT P1** if the
-   Messages channel is not yet in `intake.rs`; the Contacts/Calendar channels are.
+2. `scripts/apple-messages-intake.ts` (+ `-proof`, `-real-load`) — iMessage → ODS. **PORTED 2026-09-27.**
+   `rust/cli/src/apple_messages.rs` (`apple-sync messages-intake <export-dir>`), rules in
+   `rust/core/domain/src/apple_messages.rs` (11 unit tests, fingerprint verified against the deleted
+   TypeScript's own output), writes through `db::{RelationshipEvidenceDao, LandingDao}`:
+   evidence upsert → deterministic reconcile (`record_decision`) → `l_imessage` landing (500-row
+   batches) → `latest:<person>:<channel>` interaction → client read-model refresh. Verified live on
+   DEV: `node scripts/rust-live-check/apple-messages-intake.mjs` (18 checks). `scripts/apple-sync.sh`
+   now calls the Rust command and needs neither node nor tsx. **The live check found a real bug** —
+   serde's camelCase read the exporter's `dateISO` as `dateIso`, so every message silently lost its
+   timestamp; fixed and pinned by a unit test.
 3. `scripts/apple-calls-intake.ts` — calls channel. **PORT P1.**
 4. `scripts/load-apple-contacts.ts` — `contacts:load:dev`, `contacts:load:prod`. **VERIFY** against
    `rust/cli/src/apple_sync.rs` (the `apple:sync` npm commands already target Rust). Likely

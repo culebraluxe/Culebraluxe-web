@@ -10,7 +10,7 @@
 #   ~/Library/Messages/chat.db
 #     -> apple-messages-export (READ-ONLY)
 #     -> public/upload/data/apple-messages-export/   (gitignored package)
-#     -> scripts/apple-messages-intake.ts prod        (ODS -> reconcile -> interaction)
+#     -> rust/cli apple-sync messages-intake         (ODS -> reconcile -> interaction)
 #     -> Client read-model refresh  (conversation-burst Contact History)
 #
 # Replay-safe: canonical interactions key on (source_system=apple_messages,
@@ -46,7 +46,6 @@ LOG_DIR="${CULEBRALUXE_APPLE_LOG_DIR:-$HOME/Library/Logs/CulebraLuxe}"
 LOG_FILE="${CULEBRALUXE_APPLE_LOG:-$LOG_DIR/apple-sync.log}"
 LOCK="${APPLE_SYNC_LOCK:-/tmp/culebraluxe-apple-sync.lock}"
 EXPORT_DIR="$REPO_ROOT/public/upload/data/apple-messages-export"
-INTAKE="$REPO_ROOT/scripts/apple-messages-intake.ts"
 PKG_DIR="$REPO_ROOT/apple-messages-export"
 RUN_CFG="${APPLE_SYNC_EXPORTER_DEBUG:-0}"
 
@@ -114,18 +113,9 @@ trap 'rm -rf "$LOCK"' EXIT
 
 step_log "verifying environment"
 [ -f .env.local ] || fail "missing .env.local at $REPO_ROOT"
-node -e '
-const fs=require("fs");
-const s=fs.readFileSync(".env.local","utf8");
-for (const l of s.split(/\r?\n/)) {
-  const t=l.trim();
-  if (t.startsWith("DATABASE_URL_PROD=")) { if (t.slice(18).trim()) process.exit(0); }
-}
-process.exit(2);
-' || fail "DATABASE_URL_PROD missing/empty in .env.local (refusing to touch pipeline)"
-[ -d node_modules/tsx ] || fail "tsx not installed (run pnpm install)"
+grep -qE '^DATABASE_URL_PROD=.+' .env.local || fail "DATABASE_URL_PROD missing/empty in .env.local (refusing to touch pipeline)"
 command -v swift >/dev/null 2>&1 || fail "swift not found in PATH"
-command -v node >/dev/null 2>&1 || fail "node not found in PATH"
+command -v cargo >/dev/null 2>&1 || fail "cargo not found in PATH (the intake is Rust: rust/cli apple-sync messages-intake)"
 
 # --- fresh export ------------------------------------------------------------
 step_log "exporter start"
@@ -157,32 +147,38 @@ step_log "validating export package"
 [ -f "$EXPORT_DIR/messages.jsonl" ] || fail "messages.jsonl missing; NO PROD intake run"
 msg_count="$(wc -l < "$EXPORT_DIR/messages.jsonl" 2>/dev/null | tr -d ' ')"
 [ -n "$msg_count" ] && [ "$msg_count" -gt 0 ] || fail "messages.jsonl is empty; NO PROD intake run"
-manifest_dated="$(node -e 'const m=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));console.log(m.minimumMessageDate!=null&&m.minimumMessageDate!==""?"1":"0")' "$EXPORT_DIR/manifest.json" 2>/dev/null || echo "0")"
+manifest_dated="$(grep -qE '"minimumMessageDate"[[:space:]]*:[[:space:]]*"' "$EXPORT_DIR/manifest.json" && echo 1 || echo 0)"
 [ "$manifest_dated" = "1" ] || fail "no dated messages (manifest.minimumMessageDate null); NO PROD intake run"
 step_log "validation OK: messages=$msg_count dated=yes"
 
-# --- PROD intake + replay idempotency proof -----------------------------------
-step_log "intake start (PROD)"
+# --- PROD intake --------------------------------------------------------------
+# The intake is the Rust CLI (`rust/cli`, apple-sync messages-intake): one pass that upserts ODS
+# evidence, reconciles to a canonical Person, materializes interactions and refreshes the client
+# read models. APP_ENV=production is what makes it the PRODUCTION database - the resolver refuses to
+# guess and the tally it prints names the target it actually resolved.
+step_log "intake start (PROD, rust)"
 intake_out="$(mktemp)"; intake_err="$(mktemp)"
-# Stream intake progress to the operator while retaining copies for the final
-# tally and failure diagnostics. Process substitution preserves the node exit
-# status as the condition for this if statement.
-if node --env-file=.env.local --import tsx "$INTAKE" prod --dir "$EXPORT_DIR" \
+if APP_ENV=production CULEBRALUXE_REPO="$REPO_ROOT" \
+  cargo run -q --manifest-path "$REPO_ROOT/rust/Cargo.toml" -p cli -- \
+  apple-sync messages-intake "$EXPORT_DIR" \
   > >(tee "$intake_out") \
   2> >(tee "$intake_err" >&2); then
   step_log "intake success"
-  grep -E '^(interactions inserted:|interactions replayed:|skipped group chat:|evidence rows:|exact-linked handles:)' "$intake_out" >>"$LOG_FILE" || true
-  inserted="$(grep -E '^interactions inserted:' "$intake_out" | tail -1 | tr -dc '0-9')"
-  replayed="$(grep -E '^interactions replayed:' "$intake_out" | tail -1 | tr -dc '0-9')"
-  gskip="$(grep -E '^skipped group chat:' "$intake_out" | tail -1 | tr -dc '0-9')"
-  replay_check="$(grep -E '^REPLAY inserted:' "$intake_out" | tail -1)"
-  step_log "PROD intake tally: inserted=${inserted:-?} replayed=${replayed:-?} skipped_group_chat=${gskip:-?} | ${replay_check:-}"
+  grep -E '^\{' "$intake_out" >>"$LOG_FILE" || true
+  field() { grep -Eo "\"$1\":[0-9]+" "$intake_out" | tail -1 | tr -dc '0-9'; }
+  landed="$(field landed)"
+  inserted="$(field sourceRowsInserted)"
+  updated="$(field sourceRowsUpdated)"
+  exact="$(field exactLinkedHandles)"
+  unmatched="$(field unmatchedOrReviewHandles)"
+  gskip="$(field skippedGroupChat)"
+  step_log "PROD intake tally: landed=${landed:-?} interactions_inserted=${inserted:-?} interactions_updated=${updated:-?} exact_linked=${exact:-?} unmatched_or_review=${unmatched:-?} skipped_group_chat=${gskip:-?}"
 else
   step_log "intake FAILED"
   tail -60 "$intake_out" >>"$LOG_FILE" || true
   tail -60 "$intake_err" >>"$LOG_FILE" || true
   rm -f "$intake_out" "$intake_err"
-  fail "PROD intake failed (export package preserved at $EXPORT_DIR); later replay completes missing work"
+  fail "PROD intake failed (export package preserved at $EXPORT_DIR); the next run replays and completes the work"
 fi
 rm -f "$intake_out" "$intake_err"
 

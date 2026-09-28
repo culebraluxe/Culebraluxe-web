@@ -26,6 +26,7 @@ mod guest;
 mod guide;
 mod intake;
 mod issue;
+mod landing;
 mod marketing;
 mod media;
 mod outbox;
@@ -94,12 +95,17 @@ pub use media::{
     BeginMediaUpload, MediaDao, MediaDerivativeInput, MediaUploadAssembly, MediaUploadStatus,
 };
 pub use outbox::{DomainEventOutboxDao, OutboxDelivery, OutboxEventInput};
+pub use landing::{
+    ImessageLanding, LandingDao, LatestInteraction, LatestInteractionOutcome,
+};
 pub use person::PersonDao;
 pub use pool::{resolve_declared_target, Database, DbTarget};
 pub use project::{ProjectDao, ProjectTxDao};
 pub use property::PropertyDao;
 pub use public_listing::PublicListingDao;
-pub use relationship_evidence::RelationshipEvidenceDao;
+pub use relationship_evidence::{
+    EvidenceUpsert, PersonIdentityOwner, RelationshipEvidenceDao, SourcePersonLink,
+};
 pub use retry::{retry, RetryPolicy};
 pub use schema_migration::{MigrationLedgerRow, SchemaMigrationDao};
 pub use security::{IdentityPrincipal, SecurityDao};
