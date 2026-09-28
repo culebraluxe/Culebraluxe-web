@@ -22,7 +22,9 @@ mod flight_recorder;
 mod forge_control;
 // The reads behind `forge doctor`: the control plane in one command, read-only.
 pub mod forge_doctor;
+// The Forge reset / recover / clean writer. One writer, three modes, all of them deliberate.
 mod forge_engine;
+pub mod forge_reset;
 // The sanctioned Forge read path (the `forge board` / `forge story-show` / `forge batch-status` operator
 // tools). Public because the CLI is the caller and SQL belongs here, not there.
 pub mod forge_read;
@@ -99,6 +101,7 @@ pub use forge_read::{
     ForgeStoryFindingRow, ForgeStoryHoldRow, ForgeStoryMigrationRow, ForgeStoryReceiptRow,
     ForgeStoryShow, ForgeStoryStatusRow,
 };
+pub use forge_reset::{ForgeResetDao, RemainingCounts, ResetReport};
 pub use forms::FormDao;
 pub use guest::{GuestDao, GUEST_CODE_MAX_ATTEMPTS};
 pub use guide::GuideDao;
