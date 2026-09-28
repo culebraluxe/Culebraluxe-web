@@ -1737,6 +1737,8 @@ pub struct PortalProjectsPage {
     pub work_collapsed: bool,
     pub work_dirty: bool,
     pub saving: bool,
+    /// The Documents tab's filter: `all`, `document` or `photo` (empty means all).
+    pub documents_filter: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]

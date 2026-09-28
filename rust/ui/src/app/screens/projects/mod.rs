@@ -76,6 +76,7 @@ pub enum Msg {
     ProjectSelected(String),
     ProjectNodeSelected(Option<String>),
     ProjectViewSelected(String),
+    ProjectDocumentsFilterChanged(String),
     ProjectTimelineModeSelected(String),
     ProjectTimelineSortSelected(String),
     ProjectTimelineFocusChanged(String),
@@ -838,6 +839,11 @@ fn selection(projects: &mut PortalProjectsPage, error: &mut Option<String>, msg:
                 if calendar_opened {
                     return calendar_viewport(projects);
                 }
+            }
+        }
+        Msg::ProjectDocumentsFilterChanged(filter) => {
+            if matches!(filter.as_str(), "all" | "document" | "photo") {
+                projects.documents_filter = filter;
             }
         }
         Msg::ProjectCalendarPrevious => {

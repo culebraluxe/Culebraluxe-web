@@ -362,7 +362,7 @@ fn active_view(
             "Financials",
             "No project-scoped accounting read model is attached to the Rust workspace yet.",
         ),
-        "documents" => documents_view(),
+        "documents" => documents_view(projects, project, on_msg),
         "activity" => activity_view(projects, project),
         _ => work_plan_view(projects, project, on_msg),
     }
@@ -434,8 +434,149 @@ fn work_plan_node(
     }
 }
 
-fn documents_view() -> Html {
-    crate::app::template::widget_removed("The document browser")
+/// One row of the project's asset browser: a Vault document or a photograph of the project's property.
+struct ProjectAsset {
+    key: String,
+    photo: bool,
+    name: String,
+    caption: Option<String>,
+    thumbnail: Option<String>,
+    href: String,
+    kind: &'static str,
+    source: &'static str,
+    date: Option<String>,
+}
+
+/// "Sep 27, 2026" from a stored timestamp, or a dash.
+fn asset_date(value: Option<&str>) -> String {
+    value
+        .and_then(|value| value.get(..10))
+        .and_then(|day| chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d").ok())
+        .map(|day| day.format("%b %-d, %Y").to_string())
+        .unwrap_or_else(|| "—".into())
+}
+
+/// THE PROJECT'S DOCUMENTS AND PHOTOS, IN ONE READ-ONLY LIST. A view, not a storage system: Vault documents and the
+/// property's media stay where they live, and the list only shows what belongs to this project — its property's
+/// issued documents and photographs. Nothing is invented for a project that has none.
+fn documents_view(projects: &PortalProjectsPage, project: &PortalProject, on_msg: &Callback<Msg>) -> Html {
+    let property_id = project.property_id.as_deref();
+    let mut assets: Vec<ProjectAsset> = projects
+        .documents
+        .iter()
+        .filter(|document| property_id.is_some() && document.property_id.as_deref() == property_id)
+        .map(|document| ProjectAsset {
+            key: format!("document:{}", document.id),
+            photo: false,
+            name: document.title.clone(),
+            caption: Some(document.state.replace('_', " ")).filter(|state| !state.is_empty()),
+            thumbnail: None,
+            href: format!("/portal/documents/{}/download", document.id),
+            kind: "PDF",
+            source: "Vault",
+            date: Some(document.created_at.clone()),
+        })
+        .collect();
+    assets.extend(
+        projects
+            .media
+            .iter()
+            .filter(|media| Some(media.property_id.as_str()) == property_id && media.media_type == "image")
+            .map(|media| ProjectAsset {
+                key: format!("photo:{}", media.id),
+                photo: true,
+                name: media.filename.clone().or_else(|| media.alt_text.clone()).unwrap_or_else(|| "Photo".into()),
+                caption: media.caption.clone().or_else(|| media.alt_text.clone()),
+                thumbnail: Some(media.url.clone()),
+                href: media.url.clone(),
+                kind: "Photo",
+                source: "Property media",
+                date: media.created_at.clone(),
+            }),
+    );
+    let filter = match projects.documents_filter.as_str() {
+        "document" => "document",
+        "photo" => "photo",
+        _ => "all",
+    };
+    let documents = assets.iter().filter(|asset| !asset.photo).count();
+    let photos = assets.len() - documents;
+    let visible: Vec<&ProjectAsset> = assets
+        .iter()
+        .filter(|asset| match filter {
+            "document" => !asset.photo,
+            "photo" => asset.photo,
+            _ => true,
+        })
+        .collect();
+    let chip = |key: &'static str, label: &'static str, count: usize| {
+        let active = filter == key;
+        html! {
+            <button type="button" aria-pressed={active.to_string()}
+                onclick={on_msg.reform(move |_: MouseEvent| Msg::ProjectDocumentsFilterChanged(key.into()))}
+                class={classes!("rounded-full", "px-3", "py-1.5", "text-[11px]", "font-medium", "transition",
+                    if active { "bg-white/15 text-white ring-1 ring-inset ring-white/20" } else { "text-white/55 hover:bg-white/[0.07] hover:text-white/90" })}>
+                {label} <span class="ml-1 text-[10px] opacity-65">{count}</span>
+            </button>
+        }
+    };
+    let columns = "grid grid-cols-[minmax(0,1.7fr)_90px_135px_105px] gap-3";
+    html! {
+        <section class="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[var(--portal-tab-radius)] border border-white/20 bg-[color-mix(in_srgb,var(--portal-navy)_94%,transparent)] shadow-sm">
+            <div class="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-3 py-2">
+                <div class="flex items-center gap-1" role="group" aria-label="Asset filter">
+                    { chip("all", "All", assets.len()) }
+                    { chip("document", "Documents", documents) }
+                    { chip("photo", "Photos", photos) }
+                </div>
+                <span class="hidden text-[10px] font-light uppercase tracking-[0.12em] text-white/35 sm:inline">{"Read-only · Vault + Property media"}</span>
+            </div>
+            <div class={classes!(columns, "shrink-0", "border-b", "border-white/10", "px-3", "py-2", "text-[9px]", "font-semibold", "uppercase", "tracking-[0.12em]", "text-white/35")}>
+                <span>{"Name"}</span><span>{"Type"}</span><span>{"Source"}</span><span>{"Updated"}</span>
+            </div>
+            <div class="min-h-0 flex-1 overflow-y-auto">
+                if visible.is_empty() {
+                    <div class="flex h-full min-h-48 items-center justify-center px-6 text-center">
+                        <p class="text-[13px] font-light text-white/45">
+                            { if assets.is_empty() {
+                                if property_id.is_none() { "No property is linked to this project yet, so it has no documents or photos to show.".to_owned() }
+                                else { "No project assets are linked yet.".to_owned() }
+                            } else if filter == "photo" { "No photos are linked to this project.".to_owned() }
+                            else { "No documents are linked to this project.".to_owned() } }
+                        </p>
+                    </div>
+                } else {
+                    <ul class="divide-y divide-white/[0.08]">
+                        { for visible.iter().map(|asset| html! {
+                            <li key={asset.key.clone()} class={classes!(columns, "items-center", "px-3", "py-2.5", "transition", "hover:bg-white/[0.04]")}>
+                                <a href={asset.href.clone()} target="_blank" rel="noreferrer" class="group block min-w-0" title="Open">
+                                    <div class="flex min-w-0 items-center gap-3">
+                                        if let Some(thumbnail) = asset.thumbnail.clone() {
+                                            <img src={thumbnail} alt={asset.caption.clone().unwrap_or_else(|| asset.name.clone())} loading="lazy"
+                                                class="h-11 w-14 shrink-0 rounded-md border border-white/15 object-cover" />
+                                        } else {
+                                            <span class="flex h-11 w-14 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.06] text-[var(--portal-gold)]">
+                                                { glyph(if asset.photo { "image" } else { "file-text" }, "h-5 w-5") }
+                                            </span>
+                                        }
+                                        <span class="min-w-0">
+                                            <span class="block truncate text-[14px] font-medium text-white/95">{asset.name.clone()}</span>
+                                            if let Some(caption) = asset.caption.clone().filter(|caption| *caption != asset.name) {
+                                                <span class="mt-0.5 block truncate text-[11px] font-light text-white/45">{caption}</span>
+                                            }
+                                        </span>
+                                    </div>
+                                </a>
+                                <span class="text-[12px] font-light text-white/65">{asset.kind}</span>
+                                <span class="text-[12px] font-light text-white/65">{asset.source}</span>
+                                <span class="text-[11px] font-light text-white/45">{asset_date(asset.date.as_deref())}</span>
+                            </li>
+                        }) }
+                    </ul>
+                }
+            </div>
+        </section>
+    }
 }
 
 fn placeholder_view(title: &str, message: &str) -> Html {
