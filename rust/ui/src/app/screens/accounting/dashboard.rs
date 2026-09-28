@@ -11,7 +11,7 @@
 use yew::prelude::*;
 
 use crate::format::{format_date, format_money, is_zero};
-use crate::model::{PortalAccountingDashboard, PortalAccountingShare};
+use crate::model::{PortalAccountingDashboard, PortalAccountingShare, PortalCommissionForecast};
 
 use super::shell::{GlassPanel, MetricCard, PnlTrendChart, Tone};
 use super::{Msg, Vm};
@@ -50,6 +50,9 @@ impl View {
         html! {
             <div class="space-y-4">
                 { self.metrics(dashboard) }
+                if let Some(forecast) = model.book.and_then(|accounting| accounting.commission_forecast.as_ref()) {
+                    { self.commission_forecast(forecast) }
+                }
                 <div class={TWO_COLUMN_GRID}>
                     { self.trend_panel(dashboard) }
                     { self.category_panel(dashboard) }
@@ -61,6 +64,76 @@ impl View {
                 { self.receipt_band() }
             </div>
         }
+    }
+}
+
+impl View {
+    fn commission_forecast(&self, forecast: &PortalCommissionForecast) -> Html {
+        html! {
+            <GlassPanel title="Expected Commission / Cash Forecast">
+                <div class="grid grid-cols-2 gap-3 border-b border-white/10 pb-4 sm:grid-cols-4">
+                    { self.forecast_total("30 days", &forecast.next_30_days, "Closing-led") }
+                    { self.forecast_total("60 days", &forecast.next_60_days, "Cumulative") }
+                    { self.forecast_total("90 days", &forecast.next_90_days, "Cumulative") }
+                    { self.forecast_total("Past / unresolved", &forecast.undated_or_past, "Needs date attention") }
+                </div>
+
+                if forecast.items.is_empty() {
+                    <p class="py-5 text-sm font-light text-white/40">{"No open commission receivables to forecast."}</p>
+                } else {
+                    <div class="overflow-x-auto">
+                        <table class="mt-3 w-full min-w-[720px] text-left text-xs">
+                            <thead>
+                                <tr class="border-b border-white/10 text-[9px] font-medium uppercase tracking-[0.14em] text-white/40">
+                                    <th class="py-1.5 pr-3">{"Expected"}</th>
+                                    <th class="py-1.5 pr-3">{"Client / Property"}</th>
+                                    <th class="py-1.5 pr-3">{"Description"}</th>
+                                    <th class="py-1.5 pr-3">{"Timing"}</th>
+                                    <th class="py-1.5 text-right">{"Commission"}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                { for forecast.items.iter().take(8).map(|item| html! {
+                                    <tr class="border-b border-white/[0.05]">
+                                        <td class="py-2 pr-3 text-white/70">{ item.expected_on_label.clone() }</td>
+                                        <td class="py-2 pr-3 text-white/85">
+                                            { item.person_name.clone()
+                                                .or_else(|| item.property_name.clone())
+                                                .unwrap_or_else(|| "—".into()) }
+                                        </td>
+                                        <td class="py-2 pr-3 text-white/65">{ item.description.clone() }</td>
+                                        <td class="py-2 pr-3">
+                                            <span class="rounded-full border border-white/15 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-white/50">
+                                                { forecast_source(&item.timing_source) }
+                                            </span>
+                                        </td>
+                                        <td class="py-2 text-right font-medium text-emerald-300">{ format_money(&item.amount) }</td>
+                                    </tr>
+                                }) }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </GlassPanel>
+        }
+    }
+
+    fn forecast_total(&self, label: &str, amount: &str, hint: &str) -> Html {
+        html! {
+            <div>
+                <p class="text-[9px] font-medium uppercase tracking-[0.16em] text-[var(--portal-gold)]">{ label }</p>
+                <p class="mt-1 font-serif text-xl font-light text-white">{ format_money(amount) }</p>
+                <p class="mt-0.5 text-[9px] font-light text-white/35">{ hint }</p>
+            </div>
+        }
+    }
+}
+
+fn forecast_source(source: &str) -> &'static str {
+    match source {
+        "closing" => "Closing",
+        "due" => "Due",
+        _ => "Issued",
     }
 }
 
