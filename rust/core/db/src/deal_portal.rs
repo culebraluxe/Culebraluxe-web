@@ -131,6 +131,13 @@ struct WorkspaceOfferRow {
     person_name: Option<String>,
     parent_offer_id: Option<String>,
     amount: String,
+    financing_type: Option<String>,
+    deposit_amount: Option<String>,
+    inspection_days: Option<i32>,
+    seller_credits: Option<String>,
+    proposed_closing_date: Option<String>,
+    contingencies: Option<String>,
+    expires_at_label: Option<String>,
     status: String,
     submitted_at_label: String,
     responded_at_label: Option<String>,
@@ -550,6 +557,13 @@ impl DealPortalDao {
                     person_id,
                     amount,
                     parent_offer_id,
+                    financing_type,
+                    deposit_amount,
+                    inspection_days,
+                    seller_credits,
+                    proposed_closing_date,
+                    contingencies,
+                    expires_at,
                 } => {
                     let amount = amount.trim().parse::<f64>().map_err(|_| {
                         DbFailure::schema_mismatch(
@@ -590,9 +604,20 @@ impl DealPortalDao {
                     sqlx::query_scalar::<_, String>(
                         r#"
                         insert into offer (
-                          deal_id, person_id, parent_offer_id, amount, status
+                          deal_id, person_id, parent_offer_id, amount, status,
+                          financing_type, deposit_amount, inspection_days, seller_credits,
+                          proposed_closing_date, contingencies, expires_at
                         )
-                        values ($1::uuid,$2::uuid,$3::uuid,$4,'submitted')
+                        values (
+                          $1::uuid,$2::uuid,$3::uuid,$4,'submitted',
+                          nullif(trim($5),''),
+                          nullif(trim($6),'')::numeric,
+                          nullif(trim($7),'')::integer,
+                          nullif(trim($8),'')::numeric,
+                          nullif(trim($9),'')::date,
+                          nullif(trim($10),''),
+                          nullif(trim($11),'')::timestamptz
+                        )
                         returning id::text
                         "#,
                     )
@@ -600,6 +625,13 @@ impl DealPortalDao {
                     .bind(person_id)
                     .bind(parent_offer_id.as_deref())
                     .bind(amount)
+                    .bind(financing_type.as_deref().unwrap_or(""))
+                    .bind(deposit_amount.as_deref().unwrap_or(""))
+                    .bind(inspection_days.as_deref().unwrap_or(""))
+                    .bind(seller_credits.as_deref().unwrap_or(""))
+                    .bind(proposed_closing_date.as_deref().unwrap_or(""))
+                    .bind(contingencies.as_deref().unwrap_or(""))
+                    .bind(expires_at.as_deref().unwrap_or(""))
                     .fetch_one(tx.connection())
                     .await
                     .map_err(|error| DbFailure::from_sqlx("deal.workspace.offer.submit", &error))?
@@ -1362,6 +1394,16 @@ impl DealPortalDao {
                   person.display_name as person_name,
                   o.parent_offer_id::text as parent_offer_id,
                   o.amount::text as amount,
+                  o.financing_type,
+                  o.deposit_amount::text as deposit_amount,
+                  o.inspection_days,
+                  o.seller_credits::text as seller_credits,
+                  to_char(o.proposed_closing_date, 'Mon FMDD, YYYY') as proposed_closing_date,
+                  o.contingencies,
+                  case when o.expires_at is not null
+                    then to_char(o.expires_at at time zone 'America/Puerto_Rico', 'Mon FMDD, YYYY HH12:MI AM')
+                    else null
+                  end as expires_at_label,
                   o.status,
                   to_char(
                     o.submitted_at at time zone 'America/Puerto_Rico',
@@ -1393,6 +1435,13 @@ impl DealPortalDao {
                 person_name: row.person_name,
                 parent_offer_id: row.parent_offer_id.clone(),
                 amount: row.amount.parse::<f64>().unwrap_or_default(),
+                financing_type: row.financing_type,
+                deposit_amount: parse_number(row.deposit_amount.as_deref()),
+                inspection_days: row.inspection_days,
+                seller_credits: parse_number(row.seller_credits.as_deref()),
+                proposed_closing_date: row.proposed_closing_date,
+                contingencies: row.contingencies,
+                expires_at_label: row.expires_at_label,
                 status: row.status,
                 submitted_at_label: row.submitted_at_label,
                 responded_at_label: row.responded_at_label,
