@@ -1,124 +1,111 @@
-# ORIENTATION — the map (start here)
+# ORIENTATION - the map (start here)
 
-**What this is:** a pirate map for whoever arrives next — a new agent, a fresh context, or the captain
-after a week away. It answers "what is this app, where does everything live, what do I run" in paths and
-commands you can check. It is **not** a spec and **not** a status page: story status, engine state and
-batch state live in Neon (see *Where to look for X*), never here.
+If you have never worked in this repository - or you are resuming after a reset - read this file first. It says what is
+here, where a change goes, and how it is verified. Nothing else is needed to begin.
 
-Three sentences to carry:
+Three sentences, if that is all you read:
 
-1. **State is in rows.** A decision that lives only in a chat reply does not exist.
-2. **A gate that cannot fail is decoration.** Rules get enforced by gates (`pnpm forge:packet-lint`,
-   Assay, write-policy), not by prose.
-3. **A refusal must name its cause.** Never let a failure become a silent 500, a bare `catch`, or an
-   unexplained HOLD.
+1. **The domain is Rust.** Rules, validation, SQL and HTTP live under `rust/` and nowhere else.
+2. **Two things decide whether your work is real**: a build (`pnpm build`, `cargo check`, `cargo test`) and the harness
+   gates (`pnpm forge:harness`). Confidence is not evidence; a command's output is.
+3. **Work lands on `main`.** Small commits, pushed at once. "Done" means `git log origin/main` shows your commit.
 
-## The app in one paragraph
+## What the repository is
 
-CulebraLuxe: a luxury property site plus a private portal, built as a Next.js App Router application on
-Vercel, with Neon/Postgres for business and property data, Mux for video, and Google Maps for locations.
-The portal holds the operational surfaces (CRM, contracts, forms, accounting, calendar, clients, deals,
-media). On top of it runs **Forge** — a workflow engine that executes AI agent roles against stories to
-produce code, and whose state is itself in Neon (work items, tasks, runs, evidence).
+One Rust application. The website and the portal are a single Yew/WebAssembly app (`rust/ui`) that the Rust server hands
+to the browser (`rust/server/src/site.rs`); the domain, the database and the HTTP API behind it are Rust crates under
+`rust/`. Neon/Postgres stores the business and property data, Mux delivers video, Google Maps shows locations, and
+Vercel serves the deployment - compiled on this Mac rather than on Vercel (`scripts/deploy-prod.sh`). On top of all of
+it runs Forge, the workflow engine that delivers the work: also Rust (`rust/forge`), with its state in Neon.
+
+There is no Next.js application here. `app/`, `components/`, `services/`, `lib/` and the TypeScript server were retired
+and deleted; what remains of that world is `legacy/` and the dead files under `scripts/` and `agent-runtime/`. All of it
+is read-only: read it for intent, translate the behaviour to Rust when it is wanted, never import it, never repair it in
+place (`docs/agent/BROKEN-TS-INVENTORY.md`).
 
 ## The layers
 
-| Layer | Path | What lives there |
-|---|---|---|
-| Routes | `app/` | App Router screens; the portal is `app/portal/*` (~40 screens); APIs are `app/api/*` |
-| UI | `components/` | React components; portal UI under `components/portal/` |
-| Domain logic | `services/<domain>/` | Business rules per domain — `<domain>-service.ts`, `repository.ts`, `index.ts`. See `MAP-services.md` |
-| Data access | `db/` | Repositories, `legacy/db/database-gateway.ts`, error capture (`legacy/db/app-error.ts`) |
-| Cross-cutting | `lib/` | Auth (`lib/auth/`), error-capture seams, storyboard projections (`lib/storyboard-data.ts`), move rules (`lib/story-moves.ts`), sorter cards (`lib/sorter-board.ts`) |
-| The engine | `workflow_app/` | Forge: phase agents, gates, executors, the topology XML. See `MAP-engine.md` |
-| The harness | `agent-runtime/` | How one role runs: skills, lane prompts, write policy, assay planning, candidate publish |
-| Operations | `scripts/` | Worker entry, migrations, probes, lint, the local build/deploy scripts |
-| This map | `docs/agent/` | `ORIENTATION.md` (this), `MEMORY.md` (durable decisions), `docs/agent/packets/` (per-story), `docs/agent/skills/` (packs) |
-| Tests | `legacy/workflow_app/tests/`, `testv2/`, `agent-runtime/*.test.ts` | Engine + app suites |
+| Layer | Where | What it is |
+| --- | --- | --- |
+| Website and portal UI | `rust/ui/src/app/` | Screens on the `Screen` trait (MVI: `Model` / `Msg` / `update` / `view`), the screen table `registry.rs`, the master `template.rs`, the `shell.rs` and its executor. |
+| UI still on the old loop | `rust/ui/src/view.rs`, `update.rs`, `yew_effects.rs`, `yew_views/` | The pre-trait global MVI loop. Two screens remain (`Kind::LegacyPortal`, Marketing); its count may only fall (registry test `legacy_count_only_goes_down`). |
+| HTTP API | `rust/server/src/api/` | `routes.rs` (the whole surface), `portal_bridge.rs` (the portal's screen reads and its commands), `public_ui.rs` (the public site), `context.rs` and `ui_auth.rs` (identity), `engine.rs` (the engine's door), `error.rs` (`ApiError`). |
+| Services | `rust/server/src/<domain>` (`mod.rs` or `<domain>.rs`) | One service per domain: the rules, typed over a repository. Registered once in `composition.rs`. |
+| Service kernel | `rust/core/service/src/` | `AbstractService`, `ServiceRuntime`, `ServiceContext`, authorization, audit, domain events, lifecycle, mailbox, error sink. |
+| Domain | `rust/core/domain/src/` | Types and rules. No I/O, no SQL, no HTTP. |
+| Database | `rust/core/db/src/` | DAOs and the one pool per process (`pool.rs`, `shared.rs`); failures as `DbFailure` (`capture.rs`). Migrations in `db/migrations`. |
+| Integrations | `rust/integrations/src/` | Mux, Google, Apple, BoldSign, Neon, mail, WhatsApp. |
+| Engine | `rust/forge/src/` | Forge: the definition (`definitions/FORGE_SDLC-v6.xml`), phases, gates, roles, executor. |
+| CLI | `rust/cli/src/` | `forge` gates (`rust/cli/src/forge/`: harness lint, vendor-block sync), `db-tool`, Apple intake. |
+| Retired TypeScript | `legacy/`, dead files in `scripts/` and `agent-runtime/` | Read-only reference, out of scope, never imported. |
+| Build and ops | `scripts/`, `deploy/` | `dev.sh`, `site-build.sh`, `deploy-prod.sh`, `Dockerfile.build` and `Dockerfile.runtime`. |
+| Docs | `docs/agent/` | This map, `MEMORY.md`, packets, skills, releases. |
+| Tests | `#[cfg(test)]` beside the code, `rust/server/tests/*_dev.rs`, `rust/**/tests/` | The live suites. |
 
-## The three stores — and who is authoritative for what
+## One database, one repository, no third store
 
-- **Neon (facts).** Stories, statuses, the engine ledger, batches, holds, errors. If the question is
-  "what is true right now", Neon answers it. Nothing else may claim to.
-- **Git (code and this map).** The code, and the docs that describe it, travel in the same commit — which
-  is why this map is a file and not a wiki page: it can be diffed, reviewed and gated.
-- **Everything else is a view.** The Cockpit, the board, `forge:batch:status`, `/api/build-info`, any
-  generated page — all **derived** from the two stores above. A view may be approximate; it must never be
-  a second place where truth is edited.
+The estate is a database and a repository, and a lane owns neither: the ROWS are the workflow. Facts live in Neon
+(`forge_tool_artifact`, `storyboard_story_run`, `forge_engine_task_execution`, `app_error`), code and docs live in git,
+and every other artefact - a report, a manifest, a packet, a verdict - is a view of those, written down. Never create a
+parallel store: no worktree-as-workflow, no scratch directory that outlives the command that made it. Status is read
+from the rows.
 
+## Commands that matter
 
-## The commands that matter
-
-```
-pnpm forge:harness           # ONE gate for the harness: vendor blocks + manifests fresh, lint, harness tests
-pnpm forge:manifest <ID>     # write docs/agent/manifest/<ID>.md — the ranked files to read for that story
-pnpm forge:manifest --check-all   # every manifest on disk is fresh (part of forge:harness)
-pnpm forge:sync-agents       # regenerate the managed block in vendor pointer files (CLAUDE.md and friends)
-pnpm forge:decision list     # the decisions that are IN FORCE (forge_decision, migration 180)
-pnpm forge:decision check    # decision files vs rows agree (split-brain gate; needs the database)
-pnpm forge:decision promote --key k --by captain --apply   # put a candidate into force (writes the mirror)
-pnpm forge:batch:status      # read-only truth: batch table, engine queue, bench, board-vs-table agreement
-pnpm forge:packet-lint       # harness gate: packets, skills, MEMORY, maps, manifests, vendor blocks
-pnpm forge:clean             # clear stale engine claims BEFORE any engine run or test
-pnpm smoke:prod              # ask production whether it works (pages + build stamp), not just whether it deployed
-node --import tsx --test legacy/workflow_app/tests/*.test.ts    # app/engine suite
-pnpm test:agent-runtime      # harness suite (30 files)
-pnpm test:harness            # script-level gate tests (packet lint, manifest, vendor blocks)
-pnpm db:parity               # DEV vs PROD schema drift (a release gate)
-pnpm db:migrate <file> <dev|prod> --note "…"             # schema change, with a recorded ledger row
-git diff --check && pnpm exec next build --webpack       # per AGENTS.md
+```sh
+pnpm build                  # the Yew wasm (release) + Tailwind + the server binary
+pnpm dev                    # scripts/dev.sh - the local server
+cargo check --workspace --all-targets
+cargo test -p db -p server -p forge -p workflow
+pnpm test                   # the engine suites + cargo test -p workflow -p forge
+pnpm forge:harness          # one gate: vendor blocks, manifests, harness lint, harness tests
+pnpm forge:packet-lint      # the harness lint alone (Rust: cli -- forge harness-lint)
+pnpm forge:sync-agents      # write/verify the vendor pointer blocks
+pnpm forge:manifest <ID>    # the ranked file list for a story
+pnpm broken:ts:sweep        # dead-TypeScript counts; fails when the tree and the inventory disagree
+pnpm db:migrations          # per-target migration state (a release gate)
+pnpm db:parity              # DEV/PROD schema parity (a release gate)
 ```
 
-`pnpm forge:packet-lint` takes `--format json` when something needs to read it rather than a person.
-Story status, engine state and batch state are still in Neon: a manifest lists files, and never pretends
-to be status.
+Release (`docs/agent/DEV-OPS-RELEASE.md`):
 
-Production is compiled **locally** and deployed prebuilt (Node 24 is required). The whole set —
-what each command does, and why — is `docs/agent/DEV-OPS-RELEASE.md`:
-
-```
-pnpm deploy:prod                     # THE clean path: local Docker compile, Vercel only unpacks,
-                                     # then a 7-URL 200 check on the canonical domain + rollback line
-pnpm release                         # build + deploy + probe + RECORD (docs/agent/releases.md)
-pnpm release --verify <sha>          # "is there an eligible receipt for this SHA?" (Forge asks THIS)
-pnpm smoke:prod                      # ask production whether it works, not whether it deployed
-bash scripts/vercel-build-prod.sh    # the older prebuilt path: builds .vercel/output, deploys nothing
-bash scripts/vercel-deploy-prod.sh   # needs main + a clean tree + a matching stamp; VERIFIES the live sha
-curl -s https://www.culebraluxe.com/api/build-info      # {"version","sha","builtAt"} — what is actually live
+```sh
+pnpm deploy:prod   # compile here, deploy prebuilt
+pnpm release       # record it - docs/agent/releases.md
+pnpm smoke:prod    # ask production whether it works, from outside
 ```
 
-A row is not a receipt, and the Forge chain never builds and never deploys — it asks `--verify`.
-
-⚠️ **Never run a plain `next build` between `vercel-build-prod.sh` and `vercel-deploy-prod.sh`.** It
-overwrites `.next` and deletes `.next/required-server-files.json`, which the prebuilt deploy needs; the
-deploy script preflights this, but the rule is simpler than the error message.
+`next build` is not part of this repository: there is no Next application to build.
 
 ## Where to look for X
 
-| Question | Look here |
-|---|---|
-| What is the status of a story? | Neon `storyboard_story.status`; the Cockpit at `/portal/tech`; `pnpm forge:batch:status` |
-| What is the engine doing / has it done? | `forge_engine_task_execution` (ledger), the Flight Recorder at `/portal/tech/flight-recorder/<instance>`, `agent_work_item` (queue) |
-| What is staged for a run, or scheduled? | `forge_batch`, `forge_batch_item`; the ENGINE BATCH column |
-| Where did an error go? | `app_error` table, `/portal/tech/app-errors`; `instrumentation.ts` (`onRequestError`) captures every server failure with its digest |
-| What is deployed right now? | `/api/build-info`; the Cockpit's version corner reads `V2 · r<commit-count> · <sha>` |
-| What is this story meant to do? | `docs/agent/packets/<STORY-ID>.md` |
-| Why is it like this? | `forge_decision` (the rules IN FORCE, injected into Lead/Smith), then `docs/agent/decisions/<key>.md`; `docs/agent/MEMORY.md` is the incident narrative behind them |
-| Where does a feature's logic live? | `MAP-services.md`, then `services/<domain>/<domain>-service.ts` |
-| How does the engine work? | `MAP-engine.md`, then `docs/agent/WORKFLOW-ARCHITECTURE.md` |
+| Question | Read |
+| --- | --- |
+| Why is the system shaped this way? | `docs/agent/MEMORY.md` - the decisions, each with its date |
+| How do I add or change a domain operation? | `MAP-services.md` - the four files a domain has, and the registration |
+| How do I add a screen? | `UI-SCREEN-ARCHITECTURE.md` ("Adding a screen - the recipe"); the reference read is `rust/ui/src/app/screens/db_test.rs` |
+| What does the engine do? | `MAP-engine.md`, then `WORKFLOW-ARCHITECTURE.md` |
+| How should the UI look and word things? | `docs/agent/skills/ui.md` and `rust/ui/src/app/template.rs` |
+| Which capability serves production where? | `docs/rust-parity-ledger.md` |
+| What did production get, and when? | `docs/agent/releases.md` |
+| How is a database story delivered? | `docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md` |
+| How do I make a Rust change without the usual traps? | `docs/rust-contributing.md` |
+| What is dead, and why? | `docs/agent/BROKEN-TS-INVENTORY.md` |
 
-## Boundaries (and why)
+## Boundaries
 
-- **`workflow_engine/**` is not yours to edit** — captain-owned; the engine's DB ratchet lives there.
-- **Never** reset PROD, copy DEV over PROD, truncate canonical history, or commit secrets/`.env.local`.
-- **Forge runs execute against PROD only.** The environment is not something a run may flip.
-- **Scout, Assay and Inspector never commit.** Only the Builder role commits, on the worker branch.
-- **Do not special-case a listing** (e.g. Casa Luar) in application code.
-- **Do not build per story what belongs to a batch.** Publishing is per story; a *release* is one build for
-  many stories — the Thursday model, automated.
+- `legacy/**`, the dead `scripts/**` and `agent-runtime/**` files are reference only. A live import from them is a lint
+  failure, and the suppressed-import list may only shrink.
+- New UI capability goes in `rust/ui/src/app/`; new backend capability goes in `rust/server` plus `rust/core`.
+- Anything crossing a process boundary - a webhook body, a route body, a provider response - is unknown until a runtime
+  schema validates it. A hand-written type or an `as` cast is not validation.
+- `main` is production-sensitive. Never deploy, and never touch the production database, without the Captain's explicit
+  go - and know that `APP_ENV=production` (or `VERCEL_ENV=production`) silently resolves to the production database.
 
-## Reading order for a new agent
+## Reading order for a new session
 
-1. This page. 2. The packet for your story (`docs/agent/packets/<STORY-ID>.md`) — it names your scope.
-3. `MAP-services.md` or `MAP-engine.md` for the area you touch. 4. `MEMORY.md`'s recent entries for the
-traps the last person hit. 5. Then the code.
+1. `AGENTS.md` - the house rules, which outrank anything else in the repository.
+2. This file.
+3. The story packet `docs/agent/packets/<STORY-ID>.md`, its scope manifest, and any skill it lists.
+4. The layer map for what you are changing (`MAP-services.md`, `MAP-engine.md`, `UI-SCREEN-ARCHITECTURE.md`).
+5. The code, then the tests that already cover it.

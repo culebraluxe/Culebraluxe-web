@@ -1,9 +1,30 @@
 # UI Screen Architecture — the contract every screen implements
 
-Status: **framework and master shell built** (owner decision 2026-09-26). Code: `rust/ui/src/app/`. Screens on the
-trait: `db-test`, `site-account`. Cutover ledger: 2 screens still on the old loop (Marketing, on hold by the owner) (`app/registry.rs`). This document is the contract for all
-UI work in `rust/ui`. It supersedes the ad hoc per-screen patterns: when code and this document disagree, the code is
-wrong.
+Status: **framework, master shell, and every screen but two on the trait** (checked 2026-09-28). Code:
+`rust/ui/src/app/`.
+
+The registry (`app/registry.rs`) holds 58 entries: 54 `Kind::Screen` on the trait (CORE, ACCOUNTING, OPPS, SUPPORT,
+TECH, and the whole public site), 2 still on the old loop — `marketing` (`/portal/marketing`, "Dashboard") and
+`marketing-syndication` ("Syndication") — and 2 `Kind::External` (WhatsApp Activation, which the owner holds
+deliberately, and `/portal` itself). The ledger test `legacy_count_only_goes_down` pins the legacy count at
+`LEGACY_CEILING = 2`, and the ceiling only moves down.
+
+**Next to convert: `marketing` — `/portal/marketing`, "Dashboard".** It is the Marketing surface's home path
+(`navigation::home_path`), so the surface's front door is a legacy screen today, and it is the smaller of the two.
+Neither screen has anything of its own to preserve: `view.rs::custom_body` has no arm for either, so both fall through
+to the generic `rows()` table, and `rust/server` has no portal marketing read at all (`rust/server/src/marketing.rs` is
+the *public* editorial content of the website, not this screen). Converting one is therefore a first build, not a port
+— §7a's recipe from step 1. `marketing-syndication` follows, and it is a feature before it is a screen: its real
+content is the Stellar listing draft (packet `MKT-STELLAR-DRAFT-01`) over schema 098/099/101/103, which no Rust code
+reads yet.
+
+**There is no Next.js application.** `rust/server/src/site.rs` answers every path with this one Yew app. What is left
+of the old loop is Rust — `view.rs`, `update.rs`, `yew_effects.rs`, `yew_views/`, reached only through
+`Kind::LegacyPortal` — and it is deleted when the last two screens leave it. TypeScript that is not this UI lives in
+`legacy/` and is read-only.
+
+This document is the contract for all UI work in `rust/ui`. It supersedes the ad hoc per-screen patterns: when code
+and this document disagree, the code is wrong.
 
 ## Why
 
@@ -57,12 +78,17 @@ Rules:
 
 ```rust
 pub struct ScreenCtx {
-    pub actor: Actor,                 // who is signed in, level, entitlements (portal); None-equivalent on the site
-    pub params: RouteParams,          // record id etc. from the route, typed
-    pub query: QueryParams,
-    pub now: Timestamp,
+    pub actor: Actor,                       // who is signed in, as the portal layout handed it over; empty on the site
+    pub id: Option<String>,                 // the record id a record route carries (`/portal/clients/:id`)
+    pub query: BTreeMap<String, String>,    // the URL's query, decoded
+    pub path: String,                       // the path this screen was opened at
+    pub grants: Option<PortalEntitlements>, // what the user may do — UI VISIBILITY ONLY; the server authorizes
 }
 ```
+
+`ctx.can(action)` is the one place a screen asks "may I offer this?" — it mirrors the server's rule (internal
+accounts only; managing entitlements and roles is ROOT's; nothing is offered before the grants arrive). A unit test
+builds one with `ScreenCtx::default()`, which is why a screen can be tested with no browser and no session.
 
 ### 3. `Cmd<Msg>` — side effects as data, executed only by the shell
 
@@ -70,34 +96,43 @@ pub struct ScreenCtx {
 pub enum Cmd<Msg> {
     None,
     Batch(Vec<Cmd<Msg>>),
-    Request(Request<Msg>),            // built from an Endpoint (below); the reply comes back as a Msg
-    Navigate(Location),               // in-app navigation through the router
-    Storage(StorageCmd<Msg>),         // device storage (favorites, compare, saved searches)
-    Island(IslandCmd),                // push new props to a vendor widget
-    Download(Download), Share(Share), // browser capabilities, each named, none generic
+    Request(Request<Msg>),             // built from an Endpoint; method, path, body, and a reply that becomes a Msg
+    Navigate(String),                  // in-app navigation through the router: no page load
+    Load(String),                      // a full document load (site ↔ portal, or a server-owned route)
+    ReplacePath(String),               // swap the URL without remounting: a workspace changing its record in place
+    SharePdf { data_uri, filename, reply },   // the native share sheet, with a rendered PDF
+    Listen { reply },                  // one utterance of the browser's speech recognition
+    StorageRead { key, reply },        // one value from the device (favorites, compare, saved searches)
+    StorageWrite { key, value },       // write, or remove with `None`
+    After { millis, msg },             // deliver `msg` later: how a search waits for typing to pause
+    Upload(Upload<Msg>),               // one file, chunked, so no request reaches the gateway's body limit
+    VideoUpload(VideoUpload<Msg>),     // a property film, browser straight to Mux, with progress
 }
 ```
 
 There is **no escape hatch** (no `Cmd::Custom(closure)`). A new capability is a new named variant, reviewed once,
-executed in one place.
+executed in one place: `app/exec.rs` is that place, and it is the only UI code allowed to touch `web_sys`.
 
 ### 4. `Endpoint` — the typed API catalogue
 
 ```rust
 pub trait Endpoint {
-    const METHOD: Method;
-    type Body: Serialize;
-    type Response: DeserializeOwned;   // shared types from `rust/core/domain` where the server has them
+    const METHOD: Method;                       // Get | Post | Put
+    type Response: DeserializeOwned + 'static;  // shared types from `rust/core/domain` where the server has them
     fn path(&self) -> String;
+    fn body(&self) -> Option<serde_json::Value> { None }
 }
-// update: Cmd::request(ListClients { search, page }, Msg::ClientsLoaded)
-//   Msg::ClientsLoaded(Result<ClientsPage, ApiError>)
+// update: Cmd::request(PortalScreenPage::of("db-test"), Msg::Loaded)
+//   Msg::Loaded(Result<PortalPage, ApiError>)
 ```
 
-All endpoints live in `rust/ui/src/api/`. It is the **only** place that knows URLs. The shell's executor adds the
-generation (so a reply to a screen you left is dropped), correlation id, error capture and decoding. When the HTTP
-layer moves from the Next relays to Axum directly, the change is in this catalogue and the executor, and no screen
-changes.
+The trait is in `app/cmd.rs`; the catalogue is `app/api.rs`, and it is the **only** place that knows a URL. The
+executor (`app/exec.rs`) adds the correlation id, unwraps the `{ ok, value }` envelope and turns a refusal into a
+typed `ApiError`. A screen never sees a URL, a status code or `fetch`.
+
+What answers those URLs is the Rust server — the `/api/portal/rust-ui/**` and `/api/rust-ui/**` bridges in
+`rust/server/src/api/portal_bridge.rs` and `routes.rs`. Adding a field to a read is a change to the server shape and
+to `rust/ui/src/model.rs` together; there is no relay and no TypeScript in between any more.
 
 ### 5. `Remote<T>` and the standard states
 
@@ -105,94 +140,170 @@ changes.
 pub enum Remote<T> { NotAsked, Loading, Loaded(T), Failed(ApiError) }
 ```
 
-A screen holding data holds a `Remote`. The shell's `remote_view(&remote, |data| ...)` draws loading and failure the
-same way everywhere.
+A screen holding data holds a `Remote` (`Default` is `NotAsked`, and the answer arrives as
+`Remote::from_result(...)`). `template::remote(&model.read, "the database", |data| ...)` draws loading and failure the
+same way everywhere — that is the whole point of the variant, and it is what a new screen should use rather than
+writing its own spinner.
 
 ### 6. Base kinds — the abstract subclasses
 
-Most screens are one of two shapes. They are generic building blocks a screen composes, so the behaviour exists once:
+Four shapes recur, and the three that are genuinely uniform already exist as blocks a screen composes:
 
-- **`ListScreen`** — search, filters, paging, row selection, open-record navigation, empty and error states.
-- **`RecordScreen`** — load by id, edit draft, dirty tracking, validate, save, save-failed, leave-with-unsaved-changes.
+- **`app/list.rs` — the list building block.** A list screen holds a `ListState` and wraps its messages
+  (`Msg::List(ListMsg)`). `ListState::update` owns typing (with `SEARCH_PAUSE_MS` before the search runs), paging and
+  saying when to reload; the screen owns which endpoint to call and how a row looks. The selection lives in the URL
+  (`?selected=`), so it can be linked, reloaded and gone back to.
+- **`app/rows.rs` — `RowsScreen<T>`.** A read that is genuinely just rows gets a whole screen from one generic
+  component (`RowsScreen<Roles>`, used by the SUPPORT settings screens), selection and reload included.
+- **`app/page.rs` — `PageScreen<T>`.** A portal screen that reads its page and draws it, with no control that changes
+  anything. A `PageSpec` says which `screen=` it reads (`SCREEN`), what is being read (`NOUN`), whether the read is
+  about the record in the URL (`SCOPED`), which part of the answer is its own (`pick` → `Option`, so a missing part is
+  a failure to say so rather than an empty screen) and how it is drawn. Reading, loading, failure and the drill-in's
+  back link are the module's, once — `Activity`, `Workflows`, `WorkflowRecord` and `Storyboard` are just specs. A
+  screen that grows a command gets a module of its own.
+- **Record screens** (client, deal, form, workflow, property, story, trace) have no shared trait: each is a `Screen`
+  that loads its own read by id (`app/screens/deals/`, `clients/`, `forms/`, …). If a third one needs the same
+  save–validate–dirty behaviour, that is the moment to extract it — not before.
 
-A list screen supplies its row type, columns and endpoint; a record screen supplies its record type, form and
-endpoints. Everything else is inherited.
+Shared presentation is `app/template.rs`: `portal_heading`, `remote`, `loading_panel`, `failure`, `empty_panel`,
+`widget_removed`, `metric`, `tabs`/`active_tab`, `back_link`, `with_query`, `input_value`. Use these before writing
+markup of your own; a screen that draws its own loading state is the inconsistency this document exists to stop.
 
 ### 7. `ScreenHost<S: Screen>` and the registry
 
-`ScreenHost<S>` is one generic Yew component: it owns `S::Model`, runs `S::init`, feeds `S::Msg` through `S::update`,
-executes the returned `Cmd` with the current generation, and draws `S::view` inside the chrome for `S::SURFACE`.
+`ScreenHost<S>` (`app/host.rs`, 94 lines) is one generic Yew component: it owns `S::Model`, runs `S::init`, feeds
+`S::Msg` through `S::update`, executes the returned `Cmd`, and draws `S::view`.
 
-Screens are registered in one place:
+It also carries the **generation**, which is where stale answers die. Every message is stamped with it; a reopened
+screen — new path, new record id, new actor — moves it on, and an answer to the previous record's request is dropped
+there, once, centrally, so no screen has to remember to guard. Only the query changing (a `?tab=`, a `?selected=`)
+keeps the state and asks `S::url_changed`.
+
+Screens are registered in one place — 58 `entry(...)` lines, and the table order is the menu order:
 
 ```rust
-// rust/ui/src/app/registry.rs — the table order is the menu order
+// rust/ui/src/app/registry.rs
 entry("db-test", "/portal/db-test", Surface::Support, "DB Test", Menu::Rail("DB Test"), "portal.read", "portal.read",
       Kind::Screen(mount::<DbTest>)),
 ```
 
-`Kind::Screen(mount::<S>)` is a screen on the trait. `Kind::LegacyPortal` / `Kind::LegacySite` host a screen still on
-the old loop inside the new shell while it is ported — the ledger test (`legacy_count_only_goes_down`) holds that
-number to a ceiling that only moves down. `Kind::External` is a page Next renders (Auth.js sign-in, the React Forms
-editor). Adding a screen is **implement the trait + one registry line**. The registry's tests also check that every Next
-`page.tsx` has an entry and every entry has a page, that the menus are the designed menus in order, and that every
-surface's home is registered.
+- `Kind::Screen(mount::<S>)` — a screen on the trait. **The identity lives in the table, not in the trait**: key,
+  path, surface, title, menu label and the two authority strings are the entry's columns, because the router, both
+  menus, the breadcrumb and the walk are all generated from this one table.
+- `.of("parent")` — a drill-in: it names the screen it hangs off (settings' users/roles/authorities, activity, every
+  `:id` record route), so it is reachable and breadcrumbed without appearing in the rail.
+- `Kind::LegacyPortal(key)` — the two Marketing screens still on the old loop. `legacy_count_only_goes_down` holds that
+  number to `LEGACY_CEILING = 2`, and the ceiling only moves down.
+- `Kind::External` — a route this app cannot render; today that is WhatsApp Activation, which draws a placeholder
+  panel. See §8 for why it must not reload.
+
+The registry's own tests are the gate on the table: keys and paths unique; paths resolve with their params, exact
+segments winning; the rail is the designed menu in order; visibility follows the registry rules; a retired screen is
+never in a menu; every drill-in names a real parent and highlights it; every surface's home is registered; and the
+legacy count only goes down.
+
+### 7a. Adding a screen — the recipe
+
+`app/screens/db_test.rs` (174 lines) is the reference screen: one endpoint, one `Remote`, the template's states, one
+test. Steps 1 and 2 are where a screen is actually designed; the rest is mechanical.
+
+1. **The read, in Rust, first.** A screen that shows something needs a server answer. If a service method answers,
+   reuse it; otherwise add the bridge arm in `rust/server/src/api/portal_bridge.rs` (the `match screen` in the page
+   read / `support_payload`) and the shape in `rust/ui/src/model.rs` (for portal screens, a field on `PortalPage`).
+   A screen never fetches and never knows a URL.
+2. **The endpoint**, in `app/api.rs`: a struct and `impl Endpoint` (`const METHOD`, `type Response`, `fn path`, and
+   `body()` if it writes). A screen that reads the whole portal page uses `PortalScreenPage::of("your-key")`, which is
+   already there.
+3. **The screen module**, `app/screens/<world>/<name>.rs`: `struct Name;`, a `Model` (`Default + Clone + PartialEq`),
+   a `Msg` enum, and `impl Screen`. `init` returns the first state (start `Remote::Loading`) and
+   `Cmd::request(endpoint, Msg::Loaded)`. `update` folds the answer in with `Remote::from_result`. `view` draws with
+   `template::` helpers. Not fetching, spawning or reading storage in any of the three — that is the whole contract.
+   **A screen with no command needs no module of its own**: hand it to `PageScreen<T>` (`app/page.rs`) or
+   `RowsScreen<T>` (`app/rows.rs`) by writing the spec, and steps 3–6 shrink to the spec, the registry line and a test.
+4. **One registry line**, and only one: `entry(key, path, surface, title, menu, authority, entitlement,
+   Kind::Screen(mount::<Name>))`, or `.of("parent")` for a drill-in; `Menu::None` for a screen with no rail item.
+   Never add a second mapping from path to screen.
+5. **Declare the module** where its siblings are declared (`app/screens/mod.rs`, or the world's `mod.rs`, e.g.
+   `accounting/mod.rs`) and bring the type into `registry.rs`'s imports — those two files are the only other ones that
+   name a screen.
+6. **A test in the screen's own file**, the way `db_test.rs` does it: assert the first `Cmd` carries the URL you
+   meant (`cmd.into_requests().remove(0)`), feed the answer back through `update`, assert the model; then feed a
+   failure and assert it says so. When a real payload exists, put it in `rust/ui/fixtures/` and decode it
+   (`include_str!`), so the contract is checked against the server's actual shape.
+7. **Verify**: `cargo check -p ui --features wasm --target wasm32-unknown-unknown --all-targets`. The whole `app`
+   module and its tests sit behind `wasm` + `yew` + `yew-router` (`rust/ui/src/lib.rs:36-50`), so a plain
+   `cargo test -p ui` compiles **no screen and no registry test at all** — it runs the legacy MVI's host-target tests
+   and nothing else. Add `cargo check --workspace --all-targets` when the server shape changed too.
 
 ### 8. One app, one router
 
-One Yew application serves every URL: the public site and the portal. The Yew router owns navigation, so moving between
-portal screens is in-app, not a page load. Next is reduced to what only it can do:
+One Yew application serves every URL: the public site and the portal. `rust/server/src/site.rs` answers **every** path
+with this app, so the Yew router owns navigation and moving between screens is in-app, not a page load. There is no
+other page server and no relay layer: `app/`, `components/` and `lib/` are the retired TypeScript stack, out of scope
+for the website (`docs/agent/LEGACY-TYPESCRIPT.md`). Access is decided server-side — a `/portal/**` request without a
+resolved identity never reaches the app — and the app only draws what the grants it was handed allow.
 
-- `app/portal/layout.tsx` — the server-side access guard (unchanged authority: the server decides);
-- a catch-all page per area that renders `<RustUi />`;
-- `/api/auth/*` (Auth.js) and, until the Axum cut, the relay routes.
+That single fact is what `Kind::External` means in a running app. `Entry::needs_document()` is true for it, so
+`chrome.rs::in_app` sends a link to or from such a route through the **document** rather than the router — and the
+server answers that document load with this same app, which is how the WhatsApp Activation page once reloaded ~60 times
+a second. An External route therefore renders a placeholder panel (`app/shell.rs:121-127`, `template::empty_panel`) and
+is never a redirect or a `location` assignment. Two entries are External today: WhatsApp Activation (the Meta Embedded
+Signup lifeline, held deliberately) and `/portal` itself.
 
-Sign-in screens are Yew too. A form that posts to Auth.js must carry its CSRF token (see `yew_views/account.rs` for
-the working pattern).
+`Cmd::Navigate` is an in-app move; `Cmd::ReplacePath` rewrites the URL without pushing history (a tab, a selection);
+`Cmd::Load` is for a URL another server really owns (Auth.js's `/api/auth/**`), not a way to leave the app for a page
+it could draw itself.
 
-### 9. Vendor islands — dumb widgets
+### 9. Vendor widgets — what "island" used to mean
 
-A vendor widget (SVAR Gantt, FullCalendar, Mux player) is rendered by one Yew component:
+**There is no `Island` component, no JS island host and no `MutationObserver` bridge in `app/`** (checked 2026-09-28;
+the word "island" in this crate now means Culebra). The React/vendor widgets and the `components/rust-ui/island-*`
+plumbing belonged to the Next world and went with it. What the widgets actually are:
 
-```rust
-<Island kind="svar-gantt" props={json} on_event={link.callback(Msg::Gantt)} />
-```
+- **Video** is an `<iframe>` on Mux (`https://player.mux.com/{playbackId}`) drawn by the screen that owns it
+  (`app/screens/site/`, `app/screens/tech/`), and a film is uploaded straight from the browser to Mux through
+  `Cmd::VideoUpload` (`app/exec.rs:54`), whose progress comes back as messages.
+- **Timeline, calendar and gantt-style panes are this app's own drawing** (`rust/ui/src/timeline.rs`,
+  `rust/ui/src/calendar.rs`) — Projects' Workplan, Timeline and Calendar panes are Yew, not SVAR.
+- **Maps** are a Google Maps `<iframe>`.
 
-**Built:** `rust/ui/src/app/island.rs` (the component) and `components/rust-ui/island-host.tsx` + `island-renderers.tsx`
-(the host and its kind → renderer table). First user: UI Lab.
-
-Yew owns the node. A single small JS registry mounts the widget into that node, re-renders it when `props` change,
-unmounts it when the node goes, and reports widget events back as typed messages. The widget holds no application
-state, calls no API and reads no DOM outside its node. No bridges, no DOM scraping, no `MutationObserver`.
+If a vendor widget is ever genuinely needed, it arrives the way every other capability does: a named `Cmd` variant
+owned by the executor (`app/exec.rs`, the only place a command touches the network, storage or the browser), with
+messages back into the screen's `Msg`. The widget holds no application state, calls no API and reads no DOM outside its
+own node — no bridges, no scraping, no observers.
 
 ## What is forbidden, mechanically
 
-Each of these is a CI gate (`pnpm gate:ui`), not a convention:
+Each rule names the check that actually holds it today, so it can be enforced rather than remembered:
 
-| Rule | Gate |
+| Rule | How it is held |
 | --- | --- |
-| No live TypeScript reaches `legacy/` | import-graph trace from every entry; baseline may only shrink |
-| No screen state outside its own module | no new fields on a shared model; the old `Model`/`update.rs` may only shrink until deleted |
-| No HTML strings, no `data-*` intents | `from_html_unchecked`, `render_page`, document listeners: zero outside the legacy adapter, then zero |
-| No `fetch`/`web_sys`/`spawn_local` in a screen | only `shell/` and `api/` may use them |
-| Relays stay thin | line budget per `app/api/**/route.ts`; orchestration belongs in Axum |
-| Everything builds | `cargo test`, release wasm, `tsc`, `next build` |
-| Every screen is reachable | headless walk of every registry path (`pnpm debug:portal-nav`, generalized) |
+| A screen does not reach the retired TypeScript | the Rust UI cannot load `legacy/` at all; on the TS side `pnpm lint` fails a new import and `eslint-suppressions.json` may only shrink; `pnpm broken:ts:sweep` keeps the dead-TS inventory honest |
+| No screen state outside its own module | a screen's state is its own `Model`; the legacy global `Model` (`rust/ui/src/model.rs:2291`) and `update.rs` may only shrink until the last `LegacyPortal` screen is ported |
+| No HTML strings, no `data-*` intents | `from_html_unchecked` has exactly two uses — `rust/ui/src/icons.rs:35` (the scoped SVG table) and `yew_portal.rs:32` (the legacy string body). `view::render_page`, `StringBody` and the document listeners in `rust/ui/src/shell.rs` are reachable only from the legacy loop, and go when it does |
+| No transport in a screen | no `gloo_net`, no `fetch`, no `spawn_local` anywhere in `app/screens/`: a screen returns a `Cmd` and `app/exec.rs` performs it. `web_sys` there is allowed only for reading an event's target (input, select, drag, file) |
+| One route table | `app/registry.rs` is the only mapping from path to screen; a second one is a review reject |
+| Everything builds | `cargo check -p ui --features wasm --target wasm32-unknown-unknown --all-targets` (the only check that compiles `app/` and the registry — plain `cargo test -p ui` is the legacy MVI on the host target); `pnpm ui:build:release` (release wasm) and `pnpm build` (wasm + tailwind + the server binary); `cargo check --workspace --all-targets`. There is no Next build |
+| Every screen is reachable | the registry's own tests, plus a headless walk of every registry path: `pnpm debug:portal-nav` |
 
 ## Migration — complete, not partial
 
 The owner's direction: done correctly, big-bang if needed; no permanent adapters.
 
-1. **Framework** — `Screen`, `ScreenCtx`, `Cmd`, `Endpoint`, `Remote`, `ScreenHost`, `Island`, the registry macro,
-   the executor, and the gates. Pilot: one simple screen and one list screen, end to end.
-2. **Port every screen** onto the trait, by kind: lists, records, editorial site pages, bespoke workbenches (OPPS,
-   TECH, Projects, Forms). Each port deletes its branch from the old `Model`, `Msg`, `update.rs`, `view.rs` and
+1. **Framework — in place.** `Screen`, `ScreenCtx`, `Cmd`, `Endpoint`, `Remote`, `ScreenHost`, `ListState` and
+   `RowsScreen`, the executor and the registry are written and in use.
+2. **Port every screen onto the trait — 54 of 58 entries.** The public site, sign-in, CORE, ACCOUNTING, OPPS, SUPPORT
+   and TECH are ported; `marketing` and `marketing-syndication` are the two left on the old loop, held at
+   `LEGACY_CEILING = 2`. Each port deletes its branch from the legacy `Model`, `Msg`, `update.rs`, `view.rs` and
    `yew_effects.rs`.
-3. **Collapse Next** to the guard, the catch-alls and Auth.js.
-4. **Delete** the old `Model`/`Msg`/`update.rs`/`view.rs`/`yew_effects.rs`, the `data-*` listeners, `StringBody`,
-   the two mount paths, and the 85 page files. The gates then hold the line.
+3. **Then delete the old loop**: when the last `LegacyPortal` entry goes, so do `Model`/`Msg`/`update.rs`/`view.rs`/
+   `yew_effects.rs`/`yew_views/`, the document listeners in `shell.rs`, `StringBody`, `render_page`, and the raw-markup
+   use in `yew_portal.rs`. (`icons.rs` stays: the ported screens use its SVG table.)
+4. **Two entries are neither screen nor port**: the two `Kind::External` routes. Each is either ported or deleted —
+   a permanent placeholder is not one of the two allowed outcomes.
 
-Done means: all gates green; zero screens outside the trait; the old loop deleted; every registry path walked headless.
+Done means: every entry is `Kind::Screen`; the old loop is deleted; and every registry path is walked headless.
+
 
 ## The screen inventory (owner-approved 2026-09-26)
 
@@ -210,12 +321,12 @@ not a screen.
 
 | World | Screens (drill-ins in brackets) |
 | --- | --- |
-| CORE | Cockpit [all activity, needs attention], Clients [client record], Projects [7 panes as tabs: Workplan, Timeline, Calendar, Financials, Documents, Activity, Catch-up], Contracts [contract record], Cabinet, Workflows [workflow record], Forms [form record], Seller Strategy — **ported** (Forms stays a Next page); Projects' five widgets are `<Island>`s |
+| CORE | Cockpit [all activity, needs attention], Clients [client record], Projects [7 panes as tabs: Workplan, Timeline, Calendar, Financials, Documents, Activity, Catch-up], Contracts [contract record], Cabinet, Workflows [workflow record], Forms [form record], Seller Strategy — **ported**, Forms and form records included (`registry.rs:161,197`); the panes, the timeline and the calendar are the screen's own (`app/screens/projects/`, `timeline.rs`, `calendar.rs`) |
 | ACCOUNTING | Dashboard, Receivables, Expenses, P&L Statement, Receipt Scanner — **ported** (`app/screens/accounting/`: one shared model and reducer, five thin screens) |
-| MARKETING | Dashboard, Syndication |
+| MARKETING | Dashboard, Syndication — **the two still on the old loop**; `/portal/marketing` is this surface's home path |
 | OPPS | Records [property record], Listing Media — **ported**; the record route is the Workbench opened on that property; photos go through `Cmd::upload` (chunked) |
 | SUPPORT | System Health, DB Test, WhatsApp Diagnostic, WhatsApp Activation (a LIFELINE page — see below), WhatsApp Public Page (`/whatsapp`), Mux Video Test (`/video`), Security [users, roles, authorities]; plus the token review page (`/review/:token/:page`, public URL kept) |
-| TECH | Cockpit, Flight Recorder (run detail), Storyboard [story record], UI Lab — **ported**; the sorter, the recorder console and the galleries are `<Island>`s |
+| TECH | Cockpit [Flight Recorder trace record], Story Board [story record], UI Lab — **ported**; the sorter is the screen's own (`Msg::SorterDropped`), and there is no island left on the Cockpit |
 
 Public URLs filed under SUPPORT keep their URLs (they may be registered with Meta or sent in email) and render in the
 site chrome; the SUPPORT rail links to them.
@@ -240,8 +351,9 @@ Projects calendar — and the framer-ui-lab page, merged into UI Lab.
 - **SEO**: the public site is rendered in the browser only (the Next page is an empty mount point; the Rust
   `document()` renderer is not served). Listings are invisible to crawlers that do not run JavaScript.
 
-- **OPPS video upload** still runs inside the `opps-video` island (direct to Mux), as before the port; it asks the
-  screen to re-read through its events. Moving it behind `Cmd` finishes §9 for this widget.
+- **OPPS video upload** used to run inside an `opps-video` island posting straight to Mux. It is now
+  `Cmd::VideoUpload`, performed by `app/exec.rs:54`, with progress and the answer coming back as messages
+  (`screens/workbench/mod.rs`).
 - **OPPS photo title** (`VillaDelMar_7`) was derived from the Listing Media payload, which the Workbench never loads,
   so it was always blank; it now comes from the Workbench's own property and photo count.
 - **Listing Media** uploaded in one request (refused above the gateway's ~4.5 MB); it now uses the same chunked
@@ -252,9 +364,10 @@ Projects calendar — and the framer-ui-lab page, merged into UI Lab.
   `<option selected>`; the pattern is required for new screens. Old-loop screens (Forms, OPPS) still carry it until
   they are ported.
 
-- **TECH sorter drop** still calls its Next server action (`moveStoryBucketAction`) from inside the island, as it did
-  before the port. Everything else on the Cockpit is the screen's. Moving it behind an API endpoint the screen calls
-  finishes §9 for this widget.
+- **TECH sorter drop** called a Next server action (`moveStoryBucketAction`) from inside an island. The island and the
+  action are gone and the drop is the screen's own: `Msg::SorterDropped` sends `{"action":"moveStoryBucket"}` to
+  `/api/portal/rust-ui/tech` (`screens/tech/mod.rs:200-218`). Its module doc comment still calls the sorter "the
+  `tech-sorter` island"; that string exists nowhere else in the tree — stale prose, not stale code.
 - **Story record** had no data source (it fell through to an empty generic rows read). It now reads the Cockpit's
   story detail (`/api/portal/rust-ui/tech?selected=<id>`).
 
