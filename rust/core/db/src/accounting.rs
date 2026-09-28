@@ -10,9 +10,9 @@
 //! from being a possible state.
 
 use domain::{
-    AccountingDashboard, CategoryShare, CreateExpenseCommand, CreateReceivableCommand, Expense,
-    MarkReceivablePaidCommand, MarkReceivablePaidOutcome, Money, PnlLine, PnlRequest, PnlStatement,
-    PnlTrendPoint, Receivable,
+    AccountingDashboard, CategoryShare, CommissionForecast, CommissionForecastItem, CreateExpenseCommand,
+    CreateReceivableCommand, Expense, MarkReceivablePaidCommand, MarkReceivablePaidOutcome, Money, PnlLine,
+    PnlRequest, PnlStatement, PnlTrendPoint, Receivable,
 };
 use sqlx::FromRow;
 
@@ -148,6 +148,27 @@ struct TrendRow {
 }
 
 #[derive(Debug, Clone, FromRow)]
+struct ForecastTotalRow {
+    next_30_days: String,
+    next_60_days: String,
+    next_90_days: String,
+    undated_or_past: String,
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct ForecastItemRow {
+    receivable_id: String,
+    amount: String,
+    expected_on: String,
+    expected_on_label: String,
+    timing_source: String,
+    deal_id: Option<String>,
+    property_name: Option<String>,
+    person_name: Option<String>,
+    description: String,
+}
+
+#[derive(Debug, Clone, FromRow)]
 struct PaidRow {
     id: String,
     status: String,
@@ -182,6 +203,90 @@ impl AccountingDao {
             .await
             .map_err(|error| DbFailure::from_sqlx("accounting.list_receivables", &error))?;
         Ok(rows.into_iter().map(ReceivableRow::into_domain).collect())
+    }
+
+    /// OPEN commission receivables projected onto their strongest known timing fact.
+    /// Deal closing date wins; due date and issue date are fallbacks. Every total is a numeric SUM in Postgres.
+    pub async fn commission_forecast(&self) -> DbResult<CommissionForecast> {
+        let pool = self.db.pool();
+        let totals = sqlx::query_as::<_, ForecastTotalRow>(
+            r#"
+            with forecast as (
+              select
+                r.amount,
+                coalesce(d.closing_date, r.due_on, r.issued_on) as expected_on
+              from account_receivable r
+              left join deal d on d.id=r.deal_id
+              where r.status='OPEN'
+                and upper(coalesce(r.category, ''))='COMMISSION'
+            )
+            select
+              coalesce(sum(amount) filter (
+                where expected_on >= current_date and expected_on <= current_date + 30
+              ), 0)::text as next_30_days,
+              coalesce(sum(amount) filter (
+                where expected_on >= current_date and expected_on <= current_date + 60
+              ), 0)::text as next_60_days,
+              coalesce(sum(amount) filter (
+                where expected_on >= current_date and expected_on <= current_date + 90
+              ), 0)::text as next_90_days,
+              coalesce(sum(amount) filter (
+                where expected_on < current_date or expected_on is null
+              ), 0)::text as undated_or_past
+            from forecast
+            "#,
+        )
+        .fetch_one(pool);
+        let items = sqlx::query_as::<_, ForecastItemRow>(
+            r#"
+            select
+              r.id::text as receivable_id,
+              r.amount::text as amount,
+              coalesce(d.closing_date, r.due_on, r.issued_on)::text as expected_on,
+              to_char(coalesce(d.closing_date, r.due_on, r.issued_on), 'Mon FMDD, YYYY') as expected_on_label,
+              case
+                when d.closing_date is not null then 'closing'
+                when r.due_on is not null then 'due'
+                else 'issued'
+              end as timing_source,
+              r.deal_id::text as deal_id,
+              coalesce(dp.name, p.name) as property_name,
+              person.display_name as person_name,
+              r.description
+            from account_receivable r
+            left join deal d on d.id=r.deal_id
+            left join property dp on dp.id=d.property_id
+            left join property p on p.id=r.property_id
+            left join person on person.id=r.person_id
+            where r.status='OPEN'
+              and upper(coalesce(r.category, ''))='COMMISSION'
+            order by coalesce(d.closing_date, r.due_on, r.issued_on) asc, r.created_at asc
+            limit 50
+            "#,
+        )
+        .fetch_all(pool);
+        let (totals, items) = tokio::try_join!(totals, items)
+            .map_err(|error| DbFailure::from_sqlx("accounting.commission_forecast", &error))?;
+        Ok(CommissionForecast {
+            next_30_days: Money::from_database(totals.next_30_days),
+            next_60_days: Money::from_database(totals.next_60_days),
+            next_90_days: Money::from_database(totals.next_90_days),
+            undated_or_past: Money::from_database(totals.undated_or_past),
+            items: items
+                .into_iter()
+                .map(|row| CommissionForecastItem {
+                    receivable_id: row.receivable_id,
+                    amount: Money::from_database(row.amount),
+                    expected_on: row.expected_on,
+                    expected_on_label: row.expected_on_label,
+                    timing_source: row.timing_source,
+                    deal_id: row.deal_id,
+                    property_name: row.property_name,
+                    person_name: row.person_name,
+                    description: row.description,
+                })
+                .collect(),
+        })
     }
 
     /// Every expense, newest first.
