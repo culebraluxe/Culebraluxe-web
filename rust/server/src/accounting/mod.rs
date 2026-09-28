@@ -11,7 +11,7 @@
 use async_trait::async_trait;
 use db::{AccountingDao, DbResult};
 use domain::{
-    AccountingDashboard, AccountingError, CategoryShare, CreateExpenseCommand,
+    AccountingDashboard, AccountingError, CategoryShare, CommissionForecast, CreateExpenseCommand,
     CreateReceivableCommand, Expense, MarkReceivablePaidCommand, MarkReceivablePaidOutcome,
     PnlRequest, PnlStatement, Receivable,
 };
@@ -31,6 +31,7 @@ pub trait AccountingRepository: Send {
     /// Every posted expense by category, for the Expenses screen's breakdown.
     async fn expense_categories(&self) -> DbResult<Vec<CategoryShare>>;
     async fn dashboard(&self) -> DbResult<AccountingDashboard>;
+    async fn commission_forecast(&self) -> DbResult<CommissionForecast>;
     async fn pnl(&self, request: &PnlRequest) -> DbResult<PnlStatement>;
     async fn create_expense(&self, command: &CreateExpenseCommand) -> DbResult<String>;
     async fn create_receivable(&self, command: &CreateReceivableCommand) -> DbResult<String>;
@@ -56,6 +57,10 @@ impl AccountingRepository for AccountingDao {
 
     async fn dashboard(&self) -> DbResult<AccountingDashboard> {
         AccountingDao::dashboard(self).await
+    }
+
+    async fn commission_forecast(&self) -> DbResult<CommissionForecast> {
+        AccountingDao::commission_forecast(self).await
     }
 
     async fn pnl(&self, request: &PnlRequest) -> DbResult<PnlStatement> {
@@ -121,6 +126,25 @@ impl<R: AccountingRepository> AccountingService<R> {
         )
         .await?;
         let result = self.repository.dashboard().await.map_err(Into::into);
+        audit_result(&self.runtime, RESOURCE, OP, context, decision, &result).await?;
+        result
+    }
+
+    pub async fn commission_forecast(
+        &self,
+        context: &ServiceContext,
+    ) -> Result<CommissionForecast, CoreServiceError> {
+        const OP: &str = "accounting.commissionForecast";
+        let decision = authorize(
+            &self.runtime,
+            RESOURCE,
+            "accounting.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+        let result = self.repository.commission_forecast().await.map_err(Into::into);
         audit_result(&self.runtime, RESOURCE, OP, context, decision, &result).await?;
         result
     }
@@ -395,6 +419,10 @@ mod tests {
 
         async fn dashboard(&self) -> DbResult<AccountingDashboard> {
             unreachable!("this test does not read the dashboard")
+        }
+
+        async fn commission_forecast(&self) -> DbResult<CommissionForecast> {
+            unreachable!("this test does not read the commission forecast")
         }
 
         async fn pnl(&self, request: &PnlRequest) -> DbResult<PnlStatement> {
