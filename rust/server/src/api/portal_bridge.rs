@@ -34,6 +34,7 @@ pub fn router() -> Router<ApiState> {
         .route("/api/portal/rust-ui/entitlements", get(entitlements))
         .route("/api/portal/rust-ui/cockpit", get(cockpit).post(cockpit_act))
         .route("/api/portal/rust-ui/catch-up", get(catch_up).post(catch_up_act))
+        .route("/api/portal/rust-ui/publishing", get(publishing))
         .route("/api/portal/rust-ui/tech", get(tech).post(tech_act))
         .route("/api/portal/rust-ui/clients", get(clients))
         .route("/api/portal/rust-ui/page", get(page))
@@ -3046,6 +3047,20 @@ async fn cockpit_page(
         .await
         .map_err(failed(resolved))?;
     Ok(Json(json!({ "cockpit": cockpit })))
+}
+
+async fn publishing(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    let snapshot = state
+        .services()
+        .publishing()
+        .snapshot(&resolved.service)
+        .await
+        .map_err(failed(&resolved))?;
+    Ok(Json(json!({ "publishing": snapshot })))
 }
 
 async fn catch_up_page(
