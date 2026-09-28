@@ -106,7 +106,7 @@ struct LocalMailRecord {
 
 /// Resolve the database target: an explicit `dev`/`prod` argument wins, otherwise the declared
 /// environment decides — and an undeclared environment is a refusal, never a guess.
-fn target_arg(args: &[String]) -> Result<DbTarget, Box<dyn Error>> {
+pub(crate) fn target_arg(args: &[String]) -> Result<DbTarget, Box<dyn Error>> {
     match args
         .iter()
         .find(|arg| arg.as_str() == "dev" || arg.as_str() == "prod")
@@ -122,7 +122,7 @@ fn target_arg(args: &[String]) -> Result<DbTarget, Box<dyn Error>> {
 
 /// A production target whose connection string is the development one is a misconfiguration,
 /// and running against it silently is how a sync writes to the wrong database.
-async fn connect(target: DbTarget) -> Result<Database, Box<dyn Error>> {
+pub(crate) async fn connect(target: DbTarget) -> Result<Database, Box<dyn Error>> {
     if target == DbTarget::Prod {
         let prod = std::env::var("DATABASE_URL_PROD").ok();
         let dev = std::env::var("DATABASE_URL_DEV").ok();
@@ -180,7 +180,7 @@ fn bands_arg(args: &[String]) -> Result<Vec<String>, Box<dyn Error>> {
     .into())
 }
 
-fn positive_int(args: &[String], name: &str, fallback: i64) -> Result<i64, Box<dyn Error>> {
+pub(crate) fn positive_int(args: &[String], name: &str, fallback: i64) -> Result<i64, Box<dyn Error>> {
     match option(args, name) {
         None => Ok(fallback),
         Some(raw) => raw.parse::<i64>().ok().filter(|value| *value > 0).ok_or_else(|| {

@@ -40,6 +40,19 @@ pub struct AppleMailLanding {
     pub raw: Value,
 }
 
+/// One Google mail message on its way into `l_email`. Metadata only: no body preview, no snippet.
+#[derive(Debug, Clone)]
+pub struct EmailLanding {
+    pub source_account: String,
+    pub source_message_id: String,
+    pub thread_id: Option<String>,
+    pub from_address: Option<String>,
+    pub to_address: Option<String>,
+    pub subject: Option<String>,
+    pub sent_at: Option<String>,
+    pub raw: Value,
+}
+
 /// One row of `l_applemail` as the repository reads it. Normalization happens on the way out:
 /// `occurred_at` is an ISO-8601 UTC string and the recipient lists are typed addresses, so no
 /// promotion code needs to know what the driver returned.
@@ -196,6 +209,72 @@ impl LandingDao {
         .fetch_all(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("landing.applemail.batch", &error))?;
+        Ok(rows.len())
+    }
+
+    /// Set-based landing for a bounded batch of Google mail rows (metadata only). Same contract as
+    /// the Apple landing: replay-safe on `(source_account, source_message_id)`, nothing judged here.
+    pub async fn land_email_batch(&self, inputs: &[EmailLanding]) -> DbResult<usize> {
+        if inputs.is_empty() {
+            return Ok(0);
+        }
+        let account: Vec<String> = inputs
+            .iter()
+            .map(|input| input.source_account.clone())
+            .collect();
+        let message_id: Vec<String> = inputs
+            .iter()
+            .map(|input| input.source_message_id.clone())
+            .collect();
+        let thread_id: Vec<Option<String>> =
+            inputs.iter().map(|input| input.thread_id.clone()).collect();
+        let from_address: Vec<Option<String>> = inputs
+            .iter()
+            .map(|input| input.from_address.clone())
+            .collect();
+        let to_address: Vec<Option<String>> = inputs
+            .iter()
+            .map(|input| input.to_address.clone())
+            .collect();
+        let subject: Vec<Option<String>> =
+            inputs.iter().map(|input| input.subject.clone()).collect();
+        let sent_at: Vec<Option<String>> = inputs.iter().map(|input| input.sent_at.clone()).collect();
+        let raw: Vec<String> = inputs
+            .iter()
+            .map(|input| serde_json::to_string(&input.raw).unwrap_or_else(|_| "null".to_owned()))
+            .collect();
+
+        let rows = sqlx::query(
+            r#"
+            insert into l_email (
+              source_account, source_message_id, thread_id, from_address, to_address,
+              subject, sent_at, body_preview, labels, raw
+            )
+            select
+              t.source_account, t.source_message_id, t.thread_id, t.from_address, t.to_address,
+              t.subject, t.sent_at::timestamptz, null, null::text[], (t.raw)::jsonb
+            from unnest(
+              $1::text[], $2::text[], $3::text[], $4::text[], $5::text[],
+              $6::text[], $7::text[], $8::text[]
+            ) as t(
+              source_account, source_message_id, thread_id, from_address, to_address,
+              subject, sent_at, raw
+            )
+            on conflict (coalesce(source_account, ''), source_message_id) do nothing
+            returning id
+            "#,
+        )
+        .bind(account)
+        .bind(message_id)
+        .bind(thread_id)
+        .bind(from_address)
+        .bind(to_address)
+        .bind(subject)
+        .bind(sent_at)
+        .bind(raw)
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("landing.email.batch", &error))?;
         Ok(rows.len())
     }
 

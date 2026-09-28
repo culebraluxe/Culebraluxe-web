@@ -63,8 +63,8 @@ capabilities are not "dead weight", they are **broken in production** (checked 2
 | `scripts/apple-message-repair.sh` (`apple:repair:prod`) | **`rust/cli` apple-sync messages-intake --evidence-only --refresh** (was the same deleted file) | **fixed 2026-09-27**: repairs ODS evidence for the existing export and refreshes the Client read models, without replaying interactions |
 | `scripts/contacts-sync.sh:135,143,149` | `load-apple-contacts.ts`, `project-apple-contacts.ts`, `promote-warehouse.ts` | **the warehouse promotion is down**: the Contacts chain fails before it reaches `l_person`/`l_property` → `person`/`property` |
 | `scripts/apple-calls-sync.sh:20` | `scripts/apple-calls-intake.ts` | Calls intake does not run |
-| `scripts/gmail-sync.sh:26` | `scripts/gmail-metadata-sync.ts` | Gmail metadata intake does not run |
-| `scripts/email-sync.sh:49` (`mailbox:promote`) | `scripts/promote-applemail.ts` | mail promotion does not run |
+| `scripts/email-sync.sh` | **`rust/cli` apple-sync mail-intake + mail-promote** (was `apple-mail-envelope-intake.ts` + `promote-applemail.ts`) | **fixed 2026-09-28**: the wrapper is repointed; intake needs macOS Full Disk Access (see `DEAD-TS-DOWNSIZE.md` §1) |
+| `scripts/gmail-sync.sh` | **`rust/cli` gmail-sync** (was `scripts/gmail-metadata-sync.ts`) | **fixed 2026-09-28**: repointed; needs GOOGLE_CLIENT_ID / SECRET / REFRESH_TOKEN in `.env.local`, which this machine does not have |
 
 `promote-warehouse.ts` is still described in `contacts-sync.sh` as *"the only reader of the landing
 tables"*, and no Rust implementation of that hop exists anywhere under `rust/` — so that is a missing

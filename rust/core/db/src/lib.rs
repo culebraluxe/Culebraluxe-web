@@ -117,7 +117,7 @@ pub use landing::{
     ImessageLanding, LandingDao, LatestInteraction, LatestInteractionOutcome,
 };
 pub use apple_ods::{
-    AppleMailLanding, IntakeCheckpoint, IntakeCheckpointUpdate, InteractionDraft,
+    AppleMailLanding, EmailLanding, IntakeCheckpoint, IntakeCheckpointUpdate, InteractionDraft,
 };
 pub use marketing::MarketingDao;
 pub use media::{
