@@ -33,7 +33,12 @@ pub struct Controls {
     /// Tree branches the operator opened, and ones they closed (the selection's branch is open unless closed).
     pub nav_open: std::collections::BTreeSet<String>,
     pub nav_closed: std::collections::BTreeSet<String>,
+    /// The red overdue counts are hidden. A per-device choice, kept in the browser's storage (`QUIET_KEY`).
+    pub quiet: bool,
 }
+
+/// Where the overdue-count switch is remembered on this device.
+const QUIET_KEY: &str = "culebraluxe.projects.quiet";
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct PendingCalendarEdit {
@@ -82,6 +87,9 @@ pub enum Msg {
     PoleSelected { pole_id: String, project_id: String },
     /// An arrow key in the navigator: "ArrowUp" / "ArrowDown" move, "ArrowLeft" / "ArrowRight" close and open.
     NavKey(String),
+    /// The navigator's bell: show or hide the red overdue counts.
+    QuietToggled,
+    QuietLoaded(Option<String>),
     /// A "seen from" link in the project header: flip to that lens, with that record open, on the same project.
     LensJump { domain: String, pole_id: String },
     ProjectDomainSelected(String),
@@ -582,7 +590,10 @@ impl Screen for Projects {
                 read: Remote::Loading,
                 ..Model::default()
             },
-            Cmd::request(ProjectsRead, Msg::Loaded),
+            Cmd::batch([
+                Cmd::request(ProjectsRead, Msg::Loaded),
+                Cmd::storage_read(QUIET_KEY, Msg::QuietLoaded),
+            ]),
         )
     }
 
@@ -619,6 +630,14 @@ impl Screen for Projects {
                     model.controls.nav_open.insert(id);
                 }
                 return Cmd::none();
+            }
+            Msg::QuietLoaded(value) => {
+                model.controls.quiet = value.as_deref() == Some("1");
+                return Cmd::none();
+            }
+            Msg::QuietToggled => {
+                model.controls.quiet = !model.controls.quiet;
+                return Cmd::storage_write(QUIET_KEY, Some(if model.controls.quiet { "1" } else { "0" }.to_owned()));
             }
             Msg::NavKey(key) => {
                 return nav_key(model, &key, _ctx);
@@ -1321,6 +1340,20 @@ mod tests {
     fn at(model: &Model) -> (String, Option<String>, String) {
         let p = model.read.loaded().unwrap();
         (p.active_domain.clone(), p.selected_project_id.clone(), p.selected_node_id.clone().unwrap_or_default())
+    }
+
+    #[test]
+    fn the_bell_hides_the_overdue_counts_and_remembers_it_on_this_device() {
+        let ctx = ScreenCtx::default();
+        let mut model = navigator();
+        assert!(!model.controls.quiet, "counts show until someone turns them off");
+        let cmd = Projects::update(&mut model, Msg::QuietToggled, &ctx);
+        assert!(model.controls.quiet);
+        assert!(format!("{cmd:?}").contains("culebraluxe.projects.quiet"), "the choice is written to the device");
+        Projects::update(&mut model, Msg::QuietLoaded(Some("0".into())), &ctx);
+        assert!(!model.controls.quiet);
+        Projects::update(&mut model, Msg::QuietLoaded(Some("1".into())), &ctx);
+        assert!(model.controls.quiet);
     }
 
     #[test]

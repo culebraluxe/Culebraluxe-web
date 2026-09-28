@@ -78,6 +78,7 @@ fn navigator(model: &Vm<'_>, projects: &PortalProjectsPage, on_msg: &Callback<Ms
     };
     let ctx = NavCtx {
         page: projects,
+        quiet: model.controls.quiet,
         selected: selected.as_deref(),
         opened: &opened,
         query: &query,
@@ -92,12 +93,21 @@ fn navigator(model: &Vm<'_>, projects: &PortalProjectsPage, on_msg: &Callback<Ms
                 { rail_button(projects.catch_up, "list-checks", "Catch-Up", 0, Msg::ProjectCatchUpToggled(true)) }
                 <div class="my-1 w-[60%] border-b border-white/15" aria-hidden="true"></div>
                 {for super::nav::DOMAINS.iter().map(|(key, label, icon)| {
-                    rail_button(!projects.catch_up && projects.active_domain == *key, icon, label, lens_overdue(projects, key), Msg::ProjectDomainSelected((*key).to_owned()))
+                    let overdue = if model.controls.quiet { 0 } else { lens_overdue(projects, key) };
+                    rail_button(!projects.catch_up && projects.active_domain == *key, icon, label, overdue, Msg::ProjectDomainSelected((*key).to_owned()))
                 })}
             </div>
             <div class="flex min-h-0 min-w-0 flex-1 flex-col">
                 <div class="border-b border-white/10 px-3 pb-2 pt-3">
-                    <p class="text-[14px] font-medium uppercase tracking-[0.14em] text-[var(--portal-gold)]">{ super::nav::domain_label(&projects.active_domain) }</p>
+                    <div class="flex items-center justify-between gap-2">
+                        <p class="text-[14px] font-medium uppercase tracking-[0.14em] text-[var(--portal-gold)]">{ super::nav::domain_label(&projects.active_domain) }</p>
+                        <button type="button" onclick={on_msg.reform(|_: MouseEvent| Msg::QuietToggled)}
+                            title={if model.controls.quiet { "Show overdue counts" } else { "Hide overdue counts" }}
+                            aria-pressed={if model.controls.quiet { "false" } else { "true" }}
+                            class="flex h-8 w-8 items-center justify-center rounded-lg text-white/45 transition hover:bg-white/10 hover:text-white/85">
+                            { glyph(if model.controls.quiet { "bell-off" } else { "bell" }, "h-4 w-4") }
+                        </button>
+                    </div>
                     <label class="mt-2 flex h-11 items-center gap-2 rounded-[var(--portal-tab-radius)] border border-white/15 bg-white/10 px-3">
                         { glyph("search", "h-4 w-4 shrink-0 text-white/50") }
                         <input value={model.controls.query.clone()} oninput={search} placeholder="Find work…"
@@ -125,6 +135,7 @@ fn navigator(model: &Vm<'_>, projects: &PortalProjectsPage, on_msg: &Callback<Ms
 
 struct NavCtx<'a> {
     page: &'a PortalProjectsPage,
+    quiet: bool,
     selected: Option<&'a str>,
     opened: &'a [String],
     query: &'a str,
@@ -250,7 +261,7 @@ fn nav_node(ctx: &NavCtx<'_>, node: &super::nav::NavNode, depth: usize) -> Html 
                                 <span class="block truncate text-[12px] font-light leading-snug text-white/55">{ subtitle }</span>
                             }
                         </span>
-                        if overdue > 0 {
+                        if overdue > 0 && !ctx.quiet {
                             { overdue_badge(overdue, "shrink-0") }
                         }
                         if let Some(progress) = node.progress {
@@ -283,7 +294,7 @@ fn nav_node(ctx: &NavCtx<'_>, node: &super::nav::NavNode, depth: usize) -> Html 
                         { chevron(ctx, node, is_open) }
                         if !kind.is_empty() { { glyph(super::nav::project_kind_icon(kind), "h-4 w-4 shrink-0 text-[var(--portal-gold)]") } }
                         <span class="min-w-0 flex-1 truncate text-[15px] font-light leading-tight text-white/95" title={node.label.clone()}>{ &node.label }</span>
-                        if overdue > 0 {
+                        if overdue > 0 && !ctx.quiet {
                             { overdue_badge(overdue, "shrink-0") }
                         }
                         if let Some(progress) = node.progress {
