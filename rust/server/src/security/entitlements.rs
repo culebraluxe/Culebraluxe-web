@@ -130,6 +130,17 @@ impl AuthorizationPort for CasbinAuthorizationPort {
         let identity_resolution = request.action == "security.identity.resolve"
             && request.kind == OperationKind::Query
             && request.actor.kind == ServiceActorKind::User;
+        // CLIENT ROOM: an authenticated external account may read exactly its self-service projection.
+        // The route derives the person id from the resolved ActingUser; the browser never supplies the subject.
+        let client_room = request.action == "client.room.read"
+            && request.domain == "client-room"
+            && request.operation == "clientRoom.snapshot"
+            && request.kind == OperationKind::Query
+            && request.actor.kind == ServiceActorKind::User
+            && request
+                .principal
+                .as_ref()
+                .is_some_and(|principal| principal.account_type == "external");
         let explicit = bootstrap
             || public
             || lead_notice
@@ -142,6 +153,8 @@ impl AuthorizationPort for CasbinAuthorizationPort {
             (true, "system:explicit")
         } else if identity_resolution {
             (true, "rule:identity.resolve.edge")
+        } else if client_room {
+            (true, "rule:client.room.external-self")
         } else if request.action == "security.identity.resolve"
             || request.action == "vault.publicListingDocument.read"
             || request.action == "website.lead.notify"
@@ -553,6 +566,22 @@ mod tests {
 
         req.principal.as_mut().unwrap().role_codes = vec!["root".into()];
         assert!(auth.authorize(req).await.unwrap().allowed);
+    }
+
+    #[tokio::test]
+    async fn external_account_may_read_only_the_client_room_self_projection() {
+        let auth = CasbinAuthorizationPort::new().await.unwrap();
+        let mut room = request("client.room.read", OperationKind::Query, &[]);
+        room.domain = "client-room";
+        room.operation = "clientRoom.snapshot";
+        room.principal.as_mut().unwrap().account_type = "external".into();
+        assert!(auth.authorize(room.clone()).await.unwrap().allowed);
+
+        room.action = "person.read";
+        assert!(!auth.authorize(room.clone()).await.unwrap().allowed);
+        room.action = "client.room.read";
+        room.operation = "clientRoom.someoneElse";
+        assert!(!auth.authorize(room).await.unwrap().allowed);
     }
 
     #[tokio::test]
