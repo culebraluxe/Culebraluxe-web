@@ -9,6 +9,7 @@ pub mod api;
 pub mod calendar;
 pub mod clients;
 pub mod cockpit;
+pub mod catch_up;
 pub mod command_runtime;
 pub mod communications;
 pub mod composition;
