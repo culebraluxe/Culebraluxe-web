@@ -57,6 +57,8 @@ pnpm build                  # the Yew wasm (release) + Tailwind + the server bin
 pnpm dev                    # scripts/dev.sh - the local server
 cargo check --workspace --all-targets
 cargo test -p db -p server -p forge -p workflow
+cargo test -p ui --features wasm           # the UI's tests need the wasm feature, or they do not compile
+cargo build -p ui --target wasm32-unknown-unknown --features wasm   # proves the browser build, fast
 pnpm test                   # the engine suites + cargo test -p workflow -p forge
 pnpm forge:harness          # one gate: vendor blocks, manifests, harness lint, harness tests
 pnpm forge:packet-lint      # the harness lint alone (Rust: cli -- forge harness-lint)
@@ -65,6 +67,7 @@ pnpm forge:manifest <ID>    # the ranked file list for a story
 pnpm broken:ts:sweep        # dead-TypeScript counts; fails when the tree and the inventory disagree
 pnpm db:migrations          # per-target migration state (a release gate)
 pnpm db:parity              # DEV/PROD schema parity (a release gate)
+pnpm db:migrate <file> dev|prod   # apply a db/migrations, db/loads or db/seeds file, recorded in the ledger
 ```
 
 Release (`docs/agent/DEV-OPS-RELEASE.md`):
@@ -76,6 +79,33 @@ pnpm smoke:prod    # ask production whether it works, from outside
 ```
 
 `next build` is not part of this repository: there is no Next application to build.
+
+## Working the way the owner works
+
+- **The owner uses Safari; Chrome is not an option.** A UI change is tested in WebKit (Playwright's `webkit`), not only
+  Chromium — a request Chrome waits on, Safari may abandon. A Safari-only failure is our bug, never "the browser".
+- **Test against a local server of your own**, not the owner's `pnpm dev` on :3000:
+  `RUST_API_BIND=127.0.0.1:3002 bash scripts/dev.sh` (3001 is taken by Docker). It uses DEV. Without a session it signs
+  in as ROOT through the DEV break-glass identity; after a refresh from production that identity is gone —
+  `pnpm db:migrate db/seeds/dev-break-glass.sql dev` puts it back (SOP-DEV-REFRESH §4).
+- **The browser reaches `/api/portal/*` only** (session cookie, `portal_bridge.rs`). `/v1/*` is the internal API and is
+  not reachable from a page; a portal screen that needs something new gets a `/api/portal` route that calls the same
+  service.
+- **Every request in the browser has a way out.** One request may carry about 4.5 MB (the hosting gateway) and must
+  finish in well under a minute (Safari). Big things go in pieces: photos through `/api/property-media/chunked`
+  (resumable, skips what is already stored), films straight to Mux through a direct-upload URL, both in
+  `rust/ui/src/app/exec.rs` with a timeout and retries on every piece. A slow server step runs in the background and
+  the page asks for its status.
+- **Before a UI change, read the whole original screen.** The owner designed these screens; reproduce their structure,
+  never a simplified version (`git show 4cf98110^:<path>` reads the deleted TypeScript original).
+
+## Data you must not get wrong
+
+People, properties, contracts and the Apple feeds follow the decisions of 2026-09-28 in `MEMORY.md` (read them before
+touching any of it): a property is its **catastro**; a person is matched by phone, then email, then name in any word
+order; Neon is the legal record and **no feed overwrites a human correction** (Apple lands in its own tables and is
+reconciled); duplicates are merged with `merge_person`, never deleted; and **before any delete in production, list what
+cascades** — deleting two demo deals once took 47 contract documents with them.
 
 ## Where to look for X
 
@@ -91,6 +121,9 @@ pnpm smoke:prod    # ask production whether it works, from outside
 | How is a database story delivered? | `docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md` |
 | How do I make a Rust change without the usual traps? | `docs/rust-contributing.md` |
 | What is dead, and why? | `docs/agent/BROKEN-TS-INVENTORY.md` |
+| How do people, properties and contracts link? Who may change them? | `MEMORY.md`, 2026-09-28 (golden data) |
+| How do photos, films and signed PDFs get stored? | `rust/ui/src/app/exec.rs` (uploads), `media/` and `vault/` services; PDFs open at `/api/portal/documents/{id}/file` |
+| How is DEV refreshed from production? | `docs/agent/SOP-DEV-REFRESH.md` |
 
 ## Boundaries
 
