@@ -36,12 +36,18 @@ report the target. **Check it before believing a command is on dev.**
 
 ## Migrations
 
-Numbered files in `db/migrations`, applied **explicitly per target** — never by the deploy. `pnpm db:migrations` shows
-per-target state.
+Numbered files in `db/migrations`, applied **explicitly per target** — never by the deploy — with
+`pnpm db:migrate <file> dev|prod` (`cli db-tool apply`, recorded in the `schema_migration` ledger). Run it from the repo
+root: the CLI reads `.env.local` there.
 
-⚠ **Dev and prod schemas currently differ**: 34 migrations are applied to only one environment. Reconcile in DEV before a
-release. Nothing in the Rust paths touches the prod-only tables today, so nothing is broken — but "works in dev" is not
-proof for prod.
+Two gates, and they answer different questions. `pnpm db:migrations` reads the **ledger** (what was recorded where); it
+reports many one-target rows because a DEV refresh from PROD replaces DEV's ledger, so read it as history, not drift.
+`pnpm db:parity` compares the **live schemas** and is the release gate.
+
+⚠ **2026-09-28: `db:parity` reports DRIFT FOUND.** PROD lacks three DEV migrations that code on `main` uses —
+`217_website_intake_notified_at` (`website_intake_submission.notified_at`), `219_guest_sign_in_code` (the table,
+`rust/core/db/src/guest.rs`) and `223_command_receipt_runtime` (ten `workflow_command_receipt` columns plus
+`aggregate_id` uuid → text, `rust/core/db/src/command_receipt.rs`). Re-run `pnpm db:parity` before trusting this line.
 
 ## Two things to get right
 
