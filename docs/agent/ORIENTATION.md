@@ -1,4 +1,4 @@
-# ORIENTATION - the map (start here)
+# ORIENTATION — the map (start here)
 
 If you have never worked in this repository - or you are resuming after a reset - read this file first. It says what is
 here, where a change goes, and how it is verified. Nothing else is needed to begin.
