@@ -19,8 +19,8 @@
 //! Usage:
 //!   cargo run -p cli -- forge roi [--days N] [--format json]
 
-use super::Failure;
-use db::{Database, ForgeDoctorDao, RoiAttemptRow};
+use super::{connect, Failure};
+use db::{ForgeDoctorDao, RoiAttemptRow};
 use forge::roi::{
     describe_roi_row, parse_window_days, render_roi_report, summarize_roi, RoiAttempt, RoiPlane, RoiRow,
 };
@@ -79,16 +79,6 @@ fn to_attempt(row: RoiAttemptRow) -> RoiAttempt {
         result_status: row.result_status,
         cost_widgets: row.cost_widgets,
     }
-}
-
-/// The process pool, resolved from `APP_ENV` / `VERCEL_ENV`. A tool that cannot name its database refuses
-/// rather than falling back to another one.
-async fn connect() -> Result<Database, Failure> {
-    Database::connect_from_env().await.map_err(|error| {
-        Failure::configuration(format!(
-            "cannot resolve or reach the control-plane database: {error}"
-        ))
-    })
 }
 
 fn wants_json(args: &[String]) -> bool {

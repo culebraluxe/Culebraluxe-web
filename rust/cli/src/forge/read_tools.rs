@@ -17,8 +17,8 @@
 //!   cargo run -p cli -- forge story-show <story-id> [--format json]
 //!   cargo run -p cli -- forge batch-status [--format json]
 
-use super::Failure;
-use db::{Database, ForgeBatchRow, ForgeReadDao, ForgeStoryShow};
+use super::{connect, Failure};
+use db::{ForgeBatchRow, ForgeReadDao, ForgeStoryShow};
 use serde_json::{json, Value};
 
 pub async fn run(args: &[String]) -> Result<u8, Failure> {
@@ -34,16 +34,9 @@ pub async fn run(args: &[String]) -> Result<u8, Failure> {
     }
 }
 
-/// The process pool, resolved from `APP_ENV` / `VERCEL_ENV`. A tool that cannot name its database refuses
-/// rather than falling back to another one — that refusal is what keeps a read from silently answering about
-/// the wrong environment.
-async fn connect() -> Result<Database, Failure> {
-    Database::connect_from_env().await.map_err(|error| {
-        Failure::configuration(format!(
-            "cannot resolve or reach the control-plane database: {error}"
-        ))
-    })
-}
+/// The process pool every read below uses is `super::connect`: it resolves from `APP_ENV` / `VERCEL_ENV` and
+/// refuses rather than falling back to another environment, which is what keeps a read from silently answering
+/// about the wrong one.
 
 fn wants_json(args: &[String]) -> bool {
     args.windows(2)

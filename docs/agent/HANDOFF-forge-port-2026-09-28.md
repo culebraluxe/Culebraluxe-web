@@ -16,7 +16,7 @@ the doctor, and the writer. What is left is below with the exact files to open.
 | S6 | `.github/workflows/gates.yml`'s `static` job no longer calls `scripts/forge-static-gate.ts` (its module died in the port). Three steps that could only fail — `pnpm typecheck` (679 errors, all in reference-only dead TS), `scripts/app-runtime-boundary.mjs` (walks the deleted `app/`, ENOENT) and the static gate — are removed with the reason written in their place; `pnpm forge:packet-lint` replaced the last one | `grep -n 'forge-static-gate' .github/workflows/gates.yml` → nothing |
 | S7 | `cargo fmt --all -- --check` carries 538 pre-existing diffs (ui 184, server 291, cli 50) | `cargo fmt --all -- --check \| grep -c '^Diff'` |
 | S8 | `AGENTS.md` cites guards under `workflow_app/tests/`, which no longer exists | `ls workflow_app` → no such directory |
-| S9 | **DEV is unreachable from this machine.** `APP_ENV=dev … forge doctor` and `… forge roi` both fail with `DatabaseUnavailable during db.connect` (captured, with an incident id), while TCP 5432 to the DEV pooler succeeds and the plain internet is fine — so it is not the network, the URL shape or the new code | `APP_ENV=dev cargo run --manifest-path rust/Cargo.toml -p cli -- forge doctor` |
+| S9 | **DEV was never down. `pnpm forge:*` run from `rust/` cannot find `.env.local`, and said "database unreachable" for it.** `apple_sync::repo_root()` was `current_dir()`, so the loader looked for `rust/.env.local`; the identical binary answers from the repository root. **Fixed** — the root is `git rev-parse --show-toplevel` now — and the failure message prints `DbFailure.detail`, so a missing URL says *"DATABASE_URL_DEV is not configured"* and exits 2 instead of *"DatabaseUnavailable"* | `cd rust && APP_ENV=dev ./target/debug/cli forge roi --days 14` (works) · `CULEBRALUXE_REPO=/tmp/nowhere APP_ENV=dev ./rust/target/debug/cli forge roi` → names the variable, exit 2 |
 | S10 | **`main` does not build `rust/ui`** (`update.rs:2513` initialises `PortalDealCommand` without the 7 fields the model grew: `contingencies`, `deposit_amount`, `expires_at` + 4). H2 holds that area, so it was reported, not touched | `cd rust && cargo check -p ui` |
 | S11 | `main` had been red for `server` since `0e832a9b` (the publishing feature was never re-exported nor registered); repaired in `c6bfc6a6` | `cd rust && cargo check -p server` |
 
@@ -51,14 +51,17 @@ the doctor, and the writer. What is left is below with the exact files to open.
 | `d02bb9a2` | `forge manifest` in Rust — `rust/forge/src/scope_manifest.rs` (lanes, TF-IDF, render, drift, the write refusal — pure) + `rust/cli/src/forge/manifest.rs` (gather/print) + `rust/forge/src/sync_conflict.rs` recovered from `lib/git/sync-conflict.ts` | `cargo test -p cli` 69, `-p forge --lib` 72; `forge manifest PIRATE-01` → 27 ranked rows; `--check-all` idempotent |
 | `02145a8b` | (earlier session) the deploy doc rewritten to the real one-container flow | docs reviewed against `deploy/Dockerfile.build` + `scripts/deploy-prod.sh` |
 | `c6bfc6a6` | `main` green again for `server`: publishing's `PublishingDao` / `PublishingListing` / `PublishingSnapshot` re-exported from their crate roots and `PublishingService` registered in `ServiceCatalog` (field, construction, accessor) | `cargo check -p cli -p server -p db -p forge --all-targets` → exit 0 |
-| `be6df89d` | `forge:roi` ported: `parse_window_days` + `render_roi_report` in `forge::roi`, gather-and-print in `rust/cli/src/forge/roi.rs`, `package.json` repointed | `cargo test -p forge --lib roi` 12, `-p cli` 72; **no live run** — DEV is down (S9) |
+| `be6df89d` | `forge:roi` ported: `parse_window_days` + `render_roi_report` in `forge::roi`, gather-and-print in `rust/cli/src/forge/roi.rs`, `package.json` repointed | `cargo test -p forge --lib roi` 12, `-p cli` 72; live run 2026-09-28: 627 attempts over 14 days on DEV |
 | `3f796705` | `docs/agent/DEAD-COMMANDS.md` + `scripts/dead-command-sweep.mjs` (`pnpm broken:ts:commands`): 53 dead commands, three blocks, a keep-or-delete line each, and a `--check` that fails when the count rises or falls without the baseline dropping | `pnpm broken:ts:commands --check` → 53 at baseline; `pnpm broken:ts:sweep` → "the tree and the inventory agree" |
+| (this commit) | **the false outage, fixed:** `apple_sync::repo_root()` is the git toplevel, not `current_dir()`, so `.env.local` is found from any directory; ONE `forge::connect()` replaces four copies and prints `DbFailure.detail` | `cargo test -p cli` 74 (2 new: the message names the reason; and names the file with no detail); `-p db` 40, `-p forge` 76; `forge roi` answers from the root **and** from `rust/`; a missing `.env.local` prints the variable and exits 2 |
 
 ## 5. NOT VERIFIED — the honest gaps
 
-- **`forge roi` has no live run at all.** Its 15 tests pass, but no real row has been through it: DEV refuses
-  connections (S9). What the DEV run would add — the actual column shapes from `agent_work_item` /
-  `storyboard_story_run` — is exactly what unit tests cannot see.
+- **`forge roi` is live-verified** (`65ec597f` + this session's fix): `APP_ENV=dev … forge roi --days 14` read
+  **627 real attempts** over 14 days, 606 done / 4 failed, named its target (`APP_ENV=dev → dev`), and reported
+  cost coverage 0/627 honestly. That was the "blocked" verification. Note the shipped `pnpm forge:roi` keeps the
+  deleted Node script's `APP_ENV=production` — the control plane is PROD by design, so the PROD read was left to
+  the Captain's gate and only DEV was exercised.
 - **One `server` test is red on `main`, unrelated to this work**: `catch_up::tests::snooze_is_bounded_and_handle_is_a_repository_command`
   (`server/src/catch_up.rs:185`) panics because its harness context is denied by `default:guest.command-deny` —
   in-flight authorization work from `90118b20`. Reported, not touched.
@@ -94,7 +97,8 @@ the doctor, and the writer. What is left is below with the exact files to open.
    the reference is `docs/agent/typesafe-failure-triage.md`, and no `triage` table exists in `db/migrations` —
    decide where an observation lands before writing it. Recipe unchanged: pure rules in `rust/forge/src/`, DB in
    `rust/core/db/src/`, gather-and-print in `rust/cli/src/forge/`, repoint `package.json`, verify against DEV,
-   commit. **DEV is down (S9), so "verify against DEV" is currently blocked for every one of them.**
+   commit. **"Verify against DEV" is unblocked (S9 was a false alarm) — and the CLI now answers from any
+   directory, so those runs are cheap.**
 3. **`AGENTS.md` guard paths** (S8): repoint the `workflow_app/tests/*` citations at the Rust tests that now own
    those rules, or say where each is enforced instead. `pnpm forge:packet-lint` reports them as warnings until then.
 4. **The packets that cite deleted `lib/` files** — `PIRATE-01` cites three of them, which is why
@@ -105,10 +109,10 @@ the doctor, and the writer. What is left is below with the exact files to open.
 
 ## 7. ASK THE OWNER
 
-- **DEV cannot be reached from this machine (S9) — every "verify against DEV" step is blocked until it can.**
-  `forge doctor`, which shipped before this session, fails the same way, so it is the environment, not the code:
-  the Neon DEV branch (suspended?), or the password in `.env.local` (TCP to the pooler succeeds, so it is not DNS
-  or the network). A one-line answer from the Neon console settles it.
+- **DEV is up, and was never down (S9). The `forge` CLI simply could not find `.env.local` from `rust/`.** No action
+  needed beyond `pnpm` running from the package root, and the loader is fixed, so any directory works from here on.
+  If a command still reports a database problem, its message now names the variable and the file — read it before
+  touching anything in Neon.
 - **`rust/ui` does not build on `main` (S10)**: `update.rs:2513` initialises `PortalDealCommand` without the seven
   fields the model grew. H2 holds that area, so it was left alone — but the website is the deployable artifact,
   so this is a production-facing red that needs its owner.

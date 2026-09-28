@@ -35,15 +35,25 @@ pub async fn dispatch(args: &[String]) -> Result<(), Box<dyn Error>> {
     }
 }
 
+/// The repository this process is operating on.
+///
+/// The working directory was the old rule, and it was a trap: `repo_root()` answers "where is this repository",
+/// and a process started in `rust/` is in the repository too. Every `forge` command that needs a database calls
+/// `load_env()` below, so running one from a subdirectory searched `<subdir>/.env.local`, found nothing, and
+/// reported the database as unreachable — on 2026-09-28 that read as "DEV is down" for a night while the only
+/// fault was the directory the command was typed in. `git rev-parse --show-toplevel` is the answer that does not
+/// depend on where the shell happens to be.
 pub(crate) fn repo_root() -> PathBuf {
     std::env::var("CULEBRALUXE_REPO")
         .map(PathBuf::from)
-        .or_else(|_| std::env::current_dir())
-        .unwrap_or_else(|_| PathBuf::from("."))
+        .unwrap_or_else(|_| crate::forge::repo_root())
 }
 
+/// `.env.local` carries DATABASE_URL_DEV / DATABASE_URL_PROD, and it is the repository's file: it is loaded by
+/// absolute path from `repo_root()`, never from the working directory.
 pub(crate) fn load_env() {
-    let _ = dotenvy::from_path(repo_root().join(".env.local"));
+    let path = repo_root().join(".env.local");
+    let _ = dotenvy::from_path(&path);
 }
 
 fn path_arg<'a>(

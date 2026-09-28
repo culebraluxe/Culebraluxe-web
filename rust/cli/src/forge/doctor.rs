@@ -14,8 +14,8 @@
 //! Usage:
 //!   cargo run -p cli -- forge doctor
 
-use super::Failure;
-use db::{Database, ForgeDoctorDao, ForgeEngineDao, ForgeReadDao};
+use super::{connect, Failure};
+use db::{ForgeDoctorDao, ForgeEngineDao, ForgeReadDao};
 use forge::doctor_report::{
     render_forge_doctor_report, ClaimLedger, ControlPlane, OldestClaim, Postcard, WorkerLiveness,
     WorkerStatus,
@@ -92,14 +92,6 @@ async fn doctor() -> Result<u8, Failure> {
     println!();
     println!("{}", qa_consistency_block(&doctor_dao).await?);
     Ok(0)
-}
-
-async fn connect() -> Result<Database, Failure> {
-    Database::connect_from_env().await.map_err(|error| {
-        Failure::configuration(format!(
-            "cannot resolve or reach the control-plane database: {error}"
-        ))
-    })
 }
 
 /// The injected clock, so the pure renderer above never reads one itself.

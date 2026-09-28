@@ -18,7 +18,7 @@
 //!   cargo run -p cli -- forge recover <story-id> [--force]
 //!   cargo run -p cli -- forge clean [--stale-minutes N] [--force]
 
-use super::Failure;
+use super::{connect, Failure};
 use db::{resolve_declared_target, DbTarget, ForgeResetDao, ResetReport};
 use std::env;
 
@@ -209,14 +209,6 @@ pub async fn run(args: &[String]) -> Result<u8, Failure> {
 
     print_report(&config, &report);
     Ok(0)
-}
-
-async fn connect() -> Result<db::Database, Failure> {
-    db::Database::connect_from_env().await.map_err(|error| {
-        Failure::configuration(format!(
-            "cannot resolve or reach the control-plane database: {error}"
-        ))
-    })
 }
 
 /// The post-condition is printed every time, because a sweep you cannot read the result of is a sweep you will

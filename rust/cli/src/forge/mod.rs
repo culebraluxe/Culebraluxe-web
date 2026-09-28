@@ -32,6 +32,8 @@ use std::fmt;
 use std::path::PathBuf;
 use std::process::Command;
 
+use db::{Database, DbFailure};
+
 /// A gate failure. Exit codes are part of the contract: 0 clean or reported-not-blocking, 1 refused or
 /// drift, 2 configuration or usage.
 #[derive(Debug)]
@@ -118,4 +120,69 @@ pub fn repo_root() -> PathBuf {
         }
     }
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+}
+
+/// The process pool for every Forge command that answers from the control plane, resolved from `APP_ENV` /
+/// `VERCEL_ENV`. One copy for four callers, because the message is the load-bearing part.
+///
+/// `DbFailure`'s `Display` is `"{kind:?} during {operation} (incident …)"` — the `detail` field, the sentence
+/// that says whether a URL was missing or a password was rejected, is not in it. Four copies of this function
+/// printed "cannot resolve or reach" for both cases, so a missing `.env.local` and a suspended database looked
+/// identical to the reader. The detail is printed here.
+pub async fn connect() -> Result<Database, Failure> {
+    Database::connect_from_env()
+        .await
+        .map_err(|error| Failure::configuration(connect_failure_message(&error)))
+}
+
+/// Split out of `connect` so the message can be asserted on without a database.
+fn connect_failure_message(error: &DbFailure) -> String {
+    format!(
+        "cannot reach the control-plane database: {error}\n  \
+         {}\n  \
+         the URL comes from DATABASE_URL_DEV / DATABASE_URL_PROD in this repository's .env.local (loaded from the \
+         repository root, not the working directory); the environment comes from APP_ENV / VERCEL_ENV",
+        error
+            .detail
+            .as_deref()
+            .unwrap_or("the driver reported no further detail")
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The bug this test exists for: a real failure reported without its reason. `DatabaseUnavailable during
+    /// db.connect` was the entire output of a missing `.env.local`, and it sent a reader to the Neon console
+    /// looking for an outage.
+    #[test]
+    fn a_connect_failure_prints_the_reason_and_where_the_url_comes_from() {
+        let error = DbFailure::configuration(
+            "db.connect",
+            "DATABASE_URL_DEV is not configured; Rust DB refuses to fall back to another environment",
+        );
+
+        let message = connect_failure_message(&error);
+
+        assert!(
+            message.contains("DATABASE_URL_DEV is not configured"),
+            "{message}"
+        );
+        assert!(message.contains(".env.local"), "{message}");
+        assert_eq!(Failure::configuration(message).exit_code(), 2);
+    }
+
+    /// Even a driver error with nothing to add still names the file the URL is supposed to come from, so the
+    /// reader has somewhere to look.
+    #[test]
+    fn a_connect_failure_without_a_detail_still_names_the_env_file() {
+        let mut error = DbFailure::configuration("db.connect", "placeholder");
+        error.detail = None;
+
+        let message = connect_failure_message(&error);
+
+        assert!(message.contains("no further detail"), "{message}");
+        assert!(message.contains("DATABASE_URL_DEV"), "{message}");
+    }
 }
