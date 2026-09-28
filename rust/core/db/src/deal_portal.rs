@@ -1133,6 +1133,14 @@ impl DealPortalDao {
             self.owner_candidates(),
         )?;
 
+        let health = domain::derive_deal_health(
+            &header.stage,
+            header.closing_date_label.as_deref(),
+            &open_tasks,
+            &offers,
+            &contracts,
+        );
+
         Ok(DealWorkspaceSnapshot {
             deal: Some(DealWorkspaceDeal {
                 id: header.deal_id,
@@ -1169,6 +1177,7 @@ impl DealPortalDao {
             showings,
             contracts,
             owner_candidates,
+            health,
         })
     }
 
