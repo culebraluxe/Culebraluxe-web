@@ -1098,6 +1098,26 @@ pub struct PortalDealPeopleSearch {
     pub people: Vec<PortalDealPersonCandidate>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalDealHealthSignal {
+    pub code: String,
+    pub severity: String,
+    pub label: String,
+    pub detail: String,
+    pub ready: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalDealHealth {
+    pub score: i32,
+    pub band: String,
+    pub ready_count: i32,
+    pub total_count: i32,
+    pub signals: Vec<PortalDealHealthSignal>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PortalDealWorkspace {
@@ -1111,6 +1131,7 @@ pub struct PortalDealWorkspace {
     pub showings: Vec<PortalDealWorkspaceShowing>,
     pub contracts: Vec<PortalDealContract>,
     pub owner_candidates: Vec<PortalDealOwnerCandidate>,
+    pub health: PortalDealHealth,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
