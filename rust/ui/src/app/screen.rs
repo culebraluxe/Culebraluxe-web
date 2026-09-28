@@ -111,15 +111,22 @@ impl<Msg: 'static> Clone for Link<Msg> {
 }
 
 /// Parse a query string (`?a=1&b=two%20words`) into a map. Pure, so it is tested here.
+///
+/// A part that does not decode (a stray `%`, a truncated escape, bytes that are not UTF-8 — a mangled marketing link) is
+/// KEPT as written rather than dropped: a `propertyId` that arrives slightly damaged should still reach the screen,
+/// which can refuse it by name, instead of vanishing without a trace.
 pub fn parse_query(query: &str) -> BTreeMap<String, String> {
     query
         .trim_start_matches('?')
         .split('&')
         .filter(|pair| !pair.is_empty())
-        .filter_map(|pair| {
+        .map(|pair| {
             let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
-            let decode = |text: &str| percent_decode(&text.replace('+', " "));
-            Some((decode(key)?, decode(value)?))
+            let decode = |text: &str| {
+                let spaced = text.replace('+', " ");
+                percent_decode(&spaced).unwrap_or(spaced)
+            };
+            (decode(key), decode(value))
         })
         .collect()
 }
@@ -143,6 +150,15 @@ fn percent_decode(text: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_part_that_does_not_decode_is_kept_as_written() {
+        let query = parse_query("?propertyId=villa%2&ref=50%&name=caf%C3%A9&bad=%FF");
+        assert_eq!(query.get("propertyId").map(String::as_str), Some("villa%2"), "a truncated escape");
+        assert_eq!(query.get("ref").map(String::as_str), Some("50%"), "a stray percent sign");
+        assert_eq!(query.get("name").map(String::as_str), Some("café"), "a good escape still decodes");
+        assert_eq!(query.get("bad").map(String::as_str), Some("%FF"), "bytes that are not UTF-8");
+    }
     use super::*;
 
     #[test]
