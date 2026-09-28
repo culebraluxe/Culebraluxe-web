@@ -512,6 +512,10 @@ pub(super) fn deal_workspace(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
                 </div>
             </section>
 
+            <div class="mt-4">
+                { deal_health_card(&workspace.health) }
+            </div>
+
             <section class="portal-glass-panel mt-4 overflow-hidden rounded-[var(--portal-panel-radius)] p-4">
                 <div class="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
                     { detail("List Price", &format_currency(deal.list_price)) }
@@ -551,6 +555,53 @@ pub(super) fn deal_workspace(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
                 { contracts_panel(&workspace.contracts) }
             </div>
         </div>
+    }
+}
+
+fn deal_health_card(health: &crate::model::PortalDealHealth) -> Html {
+    let band = match health.band.as_str() {
+        "attention" => "Needs attention",
+        "watch" => "Watch",
+        "closed" => "Closed",
+        _ => "Ready",
+    };
+    let band_class = match health.band.as_str() {
+        "attention" => "bg-red-100 text-red-800",
+        "watch" => "bg-amber-100 text-amber-800",
+        "closed" => "bg-[var(--portal-blue-pale)] text-[var(--portal-navy-soft)]",
+        _ => "bg-[var(--portal-success-pale)] text-[var(--portal-success)]",
+    };
+    html! {
+        <section class="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
+            <div class="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--portal-panel-border)] px-5 py-4">
+                <div>
+                    <p class="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-gold-muted)]">{"Closing health"}</p>
+                    <div class="mt-1 flex items-baseline gap-3">
+                        <span class="font-serif text-4xl font-light text-[var(--portal-navy)]">{ format!("{}%", health.score) }</span>
+                        <span class={format!("rounded-full px-2.5 py-1 text-[9px] font-medium uppercase tracking-[0.12em] {band_class}")}>{ band }</span>
+                    </div>
+                    <p class="mt-1 text-xs font-light text-black/40">
+                        { format!("{} of {} checks ready · derived from the current deal facts", health.ready_count, health.total_count) }
+                    </p>
+                </div>
+            </div>
+            <div class="divide-y divide-[var(--portal-panel-border)]">
+                { for health.signals.iter().map(|signal| html! {
+                    <div class="grid gap-2 px-5 py-3 sm:grid-cols-[26px_180px_1fr]">
+                        <div class={classes!(
+                            "flex", "h-6", "w-6", "items-center", "justify-center", "rounded-full", "text-[11px]", "font-medium",
+                            if signal.ready { "bg-[var(--portal-success-pale)] text-[var(--portal-success)]" }
+                            else if signal.severity == "attention" { "bg-red-100 text-red-800" }
+                            else { "bg-amber-100 text-amber-800" }
+                        )}>
+                            { if signal.ready { "✓" } else { "!" } }
+                        </div>
+                        <div class="text-sm font-medium text-[var(--portal-navy)]">{ signal.label.clone() }</div>
+                        <div class="text-xs font-light leading-5 text-black/50">{ signal.detail.clone() }</div>
+                    </div>
+                }) }
+            </div>
+        </section>
     }
 }
 
