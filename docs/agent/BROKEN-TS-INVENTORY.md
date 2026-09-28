@@ -249,7 +249,16 @@ is not at risk here; this is the paperwork machine that reads packets and vendor
    and sync cannot disagree. Proof of the translation: `forge sync-agents --check` reports the existing
    `CLAUDE.md` block `ok` — a byte-identical match with the block the TypeScript renderer wrote.
 3. `scripts/forge-manifest.ts`, `scripts/forge-manifest.test.ts` — `forge:manifest`,
-   `forge:manifest:check`. **PORT P1** — a labour-saver, not a gate.
+   `forge:manifest:check`. **PORTED 2026-09-28** — `rust/cli` `forge manifest`, with the rules in
+   `rust/forge/src/scope_manifest.rs` (lanes, TF-IDF over the restricted corpus, rendering, drift,
+   the write refusal — pure, no filesystem, no git, no clock) and the gather-and-print half in
+   `rust/cli/src/forge/manifest.rs`. The two `lib/` modules it needed were recovered from `4cf98110^`
+   and translated: `lib/scope-manifest.ts` → `forge::scope_manifest`, `lib/git/sync-conflict.ts` →
+   `forge::sync_conflict`. It is the writer half of a pair — the packet lint's rule 8 parses these rows
+   and fails on a row that resolves nowhere — and it was the second link of `pnpm forge:harness`, so the
+   whole harness chain was dead at that link. One deliberate deviation, measured: the header's
+   `generated:` clock is compared separately from the body, because `--check-all` (which the harness
+   chain runs) otherwise rewrote eight committed manifests on EVERY run and left a dirty worktree.
 
 ## P1 — board and engine feeders
 
@@ -424,8 +433,8 @@ FORGE (27 files)
     23 scripts/forge-packet-lint.test.ts            FORGE P0    → PORTED 2026-09-27 (39 fixtures in rust/cli/src/forge/*)
     24 scripts/forge-sync-agents.ts                 FORGE P0    → PORTED 2026-09-27 (rust/cli forge sync-agents)
     25 scripts/forge-sync-agents.test.ts            FORGE P0    → PORTED 2026-09-27 (fixtures in forge/sync_agents.rs)
-    26 scripts/forge-manifest.ts                    FORGE P1    → PORT
-    27 scripts/forge-manifest.test.ts               FORGE P1    → PORT
+    26 scripts/forge-manifest.ts                    FORGE P1    → PORTED 2026-09-28 (rust/cli forge manifest)
+    27 scripts/forge-manifest.test.ts               FORGE P1    → PORTED 2026-09-28 (fixtures in forge/scope_manifest.rs + cli/forge/manifest.rs)
     28 scripts/forge-story-reset-config.ts          FORGE P1    → PORT (beside db_tool)
     29 scripts/forge-handoff.mjs                    FORGE P1    → VERIFY → RETIRE / PORT
     30 scripts/forge-human-gate-pass.mjs            FORGE P1    → VERIFY → PORT

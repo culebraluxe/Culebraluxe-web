@@ -20,6 +20,7 @@ pub mod citations;
 pub mod decision;
 pub mod doctor;
 pub mod lint;
+pub mod manifest;
 pub mod read_tools;
 pub mod reset;
 pub mod secret_shapes;
@@ -81,6 +82,9 @@ pub async fn dispatch(args: &[String]) -> Result<u8, Failure> {
     match args.first().map(String::as_str).unwrap_or_default() {
         "harness-lint" => lint::run(&args[1..]),
         "sync-agents" => sync_agents::run(&args[1..]),
+        // The scope manifest: the writer half of the pair the packet lint checks (rule 8 parses these rows).
+        // Sync, like the other two harness gates: it reads the tree and git, and touches no database.
+        "manifest" => manifest::run(&args[1..]),
         // The operator reads. Async because they answer from the live control plane; the two harness gates
         // above are pure file checks and stay synchronous.
         "board" | "story-show" | "story:show" | "batch-status" => read_tools::run(args).await,
@@ -89,7 +93,7 @@ pub async fn dispatch(args: &[String]) -> Result<u8, Failure> {
         // anything touches the database.
         "reset" | "recover" | "clean" => reset::run(args).await,
         other => Err(Failure::usage(format!(
-            "unknown forge command `{other}`; usage: forge <harness-lint|sync-agents|board|story-show|batch-status|doctor|reset|recover|clean> [options]"
+            "unknown forge command `{other}`; usage: forge <harness-lint|sync-agents|manifest|board|story-show|batch-status|doctor|reset|recover|clean> [options]"
         ))),
     }
 }
