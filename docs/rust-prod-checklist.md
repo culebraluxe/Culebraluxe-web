@@ -6,12 +6,11 @@ Short on purpose. Run the checks, set the knobs, know what to watch, know how to
 
 ```bash
 cd rust
-cargo check --workspace --all-targets          # expect 0 errors
-cargo test -p db -p server -p forge -p workflow # expect 16 test binaries ok, 0 failures
+cargo check --workspace --all-targets           # expect 0 errors (the CI gate)
+cargo test --workspace --all-targets            # expect 0 failures (the same gate)
 cd ..
-npx tsc --noEmit                               # expect 0 errors
-npx tsx scripts/forge-packet-lint.ts           # expect 0 failures
-git status --porcelain                         # expect empty
+pnpm forge:packet-lint                          # rust/cli `forge harness-lint` — expect 0 failures
+git status --porcelain                          # expect empty
 ```
 
 Then one live pass against the real server (port 8080 by default):
@@ -37,33 +36,48 @@ curl -s -H "x-culebra-internal-key: $KEY" localhost:8080/v1/diagnostics/db
 | `FORGE_ENGINE_WORKERS` | 4 | Concurrent engine commands. Deliberately one below the pool default. |
 | `FORGE_IDENTITY_CACHE_MS` | 30000 | Identity cache. A role change can take up to this long to apply. 0 disables. |
 
-## The deploy itself (one release = two builds + schema)
+## The deploy itself (one release = one container + schema)
 
-A release is three things shipped together, and the third is the one that bites:
+`pnpm deploy:prod` (`scripts/deploy-prod.sh`) is the whole thing, and it runs HERE, on this Mac:
 
-1. **The Next application** — `next build`, deployed as the `frontend` service.
-2. **The Rust API** — built by `rust/Dockerfile.vercel` (`cargo build --release -p server --bin http`) and deployed as
-   the `rust_api` container service. `vercel.json` binds its URL to the frontend as `RUST_API_BASE_URL`, so the two
-   find each other without manual configuration.
-3. **The schema** — **not applied by the deploy.** There is no migration step in the build. Applying a migration is a
-   separate, explicit, human-authorised action, and it must happen in the same release window as the code that needs it.
+1. **The stylesheet** — Tailwind over `rust/ui/styles/app.css` into `public/app.css` (Tailwind scans the Rust sources,
+   so the CSS is built after the UI source is final).
+2. **The compile** — `docker build -f deploy/Dockerfile.build`: the Yew UI to wasm, and the server cross-compiled for
+   Vercel's x86_64 Linux. Local and free; Vercel never compiles.
+3. **The pack** — `culebraluxe.gz` (the binary), `public/` minus the wasm, `ui.js`, `ui_bg.wasm.gz`, `templates/`, and
+   `deploy/Dockerfile.runtime` renamed to `Dockerfile` as the thing Vercel builds. Seconds to unpack.
+4. **The deploy** — the Vercel project `culebraluxe-web-fp` is set to `framework: container` through the API, then
+   `vercel deploy --prod` uploads the staged directory.
+5. **The smoke** — `/`, `/buyers`, `/app.css`, `/rust-ui/ui.js`, `/rust-ui/ui_bg.wasm`, the public-page API and `/login`
+   must all answer 200, or the script says so.
 
-Deploys are not triggered by git: `vercel.json` sets `deploymentEnabled: false`. A deploy is a deliberate act.
+One container, one process, one port: `culebraluxe` serves the website, the portal and the API
+(`CULEBRA_SITE_DIR=/app/public`, `PORT=8080`), with a `/healthz` HEALTHCHECK. There is no second service, no
+`RUST_API_BASE_URL`, and no Next build — `app/` and `components/` are not in this repository. The Vercel project holds
+the environment variables; nothing about them lives in git.
 
-### Before the first production release
+**The schema is NOT applied by the deploy.** There is no migration step in the build. A migration is a separate,
+explicit action, and it must happen in the same release window as the code that needs it:
+`pnpm db:migrations` (per-target state), `pnpm db:migrate` (`rust/cli db-tool apply`), `pnpm db:parity` (the gate).
 
-- **Reconcile the migration drift.** 34 migrations are currently applied to only one of the two environments (16
-  prod-only, 18 dev-only), so dev and prod schemas are not the same. Resolve it in DEV first, then have PROD's
-  required set applied as one deliberate step. `pnpm db:migrations` lists the state per target.
-- **Confirm prod's environment variables** exist for the Rust service: the internal API key, and the auth secret it
-  derives from. Without them the service refuses to serve.
-- **Know the switch:** `VERCEL_ENV=production` makes the Rust API connect to the production database automatically.
-  There is no dry run. The boot line and `GET /v1/diagnostics/db` both report the target.
+Deploys are not triggered by git: `vercel.json` sets `deploymentEnabled: false`. A deploy is a deliberate act, run by
+the operator. Pushing to `main` triggers CI gates only.
 
+### Before a production release
 
-1. **`app_error` with `kind like 'rust:%'`** — `rust:api` is a 5xx that no one had recorded before this week;
-   `rust:panic` is a panic, and any row of that kind deserves a look the same day. Both are queryable now precisely so
-   nobody has to hunt through logs.
+- **Check the schema, per target.** `pnpm db:migrations` prints what is applied where and `pnpm db:parity` is the gate;
+  run both before the deploy, not after. (A Neon DEV branch reset from PROD hides drift instead of fixing it — see
+  `docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md`.)
+- **Confirm prod's environment variables** exist in the Vercel project: the internal API key, and the auth secret it
+  derives from. Without them the service refuses to serve. They are set in Vercel, not in git.
+- **Know the switch:** `VERCEL_ENV=production` makes the server connect to the production database automatically.
+  There is no dry run. The boot line and `GET /v1/diagnostics/db` both report the target (`target=dev` / `target=prod`).
+
+## What to watch after it
+
+1. **`app_error` with `kind like 'rust:%'`** — `rust:api` is a 5xx (`ApiError::into_response` captures it unless the
+   failure already carries an incident id) and `rust:panic` is a panic, caught by the process panic hook. Any row of
+   either kind deserves a look the same day, and both are queryable in `app_error`.
 2. **`GET /v1/diagnostics/db`** — the counters. A rising `connectionsOpened` means the pool is churning; a
    `connectionReuseRate` near zero means it is not reusing at all.
 3. **Engine route latency** — the first command after a restart pays the cold engine build (~1.7s, one-off). If that
@@ -78,13 +92,21 @@ Deploys are not triggered by git: `vercel.json` sets `deploymentEnabled: false`.
 
 ## Going back
 
-The Rust API is additive: these routes are new, and the TypeScript path they replace is still in the tree and still
-builds. `docs/rust-parity-ledger.md` is the generated record of which capability serves production where, so the first
-question in an incident — "is this route Rust or TypeScript?" — has a written answer. Recovery is redeploying the
-previous commit; nothing here changes the database schema.
+Rollback is redeploying the previous commit (`git checkout <previous>`, or the Vercel rollback to the previous
+deployment) — a deploy changes no database schema by itself. `docs/rust-parity-ledger.md` is the generated record of
+which capability serves production where, so the first question in an incident — "which service answers this?" — has a
+written answer. For a schema incident, the migration ledger (`schema_migration`, migration 144) records every apply with
+its checksum, so "what was run where" is answerable instead of guessed.
 
-## Do not do before this deploy
+## Loose ends on this page
 
-No directory restructuring. Moving the TypeScript tree so the Rust is not "hanging under" it is a good idea and a real
-one, but it touches the Next build, its config, and every import — which is a change to make with the deploy behind you,
-not in front of it. Filed as the next structural task, with its own checklist.
+Two things this checklist cannot verify for you, because they live outside the repository (2026-09-28):
+
+- **The Vercel environment variables and the domains** are project state, not files: check them with
+  `vercel env ls --prod` in the `culebraluxe-web-fp` project, and treat a missing one as "the service will refuse to
+  serve", not as a warning.
+- **`rust/Dockerfile.vercel`** is a leftover from the two-service deploy (a Next frontend plus a `rust_api` container)
+  that no longer exists — the file is still in the tree, and nothing deploys it. The image that ships is
+  `deploy/Dockerfile.runtime`; if you find `Dockerfile.vercel` named as the deploy path anywhere, the reference is
+  stale, not the deploy.
+
