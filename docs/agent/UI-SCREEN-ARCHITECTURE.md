@@ -7,23 +7,23 @@ Code: `rust/ui/src/app/`.
 
 | # | Fact | Value |
 | --- | --- | --- |
-| S1 | The registry | `rust/ui/src/app/registry.rs` — 58 entries, one line per screen, the only path→screen map |
-| S2 | On the `Screen` trait | 54 entries, `Kind::Screen(mount::<S>)` |
-| S3 | Still on the old loop | 2 entries, `Kind::LegacyPortal` — `marketing`, `marketing-syndication` |
+| S1 | The registry | `rust/ui/src/app/registry.rs` — 59 entries, one line per screen, the only path→screen map |
+| S2 | On the `Screen` trait | 57 entries, `Kind::Screen(mount::<S>)` — both Marketing entries mount `Publishing` |
+| S3 | Still on the old loop | 0 entries — no registry line uses `Kind::LegacyPortal` |
 | S4 | Not renderable here | 2 entries, `Kind::External` — WhatsApp Activation, `/portal` itself |
-| S5 | The cutover ledger | `legacy_count_only_goes_down`, `LEGACY_CEILING = 2`. The ceiling only ever moves down |
-| S6 | What the old loop is | `view.rs`, `update.rs`, `yew_effects.rs`, `yew_views/` — Rust, reached only through S3, deleted when S3 reaches zero |
+| S5 | The cutover ledger | `legacy_count_only_goes_down`, `LEGACY_CEILING = 0`. The ceiling only ever moves down |
+| S6 | What the old loop is | `view.rs`, `update.rs`, `yew_effects.rs`, `yew_views/` — Rust, and now reached by no registry entry: S3 is zero, so it is due for deletion (§ roadmap step 3) |
 | S7 | There is no Next.js application | `rust/server/src/site.rs` answers every path with this one Yew app; `legacy/` TypeScript is read-only and out of scope |
 
 ## HOLDS — do not act on these
 
 | # | Held | Who holds it | What an agent must do |
 | --- | --- | --- | --- |
-| H1 | **MARKETING — HELD FOR REDESIGN.** Both Marketing entries (S3): `marketing` (`/portal/marketing`, "Dashboard") and `marketing-syndication`. What Grok built there never worked, and nothing has replaced it | the owner | **MARKETING HELD FOR REDESIGN.** Do not port it, do not repair it, do not delete it, and never propose it as next work. Both old-loop entries live inside this hold, so the count stays at 2 until the owner redesigns the surface |
+| H1 | **Lifted 2026-09-28.** Marketing was held for redesign; GPT then replaced both entries with a native `Screen`, the Publishing Center (`rust/ui/src/app/screens/publishing.rs`, commits `3c4805f2`, `451cc2f0`, `af5de849`), and the owner accepted it ("something is better than nothing") | the owner | Nothing is held here any more. Publishing is ordinary screen work; its quality is unreviewed dog-food |
 | H2 | **The services layer**: `abstract_service!` and the composition root (`rust/server/src/composition.rs`) | GPT wrote the services layer; the owner required the `abstract_service!` pattern of it | **`abstract_service!` is an absolute requirement, not a preference.** The composition root on `main` is the correct one; do not restructure it, do not add a second catalog, and do not migrate a service between the macro and its hand-written descriptor without the owner's word. **The door is not the design; the trait is.** Every service implements `AbstractService` and is registered in the catalog, and all 32 do. `abstract_service!` is a shortcut that stamps a trivial descriptor: empty `capabilities`, empty `invariants`, inherited `UnknownOperation` dispatch. Because the kernel treats empty capabilities as inline policy (`rust/server/src/service_kernel.rs:211-236`), such a service cannot declare an operation or refuse an unknown one. So a service with real operations implements the trait itself and declares them — which is what the seven larger domains below do, calendar's 5 capabilities among them. That is the OO design used properly, not a violation. What this paragraph means: do not hand-copy boilerplate into a new service that needs only a trivial descriptor. (Corrected 2026-09-28: I had read the shortcut as the design and recorded a violation that was not there. Calendar is correctly built.) |
 | H3 | **WhatsApp Activation** (S4, `Kind::External`) | the owner | It is a lifeline, not a cutover target: the Meta Embedded Signup page is the only proven way back if activation must be redone. Do not convert it, do not test it against Meta, do not "clean it up" — see "Decisions recorded" |
 
-Nothing else about screens is held: the 54 ported screens, the shared machinery (§4–§9) and any NEW route that is not one
+Nothing else about screens is held: the 57 ported screens, the shared machinery (§4–§9) and any NEW route that is not one
 of the held entries are open for work.
 
 ## WHERE TO LOOK — task → the one place
@@ -208,8 +208,8 @@ entry("db-test", "/portal/db-test", Surface::Support, "DB Test", Menu::Rail("DB 
   menus, the breadcrumb and the walk are all generated from this one table.
 - `.of("parent")` — a drill-in: it names the screen it hangs off (settings' users/roles/authorities, activity, every
   `:id` record route), so it is reachable and breadcrumbed without appearing in the rail.
-- `Kind::LegacyPortal(key)` — the two Marketing screens still on the old loop, both inside **H1**: not work an agent may
-  pick up. `legacy_count_only_goes_down` holds that number to `LEGACY_CEILING = 2`, and the ceiling only moves down.
+- `Kind::LegacyPortal(key)` — a screen on the old loop. None remain (2026-09-28); `legacy_count_only_goes_down` holds
+  the count to `LEGACY_CEILING = 0`.
 - `Kind::External` — a route this app cannot render; today that is WhatsApp Activation, which draws a placeholder
   panel. See §8 for why it must not reload.
 
@@ -308,11 +308,9 @@ The owner's direction: done correctly, big-bang if needed; no permanent adapters
 
 1. **Framework — in place.** `Screen`, `ScreenCtx`, `Cmd`, `Endpoint`, `Remote`, `ScreenHost`, `ListState` and
    `RowsScreen`, the executor and the registry are written and in use.
-2. **Port every screen onto the trait — 54 of 58 entries.** The public site, sign-in, CORE, ACCOUNTING, OPPS, SUPPORT
-   and TECH are ported. The two left on the old loop, `marketing` and `marketing-syndication`, are inside **H1** — the
-   owner's call, not an agent's — and are held at `LEGACY_CEILING = 2`. Each port deletes its branch from the legacy
-   `Model`, `Msg`, `update.rs`, `view.rs` and `yew_effects.rs`.
-3. **Then delete the old loop**: when the last `LegacyPortal` entry goes, so do `Model`/`Msg`/`update.rs`/`view.rs`/
+2. **Port every screen onto the trait — done, 57 of 59 entries** (the other two are `Kind::External`). Marketing was the
+   last, replaced by the Publishing Center on 2026-09-28.
+3. **Then delete the old loop — now due**: the last `LegacyPortal` entry has gone, so so do `Model`/`Msg`/`update.rs`/`view.rs`/
    `yew_effects.rs`/`yew_views/`, the document listeners in `shell.rs`, `StringBody`, `render_page`, and the raw-markup
    use in `yew_portal.rs`. (`icons.rs` stays: the ported screens use its SVG table.)
 4. **Two entries are neither screen nor port**: the two `Kind::External` routes. Each is either ported or deleted — a
@@ -340,7 +338,7 @@ not a screen.
 | --- | --- |
 | CORE | Cockpit [all activity, needs attention], Clients [client record], Projects [7 panes as tabs: Workplan, Timeline, Calendar, Financials, Documents, Activity, Catch-up], Contracts [contract record], Cabinet, Workflows [workflow record], Forms [form record], Seller Strategy — **ported**, Forms and form records included (`registry.rs:161,197`); the panes, the timeline and the calendar are the screen's own (`app/screens/projects/`, `timeline.rs`, `calendar.rs`) |
 | ACCOUNTING | Dashboard, Receivables, Expenses, P&L Statement, Receipt Scanner — **ported** (`app/screens/accounting/`: one shared model and reducer, five thin screens) |
-| MARKETING | Dashboard, Syndication — **the two still on the old loop, inside H1**; `/portal/marketing` is this surface's home path, and the hold is the owner's, not an oversight |
+| MARKETING | Publishing (`/portal/marketing`, and `/portal/marketing/syndication` as a drill-in) — the native Publishing Center |
 | OPPS | Records [property record], Listing Media — **ported**; the record route is the Workbench opened on that property; photos go through `Cmd::upload` (chunked) |
 | SUPPORT | System Health, DB Test, WhatsApp Diagnostic, WhatsApp Activation (a LIFELINE page — see below), WhatsApp Public Page (`/whatsapp`), Mux Video Test (`/video`), Security [users, roles, authorities]; plus the token review page (`/review/:token/:page`, public URL kept) |
 | TECH | Cockpit [Flight Recorder trace record], Story Board [story record], UI Lab — **ported**; the sorter is the screen's own (`Msg::SorterDropped`), and there is no island left on the Cockpit |

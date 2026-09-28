@@ -44,10 +44,10 @@ Two gates, and they answer different questions. `pnpm db:migrations` reads the *
 reports many one-target rows because a DEV refresh from PROD replaces DEV's ledger, so read it as history, not drift.
 `pnpm db:parity` compares the **live schemas** and is the release gate.
 
-⚠ **2026-09-28: `db:parity` reports DRIFT FOUND.** PROD lacks three DEV migrations that code on `main` uses —
-`217_website_intake_notified_at` (`website_intake_submission.notified_at`), `219_guest_sign_in_code` (the table,
-`rust/core/db/src/guest.rs`) and `223_command_receipt_runtime` (ten `workflow_command_receipt` columns plus
-`aggregate_id` uuid → text, `rust/core/db/src/command_receipt.rs`). Re-run `pnpm db:parity` before trusting this line.
+**2026-09-28: `PARITY OK`,** after PROD received `217_website_intake_notified_at`, `219_guest_sign_in_code` and
+`223_command_receipt_runtime` — three DEV migrations that code on `main` already used (the website lead emails, guest
+sign-in codes, command receipts). A migration that reached only DEV is the usual way a feature "works in dev". Re-run
+`pnpm db:parity` before trusting this line.
 
 ## Two things to get right
 
