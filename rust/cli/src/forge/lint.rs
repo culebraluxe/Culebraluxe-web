@@ -873,8 +873,14 @@ mod tests {
     }
 
     fn fixture_root(name: &str) -> PathBuf {
+        // ONE process, MANY parallel test threads: `std::process::id()` alone is not unique, and the tests that share
+        // a fixture name (`no-paths`, via `lint_with`) raced on the same directory - `create_dir_all` came back
+        // `AlreadyExists` on a loaded machine and `cargo test --workspace` failed (2026-09-28, on this line in that
+        // run). A per-call counter gives every fixture its own directory.
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let root =
-            std::env::temp_dir().join(format!("forge-harness-lint-{}-{name}", std::process::id()));
+            std::env::temp_dir().join(format!("forge-harness-lint-{}-{n}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).expect("fixture root");
         root
