@@ -1302,7 +1302,7 @@ fn offer_form(
                 <input type="datetime-local" value={expiration} oninput={term_input("expiresAt")} class={field_class()} />
             </div>
             <textarea value={contingencies} oninput={text_area} rows="2"
-                placeholder="Contingencies / notes that affect comparison" class={format!("{} w-full", field_class())}></textarea>
+                placeholder="Contingencies / notes that affect comparison" class="block min-h-20 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 px-3 py-2 text-sm font-light outline-none focus:border-[var(--portal-navy)]"></textarea>
             <div class="flex justify-end">
                 <button type="button" onclick={submit} disabled={busy || model.deal_workspace.offer_amounts.get(&key).is_none_or(|value| value.trim().is_empty())}
                     class="min-h-10 rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-4 text-[9px] font-medium uppercase tracking-[0.12em] text-white disabled:opacity-35">
