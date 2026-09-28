@@ -2326,7 +2326,16 @@ async fn accounting_payload(
     let context = &resolved.service;
     let today = book_today();
     let body = match screen {
-        "accounting" => json!({ "dashboard": to_json(accounting.dashboard(context).await.map_err(failed(resolved))?) }),
+        "accounting" => {
+            let (dashboard, forecast) = tokio::join!(
+                accounting.dashboard(context),
+                accounting.commission_forecast(context),
+            );
+            json!({
+                "dashboard": to_json(dashboard.map_err(failed(resolved))?),
+                "commissionForecast": to_json(forecast.map_err(failed(resolved))?),
+            })
+        },
         "accounting-expenses" => {
             let (expenses, categories) = tokio::join!(accounting.expenses(context), accounting.expense_categories(context));
             json!({
