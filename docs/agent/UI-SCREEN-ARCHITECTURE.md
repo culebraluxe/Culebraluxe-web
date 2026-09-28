@@ -293,11 +293,13 @@ Each rule names the check that actually holds it today, so it can be enforced ra
 | Rule | How it is held |
 | --- | --- |
 | A screen does not reach the retired TypeScript | the Rust UI cannot load `legacy/` at all; on the TS side `pnpm lint` fails a new import and `eslint-suppressions.json` may only shrink; `pnpm broken:ts:sweep` keeps the dead-TS inventory honest |
-| No screen state outside its own module | a screen's state is its own `Model`; the legacy global `Model` (`rust/ui/src/model.rs:2291`) and `update.rs` may only shrink until the last `LegacyPortal` screen is ported |
-| No HTML strings, no `data-*` intents | `from_html_unchecked` has exactly two uses — `rust/ui/src/icons.rs:35` (the scoped SVG table) and `yew_portal.rs:32` (the legacy string body). `view::render_page`, `StringBody` and the document listeners in `rust/ui/src/shell.rs` are reachable only from the legacy loop, and go when it does |
+| No screen state outside its own module | a screen's state is its own `Model`; the old global loop (`Model`/`Msg`/`update.rs`) was deleted 2026-09-28 and `model.rs` holds only shared data shapes |
+| No HTML strings, no `data-*` intents | `from_html_unchecked` has one use, `rust/ui/src/icons.rs` (the scoped SVG table); the string renderer and the document listeners were deleted with the old loop |
 | No transport in a screen | no `gloo_net`, no `fetch`, no `spawn_local` anywhere in `app/screens/`: a screen returns a `Cmd` and `app/exec.rs` performs it. `web_sys` there is allowed only for reading an event's target (input, select, drag, file) |
 | One route table | `app/registry.rs` is the only mapping from path to screen; a second one is a review reject |
-| Everything builds | `cargo check -p ui --features wasm --target wasm32-unknown-unknown --all-targets` (the only check that compiles `app/` and the registry — plain `cargo test -p ui` is the legacy MVI on the host target); `pnpm ui:build:release` (release wasm) and `pnpm build` (wasm + tailwind + the server binary); `cargo check --workspace --all-targets`. There is no Next build |
+| One URL catalogue | every URL a screen reaches — requests (`Endpoint`), files (`FileEndpoint`: chunked uploads, multipart forms) and the sign-in form actions (`api::auth`) — is in `app/api.rs`. A path literal in `app/screens/` outside a test is a review reject |
+| No god screens | a screen module over **800 lines** is split the next time it is edited — `view` vs `update` vs row widgets, lists on `list.rs`, reads on `page.rs` — rather than grown. Not a scheduled clean-up of every file: the rule bites on the edit. Projects is the worked example (`app/screens/projects/`: `mod.rs`, `selection.rs`, `edits.rs`, `view/navigator.rs`, `view/documents.rs`, `view/work_editor.rs`, `tests.rs`) |
+| Everything builds | `pnpm ui:check` (the wasm32 target, what the deploy compiles; the pre-push hook runs it); `cargo test -p ui` (every screen, registry and command test on the host — `wasm` is a default feature); `pnpm build` (wasm + tailwind + the server binary); `cargo check --workspace --all-targets`. There is no Next build |
 | Every screen is reachable | the registry's own tests, plus a headless walk of every registry path: `pnpm debug:portal-nav` |
 
 ## Migration — complete, not partial
