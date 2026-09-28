@@ -161,6 +161,7 @@ pub fn listed(surface: Surface) -> impl Iterator<Item = Screen> {
 pub const SCREENS: &[Screen] = &[
     // ---- CORE (the registry's surface is NEXUS, labelled CORE) ----
     Screen { key: "dashboard", title: "Cockpit", path: "/portal/dashboard", surface: Surface::Core, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "catch-up", title: "Catch-Up", path: "/portal/catch-up", surface: Surface::Core, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "clients", title: "Clients", path: "/portal/clients", surface: Surface::Core, nav: Nav::Listed, deferred: None, detail_of: None },
     // The captain's call: the model is proven, so Project Management starts. The list is wired; the three widgets
     // (React Arborist tree, Gantt, FullCalendar) stay in TypeScript until the port can render a screen of its own markup
@@ -979,6 +980,8 @@ pub struct PortalPage {
     pub tech: Option<PortalTechPage>,
     /// CORE Cockpit — the situational-awareness landing page.
     pub cockpit: Option<PortalCockpitPage>,
+    /// CORE Catch-Up — deterministic relationship attention queue.
+    pub catch_up: Option<PortalCatchUpPage>,
     /// CORE Cabinet — canonical immutable issued-document repository.
     pub cabinet: Option<PortalCabinetPage>,
     /// `/portal/activity` — the unified feed, ordered as the read model returned it.
@@ -1299,6 +1302,40 @@ pub struct PortalCabinetDocument {
     pub created_at: String,
     pub signed_artifact_available: bool,
     pub signed_audit_available: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalCatchUpPage {
+    pub generated_at: String,
+    pub total: i64,
+    pub high_priority_count: i64,
+    pub items: Vec<PortalCatchUpItem>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalCatchUpItem {
+    pub person_id: String,
+    pub display_name: String,
+    pub role: String,
+    pub status: String,
+    pub reason_code: String,
+    pub reason: String,
+    pub priority: i32,
+    pub signal_at: String,
+    pub signal_at_label: String,
+    pub last_contact_at: Option<String>,
+    pub last_contact_label: Option<String>,
+    pub last_contact_channel: Option<String>,
+    pub last_contact_direction: Option<String>,
+    pub last_contact_summary: Option<String>,
+    pub primary_phone: Option<String>,
+    pub primary_email: Option<String>,
+    pub active_deal_id: Option<String>,
+    pub active_property_name: Option<String>,
+    pub task_id: Option<String>,
+    pub due_at_label: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
