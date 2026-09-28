@@ -237,6 +237,13 @@ impl Database {
         &self.pool
     }
 
+    /// Which database this handle is on. Read by the operator tools so a read can say out loud whether it
+    /// answered from DEV or PROD — a board that does not name its database is a board an operator has to
+    /// guess about, and guessing is how a cleanup lands on the wrong environment.
+    pub fn declared_target(&self) -> DbTarget {
+        self.target
+    }
+
     /// Ad-hoc SQL on the shared pool. Used by Forge to retire the `psql` CLI client.
     pub async fn run_text(&self, sql: &str) -> DbResult<String> {
         use sqlx::Either;

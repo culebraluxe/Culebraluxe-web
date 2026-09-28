@@ -1,0 +1,499 @@
+//! The sanctioned READ path for the Forge control plane — the Rust home of the operator read tools.
+//!
+//! Rust replacement for `scripts/forge-read-tools.ts` (`forge:board`, `forge:story:show`) and the reads
+//! behind `scripts/forge-batch-status.ts` (`forge:batch:status`). All three imported `legacy/db/*`, deleted
+//! with the TypeScript application in `4cf98110`, so every one of them exited `ERR_MODULE_NOT_FOUND`: the
+//! operator had a documented read path he could not run. Same shapes, same normalisation, one language.
+//!
+//! WHICH TABLES. The five views migration 191 declares are the sanctioned read shapes
+//! (`forge_board_by_batch`, `forge_story_run_receipt`, `forge_open_holds`, `forge_story_findings`,
+//! `forge_migration_ledger`), and this DAO selects from them — it does not re-derive a fact from a base
+//! table, so a reader cannot invent a second interpretation of one. The queue, bench and board-status reads
+//! the Cockpit has always had (`forge_batch`, `agent_work_item`, `storyboard_active_work`,
+//! `storyboard_story`) are the exceptions the Cockpit screen itself makes, and they read columns, not
+//! verdicts.
+//!
+//! READ-ONLY. There is no insert, no update and no claim in this file, and there must never be one: it is the
+//! sibling an operator looks with before deciding to clean. `ForgeControlDao` and the reset tool are the
+//! writers.
+//!
+//! NORMALISATION happens at this boundary, not above it (repository boundary rule): ids leave as strings,
+//! every timestamp leaves as an ISO-8601 `…Z` string or `null`, and a hold reason that is blank leaves as
+//! `unknown` rather than `""` — an empty string reads like "no problem", which is the opposite of a hold.
+//! Timestamps are rendered by Postgres (`to_char(… at time zone 'UTC', …)`) rather than parsed in Rust, so
+//! the output shape does not depend on the session's TimeZone setting — the guarantee the retired TypeScript
+//! got for free from `Date.toISOString()`.
+
+use crate::{Database, DbFailure, DbResult};
+use sqlx::FromRow;
+
+/// The one timestamp shape every field in this module leaves in.
+const ISO_UTC: &str = "YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"";
+
+/// A batch of work, as `forge:board` and `forge:batch:status` both read it. `story_count`, `queued_count`
+/// and `skipped_count` are the batch's own counts, repeated on every member row by the view, which is why
+/// `board_batches` de-duplicates by id before returning.
+#[derive(Debug, Clone, FromRow)]
+pub struct ForgeBatchRow {
+    pub id: String,
+    pub label: Option<String>,
+    pub status: String,
+    pub scheduled_for: Option<String>,
+    pub fired_at: Option<String>,
+    pub created_at: Option<String>,
+    pub created_by: Option<String>,
+    pub note: Option<String>,
+    pub model_policy: Option<String>,
+    pub story_count: i64,
+    pub queued_count: i64,
+    pub skipped_count: i64,
+}
+
+/// One (batch, story) membership row — the board's own grain.
+#[derive(Debug, Clone, FromRow)]
+pub struct ForgeStoryBoardRow {
+    pub batch_id: String,
+    pub batch_label: Option<String>,
+    pub batch_status: String,
+    pub story_id: String,
+    pub item_state: String,
+    pub queued_at: Option<String>,
+    pub error_text: Option<String>,
+    pub story_title: Option<String>,
+    pub story_status: Option<String>,
+}
+
+/// The newest run for a story: the receipt. `result_status` is the verdict word, `commit_hash` the commit it
+/// happened on — both nullable, because a run that has not finished has neither.
+#[derive(Debug, Clone, FromRow)]
+pub struct ForgeStoryReceiptRow {
+    pub run_id: String,
+    pub story_id: String,
+    pub result_status: Option<String>,
+    pub commit_hash: Option<String>,
+    pub tests_summary: Option<String>,
+    pub completion: Option<i32>,
+    pub started_at: Option<String>,
+    pub ended_at: Option<String>,
+    pub created_at: Option<String>,
+}
+
+/// An unresolved hold: why a story is parked and where it would resume from.
+#[derive(Debug, Clone, FromRow)]
+pub struct ForgeStoryHoldRow {
+    pub hold_id: String,
+    pub story_id: String,
+    pub reason: Option<String>,
+    pub originating_node: Option<String>,
+    pub failure_class: Option<String>,
+    pub resume_target: Option<String>,
+    pub created_at: Option<String>,
+}
+
+/// An architect finding recorded for a story. The list-shaped columns arrive as JSON text and are parsed by
+/// `parse_string_array`; a blob that is not a JSON array of strings becomes an empty list rather than failing
+/// the read, because malformed evidence must not make the story it is attached to unreadable.
+#[derive(Debug, Clone, FromRow)]
+pub struct ForgeStoryFindingRow {
+    pub finding_row_id: String,
+    pub finding_id: String,
+    pub story_id: String,
+    pub summary: Option<String>,
+    pub required: Option<bool>,
+    pub seams: Option<String>,
+    pub hint: Option<String>,
+    pub preconditions: Option<String>,
+    pub classes: Option<String>,
+    pub risks: Option<String>,
+    pub created_at: Option<String>,
+}
+
+/// Where the story's declared change set sits in the migration ledger. A declared file with no ledger row
+/// keeps `migration_id` null rather than disappearing — that absence is the finding.
+#[derive(Debug, Clone, FromRow)]
+pub struct ForgeStoryMigrationRow {
+    pub filename: String,
+    pub migration_id: Option<String>,
+    pub target: Option<String>,
+    pub applied_at: Option<String>,
+    pub migration_required: Option<bool>,
+    pub dev_applied: Option<bool>,
+    pub dev_verified: Option<bool>,
+    pub prod_applied: Option<bool>,
+    pub prod_verified: Option<bool>,
+}
+
+/// A work item the engine holds right now — the line between "in the table" and "running". Named for the
+/// queue rather than the row (`ForgeAgentWorkRow` is the engine's own, claim-shaped row) so the two readers
+/// cannot be confused for one another.
+#[derive(Debug, Clone, FromRow)]
+pub struct ForgeQueueWorkRow {
+    pub id: String,
+    pub story_id: String,
+    pub state: String,
+    pub claimed_by: Option<String>,
+    pub error_text: Option<String>,
+    pub queued_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+/// A story the operator has selected as active work — the bench.
+#[derive(Debug, Clone, FromRow)]
+pub struct ForgeBenchRow {
+    pub story_id: String,
+    pub work_order: i32,
+    pub title: Option<String>,
+    pub status: Option<String>,
+}
+
+/// `storyboard_story.id` with its board status, for the batch-status header counts.
+#[derive(Debug, Clone, FromRow)]
+pub struct ForgeStoryStatusRow {
+    pub id: String,
+    pub status: String,
+}
+
+/// A story's whole picture, assembled from the five views.
+#[derive(Debug, Clone)]
+pub struct ForgeStoryShow {
+    pub board: Vec<ForgeStoryBoardRow>,
+    pub receipt: Option<ForgeStoryReceiptRow>,
+    pub holds: Vec<ForgeStoryHoldRow>,
+    pub findings: Vec<ForgeStoryFindingRow>,
+    pub migrations: Vec<ForgeStoryMigrationRow>,
+}
+
+/// The five-view read path and the Cockpit's own reads. Construct with the process pool; never construct a
+/// pool here.
+#[derive(Clone)]
+pub struct ForgeReadDao {
+    db: Database,
+}
+
+impl ForgeReadDao {
+    pub fn new(db: Database) -> Self {
+        Self { db }
+    }
+
+    /// Which database this read is against (`dev` / `prod`). The CLI prints it: an operator reading a board
+    /// deserves to know which board it was.
+    pub fn target(&self) -> String {
+        self.db.declared_target().as_str().to_string()
+    }
+
+    /// The board: one row per (batch, story), de-duplicated to one row per batch with the batch's counts.
+    pub async fn board_batches(&self) -> DbResult<Vec<ForgeBatchRow>> {
+        let sql = format!(
+            "select batch_id::text as id, batch_label as label, batch_status as status,
+                    to_char(batch_scheduled_for at time zone 'UTC', '{ISO_UTC}') as scheduled_for,
+                    to_char(batch_fired_at at time zone 'UTC', '{ISO_UTC}') as fired_at,
+                    to_char(batch_created_at at time zone 'UTC', '{ISO_UTC}') as created_at,
+                    batch_created_by::text as created_by, batch_note as note,
+                    batch_model_policy as model_policy,
+                    story_count, queued_count, skipped_count
+             from forge_board_by_batch
+             order by batch_created_at desc, batch_id"
+        );
+        let rows = sqlx::query_as::<_, ForgeBatchRow>(sqlx::AssertSqlSafe(sql))
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_read.board_batches", &error))?;
+        Ok(dedupe_batches(rows))
+    }
+
+    /// The most recent batches, for `forge:batch:status`'s job stream.
+    pub async fn recent_batches(&self, limit: i64) -> DbResult<Vec<ForgeBatchRow>> {
+        let sql = format!("{} order by b.created_at desc limit $1", batch_select());
+        sqlx::query_as::<_, ForgeBatchRow>(sqlx::AssertSqlSafe(sql))
+            .bind(limit.max(1))
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_read.recent_batches", &error))
+    }
+
+    /// The batch things are being staged into: the newest `Staged` batch, if any. Read-only — the writer that
+    /// creates one on first use lives on `ForgeControlDao`.
+    pub async fn staging_batch(&self) -> DbResult<Option<ForgeBatchRow>> {
+        let sql = format!(
+            "{} where b.status = 'Staged' order by b.created_at desc limit 1",
+            batch_select()
+        );
+        sqlx::query_as::<_, ForgeBatchRow>(sqlx::AssertSqlSafe(sql))
+            .fetch_optional(self.db.pool())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_read.staging_batch", &error))
+    }
+
+    /// A story's membership in the board, newest batch first.
+    pub async fn story_board(&self, story_id: &str) -> DbResult<Vec<ForgeStoryBoardRow>> {
+        let sql = format!(
+            "select batch_id::text as batch_id, batch_label, batch_status, story_id, item_state,
+                    to_char(item_queued_at at time zone 'UTC', '{ISO_UTC}') as queued_at,
+                    item_error_text as error_text, story_title, story_status
+             from forge_board_by_batch
+             where story_id = $1
+             order by batch_created_at desc, batch_id"
+        );
+        sqlx::query_as::<_, ForgeStoryBoardRow>(sqlx::AssertSqlSafe(sql))
+            .bind(story_id)
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_read.story_board", &error))
+    }
+
+    /// A story's newest run — the receipt. `None` means no run has been recorded, which is a fact in itself:
+    /// never render it as a verdict.
+    pub async fn story_receipt(&self, story_id: &str) -> DbResult<Option<ForgeStoryReceiptRow>> {
+        let sql = format!(
+            "select run_id::text as run_id, story_id, result_status, commit_hash, tests_summary, completion,
+                    to_char(started_at at time zone 'UTC', '{ISO_UTC}') as started_at,
+                    to_char(ended_at at time zone 'UTC', '{ISO_UTC}') as ended_at,
+                    to_char(created_at at time zone 'UTC', '{ISO_UTC}') as created_at
+             from forge_story_run_receipt
+             where story_id = $1"
+        );
+        sqlx::query_as::<_, ForgeStoryReceiptRow>(sqlx::AssertSqlSafe(sql))
+            .bind(story_id)
+            .fetch_optional(self.db.pool())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_read.story_receipt", &error))
+    }
+
+    /// A story's unresolved holds. A blank reason is normalised to `unknown` here, at the boundary.
+    pub async fn story_holds(&self, story_id: &str) -> DbResult<Vec<ForgeStoryHoldRow>> {
+        let sql = format!(
+            "select hold_id::text as hold_id, story_id, reason, originating_node, failure_class,
+                    resume_target,
+                    to_char(created_at at time zone 'UTC', '{ISO_UTC}') as created_at
+             from forge_open_holds
+             where story_id = $1
+             order by created_at desc"
+        );
+        let mut rows = sqlx::query_as::<_, ForgeStoryHoldRow>(sqlx::AssertSqlSafe(sql))
+            .bind(story_id)
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_read.story_holds", &error))?;
+        for row in &mut rows {
+            row.reason = Some(normalize_reason(row.reason.as_deref()));
+        }
+        Ok(rows)
+    }
+
+    /// A story's architect findings, oldest first — the order the contract was written in.
+    pub async fn story_findings(&self, story_id: &str) -> DbResult<Vec<ForgeStoryFindingRow>> {
+        let sql = format!(
+            "select finding_row_id::text as finding_row_id, finding_id, story_id, summary, required,
+                    seams::text as seams, hint, preconditions::text as preconditions,
+                    classes::text as classes, risks::text as risks,
+                    to_char(created_at at time zone 'UTC', '{ISO_UTC}') as created_at
+             from forge_story_findings
+             where story_id = $1
+             order by created_at asc, finding_id"
+        );
+        sqlx::query_as::<_, ForgeStoryFindingRow>(sqlx::AssertSqlSafe(sql))
+            .bind(story_id)
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_read.story_findings", &error))
+    }
+
+    /// Where the story's declared migration files sit in the ledger — DEV and PROD, applied and verified.
+    pub async fn story_migrations(&self, story_id: &str) -> DbResult<Vec<ForgeStoryMigrationRow>> {
+        let sql = format!(
+            "select filename, migration_id::text as migration_id, target,
+                    to_char(applied_at at time zone 'UTC', '{ISO_UTC}') as applied_at,
+                    migration_required, dev_migration_applied as dev_applied,
+                    dev_migration_verified as dev_verified,
+                    prod_migration_applied as prod_applied,
+                    prod_migration_verified as prod_verified
+             from forge_migration_ledger
+             where story_id = $1
+             order by filename"
+        );
+        sqlx::query_as::<_, ForgeStoryMigrationRow>(sqlx::AssertSqlSafe(sql))
+            .bind(story_id)
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_read.story_migrations", &error))
+    }
+
+    /// A story's full picture, assembled from the five views.
+    pub async fn story_show(&self, story_id: &str) -> DbResult<ForgeStoryShow> {
+        Ok(ForgeStoryShow {
+            board: self.story_board(story_id).await?,
+            receipt: self.story_receipt(story_id).await?,
+            holds: self.story_holds(story_id).await?,
+            findings: self.story_findings(story_id).await?,
+            migrations: self.story_migrations(story_id).await?,
+        })
+    }
+
+    /// The engine's queue: the work items it currently holds. `Claimed`, `Running` and `Paused` are the
+    /// states the Cockpit has always shown as in flight; a `Ready` item is in the table, not running.
+    pub async fn active_agent_work(&self, limit: i64) -> DbResult<Vec<ForgeQueueWorkRow>> {
+        let sql = format!(
+            "select id::text as id, story_id, state, claimed_by, error_text,
+                    to_char(queued_at at time zone 'UTC', '{ISO_UTC}') as queued_at,
+                    to_char(updated_at at time zone 'UTC', '{ISO_UTC}') as updated_at
+             from agent_work_item
+             where state in ('Claimed', 'Running', 'Paused')
+             order by updated_at desc
+             limit $1"
+        );
+        sqlx::query_as::<_, ForgeQueueWorkRow>(sqlx::AssertSqlSafe(sql))
+            .bind(limit.clamp(1, 20))
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_read.active_agent_work", &error))
+    }
+
+    /// The bench: the stories the operator selected as active work, in his order. Presence of a row in
+    /// `storyboard_active_work` IS the active state — there is no flag to disagree with.
+    pub async fn bench(&self) -> DbResult<Vec<ForgeBenchRow>> {
+        sqlx::query_as::<_, ForgeBenchRow>(
+            "select aw.story_id, aw.work_order, s.title, s.status
+             from storyboard_active_work aw
+             join storyboard_story s on s.id = aw.story_id
+             order by aw.work_order, aw.story_id",
+        )
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_read.bench", &error))
+    }
+
+    /// Every story's id and board status. Small enough to read whole, and reading it whole is what lets the
+    /// caller count `Batched` / `Ready` without inventing a second interpretation of "status".
+    pub async fn story_statuses(&self) -> DbResult<Vec<ForgeStoryStatusRow>> {
+        sqlx::query_as::<_, ForgeStoryStatusRow>(
+            "select id, status from storyboard_story order by id",
+        )
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_read.story_statuses", &error))
+    }
+}
+
+/// The batch shape the Cockpit's job stream reads: the batch row plus its own item counts. One copy, so the
+/// staging read and the recent-batches read can never disagree about what a batch looks like.
+fn batch_select() -> String {
+    format!(
+        "select b.id::text as id, b.label, b.status,
+                to_char(b.scheduled_for at time zone 'UTC', '{ISO_UTC}') as scheduled_for,
+                to_char(b.fired_at at time zone 'UTC', '{ISO_UTC}') as fired_at,
+                to_char(b.created_at at time zone 'UTC', '{ISO_UTC}') as created_at,
+                b.created_by::text as created_by, b.note, b.model_policy,
+                (select count(*) from forge_batch_item i where i.batch_id = b.id) as story_count,
+                (select count(*) from forge_batch_item i where i.batch_id = b.id and i.state = 'Queued') as queued_count,
+                (select count(*) from forge_batch_item i where i.batch_id = b.id and i.state = 'Skipped') as skipped_count
+         from forge_batch b"
+    )
+}
+
+/// One row per batch. The view repeats the batch's own counts on every member row, so without this the board
+/// would print the same batch once per story in it.
+pub fn dedupe_batches(rows: Vec<ForgeBatchRow>) -> Vec<ForgeBatchRow> {
+    let mut seen = std::collections::HashSet::new();
+    let mut batches = Vec::with_capacity(rows.len());
+    for row in rows {
+        if seen.insert(row.id.clone()) {
+            batches.push(row);
+        }
+    }
+    batches
+}
+
+/// A hold reason that is blank is `unknown`, never `""`. An operator reading an empty string reads "no
+/// problem", which is the opposite of a hold.
+pub fn normalize_reason(reason: Option<&str>) -> String {
+    match reason.map(str::trim) {
+        Some(text) if !text.is_empty() => text.to_string(),
+        _ => "unknown".to_string(),
+    }
+}
+
+/// The list-shaped evidence columns arrive as JSON text. A blob that is not a JSON array of strings is an
+/// empty list, not a failed read: losing a whole story's picture over one malformed column would hide
+/// exactly the story that needs looking at.
+pub fn parse_string_array(raw: Option<&str>) -> Vec<String> {
+    match raw {
+        None => Vec::new(),
+        Some(text) => serde_json::from_str::<Vec<String>>(text).unwrap_or_default(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn batch(id: &str, story_count: i64) -> ForgeBatchRow {
+        ForgeBatchRow {
+            id: id.to_string(),
+            label: None,
+            status: "Staged".to_string(),
+            scheduled_for: None,
+            fired_at: None,
+            created_at: Some("2026-09-28T00:00:00.000Z".to_string()),
+            created_by: None,
+            note: None,
+            model_policy: None,
+            story_count,
+            queued_count: 0,
+            skipped_count: 0,
+        }
+    }
+
+    #[test]
+    fn the_board_shows_each_batch_once_even_though_the_view_repeats_its_counts_per_member() {
+        let rows = vec![
+            batch("b-1", 3),
+            batch("b-1", 3),
+            batch("b-1", 3),
+            batch("b-2", 1),
+        ];
+        let batches = dedupe_batches(rows);
+        assert_eq!(batches.len(), 2);
+        assert_eq!(batches[0].id, "b-1");
+        assert_eq!(batches[0].story_count, 3);
+        assert_eq!(batches[1].id, "b-2");
+    }
+
+    #[test]
+    fn a_blank_hold_reason_reads_as_unknown_never_as_an_empty_string() {
+        assert_eq!(normalize_reason(None), "unknown");
+        assert_eq!(normalize_reason(Some("")), "unknown");
+        assert_eq!(normalize_reason(Some("   ")), "unknown");
+        assert_eq!(
+            normalize_reason(Some(" prod parity drift ")),
+            "prod parity drift"
+        );
+    }
+
+    #[test]
+    fn a_malformed_evidence_blob_is_an_empty_list_not_a_failed_read() {
+        assert!(parse_string_array(None).is_empty());
+        assert!(parse_string_array(Some("not json")).is_empty());
+        assert!(parse_string_array(Some(r#"{"not":"an array"}"#)).is_empty());
+        assert_eq!(
+            parse_string_array(Some(r#"["rust/server/src/api/engine.rs"]"#)),
+            vec!["rust/server/src/api/engine.rs".to_string()]
+        );
+    }
+
+    #[test]
+    fn every_timestamp_in_the_batch_read_is_rendered_in_utc_iso_independent_of_the_session_timezone(
+    ) {
+        let sql = batch_select();
+        let rendered = sql.matches("at time zone 'UTC'").count();
+        assert_eq!(
+            rendered, 3,
+            "scheduled_for, fired_at and created_at must all be rendered in UTC"
+        );
+        assert!(
+            sql.contains(ISO_UTC),
+            "the one ISO shape is used for all three"
+        );
+        // The read is a constant: a bound parameter here would mean a caller-supplied fragment.
+        assert!(!sql.contains('$'), "batch_select takes no parameters");
+    }
+}

@@ -21,6 +21,9 @@ mod firm;
 mod flight_recorder;
 mod forge_control;
 mod forge_engine;
+// The sanctioned Forge read path (the `forge board` / `forge story-show` / `forge batch-status` operator
+// tools). Public because the CLI is the caller and SQL belongs here, not there.
+pub mod forge_read;
 mod forms;
 mod guest;
 mod guide;
@@ -85,19 +88,24 @@ pub use forge_engine::{
     DealWorkflowFactRow, ForgeAgentWorkRow, ForgeDecisionRow, ForgeEngineDao, ForgeEvidencePatch,
     ForgeHoldRow, ProcessDefinitionRow, StoryPacketRow, WorkflowCommandReceiptRow,
 };
+pub use forge_read::{
+    ForgeBatchRow, ForgeBenchRow, ForgeQueueWorkRow, ForgeReadDao, ForgeStoryBoardRow,
+    ForgeStoryFindingRow, ForgeStoryHoldRow, ForgeStoryMigrationRow, ForgeStoryReceiptRow,
+    ForgeStoryShow, ForgeStoryStatusRow,
+};
 pub use forms::FormDao;
 pub use guest::{GuestDao, GUEST_CODE_MAX_ATTEMPTS};
 pub use guide::GuideDao;
 pub use intake::IntakeDao;
 pub use issue::IssueDao;
+pub use landing::{
+    ImessageLanding, LandingDao, LatestInteraction, LatestInteractionOutcome,
+};
 pub use marketing::MarketingDao;
 pub use media::{
     BeginMediaUpload, MediaDao, MediaDerivativeInput, MediaUploadAssembly, MediaUploadStatus,
 };
 pub use outbox::{DomainEventOutboxDao, OutboxDelivery, OutboxEventInput};
-pub use landing::{
-    ImessageLanding, LandingDao, LatestInteraction, LatestInteractionOutcome,
-};
 pub use person::PersonDao;
 pub use pool::{resolve_declared_target, Database, DbTarget};
 pub use project::{ProjectDao, ProjectTxDao};

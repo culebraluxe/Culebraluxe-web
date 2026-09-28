@@ -19,6 +19,7 @@
 pub mod citations;
 pub mod decision;
 pub mod lint;
+pub mod read_tools;
 pub mod secret_shapes;
 pub mod sync_agents;
 pub mod vendor_block;
@@ -52,6 +53,15 @@ impl Failure {
         }
     }
 
+    /// The environment cannot support the run at all — no database declared, no connection URL. The same
+    /// distinction `db-tool` draws: a clean run and an unstartable one must never look alike.
+    pub fn configuration(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            code: 2,
+        }
+    }
+
     pub fn exit_code(&self) -> u8 {
         self.code
     }
@@ -65,12 +75,15 @@ impl fmt::Display for Failure {
 
 impl std::error::Error for Failure {}
 
-pub fn dispatch(args: &[String]) -> Result<u8, Failure> {
+pub async fn dispatch(args: &[String]) -> Result<u8, Failure> {
     match args.first().map(String::as_str).unwrap_or_default() {
         "harness-lint" => lint::run(&args[1..]),
         "sync-agents" => sync_agents::run(&args[1..]),
+        // The operator reads. Async because they answer from the live control plane; the two harness gates
+        // above are pure file checks and stay synchronous.
+        "board" | "story-show" | "story:show" | "batch-status" => read_tools::run(args).await,
         other => Err(Failure::usage(format!(
-            "unknown forge command `{other}`; usage: forge <harness-lint|sync-agents> [options]"
+            "unknown forge command `{other}`; usage: forge <harness-lint|sync-agents|board|story-show|batch-status> [options]"
         ))),
     }
 }

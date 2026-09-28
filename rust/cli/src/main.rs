@@ -37,7 +37,7 @@ async fn main() -> ExitCode {
     // The harness gates speak in exit codes too (0 clean or reported-not-blocking, 1 drift, 2 usage), and
     // `pnpm forge:packet-lint` / `pnpm forge:sync-agents` read them.
     if args.first().map(String::as_str) == Some("forge") {
-        return match forge::dispatch(&args[1..]) {
+        return match forge::dispatch(&args[1..]).await {
             Ok(code) => ExitCode::from(code),
             Err(error) => {
                 eprintln!("forge: {error}");
@@ -83,6 +83,9 @@ fn print_usage() {
     eprintln!("  cargo run -p cli -- apple-sync messages-intake <export-dir> [--evidence-only] [--refresh]");
     eprintln!("  cargo run -p cli -- forge harness-lint [--strict] [--format json]");
     eprintln!("  cargo run -p cli -- forge sync-agents [--check] [--format json]");
+    eprintln!("  cargo run -p cli -- forge board [--format json]");
+    eprintln!("  cargo run -p cli -- forge story-show <story-id> [--format json]");
+    eprintln!("  cargo run -p cli -- forge batch-status [--format json]");
     eprintln!("  cargo run -p cli -- service serve");
     eprintln!("  cargo run -p cli -- service catalog");
     eprintln!("  cargo run -p cli -- service health");
