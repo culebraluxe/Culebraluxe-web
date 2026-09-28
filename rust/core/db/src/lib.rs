@@ -42,6 +42,7 @@ mod outbox;
 mod person;
 mod pool;
 mod project;
+mod publishing;
 mod property;
 mod public_listing;
 mod relationship_evidence;
