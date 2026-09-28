@@ -3825,6 +3825,8 @@ pub struct PortalDbTestClient {
 pub struct PortalAccountingPage {
     /// `/portal/accounting` — the projections over the two tables.
     pub dashboard: Option<PortalAccountingDashboard>,
+    /// `/portal/accounting` — expected OPEN commissions by strongest timing fact.
+    pub commission_forecast: Option<PortalCommissionForecast>,
     /// `/portal/accounting/expenses`.
     pub expenses: Vec<PortalAccountingExpense>,
     /// `/portal/accounting/expenses` — every posted expense by category with its share, so the screen's ring is drawn from
@@ -3836,6 +3838,30 @@ pub struct PortalAccountingPage {
     pub pnl: Option<PortalAccountingPnl>,
     /// The database's idea of today, so a new record's date field starts on the book's day rather than the browser's.
     pub today: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalCommissionForecast {
+    pub next_30_days: String,
+    pub next_60_days: String,
+    pub next_90_days: String,
+    pub undated_or_past: String,
+    pub items: Vec<PortalCommissionForecastItem>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalCommissionForecastItem {
+    pub receivable_id: String,
+    pub amount: String,
+    pub expected_on: String,
+    pub expected_on_label: String,
+    pub timing_source: String,
+    pub deal_id: Option<String>,
+    pub property_name: Option<String>,
+    pub person_name: Option<String>,
+    pub description: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
