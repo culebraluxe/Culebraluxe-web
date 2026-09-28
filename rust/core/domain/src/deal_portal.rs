@@ -81,6 +81,165 @@ pub struct CreateDealResult {
     pub id: String,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct DealHealthSignal {
+    pub code: String,
+    /// ready | watch | attention
+    pub severity: String,
+    pub label: String,
+    pub detail: String,
+    pub ready: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct DealHealth {
+    /// 0-100 derived readiness, never persisted.
+    pub score: i32,
+    /// ready | watch | attention | closed
+    pub band: String,
+    pub ready_count: i32,
+    pub total_count: i32,
+    pub signals: Vec<DealHealthSignal>,
+}
+
+pub fn derive_deal_health(
+    stage: &str,
+    closing_date_label: Option<&str>,
+    open_tasks: &[DealWorkspaceTask],
+    offers: &[DealWorkspaceOffer],
+    contracts: &[DealContractPortfolioItem],
+) -> DealHealth {
+    if stage == "closed" {
+        return DealHealth {
+            score: 100,
+            band: "closed".into(),
+            ready_count: 1,
+            total_count: 1,
+            signals: vec![DealHealthSignal {
+                code: "closed".into(),
+                severity: "ready".into(),
+                label: "Transaction closed".into(),
+                detail: "This deal is already closed.".into(),
+                ready: true,
+            }],
+        };
+    }
+
+    let mut score = 100i32;
+    let mut signals = Vec::new();
+
+    let overdue = open_tasks.iter().filter(|task| task.is_overdue).count();
+    if overdue == 0 {
+        signals.push(DealHealthSignal {
+            code: "tasks_current".into(),
+            severity: "ready".into(),
+            label: "Open work is current".into(),
+            detail: "No overdue deal tasks.".into(),
+            ready: true,
+        });
+    } else {
+        score -= (overdue as i32 * 10).min(30);
+        signals.push(DealHealthSignal {
+            code: "overdue_tasks".into(),
+            severity: "attention".into(),
+            label: format!("{overdue} overdue task{}", if overdue == 1 { "" } else { "s" }),
+            detail: "Resolve overdue deal work before it becomes a closing blocker.".into(),
+            ready: false,
+        });
+    }
+
+    if stage == "under_contract" {
+        if closing_date_label.is_some() {
+            signals.push(DealHealthSignal {
+                code: "closing_date".into(),
+                severity: "ready".into(),
+                label: "Closing date recorded".into(),
+                detail: closing_date_label.unwrap_or_default().to_owned(),
+                ready: true,
+            });
+        } else {
+            score -= 20;
+            signals.push(DealHealthSignal {
+                code: "closing_date_missing".into(),
+                severity: "attention".into(),
+                label: "Closing date missing".into(),
+                detail: "This deal is under contract without a recorded closing date.".into(),
+                ready: false,
+            });
+        }
+
+        let executed = contracts.iter().any(|contract| {
+            contract.executed_at.is_some()
+                || matches!(contract.status.as_str(), "executed" | "completed" | "signed")
+        });
+        if executed {
+            signals.push(DealHealthSignal {
+                code: "executed_contract".into(),
+                severity: "ready".into(),
+                label: "Executed contract present".into(),
+                detail: "The workspace has an executed/signed contract artifact.".into(),
+                ready: true,
+            });
+        } else {
+            score -= 25;
+            signals.push(DealHealthSignal {
+                code: "executed_contract_missing".into(),
+                severity: "attention".into(),
+                label: "Executed contract not confirmed".into(),
+                detail: "No executed or signed contract artifact is visible for this under-contract deal.".into(),
+                ready: false,
+            });
+        }
+    } else {
+        signals.push(DealHealthSignal {
+            code: "pre_contract_stage".into(),
+            severity: "ready".into(),
+            label: "Pre-closing stage".into(),
+            detail: "Closing-date and executed-contract checks begin when the deal reaches Under Contract.".into(),
+            ready: true,
+        });
+    }
+
+    let submitted_offers = offers.iter().filter(|offer| offer.status == "submitted").count();
+    if submitted_offers > 0 {
+        score -= 10;
+        signals.push(DealHealthSignal {
+            code: "offers_awaiting_response".into(),
+            severity: "watch".into(),
+            label: format!("{submitted_offers} offer{} awaiting response", if submitted_offers == 1 { "" } else { "s" }),
+            detail: "A submitted offer still needs a recorded response.".into(),
+            ready: false,
+        });
+    } else {
+        signals.push(DealHealthSignal {
+            code: "offer_queue_clear".into(),
+            severity: "ready".into(),
+            label: "Offer queue clear".into(),
+            detail: "No submitted offer is waiting for a recorded response.".into(),
+            ready: true,
+        });
+    }
+
+    score = score.clamp(0, 100);
+    let band = if score >= 85 {
+        "ready"
+    } else if score >= 65 {
+        "watch"
+    } else {
+        "attention"
+    };
+    let ready_count = signals.iter().filter(|signal| signal.ready).count() as i32;
+    DealHealth {
+        score,
+        band: band.into(),
+        ready_count,
+        total_count: signals.len() as i32,
+        signals,
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct DealWorkspaceSnapshot {
@@ -94,6 +253,7 @@ pub struct DealWorkspaceSnapshot {
     pub showings: Vec<DealWorkspaceShowing>,
     pub contracts: Vec<DealContractPortfolioItem>,
     pub owner_candidates: Vec<DealOwnerCandidate>,
+    pub health: DealHealth,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -263,4 +423,56 @@ pub enum DealWorkspaceCommand {
 #[serde(rename_all = "camelCase", default)]
 pub struct DealWorkspaceCommandResult {
     pub id: String,
+}
+
+#[cfg(test)]
+mod health_tests {
+    use super::*;
+
+    fn task(overdue: bool) -> DealWorkspaceTask {
+        DealWorkspaceTask {
+            id: "t1".into(),
+            title: "Follow up".into(),
+            is_overdue: overdue,
+            ..DealWorkspaceTask::default()
+        }
+    }
+
+    #[test]
+    fn under_contract_health_explains_missing_closing_proof() {
+        let health = derive_deal_health("under_contract", None, &[task(true)], &[], &[]);
+        assert_eq!(health.score, 45);
+        assert_eq!(health.band, "attention");
+        assert!(health.signals.iter().any(|signal| signal.code == "closing_date_missing"));
+        assert!(health.signals.iter().any(|signal| signal.code == "executed_contract_missing"));
+    }
+
+    #[test]
+    fn a_ready_under_contract_deal_stays_high_without_hiding_open_offer_risk() {
+        let contract = DealContractPortfolioItem {
+            status: "signed".into(),
+            ..DealContractPortfolioItem::default()
+        };
+        let offer = DealWorkspaceOffer {
+            status: "submitted".into(),
+            ..DealWorkspaceOffer::default()
+        };
+        let health = derive_deal_health(
+            "under_contract",
+            Some("Oct 14, 2026"),
+            &[],
+            &[offer],
+            &[contract],
+        );
+        assert_eq!(health.score, 90);
+        assert_eq!(health.band, "ready");
+        assert!(health.signals.iter().any(|signal| signal.code == "offers_awaiting_response"));
+    }
+
+    #[test]
+    fn closed_is_terminal_and_ready() {
+        let health = derive_deal_health("closed", None, &[task(true)], &[], &[]);
+        assert_eq!((health.score, health.band.as_str()), (100, "closed"));
+        assert_eq!(health.signals.len(), 1);
+    }
 }
