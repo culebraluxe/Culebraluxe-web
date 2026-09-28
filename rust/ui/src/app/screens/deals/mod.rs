@@ -413,10 +413,20 @@ fn update(model: &mut Model, msg: Msg, ctx: &ScreenCtx) -> Cmd<Msg> {
                 model.error = Some("Offer amount is required.".into());
                 return Cmd::none();
             };
-            let Some(person_id) = workspace(model)
+            // READ THE TERMS WHILE `ws` IS BORROWED, THEN LET IT GO. `command` takes `&mut model` whole, so a live
+            // `&mut model.deal_workspace` at the call site is a borrow error (E0502/E0499); the locals below own
+            // their strings and end the borrow before it.
+            let financing_type = ws.offer_financing.get(&key).and_then(|value| trimmed(value));
+            let deposit_amount = ws.offer_deposits.get(&key).and_then(|value| trimmed(value));
+            let inspection_days = ws.offer_inspection_days.get(&key).and_then(|value| trimmed(value));
+            let seller_credits = ws.offer_seller_credits.get(&key).and_then(|value| trimmed(value));
+            let proposed_closing_date = ws.offer_closing_dates.get(&key).and_then(|value| trimmed(value));
+            let contingencies = ws.offer_contingencies.get(&key).and_then(|value| trimmed(value));
+            let expires_at = ws.offer_expirations.get(&key).and_then(|value| trimmed(value));
+            let client_id = workspace(model)
                 .and_then(|workspace| workspace.client.as_ref())
-                .map(|client| client.id.clone())
-            else {
+                .map(|client| client.id.clone());
+            let Some(person_id) = client_id else {
                 model.error = Some("This deal does not have an active client.".into());
                 return Cmd::none();
             };
@@ -428,13 +438,13 @@ fn update(model: &mut Model, msg: Msg, ctx: &ScreenCtx) -> Cmd<Msg> {
                     person_id,
                     amount,
                     parent_offer_id,
-                    financing_type: ws.offer_financing.get(&key).and_then(|value| trimmed(value)),
-                    deposit_amount: ws.offer_deposits.get(&key).and_then(|value| trimmed(value)),
-                    inspection_days: ws.offer_inspection_days.get(&key).and_then(|value| trimmed(value)),
-                    seller_credits: ws.offer_seller_credits.get(&key).and_then(|value| trimmed(value)),
-                    proposed_closing_date: ws.offer_closing_dates.get(&key).and_then(|value| trimmed(value)),
-                    contingencies: ws.offer_contingencies.get(&key).and_then(|value| trimmed(value)),
-                    expires_at: ws.offer_expirations.get(&key).and_then(|value| trimmed(value)),
+                    financing_type,
+                    deposit_amount,
+                    inspection_days,
+                    seller_credits,
+                    proposed_closing_date,
+                    contingencies,
+                    expires_at,
                 },
             );
         }

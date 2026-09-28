@@ -2507,6 +2507,18 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 model.error = Some("This deal does not have an active client.".into());
                 return Vec::new();
             };
+            // The structured terms travel with the offer. They are read here, from the same draft the form writes,
+            // because this reducer and the Contracts screen's own `update` both answer this message.
+            let term = |value: Option<&String>| -> Option<String> {
+                value.map(|value| value.trim().to_string()).filter(|value| !value.is_empty())
+            };
+            let financing_type = term(model.deal_workspace.offer_financing.get(&key));
+            let deposit_amount = term(model.deal_workspace.offer_deposits.get(&key));
+            let inspection_days = term(model.deal_workspace.offer_inspection_days.get(&key));
+            let seller_credits = term(model.deal_workspace.offer_seller_credits.get(&key));
+            let proposed_closing_date = term(model.deal_workspace.offer_closing_dates.get(&key));
+            let contingencies = term(model.deal_workspace.offer_contingencies.get(&key));
+            let expires_at = term(model.deal_workspace.offer_expirations.get(&key));
             deal_workspace_command(
                 model,
                 format!("offer:submit:{key}"),
@@ -2514,6 +2526,13 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                     person_id,
                     amount,
                     parent_offer_id,
+                    financing_type,
+                    deposit_amount,
+                    inspection_days,
+                    seller_credits,
+                    proposed_closing_date,
+                    contingencies,
+                    expires_at,
                 },
             )
         }

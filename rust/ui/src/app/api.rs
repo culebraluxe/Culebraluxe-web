@@ -679,7 +679,7 @@ pub struct PublishingRead;
 
 impl Endpoint for PublishingRead {
     const METHOD: Method = Method::Get;
-    type Response = PortalPage;
+    type Response = crate::model::PortalPage;
     fn path(&self) -> String {
         "/api/portal/rust-ui/publishing".into()
     }
@@ -690,7 +690,7 @@ pub struct CatchUpRead;
 
 impl Endpoint for CatchUpRead {
     const METHOD: Method = Method::Get;
-    type Response = PortalPage;
+    type Response = crate::model::PortalPage;
     fn path(&self) -> String {
         "/api/portal/rust-ui/catch-up".into()
     }
@@ -721,7 +721,7 @@ impl CatchUpAction {
 
 impl Endpoint for CatchUpAction {
     const METHOD: Method = Method::Post;
-    type Response = PortalPage;
+    type Response = crate::model::PortalPage;
     fn path(&self) -> String {
         "/api/portal/rust-ui/catch-up".into()
     }

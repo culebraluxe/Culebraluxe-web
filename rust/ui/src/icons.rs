@@ -142,9 +142,6 @@ pub fn icon(name: &str, class: &str, stroke_width: &str) -> Option<String> {
         "git-branch" => {
             "<path d=\"M15 6a9 9 0 0 0-9 9V3\"></path><circle cx=\"18\" cy=\"6\" r=\"3\"></circle><circle cx=\"6\" cy=\"18\" r=\"3\"></circle>"
         }
-        "check-circle-2" => {
-            "<circle cx=\"12\" cy=\"12\" r=\"10\"></circle><path d=\"m9 12 2 2 4-4\"></path>"
-        }
         "chevron-down" => {
             "<path d=\"m6 9 6 6 6-6\"></path>"
         }
