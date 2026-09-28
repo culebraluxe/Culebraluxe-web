@@ -1,5 +1,9 @@
 # TECH DEBT
 
+Work the captain explicitly paused or that must be circled back on lives in `docs/agent/OPEN-QA-LIST.md`
+(created 2026-09-28) — that is the list he asked for, and it is the first place to look for "what is
+finished but not yet proven". This file stays what it was: known-wrong things.
+
 What we know is not right, recorded so it is not lost and not re-discovered. Three rules:
 
 1. **Blocking debt is at the top and gets fixed before ship.** Everything below it waits its turn.
