@@ -8,6 +8,7 @@ pub mod agreement_execution;
 pub mod api;
 pub mod calendar;
 pub mod clients;
+pub mod client_room;
 pub mod cockpit;
 pub mod catch_up;
 pub mod command_runtime;
