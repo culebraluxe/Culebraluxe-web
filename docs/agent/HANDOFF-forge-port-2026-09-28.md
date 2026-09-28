@@ -61,6 +61,10 @@ the doctor, and the writer. What is left is below with the exact files to open.
 
 | `e6879e60` | **the build can no longer break like glass**: `pnpm ui:check`; the pre-push build guard (wasm check for `rust/ui`, workspace check for any other crate, `CULEBRALUXE_SKIP_BUILD_CHECK=1` to skip — and to say so); the rule in AGENTS.md "Build and QA" and in MEMORY; three stale doc claims corrected (the Forge gates **do** run — `rust/cli/src/forge/`; DEAD-COMMANDS' `mailbox:promote` row contradicted its own findings page; Gmail is KEEP on the Captain's word) | the hook refused a push carrying an `E0308` in a wasm-gated file; passed on a docs-only range (exit 0, no compile) and on a fresh push; a non-main branch is still refused; `pnpm forge:packet-lint` 0 failures / 132 warnings (126 baselined); `pnpm broken:ts:sweep` → "the tree and the inventory agree"; pushed — `git log origin/main` shows it |
 
+Mechanical note for the next agent: the guard edits were briefly lost to a `git add -A` inside a throwaway test
+commit (the one that carried the deliberate `shell.rs` break) and recovered with `git checkout <sha> -- <paths>`.
+The bytes on `origin/main` are the ones the S12 proof above ran against. Nothing was run against PROD this session.
+
 ## 5. NOT VERIFIED — the honest gaps
 
 
