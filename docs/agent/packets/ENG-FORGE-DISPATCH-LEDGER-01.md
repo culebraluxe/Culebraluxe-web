@@ -46,7 +46,7 @@ A formula cannot be fitted against numbers nobody wrote down. This story starts 
 
 ## Evidence (2026-09-13)
 
-- `legacy/db/migrations/175_forge_dispatch_score.sql` (applied and verified DEV + PROD) ·
+- `db/migrations/175_forge_dispatch_score.sql` (applied and verified DEV + PROD) ·
   `legacy/db/forge-dispatch-score.ts` · `legacy/workflow_app/forge/forge-difficulty-scorer.ts` (logit in
   the protocol) · `forge-plan-difficulty.ts` (scorePlanDetailed + measured provenance) ·
   `agent-runtime-role-runner.ts` (both writes) · `legacy/workflow_app/tests/forge-dispatch-ledger.test.ts`

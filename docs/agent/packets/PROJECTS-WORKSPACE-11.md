@@ -41,7 +41,7 @@ back to global activity.
   and no command currently emits a `DomainEvent`." Therefore Activity's domain/WBS events MUST
   be *derived* from canonical facts, not read from an event log.
 - **The canonical immutable timeline is `interaction`.** `interaction.event_type` defaults to
-  `channel` (`legacy/db/migrations/005_crm_interaction_task_foundation.sql:8-37`); the checked channel
+  `channel` (`db/migrations/005_crm_interaction_task_foundation.sql:8-37`); the checked channel
   set is `website|email|call|imessage|sms|calendar|meeting|showing|document|manual|note`.
   Communications and operational/relationship events share one table, distinguished by
   `channel`.
@@ -65,11 +65,11 @@ back to global activity.
   pagination, and falls to the generic `ProjectionState` (`:505`, `:588-613`, `:596` computes
   status only for documents/activity).
 - **WBS facts carry canonical temporal fields.** `wbs_item.created_at` / `due_at` /
-  `updated_at` exist and are selected (`legacy/db/migrations/124_wbs_project_item.sql:26-27`,
+  `updated_at` exist and are selected (`db/migrations/124_wbs_project_item.sql:26-27`,
   `legacy/db/wbs-service-repository.ts:76-95`); `WbsItem.createdAt/dueAt/updatedAt` are typed
   (`legacy/services/wbs/types.ts:19-24`). There is **no** `completed_at`.
 - **Project lifecycle facts exist end-to-end.** `project.created_at/starts_at/ends_at`
-  (`legacy/db/migrations/125_project.sql`), selected by `SqlProjectRepository` and normalized to ISO
+  (`db/migrations/125_project.sql`), selected by `SqlProjectRepository` and normalized to ISO
   (`legacy/db/project-service-repository.ts:59-62,78`); `Project.createdAt/startsAt/endsAt`
   (`legacy/services/project/types.ts:22-24`).
 - **A pagination precedent exists** (`page`/`pageSize`/`total`, clamped): `legacy/db/catch-up.ts:66-135`,

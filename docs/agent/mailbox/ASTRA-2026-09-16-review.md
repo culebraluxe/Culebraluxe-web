@@ -15,7 +15,7 @@ The architecture deserves credit: explicit role ownership, durable field contrac
 
 ### 1. P1 — valid findings cannot pass the CLI's hint write boundary
 
-Evidence: `scripts/forge-handoff.mjs:303-306`, `scripts/forge-handoff.mjs:335-349`; constraint: `legacy/db/migrations/172_forge_role_finding.sql:54-56`.
+Evidence: `scripts/forge-handoff.mjs:303-306`, `scripts/forge-handoff.mjs:335-349`; constraint: `db/migrations/172_forge_role_finding.sql:54-56`.
 
 `closedOptional` returns an object: `{ value, given }`. The finding branch validates that object correctly, then binds **the object itself** as SQL parameter 10. It must bind `hint.value`.
 

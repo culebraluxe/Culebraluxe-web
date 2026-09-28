@@ -126,7 +126,7 @@ Exits non-zero on drift. Treat it as a release gate for any schema story.
 2. **Identify the owning migration files** for each DEV-only object — promote the
    *canonical migration files*, never hand-written DDL:
    ```sh
-   pnpm db:migrate legacy/db/migrations/<file>.sql prod
+   pnpm db:migrate db/migrations/<file>.sql prod
    ```
    (`pnpm db:migrate` runs `cargo run -p cli -- db-tool apply`.)
    Apply in **numeric order**; dependencies are real (e.g. `117` creates
@@ -183,7 +183,7 @@ what was *run*. Both are release gates.
   (`forge_engine_task_execution`, `forge_workflow_evidence`, `forge_hold_record`,
   `forge_tool_artifact`, `work_estimate`).
 - **Export DEV-only work to a committed seed before any wide data change.**
-  The Projects workspace lives in `legacy/db/seeds/dev-projects-workspace.sql`
+  The Projects workspace lives in `db/seeds/dev-projects-workspace.sql`
   (`pnpm db:export:projects` to regenerate, `pnpm db:seed:projects` to reload).
 - **Never** reset PROD, copy DEV over PROD, or truncate canonical history.
   DEV data may be rebuilt freely; PROD data may not.

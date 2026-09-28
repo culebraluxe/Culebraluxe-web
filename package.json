@@ -146,7 +146,7 @@
     "verify:mapper": "node --env-file=.env.local --import tsx scripts/verify-contract-mapper.ts",
     "db:pull:dev": "node --import tsx --env-file=.env.local scripts/pull-prod-to-dev.mjs",
     "db:export:projects": "node --import tsx --env-file=.env.local scripts/export-dev-projects-workspace.mjs",
-    "db:seed:projects": "cargo run --manifest-path rust/Cargo.toml -p cli -- db-tool apply legacy/db/seeds/dev-projects-workspace.sql dev",
+    "db:seed:projects": "cargo run --manifest-path rust/Cargo.toml -p cli -- db-tool apply db/seeds/dev-projects-workspace.sql dev",
     "whatsapp:coexistence:test": "node --import tsx --test scripts/whatsapp-coexistence-completion.test.ts"
   },
   "dependencies": {

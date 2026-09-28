@@ -68,17 +68,17 @@ The prior contract's failure-isolation, selection, purity, and no-fixture invari
   (`ui/projects/secondary-projection.ts:13-18`) keeps valid `dueAt`, stable order;
   `testv2/projects-secondary-projection.test.ts` asserts it. Keep its shape.
 - **WBS due dates are the commitments.** `WbsItem.dueAt` (`legacy/services/wbs/types.ts:19`);
-  `wbs_item.due_at timestamptz` (`legacy/db/migrations/124_wbs_project_item.sql`).
+  `wbs_item.due_at timestamptz` (`db/migrations/124_wbs_project_item.sql`).
 - **Project lifecycle dates exist end-to-end.** `Project.startsAt/endsAt`
   (`legacy/services/project/types.ts:22-23`); selected by `SqlProjectRepository`
   (`legacy/db/project-service-repository.ts:59-60,78`); `project.starts_at/ends_at timestamptz`
-  (`legacy/db/migrations/125_project.sql:11-12`).
+  (`db/migrations/125_project.sql:11-12`).
 - **Appointments are canonical interactions on channel `calendar`.** `adaptCalendarEvent`
   emits `channel:'calendar'`, `eventType:'appointment'`
   (`lib/crm-calendar-normalization.ts:250-260`); `getActivityFeed` reads `interaction` and
   preserves `channel` (`legacy/db/activity-feed.ts:70-105`). `calendar_intake_receipt.interaction_id`
-  (`legacy/db/migrations/040_calendar_intake_receipt.sql:53`) is the provenance link;
-  `google_calendar_token_store` (`legacy/db/migrations/041…`) is provider-side and is NOT read.
+  (`db/migrations/040_calendar_intake_receipt.sql:53`) is the provenance link;
+  `google_calendar_token_store` (`db/migrations/041…`) is provider-side and is NOT read.
 - **The anchor join already exists.** `effectivePropertyIds`/`effectivePersonIds` id
   intersection (`ui/projects/service-projection.ts:241-267`); `planActivity` is already
   project-scoped by stable id (never by display name).

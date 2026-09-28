@@ -102,8 +102,8 @@ the node side never holds source credentials.
 - `lib/mac-observer/contracts.ts`, `adapters/{contacts,calendar,mail,messages,whatsapp}-adapter.ts`, `fake-observer.ts`, `index.ts`
 - `lib/integration-inbox/contracts.ts`, `mapper.ts`, `processor.ts`, `wiring.ts`
 - `lib/commands/interaction/record-interaction.ts` (+ `command-types.ts`, `register.ts`)
-- `legacy/db/migrations/044_integration_inbox.sql`, `legacy/db/integration-inbox.ts`
-- `legacy/db/migrations/045_storyboard_crm23.sql`
+- `db/migrations/044_integration_inbox.sql`, `legacy/db/integration-inbox.ts`
+- `db/migrations/045_storyboard_crm23.sql`
 - `legacy/workflow_app/tests/mac-observer-inbox.test.ts`
 
 ## Verification

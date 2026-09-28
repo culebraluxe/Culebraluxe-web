@@ -48,7 +48,7 @@ Totals: 135 columns — 132 WRITTEN, 1 DEAD-DROP, 2 DEAD-KEEP.
 | `priority` | WRITTEN | legacy/db/storyboard.ts |
 | `rollup` | WRITTEN | legacy/db/storyboard.ts |
 | `scope` | WRITTEN | legacy/db/storyboard.ts |
-| `sprint_id` | WRITTEN | legacy/db/migrations/187_sprint_parent.sql, legacy/db/sprint.ts |
+| `sprint_id` | WRITTEN | db/migrations/187_sprint_parent.sql, legacy/db/sprint.ts |
 | `status` | WRITTEN | legacy/db/storyboard.ts |
 | `test_mode` | WRITTEN | legacy/db/storyboard.ts |
 | `title` | WRITTEN | legacy/db/storyboard.ts |

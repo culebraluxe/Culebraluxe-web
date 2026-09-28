@@ -17,7 +17,7 @@ Work happens on `main` directly (owner's instruction: no side branches). Other s
 
 ## To make lead email live (owner actions)
 
-1. `pnpm db:migrate` on PRODUCTION for `legacy/db/migrations/217_website_intake_notified_at.sql` (applied on the dev branch already). Prod actions are the owner's call.
+1. `pnpm db:migrate` on PRODUCTION for `db/migrations/217_website_intake_notified_at.sql` (applied on the dev branch already). Prod actions are the owner's call.
 2. Vercel env for BOTH the website and the Rust API: `ICLOUD_MAIL_ADDRESS=lisa@culebraluxe.com`, `ICLOUD_MAIL_USERNAME=lisa@culebraluxe.com`, `ICLOUD_SMTP_APP_PASSWORD=<app-specific password>`. Optional: `LEAD_NOTIFY_ADDRESS`, `PUBLIC_SITE_URL`.
 3. Redeploy website + Rust API (the tagline read also needs the Rust API redeployed).
 4. Run `pnpm mail:preview culebraluxe@gmail.com` once to see both emails.

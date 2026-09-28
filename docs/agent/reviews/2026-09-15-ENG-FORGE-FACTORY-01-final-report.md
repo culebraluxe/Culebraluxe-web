@@ -23,10 +23,10 @@ produced each answer.
 
 ## Files
 
-Phase 1 `legacy/db/migrations/179_forge_kind_policy.sql`, `lib/forge-kind.ts`, `scripts/set-story-status.ts`,
-`legacy/workflow_app/tests/forge-kind-routing.test.ts`. Phase 2 `legacy/db/migrations/180_forge_decision.sql`,
+Phase 1 `db/migrations/179_forge_kind_policy.sql`, `lib/forge-kind.ts`, `scripts/set-story-status.ts`,
+`legacy/workflow_app/tests/forge-kind-routing.test.ts`. Phase 2 `db/migrations/180_forge_decision.sql`,
 `lib/forge-decision.ts`, `legacy/db/forge-decision.ts`, `scripts/forge-decision.ts`,
-`legacy/workflow_app/tests/forge-decision.test.ts`. Phase 3 `legacy/db/migrations/181_forge_learn_pattern.sql`,
+`legacy/workflow_app/tests/forge-decision.test.ts`. Phase 3 `db/migrations/181_forge_learn_pattern.sql`,
 `lib/forge-learn.ts`, `legacy/db/forge-learn.ts`, `agent-runtime/learn-loop.ts`, `scripts/forge-learn.ts`,
 `scripts/probe-learn-dedupe.ts`, `legacy/workflow_app/tests/forge-learn.test.ts`, plus `lib/artifact-file.ts`.
 Phase 4 `lib/forge-roi.ts`, `legacy/db/forge-roi.ts`, `scripts/forge-roi.ts`,
@@ -38,12 +38,12 @@ Phase 4 `lib/forge-roi.ts`, `legacy/db/forge-roi.ts`, `scripts/forge-roi.ts`,
 All three migrations are recorded in **both** environments — this is the ledger, not an assertion:
 
 ```
-Tue Sep 15  prod  legacy/db/migrations/181_forge_learn_pattern.sql  — ENG-FORGE-FACTORY-01 Phase 3: learn_pattern_key + the open-pattern unique index
-Tue Sep 15  dev   legacy/db/migrations/181_forge_learn_pattern.sql  — ...
-Tue Sep 15  prod  legacy/db/migrations/180_forge_decision.sql       — ENG-FORGE-FACTORY-01 Phase 2: forge_decision table + the seven seeded factory invariants
-Tue Sep 15  dev   legacy/db/migrations/180_forge_decision.sql       — ...
-Tue Sep 15  prod  legacy/db/migrations/179_forge_kind_policy.sql    — ENG-FORGE-FACTORY-01 Phase 1: kind + model_policy columns (batch, batch item, work item)
-Tue Sep 15  dev   legacy/db/migrations/179_forge_kind_policy.sql    — ...
+Tue Sep 15  prod  db/migrations/181_forge_learn_pattern.sql  — ENG-FORGE-FACTORY-01 Phase 3: learn_pattern_key + the open-pattern unique index
+Tue Sep 15  dev   db/migrations/181_forge_learn_pattern.sql  — ...
+Tue Sep 15  prod  db/migrations/180_forge_decision.sql       — ENG-FORGE-FACTORY-01 Phase 2: forge_decision table + the seven seeded factory invariants
+Tue Sep 15  dev   db/migrations/180_forge_decision.sql       — ...
+Tue Sep 15  prod  db/migrations/179_forge_kind_policy.sql    — ENG-FORGE-FACTORY-01 Phase 1: kind + model_policy columns (batch, batch item, work item)
+Tue Sep 15  dev   db/migrations/179_forge_kind_policy.sql    — ...
 ```
 
 `pnpm db:migrations` → prod recorded 49, dev recorded 15. `pnpm db:parity` green.

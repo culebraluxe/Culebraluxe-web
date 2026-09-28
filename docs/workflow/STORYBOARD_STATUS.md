@@ -64,7 +64,7 @@
 
 - **Status:** `PASS`
 - **Files changed:** commit `ff6b371` ("Add CRM interaction and task
-  foundation"); `legacy/db/migrations/005_crm_interaction_task_foundation.sql` and the
+  foundation"); `db/migrations/005_crm_interaction_task_foundation.sql` and the
   interaction/task repositories.
 - **Tests/checks run:** CRM-01 fixture suite
   (`scripts/verify-crm-foundation.mjs`), zero Neon access (RUNLOG).
@@ -109,7 +109,7 @@
 - **Files changed:** commit `d5ad6fc` ("Add website CRM intake pipeline");
   `app/actions/website-intake.ts`, `app/contact/page.tsx`,
   `components/contact.tsx`, `components/property/property-actions.tsx`,
-  `legacy/db/migrations/006_website_intake_submission.sql`, `legacy/db/website-intake.ts`,
+  `db/migrations/006_website_intake_submission.sql`, `legacy/db/website-intake.ts`,
   `lib/website-intake.ts`, `lib/website-intake-types.ts`,
   `scripts/verify-website-intake.mjs`.
 - **Tests/checks run:** CRM-04 fixture suite
@@ -223,8 +223,8 @@
 ### S-010 — V1 DB Unblock M-1: WhatsApp Interaction Channel (migration 010)
 
 - **Status:** `PASS` (migration recorded and committed)
-- **Files changed:** `legacy/db/migrations/010_whatsapp_channel.sql`;
-  `legacy/db/manual/2026-08-20_v1_database_unblock.sql` (commit `61316de`,
+- **Files changed:** `db/migrations/010_whatsapp_channel.sql`;
+  `db/manual/2026-08-20_v1_database_unblock.sql` (commit `61316de`,
   "Add V1 CRM database unblock tranche").
 - **Tests/checks run:** migration review per `docs/agent/CURRENT.md` M-1 notes.
 - **Database mutations:** migration 010 recorded/committed. Neon execution is
@@ -237,7 +237,7 @@
 ### S-011 — V1 DB Unblock M-2: General Enquiry Website Intake (migration 011)
 
 - **Status:** `PASS` (migration recorded and committed)
-- **Files changed:** `legacy/db/migrations/011_website_intake_general_enquiry.sql`
+- **Files changed:** `db/migrations/011_website_intake_general_enquiry.sql`
   (commit `61316de`).
 - **Tests/checks run:** migration review per CURRENT.md M-2 notes.
 - **Database mutations:** migration 011 recorded/committed. Neon execution is
@@ -251,7 +251,7 @@
 ### S-012 — V1 DB Unblock M-3: Deal Participants (migration 012)
 
 - **Status:** `PASS` (migration recorded and committed)
-- **Files changed:** `legacy/db/migrations/012_deal_participant.sql` (commit
+- **Files changed:** `db/migrations/012_deal_participant.sql` (commit
   `61316de`).
 - **Tests/checks run:** migration review per CURRENT.md M-3 notes.
 - **Database mutations:** migration 012 recorded/committed; backfill from
@@ -266,7 +266,7 @@
 ### S-013 — V1 DB Unblock M-4: Showing Lifecycle (migration 013)
 
 - **Status:** `PASS` (migration recorded and committed; documented only)
-- **Files changed:** `legacy/db/migrations/013_showing.sql` (commit `61316de`).
+- **Files changed:** `db/migrations/013_showing.sql` (commit `61316de`).
 - **Tests/checks run:** migration review per CURRENT.md M-4 notes.
 - **Database mutations:** migration 013 recorded/committed. Neon execution is
   an operational fact not verifiable from repository docs.
@@ -280,7 +280,7 @@
 ### S-014 — V1 DB Unblock M-5: Offer Model (migration 014)
 
 - **Status:** `PASS` (migration recorded and committed)
-- **Files changed:** `legacy/db/migrations/014_offer.sql` (commit `61316de`).
+- **Files changed:** `db/migrations/014_offer.sql` (commit `61316de`).
 - **Tests/checks run:** migration review per CURRENT.md M-5 notes.
 - **Database mutations:** migration 014 recorded/committed. Neon execution is
   an operational fact not verifiable from repository docs.
@@ -294,9 +294,9 @@
 
 - **Status:** `PASS` (schema foundation + docs; **runtime enforcement not yet
   active**)
-- **Files changed:** `legacy/db/migrations/015_auth_security_model.sql`,
+- **Files changed:** `db/migrations/015_auth_security_model.sql`,
   `016_auth_identity.sql`, `017_security_audit_event.sql`; manual bootstrap SQL
-  in `legacy/db/manual/` (`v2`, `v2a`, `v3`, `v6`); `docs/auth-security-model.md`,
+  in `db/manual/` (`v2`, `v2a`, `v3`, `v6`); `docs/auth-security-model.md`,
   `auth-command-map.md`, `authjs-adapter.md`, `auth-test-matrix.md`,
   `auth-bootstrap-order.md`; `lib/auth/break-glass-secret.ts`;
   `scripts/generate-break-glass-hash.mjs`, `scripts/verify-break-glass-secret.mjs`;
@@ -383,7 +383,7 @@
 - **Files changed:** commit `2b83f53` ("Build CRM-14 transaction workflow
   foundation"); `legacy/db/workflow-command-receipt.ts`, `legacy/db/deal-stage.ts`,
   `legacy/db/offer-acceptance.ts`, `legacy/db/deal-closing-date.ts`, `legacy/db/deal-financing.ts`,
-  `legacy/db/tx.ts`; `legacy/db/migrations/018_workflow_command_receipt.sql`,
+  `legacy/db/tx.ts`; `db/migrations/018_workflow_command_receipt.sql`,
   `019_workflow_task_correlation.sql`, `020_deal_financing_type.sql`;
   `legacy/workflow_app/command-router.ts`, `engine-bridge.ts`, `application-port.ts`,
   `facts.ts`, `responsibility.ts`, `financing.ts`, `correlation.ts`,
@@ -392,7 +392,7 @@
   `deal-closing-date.test.ts`, `financing.test.ts`, `uniqueness.test.ts`;
   in-memory fakes, no DB required.
 - **Database mutations:** migrations 018–020 recorded/committed; manual bundles
-  `legacy/db/manual/2026-08-20_v4_crm14_workflow_activation.sql` (activation) and
+  `db/manual/2026-08-20_v4_crm14_workflow_activation.sql` (activation) and
   `v5_crm14_verify_readonly.sql` (read-only verification) recorded. Neon
   execution is an operational fact not verifiable from repository docs.
 - **Defects found:** none recorded at foundation stage; later hardening
@@ -409,7 +409,7 @@
   `legacy/workflow_app/xml/mini-xml.ts`, `xml-parser.ts`, `graph-validator.ts`;
   `legacy/workflow_app/definitions/RE_supermodel-v1.xml`, `re-supermodel.ts`,
   `version-policy.ts`; `legacy/workflow_app/scripts/deploy-process-definition.ts`;
-  `legacy/db/manual/2026-08-20_v4_crm14_workflow_activation.sql`,
+  `db/manual/2026-08-20_v4_crm14_workflow_activation.sql`,
   `v5_crm14_verify_readonly.sql`; `docs/workflow-xml-model.md`.
 - **Tests/checks run:** `legacy/workflow_app/tests/mini-xml.test.ts` (13),
   `xml-parser.test.ts` (15), `graph-validator.test.ts` (25),
@@ -449,7 +449,7 @@
 - **Files changed:** commit `df72e80` ("Add workflow task completion seam");
   `legacy/workflow_app/task-completion.ts` (`completeWorkflowTaskCore` + deps),
   `task-materialization.ts`, `task-reconciliation.ts`;
-  `legacy/db/migrations/019_workflow_task_correlation.sql`;
+  `db/migrations/019_workflow_task_correlation.sql`;
   `legacy/workflow_app/tests/task-completion.test.ts`, `materialization.test.ts`.
 - **Tests/checks run:** `legacy/workflow_app/tests/task-completion.test.ts` (3),
   `materialization.test.ts` (3); live checks `materializedTasks: 0` on
@@ -484,7 +484,7 @@
   commit `7eb8690` ("test: add assertion that pending receipt outcome is
   conflict"); `legacy/db/workflow-command-receipt.ts` (`claimReceipt`,
   `finalizeReceipt`, `readFinalReceipt`, `replayOutcome`);
-  `legacy/db/migrations/018_workflow_command_receipt.sql`;
+  `db/migrations/018_workflow_command_receipt.sql`;
   `legacy/workflow_app/tests/command-receipt.test.ts`.
 - **Tests/checks run:** `legacy/workflow_app/tests/command-receipt.test.ts` (6 tests);
   `tsx --test` runner; `replayOutcome` unit coverage plus `setDealStage`

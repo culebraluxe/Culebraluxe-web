@@ -23,7 +23,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 
 const dev = forgeDb.forTarget(forgeDbTargetForUrl(process.env.DATABASE_URL_DEV))
 const prod = forgeDb.forTarget(forgeDbTargetForUrl(process.env.DATABASE_URL_PROD))
-const OUT = 'legacy/db/seeds/dev-projects-workspace.sql'
+const OUT = 'db/seeds/dev-projects-workspace.sql'
 
 const lit = (v) => {
   if (v === null || v === undefined) return 'NULL'
@@ -108,7 +108,7 @@ try {
     '',
   ].join('\n')
 
-  await mkdir('legacy/db/seeds', { recursive: true })
+  await mkdir('db/seeds', { recursive: true })
   await writeFile(OUT, `${header}${sections.join('\n\n')}\n\ncommit;\n`)
   console.log(`wrote ${OUT}`)
   for (const n of notes) console.log('  ' + n)

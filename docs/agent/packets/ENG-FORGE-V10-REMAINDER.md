@@ -37,11 +37,11 @@ completed stage separately.
 Apply in order to DEV:
 
 ```bash
-pnpm db:migrate legacy/db/migrations/108_forge_v10_command_visits.sql dev
-pnpm db:migrate legacy/db/migrations/109_forge_v10_workflow_evidence.sql dev
-pnpm db:migrate legacy/db/migrations/110_forge_v10_engine_task_execution.sql dev
-pnpm db:migrate legacy/db/migrations/111_forge_v10_release_execution.sql dev
-pnpm db:migrate legacy/db/migrations/112_forge_v10_release_receipts.sql dev
+pnpm db:migrate db/migrations/108_forge_v10_command_visits.sql dev
+pnpm db:migrate db/migrations/109_forge_v10_workflow_evidence.sql dev
+pnpm db:migrate db/migrations/110_forge_v10_engine_task_execution.sql dev
+pnpm db:migrate db/migrations/111_forge_v10_release_execution.sql dev
+pnpm db:migrate db/migrations/112_forge_v10_release_receipts.sql dev
 ```
 
 Verify in DEV:

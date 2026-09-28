@@ -1407,7 +1407,7 @@ const STORIES: TestStory[] = [
       'artifact did not reach the Lead. Measured in forge_role_finding: attempt 1 wrote four findings, TWO ' +
       'of which carried the seam lib/whatsapp-cloud/ (c6206dcb, e867e9f8); attempt 2 wrote SIX findings and ' +
       'NONE carried it (they name app/api/integrations/whatsapp/webhook/route.ts, db/landing.ts, ' +
-      'legacy/db/migrations/ and workflow_app/tests/). The reader takes the NEWEST attempt per node ' +
+      'db/migrations/ and workflow_app/tests/). The reader takes the NEWEST attempt per node ' +
       '(agent-runtime-role-runner.ts:519-529, deliberately, so a story-wide read does not resurrect earlier ' +
       'attempts duplicates), so the Lead routed against the worse set and HOLDed twice: first because a pure ' +
       'mapper cannot be exported from route.ts under Next route-export typing, then because "the routing ' +
@@ -2501,7 +2501,7 @@ const STORIES: TestStory[] = [
     scope:
       'lib/syndication/stellar-fields.ts, lib/syndication/stellar.ts, lib/syndication/types.ts, ' +
       'lib/syndication/adapters.ts, db/stellar-listing.ts, db/syndication.ts, ' +
-      'legacy/db/migrations/194_stellar_listing_details.sql, app/portal/marketing/actions.ts, ' +
+      'db/migrations/194_stellar_listing_details.sql, app/portal/marketing/actions.ts, ' +
       'components/portal/marketing/syndication-workbench.tsx, workflow_app/tests/stellar-listing-draft.test.ts.',
     acceptance:
       '1. An empty property reports all fifteen editable Stellar fields as missing.\n' +
@@ -2816,7 +2816,7 @@ const STORIES: TestStory[] = [
       'STATE AT FILING, measured: the fan-out is OBSERVED (two siblings, slot 1 of 2 and 2 of 2, both ' +
       'claimed and both Done, wave concurrent at cap 2) and the join REFUSED on scope creep — one lane ' +
       'touched files outside its assignment (db/forge-workflow-evidence.ts, ' +
-      'legacy/db/migrations/193_forge_negative_control.sql), which is the bound working, not a kernel fault. WHAT ' +
+      'db/migrations/193_forge_negative_control.sql), which is the bound working, not a kernel fault. WHAT ' +
       'IS NOT OWED: "replay cannot fabricate completion" is already fixed and fenced (ENG-FORGE-RESUME-DOOR, ' +
       'commit 70420b46) because forge-hold-resolve was completing an UNCLAIMED fork branch. WHAT IS OWED: ' +
       'one wave whose per-unit slice covers the files each unit actually touches, then the receipt or the ' +

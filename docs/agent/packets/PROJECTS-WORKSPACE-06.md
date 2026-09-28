@@ -24,7 +24,7 @@ Make Pane 3 a reliable editor for a selected work item's status, due date, assig
 ## Verified starting evidence (grounding)
 
 - Pane 3 lives in `components/portal/projects-workspace.tsx:692` (`PaneThree`). Status/due/assignee/notes are local `useState`, reset only by `useEffect([node])` (`:699`).
-- Assignee is a free-text `<input>` (`:750`). Owner is a `text` column on `wbs_item` (`legacy/db/migrations/124_wbs_project_item.sql:22`); legacy values are names/handles (`legacy/db/seeds/dev-projects-workspace.sql`), and `service-projection.ts:155` emits `owner` as the display string.
+- Assignee is a free-text `<input>` (`:750`). Owner is a `text` column on `wbs_item` (`db/migrations/124_wbs_project_item.sql:22`); legacy values are names/handles (`db/seeds/dev-projects-workspace.sql`), and `service-projection.ts:155` emits `owner` as the display string.
 - Save calls `updateWbsItemAction` (`app/portal/wbs/actions.ts:84`) which does an unguarded read-modify-write (`wbs.get` then `wbs.save`) and passes EVERY field; `SqlWbsRepository.save` (`legacy/db/wbs-service-repository.ts:131`) sets every column unconditionally → last-write-wins clobber.
 - Complete/Dismiss also route through the full save (`projects-workspace.tsx:761-762`) instead of the idempotent `complete`/`dismiss` repository ops (`legacy/db/wbs-service-repository.ts:152,164`).
 - `WbsService.assertValid` (`legacy/services/wbs/wbs-service.ts:126`) validates only title/category.

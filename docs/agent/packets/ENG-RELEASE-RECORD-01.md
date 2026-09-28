@@ -21,7 +21,7 @@ introduced — the master process stays the only way a release happens.
 
 ## Scope
 
-- `legacy/db/migrations/<next>_release_record.sql` (new): the `release_record` table — sha, branch, tree_state,
+- `db/migrations/<next>_release_record.sql` (new): the `release_record` table — sha, branch, tree_state,
   build_result, deploy_result, outcome, started_at, ended_at, recorded_by. No defaults that invent facts.
 - `db/release-record.ts` (new): the writer/reader boundary, normalizing driver values before they leave it
   (timestamps to ISO strings, counts to JS numbers) per the repository-boundary rule in `AGENTS.md`.

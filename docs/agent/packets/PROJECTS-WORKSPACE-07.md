@@ -32,8 +32,8 @@ replay-safe domain completion projection.
 - Instantiation: `legacy/services/project/project-service.ts:97` (`project.instantiate`) creates
   WBS items with id `${project.id}-${node.key}` and calls `wbs.create` — **it sets no `entity` anchor** (`:138`).
 - WBS item carries `entity {type: person|property|contract|deal, id}` only (`legacy/services/wbs/types.ts:6`);
-  `wbs_item` columns are fixed in `legacy/db/migrations/124_wbs_project_item.sql`; there is **no playbook-key/work_type column**.
-- Project carries `personId/propertyId/contractId/playbookId/playbookVersion` (`legacy/db/migrations/141_project_playbook_identity.sql`).
+  `wbs_item` columns are fixed in `db/migrations/124_wbs_project_item.sql`; there is **no playbook-key/work_type column**.
+- Project carries `personId/propertyId/contractId/playbookId/playbookVersion` (`db/migrations/141_project_playbook_identity.sql`).
 - Current actions are generic strings, not typed/records: `nodeActions` in
   `ui/projects/service-projection.ts:141` maps entity type → `"Open client|property|contract|deal"` only;
   rendered at `components/portal/projects-workspace.tsx:796`.

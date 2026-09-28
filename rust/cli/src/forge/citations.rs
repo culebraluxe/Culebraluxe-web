@@ -33,7 +33,7 @@ const SOURCE_ROOTS: [&str; 12] = [
     "workflow_app",
     "ui",
     "testv2",
-    "legacy/db/migrations",
+    "db/migrations",
     "rust",
 ];
 

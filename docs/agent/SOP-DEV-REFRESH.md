@@ -153,7 +153,7 @@ next schema story, not after your next refresh.
 
 Measured 2026-09-23. Before that refresh, DEV was 8 migrations ahead of PROD
 (201–208, applied 2026-09-19 and recorded in the ledger) **and their .sql files existed
-nowhere**: not in `legacy/db/migrations` (which stopped at 200), not in git on any
+nowhere**: not in `db/migrations` (which stopped at 200), not in git on any
 branch, not in PROD. A reset would have destroyed them in the only place they existed.
 They were recovered by generating the DDL from DEV's live catalog and shipped to PROD as
 `209_recover_dev_only_schema_to_prod.sql`, which is why the refresh could proceed.

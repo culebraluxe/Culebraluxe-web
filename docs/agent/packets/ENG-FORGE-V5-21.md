@@ -110,7 +110,7 @@ disposable behavior. Do not invent cross-worktree shared context.
 `opencode/*.test.ts`, `agent-runtime/factory.ts`, `team.ts`, `lanes.ts`,
 `types.ts`, `legacy/workflow_app/forge/agent-runtime-role-runner.ts`.
 Likely add `agent-runtime/opencode/opencode-session-client.ts`, a durable binding
-repository + migration (`db/forge-opencode-session*.ts`, `legacy/db/migrations/*`).
+repository + migration (`db/forge-opencode-session*.ts`, `db/migrations/*`).
 Create this packet as the doc. Do not add another autonomous router/agent role.
 
 ## Phase 0 — qualify installed OpenCode (before any behavior change)

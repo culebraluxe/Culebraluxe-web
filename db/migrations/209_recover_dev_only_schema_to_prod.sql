@@ -2,7 +2,7 @@
 -- 209 — recover the schema the DEV-only migrations left behind, to make PROD match DEV
 --
 -- WHY THIS FILE EXISTS. Migrations 201-208 were applied to DEV on 2026-09-19 and recorded in
--- the schema_migration ledger. Their FILES exist nowhere: not in legacy/db/migrations, not in git
+-- the schema_migration ledger. Their FILES exist nowhere: not in db/migrations, not in git
 -- on any branch. The ledger keeps a filename, a checksum and a note — not the SQL — so the changes
 -- were reproducible only from the live DEV catalog, which is where every statement below came from.
 --

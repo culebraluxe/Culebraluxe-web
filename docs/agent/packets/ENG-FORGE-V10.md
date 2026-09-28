@@ -34,11 +34,11 @@ no database credentials.
 - `legacy/workflow_app/forge/release-operations.ts`
 - `legacy/db/forge-workflow-evidence.ts`
 - `legacy/db/forge-engine-task-execution.ts`
-- `legacy/db/migrations/108_forge_v10_command_visits.sql`
-- `legacy/db/migrations/109_forge_v10_workflow_evidence.sql`
-- `legacy/db/migrations/110_forge_v10_engine_task_execution.sql`
-- `legacy/db/migrations/111_forge_v10_release_execution.sql`
-- `legacy/db/migrations/112_forge_v10_release_receipts.sql`
+- `db/migrations/108_forge_v10_command_visits.sql`
+- `db/migrations/109_forge_v10_workflow_evidence.sql`
+- `db/migrations/110_forge_v10_engine_task_execution.sql`
+- `db/migrations/111_forge_v10_release_execution.sql`
+- `db/migrations/112_forge_v10_release_receipts.sql`
 
 ## Acceptance criteria
 - [x] Engine role tasks claim before external execution and link to one durable work item/run.

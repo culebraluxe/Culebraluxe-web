@@ -94,7 +94,11 @@ impl SchemaMigrationDao {
         target: DbTarget,
     ) -> DbResult<Option<String>> {
         sqlx::query_scalar(
-            "select checksum from schema_migration where filename = $1 and target = $2",
+            // By FILE NAME, not path: the ledger keeps the path a file had when it was applied, and the migrations
+            // folder has moved (db/ -> legacy/db/ -> db/). The latest recording of that name wins.
+            "select checksum from schema_migration \
+              where regexp_replace(filename, '^.*/', '') = regexp_replace($1, '^.*/', '') and target = $2 \
+              order by applied_at desc limit 1",
         )
         .bind(filename)
         .bind(target.as_str())

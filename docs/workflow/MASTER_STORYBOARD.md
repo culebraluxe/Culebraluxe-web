@@ -12,7 +12,7 @@
 > **Note (2026-08-21):** the persistent `/portal/storyboard` is now the
 > authoritative CulebraLuxe master backlog, seeded from the human-authored
 > 8/21 master board (74 stories) via
-> `legacy/db/migrations/022_storyboard_authoritative_seed.sql`. This document and
+> `db/migrations/022_storyboard_authoritative_seed.sql`. This document and
 > `STORYBOARD_STATUS.md` are retained as history of the earlier S-* storyboard.
 >
 > **Capability (2026-08-21, migration 024):** each stored story now carries a
@@ -51,7 +51,7 @@ workflow / TUNIT work:
 - `docs/portal-ui-contract.md`, `docs/property-ui-contract.md`
 - `workflow_engine/ARCHITECTURE_BOUNDARY.md`, `legacy/workflow_app/README.md`
 - Git history on `main` through `fddcd26` (2026-08-20)
-- `legacy/db/migrations/001..020` and `legacy/db/manual/2026-08-20_*.sql`
+- `db/migrations/001..020` and `db/manual/2026-08-20_*.sql`
 
 **Story IDs:** `S-001` … `S-041`, assigned in batch order. Earlier planning
 documents used their own labels (`CRM-NN`, `M-N`, `AUTH-NN`, `WF-NN`, and
@@ -85,7 +85,7 @@ Every story, present or future, must preserve:
 6. **Authority answers "may this actor attempt this command class?"; domain
    preconditions answer "is this transition legal in the current business
    state?".** No workflow rule may bypass either.
-7. **Schema changes only via reviewed migrations in `legacy/db/migrations`.** Any
+7. **Schema changes only via reviewed migrations in `db/migrations`.** Any
    manual live change must be recorded as an equivalent migration.
 8. **`media` is the reusable asset abstraction**; `property_media` owns
    property-specific media roles and ordering. Provider URLs are never media.
@@ -126,7 +126,7 @@ Every story, present or future, must preserve:
 
 - **Goal:** Establish the canonical, source-idempotent interaction input
   foundation shared by every intake channel.
-- **Scope:** Interaction/task foundation (`legacy/db/migrations/005`), source-idempotent
+- **Scope:** Interaction/task foundation (`db/migrations/005`), source-idempotent
   inputs keyed by `(source_system, source_external_id)`, and the database
   uniqueness backstop. No provider connectors, no UI.
 - **Acceptance criteria:**
@@ -172,7 +172,7 @@ Every story, present or future, must preserve:
 - **Goal:** Provider-neutral website intake through the canonical pipeline.
 - **Scope:** Pure website adapter, CRM-02/03 coordinator, atomic canonical
   persistence seam, property-context server action, existing contact-path
-  integration, `legacy/db/migrations/006_website_intake_submission.sql` recorded.
+  integration, `db/migrations/006_website_intake_submission.sql` recorded.
   Fixture-only verification; no Neon access during verification.
 - **Acceptance criteria:**
   - A `processing_started_at` ownership claim gates every receipt transition;
@@ -283,20 +283,20 @@ Every story, present or future, must preserve:
 ### S-010 — V1 DB Unblock M-1: WhatsApp Interaction Channel (migration 010)
 
 - **Goal:** Record the canonical `whatsapp` interaction channel in the schema.
-- **Scope:** `legacy/db/migrations/010_whatsapp_channel.sql` — `whatsapp` is a canonical
+- **Scope:** `db/migrations/010_whatsapp_channel.sql` — `whatsapp` is a canonical
   interaction channel, not a new identity type; WhatsApp actors resolve through
   `person_identity` phone (strict E.164); source idempotency reuses
   `(source_system, source_external_id)`. Provider integration deferred.
 - **Acceptance criteria:**
   - Migration 010 recorded and committed (with the manual bundle in
-    `legacy/db/manual/2026-08-20_v1_database_unblock.sql`).
+    `db/manual/2026-08-20_v1_database_unblock.sql`).
   - No application write path assumes the channel before the S-008 decision.
 - **Dependencies:** S-008 (decision) governs use; recording is independent.
 
 ### S-011 — V1 DB Unblock M-2: General Enquiry Website Intake (migration 011)
 
 - **Goal:** Allow property-less website intake requests.
-- **Scope:** `legacy/db/migrations/011_website_intake_general_enquiry.sql` —
+- **Scope:** `db/migrations/011_website_intake_general_enquiry.sql` —
   `website_intake_submission.property_id` becomes nullable with a CHECK that
   property-scoped requests require a property and `general_enquiry` forbids
   one. Generic `/contact` submits through the canonical pipeline;
@@ -311,7 +311,7 @@ Every story, present or future, must preserve:
 ### S-012 — V1 DB Unblock M-3: Deal Participants (migration 012)
 
 - **Goal:** Add additive, normalized deal participants.
-- **Scope:** `legacy/db/migrations/012_deal_participant.sql` — role is a checked
+- **Scope:** `db/migrations/012_deal_participant.sql` — role is a checked
   structural category (`client`/`owner`/`seller`/`other`) plus optional
   `role_label` for the SME long tail (application-curated, no migration per
   role). Legacy `deal.client_person_id`, `deal.owner_user_id`,
@@ -326,7 +326,7 @@ Every story, present or future, must preserve:
 ### S-013 — V1 DB Unblock M-4: Showing Lifecycle (migration 013)
 
 - **Goal:** Add the mutable showing lifecycle entity.
-- **Scope:** `legacy/db/migrations/013_showing.sql` — `showing` statuses
+- **Scope:** `db/migrations/013_showing.sql` — `showing` statuses
   `requested`/`scheduled`/`completed`/`cancelled`; `interaction` remains the
   immutable timeline. **Documented only** — the showing→interaction write
   behavior belongs to a later bounded story.
@@ -340,7 +340,7 @@ Every story, present or future, must preserve:
 ### S-014 — V1 DB Unblock M-5: Offer Model (migration 014)
 
 - **Goal:** Add the offer model with counter-offer semantics.
-- **Scope:** `legacy/db/migrations/014_offer.sql` — `offer` rows carry `amount` and
+- **Scope:** `db/migrations/014_offer.sql` — `offer` rows carry `amount` and
   `status` (`submitted`/`accepted`/`rejected`/`withdrawn`). Original offers have
   `parent_offer_id = null`; counters are new rows with `status='submitted'` and
   `parent_offer_id` pointing at the countered offer. `status='countered'` is not
@@ -431,9 +431,9 @@ Every story, present or future, must preserve:
 - **Goal:** Build the CRM-14 transaction workflow foundation: canonical
   application commands wired to claim-first idempotency receipts.
 - **Scope:** `legacy/db/workflow-command-receipt.ts`,
-  `legacy/db/migrations/018_workflow_command_receipt.sql`,
-  `legacy/db/migrations/019_workflow_task_correlation.sql`,
-  `legacy/db/migrations/020_deal_financing_type.sql`, `legacy/db/deal-stage.ts`,
+  `db/migrations/018_workflow_command_receipt.sql`,
+  `db/migrations/019_workflow_task_correlation.sql`,
+  `db/migrations/020_deal_financing_type.sql`, `legacy/db/deal-stage.ts`,
   `legacy/db/offer-acceptance.ts`, `legacy/db/deal-closing-date.ts`,
   `legacy/workflow_app/command-router.ts`, `legacy/workflow_app/engine-bridge.ts`,
   `legacy/workflow_app/application-port.ts`, `legacy/workflow_app/facts.ts`,
@@ -454,7 +454,7 @@ Every story, present or future, must preserve:
   `graph-validator.ts`), `legacy/workflow_app/definitions/` (`RE_supermodel-v1.xml`,
   `re-supermodel.ts`, `version-policy.ts`),
   `legacy/workflow_app/scripts/deploy-process-definition.ts`,
-  `legacy/db/manual/2026-08-20_v4_crm14_workflow_activation.sql`,
+  `db/manual/2026-08-20_v4_crm14_workflow_activation.sql`,
   `docs/workflow-xml-model.md`. Legacy story references: 116 (state identity +
   label), 117 (responsibility/SME), 119 (jurisdiction/config facts), 120 (simple
   cash path), 121 (complexity paths), 122 (P&S/closing-date), 123 (appraisal
@@ -492,7 +492,7 @@ Every story, present or future, must preserve:
 - **Scope:** `legacy/workflow_app/task-completion.ts` (`completeWorkflowTaskCore` +
   injected deps), `legacy/workflow_app/task-materialization.ts`,
   `legacy/workflow_app/task-reconciliation.ts`,
-  `legacy/db/migrations/019_workflow_task_correlation.sql`,
+  `db/migrations/019_workflow_task_correlation.sql`,
   `legacy/workflow_app/tests/task-completion.test.ts`,
   `legacy/workflow_app/tests/materialization.test.ts`.
 - **Acceptance criteria:**

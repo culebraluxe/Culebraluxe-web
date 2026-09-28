@@ -72,7 +72,7 @@ const STORIES: StoryRecord[] = [
     goal:
       'A decision never travels only in chat, and a row that IS written is never read as an absent plan.',
     scope:
-      'legacy/db/migrations/172_forge_role_finding.sql + db/forge-role-finding.ts (findings in rows), db/forge-role-plan.ts (plan assembly), workflow_app/forge/agent-runtime-role-runner.ts (identity line, findings scope, candidate diff), workflow_app/forge/forge-role-mapping.ts (candidate SHA per lane), workflow_app/forge/forge-lead-routing.ts + forge-lead-routing-prompt.ts (one seat, named flags, scale direction), scripts/forge-handoff.mjs (boundary refusals).',
+      'db/migrations/172_forge_role_finding.sql + db/forge-role-finding.ts (findings in rows), db/forge-role-plan.ts (plan assembly), workflow_app/forge/agent-runtime-role-runner.ts (identity line, findings scope, candidate diff), workflow_app/forge/forge-role-mapping.ts (candidate SHA per lane), workflow_app/forge/forge-lead-routing.ts + forge-lead-routing-prompt.ts (one seat, named flags, scale direction), scripts/forge-handoff.mjs (boundary refusals).',
     acceptance:
       'The Architect writes findings as rows and the Lead reads them scoped to the live process instance and newest attempt per node; the Lead routes SOLO from fields alone; an attempt mismatch, empty reasoning or case-variant assignment id is refused at the boundary naming the field; the runner supplies the candidate diff so the Smith gate never refuses landed work.',
     notes:
@@ -143,7 +143,7 @@ const STORIES: StoryRecord[] = [
     goal:
       'Stop computing the difficulty prediction and throwing it away: record the features, the measurement provenance, the logit, the probability, the gate and the outcome for every assessed unit, so the hand-set weights can eventually be replaced by a fit.',
     scope:
-      'legacy/db/migrations/175_forge_dispatch_score.sql (the ledger), db/forge-dispatch-score.ts (record + label + calibration reader), workflow_app/forge/forge-difficulty-scorer.ts (the logit joins the scorer protocol; SCORER_ID), workflow_app/forge/forge-plan-difficulty.ts (scorePlanDetailed + which features were measured), workflow_app/forge/agent-runtime-role-runner.ts (record at lead_pre, label at the Smith exit).',
+      'db/migrations/175_forge_dispatch_score.sql (the ledger), db/forge-dispatch-score.ts (record + label + calibration reader), workflow_app/forge/forge-difficulty-scorer.ts (the logit joins the scorer protocol; SCORER_ID), workflow_app/forge/forge-plan-difficulty.ts (scorePlanDetailed + which features were measured), workflow_app/forge/agent-runtime-role-runner.ts (record at lead_pre, label at the Smith exit).',
     acceptance:
       'Every assessed unit leaves one row carrying the eight features, which of them were measured rather than defaulted, the scorer id, the logit and the p_success that produced the gate verdict; the outcome attaches to that same row and never replaces a measurement with null; and the reader can return only labelled rows as the calibration set.',
     notes:

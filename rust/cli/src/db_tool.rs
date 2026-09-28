@@ -27,10 +27,10 @@ use std::path::{Path, PathBuf};
 
 /// Where migration files live. The TypeScript scripts read this same directory, and the ledger records
 /// filenames WITH this prefix, so it is the join key between disk and ledger — not a preference.
-const MIGRATIONS_DIR: &str = "legacy/db/migrations";
+const MIGRATIONS_DIR: &str = "db/migrations";
 
 /// The ledger migration itself, named in the "ledger is missing" message.
-const LEDGER_MIGRATION: &str = "legacy/db/migrations/144_schema_migration_ledger.sql";
+const LEDGER_MIGRATION: &str = "db/migrations/144_schema_migration_ledger.sql";
 
 /// The synthetic row that documents the verified parity baseline; it is not a file.
 const BASELINE: &str = "<baseline>";
@@ -190,9 +190,10 @@ fn migration_files(dir: &Path) -> Result<Vec<String>, Failure> {
     Ok(files)
 }
 
-/// The ledger's own key for a file on disk: the path as recorded when it was applied.
+/// The ledger's key for a file: its NAME. The ledger stores the path a file had when it was applied, and the folder
+/// has moved (db/ -> legacy/db/ -> db/), so rows are matched by file name, whatever folder they were recorded under.
 fn ledger_key(file: &str) -> String {
-    format!("{MIGRATIONS_DIR}/{file}")
+    file.rsplit('/').next().unwrap_or(file).to_owned()
 }
 
 
@@ -304,8 +305,7 @@ async fn status() -> Result<u8, Failure> {
         }
     }
 
-    // Honesty line. The ledger stores the path a file had when it was applied, so if migrations are ever
-    // moved again the report says so instead of silently listing every file as unrecorded.
+    // Honesty line. Rows recorded under another folder are still matched (by file name); the report says how many.
     let mut elsewhere: BTreeMap<String, usize> = BTreeMap::new();
     for row in ledger.iter() {
         if let Some((directory, _)) = row.filename.rsplit_once('/') {
@@ -321,8 +321,8 @@ async fn status() -> Result<u8, Failure> {
             .collect::<Vec<_>>()
             .join(", ");
         println!(
-            "\nnote: the ledger also holds rows under {prefixes}, while this run scanned {MIGRATIONS_DIR}; \
-             those rows cannot match a file on disk."
+            "\nnote: the ledger also holds rows recorded under {prefixes}; this run scanned {MIGRATIONS_DIR} and \
+             matched them by file name."
         );
     }
 
@@ -332,7 +332,7 @@ async fn status() -> Result<u8, Failure> {
 fn recorded_by_filename(rows: &[MigrationLedgerRow]) -> BTreeMap<String, &MigrationLedgerRow> {
     let mut map = BTreeMap::new();
     for row in rows {
-        map.insert(row.filename.clone(), row);
+        map.insert(ledger_key(&row.filename), row);
     }
     map
 }

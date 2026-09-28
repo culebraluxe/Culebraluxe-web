@@ -29,33 +29,33 @@ const BASELINE_NOTE =
 
 const APPLIED_2026_09_10 = {
   prod: [
-    'legacy/db/migrations/116_property_address_line.sql',
-    'legacy/db/migrations/117_firm_relation_role.sql',
-    'legacy/db/migrations/118_security_role_business_role.sql',
-    'legacy/db/migrations/119_contract_persistence.sql',
-    'legacy/db/migrations/120_pns_seller_representative_role.sql',
-    'legacy/db/migrations/121_contract_form_document_lineage.sql',
-    'legacy/db/migrations/122_showing_report_form_lineage.sql',
-    'legacy/db/migrations/138_regrid_culebra_parcel.sql',
-    'legacy/db/migrations/144_schema_migration_ledger.sql',
+    'db/migrations/116_property_address_line.sql',
+    'db/migrations/117_firm_relation_role.sql',
+    'db/migrations/118_security_role_business_role.sql',
+    'db/migrations/119_contract_persistence.sql',
+    'db/migrations/120_pns_seller_representative_role.sql',
+    'db/migrations/121_contract_form_document_lineage.sql',
+    'db/migrations/122_showing_report_form_lineage.sql',
+    'db/migrations/138_regrid_culebra_parcel.sql',
+    'db/migrations/144_schema_migration_ledger.sql',
   ],
   dev: [
-    'legacy/db/migrations/142_forge_dispatch_columns.sql',
-    'legacy/db/migrations/143_forge_dispatch_parallel_lock.sql',
-    'legacy/db/migrations/144_schema_migration_ledger.sql',
+    'db/migrations/142_forge_dispatch_columns.sql',
+    'db/migrations/143_forge_dispatch_parallel_lock.sql',
+    'db/migrations/144_schema_migration_ledger.sql',
   ],
 }
 
 // Objects verified present in DEV at baseline (applied before the ledger existed).
 const DEV_PRESENT_AT_BASELINE = [
-  'legacy/db/migrations/116_property_address_line.sql',
-  'legacy/db/migrations/117_firm_relation_role.sql',
-  'legacy/db/migrations/118_security_role_business_role.sql',
-  'legacy/db/migrations/119_contract_persistence.sql',
-  'legacy/db/migrations/120_pns_seller_representative_role.sql',
-  'legacy/db/migrations/121_contract_form_document_lineage.sql',
-  'legacy/db/migrations/122_showing_report_form_lineage.sql',
-  'legacy/db/migrations/138_regrid_culebra_parcel.sql',
+  'db/migrations/116_property_address_line.sql',
+  'db/migrations/117_firm_relation_role.sql',
+  'db/migrations/118_security_role_business_role.sql',
+  'db/migrations/119_contract_persistence.sql',
+  'db/migrations/120_pns_seller_representative_role.sql',
+  'db/migrations/121_contract_form_document_lineage.sql',
+  'db/migrations/122_showing_report_form_lineage.sql',
+  'db/migrations/138_regrid_culebra_parcel.sql',
 ]
 
 const checksumOf = async (file) =>

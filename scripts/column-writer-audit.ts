@@ -74,7 +74,7 @@ const STORYBOARD = 'legacy/db/storyboard.ts'
 const STORY_FILE = 'scripts/forge-test-stories.ts'
 const SPRINT = 'legacy/db/sprint.ts'
 /** 187: the sprint trigger derives storyboard_story.sprint_id from its batch. */
-const SPRINT_TRIGGER = 'legacy/db/migrations/187_sprint_parent.sql'
+const SPRINT_TRIGGER = 'db/migrations/187_sprint_parent.sql'
 const FORGE_RUN = 'legacy/db/forge-run.ts'
 const REPAIR_LEDGER = 'legacy/db/forge-repair-ledger.ts'
 const EVIDENCE = 'legacy/db/forge-workflow-evidence.ts'

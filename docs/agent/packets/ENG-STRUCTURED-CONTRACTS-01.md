@@ -27,7 +27,7 @@ nights.
 
 ## Scope
 
-- `legacy/db/migrations/<next>_worker_heartbeat.sql` (new): `forge_worker_heartbeat` — `agent_id`, `pass`, `story_id`,
+- `db/migrations/<next>_worker_heartbeat.sql` (new): `forge_worker_heartbeat` — `agent_id`, `pass`, `story_id`,
   `node`, `model`, `outcome`, `started_at`, `ended_at`, `detail`. Append-only; a failed pass is a row too.
 - `db/forge-heartbeat.ts` (new): writer/reader at the repository boundary, normalizing driver values (ISO
   timestamps, numbers) per `AGENTS.md`.

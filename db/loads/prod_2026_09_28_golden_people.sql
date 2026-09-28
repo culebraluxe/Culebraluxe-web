@@ -6,7 +6,7 @@
 begin;
 
 -- ==============================================================================================================
--- 1. merge_person() — the merge function (migration 228)   (from legacy/db/migrations/228_person_merge.sql)
+-- 1. merge_person() — the merge function (migration 228)   (from db/migrations/228_person_merge.sql)
 -- ==============================================================================================================
 -- MERGE TWO RECORDS OF ONE PERSON. Apple split people into several records — one with the phone, one with the email,
 -- one empty — and the same person entered twice. merge_person(golden, duplicate) folds the duplicate into the golden
@@ -82,7 +82,7 @@ end
 $$;
 
 -- ==============================================================================================================
--- 2. Contact cleanup — phones +1XXXXXXXXXX, names cleaned   (from legacy/db/loads/contact_cleanup.sql)
+-- 2. Contact cleanup — phones +1XXXXXXXXXX, names cleaned   (from db/loads/contact_cleanup.sql)
 -- ==============================================================================================================
 -- CONTACT CLEANUP — people's names and phones made golden.
 --
@@ -241,7 +241,7 @@ having count(*) > 1
  order by count(*) desc, k.name_key;
 
 -- ==============================================================================================================
--- 3. Duplicate people merged where it is safe   (from legacy/db/loads/person_merge_duplicates.sql)
+-- 3. Duplicate people merged where it is safe   (from db/loads/person_merge_duplicates.sql)
 -- ==============================================================================================================
 -- DUPLICATE PEOPLE, MERGED WHERE IT IS SAFE. Needs migration 228 (merge_person).
 --
@@ -354,7 +354,7 @@ having count(*) > 1
  order by count(*) desc, k.name_key;
 
 -- ==============================================================================================================
--- 4. Listing projects — one per live listing, six steps   (from legacy/db/loads/listing_projects.sql)
+-- 4. Listing projects — one per live listing, six steps   (from db/loads/listing_projects.sql)
 -- ==============================================================================================================
 -- LISTING PROJECTS — one project per live listing, each with the listing's six steps.
 --

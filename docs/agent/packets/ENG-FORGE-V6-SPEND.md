@@ -24,7 +24,7 @@ Model pinning via the verified dsh `--patch` overlay seam plus the existing Open
 - lib/forge-run-evidence.ts
 - legacy/db/forge-run.ts
 - legacy/db/storyboard.ts
-- legacy/db/migrations/107_forge_spend_ledger.sql
+- db/migrations/107_forge_spend_ledger.sql
 
 ## Acceptance criteria
 1. Scout (flash) and architect (pro) resolve to different pinned adapters; shared harness never shares a model.

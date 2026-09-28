@@ -1,0 +1,38 @@
+[package]
+name = "server"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+axum.workspace = true
+tower-http.workspace = true
+tower.workspace = true
+auth = { path = "../core/auth" }
+chrono.workspace = true
+flate2.workspace = true
+casbin = "=2.20.0"
+db = { path = "../core/db" }
+domain = { path = "../core/domain" }
+# The composition root wires adapters, so `server` depends on `integrations` and `domain` never does. This line is
+# what made the BoldSign adapter attachable: without it the Signature service could not be constructed on this
+# transport, which is why the `signature` capability sat in the parity ledger as "built, 0 routes".
+integrations = { path = "../integrations" }
+# The workflow engine's operations live in the forge crate. The composition root hosts them, the same way
+# `integrations` is what made the BoldSign adapter attachable: the engine stops being a process we spawn per call
+# and becomes a route that shares this server's pool, retry policy, error capture and identity resolution.
+forge = { path = "../forge" }
+image.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+sha2.workspace = true
+service = { path = "../core/service" }
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+unicode-normalization.workspace = true
+uuid.workspace = true
