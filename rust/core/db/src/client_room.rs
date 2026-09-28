@@ -1,5 +1,5 @@
 use crate::{Database, DbFailure, DbResult};
-use domain::{ClientRoomDocument, ClientRoomProject, ClientRoomSnapshot, ClientRoomTransaction};
+use domain::{ClientRoomDocument, ClientRoomProject, ClientRoomSellerListing, ClientRoomSnapshot, ClientRoomTransaction};
 use sqlx::FromRow;
 
 #[derive(Debug, FromRow)]
@@ -32,6 +32,26 @@ struct ProjectRow {
     name: String,
     status: String,
     property_id: Option<String>,
+    total_work_items: i64,
+    completed_work_items: i64,
+}
+
+#[derive(Debug, FromRow)]
+struct SellerListingRow {
+    property_id: String,
+    name: String,
+    location: Option<String>,
+    status: String,
+    is_active_listing: bool,
+    is_published: bool,
+    list_price: Option<String>,
+    image_count: i64,
+    video_count: i64,
+    showing_count: i64,
+    offer_count: i64,
+    latest_deal_stage: Option<String>,
+    project_name: Option<String>,
+    project_status: Option<String>,
     total_work_items: i64,
     completed_work_items: i64,
 }
@@ -78,10 +98,11 @@ impl ClientRoomDao {
             return Ok(None);
         };
 
-        let (transactions, projects, documents) = tokio::try_join!(
+        let (transactions, projects, documents, seller_listings) = tokio::try_join!(
             self.transactions(person_id),
             self.projects(person_id),
             self.documents(person_id),
+            self.seller_listings(person_id),
         )?;
 
         Ok(Some(ClientRoomSnapshot {
@@ -92,6 +113,7 @@ impl ClientRoomDao {
             transactions,
             projects,
             documents,
+            seller_listings,
         }))
     }
 
@@ -216,6 +238,103 @@ impl ClientRoomDao {
                     name: row.name,
                     status: row.status,
                     property_id: row.property_id,
+                    total_work_items: row.total_work_items,
+                    completed_work_items: row.completed_work_items,
+                    progress_percent,
+                }
+            })
+            .collect())
+    }
+
+    async fn seller_listings(&self, person_id: &str) -> DbResult<Vec<ClientRoomSellerListing>> {
+        let rows = crate::retrying_read!(async {
+            sqlx::query_as::<_, SellerListingRow>(
+                r#"
+                select
+                  p.id::text as property_id,
+                  coalesce(nullif(trim(p.name), ''), 'Property') as name,
+                  coalesce(p.location, p.address_line1, p.city) as location,
+                  p.status,
+                  p.is_active_listing,
+                  p.is_published,
+                  p.list_price::text as list_price,
+                  (select count(*)::bigint
+                     from property_media pm join media m on m.id=pm.media_id
+                    where pm.property_id=p.id and m.media_type='image') as image_count,
+                  (select count(*)::bigint
+                     from property_media pm join media m on m.id=pm.media_id
+                    where pm.property_id=p.id and m.media_type='video') as video_count,
+                  (select count(*)::bigint
+                     from showing s
+                     where s.property_id=p.id) as showing_count,
+                  (select count(*)::bigint
+                     from offer o
+                     join deal od on od.id=o.deal_id
+                    where od.property_id=p.id) as offer_count,
+                  latest_deal.stage as latest_deal_stage,
+                  project.name as project_name,
+                  project.status as project_status,
+                  coalesce(project.total_work_items, 0)::bigint as total_work_items,
+                  coalesce(project.completed_work_items, 0)::bigint as completed_work_items
+                from property p
+                left join lateral (
+                  select d.stage
+                  from deal d
+                  where d.property_id=p.id
+                  order by d.updated_at desc, d.id
+                  limit 1
+                ) latest_deal on true
+                left join lateral (
+                  select
+                    pr.name,
+                    pr.status,
+                    (select count(*) from wbs_item w where w.project_id=pr.id) as total_work_items,
+                    (select count(*) from wbs_item w where w.project_id=pr.id and w.status='done') as completed_work_items
+                  from project pr
+                  where pr.property_id=p.id
+                  order by
+                    case pr.status when 'doing' then 1 when 'open' then 2 when 'done' then 8 else 5 end,
+                    pr.updated_at desc
+                  limit 1
+                ) project on true
+                where p.seller_person_id=$1::uuid
+                  and p.archived_at is null
+                order by
+                  case when p.is_active_listing then 0 else 1 end,
+                  p.updated_at desc,
+                  p.id
+                "#,
+            )
+            .bind(person_id)
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("client_room.seller_listings", &error))
+        })?;
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                let progress_percent = if row.total_work_items > 0 {
+                    ((row.completed_work_items * 100) / row.total_work_items).clamp(0, 100) as i32
+                } else if row.project_status.as_deref() == Some("done") {
+                    100
+                } else {
+                    0
+                };
+                ClientRoomSellerListing {
+                    property_id: row.property_id,
+                    name: row.name,
+                    location: row.location,
+                    status: row.status,
+                    is_active_listing: row.is_active_listing,
+                    is_published: row.is_published,
+                    list_price: row.list_price,
+                    image_count: row.image_count,
+                    video_count: row.video_count,
+                    showing_count: row.showing_count,
+                    offer_count: row.offer_count,
+                    latest_deal_stage: row.latest_deal_stage,
+                    project_name: row.project_name,
+                    project_status: row.project_status,
                     total_work_items: row.total_work_items,
                     completed_work_items: row.completed_work_items,
                     progress_percent,
