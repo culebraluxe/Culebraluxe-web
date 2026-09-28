@@ -10,6 +10,7 @@ pub struct ClientRoomSnapshot {
     pub transactions: Vec<ClientRoomTransaction>,
     pub projects: Vec<ClientRoomProject>,
     pub documents: Vec<ClientRoomDocument>,
+    pub seller_listings: Vec<ClientRoomSellerListing>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,4 +52,27 @@ pub struct ClientRoomDocument {
     pub state: String,
     pub created_at_label: String,
     pub signed_artifact_available: bool,
+}
+
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ClientRoomSellerListing {
+    pub property_id: String,
+    pub name: String,
+    pub location: Option<String>,
+    pub status: String,
+    pub is_active_listing: bool,
+    pub is_published: bool,
+    pub list_price: Option<String>,
+    pub image_count: i64,
+    pub video_count: i64,
+    pub showing_count: i64,
+    pub offer_count: i64,
+    pub latest_deal_stage: Option<String>,
+    pub project_name: Option<String>,
+    pub project_status: Option<String>,
+    pub total_work_items: i64,
+    pub completed_work_items: i64,
+    pub progress_percent: i32,
 }
