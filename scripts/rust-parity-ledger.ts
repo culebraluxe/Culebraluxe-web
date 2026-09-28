@@ -137,6 +137,7 @@ type Capability = {
 }
 const map = JSON.parse(readFileSync(resolve('scripts/rust-parity-map.json'), 'utf8')) as {
   capabilities: Capability[]
+  nativeRoutes: Array<{ area: string; module: string; routes: string[] }>
   knownUnmappedRoutes: string[]
 }
 
@@ -166,8 +167,21 @@ for (const capability of map.capabilities) {
 }
 
 const mappedRoutes = new Set(map.capabilities.flatMap((capability) => capability.routes))
+// THE REST OF THE SURFACE. The capability list tracks the PORT: the 14 capabilities whose cutover had to be
+// verified route by route. The server mounts far more than that, because most of the product was already Rust
+// when the port started — those routes have no cutover question, so they are claimed here, by area, rather
+// than force-fitted into a capability that would then mean two different things. What the check still refuses
+// is the same as before: a mounted route that no line of this map accounts for, or a claim whose module is
+// gone.
+for (const entry of map.nativeRoutes) {
+  if (!exists(entry.module)) {
+    problems.push(`native area ${entry.area}: rust module ${entry.module} does not exist`)
+  }
+}
+const nativeRouteSet = new Set(map.nativeRoutes.flatMap((entry) => entry.routes))
 const unmappedRoutes = routes.filter(
-  (route) => !mappedRoutes.has(route) && !map.knownUnmappedRoutes.includes(route),
+  (route) =>
+    !mappedRoutes.has(route) && !nativeRouteSet.has(route) && !map.knownUnmappedRoutes.includes(route),
 )
 for (const route of unmappedRoutes) {
   problems.push(`route ${route} is mounted but belongs to no capability — add it to scripts/rust-parity-map.json`)
@@ -207,7 +221,25 @@ const lines: string[] = [
   '',
   `${routes.length} routes mounted (read from the router, not from this file):`,
   '',
-  ...routes.map((route) => `- \`${route}\`${map.knownUnmappedRoutes.includes(route) ? ' _(infrastructure)_' : ''}`),
+  ...routes.map((route) => {
+    const native = map.nativeRoutes.find((entry) => entry.routes.includes(route))
+    const mark = map.knownUnmappedRoutes.includes(route)
+      ? ' _(infrastructure)_'
+      : native
+        ? ` _(native: ${native.area})_`
+        : ''
+    return `- \`${route}\`${mark}`
+  }),
+  '',
+  '### Native surface: mounted and never part of the port',
+  '',
+  'These areas arrived with the Rust server rather than being ported into it, so no cutover is open for them.',
+  'They are claimed here so that "every mounted route is accounted for" stays a real check rather than a list',
+  'that accepts anything:',
+  '',
+  ...map.nativeRoutes.map(
+    (entry) => `- \`${entry.area}\` — ${entry.routes.length} route(s), \`${entry.module}\``,
+  ),
   '',
   '## TypeScript modules under the subjects',
   '',

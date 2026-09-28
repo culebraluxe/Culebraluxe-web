@@ -10,54 +10,72 @@ questions on purpose: a port can be complete and still cut over to nothing.
 
 | capability | rust | serving production | routes | TS files still in play |
 | --- | --- | --- | --- | --- |
-| `clients` | built | typescript | 4 | `legacy/db/clients.ts`, `legacy/db/client-read-models.ts` |
-| `people` | built | typescript | 3 | `legacy/db/person-admin.ts` |
-| `properties` | built | typescript | 2 | `legacy/db/listing-property-service-repository.ts` |
-| `contracts` | built | typescript | 3 | `legacy/db/contract-service-repository.ts` |
-| `forms` | built | typescript | 5 | `legacy/db/form-service-repository.ts` |
-| `comms` | built | typescript | 2 | `legacy/db/comms-service-repository.ts` |
-| `calendar` | built | typescript | 1 | — |
-| `vault` | built | typescript | 2 | — |
-| `projects` | built | typescript | 2 | — |
-| `firms` | built | typescript | 0 | `legacy/db/firm-service-repository.ts` |
-| `signature` | built | typescript | 4 | `legacy/db/bold-sign-request.ts`, `legacy/db/broker-signature.ts` |
-| `showings` | built | typescript | 0 | — |
-| `wbs` | built | typescript | 2 | — |
-| `whatsapp-intake` | partial | typescript | 0 | — |
+| `clients` | built | rust | 4 | — |
+| `people` | built | rust | 3 | — |
+| `properties` | built | rust | 2 | — |
+| `contracts` | built | rust | 3 | — |
+| `forms` | built | rust | 5 | — |
+| `comms` | built | rust | 2 | — |
+| `calendar` | built | rust | 1 | — |
+| `vault` | built | rust | 2 | — |
+| `projects` | built | rust | 2 | — |
+| `firms` | built | none | 0 | — |
+| `signature` | built | rust | 4 | — |
+| `showings` | built | none | 0 | — |
+| `wbs` | built | rust | 2 | — |
+| `whatsapp-intake` | partial | rust | 1 | — |
 
 **13 built · 1 partial · 0 not started** — and
-**0 of 14 capabilities** have Rust as the production path.
+**12 of 14 capabilities** have Rust as the production path.
 
 - **firms** — Built in Rust with no route attached, so nothing can call it yet.
-- **signature** — All four endpoints are attached to Axum: send, get, refresh, and the provider webhook — the webhook at the PRODUCTION path /api/integrations/boldsign/webhook, so BoldSign's configured URL does not have to change to cut over. The webhook is deliberately unauthenticated by the internal API key: BoldSign signs the raw body and that HMAC is verified inside the service against a System actor with no principal, because a webhook cannot present an application identity. Constructing the BoldSign provider required adding `integrations` to the server crate; without it the adapter was unreachable from the composition root, which is how this capability sat as 'built, 0 routes'. KNOWN GAP, deliberately not guessed: the TypeScript webhook answers 200 {acknowledged:true} for events it will not act on so BoldSign stops retrying, and answers 401 for a missing/invalid signature. The Rust service's outcome enum has no no-op variant, so the 200-for-non-actionable half of that retry contract is NOT mirrored yet — mapping it blind could mask real errors. productionPath stays 'typescript' until a receipt shows the Rust path serving real traffic. rust/server/tests/signature_routes.rs fails if the router and this map disagree.
-- **whatsapp-intake** — Rust verifies and normalises Meta payloads; durable inbox/ODS persistence and production webhook processing still belong to TypeScript.
+- **signature** — All four endpoints are attached to Axum: send, get, refresh, and the provider webhook — the webhook at the PRODUCTION path /api/integrations/boldsign/webhook, so BoldSign's configured URL does not have to change to cut over. The webhook is deliberately unauthenticated by the internal API key: BoldSign signs the raw body and that HMAC is verified inside the service against a System actor with no principal, because a webhook cannot present an application identity. Constructing the BoldSign provider required adding `integrations` to the server crate; without it the adapter was unreachable from the composition root, which is how this capability sat as 'built, 0 routes'. KNOWN GAP, deliberately not guessed: the TypeScript webhook answered 200 {acknowledged:true} for events it will not act on so BoldSign stops retrying, and 401 for a missing/invalid signature. The Rust service's outcome enum has no no-op variant, so the 200-for-non-actionable half of that retry contract is NOT mirrored yet — mapping it blind could mask real errors. productionPath moved from 'typescript' to 'rust' on 2026-09-28 with the rest of this map: the TypeScript application was deleted in 4cf98110, so there is no TypeScript path left that could be serving. rust/server/tests/signature_routes.rs fails if the router and this map disagree.
+- **whatsapp-intake** — Rust verifies and normalises Meta payloads and the mounted webhook route is the Rust one. rustStatus stays 'partial' because durable inbox/ODS persistence is not finished — the old note said that half 'belongs to TypeScript', which stopped being true when the TypeScript application was deleted in 4cf98110. What is missing is Rust that has not been written yet, not TypeScript that still exists.
 
 ## The live Rust surface
 
-79 routes mounted (read from the router, not from this file):
+111 routes mounted (read from the router, not from this file):
 
 - `/healthz` _(infrastructure)_
 - `/readyz` _(infrastructure)_
 - `/v1/whoami` _(infrastructure)_
-- `/v1/security/identity`
-- `/v1/security/guests`
-- `/v1/security/guest-code`
-- `/v1/security/guest-code/verify`
-- `/v1/security/authorize`
-- `/v1/security/authorize/public`
-- `/v1/security/role-entitlements`
-- `/v1/security/users`
-- `/v1/cockpit`
-- `/v1/workflows`
-- `/v1/workflows/{id}`
-- `/v1/flight-recorder/{id}`
+- `/v1/services` _(native: services)_
+- `/v1/services/health` _(native: services)_
+- `/v1/services/kernel/health` _(native: services)_
+- `/v1/services/runtime/health` _(native: services)_
+- `/v1/services/{domain}/control` _(native: services)_
+- `/v1/services/dispatch` _(native: services)_
+- `/v1/commands/dispatch` _(native: commands)_
+- `/v1/security/identity` _(native: security)_
+- `/v1/diagnostics/app-error` _(native: diagnostics)_
+- `/api/integrations/whatsapp/webhook`
+- `/v1/security/guests` _(native: security)_
+- `/v1/security/guest-code` _(native: security)_
+- `/v1/security/guest-code/verify` _(native: security)_
+- `/v1/security/authorize` _(native: security)_
+- `/v1/security/authorize/public` _(native: security)_
+- `/v1/security/role-entitlements` _(native: security)_
+- `/v1/security/users` _(native: security)_
+- `/v1/cockpit` _(native: cockpit)_
+- `/v1/tech/cockpit` _(native: tech)_
+- `/v1/support/security-status` _(native: support)_
+- `/v1/support/break-glass-readiness` _(native: support)_
+- `/v1/support/system-health` _(native: support)_
+- `/v1/support/workflow-diagnostics` _(native: support)_
+- `/v1/support/workflow-diagnostics/{id}` _(native: support)_
+- `/v1/workflows` _(native: workflows)_
+- `/v1/workflows/{id}` _(native: workflows)_
+- `/v1/flight-recorder/{id}` _(native: flight-recorder)_
 - `/v1/projects`
 - `/v1/projects/{id}`
+- `/v1/wbs` _(native: wbs)_
 - `/v1/wbs/project-items`
+- `/v1/wbs/dependencies/{project_id}` _(native: wbs)_
+- `/v1/wbs/dependencies/{project_id}/{source_id}/{target_id}` _(native: wbs)_
 - `/v1/wbs/{id}`
-- `/v1/tasks/{id}/complete`
-- `/v1/wbs/{id}/apple-reminder`
-- `/v1/wbs/{id}/route`
+- `/v1/tasks/{id}/complete` _(native: tasks)_
+- `/v1/wbs/{id}/apple-reminder` _(native: wbs)_
+- `/v1/wbs/{id}/route` _(native: wbs)_
 - `/v1/clients`
 - `/v1/clients/agents`
 - `/v1/clients/{person_id}/history`
@@ -65,19 +83,21 @@ questions on purpose: a port can be complete and still cut over to nothing.
 - `/v1/people/search`
 - `/v1/people/{id}`
 - `/v1/people/{id}/properties`
-- `/v1/properties/admin`
-- `/v1/properties/{id}/admin`
+- `/v1/properties/admin` _(native: properties)_
+- `/v1/properties/{id}/admin` _(native: properties)_
 - `/v1/properties/{id}`
+- `/v1/media/{id}` _(native: media)_
+- `/v1/media/upload` _(native: media)_
 - `/v1/properties/{id}/media`
-- `/v1/properties/{id}/video`
-- `/v1/properties/{id}/media/uploads`
-- `/v1/properties/{id}/media/uploads/{upload_id}/chunks/{index}`
-- `/v1/properties/{id}/media/uploads/{upload_id}/complete`
-- `/v1/properties/{id}/video-uploads`
-- `/v1/properties/{id}/video-uploads/{upload_id}/finalize`
-- `/v1/deals`
-- `/v1/deals/{id}`
-- `/v1/deals/{id}/commands`
+- `/v1/properties/{id}/video` _(native: properties)_
+- `/v1/properties/{id}/media/uploads` _(native: properties)_
+- `/v1/properties/{id}/media/uploads/{upload_id}/chunks/{index}` _(native: properties)_
+- `/v1/properties/{id}/media/uploads/{upload_id}/complete` _(native: properties)_
+- `/v1/properties/{id}/video-uploads` _(native: properties)_
+- `/v1/properties/{id}/video-uploads/{upload_id}/finalize` _(native: properties)_
+- `/v1/deals` _(native: deals)_
+- `/v1/deals/{id}` _(native: deals)_
+- `/v1/deals/{id}/commands` _(native: deals)_
 - `/v1/contracts`
 - `/v1/contracts/{id}`
 - `/v1/process-instances/{id}/contracts`
@@ -88,33 +108,75 @@ questions on purpose: a port can be complete and still cut over to nothing.
 - `/v1/forms/{id}`
 - `/v1/comms/{person_id}/panel`
 - `/v1/comms/{person_id}/timeline`
-- `/v1/activity`
-- `/v1/accounting/dashboard`
-- `/v1/accounting/receivables`
-- `/v1/accounting/receivables/{id}/paid`
-- `/v1/accounting/expenses`
-- `/v1/accounting/expense-categories`
-- `/v1/accounting/pnl`
+- `/v1/activity` _(native: activity)_
+- `/v1/issues` _(native: issues)_
+- `/v1/relationship-evidence/review` _(native: relationship-evidence)_
+- `/v1/relationship-evidence/actions` _(native: relationship-evidence)_
+- `/v1/accounting/dashboard` _(native: accounting)_
+- `/v1/accounting/receivables` _(native: accounting)_
+- `/v1/accounting/receivables/{id}/paid` _(native: accounting)_
+- `/v1/accounting/expenses` _(native: accounting)_
+- `/v1/accounting/expense-categories` _(native: accounting)_
+- `/v1/accounting/pnl` _(native: accounting)_
 - `/v1/calendar`
 - `/v1/vault/documents`
 - `/v1/vault/documents/{id}`
-- `/v1/vault/public-listing-documents/{id}`
-- `/v1/public/listing-copy`
-- `/v1/public/listings`
-- `/v1/public/property`
-- `/v1/public/media/{id}`
-- `/v1/public/guide`
-- `/v1/website-intake/{id}/notify`
-- `/v1/vault/document-bytes/{id}`
-- `/v1/diagnostics/db`
-- `/v1/engine/transactions`
-- `/v1/engine/timers/reconcile`
-- `/v1/engine/tasks/complete`
-- `/v1/engine/reclaim`
+- `/v1/vault/deals/{id}/documents` _(native: vault)_
+- `/v1/vault/forms/{id}/contract` _(native: vault)_
+- `/v1/vault/forms/{id}/bind-contract` _(native: vault)_
+- `/v1/vault/contracts/{contract_id}/templates/{template_id}/prior` _(native: vault)_
+- `/v1/vault/public-listing-documents/{id}` _(native: vault)_
+- `/v1/public/listing-copy` _(native: public)_
+- `/v1/public/listings` _(native: public)_
+- `/v1/public/property` _(native: public)_
+- `/v1/public/media/{id}` _(native: public)_
+- `/v1/public/similar` _(native: public)_
+- `/v1/public/slugs` _(native: public)_
+- `/v1/public/guide` _(native: public)_
+- `/v1/public/marketing-content` _(native: public)_
+- `/v1/website-intake` _(native: website-intake)_
+- `/v1/catchup/leads` _(native: catchup)_
+- `/v1/website-intake/{id}/notify` _(native: website-intake)_
+- `/v1/vault/document-bytes/{id}` _(native: vault)_
+- `/v1/diagnostics/db` _(native: diagnostics)_
+- `/v1/engine/transactions` _(native: engine)_
+- `/v1/engine/timers/reconcile` _(native: engine)_
+- `/v1/engine/tasks/complete` _(native: engine)_
+- `/v1/engine/reclaim` _(native: engine)_
 - `/v1/signature/requests`
 - `/v1/signature/requests/{id}`
 - `/v1/signature/requests/{id}/refresh`
 - `/api/integrations/boldsign/webhook`
+
+### Native surface: mounted and never part of the port
+
+These areas arrived with the Rust server rather than being ported into it, so no cutover is open for them.
+They are claimed here so that "every mounted route is accounted for" stays a real check rather than a list
+that accepts anything:
+
+- `accounting` — 6 route(s), `rust/server/src/accounting/mod.rs`
+- `activity` — 1 route(s), `rust/server/src/api/routes.rs`
+- `catchup` — 1 route(s), `rust/server/src/api/routes.rs`
+- `cockpit` — 1 route(s), `rust/server/src/cockpit/mod.rs`
+- `commands` — 1 route(s), `rust/server/src/api/routes.rs`
+- `deals` — 3 route(s), `rust/server/src/deals/mod.rs`
+- `diagnostics` — 2 route(s), `rust/server/src/api/routes.rs`
+- `engine` — 4 route(s), `rust/server/src/api/routes.rs`
+- `flight-recorder` — 1 route(s), `rust/server/src/api/routes.rs`
+- `issues` — 1 route(s), `rust/server/src/api/routes.rs`
+- `media` — 2 route(s), `rust/server/src/media/mod.rs`
+- `properties` — 8 route(s), `rust/server/src/properties/mod.rs`
+- `public` — 8 route(s), `rust/server/src/api/routes.rs`
+- `relationship-evidence` — 2 route(s), `rust/server/src/api/routes.rs`
+- `security` — 8 route(s), `rust/server/src/security/mod.rs`
+- `services` — 6 route(s), `rust/server/src/api/routes.rs`
+- `support` — 5 route(s), `rust/server/src/api/routes.rs`
+- `tasks` — 1 route(s), `rust/server/src/api/routes.rs`
+- `tech` — 1 route(s), `rust/server/src/api/routes.rs`
+- `vault` — 6 route(s), `rust/server/src/vault/mod.rs`
+- `wbs` — 5 route(s), `rust/server/src/wbs/mod.rs`
+- `website-intake` — 2 route(s), `rust/server/src/api/routes.rs`
+- `workflows` — 2 route(s), `rust/server/src/api/routes.rs`
 
 ## TypeScript modules under the subjects
 
@@ -128,52 +190,7 @@ questions on purpose: a port can be complete and still cut over to nothing.
 
 ## Consistency
 
-- route /v1/security/identity is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/security/guests is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/security/guest-code is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/security/guest-code/verify is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/security/authorize is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/security/authorize/public is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/security/role-entitlements is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/security/users is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/cockpit is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/workflows is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/workflows/{id} is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/flight-recorder/{id} is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/tasks/{id}/complete is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/wbs/{id}/apple-reminder is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/wbs/{id}/route is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/properties/admin is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/properties/{id}/admin is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/properties/{id}/video is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/properties/{id}/media/uploads is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/properties/{id}/media/uploads/{upload_id}/chunks/{index} is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/properties/{id}/media/uploads/{upload_id}/complete is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/properties/{id}/video-uploads is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/properties/{id}/video-uploads/{upload_id}/finalize is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/deals is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/deals/{id} is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/deals/{id}/commands is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/activity is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/accounting/dashboard is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/accounting/receivables is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/accounting/receivables/{id}/paid is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/accounting/expenses is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/accounting/expense-categories is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/accounting/pnl is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/vault/public-listing-documents/{id} is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/public/listing-copy is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/public/listings is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/public/property is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/public/media/{id} is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/public/guide is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/website-intake/{id}/notify is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/vault/document-bytes/{id} is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/diagnostics/db is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/engine/transactions is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/engine/timers/reconcile is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/engine/tasks/complete is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
-- route /v1/engine/reclaim is mounted but belongs to no capability — add it to scripts/rust-parity-map.json
+No drift: every mapped route and path exists, every mounted route is claimed.
 
 ## What this cannot tell you
 

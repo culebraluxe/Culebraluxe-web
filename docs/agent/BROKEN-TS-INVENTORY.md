@@ -429,6 +429,16 @@ DEV_OPS (21 files)
 
 FORGE (27 files)
 
+**SIX DEAD SUITES NO LONGER RUN (2026-09-28).** `pnpm test:harness` was
+`node --import tsx --test scripts/*.test.ts` — a glob written when every file under `scripts/` could load.
+Six of them (`forge-manifest`, `forge-packet-lint`, `forge-sync-agents`, `rust-api-client`, `rust-ui-mount`,
+`whatsapp-coexistence-completion`) die at import on the deleted `legacy/`, so the harness was permanently red
+for a reason nobody could fix, which is how a gate gets switched off. The runner is now
+`scripts/test-harness.mjs`, which DERIVES its list instead of listing it: a suite carrying the
+`⚠ BROKEN ON PURPOSE` banner is skipped and named, an unmarked one runs. A repaired file rejoins the run
+automatically; a newly dead one is skipped the moment it is marked. Their Rust replacements are the fixtures
+in `rust/forge/src/scope_manifest.rs` + `rust/cli/src/forge/manifest.rs` and the sibling modules below.
+
     22 scripts/forge-packet-lint.ts                 FORGE P0    → PORTED 2026-09-27 (rust/cli forge harness-lint)
     23 scripts/forge-packet-lint.test.ts            FORGE P0    → PORTED 2026-09-27 (39 fixtures in rust/cli/src/forge/*)
     24 scripts/forge-sync-agents.ts                 FORGE P0    → PORTED 2026-09-27 (rust/cli forge sync-agents)

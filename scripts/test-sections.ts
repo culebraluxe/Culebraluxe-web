@@ -16,7 +16,7 @@
 // unclassified and `scripts/test-sections.test.ts` fails the harness for it — the same shape as the
 // column-writer audit, because an unclassified file is a file nobody will ever run.
 // ---------------------------------------------------------------------------
-import { existsSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 
 export type Area = 'FORGE' | 'APP' | 'HARNESS'
@@ -26,16 +26,66 @@ export type Section = {
   area: Area
   /** What the section is for, in the words the runner prints. */
   about: string
+  /**
+   * TRUE when the tree this section named is gone and no test file matches it any more.
+   *
+   * The port moved the tests beside the code they check: 385 separate TypeScript suite files became ~150
+   * Rust files that hold their own `#[cfg(test)]` tests, so six of the ten sections below have no file
+   * today. Deleting them would have been the easy lie — they are still how an old story's frozen fence
+   * path (`workflow_app/tests/claim-clock.test.ts`) is classified, and `sectionForFile` still answers for
+   * those paths. What is NOT allowed is a section that is empty and pretends otherwise: this flag is that
+   * admission, `now` says which Rust crate owns the capability, and the gate fails a section that is
+   * empty without it.
+   */
+  historical?: true
+  /** For a historical section: where the capability lives now. */
+  now?: string
 }
 
 export const SECTIONS: Section[] = [
   { name: 'forge-engine', area: 'FORGE', about: 'the engine: waves, dispatch, routing, contracts, gates' },
-  { name: 'forge-verify', area: 'FORGE', about: 'verification itself: acceptance, assertions, receipts, migrations' },
-  { name: 'forge-runtime', area: 'FORGE', about: 'the agent runtime: adapters, sessions, workspaces, invokers' },
-  { name: 'app-crm', area: 'APP', about: 'the book of business: clients, deals, documents, deadlines' },
-  { name: 'app-intake', area: 'APP', about: 'intake: mail, messages, Apple surfaces, calendar, conversations' },
-  { name: 'app-money', area: 'APP', about: 'money: accounting, banking, statements' },
-  { name: 'app-identity', area: 'APP', about: 'identity and access: auth, entitlements, people' },
+  {
+    name: 'forge-verify',
+    area: 'FORGE',
+    about: 'verification itself: acceptance, assertions, receipts, migrations',
+    historical: true,
+    now: 'rust/cli/src/forge/lint.rs — the packet lint is the surviving verification rule set',
+  },
+  {
+    name: 'forge-runtime',
+    area: 'FORGE',
+    about: 'the agent runtime: adapters, sessions, workspaces, invokers',
+    historical: true,
+    now: 'rust/forge/src/engine — the engine owns the runtime the TypeScript adapters drove',
+  },
+  {
+    name: 'app-crm',
+    area: 'APP',
+    about: 'the book of business: clients, deals, documents, deadlines',
+    historical: true,
+    now: 'rust/core/domain + rust/core/db — the domain is Rust now',
+  },
+  {
+    name: 'app-intake',
+    area: 'APP',
+    about: 'intake: mail, messages, Apple surfaces, calendar, conversations',
+    historical: true,
+    now: 'rust/integrations — every provider adapter is there',
+  },
+  {
+    name: 'app-money',
+    area: 'APP',
+    about: 'money: accounting, banking, statements',
+    historical: true,
+    now: 'rust/server/src/api — accounting is served by the Rust API',
+  },
+  {
+    name: 'app-identity',
+    area: 'APP',
+    about: 'identity and access: auth, entitlements, people',
+    historical: true,
+    now: 'rust/server/src/api + rust/core/db/src/identity_cache.rs',
+  },
   { name: 'app-portal', area: 'APP', about: 'the portal surface: navigation, views, boards, readiness' },
   { name: 'app-core', area: 'APP', about: 'shared app core: commands, db seams, contracts' },
   { name: 'harness', area: 'HARNESS', about: 'the guardrails themselves: manifests, packets, protections' },
@@ -47,6 +97,16 @@ export const SECTIONS: Section[] = [
  */
 export const SECTION_RULES: Array<{ section: string; match: RegExp }> = [
   { section: 'harness', match: /^scripts\// },
+  // THE RUST TREE, which is where the product and its tests live since `4cf98110`. The CRATE is the section,
+  // because the crate is what a person actually runs (`cargo test -p forge`), and a rule that disagrees with
+  // the command people type is a rule they will route around. Forge-first so a forge command under
+  // `rust/cli` is the engine's, not the harness's.
+  { section: 'forge-engine', match: /^rust\/(cli\/src\/forge|forge)\// },
+  { section: 'forge-engine', match: /^rust\/core\/workflow\// },
+  { section: 'app-portal', match: /^rust\/ui\// },
+  { section: 'app-core', match: /^rust\/(core|server|integrations)\// },
+  { section: 'harness', match: /^rust\/cli\// },
+  { section: 'app-core', match: /^rust\// },
   { section: 'forge-runtime', match: /^agent-runtime\// },
   { section: 'forge-runtime', match: /^testv2\/engine_tests\/(persistence|hardening|dynamic)/ },
   { section: 'forge-engine', match: /^testv2\/engine_tests\// },
@@ -103,18 +163,44 @@ export function areaOf(sectionName: string): Area {
   return SECTIONS.find((s) => s.name === sectionName)?.area ?? 'APP'
 }
 
+/** Trees that can hold tests. `rust` and `scripts` exist; the rest are the pre-port trees, so a fence path
+ * written before the port still resolves if that tree ever comes back. */
+const TEST_TREES = ['rust', 'scripts', 'legacy/workflow_app/tests', 'testv2/engine_tests', 'agent-runtime']
+
+/** Directories never walked: build output and dependencies are not tests. */
+const SKIPPED_DIRS = new Set(['target', 'node_modules', 'dist'])
+
+/**
+ * Does this file HOLD tests?
+ *
+ * The TypeScript tree was one suite per file, so the suffix said everything. Rust puts the tests beside the
+ * code they check, so the answer comes from the file's own content: an inline `#[cfg(test)]` module, or an
+ * integration test under `tests/`. Finding them this way is what keeps the gate's one promise — a file
+ * holding tests that no section runs is a file nobody will ever run again.
+ */
+function holdsTests(name: string, full: string): boolean {
+  if (name.endsWith('.test.ts')) return true
+  if (!name.endsWith('.rs')) return false
+  if (full.endsWith('_test.rs') || full.includes('/tests/')) return true
+  try {
+    return readFileSync(full, 'utf8').includes('#[cfg(test)]')
+  } catch {
+    return false
+  }
+}
+
 /** Every test file the runner knows about, relative to the repo root. */
 export function listTestFiles(root: string): string[] {
-  const trees = ['legacy/workflow_app/tests', 'testv2/engine_tests', 'scripts', 'agent-runtime']
   const found: string[] = []
   const walk = (dir: string): void => {
     for (const name of readdirSync(dir)) {
+      if (SKIPPED_DIRS.has(name) || name.startsWith('.')) continue
       const full = join(dir, name)
       if (statSync(full).isDirectory()) walk(full)
-      else if (name.endsWith('.test.ts')) found.push(relative(root, full))
+      else if (holdsTests(name, full)) found.push(relative(root, full))
     }
   }
-  for (const tree of trees) {
+  for (const tree of TEST_TREES) {
     const full = join(root, tree)
     if (existsSync(full)) walk(full)
   }
@@ -141,24 +227,35 @@ export function sectionsForPaths(root: string, paths: string[]): string[] {
       touched.add(own)
       continue
     }
-    if (path.startsWith('scripts/')) touched.add('harness')
-    // Root config can change how anything is built or run; the honest mapping is both cheap suites, not
-    // "everything" (which is what a person means when they say be careful).
-    else if (/^(package\.json|tsconfig\.json|next\.config\.|eslint)/.test(path)) {
+    // Prose and data change no tests. The honest answer is the empty list, not "everything", which is what a
+    // person means when they say be careful.
+    if (path.startsWith('docs/') || path.endsWith('.md')) continue
+    // Root config can change how anything is built or run: the harness, plus the app core it builds.
+    if (
+      /^(package\.json|pnpm-lock\.yaml|tsconfig\.json|rust\/Cargo\.(toml|lock)|rust\/rust-toolchain|eslint)/.test(
+        path,
+      )
+    ) {
       touched.add('harness')
       touched.add('app-core')
-    } else if (path.startsWith('legacy/workflow_app/forge/')) {
+      continue
+    }
+    // THE PRE-PORT TREES. These are the only paths that answer with two sections, and the reason is in the
+    // old fences: an engine change ran the engine's tests AND the verification rule set, which lived apart.
+    if (path.startsWith('legacy/workflow_app/forge/')) {
       touched.add('forge-engine')
       touched.add('forge-verify')
-    } else if (path.startsWith('agent-runtime/')) touched.add('forge-runtime')
-    else if (
-      path.startsWith('legacy/db/') ||
-      path.startsWith('lib/') ||
-      path.startsWith('app/') ||
-      path.startsWith('components/')
-    ) {
-      touched.add('app-core')
+      continue
     }
+    if (path.startsWith('agent-runtime/')) {
+      touched.add('forge-runtime')
+      continue
+    }
+    // Everything else answers from THE SAME rules the report uses. It used to have a second hand-written
+    // opinion here (`legacy/db/`, `lib/`, `app/`, `components/` → app-core), and the two drifted: a deleted
+    // tree's branch kept answering app-core for paths the rules had stopped placing anywhere.
+    const section = sectionForFile(path)
+    if (section) touched.add(section)
   }
   return [...touched].sort()
 }

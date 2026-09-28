@@ -73,19 +73,32 @@ jobs:
       - name: install (frozen lockfile)
         run: pnpm install --frozen-lockfile
 
-      - name: typecheck
-        run: pnpm typecheck
+      # WHAT WAS REMOVED HERE, AND WHY (2026-09-28).
+      #
+      # Three steps in this job checked a repository that no longer exists, so they could only ever fail —
+      # and a gate that always fails is not a gate, it is a red light people learn to scroll past:
+      #
+      #   * `pnpm typecheck` — `tsc --noEmit` reports 679 errors, every one of them in the reference-only
+      #     dead TypeScript (`agent-runtime/`, `scripts/*.ts` importing the deleted `legacy/`). Those files
+      #     are kept on purpose ("marked, not deleted" — docs/agent/BROKEN-TS-INVENTORY.md) and they cannot
+      #     typecheck, so this step cannot be green until they are deleted. The live TypeScript is the
+      #     harness scripts, exercised by `pnpm test:harness` below.
+      #   * `node scripts/app-runtime-boundary.mjs` — it walks `app/`, which was deleted with the TypeScript
+      #     application, so it exits ENOENT. Its boundary (the UI must not import the retired server) is
+      #     enforced by `eslint.config.mjs` over `rust/ui`-facing TypeScript now.
+      #   * `node --import tsx scripts/forge-static-gate.ts` — its module
+      #     `legacy/workflow_app/forge/forge-static-gate` was deleted in the same port; the file carries the
+      #     `⚠ BROKEN ON PURPOSE` banner. The Rust-side static checks it stood for are `rust-client-cutover.yml`
+      #     (workspace compile, persistence boundary, browser compile, workspace tests), which is their home.
+      #
+      # The engine's harness gate that DOES exist is the next step, and it is the same command the engine and
+      # the captain run, so CI cannot drift from them.
 
-      - name: app runtime has no legacy TypeScript
-        run: node scripts/app-runtime-boundary.mjs
+      - name: harness gates (packets, manifests, vendor blocks)
+        run: pnpm forge:packet-lint
 
       - name: lint
         run: pnpm lint
-
-      # The engine's own gate, called directly — same instrument, same roots, same exit code. Using
-      # the script rather than re-typing the commands is what keeps CI and the engine from drifting.
-      - name: architecture, security patterns, dead code
-        run: node --import tsx scripts/forge-static-gate.ts
 
       - name: harness tests (no database)
         run: pnpm test:harness

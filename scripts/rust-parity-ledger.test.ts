@@ -49,16 +49,22 @@ test('parity ledger: a capability is never claimed as serving Rust without a rou
   }
 })
 
-test('parity ledger: every route is either claimed or explicitly listed as infrastructure', () => {
+test('parity ledger: every route is claimed, listed as native surface, or infrastructure', () => {
   const map = JSON.parse(readFileSync('scripts/rust-parity-map.json', 'utf8')) as {
     capabilities: Array<{ id: string; routes: string[] }>
+    nativeRoutes: Array<{ area: string; routes: string[] }>
     knownUnmappedRoutes: string[]
   }
-  const claimed = new Set(map.capabilities.flatMap((capability) => capability.routes))
+  // Re-derived here rather than imported: the generator is a script with side effects, and this assertion is
+  // cheap. The three sources it accepts are the three the generator accepts — if this list grows a fourth
+  // kind of claim, both must change together (the generator is the authority and reports the same drift).
+  const claimed = new Set([
+    ...map.capabilities.flatMap((capability) => capability.routes),
+    ...map.nativeRoutes.flatMap((entry) => entry.routes),
+    ...map.knownUnmappedRoutes,
+  ])
   const router = readFileSync('rust/server/src/api/routes.rs', 'utf8')
   const mounted = [...router.matchAll(/\.route\(\s*"([^"]+)"/g)].map((match) => match[1])
-  const unaccounted = mounted.filter(
-    (route) => !claimed.has(route) && !map.knownUnmappedRoutes.includes(route),
-  )
+  const unaccounted = mounted.filter((route) => !claimed.has(route))
   assert.deepEqual(unaccounted, [], `routes mounted but unaccounted for: ${unaccounted.join(', ')}`)
 })

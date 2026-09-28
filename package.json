@@ -87,7 +87,7 @@
     "forge:manifest:check": "cargo run --manifest-path rust/Cargo.toml -p cli -- forge manifest --check-all",
     "forge:sync-agents": "cargo run --manifest-path rust/Cargo.toml -p cli -- forge sync-agents",
     "forge:harness": "pnpm forge:sync-agents --check && pnpm forge:manifest --check-all && pnpm forge:packet-lint && pnpm test:harness",
-    "test:harness": "node --import tsx --test scripts/*.test.ts",
+    "test:harness": "node scripts/test-harness.mjs",
     "smoke:prod": "node --import tsx scripts/prod-smoke.ts",
     "story:status": "APP_ENV=production node --env-file=.env.local --import tsx scripts/set-story-status.ts",
     "sprint": "APP_ENV=production node --env-file=.env.local --import tsx scripts/sprint.ts",
