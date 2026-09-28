@@ -20,6 +20,8 @@ mod error;
 mod firm;
 mod flight_recorder;
 mod forge_control;
+// The reads behind `forge doctor`: the control plane in one command, read-only.
+pub mod forge_doctor;
 mod forge_engine;
 // The sanctioned Forge read path (the `forge board` / `forge story-show` / `forge batch-status` operator
 // tools). Public because the CLI is the caller and SQL belongs here, not there.
@@ -47,8 +49,8 @@ pub mod metrics;
 pub mod retry;
 // Schema parity (the `pnpm db:parity` release gate). Public and pure: a snapshot in, a report out, so it is
 // unit testable without a database and a Rust DEV_OPS gate can share the one comparison.
-pub mod schema_parity;
 mod schema_migration;
+pub mod schema_parity;
 mod security;
 mod security_audit;
 mod task;
@@ -83,6 +85,10 @@ pub use firm::FirmDao;
 pub use flight_recorder::FlightRecorderDao;
 pub use forge_control::{
     FlightFireResult, ForgeControlDao, LearnStaleClaimRow, ReadyAgentWorkRow, StaleAgentWorkRow,
+};
+pub use forge_doctor::{
+    ClaimRow, ControlPlaneCounts, EngineQueuedCardRow, EngineRunCardRow, ForgeDoctorDao, QaRunRow,
+    RoiAttemptRow,
 };
 pub use forge_engine::{
     DealWorkflowFactRow, ForgeAgentWorkRow, ForgeDecisionRow, ForgeEngineDao, ForgeEvidencePatch,

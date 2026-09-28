@@ -18,6 +18,7 @@
 
 pub mod citations;
 pub mod decision;
+pub mod doctor;
 pub mod lint;
 pub mod read_tools;
 pub mod secret_shapes;
@@ -82,8 +83,9 @@ pub async fn dispatch(args: &[String]) -> Result<u8, Failure> {
         // The operator reads. Async because they answer from the live control plane; the two harness gates
         // above are pure file checks and stay synchronous.
         "board" | "story-show" | "story:show" | "batch-status" => read_tools::run(args).await,
+        "doctor" => doctor::run(args).await,
         other => Err(Failure::usage(format!(
-            "unknown forge command `{other}`; usage: forge <harness-lint|sync-agents|board|story-show|batch-status> [options]"
+            "unknown forge command `{other}`; usage: forge <harness-lint|sync-agents|board|story-show|batch-status|doctor> [options]"
         ))),
     }
 }

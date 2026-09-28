@@ -80,7 +80,7 @@
     "forge:batch:status": "APP_ENV=production cargo run --manifest-path rust/Cargo.toml -p cli -- forge batch-status",
     "forge:board": "APP_ENV=production cargo run --manifest-path rust/Cargo.toml -p cli -- forge board",
     "forge:story:show": "APP_ENV=production cargo run --manifest-path rust/Cargo.toml -p cli -- forge story-show",
-    "forge:doctor": "APP_ENV=production node --import tsx --env-file=.env.local scripts/forge-doctor.ts",
+    "forge:doctor": "APP_ENV=production cargo run --manifest-path rust/Cargo.toml -p cli -- forge doctor",
     "forge:packet-lint": "cargo run --manifest-path rust/Cargo.toml -p cli -- forge harness-lint",
     "forge:silent-failure-gate": "node --import tsx scripts/forge-silent-failure-gate.ts",
     "forge:manifest": "node --import tsx scripts/forge-manifest.ts",
