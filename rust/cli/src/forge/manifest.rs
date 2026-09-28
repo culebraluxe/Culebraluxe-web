@@ -20,7 +20,7 @@ use super::citations::{cited_repo_paths, Resolution, Resolver};
 use super::Failure;
 use forge::scope_manifest::{
     declares_new, lexical_drift_count, manifest_drift, manifest_file_name, missing_paths,
-    non_manifest_refusal, only_the_clock_moved, rank_entries, render, CorpusFile, Entry, Lane,
+    non_manifest_refusal, only_the_run_stamp_moved, rank_entries, render, CorpusFile, Entry, Lane,
     Lanes, Meta, RankInput,
 };
 use forge::sync_conflict::is_conflict_copy_name;
@@ -247,12 +247,13 @@ fn scope_from_manifest_file(file: &str) -> String {
 /// file leaves a dirty worktree and a meaningless diff in every release. An idempotent writer makes a re-run
 /// free, which is what lets a gate re-run the generator to compare.
 ///
-/// The header's clock is not "content": when the only difference is `generated:` (which changes every second),
-/// the file on disk is kept. Without that, `forge:manifest --check-all` — which the harness chain runs —
-/// rewrote eight committed files on every run.
+/// The header's run stamp is not "content": when the only difference is `generated:` or the
+/// `(working tree dirty)` marker, the file on disk is kept. Without that, `forge:manifest --check-all` — which
+/// the harness chain runs — rewrote eight committed files on every run, and twice per run while somebody was
+/// working.
 fn write_if_changed(path: &Path, content: &str) -> std::io::Result<bool> {
     if let Ok(existing) = fs::read_to_string(path) {
-        if existing == content || only_the_clock_moved(&existing, content) {
+        if existing == content || only_the_run_stamp_moved(&existing, content) {
             return Ok(false);
         }
     }
@@ -645,18 +646,24 @@ mod tests {
     }
 
     #[test]
-    fn a_re_run_that_moved_only_the_clock_leaves_the_file_alone() {
+    fn a_re_run_that_moved_only_the_run_stamp_leaves_the_file_alone() {
         // `forge:manifest --check-all` is in the harness chain, so a rewrite per run dirtied eight committed
         // files every time it ran. Only a real change may touch them.
         let root = std::env::temp_dir().join(format!("forge-manifest-clock-{}", std::process::id()));
         let path = root.join("docs/agent/manifest/TEST-01.md");
-        let first = "# Scope manifest — TEST-01\n\n- generated: 2026-09-28 08:00:00Z\n- rows: 1\n";
-        let second = "# Scope manifest — TEST-01\n\n- generated: 2026-09-28 09:30:00Z\n- rows: 1\n";
+        let first =
+            "# Scope manifest — TEST-01\n\n- generated: 2026-09-28 08:00:00Z\n- commit: `abc` (working tree dirty) on `main`\n- rows: 1\n";
+        let second =
+            "# Scope manifest — TEST-01\n\n- generated: 2026-09-28 09:30:00Z\n- commit: `abc` on `main`\n- rows: 1\n";
         assert!(write_if_changed(&path, first).expect("write"));
-        assert!(!write_if_changed(&path, second).expect("the clock alone is not a change"));
+        assert!(
+            !write_if_changed(&path, second).expect("the run stamp alone is not a change"),
+            "the clock and the dirty marker both describe the RUN, not the rows"
+        );
         assert_eq!(fs::read_to_string(&path).expect("read"), first);
-        // A row that changed is a change, clock or no clock.
-        let third = "# Scope manifest — TEST-01\n\n- generated: 2026-09-28 09:30:00Z\n- rows: 2\n";
+        // A row that changed is a change, stamp or no stamp.
+        let third =
+            "# Scope manifest — TEST-01\n\n- generated: 2026-09-28 09:30:00Z\n- commit: `abc` on `main`\n- rows: 2\n";
         assert!(write_if_changed(&path, third).expect("write"));
         let _ = fs::remove_dir_all(&root);
     }

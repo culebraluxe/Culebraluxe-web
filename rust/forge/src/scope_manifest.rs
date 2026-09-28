@@ -443,23 +443,31 @@ pub fn manifest_drift(on_disk: &str, fresh: &str, lanes: Lanes) -> (Vec<String>,
     (added, removed)
 }
 
-/// Did ONLY the render clock move between two renders of the same manifest?
+/// Did ONLY the run stamp move between two renders of the same manifest?
 ///
 /// A generated file whose header carries `generated: <now>` changes on every run, so a whole-body comparison
 /// makes every run write the file — and `pnpm forge:harness` runs `forge:manifest --check-all`, so the chain
 /// left a dirty worktree every time it ran. That contradicts the writer's own purpose ("an idempotent writer
-/// makes a re-run free, which is what lets a gate re-run the generator to compare"), so the header's clock is
-/// compared separately from the body: when everything else is identical, the file on disk is kept, and its
+/// makes a re-run free, which is what lets a gate re-run the generator to compare"), so the header's run stamp
+/// is compared separately from the body: when everything else is identical, the file on disk is kept, and its
 /// `generated:` line then means "when this CONTENT was generated" — which is what a reader wants it to mean.
-pub fn only_the_clock_moved(on_disk: &str, fresh: &str) -> bool {
-    fn body_without_clock(markdown: &str) -> String {
+///
+/// The stamp is three fields, all of them facts about the RUN rather than about the rows: the clock, the
+/// `(working tree dirty)` marker (it flips as somebody works), and the commit sha (it moves on every commit,
+/// including commits that touch nothing this manifest lists — so treating it as content made all eight
+/// committed manifests stale after every push, and re-rendering them meant another commit: a treadmill).
+pub fn only_the_run_stamp_moved(on_disk: &str, fresh: &str) -> bool {
+    const STAMP_PREFIXES: [&str; 2] = ["- generated: ", "- commit: "];
+    const DIRTY_MARK: &str = " (working tree dirty)";
+    fn body_without_stamp(markdown: &str) -> String {
         markdown
             .split('\n')
-            .filter(|line| !line.starts_with("- generated: "))
+            .filter(|line| !STAMP_PREFIXES.iter().any(|prefix| line.starts_with(prefix)))
+            .map(|line| line.replace(DIRTY_MARK, ""))
             .collect::<Vec<_>>()
             .join("\n")
     }
-    on_disk != fresh && body_without_clock(on_disk) == body_without_clock(fresh)
+    on_disk != fresh && body_without_stamp(on_disk) == body_without_stamp(fresh)
 }
 pub fn lexical_drift_count(on_disk: &str, fresh: &str) -> usize {
     let (added, removed) = manifest_drift(on_disk, fresh, Lanes::All);

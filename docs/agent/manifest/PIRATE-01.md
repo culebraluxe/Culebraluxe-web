@@ -3,8 +3,8 @@
 <!-- GENERATED FILE. Do not hand-edit. The freshness gate compares the structural rows
      (handbook, packet, cited, commit, index); the lexical tail is informational. -->
 
-- generated: 2026-09-28 08:17:56Z
-- commit: `a4d576c2` (working tree dirty) on `main`
+- generated: 2026-09-28 08:33:29Z
+- commit: `c9520336` (working tree dirty) on `main`
 - regenerate: `pnpm forge:manifest PIRATE-01`
 - rows: 27 — packet, cited paths and story commits first, lexical matches after
 
@@ -28,7 +28,7 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `lib/story-moves.ts` **MISSING** — cited · cited by PIRATE-01 · last touched 2026-09-26
 - `scripts/forge-packet-lint.test.ts` — cited · cited by PIRATE-01 · last touched 2026-09-28
 - `agent-runtime/repo-context.ts` — cited · cited by PIRATE-01 · last touched 2026-09-28
-- `docs/agent/manifest/PIRATE-01.md` — cited · cited by PIRATE-01 · last touched untracked
+- `docs/agent/manifest/PIRATE-01.md` — cited · cited by PIRATE-01 · last touched 2026-09-28
 - `docs/agent/BROKEN-TS-INVENTORY.md` — lexical · term match: against, agent, agent-runtime, agent-vendor-block · last touched 2026-09-28
 - `docs/agent/RUNLOG.md` — lexical · term match: acceptance, accepted, against, agent · last touched 2026-09-28
 - `docs/agent/ARCH-HANDOFF.md` — lexical · term match: acceptance, against, agent, agents · last touched untracked
