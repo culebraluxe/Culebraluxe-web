@@ -2,6 +2,7 @@ use crate::{
     accounting::AccountingService,
     calendar::CalendarService,
     clients::ClientService,
+    client_room::ClientRoomService,
     cockpit::CockpitService,
     catch_up::CatchUpService,
     communications::CommsService,
@@ -35,7 +36,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use db::{
-    AccountingDao, CalendarDao, CatchUpDao, ClientDao, CockpitDao, CommsDao, ContractDao, Database,
+    AccountingDao, CalendarDao, CatchUpDao, ClientDao, ClientRoomDao, CockpitDao, CommsDao, ContractDao, Database,
     DealPortalDao, FirmDao, FlightRecorderDao, FormDao, GuestDao, GuideDao, IntakeDao, IssueDao,
     MarketingDao, MediaDao, PersonDao, ProjectDao, PropertyDao, PublicListingDao,
     RelationshipEvidenceDao, SecurityDao, ShowingDao, SignatureDao, SupportDiagnosticsDao, TaskDao,
@@ -87,6 +88,7 @@ macro_rules! abstract_service {
 
 abstract_service!(CockpitService<CockpitDao>, "cockpit", "Cockpit service");
 abstract_service!(CatchUpService<CatchUpDao>, "catch-up", "Relationship Catch-Up service");
+abstract_service!(ClientRoomService<ClientRoomDao>, "client-room", "External client transaction room");
 abstract_service!(GuideService<GuideDao>, "guide", "Island guide service");
 abstract_service!(IntakeService<IntakeDao>, "intake", "Website intake service");
 abstract_service!(IssueService<IssueDao>, "issue", "Issue service");
@@ -228,6 +230,7 @@ impl AbstractService for UnavailableService {
 #[derive(Clone)]
 pub struct ServiceCatalog {
     clients: Arc<ClientService<ClientDao>>,
+    client_room: Arc<ClientRoomService<ClientRoomDao>>,
     cockpit: Arc<CockpitService<CockpitDao>>,
     catch_up: Arc<CatchUpService<CatchUpDao>>,
     guide: Arc<GuideService<GuideDao>>,
@@ -294,6 +297,10 @@ impl ServiceCatalog {
         Self {
             clients: Arc::new(ClientService::new(
                 ClientDao::new(db.clone()),
+                infrastructure.clone(),
+            )),
+            client_room: Arc::new(ClientRoomService::new(
+                ClientRoomDao::new(db.clone()),
                 infrastructure.clone(),
             )),
             cockpit: Arc::new(CockpitService::new(
@@ -428,6 +435,7 @@ impl ServiceCatalog {
             self.property.clone(),
             self.contract.clone(),
             self.clients.clone(),
+            self.client_room.clone(),
             self.cockpit.clone(),
             self.catch_up.clone(),
             self.guide.clone(),
@@ -474,7 +482,7 @@ macro_rules! catalog_accessors {
 }
 
 catalog_accessors! {
-    clients: ClientService<ClientDao>, cockpit: CockpitService<CockpitDao>, catch_up: CatchUpService<CatchUpDao>, guide: GuideService<GuideDao>,
+    clients: ClientService<ClientDao>, client_room: ClientRoomService<ClientRoomDao>, cockpit: CockpitService<CockpitDao>, catch_up: CatchUpService<CatchUpDao>, guide: GuideService<GuideDao>,
     intake: IntakeService<IntakeDao>, issues: IssueService<IssueDao>, marketing: MarketingService<MarketingDao>,
     media: MediaService<MediaDao>, person: PersonService<PersonDao>, firm: FirmService<FirmDao>,
     forms: FormService<FormDao>, public_listings: PublicListingService<PublicListingDao>,
