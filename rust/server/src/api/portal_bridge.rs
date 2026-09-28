@@ -33,6 +33,7 @@ pub fn router() -> Router<ApiState> {
     Router::new()
         .route("/api/portal/rust-ui/entitlements", get(entitlements))
         .route("/api/portal/rust-ui/cockpit", get(cockpit).post(cockpit_act))
+        .route("/api/portal/rust-ui/catch-up", get(catch_up).post(catch_up_act))
         .route("/api/portal/rust-ui/tech", get(tech).post(tech_act))
         .route("/api/portal/rust-ui/clients", get(clients))
         .route("/api/portal/rust-ui/page", get(page))
@@ -3045,6 +3046,75 @@ async fn cockpit_page(
         .await
         .map_err(failed(resolved))?;
     Ok(Json(json!({ "cockpit": cockpit })))
+}
+
+async fn catch_up_page(
+    state: &ApiState,
+    resolved: &ResolvedRequestContext,
+) -> Result<Json<Value>, ApiError> {
+    let snapshot = state
+        .services()
+        .catch_up()
+        .snapshot(&resolved.service)
+        .await
+        .map_err(failed(resolved))?;
+    Ok(Json(json!({ "catchUp": snapshot })))
+}
+
+/// Relationship Catch-Up: one deterministic reason per person, highest priority first.
+async fn catch_up(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    catch_up_page(&state, &resolved).await
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CatchUpAction {
+    action: String,
+    person_id: String,
+    reason_code: String,
+    days: Option<i32>,
+}
+
+async fn catch_up_act(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(input): Json<CatchUpAction>,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    match input.action.as_str() {
+        "handle" => {
+            state
+                .services()
+                .catch_up()
+                .handle(&input.person_id, &input.reason_code, &resolved.service)
+                .await
+                .map_err(failed(&resolved))?;
+        }
+        "snooze" => {
+            state
+                .services()
+                .catch_up()
+                .snooze(
+                    &input.person_id,
+                    &input.reason_code,
+                    input.days.unwrap_or(3),
+                    &resolved.service,
+                )
+                .await
+                .map_err(failed(&resolved))?;
+        }
+        _ => {
+            return Err(ApiError::bad_request(
+                "CATCH_UP_ACTION_UNSUPPORTED",
+                "Catch-Up action must be handle or snooze.",
+            ));
+        }
+    }
+    catch_up_page(&state, &resolved).await
 }
 
 /// The Cockpit: KPIs, tasks, the featured deal, the pipeline and recent interactions, as `{ cockpit }`.
