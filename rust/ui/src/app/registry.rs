@@ -471,7 +471,8 @@ mod tests {
             .into_iter()
             .map(|(label, _)| label)
             .collect();
-        assert_eq!(rail, ["Clients"]);
+        // Catch-Up and Clients both need `person.read`.
+        assert_eq!(rail, ["Catch-Up", "Clients"]);
         let guest = Actor {
             account_type: "external".into(),
             ..user
