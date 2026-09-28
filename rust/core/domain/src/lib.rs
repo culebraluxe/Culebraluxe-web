@@ -30,6 +30,7 @@ pub mod marketing;
 pub mod media;
 pub mod person;
 pub mod project;
+pub mod publishing;
 pub mod property;
 pub mod public_listing;
 pub mod relationship_evidence;
