@@ -99,7 +99,8 @@ endpoint and **`DATABASE_URL_DEV` does not change** — no connection string to 
 maintaining a URL for no benefit.) `neonctl` is already authenticated on the captain's
 machine; `NEON_API_KEY` is not needed in `.env.local`.
 
-After any reset: `pnpm db:seed:projects` to restore DEV-only work, then
+After any reset: `pnpm db:migrate db/seeds/dev-break-glass.sql dev` (local sign-in — the
+reset removes it), `pnpm db:seed:projects` to restore DEV-only work, then
 `pnpm db:parity`, then smoke the portal. Two caveats: PARITY OK after a reset is green
 BY CONSTRUCTION (it proves nothing until the next code change), and DEV inherits
 PROD's `schema_migration` ledger, so DEV stops being a record of what DEV applied.
@@ -146,7 +147,14 @@ by `pnpm db:migrate` (`cargo run -p cli -- db-tool apply` in Rust — the TypeSc
 and the Node runtime it required are gone). Each apply records filename,
 sha256 checksum, target and timestamp; re-applying a recorded file is *skipped*
 (and refused outright if the file's checksum changed since it was applied).
-`pnpm db:migrations` reports what is recorded where, per target.
+`pnpm db:migrations` reports what is recorded where, per target. Rows are matched to files
+by **file name**, not path: the folder has moved (`db/` -> `legacy/db/` -> `db/`), and a move
+must never make an applied migration look unapplied.
+
+The same tool applies **data loads** (`db/loads/*.sql`) and **seeds** (`db/seeds/*.sql`),
+recorded like migrations. Production data work goes through a committed, re-runnable file in
+`db/loads` — safe to run twice, one transaction, ending with a report — never ad-hoc SQL in a
+console. Prove it first on DEV, or on PROD inside a transaction that rolls back.
 
 The ledger is authoritative **from the 2026-09-10 baseline forward** — pre-baseline
 history is honestly reported as "unrecorded" rather than claimed:
@@ -187,6 +195,15 @@ what was *run*. Both are release gates.
   (`pnpm db:export:projects` to regenerate, `pnpm db:seed:projects` to reload).
 - **Never** reset PROD, copy DEV over PROD, or truncate canonical history.
   DEV data may be rebuilt freely; PROD data may not.
+- **Before any DELETE in production, list what it cascades.** Query
+  `pg_constraint` for foreign keys with `confdeltype = 'c'` onto the table and count
+  the rows each would take. On 2026-09-28 deleting two demo deals cascaded through
+  `transaction_document.deal_id` and `document_form_instance.deal_id` and took 7 real
+  contract forms and 47 documents with them (restored the same night from DEV's
+  morning copy; the PDFs in `media` had survived). A row that "stands alone" rarely does.
+- **Merge, never delete, a duplicate person or property.** `merge_person(golden,
+  duplicate)` (migration 228) and the Records FIND merge move every reference to the
+  golden record before removing the duplicate.
 
 ## 5. The DEV_OPS gate in Forge
 
