@@ -39,30 +39,6 @@ impl MuxConfig {
     }
 }
 
-fn required_mux_env(key: &str) -> Result<String, String> {
-    if let Some(value) = env_value(key) {
-        return Ok(value);
-    }
-
-    let suffix = environment_suffix(
-        std::env::var("VERCEL_ENV").ok().as_deref(),
-        std::env::var("APP_ENV").ok().as_deref(),
-    );
-    if let Some(suffix) = suffix {
-        let scoped = format!("{key}_{suffix}");
-        if let Some(value) = env_value(&scoped) {
-            return Ok(value);
-        }
-        return Err(format!(
-            "Mux config is incomplete; set {key} or environment-specific {scoped}."
-        ));
-    }
-
-    Err(format!(
-        "Mux config is incomplete; set {key}, or declare VERCEL_ENV/APP_ENV so the _DEV/_PROD key can be selected."
-    ))
-}
-
 fn env_value(key: &str) -> Option<String> {
     std::env::var(key)
         .ok()
@@ -70,28 +46,14 @@ fn env_value(key: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn environment_suffix(vercel_env: Option<&str>, app_env: Option<&str>) -> Option<&'static str> {
-    match vercel_env
-        .unwrap_or_default()
-        .trim()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "production" => return Some("PROD"),
-        "preview" | "development" => return Some("DEV"),
-        _ => {}
-    }
-
-    match app_env
-        .unwrap_or_default()
-        .trim()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "production" | "prod" => Some("PROD"),
-        "preview" | "development" | "dev" | "test" | "testing" => Some("DEV"),
-        _ => None,
-    }
+/// ONE MUX ACCOUNT FOR EVERY ENVIRONMENT. A house walk-through is the same film on DEV and in production — unlike the
+/// database, nothing here needs separating — so every environment uses the one pair: `MUX_TOKEN_ID` /
+/// `MUX_TOKEN_SECRET`, or, as they are named on Vercel and in `.env.local`, `MUX_TOKEN_ID_PROD` / `MUX_TOKEN_SECRET_PROD`.
+fn required_mux_env(key: &str) -> Result<String, String> {
+    let named = format!("{key}_PROD");
+    env_value(key)
+        .or_else(|| env_value(&named))
+        .ok_or_else(|| format!("Mux config is incomplete; set {key} or {named}."))
 }
 
 #[derive(Debug, Clone)]
@@ -320,20 +282,6 @@ fn http_error(status: StatusCode, body: &str) -> MuxClientError {
 mod tests {
     use super::*;
 
-    #[test]
-    fn selects_mux_environment_suffix() {
-        assert_eq!(
-            environment_suffix(Some("production"), Some("dev")),
-            Some("PROD")
-        );
-        assert_eq!(
-            environment_suffix(Some("preview"), Some("prod")),
-            Some("DEV")
-        );
-        assert_eq!(environment_suffix(None, Some("prod")), Some("PROD"));
-        assert_eq!(environment_suffix(None, Some("development")), Some("DEV"));
-        assert_eq!(environment_suffix(None, None), None);
-    }
 
     #[test]
     fn parses_ready_asset_with_public_playback() {
