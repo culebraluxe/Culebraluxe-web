@@ -272,7 +272,7 @@ fn client_room(room: &Remote<ClientRoomResponse>) -> Html {
                                             <p class="mt-1 text-xs font-light text-muted-foreground">{ document.created_at_label.clone() }</p>
                                         </div>
                                         <span class="text-[10px] font-light uppercase tracking-[0.14em] text-accent">
-                                            { if document.signed_artifact_available { "Signed" } else { title_case(&document.state).as_str() } }
+                                            { if document.signed_artifact_available { "Signed".to_string() } else { title_case(&document.state) } }
                                         </span>
                                     </div>
                                 }) }
