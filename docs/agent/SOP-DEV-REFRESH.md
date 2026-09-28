@@ -115,6 +115,14 @@ result on 2026-09-12: `storyboard_story` 313/313, `agent_work_item` 427/427,
 `forge_workflow_evidence` 4/4, and
 `agent_work_item.agent_work_item_parallel_shape_check` present on both.
 
+**Restore local sign-in — every time.** `pnpm dev` signs you in as ROOT through one
+break-glass identity that exists only on DEV; production has only Google identities, so
+the reset removes it and the portal sends you to Google sign-in instead:
+
+```sh
+pnpm db:migrate db/seeds/dev-break-glass.sql dev
+```
+
 If you keep DEV-only seed data, restore it now (`pnpm db:seed:projects`), then smoke
 the portal.
 
