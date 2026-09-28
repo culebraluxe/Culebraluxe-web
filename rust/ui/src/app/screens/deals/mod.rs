@@ -74,6 +74,11 @@ pub enum Msg {
         key: String,
         value: String,
     },
+    DealWorkspaceOfferTermChanged {
+        key: String,
+        field: &'static str,
+        value: String,
+    },
     DealWorkspaceSubmitOfferRequested {
         parent_offer_id: Option<String>,
     },
@@ -384,6 +389,24 @@ fn update(model: &mut Model, msg: Msg, ctx: &ScreenCtx) -> Cmd<Msg> {
             }
             model.error = None;
         }
+        Msg::DealWorkspaceOfferTermChanged { key, field, value } => {
+            let target = match field {
+                "financing" => &mut ws.offer_financing,
+                "deposit" => &mut ws.offer_deposits,
+                "inspectionDays" => &mut ws.offer_inspection_days,
+                "sellerCredits" => &mut ws.offer_seller_credits,
+                "closingDate" => &mut ws.offer_closing_dates,
+                "contingencies" => &mut ws.offer_contingencies,
+                "expiresAt" => &mut ws.offer_expirations,
+                _ => return Cmd::none(),
+            };
+            if value.is_empty() {
+                target.remove(&key);
+            } else {
+                target.insert(key, value);
+            }
+            model.error = None;
+        }
         Msg::DealWorkspaceSubmitOfferRequested { parent_offer_id } => {
             let key = parent_offer_id.as_deref().unwrap_or("root").to_string();
             let Some(amount) = ws.offer_amounts.get(&key).and_then(|value| trimmed(value)) else {
@@ -405,6 +428,13 @@ fn update(model: &mut Model, msg: Msg, ctx: &ScreenCtx) -> Cmd<Msg> {
                     person_id,
                     amount,
                     parent_offer_id,
+                    financing_type: ws.offer_financing.get(&key).and_then(|value| trimmed(value)),
+                    deposit_amount: ws.offer_deposits.get(&key).and_then(|value| trimmed(value)),
+                    inspection_days: ws.offer_inspection_days.get(&key).and_then(|value| trimmed(value)),
+                    seller_credits: ws.offer_seller_credits.get(&key).and_then(|value| trimmed(value)),
+                    proposed_closing_date: ws.offer_closing_dates.get(&key).and_then(|value| trimmed(value)),
+                    contingencies: ws.offer_contingencies.get(&key).and_then(|value| trimmed(value)),
+                    expires_at: ws.offer_expirations.get(&key).and_then(|value| trimmed(value)),
                 },
             );
         }
@@ -666,6 +696,13 @@ fn update(model: &mut Model, msg: Msg, ctx: &ScreenCtx) -> Cmd<Msg> {
                 ws.task_due_at.clear();
             } else if let Some(key) = completed.strip_prefix("offer:submit:") {
                 ws.offer_amounts.remove(key);
+                ws.offer_financing.remove(key);
+                ws.offer_deposits.remove(key);
+                ws.offer_inspection_days.remove(key);
+                ws.offer_seller_credits.remove(key);
+                ws.offer_closing_dates.remove(key);
+                ws.offer_contingencies.remove(key);
+                ws.offer_expirations.remove(key);
             } else if completed == "participant:add" {
                 ws.participant_query.clear();
                 ws.participant_person_id.clear();
