@@ -19,21 +19,57 @@ TypeScript libraries**, which is why the Node/TypeScript engine had to be droppe
 Reading one of these files for its intent is fine. Wiring live code to it is not.
 
 - **Translate, never revive.** The Rust home is the destination, never a resurrected TS file.
-- **A dead `pnpm` command is not runnable.** 31 of the listed files are named by a `package.json`
-  script. Those commands exist in the menu and cannot run; that is a known, marked state.
+- **A dead `pnpm` command is not runnable.** 64 of the repository's 145 `package.json` scripts name a
+  file listed here. Those commands exist in the menu and cannot run; that is a known, marked state —
+  and some of them are the gates and the sync jobs (see "Live callers" below), not conveniences.
 - **`agent:workspace` must never be ported.** `scripts/workspace-cli.ts` created per-lane
   worktrees, and AGENTS.md forbids that outright — "NO TREES. EVER. There is ONE workflow and it is
   the rows". It is listed here for completeness, and its verdict is RETIRE, not port.
 
-## How this list was produced
+## How this list was produced, and how to re-check it
 
-Static resolution of every relative import in `scripts/` and `legacy/workflow_app/tests/`:
-**77 of 197 files** have at least one import that resolves to nothing. The same scan reports which
-`package.json` command names each file, so a dead command can be traced to its dead file.
-Re-run it any time; the count is the health metric, and it may only fall.
+`pnpm broken:ts:sweep` (`scripts/broken-ts-sweep.mjs`) walks `scripts/` and `agent-runtime/`, resolves
+every import statically, and **fails** when a broken file is unmarked or a marked file still loads — so
+the list and the tree cannot drift apart silently. It touches no database and no network.
 
-`lib/` today contains only `forms/` and `rust-ui/`. Any `../lib/...` import outside those two
-subtrees is permanently unresolvable.
+Corrected **2026-09-27**, after the first sweep was found to undercount. The first pass did not walk the
+whole tree, and it marked 9 files that load fine. Measured by the resolver:
+
+| class | count | meaning |
+| --- | --- | --- |
+| **CANNOT LOAD** | **173** | a *value* import resolves to nothing, directly or through another broken file. `import type` does not count: tsx erases it, so it cannot break loading. |
+| **CANNOT WORK** | **14** | the file loads, but a *lazily imported* module it needs is gone — it parses and cannot do its job. |
+| marked | 187 | every file in both classes carries a banner, and nothing else does. |
+
+That is **173 of the 248** TypeScript files under `scripts/` (198) + `agent-runtime/` (49). `legacy/db/`
+is gone entirely; `agent-runtime/` still exists but 20 of its 49 files cannot load, and all of them are
+now marked.
+
+`lib/` today contains only `forms/` and `trust-ui/`. Any `../lib/...` import outside those two subtrees is
+permanently unresolvable.
+
+## Live callers — what is actually down right now
+
+A marked file is inert until a **live** caller invokes it. Six scheduled/operator paths do, so these
+capabilities are not "dead weight", they are **broken in production** (checked 2026-09-27):
+
+| live caller | calls | consequence |
+| --- | --- | --- |
+| `scripts/apple-sync.sh:170` — launchd `com.culebraluxe.apple-sync`, twice daily | `scripts/apple-messages-intake.ts` | the Apple Messages → PROD client-timeline step fails; the launcher is recorded as exit status **1** |
+| `scripts/apple-message-repair.sh:37` (`apple:repair:prod`) | same file | the evidence-repair path cannot run either |
+| `scripts/contacts-sync.sh:135,143,149` | `load-apple-contacts.ts`, `project-apple-contacts.ts`, `promote-warehouse.ts` | **the warehouse promotion is down**: the Contacts chain fails before it reaches `l_person`/`l_property` → `person`/`property` |
+| `scripts/apple-calls-sync.sh:20` | `scripts/apple-calls-intake.ts` | Calls intake does not run |
+| `scripts/gmail-sync.sh:26` | `scripts/gmail-metadata-sync.ts` | Gmail metadata intake does not run |
+| `scripts/email-sync.sh:49` (`mailbox:promote`) | `scripts/promote-applemail.ts` | mail promotion does not run |
+
+`promote-warehouse.ts` is still described in `contacts-sync.sh` as *"the only reader of the landing
+tables"*, and no Rust implementation of that hop exists anywhere under `rust/` — so that is a missing
+capability, not a dead script. It is the DEV_OPS P0 item and the captain has already green-lit the port.
+
+**Operator commands that cannot run and are named in AGENTS.md or used daily:** `forge:doctor`,
+`forge:clean` / `forge:story:reset`, `forge:packet-lint`, `forge:manifest`, `forge:sync-agents`,
+`forge:harness`, `sprint`, `health`, `test:story`, `db:pull:dev`, `probe:kind:dev`. A runbook step that
+cannot execute is a finding, not a footnote.
 
 
 ## What is ALREADY in Rust — do not re-port these
@@ -41,9 +77,13 @@ subtrees is permanently unresolvable.
 Verified by path, not assumed. Most of the **product** survived the port; what is missing is mostly
 **tooling** (one-shot loaders, proofs, promotions, harness gates).
 
-- Apple: `rust/integrations/src/apple/mod.rs`, `rust/cli/src/apple_sync.rs`
-- Mail: `rust/integrations/src/mail/mod.rs`, `rust/integrations/src/bin/mail_test.rs`,
-  `rust/core/service/src/mailbox.rs`
+- Apple — **partly, and the doc previously overstated this.** What exists: `rust/cli/src/apple_sync.rs`
+  (380 lines — `drain`, `calendar-intake`, `reminder-intake`). What does NOT exist: any Rust
+  Messages/Calls/Contacts intake. `rust/integrations/src/apple/mod.rs` is a **4-line placeholder comment**
+  ("native Swift/EventKit helpers can remain native adapters"), not an implementation, so the Apple
+  messages/calls/contacts *pipelines* are still the dead TS scripts named by the live `*-sync.sh` callers.
+- Mail: `rust/integrations/src/mail/mod.rs` (330 lines), `rust/integrations/src/bin/mail_test.rs`,
+  `rust/core/service/src/mailbox.rs` (1265 lines)
 - WhatsApp — **verified by reading the code on 2026-09-27, not by grep**. The captain's port is real
   and complete: `rust/integrations/src/whatsapp/mod.rs` owns the Meta Cloud API trust boundary
   (the `X-Hub-Signature-256` HMAC over the exact raw body, compared with `subtle::ConstantTimeEq` —
@@ -326,9 +366,10 @@ this inventory is the metric, and it may only fall.
 
 ---
 
-# Appendix — all 77 files, tagged
+# Appendix A — the original sweep (77 files), tagged
 
-Complete enumeration, so nothing can be missed. Format: `path` — section → verdict.
+The first sweep's enumeration. Format: `path` — section → verdict. It is **partial**: Appendix B
+carries the files this sweep missed.
 
 DEV_OPS (21 files)
 
@@ -416,8 +457,125 @@ APP (29 files)
     76 scripts/verify-listing-client-fill.ts         APP P2      → VERIFY
     77 scripts/verify-listing-contract-bridge.ts     APP P2      → VERIFY
 
+---
 
+# Appendix B — added by the 2026-09-27 rigorous re-sweep (111 files)
 
+The first sweep undercounted because it did not walk the whole tree. This appendix is generated from
+the resolver, so every row is a verified fact of the same kind as Appendix A: the file **cannot load**
+(value import of a module that does not exist, directly or transitively) or **cannot work** (it loads,
+but a lazily-imported module it needs is gone). Verdicts are deliberately **PENDING**: the captain
+must first say which of these capabilities is still wanted, because several are named by live
+scheduled jobs (see "Live callers" above) and cannot be classified by a sweep.
 
-
-
+      1 agent-runtime/accepted-candidate-publish.ts              CANNOT LOAD FORGE (agent plane)        → PENDING (captain classifies; reason: missing module '../lib/worker-workspace' (line 16))
+      2 agent-runtime/agent-runtime-adapter.ts                   CANNOT LOAD FORGE (agent plane)        → PENDING (captain classifies; reason: missing module '../lib/server-error-capture' (line 24))
+      3 agent-runtime/deepseek/deepseek-harness-adapter.ts       CANNOT LOAD FORGE (agent plane)        → PENDING (captain classifies; reason: imports dead '../agent-runtime-adapter' -> agent-runtime/agent-runtime-adapter.ts (line 23))
+      4 agent-runtime/deterministic-assay-adapter.ts             CANNOT LOAD FORGE (agent plane)        → PENDING (captain classifies; reason: imports dead './agent-runtime-adapter' -> agent-runtime/agent-runtime-adapter.ts (line 10))
+      5 agent-runtime/enqueue-lane.ts                            CANNOT LOAD FORGE (agent plane)        → PENDING (captain classifies; reason: missing module '@/legacy/workflow_app/forge/forge-lead-routing-prompt' (line 16))
+      6 agent-runtime/execution-contract.ts                      CANNOT LOAD FORGE (agent plane)        → PENDING (captain classifies; reason: missing module '../lib/execution-target' (line 21))
+      7 agent-runtime/factory.ts                                 CANNOT LOAD FORGE (agent plane)        → PENDING (captain classifies; reason: imports dead './registry' -> agent-runtime/registry.ts (line 11))
+      8 agent-runtime/forge-topology.ts                          CANNOT LOAD FORGE (agent plane)        → PENDING (captain classifies; reason: missing module '@/legacy/workflow_app/definitions/forge-sdlc' (line 8))
+      9 agent-runtime/gateway/cli-agent-adapter.ts               CANNOT LOAD FORGE (agent plane)        → PENDING (captain classifies; reason: missing module '../../lib/worker-workspace/provisioner' (line 9))
+     10 agent-runtime/invoker.ts                                 CANNOT LOAD FORGE (agent plane)        → PENDING (captain classifies; reason: imports dead './registry' -> agent-runtime/registry.ts (line 12))
+     11 agent-runtime/learn-loop.ts                              CANNOT LOAD FORGE (agent plane)        → PENDING (captain classifies; reason: missing module '../lib/worker-workspace/provisioner' (line 33))
+     12 agent-runtime/opencode/opencode-harness-adapter.ts       CANNOT LOAD FORGE (agent plane)        → PENDING (captain classifies; reason: imports dead '../agent-runtime-adapter' -> agent-runtime/agent-runtime-adapter.ts (line 51))
+     13 agent-runtime/orchestrate-apply.ts                       CANNOT LOAD FORGE (agent plane)        → PENDING (captain classifies; reason: imports dead './enqueue-lane' -> agent-runtime/enqueue-lane.ts (line 8))
+     14 agent-runtime/orchestrate.ts                             CANNOT LOAD FORGE (agent plane)        → PENDING (captain classifies; reason: imports dead './enqueue-lane' -> agent-runtime/enqueue-lane.ts (line 12))
+     15 agent-runtime/registry.ts                                CANNOT LOAD FORGE (agent plane)        → PENDING (captain classifies; reason: imports dead './agent-runtime-adapter' -> agent-runtime/agent-runtime-adapter.ts (line 17))
+     16 agent-runtime/repo-context.ts                            CANNOT LOAD FORGE (agent plane)        → PENDING (captain classifies; reason: missing module '../lib/forge-decision' (line 14))
+     17 agent-runtime/repositories.ts                            CANNOT LOAD FORGE (agent plane)        → PENDING (captain classifies; reason: missing module '@/legacy/db/agent-work' (line 12))
+     18 agent-runtime/run-guardrails.ts                          CANNOT LOAD FORGE (agent plane)        → PENDING (captain classifies; reason: imports dead './agent-runtime-adapter' -> agent-runtime/agent-runtime-adapter.ts (line 18))
+     19 agent-runtime/tunit-adapter.ts                           CANNOT LOAD FORGE (agent plane)        → PENDING (captain classifies; reason: imports dead './agent-runtime-adapter' -> agent-runtime/agent-runtime-adapter.ts (line 21))
+     20 agent-runtime/write-policy.ts                            CANNOT LOAD FORGE (agent plane)        → PENDING (captain classifies; reason: missing module '../lib/worker-workspace/provisioner' (line 9))
+     21 scripts/apple-gateway-worker.ts                          CANNOT LOAD APP (channel pipeline)     → PENDING (captain classifies; reason: missing module '@/legacy/db/client' (line 14))
+     22 scripts/apple-mail-envelope-intake.ts                    CANNOT LOAD APP (channel pipeline)     → PENDING (captain classifies; reason: imports dead './lib/pool-executor' -> scripts/lib/pool-executor.ts (line 41))
+     23 scripts/apple-reminders-intake.ts                        CANNOT LOAD APP (channel pipeline)     → PENDING (captain classifies; reason: missing module '@/legacy/db/reminder-landing' (line 10))
+     24 scripts/audit-phone-identities.ts                        CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/forge-db' (line 8))
+     25 scripts/backfill-cost-widgets.ts                         CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/forge-db' (line 19))
+     26 scripts/capture-driver-value-formats.ts                  CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/client' (line 26))
+     27 scripts/cleanse-dev-fixtures.ts                          CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/fixture-cleanup' (line 21))
+     28 scripts/cleanup-apple-rows.ts                            CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: imports dead './lib/pool-executor' -> scripts/lib/pool-executor.ts (line 8))
+     29 scripts/column-writer-audit.ts                           CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/client' (line 33))
+     30 scripts/core-daily-proof-01.ts                           CANNOT LOAD RETIRE (proof-of-a-past-run) → PENDING (captain classifies; reason: missing module '@/legacy/db/follow-up' (line 13))
+     31 scripts/core-daily-proof-03-04.ts                        CANNOT LOAD RETIRE (proof-of-a-past-run) → PENDING (captain classifies; reason: missing module '@/legacy/db/follow-up' (line 13))
+     32 scripts/core-daily-proof-06-11.ts                        CANNOT LOAD RETIRE (proof-of-a-past-run) → PENDING (captain classifies; reason: missing module '@/legacy/db/follow-up' (line 13))
+     33 scripts/core-daily-proof-07-08.ts                        CANNOT LOAD RETIRE (proof-of-a-past-run) → PENDING (captain classifies; reason: missing module '@/legacy/db/follow-up' (line 13))
+     34 scripts/core-daily-proof-09-10.ts                        CANNOT LOAD RETIRE (proof-of-a-past-run) → PENDING (captain classifies; reason: missing module '@/legacy/db/follow-up' (line 14))
+     35 scripts/core-daily-proof-15.ts                           CANNOT LOAD RETIRE (proof-of-a-past-run) → PENDING (captain classifies; reason: missing module '@/legacy/db/follow-up' (line 13))
+     36 scripts/create-deep1-story.ts                            CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/db/forge-db' (line 12))
+     37 scripts/exec-batch1-story.ts                             CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/db/storyboard' (line 14))
+     38 scripts/fix-person-name-order-julio-pimentel-ortiz.mjs   CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '../legacy/db/forge-db.ts' (line 34))
+     39 scripts/forge-batch-status.ts                            CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/db/agent-work' (line 15))
+     40 scripts/forge-board-sync.ts                              CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/db/forge-db' (line 26))
+     41 scripts/forge-cleanup-dev.ts                             CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/db/client' (line 19))
+     42 scripts/forge-consistency.ts                             CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/db/forge-workflow-evidence' (line 11))
+     43 scripts/forge-decision.ts                                CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/db/forge-decision' (line 30))
+     44 scripts/forge-doctor.ts                                  CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/db/agent-work' (line 34))
+     45 scripts/forge-learn.ts                                   CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/lib/execution-target' (line 24))
+     46 scripts/forge-read-tools.ts                              CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/db/client' (line 25))
+     47 scripts/forge-resume-door.ts                             CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/workflow_app/forge/forge-hold-resolve' (line 9))
+     48 scripts/forge-roi.ts                                     CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/db/forge-roi' (line 22))
+     49 scripts/forge-scorecard.ts                               CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/workflow_app/forge/forge-scorecard' (line 10))
+     50 scripts/forge-static-gate.ts                             CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/workflow_app/forge/forge-static-gate' (line 11))
+     51 scripts/forge-story-reset.ts                             CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/db/forge-db' (line 25))
+     52 scripts/forge-tools.ts                                   CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/workflow_app/forge/forge-tool-catalog' (line 26))
+     53 scripts/forge-triage.ts                                  CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/workflow_app/forge/failure-classifier' (line 9))
+     54 scripts/import-l-regrid.ts                               CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/forge-db' (line 32))
+     55 scripts/inspect-dev-identity.ts                          CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/client' (line 10))
+     56 scripts/lib/pool-executor.ts                             CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/forge-db' (line 15))
+     57 scripts/normalize-story-priorities.ts                    CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: imports dead './lib/pool-executor' -> scripts/lib/pool-executor.ts (line 11))
+     58 scripts/probe-agent-work-state.ts                        CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/db/agent-work' (line 10))
+     59 scripts/probe-batch-schedule.ts                          CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/db/agent-work' (line 10))
+     60 scripts/probe-batch-sync.ts                              CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/db/agent-work' (line 10))
+     61 scripts/probe-cockpit-data-state.ts                      CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/db/storyboard' (line 10))
+     62 scripts/probe-engine-withdraw.ts                         CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/db/agent-work' (line 10))
+     63 scripts/probe-error-capture.ts                           CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/db/app-error' (line 14))
+     64 scripts/probe-flight-recorder-timing.ts                  CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/workflow_app/engine-client' (line 12))
+     65 scripts/probe-flight-recorder.ts                         CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/db/database-gateway' (line 13))
+     66 scripts/probe-forge-observer.ts                          CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/db/client' (line 34))
+     67 scripts/probe-handoff-path.ts                            CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/db/agent-work' (line 10))
+     68 scripts/probe-kind-routing.ts                            CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/db/agent-work' (line 12))
+     69 scripts/probe-learn-dedupe.ts                            CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/db/agent-work' (line 12))
+     70 scripts/probe-move-write.ts                              CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/db/storyboard' (line 10))
+     71 scripts/probe-sorter-moves.ts                            CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/lib/story-moves' (line 10))
+     72 scripts/project-apple-contacts.ts                        CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/forge-db' (line 33))
+     73 scripts/promote-relationship-evidence.ts                 CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/client' (line 24))
+     74 scripts/provision-catchup-task-fixtures.ts               CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/client' (line 21))
+     75 scripts/provision-dev-google-identity.ts                 CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/client' (line 13))
+     76 scripts/provision-dev-root.ts                            CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/client' (line 13))
+     77 scripts/provision-v1-roles.ts                            CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/client' (line 10))
+     78 scripts/regrid-csv-load.ts                               CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/regrid-culebra-parcel' (line 12))
+     79 scripts/regrid-property-lookup.ts                        CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/app-error' (line 22))
+     80 scripts/seed-accounting-fixture.ts                       CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/client' (line 18))
+     81 scripts/seed-forge-sdlc.ts                               CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/forge-db' (line 20))
+     82 scripts/seed-issue-fixtures.ts                           CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/client' (line 17))
+     83 scripts/seed-projects-test.ts                            CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/client' (line 12))
+     84 scripts/seed-split-dogfood-story.ts                      CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/storyboard' (line 13))
+     85 scripts/set-story-status.ts                              CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/db/storyboard' (line 29))
+     86 scripts/story-preflight.ts                               CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/db/client' (line 26))
+     87 scripts/sync-arch-handoff.ts                             CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: imports dead './lib/pool-executor' -> scripts/lib/pool-executor.ts (line 26))
+     88 scripts/sync-forge-history.ts                            CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/forge-db' (line 20))
+     89 scripts/update-auth08-story.ts                           CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/storyboard' (line 9))
+     90 scripts/update-harden05-story.ts                         CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/storyboard' (line 9))
+     91 scripts/update-mac-sync-cal-story.ts                     CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/client' (line 9))
+     92 scripts/update-ops11a-story.ts                           CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/storyboard' (line 9))
+     93 scripts/update-projects-anchor-story.ts                  CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/storyboard' (line 15))
+     94 scripts/update-projects-anchor2-story.ts                 CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/storyboard' (line 9))
+     95 scripts/update-reference-stories.ts                      CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/forge-db' (line 11))
+     96 scripts/update-security-stories.ts                       CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/storyboard' (line 10))
+     97 scripts/verify-contract-service.ts                       CANNOT LOAD APP/QA probe               → PENDING (captain classifies; reason: missing module '@/legacy/services/composition' (line 13))
+     98 scripts/verify-dev-google-provision.ts                   CANNOT LOAD APP/QA probe               → PENDING (captain classifies; reason: missing module '@/legacy/db/client' (line 10))
+     99 scripts/verify-dev-root.ts                               CANNOT LOAD APP/QA probe               → PENDING (captain classifies; reason: missing module '@/legacy/db/client' (line 10))
+    100 scripts/verify-forms-service.ts                          CANNOT LOAD APP/QA probe               → PENDING (captain classifies; reason: missing module '@/legacy/services/composition' (line 14))
+    101 scripts/verify-issues.ts                                 CANNOT LOAD APP/QA probe               → PENDING (captain classifies; reason: missing module '@/legacy/db/issues' (line 13))
+    102 scripts/verify-l-regrid.ts                               CANNOT LOAD APP/QA probe               → PENDING (captain classifies; reason: missing module '@/legacy/db/client' (line 29))
+    103 scripts/verify-property-publication.ts                   CANNOT LOAD APP/QA probe               → PENDING (captain classifies; reason: missing module '@/legacy/db/client' (line 23))
+    104 scripts/verify-public-reads-service.ts                   CANNOT LOAD APP/QA probe               → PENDING (captain classifies; reason: missing module '@/legacy/services/composition' (line 14))
+    105 scripts/verify-vault-service.ts                          CANNOT LOAD APP/QA probe               → PENDING (captain classifies; reason: missing module '@/legacy/services/composition' (line 13))
+    106 scripts/verify-wbs-service.ts                            CANNOT LOAD APP/QA probe               → PENDING (captain classifies; reason: missing module '@/legacy/services/composition' (line 13))
+    107 scripts/forge-tree-residue-sweep.ts                      CANNOT WORK FORGE                      → PENDING (captain classifies; reason: dynamic import '@/legacy/db/client' is gone)
+    108 scripts/normalize-phone-identities.ts                    CANNOT WORK UNCLASSIFIED               → PENDING (captain classifies; reason: dynamic import '@/legacy/db/client' is gone)
+    109 scripts/seed-jessica-project.ts                          CANNOT WORK UNCLASSIFIED               → PENDING (captain classifies; reason: dynamic import '@/legacy/services/core' is gone)
+    110 scripts/test-story.ts                                    CANNOT WORK FORGE                      → PENDING (captain classifies; reason: dynamic import '@/legacy/db/client' is gone)
+    111 scripts/workflow-cli.ts                                  CANNOT WORK UNCLASSIFIED               → PENDING (captain classifies; reason: dynamic import '@/legacy/workflow_app/application-port' is gone)

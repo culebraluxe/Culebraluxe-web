@@ -60,9 +60,10 @@ route or explaining why not in the same commit. A new violation fails `pnpm lint
 
 Prune it after removing an import: `npx eslint . --prune-suppressions`.
 
-**Dead TypeScript is marked, not deleted, and never revived.** The port deleted `lib/`, `agent-runtime/`
-and `legacy/db/`, so **77 of 197 files in `scripts/` (and 31 `package.json` commands) cannot load at
-all**. They carry a `⚠ BROKEN ON PURPOSE` banner instead of being deleted: read them for intent,
+**Dead TypeScript is marked, not deleted, and never revived.** The port deleted `lib/` and
+`legacy/db/`, so **173 of the 248 TypeScript files under `scripts/` and `agent-runtime/` cannot load at
+all, and 14 more load but die on a deleted lazy import** — 64 `package.json` commands point at one of
+them. They carry a `⚠ BROKEN ON PURPOSE` banner instead of being deleted: read them for intent,
 translate the behaviour to Rust when it is wanted, never repair them in place. The priority list, the
 Rust home of each capability, and the reason each file is dead are in
 `docs/agent/BROKEN-TS-INVENTORY.md`. Re-running that sweep is how the count is kept honest — it may
@@ -175,7 +176,7 @@ Never
 
 ## Project
 
-- CulebraLuxe is a Next.js application.
+- CulebraLuxe is a Rust application: the website is Yew/wasm in `rust/ui` (served by `rust/server/src/site.rs`), and the domain, database and HTTP API are Rust under `rust/`. The TypeScript engine is retired (`legacy/`, and the dead-TS rule above).
 - Neon/Postgres stores business and property data.
 - Mux provides video delivery.
 - Vercel hosts deployments.
@@ -323,8 +324,15 @@ Run:
 
 ```sh
 git diff --check
-pnpm exec next build --webpack
+pnpm build              # rust/ui wasm (release) + tailwind + the rust server binary
+pnpm broken:ts:sweep    # dead-TS counts; fails if the tree and the inventory disagree
 ```
+
+**2026-09-27 correction — do not run `next build`: there is no Next.js application here.**
+`app/` and `components/` are **not tracked in git and do not exist on disk**; the website is the Yew app
+in `rust/ui` (wasm + Tailwind) served by the Rust server (`rust/server/src/site.rs`). Treat the table's
+"UI: `app/`, `components/`" row and the line "CulebraLuxe is a Next.js application" as historical: new UI
+lives in `rust/ui/src/app/screens/**`, and `pnpm dev` runs `scripts/dev.sh`.
 
 Known issues:
 

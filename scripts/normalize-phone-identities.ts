@@ -1,3 +1,11 @@
+// ---------------------------------------------------------------------------
+// ⚠ BROKEN ON PURPOSE — DO NOT FIX, DO NOT IMPORT, DO NOT CALL, DO NOT REVIVE.
+// The module this file lazily imports was deleted in the 2026-09 Rust port, so the file
+// still parses but cannot do its job: the code path it needs is gone. Kept as REFERENCE
+// ONLY, so the behaviour can be translated into Rust when that behaviour is wanted.
+// Reviving it in place is forbidden — see AGENTS.md ("legacy/ is out of scope") and
+// docs/agent/BROKEN-TS-INVENTORY.md for the priority list and each capability's Rust home.
+// ---------------------------------------------------------------------------
 import type { QueryExecutor } from '@/legacy/db/query-executor'
 
 type Owner = {

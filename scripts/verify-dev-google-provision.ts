@@ -1,3 +1,11 @@
+// ---------------------------------------------------------------------------
+// ⚠ BROKEN ON PURPOSE — DO NOT FIX, DO NOT IMPORT, DO NOT CALL, DO NOT REVIVE.
+// The TypeScript engine and its libraries were deleted in the 2026-09 Rust port, so this
+// file cannot load: the modules it imports from are gone. It is kept as REFERENCE ONLY,
+// so the behaviour it describes can be translated into Rust when that behaviour is wanted.
+// Reviving it in place is forbidden — see AGENTS.md ("legacy/ is out of scope") and
+// docs/agent/BROKEN-TS-INVENTORY.md for the priority list and each capability's Rust home.
+// ---------------------------------------------------------------------------
 // AUTH-08H — DEV-only verification of the Google identity provisioning.
 // Run: node --env-file=.env.local --import tsx scripts/verify-dev-google-provision.ts
 // Reads ONLY the DEV database. Confirms the step-4 required proof facts.
