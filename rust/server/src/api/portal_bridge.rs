@@ -58,6 +58,7 @@ pub fn router() -> Router<ApiState> {
         .route("/api/portal/rust-ui/role-entitlements", axum::routing::put(role_entitlements_put))
         .route("/api/property-media/hero", axum::routing::post(property_media_hero))
         .route("/api/property-media/remove", axum::routing::post(property_media_remove))
+        .route("/api/portal/property/merge-parcel", axum::routing::post(property_merge_parcel))
         .route("/api/portal/property-video/upload", axum::routing::post(property_video_upload))
         .route("/api/portal/property-video/finalize", axum::routing::post(property_video_finalize))
         .route(
@@ -3297,6 +3298,24 @@ async fn property_video_finalize(
         "mediaId": result.media_id,
         "muxPlaybackId": result.mux_playback_id,
     })))
+}
+
+/// FIND by catastro on the Records screen: the other record for that parcel is merged into the open one.
+async fn property_merge_parcel(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    let (Some(property_id), Some(catastro)) = (str_at(&body, "propertyId"), str_at(&body, "catastro")) else {
+        return Err(correlate(ApiError::bad_request("PROPERTY_MERGE_INVALID", "propertyId and catastro are required."), &resolved));
+    };
+    let service = state.services().property();
+    let merged = service.merge_parcel_record(property_id, catastro, &resolved.service).await.map_err(failed(&resolved))?;
+    if merged.is_some() {
+        service.warm_read_cache().await.map_err(failed(&resolved))?;
+    }
+    Ok(Json(json!({ "ok": true, "merged": merged.is_some(), "mergedName": merged })))
 }
 
 /// Takes a photograph off a property (and deletes it, with its copies, unless another property shows it).

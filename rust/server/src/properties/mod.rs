@@ -43,6 +43,7 @@ pub trait PropertyRepository: Send + Sync {
         &self,
         request: &SavePropertyAdminRequest,
     ) -> DbResult<Option<PropertyAdminRecord>>;
+    async fn merge_parcel_record(&self, target_id: &str, catastro: &str) -> DbResult<Option<String>>;
 }
 
 #[async_trait]
@@ -103,6 +104,10 @@ impl PropertyRepository for PropertyDao {
         request: &CreatePropertyAdminRequest,
     ) -> DbResult<PropertyAdminRecord> {
         PropertyDao::admin_create(self, request).await
+    }
+
+    async fn merge_parcel_record(&self, target_id: &str, catastro: &str) -> DbResult<Option<String>> {
+        PropertyDao::merge_parcel_record(self, target_id, catastro).await
     }
 
     async fn admin_save(
@@ -325,6 +330,39 @@ impl<R: PropertyRepository> PropertyService<R> {
             .admin_get(property_id)
             .await
             .map_err(Into::into);
+        audit_result(&self.runtime, "property", OP, context, decision, &result).await?;
+        result
+    }
+
+    /// FIND by catastro: the other record for this parcel is merged into this one — every field this record lacks is
+    /// filled from it, what hangs off it moves here, and it is deleted. `None` when no other record has that number.
+    pub async fn merge_parcel_record(
+        &self,
+        target_id: &str,
+        catastro: &str,
+        context: &ServiceContext,
+    ) -> Result<Option<String>, CoreServiceError> {
+        const OP: &str = "property.mergeParcelRecord";
+        let decision = authorize(&self.runtime, "property", "property.write", OP, OperationKind::Command, context).await?;
+        let result = db::service_mutation(self.repository.database(), async {
+            let merged = self.repository.merge_parcel_record(target_id.trim(), catastro.trim()).await?;
+            if let Some(name) = &merged {
+                self.runtime
+                    .emit(
+                        "property.parcel_merged",
+                        Some(target_id.to_owned()),
+                        BTreeMap::from([
+                            ("propertyId".into(), json!(target_id)),
+                            ("catastro".into(), json!(catastro)),
+                            ("mergedName".into(), json!(name)),
+                        ]),
+                        context,
+                    )
+                    .await?;
+            }
+            Ok(merged)
+        })
+        .await;
         audit_result(&self.runtime, "property", OP, context, decision, &result).await?;
         result
     }

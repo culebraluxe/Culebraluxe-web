@@ -1115,6 +1115,119 @@ impl PropertyDao {
         Ok(row.map(map_admin_record))
     }
 
+    /// FIND BY CATASTRO: THE OTHER RECORD FOR THIS PARCEL IS MERGED INTO THIS ONE. The Regrid load gave every parcel its
+    /// own record; a listing entered by hand is a second record for the same land. The listing (`target_id`) keeps
+    /// every value it has; each field it lacks (null or empty) is filled from the other record, the parcel link moves
+    /// to it, whatever hangs off the other record (media, people, deals, MLS details, …) is moved onto it, and the
+    /// other record is deleted. Runs inside the caller's transaction: all of it happens, or none.
+    ///
+    /// `Ok(None)` when no other live record carries that catastro number; otherwise the merged record's name.
+    pub async fn merge_parcel_record(&self, target_id: &str, catastro: &str) -> DbResult<Option<String>> {
+        let digits: String = catastro.chars().filter(char::is_ascii_digit).collect();
+        if digits.is_empty() {
+            return Ok(None);
+        }
+        let mut connection = self.db.connection().await?;
+        let sources = sqlx::query_as::<_, (String, String)>(
+            r#"
+            select id::text, name from property
+             where id <> $1::uuid and archived_at is null
+               and regexp_replace(coalesce(catastro_number, ''), '[^0-9]', '', 'g') = $2
+             for update
+            "#,
+        )
+        .bind(target_id)
+        .bind(&digits)
+        .fetch_all(&mut *connection)
+        .await
+        .map_err(|error| DbFailure::from_sqlx("property.merge.find", &error))?;
+        let (source_id, source_name) = match sources.as_slice() {
+            [] => return Ok(None),
+            [one] => one.clone(),
+            _ => {
+                return Err(DbFailure::configuration(
+                    "property.merge.find",
+                    format!("{} records carry catastro {catastro}; merge them one at a time", sources.len()),
+                ))
+            }
+        };
+
+        // The other record, kept aside, so it can be deleted before its values are copied (its unique values —
+        // the parcel link, the slug — would otherwise collide with themselves on the listing).
+        sqlx::query("create temporary table property_merge_source on commit drop as select * from property where id = $1::uuid")
+            .bind(&source_id)
+            .execute(&mut *connection)
+            .await
+            .map_err(|error| DbFailure::from_sqlx("property.merge.keep", &error))?;
+
+        // Everything that hangs off the other record, onto the listing — read from the catalog, so a new table is
+        // included without anyone remembering it.
+        let references = sqlx::query_as::<_, (String, String)>(
+            r#"
+            select c.conrelid::regclass::text, a.attname::text
+              from pg_constraint c
+              join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any(c.conkey)
+             where c.contype = 'f' and c.confrelid = 'property'::regclass
+            "#,
+        )
+        .fetch_all(&mut *connection)
+        .await
+        .map_err(|error| DbFailure::from_sqlx("property.merge.references", &error))?;
+        let quote = |name: &str| format!("\"{}\"", name.replace('"', "\"\""));
+        for (table, column) in &references {
+            let table = table.split('.').map(|part| quote(part.trim_matches('"'))).collect::<Vec<_>>().join(".");
+            let column = quote(column);
+            // Identifiers from the catalog, quoted — no value from a request reaches this text.
+            sqlx::query(sqlx::AssertSqlSafe(format!("update {table} set {column} = $1::uuid where {column} = $2::uuid")))
+                .bind(target_id)
+                .bind(&source_id)
+                .execute(&mut *connection)
+                .await
+                .map_err(|error| DbFailure::from_sqlx("property.merge.move", &error))?;
+        }
+
+        sqlx::query("delete from property where id = $1::uuid")
+            .bind(&source_id)
+            .execute(&mut *connection)
+            .await
+            .map_err(|error| DbFailure::from_sqlx("property.merge.delete", &error))?;
+
+        // Each field the listing lacks, from the other record: text counts as missing when empty.
+        let columns = sqlx::query_as::<_, (String, String)>(
+            r#"
+            select column_name::text, data_type::text from information_schema.columns
+             where table_schema = 'public' and table_name = 'property' and is_generated = 'NEVER'
+               and column_name not in ('id', 'created_at', 'updated_at')
+             order by ordinal_position
+            "#,
+        )
+        .fetch_all(&mut *connection)
+        .await
+        .map_err(|error| DbFailure::from_sqlx("property.merge.columns", &error))?;
+        let assignments = columns
+            .iter()
+            .map(|(name, kind)| {
+                let column = quote(name);
+                if kind == "text" || kind == "character varying" {
+                    format!("{column} = coalesce(nullif(t.{column}, ''), s.{column})")
+                } else {
+                    format!("{column} = coalesce(t.{column}, s.{column})")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        // Column names from the catalog, quoted — no value from a request reaches this text.
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "update property t set {assignments}, updated_at = now() from property_merge_source s where t.id = $1::uuid"
+        )))
+        .bind(target_id)
+        .execute(&mut *connection)
+        .await
+        .map_err(|error| DbFailure::from_sqlx("property.merge.fill", &error))?;
+
+        Ok(Some(source_name))
+    }
+
     pub async fn admin_create(
         &self,
         request: &CreatePropertyAdminRequest,

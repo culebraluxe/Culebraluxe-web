@@ -15,7 +15,7 @@ mod view;
 
 use yew::prelude::*;
 
-use crate::app::api::{DealPeopleSearch, OpsCommand, OpsRead, PropertyHero, PropertyMediaRemove, PROPERTY_MEDIA_CHUNKED};
+use crate::app::api::{DealPeopleSearch, OpsCommand, OpsRead, PropertyHero, PropertyMediaRemove, PropertyMergeParcel, PROPERTY_MEDIA_CHUNKED};
 use crate::app::cmd::{ApiError, Cmd, Remote};
 use crate::app::screen::{Link, Screen, ScreenCtx};
 use crate::app::template;
@@ -77,6 +77,7 @@ pub enum Msg {
     },
     /// Open the property whose catastro number is the one typed on this record (the property table is the source).
     FindByCatastro,
+    ParcelMerged(Result<serde_json::Value, ApiError>),
     OpsSaveRequested,
     OpsRevertRequested,
     OpsCreateToggled,
@@ -275,18 +276,38 @@ fn update(model: &mut Model, msg: Msg) -> Cmd<Msg> {
             model.typed += 1;
             Cmd::after(SEARCH_PAUSE_MS, Msg::SearchPaused(model.typed))
         }
+        // FIND: the other record for this parcel (the Regrid load gave every parcel one) is merged into this one —
+        // every field this record lacks is filled from it, and it is deleted. Then this record is read again.
         Msg::FindByCatastro => {
             let catastro = model.ops.form.get("catastroNumber").map(|value| value.trim().to_owned()).unwrap_or_default();
+            let Some(property_id) = model.selected.clone() else {
+                return Cmd::none();
+            };
             if catastro.is_empty() {
+                model.error = Some("Type the catastro number, then FIND.".into());
                 return Cmd::none();
             }
-            // Finding is why the number was typed: the typing is not a draft to protect.
-            model.ops.dirty = false;
-            model.controls.query = catastro;
-            model.controls.page = 0;
-            model.selected = None;
             model.error = None;
-            read(model)
+            model.ops.saving = true;
+            Cmd::request(PropertyMergeParcel { property_id, catastro }, Msg::ParcelMerged)
+        }
+        Msg::ParcelMerged(result) => {
+            model.ops.saving = false;
+            match result {
+                // The fields it filled show on the record as it is read again; the merged record leaves the list.
+                Ok(answer) if answer.get("merged").and_then(serde_json::Value::as_bool) == Some(true) => {
+                    model.ops.dirty = false;
+                    read(model)
+                }
+                Ok(_) => {
+                    model.error = Some("No other record has that catastro number — nothing to merge. Save to keep the number.".into());
+                    Cmd::none()
+                }
+                Err(error) => {
+                    model.error = Some(format!("The records were not merged: {}", error.message));
+                    Cmd::none()
+                }
+            }
         }
         Msg::SearchPaused(typed) => {
             if typed != model.typed || model.ops.dirty {
@@ -926,7 +947,7 @@ mod tests {
     }
 
     #[test]
-    fn find_by_catastro_searches_the_property_table_even_over_a_draft() {
+    fn find_by_catastro_merges_the_parcel_record_into_the_open_property() {
         let ctx = ScreenCtx::default();
         let mut model = opened(&ctx);
         Workbench::update(
@@ -935,9 +956,10 @@ mod tests {
             &ctx,
         );
         let request = Workbench::update(&mut model, Msg::FindByCatastro, &ctx).into_requests().remove(0);
-        assert!(request.path.contains("search=476-000-005-19-000"), "{}", request.path);
-        assert!(request.path.contains("page=0"));
-        assert!(!request.path.contains("selected="), "the first match opens");
+        assert_eq!(request.path, "/api/portal/property/merge-parcel");
+        let body = request.body.expect("a body");
+        assert_eq!(body["catastro"], "476-000-005-19-000");
+        assert_eq!(body["propertyId"].as_str(), model.selected.as_deref());
     }
 
     #[test]

@@ -975,6 +975,24 @@ impl Endpoint for PropertyHero {
     }
 }
 
+/// FIND by catastro: the other record for that parcel is merged into this property (see the server's
+/// `merge_parcel_record`). Answers `{ merged, mergedName }`.
+pub struct PropertyMergeParcel {
+    pub property_id: String,
+    pub catastro: String,
+}
+
+impl Endpoint for PropertyMergeParcel {
+    const METHOD: Method = Method::Post;
+    type Response = serde_json::Value;
+    fn path(&self) -> String {
+        "/api/portal/property/merge-parcel".into()
+    }
+    fn body(&self) -> Option<serde_json::Value> {
+        Some(serde_json::json!({ "propertyId": self.property_id, "catastro": self.catastro }))
+    }
+}
+
 /// Take a photograph off a property (deleted with its copies unless another property shows it).
 pub struct PropertyMediaRemove {
     pub property_id: String,
