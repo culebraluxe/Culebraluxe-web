@@ -11,6 +11,11 @@
 > preserved; the ordering, duplication and staging damage were removed. Anything now
 > superseded is labelled as such rather than deleted, and volatile facts (commit hashes,
 > deployment status) were moved to a dated appendix instead of being stated as timeless.
+>
+> **Brought up to the Rust port (2026-09-28).** The 09-12 text described a TypeScript application
+> (`services/`, `ui/`, `testv2/`, Next.js) that the port retired. §5 and §10 are rewritten against the
+> code; §1, §3, §4, §6, §7, §9 and §12 had their stale lines replaced. The doctrine is unchanged. When
+> this file and `AGENTS.md` disagree, `AGENTS.md` wins.
 
 **Read order at the start of a session:**
 
@@ -58,12 +63,12 @@ trust any status snapshot in this document, including the dated appendices in §
 - Postgres is the default durable queue/inbox/outbox substrate until a real requirement earns external infrastructure.
 - Prefer existing seams, smallest reversible changes, bounded diagnosis, fail-fast escalation, and scoped verification.
 - STARTUP DELIVERY MODE: for authorized implementation, `main` is the canonical integration/Production line; the builder commits, pushes, verifies Production, and fixes forward without a side-branch handoff.
-- Tests are evidence, not ritual. Full regression and `next build` require Chris's explicit authorization.
+- Tests are evidence, not ritual. Full regression requires Chris's explicit authorization.
 - Human judgment is reserved for architecture, security, destructive operations, visual polish, credentials, and ambiguous business semantics.
 - Agents execute captured architecture; they do not casually reinvent it.
 - Runtime evidence can overturn architecture; stale documentation cannot overrule fresh facts.
 - Persist important learning so each failure makes the factory better.
-- **The application has a typed service tier (`services/`) and an MVI page runtime (`ui/`).** A screen reaches the database through a controller → service → repository, never directly.
+- **The application is Rust, end to end** (§5). A screen reaches the database through route → service → repository → DAO, never directly. Zero TypeScript: even Google sign-in is Rust (`rust/server/src/api/google_auth.rs`), so any live TypeScript is unfinished work.
 - **The screen is the contract.** Read the screen before inventing a mapping, and keep exactly ONE implementation of any vocabulary it declares.
 - **A schema story is not delivered until DEV and PROD both match the released code.** See the Database Delivery Rule.
 
@@ -145,11 +150,14 @@ failure, attempted fixes, likely root cause, exact blocker and recommended human
 **Test policy**
 
 Development/story loop: targeted tests for the changed seam; adjacent tests where justified;
-typecheck where TypeScript contracts changed; build where routing/server/UI/deployment surface
-changed; one real smoke test where runtime integration changed.
+`cargo check` for the crates touched; `pnpm ui:check` whenever `rust/ui` changed (the workspace check
+does not compile the wasm build — see `AGENTS.md`, 2026-09-28); a live check against DEV
+(`rust/server/tests/*_dev.rs`, `scripts/rust-live-check/`) where a real database is the disputed
+property; one real smoke test where runtime integration changed.
 
-- **Full regression and `next build` run only with Chris's explicit authorization.** A nightly or
-  pre-major-release occasion is a reason to *ask*; the label does not authorize the run.
+- **Full regression runs only with Chris's explicit authorization.** A nightly or pre-major-release
+  occasion is a reason to *ask*; the label does not authorize the run. (There is no `next build`:
+  there is no Next.js application.)
 - Do NOT reflexively run the entire regression harness after every edit. If a broader regression is
   genuinely necessary because a core invariant changed, say why before running it.
 - Never run persistence/contract suites concurrently when they intentionally share a global
@@ -169,25 +177,31 @@ promotion gates, or a release-engineer handoff.
    rapid fix-forward are intentional architecture decisions, not accidental process gaps.
 2. **Authorization semantics.** Authorizing implementation, a build or a fix includes the ordinary
    end-to-end delivery mechanics: implement → smallest targeted verification → commit to `main` →
-   push `main` → verify Vercel Production → fix failures caused by the change. An explicit
+   push `main` → fix failures caused by the change. **A push does not deploy** (`vercel.json` sets
+   `git.deploymentEnabled: false`): production is compiled on the Mac and shipped by
+   `pnpm deploy:prod`, and deploying — like any command against the production database — is
+   Chris's explicit call every time (`AGENTS.md`, "Never"). Verify production after he deploys. An explicit
    read-only / diagnosis-only / context-reconstruction / no-mutation / no-push instruction still
    controls. This doctrine is never permission to mutate during a read-only task.
 3. **`main` is the canonical working line.** Commit and push small completed changes frequently.
-   Feature branches, review branches, preview-only releases, PRs, rebases, squashes, temporary
-   integration branches/worktrees and stash choreography are not the default and require Chris's
-   explicit request. A Vercel Preview may be used when Chris asks for one, but a Preview is not
+   Feature branches, review branches, preview-only releases, PRs, squashes, temporary integration
+   branches and stash choreography are not the default and require Chris's explicit request. Two
+   exceptions are now house rules (`AGENTS.md`): `git pull --rebase` before every push, and a
+   separate `git worktree` from `origin/main` when another agent is working in the same folder —
+   still committing straight to `main`. A Vercel Preview may be used when Chris asks for one, but a Preview is not
    completion, and work must not remain stranded in a side-branch silo.
 4. **The builder owns delivery.** Whoever changes the code owns the complete result: implementation,
    targeted tests, Git synchronization, ordinary merge/conflict resolution, commit, push to `main`,
-   Vercel Production verification, and immediate correction of failures it caused. Do not hand
+   production verification once Chris has deployed, and immediate correction of failures it caused. Do not hand
    integration, branch cleanup, release mechanics or deployment repair back to Chris. "Done" means
-   the feature is on `main` and its Production deployment has been observed.
+   the feature is on `main` (`git log origin/main` shows it), its schema is on DEV and PROD, and —
+   once Chris has deployed — production has been observed working.
 5. **Fix forward.** A broken build, UI defect, type error or ordinary runtime defect is feedback,
    not a reason to create release bureaucracy. Fix it immediately and push the correction; use
    rollback only when Chris directs it or it is clearly the fastest recovery. Ordinary Git
    conflicts, failed builds and correctable defects are worker responsibilities, not
    human-decision stop conditions.
-6. **Test budget.** Run the smallest targeted tests and typecheck that prove the changed seam. A
+6. **Test budget.** Run the smallest targeted tests and `cargo check` that prove the changed seam. A
    nightly label, branch merge, push to `main` or Production deployment does not by itself
    authorize the multi-hour regression harness.
 7. **Valid stop conditions.** Stop for Chris only for a genuine business/architecture decision,
@@ -210,164 +224,104 @@ settled architecture invariants and canonical data boundaries.
 
 ## 5. THE APPLICATION
 
-**Read this before the older-sounding parts of any other architecture note.** Until 2026-09-06 the
-portal read the database through ad-hoc loaders. It no longer does. The service tier (`services/`),
-the MVI page runtime (`ui/`) and the glass-box test tier (`testv2/`) landed between 2026-09-06 and
-2026-09-11, and four portal screens are wired through them end to end. Where an older document
-describes a screen reaching into `db/*`, this section is what is true.
+**Read this before the older-sounding parts of any other architecture note.** Between 2026-09-06 and
+2026-09-11 a TypeScript service tier (`services/`), an MVI page runtime (`ui/`) and a glass-box test
+tier (`testv2/`) were built. The Rust port (2026-09-21 onward) replaced all three and the Next.js host
+with them; `services/` and `ui/` are deleted, and `testv2/` keeps only a README and two orphaned
+helpers. What survives is their *shape*: one service kernel, one composition
+root, one MVI pattern for every screen, and a fake-repository seam that proves a service without a
+database. What follows is the Rust application as it is on `main`.
 
-### 5.1 The service tier (`services/`)
+### 5.1 One Rust workspace
 
-A typed service kernel with 14 domains: `comms, contract, core, entitlement, firm, forms, person,
-project, property, regrid, security, showing, vault, wbs`.
+`rust/Cargo.toml` has ten crates. Dependencies point one way: UI → server → service/workflow → db.
 
-**The seam is the composition root, and it is the only one:**
+| Crate | Owns |
+| --- | --- |
+| `rust/core/domain` | types and rules — no I/O, no SQL, no HTTP |
+| `rust/core/db` | the DAOs, the ONE pool per process (`pool.rs`, `shared.rs`), `DbFailure` and its capture (`capture.rs`), the outbox and command-receipt tables |
+| `rust/core/service` | the service kernel: `AbstractService`, `ServiceRuntime`, `ServiceContext`, authorization, audit, domain events, lifecycle, mailbox, error sink |
+| `rust/core/workflow` | the transaction state machine: `WorkflowEngine`, `TxStore`, instances, tokens, tasks, timers |
+| `rust/core/auth` | an empty shim (re-exports `domain`); sign-in and sessions live in `rust/server/src/api/google_auth.rs` and `ui_auth.rs` |
+| `rust/server` | HTTP (axum), identity, the services, the composition root, and the website itself (`site.rs`) |
+| `rust/ui` | the website and the portal: one Yew/WebAssembly app |
+| `rust/integrations` | Mux, Google, Apple, BoldSign, Neon, mail, WhatsApp |
+| `rust/forge` | the Forge delivery engine (§6) — tooling, not product |
+| `rust/cli` | operator commands: `db-tool`, the `forge` gates, Apple intake, media backfills |
 
-```
-legacy/services/composition.ts -> composeCoreServices(repositories, infrastructure)
-```
+`legacy/` and the bannered files under `scripts/` and `agent-runtime/` are the retired TypeScript:
+read them for intent, never import, never repair (`docs/agent/BROKEN-TS-INVENTORY.md`).
 
-It builds the kernel once, registers every domain in a `ServiceRegistry`, injects the
-infrastructure, and returns typed handles (`CoreServiceComposition`): `registry`, `person`, `firm`,
-`property`, `contract`, `showing`, `security`, `wbs`, `project` — plus `comms`, `form` and `vault`,
-which are **optional** and present only when the composition was actually given their repository
-(the source calls that "the full runtime"). Do not build a second composition root, and do not
-construct a service by hand. If a domain is missing at runtime, it is missing because its
-repository was not passed in.
+### 5.2 Services — one kernel, one composition root
 
-`services/index.ts` **no longer exists** — it was removed as a dead barrel. The public seam is the
-composition root plus each domain's own `index.ts`. `legacy/services/core/index.ts` is the most
-depended-on file in the tier (33 dependents repo-wide), which is what keeps the kernel contracts
-stable.
+Every domain operation is a method on an `AbstractService` registered in **one** catalog:
+`rust/server/src/composition.rs`, whose `registrations()` is the service map (32 services). A
+service is typed over a repository trait and built over a DAO; a method runs in a fixed order —
+**authorize → do the work through the repository → audit** — and a route reaches it only through
+the registered mailbox (`execute_registered`), so the queue, the timeout and the refusals apply to
+every door: HTTP, the engine and MQ alike. The recipe, and which services exist, is
+`docs/agent/MAP-services.md`; the rule that services with real operations declare their own
+descriptor instead of using `abstract_service!` is in `docs/agent/MEMORY.md` (2026-09-28). Do not
+build a second catalog and do not construct a service by hand.
 
-**Kernel contracts** live in `legacy/services/core/`:
+**Failure semantics** (the repo-wide error-capture obligation, in Rust):
 
-- envelopes and results: `ServiceEnvelope`, `ServiceResult` (`ServiceSuccess | ServiceFailure`),
-  `ServiceErrorShape`, `ServiceFailure`.
-- operation shapes: `ServiceOperationContract`, `ServiceOperationDefinition(s)`,
-  `ServiceOperationMap`, `ServiceOperationName`, `ServiceOperationKind`, `ServiceExecutionMode`,
-  `ServiceExecutionPolicy`.
-- identity and authority: `ServicePrincipal`, `ServiceActor`, `ServiceResourceContext`,
-  `ServiceCapability`, `ServiceEndpoint`, `ServiceDescriptor`.
-- `ServiceInfrastructure`: the injected ports.
+- **Expected** business outcomes — validation failures, FORBIDDEN, not-found — are
+  `CoreServiceError::Business` or a 4xx `ApiError`. They are audited control flow, **not** error rows.
+- A database failure is a `DbFailure`, which announces itself to `app_error` when it is constructed.
+  Any 5xx `ApiError` and any panic (`rust:panic`, level `fatal`) are captured too. Never swallow a
+  `Result`; never `let _ =` a failure you did not decide is unreportable.
 
-**Four ports are effectively mandatory**, and the composition enforces it: `audit`
-(`defaultAuditPort`), `events` (`defaultEventPort`), `errors` (`defaultErrorSink`, the
-`ServiceErrorSink` seam) and `authorization`. Authorization defaults to an **enforced** resolver,
-and the reason is written in the code: *"a kernel is never built without an authorization decision
-source."* Do not construct a kernel that skips these ports — that is exactly how an unaudited
-mutation gets shipped.
+**Repository boundary rule.** A DAO turns driver values into stable domain types before they leave
+`rust/core/db`. Bind parameters, never string-built SQL; a `uuid` column needs `$1::uuid`.
 
-**Failure semantics inside the tier** (the same split as the repo-wide error-capture obligation):
+### 5.3 The UI — one Yew app, one `Screen` trait
 
-- **Expected** business outcomes — validation failures, FORBIDDEN/authorization denials, not-found —
-  are domain failures returned in the envelope. They are audited control flow, **not** error rows.
-- Anything **unhandled** is captured through the errors sink with domain, operation and
-  `correlationId`. Never a bare `try/catch`, never `console.error` alone, never a silent 500.
+The browser gets one WebAssembly app (`rust/ui`) from the Rust server (`rust/server/src/site.rs`);
+there is no Next.js. Every screen implements the `Screen` trait (MVI: `Model`, `Msg`, a pure
+`update`, a pure `view`); side effects leave `update` as `Cmd` values and are executed in exactly one
+place, `rust/ui/src/app/exec.rs`, the only UI code allowed to touch `web_sys`. URLs live only in the
+endpoint catalogue `app/api.rs`. The screen table `app/registry.rs` is the only path → screen map;
+the router, both menus and the headless walk are generated from it. The browser reaches
+`/api/portal/*` only (session cookie, `rust/server/src/api/portal_bridge.rs`); `/v1/*` is internal.
+The contract, the holds (Marketing, WhatsApp Activation) and the recipe for a new screen are
+`docs/agent/UI-SCREEN-ARCHITECTURE.md`.
 
-**Repository boundary rule.** Repository boundaries own normalization of driver-native values into
-stable application contracts. Nothing above the repository should ever see a `Date`, `BigInt`,
-`Buffer` or driver-specific object from Neon/Postgres.
+### 5.4 Tests that prove it
 
-**A component importing from `db/*` is a defect**, and it is now machine-checked: commit `f1bc0a3`
-fixed the 6 component→db violations the new architecture gate found.
+- `#[cfg(test)]` beside the code; a service is proved against an in-memory fake of its repository
+  trait (the role `testv2/` used to play) — no HTTP, no database.
+- `rust/server/tests/*_dev.rs` run against a real DEV database, which is the only way the port's
+  worst three bugs were ever caught. `scripts/rust-live-check/` is the live check.
+- UI tests only compile with `--features wasm` (`cargo test -p ui --features wasm`); a plain
+  `cargo test -p ui` compiles none of the screen tests. `pnpm ui:check` is the pre-push gate.
 
-### 5.2 The MVI screen runtime (`ui/`)
+### 5.5 Boundaries that are settled — do not reopen without runtime evidence
 
-`ui/runtime/` is a transport- and framework-neutral **Model-View-Intent** page runtime. Its reason
-to exist is stated in the file itself: dispatch ingress, model publication and concurrency
-semantics *"otherwise get reimplemented in React components."*
-
-- `BasePageController<TModel, TMap> implements PageStore<TModel>`. A concrete controller declares
-  exactly one thing the runtime cares about: `operations: PageOperationDefinitions<TModel, TMap>`.
-- The parent owns dispatch, publication and concurrency; the controller owns what each intent does.
-  The protected helpers `replaceModel`/`updateModel` are how a controller publishes, and `dispose()`
-  aborts every in-flight operation and stops publication.
-
-**Three execution modes, declared per operation** (`PageOperationDefinition.execution`):
-
-- **`parallel`** (the default) — the operation gets its own `AbortController` and an `isCurrent()`
-  gate before any model write.
-- **`latest`** — LATEST-WINS. Dispatching the same operation again **aborts** the previous
-  in-flight one. This is the search-as-you-type / filter / paging case; do not hand-roll it in a
-  component.
-- **`serial`** — per-operation chaining (`serialTails`), so an operation can never interleave with
-  itself even when dispatched twice in a row.
-
-**Context handed to a handler** (`PageOperationContext`): `signal`, `snapshot()`, `update(reducer)`,
-`isCurrent()`. An operation that writes the model after it has been superseded is exactly the bug
-class the runtime exists to prevent — guard writes with `context.update()`, which already checks
-disposed/aborted/isCurrent, instead of setting state directly.
-
-**React never drives state.** The React-facing contract is `PageStore`: `snapshot()` +
-`subscribe()`, bound through `ui/runtime/use-page-controller.ts`. Components render the published
-model and dispatch intents; nothing else.
-
-**Projections are pure** and separate from both the source and the controller:
-`ui/projects/service-projection.ts` (`mapRealProjectsToWorkspace`), `ui/projects/tree-projection.ts`,
-`ui/client-workspace/channel-projection.ts`. A projection maps service DTOs into a page model. It
-does not fetch, and it does not import React.
-
-**Every screen has a Source interface with a real adapter AND an in-memory adapter.**
-`ui/projects/source.ts` exports `ProjectsWorkspaceSource` plus `InMemoryProjectsWorkspaceSource`;
-`client-admin` and `client-workspace` follow the same shape. The in-memory source is not test
-scaffolding — it is the seam that makes the controller provable without React, DOM, HTTP or the
-database.
-
-**Four screens are MVI-wired today**, and each component is a thin binding:
-
-| Component | Controller |
-|---|---|
-| `components/portal/projects-workspace.tsx` | `ui/projects/projects-controller.ts` |
-| `components/portal/clients-workspace.tsx` | `ui/client-workspace/client-workspace-controller.ts` |
-| `components/portal/client-admin.tsx` | `ui/client-admin/client-admin-controller.ts` |
-| `components/portal/forms/form-editor.tsx` | `ui/form-editor/form-editor-controller.ts` |
-
-Superseded surfaces were **removed** rather than left running in parallel: `ui/client-lens`,
-`ui/pns-lens` and `ui/form-lens` are gone (commit `4e610d0`). Do not resurrect them.
-
-### 5.3 The glass-box test tier (`testv2/`)
-
-`testv2/` imports the **real** `services/` and `ui/` source by relative path and is never shipped
-with the application. Its point: drive a controller from `node:test` against a fake Source with no
-React, no DOM, no HTTP and no database, then assert the **published PageModel** — including the
-runtime's latest-wins, serial and parallel semantics. The projection specs are fully pure.
-
-```
-node --import tsx --test testv2/*.test.ts               # no-DB service + UI tier
-node --import tsx --test testv2/engine_tests/*.test.ts   # no-DB engine tier
-pnpm test:persistence                                    # real-DEV-DB tier (env-gated)
-```
-
-A controller's module graph is kept alias- and runtime-clean so it runs under plain `tsx`. That is
-a **constraint**, not a coincidence: the moment a controller imports Next, React or a server-only
-module, the glass-box proof stops running and the screen becomes unprovable again. Keep the graph
-clean.
-
-### 5.4 Boundaries that are settled — do not reopen without runtime evidence
-
-1. **Screens do not read the database.** Component → controller → source → service → repository.
-2. **Business truth lives in application/domain services.** `workflow_engine` orchestrates only;
-   `workflow_app` maps. This is now also enforced *inside* `services/`.
-3. **A new domain is a package under `services/<domain>`** with its own repository interface,
-   service, types and `index.ts`, registered in `composeCoreServices`. No parallel composition roots.
-4. **Mutations are commands:** intent in, canonical service mutates, receipt/event proves it.
-   Canonical relational state stays the source of truth; no full event sourcing.
-5. **Presentation state belongs to the UI tier**; concurrency and resolution belong to the runtime,
-   not to a component's `useEffect`.
+1. **Screens do not read the database.** Screen → endpoint → route → service → repository → DAO.
+2. **Business truth lives in the domain and its services.** The workflow crate orchestrates only;
+   Forge is tooling beside the product, and the product does not depend on it.
+3. **A new domain is a service in `rust/server/src/<domain>`** with a repository trait, a DAO in
+   `rust/core/db`, types in `rust/core/domain`, registered in `composition.rs`. No parallel roots.
+4. **Mutations are commands:** intent in, canonical service mutates, receipt/event proves it
+   (`rust/server/src/command_runtime.rs`, §6.4). Relational state stays the source of truth.
+5. **Presentation state belongs to the screen's own `Model`**; a screen never reads another
+   screen's state, and side effects go through `Cmd`, never a hand-rolled browser call.
 6. **Conditional UI is derived from available data.** No listing-specific special-casing.
-7. **A fixture is never a runtime fallback.** The design fixture is test/prototype input only —
-   `PROJECTS-MVI-01` states this as an acceptance criterion, and a read failure must surface as an
-   explicit unavailable state instead.
+7. **A fixture is never a runtime fallback.** A read failure surfaces as an explicit unavailable
+   state.
+8. **Media is stored in Neon.** `media` holds the original and its derived `web`, `card` and `thumb`
+   copies as bytea (the "vault"); `property_media` owns role and order. The public route
+   `/api/media/{id}?size=card|thumb` falls back to `web` and is cached for a year. Films go to Mux.
 
-### 5.5 The data pipeline, and the paging standard
+### 5.6 The data pipeline, and the paging standard
 
 **The pipeline doctrine lives in DEEP1 — read it second, after this document.** Summary of the rule
 that matters most: **ODS** is the `l_*` tables (raw intake, written by intake scripts, write-only,
 and **nothing client-facing may ever read one**); the **warehouse** holds only what the screen
-contract needs, cherry-picked out of ODS by promotion scripts, which are the only code permitted to
-read an `l_` table; the **screen** reads the warehouse through a service (`services/*`), never
-through a repository inline. L keeps everything, which is what makes the warehouse safe to be lossy:
+contract needs, cherry-picked out of ODS by promotion code, which is the only code permitted to
+read an `l_` table; the **screen** reads the warehouse through a service, never through a
+repository inline. L keeps everything, which is what makes the warehouse safe to be lossy:
 every warehouse row is re-derivable from L. DEEP1 also carries the warehouse grain rule, the
 round-trip-cost law, the identity traps and the database-target trap.
 
@@ -387,7 +341,7 @@ screen. Do not raise timeouts, or delete/hide real rows, as a substitute for fix
 New data screens inherit this standard automatically; existing screens are corrected as they are
 touched or when real volume exposes a defect. See `ENG-34` for executable acceptance criteria.
 
-### 5.6 The Contact / CRM spine and the macOS integration edge
+### 5.7 The Contact / CRM spine and the macOS integration edge
 
 External activity should resolve toward canonical person/contact identity, then become CRM
 interaction/timeline/business actions. The conceptual spine:
@@ -428,26 +382,30 @@ everything).
 ### 6.1 Canonical pattern
 
 ```
-Story Board
+Story Board (storyboard_story)
   -> durable agent_work_item command
-  -> poller/invoker
-  -> AgentRuntimeAdapter
-  -> concrete runtime adapter
+  -> launchd com.culebraluxe.agent-worker, every 180s (scripts/agent-scheduler.mjs installs it)
+  -> scripts/agent-worker-once.sh -> the forge-worker binary (rust/forge/src/bin/forge_worker.rs)
+  -> the FORGE_SDLC workflow (rust/forge/definitions/FORGE_SDLC-v6.xml) on rust/core/workflow
+  -> RoleHarness (rust/forge/src/engine/runner.rs) per role: scout, architect, lead, smith, qa, dev_ops
   -> model / tools
-  -> evidence
-  -> storyboard_story_run / terminal work item
+  -> evidence rows
+  -> storyboard_story_run / forge_engine_task_execution / terminal work item
 ```
 
 - **Story Board** = specification / architecture truth.
-- **`agent_work_item`** = durable command queue.
-- **poller/invoker** = command invoker.
-- **`AgentRuntimeAdapter`** = execution abstraction; the concrete receiver has been
-  `DeepSeekHarnessAdapter` and is now also other harnesses.
-- **`storyboard_story_run`** = durable evidence / history.
+- **`agent_work_item`** = durable command queue and the single-active lock.
+- **the worker** = command invoker; the engine (`rust/forge`) decides what happens next and writes
+  that decision to Neon.
+- **`RoleHarness`** = execution abstraction; one role, one assignment, one report.
+- **`storyboard_story_run`**, **`forge_engine_task_execution`**, **`forge_tool_artifact`** = durable
+  evidence / history. Status is read from these rows, never from a log.
 
-**One story = one command.** The factory must remain runtime-neutral above the adapter boundary.
-Logical model profiles such as `builder-flash` / `architect-pro` must not leak provider-specific
-model names into canonical command semantics.
+Where to open a file is `docs/agent/MAP-engine.md`. The TypeScript harness (`agent-runtime/`) is
+retired.
+
+**One story = one command.** The factory must remain runtime-neutral above the harness boundary.
+Logical model profiles must not leak provider-specific model names into canonical command semantics.
 
 ### 6.2 Control plane vs execution plane
 
@@ -467,8 +425,10 @@ no silent generic `DATABASE_URL` fallback from DEV intent to PROD.
 > **PROD only**; DEV is for application work and hand-run scripts. A run whose resolved target is not
 > PROD is a **defect**, the guard belongs at run start and must **fail closed**, and a run's
 > `execution_environment` must be **visible on the board** so a mismatch can never masquerade as PROD
-> evidence. History gaps are recovered with `pnpm forge:sync-history` (additive, idempotent) — never
-> by re-running work. See **SOP1** for the operator doctrine, and DEEP1 §6 for the database-target
+> evidence (the guard is `rust/forge/src/engine/execution_target.rs`). History gaps are recovered
+> additively and idempotently — never by re-running work. (`pnpm forge:sync-history` was that tool;
+> it is a dead TypeScript script and has no Rust port yet.) See **SOP1** for the operator doctrine,
+> and DEEP1 §6 for the database-target
 > trap that makes "the resolved target" a diagnostic you must not trust without printing the
 > connection host.
 
@@ -476,11 +436,15 @@ no silent generic `DATABASE_URL` fallback from DEV intent to PROD.
 
 **Application owns canonical business truth.**
 
-`workflow_engine` owns orchestration: tokens, transitions, timers/jobs, retries, fork/join, generic
-human-task mechanics, terminal semantics.
+The state machine (`rust/core/workflow`, formerly `workflow_engine`) owns orchestration: tokens,
+transitions, timers/jobs, retries, fork/join, generic human-task mechanics, terminal semantics. One
+engine step is one database transaction (`TxStore::with_tx`).
 
-`workflow_app` owns: workflow definitions, `ApplicationPort`, facts, business command routing,
-task/workflow correlation, application-facing workflow reads.
+The transaction runtime (`rust/forge/src/engine/re_*`, formerly `workflow_app`) owns: the
+application port (`re_port.rs`), facts (`re_facts.rs`), command routing (`re_commands.rs`),
+claim-first command receipts (`re_receipt.rs`) and the verbs (`re_runtime.rs`). The API reaches it
+through `rust/server/src/api/engine.rs` on a bounded worker pool, because the engine blocks. Detail:
+`docs/layers/WORKFLOW.md`.
 
 **The engine must not know CRM/domain tables.**
 
@@ -491,7 +455,9 @@ seams.
 
 ### 6.4 Business command architecture
 
-Before significant additional CRM→workflow mapping, establish a canonical Business Command layer.
+The canonical Business Command layer exists: `rust/server/src/command_runtime.rs` (envelope,
+dispatcher, receipts through `CommandReceiptDao`, domain events through `DomainEventOutboxDao`), on the
+kernel types in `rust/core/service`. Extend it; do not build a second one. Its shape:
 
 ```
 UI / Workflow / API / Agent
@@ -537,7 +503,8 @@ SUBSCRIBER = REACTION
 
 **Postgres is the V1 durable messaging substrate.** Borrow MQ semantics: durable delivery,
 at-least-once, subscriber idempotency, retries, correlation, replay, dead-letter/escalation
-concepts.
+concepts. The outbox is the `outbox_message` table, written and delivered by `rust/core/db/src/outbox.rs`
+(`rust/server/tests/mq_runtime_dev.rs` and `service_atomicity_dev.rs` prove it against DEV).
 
 Do **not** implement full event sourcing. Canonical relational state remains truth. Do not rebuild
 aggregates from event history. Do not introduce Kafka/RabbitMQ merely for architectural aesthetics —
@@ -573,8 +540,8 @@ The real chain has been proven end to end (**ENG-19**: Story Board → durable w
 
 For anything about judging whether the factory is healthy — one failed story vs a wedge, residue,
 replenishment, escalation triggers, the PROD-only rule, the `pnpm db:parity` / `pnpm db:migrations`
-release gates, the analyzer-tool boundary, and the dark deploy receipts — read **SOP1** rather than
-this section.
+release gates, the analyzer-tool boundary, and the deploy receipts — read **SOP1**, then the command
+table in `docs/agent/MAP-engine.md`, rather than this section.
 
 ---
 
@@ -654,8 +621,8 @@ HARD BOUNDARIES — DO NOT
     - introduce full event sourcing
     - introduce external infrastructure without requirement
     - touch production application/domain data unless explicitly authorized
-    - during read-only/diagnosis work: push or deploy. (During authorized implementation, delivery
-      to main and Production is implied unless Chris explicitly prohibits it.)
+    - during read-only/diagnosis work: push. Never deploy or touch the production database
+      without Chris's explicit go. (During authorized implementation, delivery to main is implied.)
     - run giant unrelated regression suites
     - perform visual polish unless requested
     - broaden scope to fix unrelated issues
@@ -673,12 +640,12 @@ FAIL-FAST / ESCALATION POLICY
   PRINCIPLE: a failed story should cost one story, not the rest of the batch.
 
 TEST POLICY
-  RUN SCOPED TESTS ONLY. Full regression or next build requires Chris's explicit authorization,
-  including at a promotion boundary.
+  RUN SCOPED TESTS ONLY. Full regression requires Chris's explicit authorization, including at a
+  promotion boundary.
     - targeted tests for the changed seam
     - adjacent tests where justified
-    - typecheck if TypeScript contracts changed
-    - build if routing/server/UI/deployment surface changed
+    - cargo check for the crates touched; pnpm ui:check if rust/ui changed
+    - pnpm build if routing/server/UI/deployment surface changed
     - one real smoke test if runtime integration changed
   DO NOT reflexively run the entire regression harness. Never run persistence suites concurrently
   when they intentionally share a global single-active-resource invariant.
@@ -700,7 +667,7 @@ ACCEPTANCE CRITERIA
     3. a duplicate commandId returns the prior result and performs no duplicate mutation
     4. correlationId and causationId persist through the receipt
     5. targeted tests pass
-    6. typecheck passes
+    6. cargo check (and pnpm ui:check for rust/ui) passes
     7. the working tree contains only intended changes
     8. no production data changed
     9. evidence identifies exact files/tests/commit
@@ -714,15 +681,15 @@ EXECUTION SEQUENCE
   4. Add targeted proof.
   5. Run scoped verification.
   6. Fix only failures caused by this story.
-  7. For authorized implementation, commit to main, push, and verify Vercel Production unless Chris
-     explicitly prohibits it.
+  7. For authorized implementation, commit to main and push (git pull --rebase first). Deploying is
+     Chris's call; verify production once he has deployed.
   8. Update durable evidence.
   9. STOP. Do not continue into adjacent backlog stories.
 
 FINAL REPORT
   Story implemented; architecture actually used; files changed; schema/migrations changed; canonical
   services reused; new contracts/interfaces/classes; invariants proved; exact scoped tests run and
-  results; typecheck/build result if applicable; runtime/smoke evidence if applicable; environment
+  results; cargo check/build result if applicable; runtime/smoke evidence if applicable; environment
   used; DB writes performed; confirmation forbidden environments were untouched; git commit hash(es);
   working-tree status; residual risks; deferred work explicitly not implemented; final verdict:
       GREEN
@@ -817,9 +784,11 @@ a costly screen switch, stays current automatically, or justifies its visual/mai
 
 - Cockpit → `/portal/dashboard`
 - Clients → `/portal/clients`
-- Catch-Up → `/portal/attention`
+- Catch-Up → `/portal/catch-up`
 - Contracts → `/portal/deals`
 - Cabinet → `/portal/documents`
+- Projects → `/portal/projects`, Workflows → `/portal/workflows`, Forms → `/portal/forms`, Seller
+  Strategy → `/portal/core/seller-strategy` (the authoritative list is `rust/ui/src/app/registry.rs`)
 
 OPPS, SUPPORT and TECH retain their names. The portal logo returns to the public site, and the MAIN
 top-nav item is removed; the public-site Portal link is the far-right final navigation item.
@@ -835,34 +804,34 @@ top-nav item is removed; the public-site Portal link is the far-right final navi
 ## 10. CURRENT STATE AND KNOWN GAPS
 
 > **This section is a snapshot, not authority.** It is dated, and it ages. Query the live control
-> plane for status; query the code and schema for architecture claims.
+> plane for status; query the code and schema for architecture claims. The 2026-09-11/12 snapshot it
+> replaces (four MVI-wired TypeScript screens, `contract` unreleased, zero PROD projects) is history.
 
-**As of 2026-09-11/12:**
+**As of 2026-09-28** (each line names the check that proves it):
 
-- **Application.** The service tier and the MVI runtime exist and are proven, but **only four portal
-  screens are wired through them** (projects, clients, client-admin, form-editor). Most of `/portal`
-  still reads through the older paths, so the new tier and the legacy surfaces currently coexist.
-  Migrating the rest is unplanned work, not a scheduled story.
-- **The architecture hard gate can read clean WITHOUT RUNNING.** `dependency-cruiser` and `knip` are
-  not installed in this repo (`semgrep` and `ripwire` are), so `StaticGateResult.archRan` is false and
-  the correct reading is **INCOMPLETE**, never PASS. Adding those two as devDependencies is required
-  and **not done**.
-- **Deployment receipts are dark (TECH-DEBT-07).** `AgentRunEvidence.releaseEvidence` is never
-  populated, so the deploy stage HOLDs on `devops-receipt`: a story can publish and still not be
-  *recorded* as deployment-verified. This also blocks `PROJECTS-WORKSPACE-14`.
-- **The `contract` domain is not yet released in PROD.**
-- **Data pipeline.** Warehouse source grain is done for `apple_messages`, `apple_calls` and
-  `apple_facetime`; `icloud_mail` (email) still writes one interaction per message and needs the same
-  change. See DEEP1 for the full picture.
-- **Board vocabulary.** `'Reference'` is now a declared priority; `'P2'` (on one row,
-  `ENG-DB-RESILIENCE-01`) is still outside the declared vocabulary and was deliberately left for a
-  human decision. See `docs/agent/MEMORY.md`.
-
-**Where things stood when this was written:** PROD had **zero** projects until
-`jessica-iverson-listing` was seeded (`scripts/seed-jessica-project.ts`, anchored to person
-`b741d639-3173-47bc-adff-769865c6347d`), and `PROJECTS-WORKSPACE-13..18` remained Planned.
-
----
+- **UI.** `rust/ui/src/app/registry.rs` has 58 entries: 54 on the `Screen` trait, 2 on the old loop
+  (`marketing`, `marketing-syndication` — held for Chris's redesign, `LEGACY_CEILING = 2`), 2 external
+  (WhatsApp Activation, `/portal`). `docs/agent/UI-SCREEN-ARCHITECTURE.md` STATUS.
+- **TypeScript.** No Next.js application; Google sign-in is Rust. `pnpm broken:ts:sweep`: 251 files
+  scanned under `scripts/` + `agent-runtime/`, 187 marked broken on purpose, tree and inventory
+  agree. **51 tracked `.ts` files outside `legacy/` carry no banner** (agent-runtime 29, scripts 16,
+  `workflow_engine/lib/workflow` 4, `testv2/engine_tests` 2) and some are still wired to `pnpm`
+  (`smoke:prod` → `scripts/prod-smoke.ts`, `forge:silent-failure-gate`); they are unfinished port
+  work, not exceptions.
+- **Dead commands still on the menu.** `forge:sync-history`, `forge:tools`, `forge:decision` and
+  `story:status` point at bannered scripts and cannot run. `test:engine` (and so `pnpm test`) runs
+  `testv2/engine_tests/*.test.ts`, which matches no file.
+- **The architecture hard gate never runs.** `rust/forge/src/engine/qa_adjudicate.rs` reads
+  `arch_ran` but no Rust code sets it, so the gate reads **INCOMPLETE**, never PASS. knip and
+  dependency-cruiser are now installed but check TypeScript, which is not the product; the Rust
+  boundaries are held by crate dependencies and the compiler.
+- **Release evidence** is now derived in Rust (`derive_release_evidence`,
+  `rust/forge/src/engine/role_slice.rs:93`). Whether real runs populate it (the old TECH-DEBT-07) is
+  **not verified** — ask the rows.
+- **Deploys** are manual: `pnpm deploy:prod` compiles on the Mac; git pushes do not deploy.
+- **Media.** Listing cards use the `card` copy (migration 252, DEV and PROD, backfilled 2026-09-28).
+- **Data pipeline.** See DEEP1 and `docs/agent/MEMORY.md` (2026-09-27/28): the warehouse promotion
+  was decided PORT, and Apple lands in its own tables and is reconciled, never written over `person`.
 
 ## 11. ACCUMULATED ENGINEERING JUDGMENT
 
@@ -926,20 +895,23 @@ create an engineering system that **remembers why it works**.
 
 **Repository documents**
 
+- `AGENTS.md` — the house rules; they outrank everything else here.
+- `docs/agent/ORIENTATION.md` — the map: layers, commands, where to look for X.
 - `docs/agent/MEMORY.md` — decision log: short facts that are expensive to rediscover.
-- `docs/agent/FORGE-WORKSHOP.md` — the boot sheet / HELM manifest and how to choose an operating mode.
-- `docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md` — the operating contract for database work.
+- `docs/agent/MAP-services.md` — the service recipe and registration.
+- `docs/agent/UI-SCREEN-ARCHITECTURE.md` — the `Screen` contract, holds and the recipe for a screen.
+- `docs/agent/MAP-engine.md` — the Forge engine, its commands and its rows.
+- `docs/layers/SERVICES.md`, `DB.md`, `WORKFLOW.md`, `FORGE.md`, `UI.md` — one page per layer.
+- `docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md`, `docs/agent/SOP-DEV-REFRESH.md` — database work.
+- `docs/agent/DEV-OPS-RELEASE.md` — build, deploy, release record, smoke.
 - `docs/agent/PERSON-PROPERTY-DESIGN.md` — the person ↔ property model and its four rules.
-- `docs/agent/skills/README.md` — skill inventory, with the "can run" column.
-- `testv2/README.md` — the pattern statement for the glass-box tier.
-- `docs/catchup-wbs-design.md`, `docs/agent/packets/PROJECTS-MVI-01.md`, `PROJECTS-MVI-02.md` — the
-  Projects/MVI design and packets.
-- `docs/ARCH-01-README-SUPPLEMENT.md` — the ARCH-01 supplement (still present and referenced).
-- `AGENTS.md` — the repo-owned handbook (always/ask/never, error-capture obligation, delivery rule).
+- `docs/agent/BROKEN-TS-INVENTORY.md` — what TypeScript is dead, and its Rust home.
+- `docs/agent/HANDOFF-TEMPLATE.md` — the shape a stopping session leaves behind.
+- `docs/rust-contributing.md` — making a Rust change without the known traps.
 
 **Tooling that is installed and runs here:** `ripwire`, `semgrep`. Use `pnpm rw:map` /
-`pnpm rw:for "<task>"` — a bare `ripwire .` maps `.next` build output and the gitignored reference
-clones, because ripwire does not honor `.gitignore`.
+`pnpm rw:for "<task>"` — a bare `ripwire .` also maps the gitignored reference clones, because
+ripwire does not honor `.gitignore`.
 
 ---
 
@@ -987,14 +959,3 @@ non-canonical. Preserve the `l_person` / load projection versus `person` / `pers
 
 *This document is the source for the `ARCH-HANDOFF` Story Board row. A later explicit decision from
 Chris supersedes anything here and must be durably recorded in `docs/agent/MEMORY.md`.*
-
-
-
-
-
-
-
-
-
-
-
