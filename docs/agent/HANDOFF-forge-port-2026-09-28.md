@@ -53,9 +53,11 @@ the doctor, and the writer. What is left is below with the exact files to open.
 | `c6bfc6a6` | `main` green again for `server`: publishing's `PublishingDao` / `PublishingListing` / `PublishingSnapshot` re-exported from their crate roots and `PublishingService` registered in `ServiceCatalog` (field, construction, accessor) | `cargo check -p cli -p server -p db -p forge --all-targets` → exit 0 |
 | `be6df89d` | `forge:roi` ported: `parse_window_days` + `render_roi_report` in `forge::roi`, gather-and-print in `rust/cli/src/forge/roi.rs`, `package.json` repointed | `cargo test -p forge --lib roi` 12, `-p cli` 72; live run 2026-09-28: 627 attempts over 14 days on DEV |
 | `3f796705` | `docs/agent/DEAD-COMMANDS.md` + `scripts/dead-command-sweep.mjs` (`pnpm broken:ts:commands`): 53 dead commands, three blocks, a keep-or-delete line each, and a `--check` that fails when the count rises or falls without the baseline dropping | `pnpm broken:ts:commands --check` → 53 at baseline; `pnpm broken:ts:sweep` → "the tree and the inventory agree" |
-| (this commit) | **the false outage, fixed:** `apple_sync::repo_root()` is the git toplevel, not `current_dir()`, so `.env.local` is found from any directory; ONE `forge::connect()` replaces four copies and prints `DbFailure.detail` | `cargo test -p cli` 74 (2 new: the message names the reason; and names the file with no detail); `-p db` 40, `-p forge` 76; `forge roi` answers from the root **and** from `rust/`; a missing `.env.local` prints the variable and exits 2 |
+| `56fcab57` | **the false outage, fixed:** `apple_sync::repo_root()` is the git toplevel, not `current_dir()`, so `.env.local` is found from any directory; ONE `forge::connect()` replaces four copies and prints `DbFailure.detail` | `cargo test -p cli` 74 (2 new: the message names the reason; and names the file with no detail); `-p db` 40, `-p forge` 76; `forge roi` answers from the root **and** from `rust/`; a missing `.env.local` prints the variable and exits 2 |
+| `26005949` | `.env.example` names the Mux pairs the code reads (`_PROD`, `_DEV`) instead of only the unsuffixed fallback — the template was the reason "which names do I type?" had two answers; handoff + MEMORY record that the `.env.local` mtime of 2026-09-27 21:54 was the Captain's Mux token, not a database edit | `pnpm forge:packet-lint` → 0 failures / 132 warnings (126 baselined); `git log origin/main` shows the commit; working tree clean |
 
 ## 5. NOT VERIFIED — the honest gaps
+
 
 - **`forge roi` is live-verified** (`65ec597f` + this session's fix): `APP_ENV=dev … forge roi --days 14` read
   **627 real attempts** over 14 days, 606 done / 4 failed, named its target (`APP_ENV=dev → dev`), and reported
@@ -123,6 +125,23 @@ the doctor, and the writer. What is left is below with the exact files to open.
   provision script copies from). `scripts/vercel-provision-rust-project.sh:144-147` propagates them when it runs;
   the TECH screen's `system-health` payload reports `muxConfigured` and `allProductionRequiredConfigured`, which is
   the one-click proof after any deploy.
+- **The Mux pair in the standalone Rust project is not the pair in `.env.local`, and only the Captain can say
+  whether that matters (measured 2026-09-28, shapes only — no value was printed or read).** `culebraluxe.com` and
+  `www.culebraluxe.com` belong to the project **`culebraluxe-web-fp`**, which holds all eight Mux names as
+  `sensitive` on Preview+Production (created 2026-08-16) — so the site's Mux credentials were not touched by
+  yesterday's `.env.local` edit. The project **`culebraluxe-rust-api`** (live, Production, no public domain) holds
+  exactly two Mux names — `MUX_TOKEN_ID_PROD`, `MUX_TOKEN_SECRET_PROD`, `type=encrypted`, created 2026-09-23 — and
+  their stored plaintexts are of near-equal length (ciphertext 112 and 124 bytes), while the pair in `.env.local` is
+  36 and 75 characters. A Mux token id and its secret are never near-equal, so those two values are not the current
+  pair. Two questions follow, both the Captain's: **(a) was yesterday's Mux token a new token or a rotated one** —
+  if it was rotated and the old one was revoked at Mux, production video fails on a token nobody re-pushed, since
+  Vercel's copies are `sensitive` and cannot be read back to compare; **(b) may the current pair be written into
+  `culebraluxe-rust-api` (and `culebraluxe-web-fp` if it was a rotation)** — one command reading `.env.local`, values
+  never printed. The probe used, if it is ever needed again:
+  `vc api "/v10/projects/<project>/env?teamId=team_xk8vFaeSyY6CuSkS3OK55tTc"` with a script that reports
+  `key`, `type`, `target`, `value_present` and the byte length of the `{"v":"v2","c":…}` envelope, and never the
+  value itself. Note the readiness probe cannot tell: both variables are non-empty, so `muxConfigured` reads
+  `true` on a wrong value as readily as on a right one — a live upload is the only real test.
 - **`rust/ui` does not build on `main` (S10)**: `update.rs:2513` initialises `PortalDealCommand` without the seven
   fields the model grew. H2 holds that area, so it was left alone — but the website is the deployable artifact,
   so this is a production-facing red that needs its owner.
