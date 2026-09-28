@@ -144,7 +144,7 @@ fn repo_root() -> PathBuf {
     crate::apple_sync::repo_root()
 }
 
-fn option<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
+pub(crate) fn option<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
     let prefixed = format!("{name}=");
     if let Some(direct) = args
         .iter()

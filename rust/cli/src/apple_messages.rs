@@ -385,6 +385,8 @@ pub async fn intake_messages(dir: &Path, options: IntakeOptions) -> Result<(), B
                         )
                     }),
                     source_system: APPLE_MESSAGES_SOURCE.to_owned(),
+                    // A message has no duration; the call channel is where that column is used.
+                    duration_seconds: None,
                     source_external_id: format!("latest:{person_id}:{channel}"),
                     // Provenance only. The CRM remembers the moment, never the transcript.
                     source_metadata: json!({

@@ -3,6 +3,7 @@
 //! This crate must not depend on database, HTTP, process, or provider adapters.
 
 pub mod accounting;
+pub mod apple_calls;
 pub mod apple_messages;
 pub mod applemail;
 pub mod calendar;
@@ -48,6 +49,12 @@ pub mod website_lead;
 pub mod workflow_portal;
 
 pub use accounting::*;
+pub use apple_calls::{
+    APPLE_CALLS_SOURCE, APPLE_CALL_HISTORY_ACCOUNT, APPLE_FACETIME_SOURCE, AppleCallInteraction,
+    AppleCallRecord, build_call_evidence, call_date_iso, call_direction, call_duration_raw,
+    call_duration_seconds, call_landing_direction, call_latest_interaction, call_source,
+    call_unique_id, is_facetime_call,
+};
 pub use apple_messages::{
     APPLE_LOCAL_SOURCE_ACCOUNT, APPLE_MESSAGES_SOURCE, APPLE_PREVIEW_MAX_LENGTH,
     AppleHandleEvidence, AppleHandleLookup, AppleMessagesExport, AppleMessagesHandle,

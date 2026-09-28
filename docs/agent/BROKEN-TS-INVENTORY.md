@@ -62,7 +62,7 @@ capabilities are not "dead weight", they are **broken in production** (checked 2
 | `scripts/apple-sync.sh` — launchd `com.culebraluxe.apple-sync`, twice daily | **`rust/cli` apple-sync messages-intake** (was `scripts/apple-messages-intake.ts`) | **fixed 2026-09-27**: the launchd job's exit status 1 was the deleted intake script; the step is Rust now and the job needs re-arming (see §"Apple intake — ported") |
 | `scripts/apple-message-repair.sh` (`apple:repair:prod`) | **`rust/cli` apple-sync messages-intake --evidence-only --refresh** (was the same deleted file) | **fixed 2026-09-27**: repairs ODS evidence for the existing export and refreshes the Client read models, without replaying interactions |
 | `scripts/contacts-sync.sh:135,143,149` | `load-apple-contacts.ts`, `project-apple-contacts.ts`, `promote-warehouse.ts` | **the warehouse promotion is down**: the Contacts chain fails before it reaches `l_person`/`l_property` → `person`/`property` |
-| `scripts/apple-calls-sync.sh:20` | `scripts/apple-calls-intake.ts` | Calls intake does not run |
+| `scripts/apple-calls-sync.sh:41` | **`rust/cli` apple-sync calls-intake** (was `scripts/apple-calls-intake.ts`) | **fixed 2026-09-28**: the wrapper is repointed; chain ported to Rust (`rust/cli/src/apple_calls.rs` + `domain::apple_calls`), DEV-verified (5236 calls replayed, 864 evidence rows, 4 interactions written / 403 already current) |
 | `scripts/email-sync.sh` | **`rust/cli` apple-sync mail-intake + mail-promote** (was `apple-mail-envelope-intake.ts` + `promote-applemail.ts`) | **fixed 2026-09-28**: the wrapper is repointed; intake needs macOS Full Disk Access (see `DEAD-TS-DOWNSIZE.md` §1) |
 | `scripts/gmail-sync.sh` | **`rust/cli` gmail-sync** (was `scripts/gmail-metadata-sync.ts`) | **fixed 2026-09-28**: repointed; needs GOOGLE_CLIENT_ID / SECRET / REFRESH_TOKEN in `.env.local`, which this machine does not have |
 
@@ -319,7 +319,17 @@ The product is largely Rust already. What is stranded here is intake and proof t
    now calls the Rust command and needs neither node nor tsx. **The live check found a real bug** —
    serde's camelCase read the exporter's `dateISO` as `dateIso`, so every message silently lost its
    timestamp; fixed and pinned by a unit test.
-3. `scripts/apple-calls-intake.ts` — calls channel. **PORT P1.**
+3. `scripts/apple-calls-intake.ts` — calls channel. **PORTED 2026-09-28.**
+   `rust/cli/src/apple_calls.rs` (`apple-sync calls-intake [dev|prod] --file <calls.jsonl>`), rules in
+   `rust/core/domain/src/apple_calls.rs` (6 unit tests): FaceTime decided by provider or call type,
+   directions derived from `originated`, evidence per counterparty address with `l_call` landing
+   (`db::LandingDao::land_call_batch`, 500-row batches, source precision kept), reconciliation
+   through the shared `decide_apple_handle`, one interaction per Person x call channel
+   (`latest:<person>:call`, carrying duration). `scripts/apple-calls-sync.sh` now calls the Rust
+   command. Verified live on DEV (replay-safe: 5236 replayed, 0 landed; 864 evidence rows; 4
+   interactions written, 403 already current, 568 calls staged as evidence only). **The live check
+   found the same bug as the Messages port** — the deleted TypeScript's `dateISO` key read as
+   `dateIso` meant every call lost its date; fixed and pinned by a unit test.
 4. `scripts/load-apple-contacts.ts` — `contacts:load:dev`, `contacts:load:prod`. **VERIFY** against
    `rust/cli/src/apple_sync.rs` (the `apple:sync` npm commands already target Rust). Likely
    **RETIRE**, or fold the batch behaviour into `apple_sync`.

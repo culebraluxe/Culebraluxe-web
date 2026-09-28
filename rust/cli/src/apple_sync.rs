@@ -34,6 +34,7 @@ pub async fn dispatch(args: &[String]) -> Result<(), Box<dyn Error>> {
         // Apple Mail: envelope-index intake into `l_applemail`, then the one promotion pass that
         // reads a landing table. See `apple_mail` for the chain and its privacy boundary.
         "mail-intake" => crate::apple_mail::mail_intake(&args[1..]).await,
+        "calls-intake" => crate::apple_calls::calls_intake(&args[1..]).await,
         "mail-promote" => crate::apple_mail::mail_promote(&args[1..]).await,
         other => Err(io::Error::other(format!("unknown apple-sync command: {other}")).into()),
     }

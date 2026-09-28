@@ -30,6 +30,24 @@ pub struct ImessageLanding {
     pub raw: Value,
 }
 
+/// One raw Apple call on its way into `l_call`. Video is FaceTime; direction is the source's own.
+#[derive(Debug, Clone)]
+pub struct CallLanding {
+    pub source_account: Option<String>,
+    pub source_message_id: String,
+    pub handle: Option<String>,
+    /// `outgoing` / `incoming`.
+    pub direction: Option<String>,
+    /// `audio` / `video`.
+    pub call_type: Option<String>,
+    pub answered: Option<bool>,
+    /// Source precision, never rounded: the landing table is evidence, and migration 161 exists
+    /// because rounding Apple's float here was interpretation.
+    pub duration_seconds: Option<f64>,
+    pub started_at: Option<String>,
+    pub raw: Value,
+}
+
 /// Input for [`LandingDao::upsert_latest_interaction`].
 #[derive(Debug, Clone)]
 pub struct LatestInteraction {
@@ -39,6 +57,8 @@ pub struct LatestInteraction {
     pub direction: Option<String>,
     pub occurred_at: String,
     pub summary: Option<String>,
+    /// Call duration in whole seconds. `None` for channels that have no such notion.
+    pub duration_seconds: Option<i64>,
     pub source_system: String,
     pub source_external_id: String,
     pub source_metadata: Value,
@@ -128,6 +148,72 @@ impl LandingDao {
         Ok(rows.len())
     }
 
+    /// Set-based landing for a bounded batch of calls. Returns how many rows were genuinely new.
+    ///
+    /// Same contract as every landing write: `(coalesce(source_account,''), source_message_id)` is
+    /// the replay key, `raw` carries the untouched source payload, and the duration keeps the
+    /// source's own precision.
+    pub async fn land_call_batch(&self, inputs: &[CallLanding]) -> DbResult<usize> {
+        if inputs.is_empty() {
+            return Ok(0);
+        }
+        let account: Vec<Option<String>> = inputs
+            .iter()
+            .map(|input| input.source_account.clone())
+            .collect();
+        let message_id: Vec<String> = inputs
+            .iter()
+            .map(|input| input.source_message_id.clone())
+            .collect();
+        let handle: Vec<Option<String>> = inputs.iter().map(|input| input.handle.clone()).collect();
+        let direction: Vec<Option<String>> =
+            inputs.iter().map(|input| input.direction.clone()).collect();
+        let call_type: Vec<Option<String>> =
+            inputs.iter().map(|input| input.call_type.clone()).collect();
+        let answered: Vec<Option<bool>> = inputs.iter().map(|input| input.answered).collect();
+        let duration: Vec<Option<f64>> = inputs.iter().map(|input| input.duration_seconds).collect();
+        let started_at: Vec<Option<String>> =
+            inputs.iter().map(|input| input.started_at.clone()).collect();
+        let raw: Vec<String> = inputs
+            .iter()
+            .map(|input| serde_json::to_string(&input.raw).unwrap_or_else(|_| "null".to_owned()))
+            .collect();
+
+        let rows = sqlx::query(
+            r#"
+            insert into l_call (
+              source_account, source_message_id, handle, direction, call_type,
+              answered, duration_seconds, started_at, raw
+            )
+            select
+              t.source_account, t.source_message_id, t.handle, t.direction, t.call_type,
+              t.answered, t.duration_seconds, t.started_at, (t.raw)::jsonb
+            from unnest(
+              $1::text[], $2::text[], $3::text[], $4::text[], $5::text[],
+              $6::bool[], $7::double precision[], $8::timestamptz[], $9::text[]
+            ) as t(
+              source_account, source_message_id, handle, direction, call_type,
+              answered, duration_seconds, started_at, raw
+            )
+            on conflict (coalesce(source_account, ''), source_message_id) do nothing
+            returning id
+            "#,
+        )
+        .bind(account)
+        .bind(message_id)
+        .bind(handle)
+        .bind(direction)
+        .bind(call_type)
+        .bind(answered)
+        .bind(duration)
+        .bind(started_at)
+        .bind(raw)
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("landing.call.batch", &error))?;
+        Ok(rows.len())
+    }
+
     /// Upsert the newest interaction for one Person x channel.
     ///
     /// The identity is `latest:<person>:<channel>`, keyed on the source rather than the message, so
@@ -144,7 +230,7 @@ impl LandingDao {
               title, summary, duration_seconds, source_system, source_external_id, source_metadata
             ) values (
               $1::uuid, null, null, $2, $3, $4, $5::timestamptz,
-              null, $6, null, $7, $8, $9
+              null, $6, $10::int, $7, $8, $9
             )
             on conflict (source_system, source_external_id)
               where source_system is not null and source_external_id is not null
@@ -170,6 +256,7 @@ impl LandingDao {
         .bind(&input.source_system)
         .bind(&input.source_external_id)
         .bind(&input.source_metadata)
+        .bind(input.duration_seconds)
         .fetch_optional(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("landing.interaction.latest", &error))?;

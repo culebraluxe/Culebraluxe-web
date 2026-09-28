@@ -114,7 +114,7 @@ pub use guide::GuideDao;
 pub use intake::IntakeDao;
 pub use issue::IssueDao;
 pub use landing::{
-    ImessageLanding, LandingDao, LatestInteraction, LatestInteractionOutcome,
+    CallLanding, ImessageLanding, LandingDao, LatestInteraction, LatestInteractionOutcome,
 };
 pub use apple_ods::{
     AppleMailLanding, EmailLanding, IntakeCheckpoint, IntakeCheckpointUpdate, InteractionDraft,
