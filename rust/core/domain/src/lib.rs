@@ -7,6 +7,7 @@ pub mod apple_messages;
 pub mod calendar;
 pub mod client;
 pub mod cockpit;
+pub mod catch_up;
 pub mod comms;
 pub mod contract;
 pub mod deal_portal;
@@ -53,6 +54,7 @@ pub use apple_messages::{
 };
 pub use client::*;
 pub use cockpit::*;
+pub use catch_up::*;
 pub use firm::{FieldPatch, Firm, UpsertFirmRequest};
 pub use person::{
     AttachPersonIdentityRequest, Person, PersonIdentity, PersonIdentityKind, PersonSearchResult,
