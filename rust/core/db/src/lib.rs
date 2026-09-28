@@ -7,6 +7,7 @@
 
 mod agreement_execution;
 mod app_error;
+mod apple_ods;
 mod broker_signature;
 mod calendar;
 mod capture;
@@ -114,6 +115,9 @@ pub use intake::IntakeDao;
 pub use issue::IssueDao;
 pub use landing::{
     ImessageLanding, LandingDao, LatestInteraction, LatestInteractionOutcome,
+};
+pub use apple_ods::{
+    AppleMailLanding, IntakeCheckpoint, IntakeCheckpointUpdate, InteractionDraft,
 };
 pub use marketing::MarketingDao;
 pub use media::{

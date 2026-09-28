@@ -121,7 +121,8 @@ pub fn normalize_email(input: &str) -> Option<String> {
     Some(trimmed.to_lowercase())
 }
 
-fn is_email_shaped(value: &str) -> bool {
+/// Shared with `crate::applemail::normalize_mailbox`: one email shape rule for the whole crate.
+pub(crate) fn is_email_shaped(value: &str) -> bool {
     if value.chars().any(char::is_whitespace) || value.matches('@').count() != 1 {
         return false;
     }

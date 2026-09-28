@@ -134,13 +134,13 @@ fn load_export_package(dir: &Path) -> Result<AppleMessagesExport, Box<dyn Error>
 
 /// Canonical identity owners, read once and matched in memory.
 #[derive(Debug, Default)]
-struct OwnerIndex {
+pub(crate) struct OwnerIndex {
     emails: HashMap<String, Vec<String>>,
     phones: HashMap<String, Vec<String>>,
 }
 
 impl OwnerIndex {
-    async fn load(dao: &RelationshipEvidenceDao) -> Result<Self, Box<dyn Error>> {
+    pub(crate) async fn load(dao: &RelationshipEvidenceDao) -> Result<Self, Box<dyn Error>> {
         let mut index = Self::default();
         for owner in dao.identity_owners().await? {
             match owner.identity_type.trim().to_lowercase().as_str() {
@@ -190,8 +190,10 @@ fn phone_match_key(value: &str) -> Option<String> {
     Some(digits)
 }
 
-/// Assemble the reconciliation input for one handle from the in-memory owners and durable links.
-fn lookup_for(
+/// Assemble the reconciliation input for one identity from the in-memory owners and durable
+/// links. Shared with the mail promotion, which builds its evidence in the same shape: the
+/// reconciliation rules exist once, so the two feeds cannot drift apart.
+pub(crate) fn lookup_for(
     evidence: &domain::AppleHandleEvidence,
     index: &OwnerIndex,
     links: &HashMap<(String, String), String>,

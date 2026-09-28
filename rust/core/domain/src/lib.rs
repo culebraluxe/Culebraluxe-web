@@ -4,6 +4,7 @@
 
 pub mod accounting;
 pub mod apple_messages;
+pub mod applemail;
 pub mod calendar;
 pub mod client;
 pub mod client_room;

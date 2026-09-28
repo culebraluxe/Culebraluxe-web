@@ -1,8 +1,8 @@
 # Dead TypeScript — the downsize decision
 
-**187 files are broken. 8 of them described work that still had to happen. One is now ported
-(`apple-messages-intake.ts` → `rust/cli` apple-sync messages-intake); 7 are left to port. The other 179 are junk — not
-translated, not kept alive, not paid for.** This page is the whole decision; the file-by-file list is
+**187 files are broken. 8 of them described work that still had to happen. Three are now ported
+(`apple-messages-intake.ts` and the two Apple Mail files → `rust/cli`); 5 are left to port. The other 179 are junk —
+not translated, not kept alive, not paid for.** This page is the whole decision; the file-by-file list is
 `BROKEN-TS-INVENTORY.md`, and `pnpm broken:ts:sweep` keeps the count honest.
 
 ## 1. Build these (Apple — green-lit)
@@ -14,13 +14,19 @@ translated, not kept alive, not paid for.** This page is the whole decision; the
 | `load-apple-contacts.ts` | reads the Apple Contacts export into the landing tables | 545 | **PORT** |
 | `project-apple-contacts.ts` | landing tables → client records | 346 | **PORT** |
 | `promote-warehouse.ts` | landing tables → `person` / `property` — **the hop with no Rust home at all** | 405 | **PORT** |
-| `apple-mail-envelope-intake.ts` | Apple Mail headers → landing | 440 | **PORT** |
-| `promote-applemail.ts` | mail landing → mail timeline | 193 | **PORT** |
+| `apple-mail-envelope-intake.ts` | Apple Mail headers → landing | 440 | **PORTED** — `rust/cli/src/apple_mail.rs` (`apple-sync mail-intake`) + `domain::applemail` + `db::{AppleMailLanding, IntakeCheckpoint}`; the Python Envelope Index bridge is kept as the extractor (it is the only part that needs macOS TCC); live check `scripts/rust-live-check/apple-mail.mjs` |
+| `promote-applemail.ts` | mail landing → mail timeline | 193 | **PORTED** — `apple-sync mail-promote` in the same Rust module: `l_applemail` → evidence → reconcile (`decide_apple_handle`) → `interaction` → read models |
 | `gmail-metadata-sync.ts` | Gmail metadata → landing | 193 | **KEEP** — the captain's word, 2026-09-28: "yes fix email sync" (the Gmail path is the orphaned one) |
 
 ≈2,480 lines of TS become **one Rust job: four feeds in, one promotion out**. These are the five shell
 scripts that already schedule them, so nothing new calls them into being —
 `scripts/apple-sync.sh`, `contacts-sync.sh`, `apple-calls-sync.sh`, `email-sync.sh`, `gmail-sync.sh`.
+
+**One operational precondition, 2026-09-28:** the Mail extractor reads
+`~/Library/Mail/<version>/MailData/Envelope Index`, which macOS gates behind Full Disk Access. Without
+it the bridge exits 2 with a TCC message and `mail-intake` fails every account cleanly (non-zero exit,
+nothing landed, nothing promoted) — the promotion half needs no such permission and was verified against
+DEV. Grant Full Disk Access to the terminal/VS Code process, then fully restart it.
 
 ## 2. Already in Rust — do not port, do not rebuild
 

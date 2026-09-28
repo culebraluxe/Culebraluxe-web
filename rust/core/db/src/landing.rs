@@ -54,7 +54,8 @@ pub enum LatestInteractionOutcome {
 
 #[derive(Clone)]
 pub struct LandingDao {
-    db: Database,
+    /// Crate-visible so the ODS module (`apple_ods`) can add its own statements to the same DAO.
+    pub(crate) db: Database,
 }
 
 impl LandingDao {
