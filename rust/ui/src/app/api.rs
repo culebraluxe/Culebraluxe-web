@@ -656,6 +656,51 @@ impl Endpoint for AccountingCommand {
     }
 }
 
+/// Relationship Catch-Up queue. Answers `{ catchUp: ... }`.
+pub struct CatchUpRead;
+
+impl Endpoint for CatchUpRead {
+    const METHOD: Method = Method::Get;
+    type Response = PortalPage;
+    fn path(&self) -> String {
+        "/api/portal/rust-ui/catch-up".into()
+    }
+}
+
+pub struct CatchUpAction {
+    body: serde_json::Value,
+}
+
+impl CatchUpAction {
+    pub fn handle(person_id: String, reason_code: String) -> Self {
+        Self { body: serde_json::json!({
+            "action": "handle",
+            "personId": person_id,
+            "reasonCode": reason_code
+        }) }
+    }
+
+    pub fn snooze(person_id: String, reason_code: String, days: i32) -> Self {
+        Self { body: serde_json::json!({
+            "action": "snooze",
+            "personId": person_id,
+            "reasonCode": reason_code,
+            "days": days
+        }) }
+    }
+}
+
+impl Endpoint for CatchUpAction {
+    const METHOD: Method = Method::Post;
+    type Response = PortalPage;
+    fn path(&self) -> String {
+        "/api/portal/rust-ui/catch-up".into()
+    }
+    fn body(&self) -> Option<serde_json::Value> {
+        Some(self.body.clone())
+    }
+}
+
 /// The Cockpit's read: KPIs, tasks, the featured deal, the pipeline and recent interactions. Answers `{ cockpit: ... }`.
 pub struct CockpitRead;
 
