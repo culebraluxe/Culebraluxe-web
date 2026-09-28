@@ -18,6 +18,7 @@ pub trait WbsRepository: Send {
     async fn list_due(&self, category: Option<WbsCategory>) -> DbResult<Vec<WbsItem>>;
     async fn list_project_items(&self) -> DbResult<Vec<WbsItem>>;
     async fn list_dependencies(&self, project_id: &str) -> DbResult<Vec<WbsDependency>>;
+    async fn list_dependencies_for(&self, project_ids: &[String]) -> DbResult<Vec<WbsDependency>>;
     async fn lock_dependency_project(&self, project_id: &str) -> DbResult<()>;
     async fn insert_dependency(&self, edge: &WbsDependency) -> DbResult<WbsDependency>;
     async fn delete_dependency(&self, project_id: &str, source_id: &str, target_id: &str) -> DbResult<bool>;
@@ -52,6 +53,10 @@ impl WbsRepository for WbsDao {
     }
     async fn list_dependencies(&self, project_id: &str) -> DbResult<Vec<WbsDependency>> {
         WbsDao::list_dependencies(self, project_id).await
+    }
+
+    async fn list_dependencies_for(&self, project_ids: &[String]) -> DbResult<Vec<WbsDependency>> {
+        WbsDao::list_dependencies_for(self, project_ids).await
     }
     async fn lock_dependency_project(&self, project_id: &str) -> DbResult<()> {
         WbsDao::lock_dependency_project(self, project_id).await
@@ -114,6 +119,18 @@ impl<R: WbsRepository> WbsService<R> {
         const OP: &str = "wbs.dependencies.list";
         let decision = authorize(&self.runtime, "wbs", "wbs.read", OP, OperationKind::Query, context).await?;
         let result = self.repository.list_dependencies(project_id).await.map_err(Into::into);
+        self.finish_query(OP, context, decision, result).await
+    }
+
+    /// The links of several projects, in one read.
+    pub async fn list_dependencies_for(
+        &self,
+        project_ids: &[String],
+        context: &ServiceContext,
+    ) -> Result<Vec<WbsDependency>, CoreServiceError> {
+        const OP: &str = "wbs.dependencies.list";
+        let decision = authorize(&self.runtime, "wbs", "wbs.read", OP, OperationKind::Query, context).await?;
+        let result = self.repository.list_dependencies_for(project_ids).await.map_err(Into::into);
         self.finish_query(OP, context, decision, result).await
     }
 

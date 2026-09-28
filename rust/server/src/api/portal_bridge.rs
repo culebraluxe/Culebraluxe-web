@@ -2039,12 +2039,9 @@ async fn projects_page(state: &ApiState, resolved: &ResolvedRequestContext) -> R
     let (projects, items, documents) = (to_json(projects), to_json(items), to_json(documents));
     let empty = Vec::new();
     let (projects, items) = (projects.as_array().unwrap_or(&empty), items.as_array().unwrap_or(&empty));
-    let mut dependencies = Vec::new();
-    for project in projects {
-        if let Some(id) = str_at(project, "id") {
-            dependencies.extend(wbs.list_dependencies(id, context).await.map_err(failed(resolved))?);
-        }
-    }
+    // Every project's links in one query, not one round trip per project.
+    let project_ids: Vec<String> = projects.iter().filter_map(|project| str_at(project, "id")).map(str::to_owned).collect();
+    let dependencies = wbs.list_dependencies_for(&project_ids, context).await.map_err(failed(resolved))?;
 
     let mut people = std::collections::BTreeSet::new();
     let mut properties = std::collections::BTreeSet::new();

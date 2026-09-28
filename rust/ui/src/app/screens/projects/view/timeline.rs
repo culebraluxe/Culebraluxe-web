@@ -427,11 +427,16 @@ fn link_overlay(schedule: &ProjectedSchedule, rows: &[TimelineRow<'_>], range: T
                     source_row * 42 + 27, target_row * 42 + 27, range, spec)?;
                 if x1 < 0 || x1 > width || x2 < 0 || x2 > width { return None; }
                 let bend = if x2 > x1 + 16 { x1 + (x2-x1)/2 } else { x1 + 12 };
+                // A broken link — the next step starts before this one finishes — is drawn red, not gold.
+                let broken = timeline::link_broken(source.planned.map(|(_, finish)| finish), target.planned.map(|(start, _)| start));
+                let colour = if broken { "#dc2626" } else { "var(--portal-gold-muted)" };
                 Some(html! {
                     <g key={format!("{}:{}", link.source_id, link.target_id)}>
+                        if broken { <title>{"Starts before the step it depends on finishes"}</title> }
                         <path d={format!("M{x1} {y1} H{bend} V{y2} H{x2}")}
-                            fill="none" stroke="var(--portal-gold-muted)" stroke-width="2" opacity="0.85" />
-                        <circle cx={x2.to_string()} cy={y2.to_string()} r="3" fill="var(--portal-gold-muted)" />
+                            fill="none" stroke={colour} stroke-width="2" opacity="0.9"
+                            stroke-dasharray={if broken { "5 3" } else { "" }} />
+                        <circle cx={x2.to_string()} cy={y2.to_string()} r="3" fill={colour} />
                     </g>
                 })
             }) }

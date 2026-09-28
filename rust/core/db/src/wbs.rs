@@ -118,6 +118,19 @@ impl WbsDao {
         Ok(rows.into_iter().map(Into::into).collect())
     }
 
+    /// The links of several projects in one query (the Projects screen reads every project's at once).
+    pub async fn list_dependencies_for(&self, project_ids: &[String]) -> DbResult<Vec<WbsDependency>> {
+        let rows = sqlx::query_as::<_, DependencyRow>(
+            "select project_id, source_id, target_id, kind from wbs_dependency \
+             where project_id = any($1) order by project_id, source_id, target_id",
+        )
+        .bind(project_ids)
+        .fetch_all(&mut *self.db.connection().await?)
+        .await
+        .map_err(|error| DbFailure::from_sqlx("wbs.dependencies.list_for", &error))?;
+        Ok(rows.into_iter().map(Into::into).collect())
+    }
+
     /// Called within WbsService's mutation. The lock serializes graph checks
     /// against concurrent links in this project until that mutation commits.
     pub async fn lock_dependency_project(&self, project_id: &str) -> DbResult<()> {

@@ -675,11 +675,14 @@ fn selected_work_editor(
                             <span class="block text-[10px] font-semibold uppercase tracking-[0.1em]">{"Predecessors"}</span>
                             { for projects.dependencies.iter().filter(|edge| edge.target_id == item.id && Some(edge.project_id.as_str()) == item.project_id.as_deref())
                                 .map(|edge| {
-                                    let name = projects.items.iter().find(|candidate| candidate.id == edge.source_id)
-                                        .map(|candidate| candidate.title.as_str()).unwrap_or("Work item");
+                                    let source = projects.items.iter().find(|candidate| candidate.id == edge.source_id);
+                                    let name = source.map(|candidate| candidate.title.as_str()).unwrap_or("Work item");
+                                    let broken = source.is_some_and(|source| crate::timeline::items_link_broken(source, item));
                                     let source_id = edge.source_id.clone();
-                                    html! { <span class="mr-2 inline-flex items-center gap-1 rounded border border-[var(--portal-panel-border)] px-2 py-1">
-                                        {name}
+                                    html! { <span class={classes!("mr-2", "inline-flex", "items-center", "gap-1", "rounded", "border", "px-2", "py-1",
+                                            if broken { "border-red-400 bg-red-50 text-red-700" } else { "border-[var(--portal-panel-border)]" })}
+                                        title={if broken { format!("Starts before {name} finishes") } else { String::new() }}>
+                                        { if broken { format!("⚠ {name} — starts before it finishes") } else { name.to_owned() } }
                                         <button type="button" aria-label={format!("Remove dependency from {name}")}
                                             disabled={projects.saving}
                                             onclick={on_msg.reform(move |_: MouseEvent| Msg::ProjectTimelineLinkRemoveRequested(source_id.clone()))}

@@ -105,6 +105,17 @@ pub fn link_anchors(
           (x(start, range, spec), target_row)))
 }
 
+/// A finish-to-start link is broken when the dependent work is planned to start on or before the day its predecessor
+/// finishes (planned days are inclusive). Unscheduled work breaks nothing.
+pub fn link_broken(source_finish: Option<NaiveDate>, target_start: Option<NaiveDate>) -> bool {
+    matches!((source_finish, target_start), (Some(finish), Some(start)) if start <= finish)
+}
+
+/// The same rule over two work items as stored.
+pub fn items_link_broken(source: &PortalProjectWorkItem, target: &PortalProjectWorkItem) -> bool {
+    link_broken(source.planned_finish.as_deref().and_then(date), target.planned_start.as_deref().and_then(date))
+}
+
 pub fn planned_duration_days(start: NaiveDate, finish: NaiveDate) -> i64 {
     (finish - start).num_days() + 1
 }
@@ -244,6 +255,15 @@ pub fn days(range: TimelineRange) -> Vec<NaiveDate> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_link_is_broken_when_the_next_step_starts_before_the_first_finishes() {
+        let day = |text: &str| date(text);
+        assert!(link_broken(day("2026-10-09"), day("2026-10-05")));
+        assert!(link_broken(day("2026-10-09"), day("2026-10-09")), "the same day overlaps: planned days are inclusive");
+        assert!(!link_broken(day("2026-10-09"), day("2026-10-10")));
+        assert!(!link_broken(None, day("2026-10-05")), "unscheduled work breaks nothing");
+    }
     use super::*;
 
     #[test]
