@@ -760,6 +760,8 @@ async fn send(
         (Method::Post, None) => HttpRequest::post(path).build(),
         (Method::Put, Some(body)) => HttpRequest::put(path).json(body),
         (Method::Put, None) => HttpRequest::put(path).build(),
+        (Method::Delete, Some(body)) => HttpRequest::delete(path).json(body),
+        (Method::Delete, None) => HttpRequest::delete(path).build(),
     }
     .map_err(|error| ApiError::network(error.to_string()))?;
     let response = request

@@ -165,7 +165,7 @@ fn signed_in_view(model: &Model, session: &GuestSession) -> Html {
                 <a href="/favorites" class={QUIET}>{"Your saved properties"}</a>
                 <a href="/buyers" class={QUIET}>{"Explore properties"}</a>
             </div>
-            <form method="post" action="/api/auth/signout" class="mt-10">
+            <form method="post" action={crate::app::api::auth::SIGN_OUT} class="mt-10">
                 { csrf(model) }
                 <input type="hidden" name="callbackUrl" value="/" />
                 <button type="submit" class={LINK}>{"Sign out"}</button>
@@ -365,7 +365,7 @@ fn sign_in_view(model: &Model, link: &Link<Msg>) -> Html {
             <p class="mt-6 text-sm font-light leading-relaxed text-muted-foreground">
                 {"Sign in to keep your saved properties and searches. No password: use Google, or we will email you a code."}
             </p>
-            <form method="post" action="/api/auth/signin/google" class="mt-10">
+            <form method="post" action={crate::app::api::auth::SIGN_IN_GOOGLE} class="mt-10">
                 { csrf(model) }
                 <input type="hidden" name="callbackUrl" value="/account" />
                 <button type="submit" class={QUIET}>{"Continue with Google"}</button>
@@ -412,7 +412,7 @@ fn code_form(model: &Model, email: &str, link: &Link<Msg>) -> Html {
                 {"We sent a six-digit code to "}<span class="text-foreground">{ email.to_owned() }</span>
                 {". It works for ten minutes."}
             </p>
-            <form method="post" action="/api/auth/callback/email-code" class="flex flex-col gap-6">
+            <form method="post" action={crate::app::api::auth::EMAIL_CODE_CALLBACK} class="flex flex-col gap-6">
                 { csrf(model) }
                 <input type="hidden" name="email" value={email.to_owned()} />
                 <input type="hidden" name="callbackUrl" value="/account" />

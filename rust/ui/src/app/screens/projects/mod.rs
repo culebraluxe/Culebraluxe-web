@@ -1080,7 +1080,7 @@ fn selection(projects: &mut PortalProjectsPage, error: &mut Option<String>, msg:
                 ("projectId".to_string(), projects.selected_project_id.clone().unwrap_or_default()),
             ];
             return Cmd::post_form(
-                format!("/api/portal/projects/documents/{document_id}/signed"),
+                crate::app::api::ProjectSignedCopy { document_id },
                 fields,
                 file,
                 Msg::ProjectSignedCopySaved,

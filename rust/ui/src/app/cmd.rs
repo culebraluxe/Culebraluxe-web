@@ -40,6 +40,8 @@ pub enum Method {
     Get,
     Post,
     Put,
+    /// A real delete. Never a POST with a verb in its path.
+    Delete,
 }
 
 /// One endpoint in the API catalogue (`app/api.rs`). The catalogue is the only place that knows URLs.
@@ -51,6 +53,12 @@ pub trait Endpoint {
     fn body(&self) -> Option<serde_json::Value> {
         None
     }
+}
+
+/// An endpoint that takes a FILE: the chunked-upload protocol (`Cmd::upload`) or one multipart form (`Cmd::post_form`).
+/// Like `Endpoint`, it lives in the catalogue (`app/api.rs`), so a screen names it and never writes a path.
+pub trait FileEndpoint {
+    fn path(&self) -> String;
 }
 
 /// A request a screen asked for, with the message its answer becomes.
@@ -234,12 +242,12 @@ impl<Msg: 'static> Cmd<Msg> {
     }
 
     pub fn post_form(
-        path: impl Into<String>,
+        endpoint: impl FileEndpoint,
         fields: Vec<(String, String)>,
         file: web_sys::File,
         to_msg: impl FnOnce(Result<serde_json::Value, ApiError>) -> Msg + 'static,
     ) -> Self {
-        Cmd::PostForm { path: path.into(), fields, file, reply: Box::new(to_msg) }
+        Cmd::PostForm { path: endpoint.path(), fields, file, reply: Box::new(to_msg) }
     }
 
     pub fn listen(to_msg: impl FnOnce(Result<String, ApiError>) -> Msg + 'static) -> Self {
@@ -262,14 +270,14 @@ impl<Msg: 'static> Cmd<Msg> {
 
     pub fn upload(
         file: web_sys::File,
-        path: impl Into<String>,
+        endpoint: impl FileEndpoint,
         fields: Vec<(String, String)>,
         init_fields: Vec<(String, String)>,
         to_msg: impl FnOnce(Result<(), ApiError>) -> Msg + 'static,
     ) -> Self {
         Cmd::Upload(Upload {
             file,
-            path: path.into(),
+            path: endpoint.path(),
             fields,
             init_fields,
             reply: Box::new(to_msg),

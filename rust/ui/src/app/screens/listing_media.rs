@@ -5,7 +5,7 @@
 
 use yew::prelude::*;
 
-use crate::app::api::{ListingMediaRead, PROPERTY_MEDIA_CHUNKED};
+use crate::app::api::{ListingMediaRead, PropertyMediaChunked};
 use crate::app::cmd::{ApiError, Cmd, Remote};
 use crate::app::screen::{Link, Screen, ScreenCtx};
 use crate::app::template;
@@ -191,7 +191,7 @@ impl Screen for ListingMedia {
                 }
                 Cmd::upload(
                     file,
-                    PROPERTY_MEDIA_CHUNKED,
+                    PropertyMediaChunked,
                     vec![("propertyId".to_string(), property_id)],
                     init,
                     Msg::Uploaded,

@@ -1,7 +1,12 @@
 //! THE API CATALOGUE — every URL the app calls, and nowhere else.
 //!
-//! Screens name an endpoint (`Cmd::request(PortalScreenPage::of("db-test"), ...)`); they never write a path. When the HTTP
-//! layer moves from the Next relays to Axum, the paths change here and no screen changes.
+//! Screens name an endpoint (`Cmd::request(PortalScreenPage::of("db-test"), ...)`); they never write a path — including
+//! for files (`FileEndpoint`: chunked uploads and multipart forms). Every path here is answered by the Rust server.
+//!
+//! Answers are decoded from JSON TEXT with `from_str`, not from a `serde_json::Value`: decoding from a `Value` compiled a
+//! second full deserializer per payload type and doubled the wasm (see `cmd::Request`). Do not "simplify" it back.
+
+use crate::app::cmd::FileEndpoint;
 
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -1037,8 +1042,33 @@ impl Endpoint for OpsCommand {
     }
 }
 
+/// Sign-in and sign-out are full-page form posts (the server sets or clears the session cookie and redirects), not
+/// fetches — but their URLs still live here, with every other one.
+pub mod auth {
+    pub const SIGN_OUT: &str = "/api/auth/signout";
+    pub const SIGN_IN_GOOGLE: &str = "/api/auth/signin/google";
+    pub const EMAIL_CODE_CALLBACK: &str = "/api/auth/callback/email-code";
+}
+
 /// Where property photographs are sent, in pieces (`Cmd::upload`).
-pub const PROPERTY_MEDIA_CHUNKED: &str = "/api/property-media/chunked";
+pub struct PropertyMediaChunked;
+
+impl FileEndpoint for PropertyMediaChunked {
+    fn path(&self) -> String {
+        "/api/property-media/chunked".into()
+    }
+}
+
+/// A project document's signed copy: the PDF and the date it was signed (`Cmd::post_form`).
+pub struct ProjectSignedCopy {
+    pub document_id: String,
+}
+
+impl FileEndpoint for ProjectSignedCopy {
+    fn path(&self) -> String {
+        format!("/api/portal/projects/documents/{}/signed", self.document_id)
+    }
+}
 
 /// Make one of a property's photographs its hero (the previous hero returns to the gallery).
 pub struct PropertyHero {

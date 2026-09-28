@@ -15,7 +15,7 @@ mod view;
 
 use yew::prelude::*;
 
-use crate::app::api::{DealPeopleSearch, OpsCommand, OpsRead, PropertyHero, PropertyMediaRemove, PropertyMergeParcel, PROPERTY_MEDIA_CHUNKED};
+use crate::app::api::{DealPeopleSearch, OpsCommand, OpsRead, PropertyHero, PropertyMediaRemove, PropertyMergeParcel, PropertyMediaChunked};
 use crate::app::cmd::{ApiError, Cmd, Remote};
 use crate::app::screen::{Link, Screen, ScreenCtx};
 use crate::app::template;
@@ -212,7 +212,7 @@ fn next_upload(model: &mut Model) -> Cmd<Msg> {
     if !model.ops.media_alt.trim().is_empty() {
         init.push(("altText".to_string(), model.ops.media_alt.trim().to_string()));
     }
-    Cmd::upload(file, PROPERTY_MEDIA_CHUNKED, vec![("propertyId".to_string(), property_id)], init, Msg::Uploaded)
+    Cmd::upload(file, PropertyMediaChunked, vec![("propertyId".to_string(), property_id)], init, Msg::Uploaded)
 }
 
 /// Refuse a list change while the draft is unsaved, and say which action was refused.
