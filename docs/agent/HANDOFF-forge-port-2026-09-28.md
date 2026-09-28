@@ -113,6 +113,16 @@ the doctor, and the writer. What is left is below with the exact files to open.
   needed beyond `pnpm` running from the package root, and the loader is fixed, so any directory works from here on.
   If a command still reports a database problem, its message now names the variable and the file — read it before
   touching anything in Neon.
+  **The `.env.local` mtime of 2026-09-27 21:54 is the Captain's Mux token, not a database edit** — nothing about
+  the DEV URL changed, so do not re-open the outage from the timestamp. The Mux pairs he added are exactly the ones
+  the code reads: `rust/integrations/src/mux/mod.rs` `required_mux_env` takes `MUX_TOKEN_ID`/`_SECRET` and falls back
+  to the `_PROD` pair, and `portal_bridge.rs:3277` requires `_PROD` in production and `_DEV` in DEV. One Mux account
+  serves every environment by design, so a `.env.local` carrying only the four suffixed names is correct.
+  What production cannot be checked from here: Vercel holds its own variables, and `MUX_TOKEN_ID_PROD` /
+  `MUX_TOKEN_SECRET_PROD` must exist on the Vercel project (`culebraluxe-rust-api`, and the frontend project the
+  provision script copies from). `scripts/vercel-provision-rust-project.sh:144-147` propagates them when it runs;
+  the TECH screen's `system-health` payload reports `muxConfigured` and `allProductionRequiredConfigured`, which is
+  the one-click proof after any deploy.
 - **`rust/ui` does not build on `main` (S10)**: `update.rs:2513` initialises `PortalDealCommand` without the seven
   fields the model grew. H2 holds that area, so it was left alone — but the website is the deployable artifact,
   so this is a production-facing red that needs its owner.

@@ -241,4 +241,9 @@ Short facts that are expensive to rediscover. Not the current story — that is 
   one — they cost a night together.** Env-file paths are absolute, from the repository root. Fences: the two tests
   on `connect_failure_message` in `rust/cli/src/forge/mod.rs`, plus the live proof — the same command answering from
   the repo root, from `rust/`, and (with `CULEBRALUXE_REPO` pointed at a directory that does not exist) printing the
-  configuration message that names `DATABASE_URL_DEV` and exits 2.
+  configuration message that names `DATABASE_URL_DEV` and exits 2. One rider, settled the same day: the
+  `.env.local` timestamp that looked like evidence (2026-09-27 21:54) was the Captain adding his **Mux** token —
+  nothing about the DEV URL changed — and the pairs he added are exactly what the code reads
+  (`rust/integrations/src/mux/mod.rs::required_mux_env`: unsuffixed `MUX_TOKEN_ID`/`_SECRET`, else `_PROD`; the
+  readiness probe wants `_PROD` in production and `_DEV` in DEV, `portal_bridge.rs:3277-3281`; one Mux account
+  serves every environment by design). A timestamp is not a cause.
