@@ -2,7 +2,8 @@
 //! outcomes, with one selected story's introspection.
 //!
 //! Yew owns the read, the selection, every command and the 30-second refresh the Cockpit has always promised. The story
-//! sorter is the `tech-sorter` island (drag mechanics only); it asks for a refresh through its events.
+//! sorter is this screen too (`Msg::SorterDragStarted` / `Msg::SorterDropped`): a drop sends `moveStoryBucket` and the
+//! answer re-reads.
 //!
 //! One command at a time (`busy_action`). Every answer, success or refusal, is said in the notice and followed by a
 //! re-read, because the engine may have moved either way.
