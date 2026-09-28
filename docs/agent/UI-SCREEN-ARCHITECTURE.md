@@ -245,9 +245,9 @@ test. Steps 1 and 2 are where a screen is actually designed; the rest is mechani
    failure and assert it says so. When a real payload exists, put it in `rust/ui/fixtures/` and decode it
    (`include_str!`), so the contract is checked against the server's actual shape.
 7. **Verify**: `cargo check -p ui --features wasm --target wasm32-unknown-unknown --all-targets`. The whole `app`
-   module and its tests sit behind `wasm` + `yew` + `yew-router` (`rust/ui/src/lib.rs:36-50`), so a plain
-   `cargo test -p ui` compiles **no screen and no registry test at all** — it runs the legacy MVI's host-target tests
-   and nothing else. Add `cargo check --workspace --all-targets` when the server shape changed too.
+   module sits behind `wasm` + `yew` + `yew-router`, which are default features (since 2026-09-28), so `cargo test -p ui`
+   runs every screen, registry and command test on the host. Add `cargo check --workspace --all-targets` when the
+   server shape changed too.
 
 ### 8. One app, one router
 

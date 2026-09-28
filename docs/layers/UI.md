@@ -35,7 +35,7 @@ Activation and `/portal`). The pre-trait global loop (`view.rs`, `update.rs`, `y
 ```bash
 pnpm build        # the release wasm + Tailwind + the server binary
 pnpm ui:check     # cargo check -p ui --features wasm --target wasm32-unknown-unknown — the pre-push gate
-cargo test -p ui --features wasm   # the screen tests; without the feature they do not compile
+cargo test -p ui                   # every screen, registry and command test, on the host
 ```
 
 A green `cargo check --workspace` does **not** prove the UI builds: the app is behind `--features wasm`

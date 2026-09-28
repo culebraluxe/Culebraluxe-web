@@ -56,7 +56,7 @@ pnpm build                  # the Yew wasm (release) + Tailwind + the server bin
 pnpm dev                    # scripts/dev.sh - the local server
 cargo check --workspace --all-targets
 cargo test -p db -p server -p forge -p workflow
-cargo test -p ui --features wasm           # the UI's tests need the wasm feature, or they do not compile
+cargo test -p ui                           # the UI's screen, registry and command tests (wasm is a default feature)
 cargo build -p ui --target wasm32-unknown-unknown --features wasm   # proves the browser build, fast
 pnpm test                   # the engine suites + cargo test -p workflow -p forge
 pnpm forge:harness          # one gate: vendor blocks, manifests, harness lint, harness tests

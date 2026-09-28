@@ -1,86 +1,72 @@
 # CulebraLuxe
 
-A residential real-estate transaction platform. **The domain lives in Rust; the browser lives in TypeScript.** This
-file is the map. It is deliberately short — the rules live in [AGENTS.md](AGENTS.md), and the Rust specifics live in
-the runbooks linked at the bottom.
+A residential real-estate transaction platform, and **one Rust application**: the website and the portal are a single
+Yew/WebAssembly app (`rust/ui`) served by the Rust server (`rust/server/src/site.rs`), and the domain, the database and
+the HTTP API are Rust crates under `rust/`. There is no Next.js application and no TypeScript in the product — even
+Google sign-in is Rust. This file is the map; the rules live in [AGENTS.md](AGENTS.md) and the start-here guide is
+[docs/agent/ORIENTATION.md](docs/agent/ORIENTATION.md).
 
-## The two halves
+## What production serves
 
-| part | where | language | status |
-| --- | --- | --- | --- |
-| Screens: pages, components, styling, client state | `app/`, `components/` | TypeScript | **current** — this is what TypeScript is for |
-| Transport to the API | `lib/rust-api/` | TypeScript | **current** — a thin client, no business rules |
-| Domain, database, HTTP API, workflow engine | `rust/` | **Rust** | **current** — the source of truth |
-| The retired TypeScript server stack | `db/`, `services/`, `workflow_app/` | TypeScript | **legacy in place** — some paths still serve, nothing new goes here |
+The Rust server answers every path. For a page it returns the one document that boots the Yew app, which routes the
+URL through its registry (`rust/ui/src/app/registry.rs`); the app talks to the same server over `/api/portal/*` (the
+session cookie) and `/api/rust-ui/*` (the public site). `/v1/*` is the internal API. The server picks its database from
+the environment and says which at boot (`target=dev` / `target=prod`, also `GET /v1/diagnostics/db`).
 
-If a change decides *what is true* about a client, deal, contract, property or workflow — or reads or writes the
-database — it is Rust. If it decides *how that truth is displayed or captured* in a browser, it is TypeScript. The
-mechanical version of that rule, and the seven bugs not to reintroduce, are in [AGENTS.md](AGENTS.md).
+`legacy/` and the files under `scripts/` and `agent-runtime/` marked `⚠ BROKEN ON PURPOSE` are the retired TypeScript:
+read them for intent, never import, never repair ([docs/agent/BROKEN-TS-INVENTORY.md](docs/agent/BROKEN-TS-INVENTORY.md)).
 
 ## The Rust workspace (`rust/`)
 
 | crate | what it owns |
 | --- | --- |
 | `core/domain` | types and rules; no I/O |
-| `core/db` | the connection pool, the DAOs, retry, failure taxonomy, error capture |
+| `core/db` | the one connection pool, the DAOs, retry, the failure taxonomy, error capture |
+| `core/service` | the service kernel: `AbstractService`, runtime, authorization, audit, events, mailbox |
 | `core/workflow` | the process engine: tokens, tasks, timers, transactions, reclaim |
-| `core/auth`, `core/service` | identity resolution, authorization, audit, service runtime |
-| `server` | the HTTP API (Axum) — routes, identity, error responses |
-| `forge` | the SDLC engine and the RE transaction runtime the API calls |
-| `integrations` | third-party adapters (BoldSign, WhatsApp, Google, Apple) |
-| `ui` | server-rendered screens being ported screen by screen |
+| `server` | HTTP (Axum), identity, the domain services and their composition root, the site itself |
+| `ui` | the website and the portal: Yew screens on the `Screen` trait (MVI) |
+| `integrations` | provider adapters: Mux, Google, Apple, BoldSign, WhatsApp, mail |
+| `forge` | the Forge delivery engine and the RE transaction runtime the API calls |
+| `cli` | operator commands: `db-tool`, the `forge` gates, Apple intake, media backfills |
 | `experiments/` | comparison benches — **excluded from the workspace, not production code** |
 
 ## Running it locally
 
-Two processes. The frontend calls the API at `RUST_API_BASE_URL`.
-
 ```bash
-pnpm dev                    # bounces the Rust API on :8080 and starts Next on :3000
-cargo run -p server --bin http   # or just the API, from rust/
+pnpm dev                                           # builds the site (wasm + CSS), then the server on :3000, against DEV
+RUST_API_BIND=127.0.0.1:3002 bash scripts/dev.sh   # a second server of your own on :3002
 ```
 
-The API prints the database it is actually on at boot (`target=dev` / `target=prod`), and
-`GET /v1/diagnostics/db` reports the same plus pool counters. Check it whenever the question is "why is this slow" —
-it separates a cold pool from a slow database, which look identical from outside.
+Run the CLI from the repository root: it reads `.env.local` there.
 
-## Testing it
+## Checking it
 
 ```bash
-cd rust && cargo check --workspace --all-targets && cargo test -p db -p server -p forge -p workflow
-npx tsc --noEmit
-npx tsx scripts/forge-packet-lint.ts
+cd rust && cargo check --workspace --all-targets     # every crate, the UI app included
+cargo test -p ui -p db -p server -p forge -p workflow
+pnpm ui:check                                        # the UI for the wasm target — what the deploy compiles
+pnpm forge:harness                                   # the harness gates
 ```
 
-Unit tests do not touch a real database, so a change is not verified until it has run against DEV. With the API up:
-
-```bash
-node scripts/rust-live-check/engine-routes.mjs     # the engine's auth matrix + a real call
-node scripts/rust-live-check/pool-counters.mjs 5   # pool reuse, checkouts per page, recent errors
-```
-
-**How to make a change** — the recipe, with the traps that have already cost time: [docs/rust-contributing.md](docs/rust-contributing.md).
+Unit tests do not touch a real database; `rust/server/tests/*_dev.rs` and `scripts/rust-live-check/` run against DEV.
+A UI change is also checked in WebKit, because the owner uses Safari. **How to make a change**, with the traps that
+have already cost time: [docs/rust-contributing.md](docs/rust-contributing.md).
 
 ## The production boundary
 
-- **One deploy is two builds**: the Next application and the Rust container (`rust/Dockerfile.vercel`, declared as a
-  service in `vercel.json`). Shipping one without the other is not a release.
-- **Automatic deploys from git are disabled** in `vercel.json`. A deploy is a deliberate act.
-- **Migrations are not part of the deploy.** They are applied explicitly, per environment, and a schema change belongs
-  in the same release as the code that needs it.
-- **PROD is off-limits to agents.** Deployment and any production database action require an explicit go from the
-  Captain. Know the mechanism: `VERCEL_ENV=production` makes the Rust API connect to the production database
-  automatically — so deploying *is* connecting.
-- No route has been cut over to Rust in production yet. `docs/rust-parity-ledger.md` (generated) is the record of
-  which capability serves production where, and it is the first thing to check in an incident.
+- **A push does not deploy** (`vercel.json`: git deployments disabled). `pnpm deploy:prod` compiles on this Mac and
+  ships the finished files; deploying is the Captain's call every time ([docs/agent/DEV-OPS-RELEASE.md](docs/agent/DEV-OPS-RELEASE.md)).
+- **Migrations are not part of the deploy.** They are applied per environment with `pnpm db:migrate <file> dev|prod`,
+  and `pnpm db:parity` is the release gate.
+- **Deploying is connecting**: in production the server resolves to the production database with no extra step.
 
 ## Read next
 
-- [AGENTS.md](AGENTS.md) — the operating rules, where code goes, and the bugs not to reintroduce
+- [AGENTS.md](AGENTS.md) — the house rules, where code goes, the bugs not to reintroduce
+- [docs/agent/ORIENTATION.md](docs/agent/ORIENTATION.md) — the map, the commands, where to look for X
 - [docs/ARCH-01-README-SUPPLEMENT.md](docs/ARCH-01-README-SUPPLEMENT.md) — the architecture in one page
 - **The layers** — [UI](docs/layers/UI.md) · [SERVICES](docs/layers/SERVICES.md) · [WORKFLOW](docs/layers/WORKFLOW.md) · [DB](docs/layers/DB.md) · [FORGE](docs/layers/FORGE.md)
-- [docs/rust-contributing.md](docs/rust-contributing.md) — how to make a change
-- [docs/rust-resilience-status.md](docs/rust-resilience-status.md) — what is wired, measured, and deliberately not done
-- [docs/rust-prod-checklist.md](docs/rust-prod-checklist.md) — pre-deploy checks, knobs, what to watch
-- [docs/STARTUP-DELIVERY-OPERATING-RULES.md](docs/STARTUP-DELIVERY-OPERATING-RULES.md) — schema, release and environment rules
-- [docs/agent/LEGACY-TYPESCRIPT.md](docs/agent/LEGACY-TYPESCRIPT.md) — which TypeScript is current and which is retired
+- [docs/agent/UI-SCREEN-ARCHITECTURE.md](docs/agent/UI-SCREEN-ARCHITECTURE.md) — the contract every screen implements
+- [docs/agent/MAP-services.md](docs/agent/MAP-services.md) — how to add a service
+- [docs/agent/MEMORY.md](docs/agent/MEMORY.md) — the decisions, each dated
