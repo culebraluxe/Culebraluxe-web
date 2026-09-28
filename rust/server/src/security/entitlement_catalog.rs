@@ -11,6 +11,7 @@ pub(super) const ACTIONS: &[(&str, &str)] = &[
     ("calendar.read", "query"),
     ("calendar.write", "command"),
     ("cockpit.read", "query"),
+    ("client.room.read", "query"),
     ("comms.read", "query"),
     ("contract.execute", "command"),
     ("contract.read", "query"),
