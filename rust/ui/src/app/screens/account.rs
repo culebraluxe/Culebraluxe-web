@@ -7,7 +7,7 @@
 
 use yew::prelude::*;
 
-use crate::app::api::{AuthCsrf, CodeSent, CsrfToken, GuestRequestCode, GuestSession, GuestWhoAmI};
+use crate::app::api::{AuthCsrf, ClientRoomRead, ClientRoomResponse, CodeSent, CsrfToken, GuestRequestCode, GuestSession, GuestWhoAmI};
 use crate::app::cmd::{ApiError, Cmd, Remote};
 use crate::app::screen::{Link, Screen, ScreenCtx};
 use crate::app::template;
@@ -17,6 +17,7 @@ pub struct Account;
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Model {
     pub session: Remote<GuestSession>,
+    pub room: Remote<ClientRoomResponse>,
     pub csrf_token: String,
     pub email: String,
     /// The address a code went to: the screen then asks for the code.
@@ -29,6 +30,7 @@ pub struct Model {
 #[derive(Debug, PartialEq)]
 pub enum Msg {
     SessionLoaded(Result<GuestSession, ApiError>),
+    RoomLoaded(Result<ClientRoomResponse, ApiError>),
     CsrfLoaded(Result<CsrfToken, ApiError>),
     EmailTyped(String),
     CodeRequested,
@@ -61,7 +63,15 @@ impl Screen for Account {
 
     fn update(model: &mut Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> {
         match msg {
-            Msg::SessionLoaded(answer) => model.session = Remote::from_result(answer),
+            Msg::SessionLoaded(answer) => {
+                let signed_in = answer.as_ref().is_ok_and(|session| session.signed_in);
+                model.session = Remote::from_result(answer);
+                if signed_in {
+                    model.room = Remote::Loading;
+                    return Cmd::request(ClientRoomRead, Msg::RoomLoaded);
+                }
+            }
+            Msg::RoomLoaded(answer) => model.room = Remote::from_result(answer),
             // Without the token the forms cannot post; the failure is shown by the forms being unusable, and signing in
             // again after a reload is the remedy. It is not an error the visitor can act on here.
             Msg::CsrfLoaded(answer) => {
@@ -115,7 +125,7 @@ impl Screen for Account {
         };
         html! {
             <section class="px-6 py-24 md:px-12 md:py-32">
-                <div class="mx-auto max-w-md">
+                <div class={classes!("mx-auto", if signed_in.is_some() { "max-w-5xl" } else { "max-w-md" })}>
                     <p class="mb-3 text-xs font-light uppercase tracking-[0.34em] text-accent">{"Your account"}</p>
                     <h1 class="font-serif text-4xl font-light leading-[1.05] text-foreground md:text-5xl">
                         { if signed_in.is_some() { "Welcome back." } else { "Sign in" } }
@@ -146,7 +156,12 @@ fn signed_in_view(model: &Model, session: &GuestSession) -> Html {
                 if let Some(email) = &session.email { {" ("}{ email.clone() }{")"} }
                 {"."}
             </p>
-            <div class="mt-10 flex flex-col gap-4">
+
+            <div class="mt-10">
+                { client_room(&model.room) }
+            </div>
+
+            <div class="mt-8 grid gap-4 sm:grid-cols-2">
                 <a href="/favorites" class={QUIET}>{"Your saved properties"}</a>
                 <a href="/buyers" class={QUIET}>{"Explore properties"}</a>
             </div>
@@ -157,6 +172,140 @@ fn signed_in_view(model: &Model, session: &GuestSession) -> Html {
             </form>
         </>
     }
+}
+
+fn client_room(room: &Remote<ClientRoomResponse>) -> Html {
+    match room {
+        Remote::NotAsked | Remote::Loading => html! {
+            <div class="border-y border-border py-10 text-sm font-light text-muted-foreground">
+                {"Reading your transaction room…"}
+            </div>
+        },
+        Remote::Failed(error) => html! {
+            <div class="border border-destructive/30 px-5 py-4 text-sm font-light text-destructive">
+                { error.message.clone() }
+            </div>
+        },
+        Remote::Loaded(response) if !response.linked || response.room.is_none() => html! {
+            <div class="border-y border-border py-8">
+                <p class="font-serif text-2xl font-light">{"Your CulebraLuxe room"}</p>
+                <p class="mt-2 max-w-2xl text-sm font-light leading-6 text-muted-foreground">
+                    {"Your account is active, but it has not yet been linked to your client record. Your advisor can connect it without changing your sign-in."}
+                </p>
+            </div>
+        },
+        Remote::Loaded(response) => {
+            let room = response.room.as_ref().expect("linked response has room");
+            html! {
+                <div class="space-y-8">
+                    <div class="border-y border-border py-6">
+                        <p class="text-xs font-light uppercase tracking-[0.24em] text-accent">{"Private client room"}</p>
+                        <div class="mt-2 flex flex-wrap items-baseline justify-between gap-3">
+                            <h2 class="font-serif text-3xl font-light">{ room.display_name.clone() }</h2>
+                            <span class="text-xs font-light uppercase tracking-[0.14em] text-muted-foreground">
+                                { format!("{} · {}", title_case(&room.role), title_case(&room.status)) }
+                            </span>
+                        </div>
+                    </div>
+
+                    if room.transactions.is_empty() {
+                        <p class="text-sm font-light text-muted-foreground">{"No active transaction is linked to your client record."}</p>
+                    } else {
+                        <section>
+                            <p class="text-xs font-light uppercase tracking-[0.22em] text-accent">{"Transactions"}</p>
+                            <div class="mt-4 grid gap-4 md:grid-cols-2">
+                                { for room.transactions.iter().map(|transaction| html! {
+                                    <article class="border border-border p-5">
+                                        <div class="flex items-start justify-between gap-4">
+                                            <div>
+                                                <h3 class="font-serif text-2xl font-light">{ transaction.property_name.clone() }</h3>
+                                                if let Some(location) = &transaction.property_location {
+                                                    <p class="mt-1 text-xs font-light text-muted-foreground">{ location.clone() }</p>
+                                                }
+                                            </div>
+                                            <span class="text-[10px] font-light uppercase tracking-[0.14em] text-accent">
+                                                { title_case(&transaction.stage) }
+                                            </span>
+                                        </div>
+                                        <div class="mt-5 grid gap-3 text-sm sm:grid-cols-2">
+                                            { room_fact("Closing", transaction.closing_date_label.as_deref().unwrap_or("Not recorded")) }
+                                            { room_fact("Next", transaction.next_task.as_deref().unwrap_or("Nothing waiting")) }
+                                            { room_fact("Open work", &transaction.open_task_count.to_string()) }
+                                            { room_fact("Offers / showings", &format!("{} / {}", transaction.offer_count, transaction.showing_count)) }
+                                        </div>
+                                    </article>
+                                }) }
+                            </div>
+                        </section>
+                    }
+
+                    if !room.projects.is_empty() {
+                        <section>
+                            <p class="text-xs font-light uppercase tracking-[0.22em] text-accent">{"Progress"}</p>
+                            <div class="mt-4 space-y-4">
+                                { for room.projects.iter().map(|project| html! {
+                                    <div class="border border-border p-5">
+                                        <div class="flex items-center justify-between gap-4">
+                                            <h3 class="font-serif text-xl font-light">{ project.name.clone() }</h3>
+                                            <span class="text-sm font-light tabular-nums">{ format!("{}%", project.progress_percent) }</span>
+                                        </div>
+                                        <div class="mt-3 h-1.5 overflow-hidden bg-muted">
+                                            <div class="h-full bg-foreground" style={format!("width:{}%", project.progress_percent)} />
+                                        </div>
+                                        <p class="mt-2 text-xs font-light text-muted-foreground">
+                                            { format!("{} of {} steps complete · {}", project.completed_work_items, project.total_work_items, title_case(&project.status)) }
+                                        </p>
+                                    </div>
+                                }) }
+                            </div>
+                        </section>
+                    }
+
+                    if !room.documents.is_empty() {
+                        <section>
+                            <p class="text-xs font-light uppercase tracking-[0.22em] text-accent">{"Documents"}</p>
+                            <div class="mt-4 divide-y divide-border border-y border-border">
+                                { for room.documents.iter().map(|document| html! {
+                                    <div class="flex items-center justify-between gap-4 py-4">
+                                        <div>
+                                            <p class="text-sm font-light">{ document.title.clone() }</p>
+                                            <p class="mt-1 text-xs font-light text-muted-foreground">{ document.created_at_label.clone() }</p>
+                                        </div>
+                                        <span class="text-[10px] font-light uppercase tracking-[0.14em] text-accent">
+                                            { if document.signed_artifact_available { "Signed" } else { title_case(&document.state).as_str() } }
+                                        </span>
+                                    </div>
+                                }) }
+                            </div>
+                        </section>
+                    }
+                </div>
+            }
+        }
+    }
+}
+
+fn room_fact(label: &str, value: &str) -> Html {
+    html! {
+        <div>
+            <p class="text-[9px] font-light uppercase tracking-[0.16em] text-muted-foreground">{ label.to_owned() }</p>
+            <p class="mt-1 font-light text-foreground">{ value.to_owned() }</p>
+        </div>
+    }
+}
+
+fn title_case(value: &str) -> String {
+    value
+        .split('_')
+        .map(|word| {
+            let mut chars = word.chars();
+            chars
+                .next()
+                .map(|first| first.to_uppercase().collect::<String>() + chars.as_str())
+                .unwrap_or_default()
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn sign_in_view(model: &Model, link: &Link<Msg>) -> Html {
