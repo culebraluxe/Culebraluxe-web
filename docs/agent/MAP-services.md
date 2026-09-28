@@ -122,7 +122,10 @@ The list of domains the HTTP surface is expected to reach is itself a test:
 `every_http_service_family_maps_to_its_registered_mailbox` in `rust/server/src/api/routes.rs` (it pairs each URL family
 with the domain it must dispatch to). Add your route to it.
 
-**5. The route.** In `rust/server/src/api/routes.rs`, mount it on the router and call it through the mailbox:
+**5. The route.** In `rust/server/src/api/routes.rs`, mount it on the router and call the service method. HTTP calls the
+area service directly (authorization and audit are inside the method); wrap the call in `execute_registered` when the
+domain's mailbox bound matters (a heavy read, a write that must queue), as below. Envelope dispatch is for the engine,
+the mailbox and MQ, never a second HTTP path (`docs/layers/SERVICES.md`, "Two doors, one implementation"):
 
 ```rust
 async fn widgets(State(state): State<ApiState>, headers: HeaderMap) -> Result<Json<ApiSuccess<WidgetsPage>>, ApiError> {

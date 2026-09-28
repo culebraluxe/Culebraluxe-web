@@ -25,6 +25,19 @@ route  →  resolve context  →  service  →  repository  →  DAO  →  pool
 A service method, in order: `authorize(...)` → do the work through its repository → `audit_result(...)`. Policy lives in
 the service; the route does not decide anything.
 
+## Two doors, one implementation (the rule — 2026-09-28)
+
+**HTTP handlers call the area service's method directly.** Authorization and audit happen inside that method, so every
+caller gets them. **Envelope dispatch** (`ServiceEnvelope` → `AbstractService::dispatch`, the `/v1/services/dispatch`
+route, the CLI's `service dispatch`, MQ and the engine) **is for the engine, the mailbox and MQ** — never a second HTTP
+path to an operation a route already serves. Both doors must reach the SAME service method; a door that re-implements
+an operation is a defect.
+
+`execute_registered` wraps a direct call in the domain's mailbox (bounded queue, timeout, drain refusal). Use it where
+that bound matters — today `cockpit.snapshot`, `workflow.list`, `workflow.detail`, `flight-recorder.transaction` and
+`task.complete` — not as a ritual on every read. A service whose descriptor lists capabilities but does not implement
+`dispatch` (clients, for one) is reachable only through its routes: its envelope door refuses, which is correct.
+
 ## Invariants
 
 1. **Every route resolves a context first.** No handler is anonymous. The internal key is required on all of them.
