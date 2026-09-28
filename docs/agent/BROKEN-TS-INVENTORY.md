@@ -1,5 +1,9 @@
 # Broken TypeScript inventory — translate to Rust, never revive
 
+> **Short version first: `DEAD-TS-DOWNSIZE.md` (same directory) is the decision.** 187 files are broken;
+> 8 of them describe work that still has to happen (all Apple) plus 2 Forge gates; the other 179 are
+> killed — not translated, not maintained. This page is the file-by-file reference behind that page.
+
 ## The rule (read this before touching any file in `scripts/`)
 
 Every file listed here carries this banner as its first comment:

@@ -27,6 +27,10 @@ if [ -z "$NODE_BIN" ]; then
   exit 1
 fi
 
+# The outbound worker is Rust now. scripts/apple-gateway-worker.ts cannot load (the TypeScript engine
+# was deleted in the 2026-09 Rust port) and is kept as reference only — `apple-sync drain` claims the
+# same Apple gateway outbox rows and delivers them through scripts/macbridge/AppleGatewayWrite.swift,
+# which is exactly what the scheduled job already runs (scripts/macbridge/sync-calendar-eventkit.sh).
 exec env APP_ENV=production EXECUTION_ENV=PROD \
-  "$NODE_BIN" --env-file="$REPO_ROOT/.env.local" --import tsx \
-  scripts/apple-gateway-worker.ts
+  cargo run --quiet --release --manifest-path "$REPO_ROOT/rust/Cargo.toml" -p cli -- \
+  apple-sync drain
