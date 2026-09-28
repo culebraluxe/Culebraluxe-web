@@ -25,8 +25,11 @@ pub async fn dispatch(args: &[String]) -> Result<(), Box<dyn Error>> {
         "reminder-intake" => intake_reminders(path_arg(args, 1, "reminder-intake")?).await,
         "messages-intake" => {
             let dir = path_arg(args, 1, "messages-intake")?;
-            let evidence_only = args.iter().any(|arg| arg == "--evidence-only");
-            crate::apple_messages::intake_messages(dir, evidence_only).await
+            let options = crate::apple_messages::IntakeOptions {
+                evidence_only: args.iter().any(|arg| arg == "--evidence-only"),
+                refresh: args.iter().any(|arg| arg == "--refresh"),
+            };
+            crate::apple_messages::intake_messages(dir, options).await
         }
         other => Err(io::Error::other(format!("unknown apple-sync command: {other}")).into()),
     }

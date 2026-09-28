@@ -60,7 +60,7 @@ capabilities are not "dead weight", they are **broken in production** (checked 2
 | live caller | calls | consequence |
 | --- | --- | --- |
 | `scripts/apple-sync.sh` — launchd `com.culebraluxe.apple-sync`, twice daily | **`rust/cli` apple-sync messages-intake** (was `scripts/apple-messages-intake.ts`) | **fixed 2026-09-27**: the launchd job's exit status 1 was the deleted intake script; the step is Rust now and the job needs re-arming (see §"Apple intake — ported") |
-| `scripts/apple-message-repair.sh:37` (`apple:repair:prod`) | the same deleted file | the evidence-repair path cannot run either |
+| `scripts/apple-message-repair.sh` (`apple:repair:prod`) | **`rust/cli` apple-sync messages-intake --evidence-only --refresh** (was the same deleted file) | **fixed 2026-09-27**: repairs ODS evidence for the existing export and refreshes the Client read models, without replaying interactions |
 | `scripts/contacts-sync.sh:135,143,149` | `load-apple-contacts.ts`, `project-apple-contacts.ts`, `promote-warehouse.ts` | **the warehouse promotion is down**: the Contacts chain fails before it reaches `l_person`/`l_property` → `person`/`property` |
 | `scripts/apple-calls-sync.sh:20` | `scripts/apple-calls-intake.ts` | Calls intake does not run |
 | `scripts/gmail-sync.sh:26` | `scripts/gmail-metadata-sync.ts` | Gmail metadata intake does not run |

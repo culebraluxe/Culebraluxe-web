@@ -232,11 +232,22 @@ fn lookup_for(
     lookup
 }
 
+/// How one intake pass should behave.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct IntakeOptions {
+    /// Evidence and reconciliation only — no interaction materialization. This is the repair path.
+    pub evidence_only: bool,
+    /// Rebuild the client read models even when nothing new was materialized. The evidence pass feeds
+    /// `mv_client_relationship_channels`, so a repair run needs the refresh that a normal run earns by
+    /// materializing.
+    pub refresh: bool,
+}
+
 /// One full intake pass over an export package: evidence, reconciliation, materialization, refresh.
 ///
 /// A database failure fails the run. It is never counted and swallowed: a sync that reports success
 /// while writing nothing is the failure mode this command exists to end.
-pub async fn intake_messages(dir: &Path, evidence_only: bool) -> Result<(), Box<dyn Error>> {
+pub async fn intake_messages(dir: &Path, options: IntakeOptions) -> Result<(), Box<dyn Error>> {
     let target = resolve_declared_target(
         std::env::var("VERCEL_ENV").ok().as_deref(),
         std::env::var("APP_ENV").ok().as_deref(),
@@ -307,7 +318,7 @@ pub async fn intake_messages(dir: &Path, evidence_only: bool) -> Result<(), Box<
         let Some(person_id) = decision.canonical_person_id.clone().filter(|_| linked) else {
             continue;
         };
-        if evidence_only {
+        if options.evidence_only {
             continue;
         }
 
@@ -404,7 +415,10 @@ pub async fn intake_messages(dir: &Path, evidence_only: bool) -> Result<(), Box<
         }
     }
 
-    if !evidence_only && (tally.source_rows_inserted > 0 || tally.source_rows_updated > 0) {
+    if options.refresh
+        || (!options.evidence_only
+            && (tally.source_rows_inserted > 0 || tally.source_rows_updated > 0))
+    {
         landing_dao.refresh_client_read_models().await?;
     }
 
@@ -415,7 +429,10 @@ pub async fn intake_messages(dir: &Path, evidence_only: bool) -> Result<(), Box<
             "target": if target == db::DbTarget::Prod { "prod" } else { "dev" },
             "exportDir": dir.display().to_string(),
             "sourceAccount": export.source_account,
-            "evidenceOnly": evidence_only,
+            "evidenceOnly": options.evidence_only,
+            "refreshed": options.refresh
+                || (!options.evidence_only
+                    && (tally.source_rows_inserted > 0 || tally.source_rows_updated > 0)),
             "handles": tally.handles,
             "messages": tally.messages,
             "datedMessages": tally.dated_messages,
