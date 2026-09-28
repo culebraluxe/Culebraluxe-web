@@ -1,4 +1,5 @@
 mod apple_calls;
+mod apple_contacts;
 mod apple_mail;
 mod apple_messages;
 mod apple_sync;
