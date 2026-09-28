@@ -10,7 +10,7 @@ use yew::prelude::*;
 
 use crate::app::api::{
     FormItem, FormPreview, FormPreviewResponse, FormTemplate, FormTemplateField, FormWhen,
-    FormsAction, FormsBridgeResponse, FormsPage, FormsRead, FormsWrite, FormsWriteResponse,
+    FormsAction, FormsBridgeResponse, FormsGrok, FormsGrokAnswer, FormsPage, FormsRead, FormsWrite, FormsWriteResponse,
 };
 use crate::app::cmd::{ApiError, Cmd};
 use crate::app::screen::{Link, Screen, ScreenCtx};
@@ -37,6 +37,10 @@ pub struct Model {
     selected_template: String,
     session_query: String,
     grok_prompt: String,
+    /// Grok is being asked.
+    grok_working: bool,
+    /// The mic is listening.
+    listening: bool,
     loading: bool,
     busy: bool,
     draft_saving: bool,
@@ -78,6 +82,9 @@ pub enum Msg {
     Cancel,
     GrokPromptChanged(String),
     GrokGo,
+    GrokFilled(Result<FormsGrokAnswer, ApiError>),
+    MicPressed,
+    Heard(Result<String, ApiError>),
 }
 
 pub struct Forms;
@@ -419,6 +426,10 @@ fn update(model: &mut Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> {
                     model.message = Some("Shared".into());
                     model.error = None;
                 }
+                Err(error) if error.code == "CANCELLED" => {
+                    model.message = Some("Share cancelled".into());
+                    model.error = None;
+                }
                 Err(error) => {
                     model.message = Some(
                         "This browser could not attach the PDF to native Share. Save the PDF and attach it in Mail or Messages."
@@ -450,11 +461,72 @@ fn update(model: &mut Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> {
         Msg::GrokGo => {
             if model.grok_prompt.trim().is_empty() {
                 model.message = Some("Tell Grok what happened on the deal, then tap Go.".into());
-            } else {
-                model.error = Some(
-                    "Grok form-fill is not exposed by the Rust service catalog yet; no form data was changed."
-                        .into(),
-                );
+                return Cmd::none();
+            }
+            let (Some(form_id), Some(template)) =
+                (current_form_id(model), model.page.as_ref().and_then(|page| page.template.clone()))
+            else {
+                model.error = Some("Open a form first.".into());
+                return Cmd::none();
+            };
+            model.grok_working = true;
+            model.error = None;
+            model.message = Some("Asking Grok…".into());
+            Cmd::request(
+                FormsGrok {
+                    form_id,
+                    form_name: template.display_name.clone(),
+                    prompt: model.grok_prompt.trim().to_owned(),
+                    details_text: model.details_text.clone(),
+                    field_values: model.values.clone(),
+                    fields: template.fields,
+                },
+                Msg::GrokFilled,
+            )
+        }
+        // Grok suggests; the editor takes it as if typed, so it autosaves like any edit and the agent still Sends.
+        Msg::GrokFilled(result) => {
+            model.grok_working = false;
+            match result {
+                Ok(answer) => {
+                    for (name, value) in answer.field_values {
+                        model.values.insert(name, value);
+                    }
+                    if let Some(body) = answer.body {
+                        model.details_text = body;
+                        model.body_edited = true;
+                    }
+                    model.grok_prompt.clear();
+                    let cmd = local_edit(model);
+                    model.message = Some(answer.note);
+                    cmd
+                }
+                Err(error) => {
+                    model.message = None;
+                    model.error = Some(error.message);
+                    Cmd::none()
+                }
+            }
+        }
+        Msg::MicPressed => {
+            if model.listening {
+                return Cmd::none();
+            }
+            model.listening = true;
+            model.error = None;
+            model.message = Some("Listening…".into());
+            Cmd::listen(Msg::Heard)
+        }
+        // What was heard goes into the prompt, to read over before Go — the mic never sends by itself.
+        Msg::Heard(result) => {
+            model.listening = false;
+            model.message = None;
+            match result {
+                Ok(words) => {
+                    let prompt = model.grok_prompt.trim();
+                    model.grok_prompt = if prompt.is_empty() { words } else { format!("{prompt} {words}") };
+                }
+                Err(error) => model.error = Some(error.message),
             }
             Cmd::none()
         }
@@ -615,6 +687,7 @@ fn view(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
         }
     });
     let grok_go = link.callback(|_: MouseEvent| Msg::GrokGo);
+    let mic = link.callback(|_: MouseEvent| Msg::MicPressed);
 
     html! {
         <div class="flex min-h-0 flex-col gap-3">
@@ -636,16 +709,24 @@ fn view(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
                             </div>
                             <button
                                 type="button"
-                                disabled={true}
-                                title="Voice input stays disabled until the Rust voice service is exposed."
-                                class="inline-flex h-10 w-10 items-center justify-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] text-[var(--portal-navy-soft)] opacity-45"
+                                onclick={mic}
+                                disabled={model.listening}
+                                title={if model.listening { "Listening…" } else { "Speak to Grok" }}
+                                class={classes!(
+                                    "inline-flex", "h-10", "w-10", "items-center", "justify-center", "rounded-[var(--portal-tab-radius)]", "border", "transition",
+                                    if model.listening {
+                                        "border-red-400 bg-red-50 text-red-600 animate-pulse"
+                                    } else {
+                                        "border-[var(--portal-panel-border)] text-[var(--portal-navy)] hover:border-[var(--portal-navy)]"
+                                    }
+                                )}
                                 aria-label="Use microphone to command Grok"
                             >
                                 {"◉"}
                             </button>
                             <button
                                 type="button"
-                                disabled={working}
+                                disabled={working || model.grok_working}
                                 onclick={grok_go}
                                 class="inline-flex h-10 items-center justify-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-4 text-[10px] font-medium uppercase tracking-[0.14em] text-white transition hover:bg-[var(--portal-navy-soft)] disabled:opacity-40"
                             >

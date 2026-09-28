@@ -44,8 +44,15 @@ pub fn run<Msg: 'static>(cmd: Cmd<Msg>, deliver: &Callback<Msg>, navigator: Opti
             filename,
             reply,
         } => {
-            let result = share_pdf(&data_uri, &filename);
-            deliver.emit(reply(result));
+            // The sheet opens inside the click (Safari requires it); its outcome arrives later and is reported —
+            // shared, cancelled, or refused — rather than assumed.
+            match share_pdf(&data_uri, &filename) {
+                Ok(promise) => settle_share(promise, reply, deliver.clone()),
+                Err(error) => deliver.emit(reply(Err(error))),
+            }
+        }
+        Cmd::Listen { reply } => {
+            listen(reply, deliver.clone());
         }
         Cmd::StorageRead { key, reply } => {
             let value = storage().and_then(|storage| storage.get_item(&key).ok().flatten());
@@ -265,7 +272,7 @@ fn replace_path(path: &str) {
     let _ = history.replace_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some(path));
 }
 
-fn share_pdf(data_uri: &str, filename: &str) -> Result<(), ApiError> {
+fn share_pdf(data_uri: &str, filename: &str) -> Result<wasm_bindgen::JsValue, ApiError> {
     let (_, encoded) = data_uri
         .split_once(',')
         .ok_or_else(|| ApiError::decode("The PDF preview is not a data URI."))?;
@@ -363,8 +370,139 @@ fn share_pdf(data_uri: &str, filename: &str) -> Result<(), ApiError> {
     // interaction; opening the sheet successfully is the executor's completed effect.
     share
         .call1(&navigator, &share_data)
-        .map_err(|_| ApiError::network("Share needs a direct click. Try Share again."))?;
-    Ok(())
+        .map_err(|_| ApiError::network("Share needs a direct click. Try Share again."))
+}
+
+/// Reports how the share sheet ended: shared, cancelled by the person (code `CANCELLED`), or refused by the browser.
+fn settle_share<Msg: 'static>(
+    promise: wasm_bindgen::JsValue,
+    reply: Box<dyn FnOnce(Result<(), ApiError>) -> Msg>,
+    deliver: Callback<Msg>,
+) {
+    use wasm_bindgen::closure::Closure;
+    let Ok(promise) = promise.dyn_into::<js_sys::Promise>() else {
+        deliver.emit(reply(Ok(())));
+        return;
+    };
+    let reply = std::rc::Rc::new(std::cell::RefCell::new(Some(reply)));
+    let (ok_reply, ok_deliver) = (reply.clone(), deliver.clone());
+    let on_ok = Closure::once(move |_: wasm_bindgen::JsValue| {
+        if let Some(reply) = ok_reply.borrow_mut().take() {
+            ok_deliver.emit(reply(Ok(())));
+        }
+    });
+    let on_err = Closure::once(move |error: wasm_bindgen::JsValue| {
+        let name = js_sys::Reflect::get(&error, &wasm_bindgen::JsValue::from_str("name"))
+            .ok()
+            .and_then(|name| name.as_string())
+            .unwrap_or_default();
+        let error = match name.as_str() {
+            "AbortError" => ApiError { status: 0, code: "CANCELLED".into(), message: "Share was cancelled.".into() },
+            "NotAllowedError" => ApiError::network("Safari did not allow the share sheet. Tap Share again."),
+            other => ApiError::network(format!("The share did not complete ({other}).")),
+        };
+        if let Some(reply) = reply.borrow_mut().take() {
+            deliver.emit(reply(Err(error)));
+        }
+    });
+    let _ = promise.then2(&on_ok, &on_err);
+    on_ok.forget();
+    on_err.forget();
+}
+
+/// One utterance through the browser's speech recognition (`SpeechRecognition`, or Safari's
+/// `webkitSpeechRecognition`), answered exactly once: the words heard, or why nothing was.
+fn listen<Msg: 'static>(reply: Box<dyn FnOnce(Result<String, ApiError>) -> Msg>, deliver: Callback<Msg>) {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    use wasm_bindgen::closure::Closure;
+    use wasm_bindgen::JsValue;
+
+    let reply = Rc::new(RefCell::new(Some(reply)));
+    let finish: Rc<dyn Fn(Result<String, ApiError>)> = Rc::new(move |result| {
+        if let Some(reply) = reply.borrow_mut().take() {
+            deliver.emit(reply(result));
+        }
+    });
+    let key = |name: &str| JsValue::from_str(name);
+    let started = (|| -> Result<(), ApiError> {
+        let window = web_sys::window().ok_or_else(|| ApiError::network("The browser window is unavailable."))?;
+        let window: &JsValue = window.as_ref();
+        let recognizer = ["SpeechRecognition", "webkitSpeechRecognition"]
+            .iter()
+            .filter_map(|name| js_sys::Reflect::get(window, &key(name)).ok())
+            .find_map(|value| value.dyn_into::<js_sys::Function>().ok())
+            .ok_or_else(|| ApiError::network("This browser has no speech recognition. Type what happened instead."))?;
+        let recognition = js_sys::Reflect::construct(&recognizer, &js_sys::Array::new())
+            .map_err(|_| ApiError::network("Speech recognition could not start."))?;
+        let set = |name: &str, value: &JsValue| {
+            let _ = js_sys::Reflect::set(&recognition, &key(name), value);
+        };
+        set("lang", &key("en-US"));
+        set("interimResults", &JsValue::FALSE);
+        set("continuous", &JsValue::FALSE);
+
+        let heard = Rc::new(RefCell::new(String::new()));
+        let on_result = {
+            let heard = heard.clone();
+            Closure::<dyn FnMut(JsValue)>::new(move |event: JsValue| {
+                let results = js_sys::Reflect::get(&event, &key("results")).unwrap_or(JsValue::UNDEFINED);
+                let count = js_sys::Reflect::get(&results, &key("length")).ok().and_then(|n| n.as_f64()).unwrap_or(0.0);
+                let mut text = String::new();
+                for index in 0..count as u32 {
+                    let result = js_sys::Reflect::get_u32(&results, index).unwrap_or(JsValue::UNDEFINED);
+                    let best = js_sys::Reflect::get_u32(&result, 0).unwrap_or(JsValue::UNDEFINED);
+                    if let Some(words) = js_sys::Reflect::get(&best, &key("transcript")).ok().and_then(|w| w.as_string()) {
+                        text.push_str(&words);
+                    }
+                }
+                *heard.borrow_mut() = text.trim().to_owned();
+            })
+        };
+        let on_error = {
+            let finish = finish.clone();
+            Closure::<dyn FnMut(JsValue)>::new(move |event: JsValue| {
+                let code = js_sys::Reflect::get(&event, &key("error")).ok().and_then(|c| c.as_string()).unwrap_or_default();
+                let message = match code.as_str() {
+                    "not-allowed" | "service-not-allowed" => {
+                        "Microphone access was not allowed. Allow it for this site in Safari, then tap the mic again.".to_owned()
+                    }
+                    "no-speech" => "No speech was heard. Tap the mic and speak.".to_owned(),
+                    "audio-capture" => "No microphone was found.".to_owned(),
+                    other => format!("Speech recognition stopped ({other})."),
+                };
+                finish(Err(ApiError::network(message)));
+            })
+        };
+        let on_end = {
+            let finish = finish.clone();
+            Closure::<dyn FnMut(JsValue)>::new(move |_: JsValue| {
+                let text = heard.borrow().clone();
+                finish(if text.is_empty() {
+                    Err(ApiError::network("No speech was heard. Tap the mic and speak."))
+                } else {
+                    Ok(text)
+                });
+            })
+        };
+        set("onresult", on_result.as_ref());
+        set("onerror", on_error.as_ref());
+        set("onend", on_end.as_ref());
+        on_result.forget();
+        on_error.forget();
+        on_end.forget();
+
+        js_sys::Reflect::get(&recognition, &key("start"))
+            .ok()
+            .and_then(|start| start.dyn_into::<js_sys::Function>().ok())
+            .ok_or_else(|| ApiError::network("Speech recognition could not start."))?
+            .call0(&recognition)
+            .map_err(|_| ApiError::network("Speech recognition could not start."))?;
+        Ok(())
+    })();
+    if let Err(error) = started {
+        finish(Err(error));
+    }
 }
 
 /// Device storage, or `None` where it is unavailable (private mode, blocked site data). Never a panic.

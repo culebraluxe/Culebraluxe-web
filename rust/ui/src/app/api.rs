@@ -370,6 +370,47 @@ pub enum FormsAction {
     },
 }
 
+/// Grok's suggestion for the open form: the fields it sets, optionally new document prose, and a note. Nothing is saved.
+pub struct FormsGrok {
+    pub form_id: String,
+    pub form_name: String,
+    pub prompt: String,
+    pub details_text: String,
+    pub field_values: std::collections::BTreeMap<String, String>,
+    pub fields: Vec<FormTemplateField>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct FormsGrokAnswer {
+    pub field_values: std::collections::BTreeMap<String, String>,
+    pub body: Option<String>,
+    pub note: String,
+}
+
+impl Endpoint for FormsGrok {
+    const METHOD: Method = Method::Post;
+    type Response = FormsGrokAnswer;
+    fn path(&self) -> String {
+        "/api/portal/rust-ui/forms/grok".into()
+    }
+    fn body(&self) -> Option<serde_json::Value> {
+        let fields: Vec<serde_json::Value> = self
+            .fields
+            .iter()
+            .map(|field| serde_json::json!({ "name": field.name, "label": field.label, "type": field.field_type, "options": field.options }))
+            .collect();
+        Some(serde_json::json!({
+            "formId": self.form_id,
+            "formName": self.form_name,
+            "prompt": self.prompt,
+            "detailsText": self.details_text,
+            "fieldValues": self.field_values,
+            "fields": fields,
+        }))
+    }
+}
+
 pub struct FormsWrite {
     pub action: FormsAction,
 }

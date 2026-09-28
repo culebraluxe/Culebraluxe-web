@@ -40,6 +40,7 @@ pub fn router() -> Router<ApiState> {
         .route("/api/portal/rust-ui/deals", get(deals).post(deals_write))
         .route("/api/portal/rust-ui/forms", get(forms).post(forms_write))
         .route("/api/portal/rust-ui/forms/preview", axum::routing::post(forms_preview))
+        .route("/api/portal/rust-ui/forms/grok", axum::routing::post(forms_grok))
         .route("/api/portal/rust-ui/projects", get(projects).post(projects_act))
         .route(
             "/api/portal/rust-ui/projects/calendar",
@@ -1208,6 +1209,45 @@ struct FormsPreviewBody {
     field_values: std::collections::BTreeMap<String, String>,
     #[serde(default)]
     sections: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FormsGrokBody {
+    form_id: String,
+    form_name: String,
+    prompt: String,
+    #[serde(default)]
+    details_text: String,
+    #[serde(default)]
+    field_values: serde_json::Map<String, Value>,
+    #[serde(default)]
+    fields: Vec<super::forms_grok::GrokField>,
+}
+
+/// Grok's suggestion for the open form (see `forms_grok`). Opening the form is the access check; nothing is saved.
+async fn forms_grok(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<FormsGrokBody>,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    if body.prompt.trim().is_empty() {
+        return Err(correlate(ApiError::bad_request("GROK_PROMPT_REQUIRED", "Tell Grok what happened first."), &resolved));
+    }
+    state
+        .services()
+        .forms()
+        .get_instance(body.form_id.trim(), &resolved.service)
+        .await
+        .map_err(failed(&resolved))?
+        .ok_or_else(|| correlate(ApiError::not_found("FORM_NOT_FOUND", "That form was not found."), &resolved))?;
+    let fill = super::forms_grok::fill(&body.form_name, &body.fields, &body.field_values, &body.details_text, body.prompt.trim())
+        .await
+        .map_err(|failure| {
+            correlate(ApiError::new(axum::http::StatusCode::BAD_GATEWAY, "GROK_UNAVAILABLE", failure.0, true), &resolved)
+        })?;
+    Ok(Json(json!({ "ok": true, "fieldValues": fill.field_values, "body": fill.body, "note": fill.note })))
 }
 
 async fn forms_preview(

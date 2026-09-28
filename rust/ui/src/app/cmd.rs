@@ -95,6 +95,10 @@ pub enum Cmd<Msg> {
         filename: String,
         reply: Box<dyn FnOnce(Result<(), ApiError>) -> Msg>,
     },
+    /// Listen once through the browser's speech recognition (Safari's included) and answer what was said.
+    Listen {
+        reply: Box<dyn FnOnce(Result<String, ApiError>) -> Msg>,
+    },
     /// Read one value from the device's storage; `None` when absent or storage is unavailable.
     StorageRead {
         key: String,
@@ -185,6 +189,10 @@ impl<Msg: 'static> Cmd<Msg> {
         }
     }
 
+    pub fn listen(to_msg: impl FnOnce(Result<String, ApiError>) -> Msg + 'static) -> Self {
+        Cmd::Listen { reply: Box::new(to_msg) }
+    }
+
     pub fn storage_read(
         key: impl Into<String>,
         to_msg: impl FnOnce(Option<String>) -> Msg + 'static,
@@ -253,6 +261,9 @@ impl<Msg: 'static> Cmd<Msg> {
                 filename,
                 reply: Box::new(move |answer| f(reply(answer))),
             },
+            Cmd::Listen { reply } => Cmd::Listen {
+                reply: Box::new(move |answer| f(reply(answer))),
+            },
             Cmd::StorageRead { key, reply } => Cmd::StorageRead {
                 key,
                 reply: Box::new(move |value| f(reply(value))),
@@ -295,6 +306,7 @@ impl<Msg> std::fmt::Debug for Cmd<Msg> {
             Cmd::Load(href) => write!(f, "Load({href})"),
             Cmd::ReplacePath(path) => write!(f, "ReplacePath({path})"),
             Cmd::SharePdf { filename, .. } => write!(f, "SharePdf({filename})"),
+            Cmd::Listen { .. } => write!(f, "Listen"),
             Cmd::StorageRead { key, .. } => write!(f, "StorageRead({key})"),
             Cmd::StorageWrite { key, value } => write!(f, "StorageWrite({key}, {value:?})"),
             Cmd::After { millis, .. } => write!(f, "After({millis}ms)"),
