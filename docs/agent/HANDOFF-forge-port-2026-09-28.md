@@ -17,7 +17,7 @@ the doctor, and the writer. What is left is below with the exact files to open.
 | S7 | `cargo fmt --all -- --check` carries 538 pre-existing diffs (ui 184, server 291, cli 50) | `cargo fmt --all -- --check \| grep -c '^Diff'` |
 | S8 | `AGENTS.md` cites guards under `workflow_app/tests/`, which no longer exists | `ls workflow_app` → no such directory |
 | S9 | **DEV was never down. `pnpm forge:*` run from `rust/` cannot find `.env.local`, and said "database unreachable" for it.** `apple_sync::repo_root()` was `current_dir()`, so the loader looked for `rust/.env.local`; the identical binary answers from the repository root. **Fixed** — the root is `git rev-parse --show-toplevel` now — and the failure message prints `DbFailure.detail`, so a missing URL says *"DATABASE_URL_DEV is not configured"* and exits 2 instead of *"DatabaseUnavailable"* | `cd rust && APP_ENV=dev ./target/debug/cli forge roi --days 14` (works) · `CULEBRALUXE_REPO=/tmp/nowhere APP_ENV=dev ./rust/target/debug/cli forge roi` → names the variable, exit 2 |
-| S10 | **`main` does not build `rust/ui`** (`update.rs:2513` initialises `PortalDealCommand` without the 7 fields the model grew: `contingencies`, `deposit_amount`, `expires_at` + 4). H2 holds that area, so it was reported, not touched | `cd rust && cargo check -p ui` |
+| S10 | **`rust/ui` compiles again on `main`, and production runs it**: `305026d7` closes five call sites the offer-room workstream left behind — `update.rs:2513`'s seven missing `PortalDealCommand` fields, the bare `PortalPage` name in `api.rs`, a `</textarea>` closing tag, one arm holding a `&mut` across its own call, and a duplicate icon arm | `cd rust && cargo check -p ui --features wasm --target wasm32-unknown-unknown` → 0 errors; `cargo check --workspace --all-targets` → 0 errors |
 | S11 | `main` had been red for `server` since `0e832a9b` (the publishing feature was never re-exported nor registered); repaired in `c6bfc6a6` | `cd rust && cargo check -p server` |
 
 ## 2. HOLDS — do not act on these
@@ -25,7 +25,7 @@ the doctor, and the writer. What is left is below with the exact files to open.
 | # | Held | Who holds it | What an agent must do |
 | --- | --- | --- | --- |
 | H1 | Any PROD-mutating Forge run — including `pnpm forge:clean`, which sets `APP_ENV=production` and passes `--force` | the Captain | ask first, every time; DEV is free |
-| H2 | `rust/ui` and the calendar/projects screens | the Captain, mid-rebuild with Claude | do not reformat, do not "improve", do not touch |
+| H2 | `rust/ui` and the calendar/projects screens — feature work and reformatting | the Captain, mid-rebuild with Claude | do not recompose these screens. The red wasm build was an exception the Captain ordered by name (`305026d7`): calling sites brought back to the code they call, no screen redesigned |
 | H3 | `AbstractService` as the design rule; calendar's hand-written impl is correct | the Captain (ruling) | never replace it with `abstract_service!` |
 
 ## 3. WHERE TO LOOK — task → the one place
@@ -55,6 +55,7 @@ the doctor, and the writer. What is left is below with the exact files to open.
 | `3f796705` | `docs/agent/DEAD-COMMANDS.md` + `scripts/dead-command-sweep.mjs` (`pnpm broken:ts:commands`): 53 dead commands, three blocks, a keep-or-delete line each, and a `--check` that fails when the count rises or falls without the baseline dropping | `pnpm broken:ts:commands --check` → 53 at baseline; `pnpm broken:ts:sweep` → "the tree and the inventory agree" |
 | `56fcab57` | **the false outage, fixed:** `apple_sync::repo_root()` is the git toplevel, not `current_dir()`, so `.env.local` is found from any directory; ONE `forge::connect()` replaces four copies and prints `DbFailure.detail` | `cargo test -p cli` 74 (2 new: the message names the reason; and names the file with no detail); `-p db` 40, `-p forge` 76; `forge roi` answers from the root **and** from `rust/`; a missing `.env.local` prints the variable and exits 2 |
 | `26005949` | `.env.example` names the Mux pairs the code reads (`_PROD`, `_DEV`) instead of only the unsuffixed fallback — the template was the reason "which names do I type?" had two answers; handoff + MEMORY record that the `.env.local` mtime of 2026-09-27 21:54 was the Captain's Mux token, not a database edit | `pnpm forge:packet-lint` → 0 failures / 132 warnings (126 baselined); `git log origin/main` shows the commit; working tree clean |
+| `305026d7` | **the wasm build green, and production on it:** `api.rs:682,693,724` spell `crate::model::PortalPage` like their neighbours; the offer-room `<textarea>` is in void-element form; the reducer and the Contracts screen both send the seven structured terms the model grew; `deals/mod.rs:416` reads the terms into locals so the `&mut` borrow ends before `command`; the duplicate `check-circle-2` arm is gone | `cargo check -p ui --features wasm --target wasm32-unknown-unknown` 0 errors; `cargo check --workspace --all-targets` 0 errors; `docker build -f deploy/Dockerfile.build --output type=local,dest=/tmp/…` → `culebraluxe` + `ui.js` + `ui_bg.wasm`; `pnpm deploy:prod` → 7/7 smoke checks 200, "DEPLOY COMPLETE" |
 
 ## 5. NOT VERIFIED — the honest gaps
 
@@ -69,6 +70,10 @@ the doctor, and the writer. What is left is below with the exact files to open.
   in-flight authorization work from `90118b20`. Reported, not touched.
 - **No PROD run of any new command.** Every fact above is DEV (reads) or a refusal (the writer). The writer's
   happy path is unit-tested only through its guard function; its SQL steps have not executed anywhere, on purpose.
+- **The offer room's structured terms have never actually executed.** They were written, the build went red, and they
+  only compiled today (`305026d7`). The draft maps and the `SubmitOffer` payload are visible to the compiler and to
+  unit tests; what no test covers is the round trip — a signed-in submission with an amount *and* terms, and the
+  service's answer. One submission on production is the check, and it needs the Captain's session.
 - `forge doctor`'s ROI section printed "(no ROI rows in the window)" on DEV. The rollup is unit-tested against
   fixtures, but no live row has passed through it.
 - The 538 fmt diffs: not run, not fixed, left alone on purpose (H2).
@@ -125,26 +130,19 @@ the doctor, and the writer. What is left is below with the exact files to open.
   provision script copies from). `scripts/vercel-provision-rust-project.sh:144-147` propagates them when it runs;
   the TECH screen's `system-health` payload reports `muxConfigured` and `allProductionRequiredConfigured`, which is
   the one-click proof after any deploy.
-- **The Mux pair in the standalone Rust project is not the pair in `.env.local`, and only the Captain can say
-  whether that matters (measured 2026-09-28, shapes only — no value was printed or read).** `culebraluxe.com` and
-  `www.culebraluxe.com` belong to the project **`culebraluxe-web-fp`**, which holds all eight Mux names as
-  `sensitive` on Preview+Production (created 2026-08-16) — so the site's Mux credentials were not touched by
-  yesterday's `.env.local` edit. The project **`culebraluxe-rust-api`** (live, Production, no public domain) holds
-  exactly two Mux names — `MUX_TOKEN_ID_PROD`, `MUX_TOKEN_SECRET_PROD`, `type=encrypted`, created 2026-09-23 — and
-  their stored plaintexts are of near-equal length (ciphertext 112 and 124 bytes), while the pair in `.env.local` is
-  36 and 75 characters. A Mux token id and its secret are never near-equal, so those two values are not the current
-  pair. Two questions follow, both the Captain's: **(a) was yesterday's Mux token a new token or a rotated one** —
-  if it was rotated and the old one was revoked at Mux, production video fails on a token nobody re-pushed, since
-  Vercel's copies are `sensitive` and cannot be read back to compare; **(b) may the current pair be written into
-  `culebraluxe-rust-api` (and `culebraluxe-web-fp` if it was a rotation)** — one command reading `.env.local`, values
-  never printed. The probe used, if it is ever needed again:
-  `vc api "/v10/projects/<project>/env?teamId=team_xk8vFaeSyY6CuSkS3OK55tTc"` with a script that reports
-  `key`, `type`, `target`, `value_present` and the byte length of the `{"v":"v2","c":…}` envelope, and never the
-  value itself. Note the readiness probe cannot tell: both variables are non-empty, so `muxConfigured` reads
-  `true` on a wrong value as readily as on a right one — a live upload is the only real test.
-- **`rust/ui` does not build on `main` (S10)**: `update.rs:2513` initialises `PortalDealCommand` without the seven
-  fields the model grew. H2 holds that area, so it was left alone — but the website is the deployable artifact,
-  so this is a production-facing red that needs its owner.
+- **CLOSED 2026-09-28 — the Mux pair was pushed to both projects and verified against Mux itself, so the
+  new-or-rotated question no longer blocks anything.** The Captain said "push MUX". The `.env.local` pair (36 + 75
+  characters) was written with `POST /v10/projects/<project>/env?upsert=true` into **`culebraluxe-web-fp`**
+  (`sensitive`, updated in place: same env ids, `updatedAt` moved, still `production` + `preview`, still eight Mux
+  names, no duplicate) and into **`culebraluxe-rust-api`** (`encrypted`, `production`; the stored envelope ciphertext
+  changed, which is the proof the value is the new one). No value was printed. Then the pair was tested against Mux
+  directly — `curl -u "$ID:$SEC" https://api.mux.com/video/v1/assets?limit=1` → **HTTP 200** with real assets — so
+  production now holds a pair that is live at Mux whether yesterday's token was new or rotated. `muxConfigured` was
+  never the evidence for this: a non-empty wrong value reads `true` as readily as a right one, which is why the API
+  call, not a probe, is what closed it. Probe kept for reuse: `vc api "/v10/projects/<project>/env?teamId=…"` plus a
+  script that reports `key`, `type`, `target` and a hash/length of the stored value, never the value.
+- **`rust/ui` builds again and production serves `305026d7`** (S10). See §5 for the one check that remains — a
+  signed-in offer submission with terms. H2 still withholds feature work and reformatting in those screens.
 - **May `pnpm forge:clean` be exercised once against PROD, with the Captain watching, so the writer's happy path
   is verified rather than assumed?** Yes → the printed post-condition is the receipt. No → the writer's SQL stays
   unverified, which is recorded above rather than discovered later.

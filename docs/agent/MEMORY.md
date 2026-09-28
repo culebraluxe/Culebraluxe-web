@@ -247,3 +247,30 @@ Short facts that are expensive to rediscover. Not the current story — that is 
   (`rust/integrations/src/mux/mod.rs::required_mux_env`: unsuffixed `MUX_TOKEN_ID`/`_SECRET`, else `_PROD`; the
   readiness probe wants `_PROD` in production and `_DEV` in DEV, `portal_bridge.rs:3277-3281`; one Mux account
   serves every environment by design). A timestamp is not a cause.
+
+
+- **2026-09-28 (a Vercel secret has one proof and it is not a probe — write it, then use the credential against the
+  provider):** the Mux pair in `.env.local` did not match what `culebraluxe-rust-api` held, and nothing readable could
+  settle it: `culebraluxe-web-fp` (which actually serves `culebraluxe.com` and holds all eight Mux names) stores them
+  `type=sensitive`, which the Vercel API returns with no value at all, and the readiness probe only asks whether the
+  strings are non-empty — **`muxConfigured` reads `true` on a wrong value as readily as on a right one**. The Captain
+  said "push MUX" and the pair was written with `POST /v10/projects/<project>/env?upsert=true` into both projects:
+  `culebraluxe-web-fp` (`sensitive`, `production`+`preview`, updated in place — same env ids, `updatedAt` moved, no
+  duplicate) and `culebraluxe-rust-api` (`encrypted`, `production`, where the changed envelope ciphertext is
+  observable proof the stored value is the new one). Then the pair was tested against **Mux itself** —
+  `curl -u "$ID:$SEC" https://api.mux.com/video/v1/assets?limit=1` → HTTP 200 with real assets — which is the only
+  statement that means anything about a credential. **Generalised: never print or hash a secret to "verify" it; write
+  it where it belongs, then exercise it against the service that consumes it. A readiness flag that checks presence
+  is not evidence about a value.**
+- **2026-09-28 (`main` can be red for a whole workstream — the deployable artifact's build is nobody's gate by
+  default):** `rust/ui` did not compile from the offer-room/publishing/client-room commits onward, and it was found
+  only when a production deploy died in the Docker step ~30 commits later; the deploy before it had been serving an
+  older build, so the failure surfaced as a **stale site, not a red build**. Five call sites, one shape: code that
+  moved and callers that did not (a bare `PortalPage` name, a `</textarea>` closing tag, seven fields added to
+  `PortalDealCommand` but not to its caller, a `&mut` held across its own call, a duplicate icon arm). **The rule this
+  earns: whoever touches `rust/ui` runs `cargo check -p ui --features wasm --target wasm32-unknown-unknown` before
+  pushing — `cargo check --workspace` does not build the app, because it lives behind `--features wasm` — and
+  `pnpm deploy:prod` is the receipt that the artifact really compiles.** One warning left as a story, not a fix: two
+  Msg owners answer one command (the monolith reducer `rust/ui/src/update.rs` and the Contracts screen's own `update`
+  both handle `DealWorkspaceSubmitOfferRequested`); both were made to send the same seven terms, which is a duplicate
+  writer, not a design.
