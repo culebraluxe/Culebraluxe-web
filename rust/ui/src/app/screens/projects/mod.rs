@@ -7,13 +7,16 @@
 //!
 //! A WRITE ANSWERS WITH THE REFRESHED PAGE, and `crate::projects::carry_over` keeps what the user was looking at.
 
+mod catch_up;
 mod nav;
 mod view;
+
+pub use catch_up::CatchUpState;
 
 use yew::prelude::*;
 
 use crate::app::api::{
-    CalendarCommandReceipt, CalendarCommandState, ProjectsCalendarCommandState,
+    CatchUpAction, CalendarCommandReceipt, CalendarCommandState, ProjectsCalendarCommandState,
     ProjectsCalendarRead, ProjectsCalendarUpdate, ProjectsCalendarViewportResponse,
     ProjectsCommand, ProjectsRead,
 };
@@ -61,6 +64,8 @@ pub struct Model {
     pub error: Option<String>,
     pending_calendar: Option<PendingCalendarEdit>,
     pending_timeline: Option<PendingTimelineEdit>,
+    /// Catch-Up's own controls and the relationship queue it shows under People.
+    pub catch_up: CatchUpState,
 }
 
 #[derive(Debug, PartialEq)]
@@ -131,6 +136,24 @@ pub enum Msg {
     CalendarPoll,
     CalendarStateLoaded(Result<CalendarCommandState, ApiError>),
     ProjectCatchUpToggled(bool),
+    /// Catch-Up's worklist: "today", "unscheduled" or "people".
+    CatchUpTabSelected(String),
+    /// "all", "open", "doing" or "done".
+    CatchUpStatusSelected(String),
+    /// A work-item category, or "all".
+    CatchUpAreaSelected(String),
+    PeopleLoaded(Result<PortalPage, ApiError>),
+    PeopleSelected(String),
+    PeopleHandleRequested {
+        person_id: String,
+        reason_code: String,
+    },
+    PeopleSnoozeRequested {
+        person_id: String,
+        reason_code: String,
+        days: i32,
+    },
+    PeopleAnswered(Result<PortalPage, ApiError>),
     ProjectCatchUpItemSelected {
         project_id: String,
         node_id: String,
@@ -598,6 +621,63 @@ impl Screen for Projects {
                 model.controls.query = query;
                 return Cmd::none();
             }
+            Msg::ProjectCatchUpToggled(on) => {
+                let cmd = match &mut model.read {
+                    Remote::Loaded(projects) => {
+                        selection(projects, &mut model.error, Msg::ProjectCatchUpToggled(on))
+                    }
+                    _ => Cmd::none(),
+                };
+                return Cmd::batch([cmd, catch_up::load_people(&mut model.catch_up)]);
+            }
+            Msg::CatchUpTabSelected(tab) => {
+                if matches!(tab.as_str(), "today" | "unscheduled" | "people") {
+                    model.catch_up.tab = tab;
+                }
+                return catch_up::load_people(&mut model.catch_up);
+            }
+            Msg::CatchUpStatusSelected(status) => {
+                if matches!(status.as_str(), "all" | "open" | "doing" | "done") {
+                    model.catch_up.status = status;
+                }
+                return Cmd::none();
+            }
+            Msg::CatchUpAreaSelected(area) => {
+                model.catch_up.area = area;
+                return Cmd::none();
+            }
+            Msg::PeopleLoaded(answer) => {
+                catch_up::apply_people(&mut model.catch_up, answer, false);
+                return Cmd::none();
+            }
+            Msg::PeopleSelected(person_id) => {
+                model.catch_up.person = Some(person_id);
+                return Cmd::none();
+            }
+            Msg::PeopleHandleRequested {
+                person_id,
+                reason_code,
+            } => {
+                return catch_up::act(
+                    &mut model.catch_up,
+                    CatchUpAction::handle(person_id, reason_code),
+                );
+            }
+            Msg::PeopleSnoozeRequested {
+                person_id,
+                reason_code,
+                days,
+            } => {
+                return catch_up::act(
+                    &mut model.catch_up,
+                    CatchUpAction::snooze(person_id, reason_code, days),
+                );
+            }
+            Msg::PeopleAnswered(answer) => {
+                model.catch_up.busy = false;
+                catch_up::apply_people(&mut model.catch_up, answer, true);
+                return Cmd::none();
+            }
             Msg::CalendarViewportLoaded {
                 start_at,
                 end_at,
@@ -677,6 +757,7 @@ impl Screen for Projects {
                     error: model.error.as_ref(),
                     calendar_pending: model.pending_calendar.as_ref(),
                     timeline_pending: model.pending_timeline.as_ref(),
+                    catch_up: &model.catch_up,
                 },
                 projects,
                 &on_msg,
@@ -1083,6 +1164,7 @@ pub struct Vm<'a> {
     pub error: Option<&'a String>,
     pub calendar_pending: Option<&'a PendingCalendarEdit>,
     pub timeline_pending: Option<&'a PendingTimelineEdit>,
+    pub catch_up: &'a CatchUpState,
 }
 
 #[cfg(test)]

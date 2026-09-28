@@ -25,7 +25,7 @@ internal API. Sign-in is Rust too (`rust/server/src/api/google_auth.rs`, `ui_aut
 
 ## Where the port stands (checked 2026-09-28)
 
-`ENTRIES` in `rust/ui/src/app/registry.rs` has **59** lines: **57** `Kind::Screen`, **2** `Kind::External` (WhatsApp
+`ENTRIES` in `rust/ui/src/app/registry.rs` has **58** lines: **56** `Kind::Screen`, **2** `Kind::External` (WhatsApp
 Activation and `/portal`). The pre-trait global loop (`view.rs`, `update.rs`, `yew_effects.rs`, `yew_views/`,
 `yew_portal.rs`, `document.rs`) was deleted on 2026-09-28; the public site's copy it held is in
 `rust/ui/src/app/screens/site/content.rs`.

@@ -161,7 +161,6 @@ pub fn listed(surface: Surface) -> impl Iterator<Item = Screen> {
 pub const SCREENS: &[Screen] = &[
     // ---- CORE (the registry's surface is NEXUS, labelled CORE) ----
     Screen { key: "dashboard", title: "Cockpit", path: "/portal/dashboard", surface: Surface::Core, nav: Nav::Listed, deferred: None, detail_of: None },
-    Screen { key: "catch-up", title: "Catch-Up", path: "/portal/catch-up", surface: Surface::Core, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "clients", title: "Clients", path: "/portal/clients", surface: Surface::Core, nav: Nav::Listed, deferred: None, detail_of: None },
     // The captain's call: the model is proven, so Project Management starts. The list is wired; the three widgets
     // (React Arborist tree, Gantt, FullCalendar) stay in TypeScript until the port can render a screen of its own markup

@@ -24,7 +24,6 @@ use crate::app::screens::activity::Activity;
 use crate::app::screens::cabinet::Cabinet;
 use crate::app::screens::clients::{ClientRecord, Clients};
 use crate::app::screens::cockpit::{Attention, Cockpit};
-use crate::app::screens::catch_up::CatchUp;
 use crate::app::screens::db_test::DbTest;
 use crate::app::screens::deals::{DealRecord, Deals};
 use crate::app::screens::flight_recorder::FlightRecorder;
@@ -152,7 +151,6 @@ impl Entry {
 #[rustfmt::skip]
 pub const ENTRIES: &[Entry] = &[
     entry("dashboard", "/portal/dashboard", Surface::Core, "Cockpit", Menu::Rail("Cockpit"), "portal.read", "cockpit.read", Kind::Screen(mount::<Cockpit>)),
-    entry("catch-up", "/portal/catch-up", Surface::Core, "Catch-Up", Menu::Rail("Catch-Up"), "portal.read", "person.read", Kind::Screen(mount::<CatchUp>)),
     entry("clients", "/portal/clients", Surface::Core, "Clients", Menu::Rail("Clients"), "portal.read", "person.read", Kind::Screen(mount::<Clients>)),
     entry("projects", "/portal/projects", Surface::Core, "Projects", Menu::Rail("Projects"), "portal.read", "project.read", Kind::Screen(mount::<Projects>)),
     entry("deals", "/portal/deals", Surface::Core, "Contracts", Menu::Rail("Contracts"), "deal.read", "deal.read", Kind::Screen(mount::<Deals>)),
@@ -412,7 +410,6 @@ mod tests {
             labels(Surface::Core),
             [
                 "Cockpit",
-                "Catch-Up",
                 "Clients",
                 "Projects",
                 "Contracts",
@@ -471,8 +468,7 @@ mod tests {
             .into_iter()
             .map(|(label, _)| label)
             .collect();
-        // Catch-Up and Clients both need `person.read`.
-        assert_eq!(rail, ["Catch-Up", "Clients"]);
+        assert_eq!(rail, ["Clients"]);
         let guest = Actor {
             account_type: "external".into(),
             ..user

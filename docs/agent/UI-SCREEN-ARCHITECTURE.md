@@ -7,8 +7,8 @@ Code: `rust/ui/src/app/`.
 
 | # | Fact | Value |
 | --- | --- | --- |
-| S1 | The registry | `rust/ui/src/app/registry.rs` — 59 entries, one line per screen, the only path→screen map |
-| S2 | On the `Screen` trait | 57 entries, `Kind::Screen(mount::<S>)` — both Marketing entries mount `Publishing` |
+| S1 | The registry | `rust/ui/src/app/registry.rs` — 58 entries, one line per screen, the only path→screen map |
+| S2 | On the `Screen` trait | 56 entries, `Kind::Screen(mount::<S>)` — both Marketing entries mount `Publishing` |
 | S3 | Still on the old loop | none — the old loop and its `LegacyPortal` kind were deleted 2026-09-28 |
 | S4 | Not renderable here | 2 entries, `Kind::External` — WhatsApp Activation, `/portal` itself |
 | S5 | The cutover ledger | closed: every entry is `Kind::Screen` or `Kind::External` |
@@ -23,7 +23,7 @@ Code: `rust/ui/src/app/`.
 | H2 | **The services layer**: `abstract_service!` and the composition root (`rust/server/src/composition.rs`) | GPT wrote the services layer; the owner required the `abstract_service!` pattern of it | **`abstract_service!` is an absolute requirement, not a preference.** The composition root on `main` is the correct one; do not restructure it, do not add a second catalog, and do not migrate a service between the macro and its hand-written descriptor without the owner's word. **The door is not the design; the trait is.** Every service implements `AbstractService` and is registered in the catalog, and all 32 do. `abstract_service!` is a shortcut that stamps a trivial descriptor: empty `capabilities`, empty `invariants`, inherited `UnknownOperation` dispatch. Because the kernel treats empty capabilities as inline policy (`rust/server/src/service_kernel.rs:211-236`), such a service cannot declare an operation or refuse an unknown one. So a service with real operations implements the trait itself and declares them — which is what the seven larger domains below do, calendar's 5 capabilities among them. That is the OO design used properly, not a violation. What this paragraph means: do not hand-copy boilerplate into a new service that needs only a trivial descriptor. (Corrected 2026-09-28: I had read the shortcut as the design and recorded a violation that was not there. Calendar is correctly built.) |
 | H3 | **WhatsApp Activation** (S4, `Kind::External`) | the owner | It is a lifeline, not a cutover target: the Meta Embedded Signup page is the only proven way back if activation must be redone. Do not convert it, do not test it against Meta, do not "clean it up" — see "Decisions recorded" |
 
-Nothing else about screens is held: the 57 ported screens, the shared machinery (§4–§9) and any NEW route that is not one
+Nothing else about screens is held: the 56 ported screens, the shared machinery (§4–§9) and any NEW route that is not one
 of the held entries are open for work.
 
 ## WHERE TO LOOK — task → the one place
@@ -306,7 +306,7 @@ The owner's direction: done correctly, big-bang if needed; no permanent adapters
 
 1. **Framework — in place.** `Screen`, `ScreenCtx`, `Cmd`, `Endpoint`, `Remote`, `ScreenHost`, `ListState` and
    `RowsScreen`, the executor and the registry are written and in use.
-2. **Port every screen onto the trait — done, 57 of 59 entries** (the other two are `Kind::External`). Marketing was the
+2. **Port every screen onto the trait — done, 56 of 58 entries** (the other two are `Kind::External`). Marketing was the
    last, replaced by the Publishing Center on 2026-09-28.
 3. **Then delete the old loop — done 2026-09-28**: the last `LegacyPortal` entry went, and so did so do `Model`/`Msg`/`update.rs`/`view.rs`/
    `yew_effects.rs`/`yew_views/`, the document listeners in `shell.rs`, `StringBody`, `render_page`, and the raw-markup

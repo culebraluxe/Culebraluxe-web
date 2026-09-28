@@ -12,6 +12,7 @@ use crate::model::{PortalProject, PortalProjectWorkItem, PortalProjectsPage};
 use super::{Msg, Vm};
 
 mod calendar;
+mod catch_up;
 mod timeline;
 
 pub(super) fn workspace(
@@ -953,17 +954,7 @@ fn selected_work_editor(
 }
 
 fn catchup_center(model: &Vm<'_>, projects: &PortalProjectsPage, on_msg: &Callback<Msg>) -> Html {
-    let selected = selected_item(projects);
-    html! {
-        <section class="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
-            <div class="min-h-0 flex-1 overflow-hidden">
-                { crate::app::template::widget_removed("The catch-up view") }
-            </div>
-            <div class="shrink-0 px-3 pb-3">
-                { selected_work_editor(model, projects, selected, on_msg) }
-            </div>
-        </section>
-    }
+    catch_up::view(model, projects, on_msg)
 }
 
 #[derive(Clone, Copy)]

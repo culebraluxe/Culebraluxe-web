@@ -6,7 +6,6 @@ pub mod activity;
 pub mod cabinet;
 pub mod clients;
 pub mod cockpit;
-pub mod catch_up;
 pub mod db_test;
 pub mod deals;
 pub mod flight_recorder;
