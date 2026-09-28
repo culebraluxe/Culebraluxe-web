@@ -13,6 +13,7 @@ pub mod flight_recorder;
 pub mod forms;
 pub mod listing_media;
 pub mod projects;
+pub mod publishing;
 pub mod security;
 pub mod sign_in;
 pub mod security_users;
