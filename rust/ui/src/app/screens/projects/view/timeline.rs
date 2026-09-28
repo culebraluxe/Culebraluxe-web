@@ -145,7 +145,7 @@ fn toolbar(model: &Vm<'_>, projects: &PortalProjectsPage, on_msg: &Callback<Msg>
                 </nav>
             </div>
             <div class="mt-1 flex items-center justify-between text-[9px] font-medium uppercase tracking-[0.08em] text-[var(--portal-blue-gray)]">
-                <span>{"◆ Deadline · solid bar = stored plan (color = work status) · outline = descendant span · project % = completed WBS items"}</span>
+                <span>{"◆ Due date · Solid bar = planned dates (color shows status) · Outline = span of the steps inside it · % = steps completed"}</span>
                 if pending.is_some() {
                     <span class="text-[var(--portal-gold-muted)]">{"Saving through WBS…"}</span>
                 }
@@ -177,7 +177,8 @@ fn header(
                 { sort_heading(projects, "days", "Days", on_msg) }
             </div>
             <div class="sticky left-[434px] z-50 flex items-center justify-end border-r border-[var(--portal-panel-border)] bg-[var(--portal-soft-bg)] px-2 text-xs font-semibold text-[var(--portal-blue-gray)]">
-                {"Due"}
+                // Not sortable, but set like the sortable headings beside it.
+                <span class="px-1 py-1 uppercase tracking-[0.06em]">{"Due"}</span>
             </div>
             <div class="relative overflow-hidden">
                 { for segments.iter().map(|segment| html! {
