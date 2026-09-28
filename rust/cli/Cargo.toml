@@ -13,6 +13,7 @@ forge = { path = "../forge" }
 integrations = { path = "../integrations" }
 reqwest.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 server = { path = "../server" }
 service = { path = "../core/service" }
 tokio.workspace = true

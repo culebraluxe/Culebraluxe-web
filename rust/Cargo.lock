@@ -305,6 +305,7 @@ dependencies = [
  "serde_json",
  "server",
  "service",
+ "sha2 0.10.9",
  "tokio",
  "uuid",
  "workflow",

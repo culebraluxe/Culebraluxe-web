@@ -1,0 +1,506 @@
+//! Operator tool for the control-plane databases: migration ledger status, migration apply, schema parity.
+//!
+//! Rust replacement for the retired TypeScript scripts behind `pnpm db:migrations`, `pnpm db:migrate` and
+//! `pnpm db:parity` (`scripts/migration-status.mjs`, `scripts/apply-migration.mjs`,
+//! `scripts/check-schema-parity.ts`). Those imported `legacy/db/forge-db.ts`, deleted with the TypeScript
+//! application in `4cf98110`, so every database gate exited `ERR_MODULE_NOT_FOUND`. Same job, same script
+//! names, one language: there is no Node runtime left in this repository to run them with.
+//!
+//! Usage:
+//!   cargo run -p cli -- db-tool status
+//!   cargo run -p cli -- db-tool apply <sql-file> [prod|dev] [--force] [--note "…"]
+//!   cargo run -p cli -- db-tool parity
+//!
+//! Exit codes are part of the contract, because CI and the SOP read them:
+//!   0 success (including "already applied, checksum matches"), 1 drift or refused, 2 configuration/usage.
+//!
+//! Guards carried over intact from `apply-migration.mjs`, because they are the reason the ledger is
+//! trustworthy: a file already recorded with the SAME checksum is skipped, and a file recorded with a
+//! DIFFERENT checksum is REFUSED unless `--force` is passed. Nothing here decides schema truth — it
+//! executes a reviewed SQL file and records that it ran.
+
+use db::{schema_parity, Database, DbTarget, MigrationLedgerRow, SchemaMigrationDao};
+use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
+use std::io;
+use std::path::{Path, PathBuf};
+
+/// Where migration files live. The TypeScript scripts read this same directory, and the ledger records
+/// filenames WITH this prefix, so it is the join key between disk and ledger — not a preference.
+const MIGRATIONS_DIR: &str = "legacy/db/migrations";
+
+/// The ledger migration itself, named in the "ledger is missing" message.
+const LEDGER_MIGRATION: &str = "legacy/db/migrations/144_schema_migration_ledger.sql";
+
+/// The synthetic row that documents the verified parity baseline; it is not a file.
+const BASELINE: &str = "<baseline>";
+
+pub async fn dispatch(args: &[String]) -> Result<u8, Failure> {
+    // `.env.local` carries DATABASE_URL_DEV / DATABASE_URL_PROD; the same loader the rest of the CLI uses.
+    crate::apple_sync::load_env();
+    match args.first().map(String::as_str).unwrap_or_default() {
+        "status" => status().await,
+        "apply" => apply(&args[1..]).await,
+        "parity" => parity().await,
+        _ => {
+            usage();
+            Ok(2)
+        }
+    }
+}
+
+pub fn usage() {
+    eprintln!("usage:");
+    eprintln!("  cargo run -p cli -- db-tool status");
+    eprintln!("  cargo run -p cli -- db-tool apply <sql-file> [prod|dev] [--force] [--note \"…\"]");
+    eprintln!("  cargo run -p cli -- db-tool parity");
+}
+
+/// A failure that carries the exit code the scripts' contract gives it.
+///
+/// The retired scripts distinguished two kinds of failure, and CI still reads the difference: 0 applied or
+/// clean, 1 refused or drift, 2 "cannot even start" — a missing connection URL, an absent ledger, bad
+/// arguments. `check-schema-parity.ts` exited 2 exactly this way when `DATABASE_URL_DEV` /
+/// `DATABASE_URL_PROD` were unset, and the distinction is worth keeping: a clean run and an unstartable run
+/// must never look alike.
+#[derive(Debug)]
+pub enum Failure {
+    /// Bad arguments: nothing was attempted.
+    Usage(String),
+    /// The environment or the database cannot support the run at all.
+    Configuration(String),
+    /// The work ran and failed: a refused apply, drift, a database error.
+    Other(String),
+}
+
+impl Failure {
+    pub fn exit_code(&self) -> u8 {
+        match self {
+            Failure::Usage(_) | Failure::Configuration(_) => 2,
+            Failure::Other(_) => 1,
+        }
+    }
+}
+
+impl std::fmt::Display for Failure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Failure::Usage(message) | Failure::Configuration(message) | Failure::Other(message) => {
+                formatter.write_str(message)
+            }
+        }
+    }
+}
+
+impl std::error::Error for Failure {}
+
+impl From<db::DbFailure> for Failure {
+    fn from(failure: db::DbFailure) -> Self {
+        // Configuration is checked before any connection is attempted (`require_env`), so anything that
+        // reaches here is work that started and failed. The driver detail is the useful half of the
+        // message, so it is kept rather than replaced by the kind and incident id alone.
+        match failure.detail.clone() {
+            Some(detail) if !detail.is_empty() => Failure::Other(format!("{failure} — {detail}")),
+            _ => Failure::Other(failure.to_string()),
+        }
+    }
+}
+
+impl From<io::Error> for Failure {
+    fn from(error: io::Error) -> Self {
+        Failure::Other(error.to_string())
+    }
+}
+
+/// Fail before touching a database when a target's URL is not configured.
+///
+/// Mirrors the scripts' own precondition ("DATABASE_URL_DEV and DATABASE_URL_PROD are required", exit 2)
+/// rather than letting the pool surface it, so an unconfigured environment is never reported as drift.
+/// `connect_target` still fails closed on its own; this only decides the exit code.
+fn require_env(targets: &[DbTarget]) -> Result<(), Failure> {
+    let missing: Vec<&str> = targets
+        .iter()
+        .map(|target| target_env_name(*target))
+        .filter(|name| std::env::var(name).is_err())
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err(Failure::Configuration(format!(
+        "{} {} required (set them in .env.local or the process environment)",
+        missing.join(" and "),
+        if missing.len() == 1 { "is" } else { "are" }
+    )))
+}
+
+/// Connect to one named target, and say which database that actually is before doing any work.
+///
+/// `Database::connect_target` fails closed when the target's URL is not configured — it never falls back
+/// to the other environment. The banner repeats that out loud, so no transcript of a gate run is
+/// ambiguous about where it pointed.
+async fn connect(target: DbTarget) -> Result<Database, Failure> {
+    let database = Database::connect_target(target).await?;
+    println!("database: target={} {}", target.as_str(), host_label(target));
+    Ok(database)
+}
+
+fn target_env_name(target: DbTarget) -> &'static str {
+    match target {
+        DbTarget::Dev => "DATABASE_URL_DEV",
+        DbTarget::Prod => "DATABASE_URL_PROD",
+    }
+}
+
+fn host_label(target: DbTarget) -> String {
+    match std::env::var(target_env_name(target)) {
+        Ok(url) => format!("host={}", host_of(&url)),
+        Err(_) => format!("host=({} is unset)", target_env_name(target)),
+    }
+}
+
+/// Host only. A connection URL carries credentials, and a gate's output gets pasted into reports.
+fn host_of(url: &str) -> String {
+    let after_scheme = url.split("://").nth(1).unwrap_or(url);
+    let after_userinfo = after_scheme.rsplit('@').next().unwrap_or(after_scheme);
+    after_userinfo
+        .split(['/', '?'])
+        .next()
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn migrations_dir() -> PathBuf {
+    crate::apple_sync::repo_root().join(MIGRATIONS_DIR)
+}
+
+/// Basenames of the migration files, sorted, exactly as the TypeScript status script enumerated them.
+fn migration_files(dir: &Path) -> Result<Vec<String>, Failure> {
+    let entries = std::fs::read_dir(dir)
+        .map_err(|error| io::Error::other(format!("cannot read {}: {error}", dir.display())))?;
+    let mut files = Vec::new();
+    for entry in entries {
+        let path = entry?.path();
+        if path.extension().is_some_and(|extension| extension == "sql") {
+            if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
+                files.push(name.to_string());
+            }
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
+/// The ledger's own key for a file on disk: the path as recorded when it was applied.
+fn ledger_key(file: &str) -> String {
+    format!("{MIGRATIONS_DIR}/{file}")
+}
+
+
+/// `db:migrations` — what is recorded as applied, where, and what is not.
+///
+/// "Unrecorded" is honest, not alarming: the ledger is authoritative only from the 2026-09-10 baseline
+/// forward, so files that predate it show up there by design.
+async fn status() -> Result<u8, Failure> {
+    require_env(&[DbTarget::Dev, DbTarget::Prod])?;
+    let dev = SchemaMigrationDao::new(connect(DbTarget::Dev).await?);
+    let prod = SchemaMigrationDao::new(connect(DbTarget::Prod).await?);
+
+    for (target, ledger) in [(DbTarget::Dev, &dev), (DbTarget::Prod, &prod)] {
+        if !ledger.present().await? {
+            eprintln!(
+                "schema_migration ledger is missing on {} — apply {LEDGER_MIGRATION} first",
+                target.as_str()
+            );
+            return Ok(2);
+        }
+    }
+
+    let files = migration_files(&migrations_dir())?;
+    let dev_rows = dev.rows(DbTarget::Dev).await?;
+    let prod_rows = prod.rows(DbTarget::Prod).await?;
+
+    let dev_recorded = recorded_by_filename(&dev_rows);
+    let prod_recorded = recorded_by_filename(&prod_rows);
+
+    println!(
+        "ledger: {} rows   migrations on disk: {}",
+        dev_rows.len() + prod_rows.len(),
+        files.len()
+    );
+    println!("  dev  recorded: {}", dev_rows.len());
+    println!("  prod recorded: {}", prod_rows.len());
+
+    let mut ledger: Vec<&MigrationLedgerRow> = dev_rows.iter().chain(prod_rows.iter()).collect();
+    // Newest first: each target arrives ordered, this orders the two together.
+    ledger.sort_by(|left, right| right.applied_at.cmp(&left.applied_at));
+
+    println!("\nrecently recorded:");
+    for row in ledger.iter().filter(|row| row.filename != BASELINE).take(12) {
+        let note = match row.note.as_deref() {
+            Some(note) if !note.is_empty() => format!("  — {note}"),
+            _ => String::new(),
+        };
+        println!(
+            "  {}  {:<4}  {}{}",
+            row.applied_on, row.target, row.filename, note
+        );
+    }
+
+    let baseline: Vec<&&MigrationLedgerRow> = ledger
+        .iter()
+        .filter(|row| row.filename == BASELINE)
+        .collect();
+    if !baseline.is_empty() {
+        println!("\nbaseline rows:");
+        for row in baseline {
+            println!(
+                "  {}  {:<4}  {}",
+                row.applied_on,
+                row.target,
+                row.note.as_deref().unwrap_or_default()
+            );
+        }
+    }
+
+    let unrecorded: Vec<&String> = files
+        .iter()
+        .filter(|file| {
+            let key = ledger_key(file);
+            !dev_recorded.contains_key(&key) && !prod_recorded.contains_key(&key)
+        })
+        .collect();
+    println!(
+        "\nunrecorded (pre-baseline or never applied here): {}",
+        unrecorded.len()
+    );
+    for file in unrecorded.iter().take(15) {
+        println!("  {file}");
+    }
+    if unrecorded.len() > 15 {
+        println!("  … and {} more", unrecorded.len() - 15);
+    }
+
+    let one_sided: Vec<(&String, bool)> = files
+        .iter()
+        .filter_map(|file| {
+            let key = ledger_key(file);
+            let on_dev = dev_recorded.contains_key(&key);
+            let on_prod = prod_recorded.contains_key(&key);
+            if (on_dev || on_prod) && !(on_dev && on_prod) {
+                Some((file, on_dev))
+            } else {
+                None
+            }
+        })
+        .collect();
+    if !one_sided.is_empty() {
+        println!(
+            "\nrecorded for ONE target only (check whether that is intended): {}",
+            one_sided.len()
+        );
+        for (file, on_dev) in one_sided {
+            let side = if on_dev { "dev" } else { "prod" };
+            println!("  {file}  [{side} only]");
+        }
+    }
+
+    // Honesty line. The ledger stores the path a file had when it was applied, so if migrations are ever
+    // moved again the report says so instead of silently listing every file as unrecorded.
+    let mut elsewhere: BTreeMap<String, usize> = BTreeMap::new();
+    for row in ledger.iter() {
+        if let Some((directory, _)) = row.filename.rsplit_once('/') {
+            if directory != MIGRATIONS_DIR {
+                *elsewhere.entry(directory.to_string()).or_default() += 1;
+            }
+        }
+    }
+    if !elsewhere.is_empty() {
+        let prefixes = elsewhere
+            .iter()
+            .map(|(directory, count)| format!("{directory} ({count})"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        println!(
+            "\nnote: the ledger also holds rows under {prefixes}, while this run scanned {MIGRATIONS_DIR}; \
+             those rows cannot match a file on disk."
+        );
+    }
+
+    Ok(0)
+}
+
+fn recorded_by_filename(rows: &[MigrationLedgerRow]) -> BTreeMap<String, &MigrationLedgerRow> {
+    let mut map = BTreeMap::new();
+    for row in rows {
+        map.insert(row.filename.clone(), row);
+    }
+    map
+}
+
+
+/// `db:migrate` — apply a migration SQL file to one control plane and record it in `schema_migration`.
+///
+/// The file is executed as ONE simple query, so a multi-statement migration behaves as written (each file
+/// carries its own `begin`/`commit`, which is why the ledger row is written separately afterwards rather
+/// than inside a transaction this tool opened). The ledger records the path as given on the command line,
+/// exactly as the TypeScript script did.
+async fn apply(args: &[String]) -> Result<u8, Failure> {
+    let mut file: Option<String> = None;
+    let mut force = false;
+    let mut note: Option<String> = None;
+    let mut explicit: Option<DbTarget> = None;
+
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--force" => force = true,
+            "--note" => {
+                note = args.get(index + 1).cloned();
+                index += 1;
+            }
+            "dev" => explicit = Some(DbTarget::Dev),
+            "prod" => explicit = Some(DbTarget::Prod),
+            other if !other.starts_with("--") && file.is_none() => file = Some(other.to_string()),
+            _ => {}
+        }
+        index += 1;
+    }
+
+    let Some(file) = file else {
+        usage();
+        return Err(Failure::Usage("apply requires a SQL file path".to_string()));
+    };
+    let target = match explicit {
+        Some(target) => target,
+        None => default_target(),
+    };
+    let which = target.as_str();
+    require_env(&[target])?;
+
+    let sql = std::fs::read_to_string(&file)
+        .map_err(|error| io::Error::other(format!("cannot read {file}: {error}")))?;
+    let checksum = format!("sha256:{}", hex_digest(&sql));
+    let database = connect(target).await?;
+    let ledger = SchemaMigrationDao::new(database.clone());
+
+    if !ledger.present().await? {
+        eprintln!("schema_migration ledger is missing on {which} — apply {LEDGER_MIGRATION} first");
+        return Ok(2);
+    }
+
+    if let Some(recorded) = ledger.recorded_checksum(&file, target).await? {
+        if !force {
+            if recorded == checksum {
+                println!("already applied {file} -> {which} (checksum match) — skipped");
+                return Ok(0);
+            }
+            eprintln!("REFUSED: {file} is already recorded for {which} with a DIFFERENT checksum.");
+            eprintln!("  recorded: {recorded}");
+            eprintln!("  current : {checksum}");
+            eprintln!("  the file changed after it was applied — review, then re-run with --force");
+            return Ok(1);
+        }
+    }
+
+    database.run_text(&sql).await?;
+    ledger.record(&file, &checksum, target, note.as_deref()).await?;
+
+    println!("applied {file} -> {which} control plane (recorded in schema_migration)");
+    Ok(0)
+}
+
+/// An explicit target argument wins. Otherwise the declared environment decides, as the script did
+/// (`APP_ENV=production` -> prod); silence defaults to DEV, which is the free environment. The resolved
+/// target is always printed by `connect` before anything executes, so a default is never a surprise.
+fn default_target() -> DbTarget {
+    db::resolve_declared_target(
+        std::env::var("VERCEL_ENV").ok().as_deref(),
+        std::env::var("APP_ENV").ok().as_deref(),
+    )
+    .unwrap_or(DbTarget::Dev)
+}
+
+fn hex_digest(value: &str) -> String {
+    Sha256::digest(value.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+/// `db:parity` — the release gate. DEV vs PROD structural comparison, read-only, exits non-zero on ANY
+/// drift so it can gate a release.
+async fn parity() -> Result<u8, Failure> {
+    require_env(&[DbTarget::Dev, DbTarget::Prod])?;
+    let dev = connect(DbTarget::Dev).await?;
+    let prod = connect(DbTarget::Prod).await?;
+
+    let (dev_snapshot, prod_snapshot) = tokio::try_join!(
+        schema_parity::read_snapshot(&dev),
+        schema_parity::read_snapshot(&prod)
+    )?;
+    let report = schema_parity::compare_snapshots(&dev_snapshot, &prod_snapshot);
+
+    println!(
+        "tables only in DEV : {}",
+        join_or_none(&report.tables_only_dev)
+    );
+    println!(
+        "tables only in PROD: {}",
+        join_or_none(&report.tables_only_prod)
+    );
+    for (label, lines) in [
+        ("column drift", &report.column_drift),
+        ("index drift ", &report.index_drift),
+        ("fk drift    ", &report.fk_drift),
+        ("check drift ", &report.check_drift),
+    ] {
+        println!("{label}: {}", lines.len());
+        for line in lines {
+            println!("  {line}");
+        }
+    }
+
+    if report.clean {
+        println!("\nPARITY OK");
+        Ok(0)
+    } else {
+        println!("\nDRIFT FOUND");
+        Ok(1)
+    }
+}
+
+fn join_or_none(values: &[String]) -> String {
+    if values.is_empty() {
+        "(none)".to_string()
+    } else {
+        values.join(", ")
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::{host_of, Failure};
+
+    /// The exit codes are CI's contract: 0 applied or clean, 1 refused or drift, 2 unstartable.
+    #[test]
+    fn failure_exit_codes_match_the_scripts_contract() {
+        assert_eq!(Failure::Usage("bad arguments".to_string()).exit_code(), 2);
+        assert_eq!(
+            Failure::Configuration("missing URL".to_string()).exit_code(),
+            2
+        );
+        assert_eq!(Failure::Other("drift".to_string()).exit_code(), 1);
+    }
+
+    /// Gate output gets pasted into reports and transcripts, so the banner must never carry credentials.
+    #[test]
+    fn host_of_reports_only_the_host() {
+        assert_eq!(
+            host_of("postgresql://neondb_owner:npg_SECRET@ep-cool-db-12345.us-east-2.aws.neon.tech/neondb?sslmode=require"),
+            "ep-cool-db-12345.us-east-2.aws.neon.tech"
+        );
+        assert_eq!(host_of("postgres://user:pw@localhost:5432/db"), "localhost:5432");
+    }
+}
+

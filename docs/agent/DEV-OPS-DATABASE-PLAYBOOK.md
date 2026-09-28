@@ -1,6 +1,10 @@
 # DEV_OPS Database Playbook
 
 The operating contract for CulebraLuxe database work. DEV_OPS owns this.
+Its sibling for the other half of DEV_OPS work — **compiling and shipping production** — is
+`docs/agent/DEV-OPS-RELEASE.md`: the clean local compile, `pnpm deploy:prod`, `pnpm release` with its
+receipt rules, and `pnpm smoke:prod`. Read that one before any release; read this one before any
+migration.
 It exists because on **2026-09-10** DEV and PROD had silently diverged in both
 directions for weeks: PROD never received migrations 116–122/138 (the whole
 `contract`/`firm`/role-vocabulary domain) while DEV never received the Forge
@@ -111,7 +115,7 @@ fixing it**. The 2026-09-10 drill proved this: a reset would have masked PROD's
 missing migrations and kept the `security_role` bug live. Always run:
 
 ```sh
-pnpm db:parity        # node --env-file=.env.local scripts/check-schema-parity.mjs
+pnpm db:parity        # cargo run -p cli -- db-tool parity (rust/cli/src/db_tool.rs)
 ```
 
 Exits non-zero on drift. Treat it as a release gate for any schema story.
@@ -122,8 +126,9 @@ Exits non-zero on drift. Treat it as a release gate for any schema story.
 2. **Identify the owning migration files** for each DEV-only object — promote the
    *canonical migration files*, never hand-written DDL:
    ```sh
-   node --env-file=.env.local scripts/apply-migration.mjs legacy/db/migrations/<file>.sql prod
+   pnpm db:migrate legacy/db/migrations/<file>.sql prod
    ```
+   (`pnpm db:migrate` runs `cargo run -p cli -- db-tool apply`.)
    Apply in **numeric order**; dependencies are real (e.g. `117` creates
    `relation_role` → `118` renames it → `119` creates `contract` → `120` seeds
    `role(scope, code)` which needs `118`).
@@ -137,9 +142,11 @@ Exits non-zero on drift. Treat it as a release gate for any schema story.
    migration capturing them and apply it to DEV. Silent drift is the enemy.
 
 A **migration ledger now exists** (`schema_migration`, migration 144), written
-automatically by `scripts/apply-migration.mjs`. Each apply records filename,
+by `pnpm db:migrate` (`cargo run -p cli -- db-tool apply` in Rust — the TypeScript applier
+and the Node runtime it required are gone). Each apply records filename,
 sha256 checksum, target and timestamp; re-applying a recorded file is *skipped*
 (and refused outright if the file's checksum changed since it was applied).
+`pnpm db:migrations` reports what is recorded where, per target.
 
 The ledger is authoritative **from the 2026-09-10 baseline forward** — pre-baseline
 history is honestly reported as "unrecorded" rather than claimed:

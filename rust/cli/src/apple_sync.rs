@@ -27,14 +27,14 @@ pub async fn dispatch(args: &[String]) -> Result<(), Box<dyn Error>> {
     }
 }
 
-fn repo_root() -> PathBuf {
+pub(crate) fn repo_root() -> PathBuf {
     std::env::var("CULEBRALUXE_REPO")
         .map(PathBuf::from)
         .or_else(|_| std::env::current_dir())
         .unwrap_or_else(|_| PathBuf::from("."))
 }
 
-fn load_env() {
+pub(crate) fn load_env() {
     let _ = dotenvy::from_path(repo_root().join(".env.local"));
 }
 

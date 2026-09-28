@@ -1,0 +1,423 @@
+# Broken TypeScript inventory — translate to Rust, never revive
+
+## The rule (read this before touching any file in `scripts/`)
+
+Every file listed here carries this banner as its first comment:
+
+```
+⚠ BROKEN ON PURPOSE — DO NOT FIX, DO NOT IMPORT, DO NOT CALL, DO NOT REVIVE.
+```
+
+It is not a to-do. It is a property of the file. The TypeScript engine and its libraries (`lib/`,
+`agent-runtime/`, `legacy/db/`) were deleted in the 2026-09 Rust port, so these files cannot load:
+their imports resolve to nothing. They are kept **as reference only** — a description of behaviour
+that was once real, so that behaviour can be **translated into Rust** if it is wanted again.
+
+This repository had a specific, expensive failure mode, and the banner exists to stop it:
+agents reached across the branch boundary and re-integrated **live production code with retired
+TypeScript libraries**, which is why the Node/TypeScript engine had to be dropped entirely.
+Reading one of these files for its intent is fine. Wiring live code to it is not.
+
+- **Translate, never revive.** The Rust home is the destination, never a resurrected TS file.
+- **A dead `pnpm` command is not runnable.** 31 of the listed files are named by a `package.json`
+  script. Those commands exist in the menu and cannot run; that is a known, marked state.
+- **`agent:workspace` must never be ported.** `scripts/workspace-cli.ts` created per-lane
+  worktrees, and AGENTS.md forbids that outright — "NO TREES. EVER. There is ONE workflow and it is
+  the rows". It is listed here for completeness, and its verdict is RETIRE, not port.
+
+## How this list was produced
+
+Static resolution of every relative import in `scripts/` and `legacy/workflow_app/tests/`:
+**77 of 197 files** have at least one import that resolves to nothing. The same scan reports which
+`package.json` command names each file, so a dead command can be traced to its dead file.
+Re-run it any time; the count is the health metric, and it may only fall.
+
+`lib/` today contains only `forms/` and `rust-ui/`. Any `../lib/...` import outside those two
+subtrees is permanently unresolvable.
+
+
+## What is ALREADY in Rust — do not re-port these
+
+Verified by path, not assumed. Most of the **product** survived the port; what is missing is mostly
+**tooling** (one-shot loaders, proofs, promotions, harness gates).
+
+- Apple: `rust/integrations/src/apple/mod.rs`, `rust/cli/src/apple_sync.rs`
+- Mail: `rust/integrations/src/mail/mod.rs`, `rust/integrations/src/bin/mail_test.rs`,
+  `rust/core/service/src/mailbox.rs`
+- WhatsApp — **verified by reading the code on 2026-09-27, not by grep**. The captain's port is real
+  and complete: `rust/integrations/src/whatsapp/mod.rs` owns the Meta Cloud API trust boundary
+  (the `X-Hub-Signature-256` HMAC over the exact raw body, compared with `subtle::ConstantTimeEq` —
+  not `==`; `from_env` refuses a missing secret; `normalize_e164` validates the owned number),
+  `whatsapp/payload.rs` (387 lines) parses the webhook into a normalized event,
+  `rust/core/db/src/whatsapp.rs` (736 lines) has `land`, `process_event` and
+  `refresh_client_read_models`, `rust/server/src/whatsapp.rs` has `verify_handshake` and
+  `handle_webhook`, and `rust/ui/src/app/screens/whatsapp_meta.rs` + `whatsapp_public.rs` are the
+  screens. **The security half is also Rust**, in `rust/server/src/security/`: `mod.rs` (540 lines)
+  carries `resolve_identity`, `decide`, role entitlements, `get_principal`, `warm_identity_cache`,
+  plus `audit.rs`, `entitlements.rs`, `entitlement_catalog.rs`, `guest.rs`, `identity_cache.rs`
+  (~1900 lines total). Nothing about WhatsApp or its authorization is stranded in TypeScript.
+- Intake: `rust/core/db/src/intake.rs`, `rust/core/domain/src/intake.rs`, `rust/server/src/intake.rs`
+- Relationship evidence: `rust/core/db/src/relationship_evidence.rs`,
+  `rust/core/domain/src/relationship_evidence.rs`, `rust/server/src/relationship_evidence.rs`
+- Calendar / catch-up: `rust/server/src/calendar/`, `rust/server/src/showings/`
+- Communications / Gmail: `rust/core/domain/src/comms.rs`, `rust/core/domain/src/client.rs`,
+  `rust/server/src/communications/`
+- Accounting / bank: `rust/core/domain/src/accounting.rs`, `rust/ui/src/app/screens/accounting/`
+- Flight recorder: `rust/server/src/flight_recorder/`
+- CRM / clients / people / projects / deals / contracts / firms / properties / media / forms:
+  the matching `rust/server/src/` and `rust/core/domain/` modules
+- MQ delivery: `rust/server/src/mq_runtime.rs`
+- The Forge engine itself: `rust/forge/src/` — six roles (`roles/scout|architect|lead|smith|qa|dev_ops`),
+  the engine (`engine/dispatch`, `graph`, `split_join`, `spend_cap`, `evidence_gate`, `git_publish`,
+  `xml`, `agents`, `routing_brain`, `db_writer`), plus `release/`, `execution/`, `routing/`, `evidence/`
+  and the binaries `forge`, `forge_worker`, `forge_task`, `re_workflow`
+- The website transport: `rust/server` + `lib/rust-api/` (thin client only)
+- The cockpit and screens: `rust/ui` (Yew MVI)
+- DB gates: `rust/cli/src/db_tool.rs` — applier, ledger report, DEV/PROD parity gate
+
+**Not found in Rust at all** (grep over `rust --include=*.rs` returns nothing): the `warehouse`
+promotion, the `db-zombies` cleaner, and every Forge *harness* tool (`packet-lint`, scope manifest,
+`sync-agents`). Those are the real gaps, which is why they lead the priority list.
+
+**Decision taken 2026-09-27 (captain): the warehouse stays alive, with Apple sync.** The
+L-tables → Warehouse promotion is **PORT**, not RETIRE — it is a live hop with no implementation, not
+a dead experiment, and it is ported together with the Apple mail promotion so the two share one
+promotion code path.
+
+Verdict vocabulary: **PORT** (build it in Rust) · **VERIFY** (likely already Rust — confirm coverage
+before writing anything) · **RETIRE** (do not build it again; the file stays as reference).
+
+---
+
+# 1. DEV_OPS — priority order
+
+## P0 — highest consequence first
+
+1. `scripts/promote-warehouse.ts` — `promote:warehouse:prod`, `promote:warehouse:prod:apply` —
+   the L-tables → Warehouse promotion; the only reader of the L tables. Nothing in Rust mentions
+   `warehouse`, so the promote hop is simply gone in production. **PORT — DECIDED 2026-09-27
+   (captain): "we should do this, keep warehouse alive with Apple sync."** Into `rust/cli` as a
+   `db-tool` subcommand: `--apply` explicit (a bare run reports what would move), bound parameters,
+   and an `APP_ENV` guard that refuses a PROD target unless `--apply` was named. This is not a
+   resurrection of the TS file — it is the hop rebuilt in the language the rest of the database now
+   lives in.
+2. `scripts/promote-applemail.ts` — `mailbox:promote` — `l_applemail` → Warehouse. Same shape,
+   same gap, same decision: **PORT**, sharing the promotion code from 1 (one promotion path, two
+   sources). Inbound mail exists (`integrations/mail`, `service/mailbox.rs`); promotion does not.
+   See APP 1 below: the *live* intake is not this file's sibling — it is `apple-mail-envelope-intake.ts`,
+   which still runs.
+3. `scripts/export-dev-projects-workspace.mjs` — `db:export:projects` — captures the DEV Projects
+   workspace so a DEV refresh can restore it. Its twin `db:seed:projects` is already Rust, so the
+   pair is half-ported. **PORT** (`db-tool export-projects`): without it, a DEV branch reset is
+   lossy, and the playbook says branch reset is the normal refresh path.
+4. `scripts/pull-prod-to-dev.mjs` — `db:pull:dev` — selective table-walk PROD → DEV.
+   **RETIRE** under the current playbook (a Neon branch reset from PROD is instant and byte-exact);
+   if a selective pull is ever needed, it is a new Rust subcommand, not this file.
+5. `scripts/mq-worker.ts` — `mq:worker`, `mq:worker:prod` — the broker poller entry point, "ONE
+   dispatch pass". The delivery runtime **is** in Rust (`rust/server/src/mq_runtime.rs`), so this is
+   the one dead command whose capability already exists. **VERIFY then repoint or retire**: either
+   `mq:worker` invokes the Rust runtime or the npm names go away with a note in MEMORY.md. Do not
+   re-implement the broker in TypeScript.
+
+## P1 — operator tools worth having
+
+6. `scripts/db-zombies.mjs` — find and terminate zombie/lingering backends. Not in Rust anywhere.
+   **PORT** (`db-tool zombies`, terminate behind an explicit flag) — the pool work in
+   `rust/core/db/src/pool.rs` makes this the natural companion tool.
+7. `scripts/import-property-photos.mjs`, `scripts/import-property-document.mjs`,
+   `scripts/import-missing-guide-images.mjs`, `scripts/import-guide-images.mjs` — the four media
+   importers. **PORT** as ONE Rust importer that goes through `media` and `property_media`
+   (AGENTS.md: media is the reusable asset, `property_media` owns role and order). Never
+   special-case a listing.
+8. `scripts/seed-flight-recorder-qa.ts` — `flight-recorder:qa-seed`, `flight-recorder:qa-reset` —
+   DEV-only durable QA golden transaction. `rust/server/src/flight_recorder/` exists; the seed does
+   not. **PORT** (must fail closed on a PROD target).
+9. `scripts/seed-projects-mvi2-dev.ts` — **VERIFY** then PORT P2: projects live in
+   `rust/server/src/projects/`; a seed that only exists to fill a DEV screen may be **RETIRE**.
+
+## P2 — historic one-shots: RETIRE
+
+10. `scripts/migration-ledger-baseline.mjs` — ran once (2026-09-10), superseded by the ledger and
+    `db-tool status`. **RETIRE.** Note the gap this story found: DEV's ledger was missing
+    `144_schema_migration_ledger.sql`, so the baseline backfill was thinner than the playbook claimed.
+11. `scripts/fix-person-name-order-julio-pimentel-ortiz.mjs` — one-off data correction, applied.
+    **RETIRE.**
+12. `scripts/sprint.ts`, `scripts/sprint-cleanup.ts` — **RETIRE**, or PORT P2 if the sprint view is
+    wanted again (they read deleted `lib/` modules).
+13. `scripts/workspace-cli.ts` — **RETIRE, explicitly and permanently.** It created per-lane
+    worktrees; AGENTS.md forbids that ("NO TREES. EVER."). Do not port it under any name.
+14. `scripts/check-svar-widgets.mts` — `check:widgets`. **RETIRE** unless a Svar widget still ships,
+    in which case re-point the gate at whatever replaced `lib/forms/`.
+15. `scripts/generate-form-review-pdf.ts` — **PORT P2** if form-review PDFs are still a deliverable
+    (`lib/forms/` survives, so this is one of the few files whose import could still resolve — fixing
+    it in TS is still out of scope). Otherwise **RETIRE**.
+16. `scripts/rust-api-client.test.ts`, `scripts/rust-ui-mount.test.ts` — **RETIRE.** Their subjects
+    are `rust/server` and `rust/ui`, and they are tested there now.
+
+---
+
+# 2. FORGE — priority order
+
+The engine itself is already Rust (`rust/forge/src/`). What is dead here is the **harness around
+it**: the lints, the manifest, the board feeders. Two of them are load-bearing gates.
+
+## P0 — gates that currently enforce NOTHING
+
+### What these two things actually are (plain English, because "lint" is a misleading name)
+
+A **packet** is `docs/agent/packets/<STORY-ID>.md` — the per-story work order an agent reads before
+editing. **`forge:packet-lint` is not a helper that tidies text. It is the checker that refuses the
+work:** it fails when a packet cites evidence as prose instead of a path and a line range
+(`scripts/forge-packet-lint.ts:157-160`), when that path no longer exists, when the range runs past
+the end of the file, when a manifest row points at a file that is gone, or **when the guardrail block
+in AGENTS.md has drifted away from what the vendor pointer files (`CLAUDE.md`, Cursor, Warp) say.**
+It is the thing that says NO.
+
+**`forge:sync-agents` is the other half of the same pair:** it re-renders that managed guardrail
+block from ONE source (`lib/agent-vendor-block.ts`) into the vendor files, so nobody retypes a rule
+and gets it subtly wrong. `pnpm forge:harness` runs sync `--check`, the manifest check and the lint
+in sequence.
+
+**Why it is P0:** both files import deleted modules (`lib/agent-vendor-block`, `lib/scope-manifest`),
+so **both commands fail to load** — today the drift guarantee is enforced by nothing but an agent
+remembering. A gate that cannot run is worse than no gate, because the pipeline still reports green.
+
+**Is it DEV_OPS or Forge?** It is neither the engine nor the product. It is **harness plumbing that
+sits next to the engine and never touches it**: it did not port, and must not change, anything about
+roles, dispatch, the graph, spend or evidence in `rust/forge/src/`. The captain's port of the engine
+is not at risk here; this is the paperwork machine that reads packets and vendor files. Verdict:
+**PORT**, and it belongs in `rust/` with the rest of the tooling so it is one toolchain, not two.
+
+1. `scripts/forge-packet-lint.ts`, `scripts/forge-packet-lint.test.ts` — `forge:packet-lint`.
+   Enforces the packet rules, evidence-as-path-and-line-range (rule 10), and the drift check between
+   AGENTS.md and the vendor pointer files. The file imports deleted `lib/agent-vendor-block` +
+   `lib/scope-manifest`, so **`pnpm forge:packet-lint` cannot run and the guarantee is unenforced.**
+   **PORT**: a Rust bin (`rust/forge/src/bin/forge_lint.rs`) or a `cli` subcommand, with its own
+   must-fail/must-pass fixtures — "a gate nobody has seen fail is indistinguishable from a gate that
+   cannot fail" is written in the file itself, and it stays true.
+2. `scripts/forge-sync-agents.ts`, `scripts/forge-sync-agents.test.ts` — `forge:sync-agents`.
+   Renders the managed guardrail block into vendor pointers. **PORT P0, in the same change as 1**,
+   reading the four load-bearing rules and the backing AGENTS.md sentences from ONE Rust module, so
+   lint and sync can never disagree.
+3. `scripts/forge-manifest.ts`, `scripts/forge-manifest.test.ts` — `forge:manifest`,
+   `forge:manifest:check`. **PORT P1** — a labour-saver, not a gate.
+
+## P1 — board and engine feeders
+
+4. `scripts/forge-story-reset-config.ts` — pure argv/env resolution, side-effect free by contract.
+   **PORT P1** as a small module beside `db_tool`; the reset path is used every story.
+5. `scripts/forge-handoff.mjs` — "how a Forge role states its decision now". **VERIFY** first: the
+   Rust engine owns decisions (`engine/decisions.rs`, `engine/db_writer.rs`,
+   `engine/evidence_store.rs`). If it does, **RETIRE**; if not, **PORT P1**.
+6. `scripts/forge-human-gate-pass.mjs` — **VERIFY** then PORT P1 (the engine has gate code).
+7. `scripts/forge-test-stories.ts`, `scripts/forge-record-stories.ts`, `scripts/forge-ladder.ts` —
+   the board feeders that drive the engine and leave real work behind. **PORT P1/P2**, one Rust
+   `forge` subcommand each, DEV/PROD-explicit.
+
+## P1 — the agent loop: RETIRE after verifying the Rust engine
+
+8. `scripts/agent-work.ts`, `scripts/agent-work-entry.ts`, `scripts/agent-runtime-invoke.ts`,
+   `scripts/agent-runtime-deepseek.ts`, `scripts/forge-orchestrate-wake.ts`,
+   `scripts/forge-runtime-recover.ts`. `agent-runtime/` is deleted;
+   `rust/forge/src/bin/forge_worker.rs` is already the documented replacement for
+   `agent-work-entry.ts`; the loop now lives in
+   `rust/forge/src/engine/{runtime,opencode,agents}.rs`. **RETIRE** once the worker's coverage is
+   confirmed (see "Verification debt" below).
+
+## P2 — historic board writes: RETIRE
+
+9. `scripts/forge-batch-release.mjs`, `scripts/forge-holes-board.mjs`,
+   `scripts/update-core-daily.mjs`, `scripts/update-core-daily-2.mjs`,
+   `scripts/update-core-daily-0910.mjs`, `scripts/update-rel-intel-stories.mjs`,
+   `scripts/rel-intel-nav-close.mjs`, `scripts/projects-workspace-board.mjs`,
+   `scripts/projects-workspace-scope-note.mjs` — one-shot board loads and normalizations, already
+   applied; the Rust engine writes the board now, and `pnpm forge:clean` /
+   `pnpm forge:story:reset` are the live equivalents. **RETIRE.**
+
+---
+
+# 3. APP — priority order
+
+The product is largely Rust already. What is stranded here is intake and proof tooling.
+
+## P1 — intake production still depends on
+
+1. `scripts/apple-mailbox-intake.ts` — an **older** mailbox intake into the L table. **RETIRE,
+   superseded — corrected 2026-09-27 by reading `package.json`.** `mailbox:intake` and
+   `mailbox:verify` do not name this file; they name `scripts/apple-mail-envelope-intake.ts`, which
+   is **not in the dead list and still runs**. So inbound mail is not stranded: the live intake is
+   alive, and the only missing half is **promotion** — which is DEV_OPS 2, not this file. The
+   dead-list count is unchanged; only this file's verdict is.
+2. `scripts/apple-messages-intake.ts` (+ `-proof`, `-real-load`) — iMessage → ODS. **PORT P1** if the
+   Messages channel is not yet in `intake.rs`; the Contacts/Calendar channels are.
+3. `scripts/apple-calls-intake.ts` — calls channel. **PORT P1.**
+4. `scripts/load-apple-contacts.ts` — `contacts:load:dev`, `contacts:load:prod`. **VERIFY** against
+   `rust/cli/src/apple_sync.rs` (the `apple:sync` npm commands already target Rust). Likely
+   **RETIRE**, or fold the batch behaviour into `apple_sync`.
+5. `scripts/bank-transaction-load.ts` — statement load. Accounting exists in
+   `rust/core/domain/src/accounting.rs`; the loader may not. **PORT P1.**
+6. `scripts/gmail-metadata-sync.ts`, `scripts/rel-intel-load-gmail.ts` — bounded Gmail census and
+   metadata sync through the neutral ODS seam. **VERIFY** `rust/integrations/src/mail/` +
+   `rust/core/domain/src/comms.rs`, then **PORT P1** the missing half.
+7. `scripts/whatsapp-coexistence-completion.test.ts` — **PORT P1 as a Rust test.** This answers the
+   "was WhatsApp lost?" question: the implementation is NOT lost —
+   `rust/integrations/src/whatsapp/`, `rust/core/db/src/whatsapp.rs`, `rust/server/src/whatsapp.rs`
+   and the `whatsapp_meta` / `whatsapp_public` screens all exist. Only its coexistence test is
+   stranded.
+
+## P2 — proofs and verifiers: RETIRE, or move next to the Rust code
+
+8. `scripts/verify-crm-intake.mjs`, `verify-crm-foundation.mjs`, `verify-crm-email-intake.mjs`,
+   `verify-crm-communications-intake.mjs`, `verify-crm-person-creation.mjs`,
+   `verify-website-intake.mjs`, `verify-website-intake-general-enquiry.mjs`,
+   `verify-needs-review-resolution.mjs`, `scripts/core-daily-proof-12-13.ts`,
+   `scripts/rel-intel-proof-opps.ts`, `scripts/rel-intel-proof-readmodel.ts` — DEV proofs that a
+   capability persists correctly. The capabilities are in
+   `rust/server/src/{intake,clients,people,deals,relationship_evidence}.rs`. **RETIRE**, or PORT P2
+   as Rust integration tests that live beside the module they prove.
+9. `scripts/calendar-eventkit-intake.ts`, `scripts/eventkit-seam-proof.ts`,
+   `scripts/catchup-calendar-proof.ts`, `scripts/catchup-calendar-attention-proof.ts`,
+   `scripts/catchup-dev-proof.ts` — **VERIFY** `rust/server/src/calendar/`; keep at most one Rust
+   seam proof (the EventKit round trip is the kind of seam a unit test cannot see).
+10. `scripts/verify-contract-mapper.ts`, `scripts/verify-listing-client-fill.ts`,
+    `scripts/verify-listing-contract-bridge.ts` — **VERIFY** against `rust/server/src/contracts/`
+    and `deals/`; likely already covered.
+
+## Verification debt this inventory creates
+
+- **RESOLVED 2026-09-27 by reading the code, not by grep:** the WhatsApp capability — including its
+  Meta signature verification and its authorization (`rust/server/src/security/`, ~1900 lines with
+  `resolve_identity`, `decide`, entitlements, `get_principal`, `warm_identity_cache`, `audit.rs`) — is
+  **already Rust and complete**. Nothing about WhatsApp or its security is stranded in TypeScript.
+  See the verified bullet in "What is ALREADY in Rust" above.
+- **The Rust Apple Messages/Calls/Gmail intake channels are still claimed, not confirmed.**
+  Confirming them is one read of `rust/server/src/intake.rs` + `rust/core/db/src/intake.rs`, and it
+  decides whether APP 2–4 are PORT or RETIRE. This is the single cheapest read left in this document.
+- The Rust Forge engine's coverage of the retired agent-loop scripts (FORGE 8) is likewise
+  unverified. `docs/rust-parity-ledger.md` exists for exactly this question — read it before porting.
+- Not debt, but written down 2026-09-27 so it is not rediscovered: the **production build/deploy
+  and release set** (`pnpm build`, `build:all`, `deploy:prod`, `release`, `smoke:prod` and the
+  `vercel-*` scripts) is documented in `docs/agent/DEV-OPS-RELEASE.md`.
+
+---
+
+# Sequencing — the stories, in the decided order (2026-09-27)
+
+1. **FORGE P0** (`forge-packet-lint` + `forge-sync-agents` in Rust, one rule source). First because
+   it is a **gate that is currently enforcing nothing**, and because the file that defines the
+   guardrails is itself unreadable to the tool that replicates them. It does not touch the engine.
+2. **DEV_OPS P0** (`db-tool` subcommands: the L→Warehouse promotion **including Apple mail**
+   — decided PORT, not retire — plus `export-projects` and `zombies`). This is the highest-consequence
+   dead code: a DEV refresh is lossy today, and the L→Warehouse hop has no live implementation at all.
+3. **APP P1** (Apple channel completeness: messages/calls/gmail intake, then the promotion from 2).
+   One read of `rust/{server,core/db}/src/intake.rs` first decides which channels already exist; the
+   mailbox half is already answered — its intake runs, only promotion was missing.
+
+Then: repoint or remove the dead `pnpm` names, and work the RETIRE lists down — the file count in
+this inventory is the metric, and it may only fall.
+
+# Maintaining this list
+
+- The banner is inserted idempotently (it greps for its own marker), so re-running the sweep is safe.
+- A new file that cannot load is a finding: either its capability moves to Rust, or it gets the
+  banner. What it does not get is a repair in place.
+- A **RETIRE** verdict is not permission to delete. The file stays as reference; deletion is a
+  separate, explicit decision (as it was for the three gates replaced by `db-tool`).
+
+---
+
+# Appendix — all 77 files, tagged
+
+Complete enumeration, so nothing can be missed. Format: `path` — section → verdict.
+
+DEV_OPS (21 files)
+
+    1  scripts/promote-warehouse.ts                 DEV_OPS P0  → PORT (or decide to RETIRE, in MEMORY.md)
+    2  scripts/promote-applemail.ts                 DEV_OPS P0  → PORT (shares 1)
+    3  scripts/export-dev-projects-workspace.mjs    DEV_OPS P0  → PORT
+    4  scripts/pull-prod-to-dev.mjs                 DEV_OPS P0  → RETIRE (branch reset is the path)
+    5  scripts/mq-worker.ts                         DEV_OPS P0  → VERIFY, repoint to rust mq_runtime / RETIRE
+    6  scripts/db-zombies.mjs                       DEV_OPS P1  → PORT
+    7  scripts/import-property-photos.mjs           DEV_OPS P1  → PORT (one media importer)
+    8  scripts/import-property-document.mjs         DEV_OPS P1  → PORT (same)
+    9  scripts/import-missing-guide-images.mjs      DEV_OPS P1  → PORT (same)
+    10 scripts/import-guide-images.mjs              DEV_OPS P1  → PORT (same)
+    11 scripts/seed-flight-recorder-qa.ts           DEV_OPS P1  → PORT
+    12 scripts/seed-projects-mvi2-dev.ts            DEV_OPS P1  → VERIFY → PORT P2 / RETIRE
+    13 scripts/migration-ledger-baseline.mjs        DEV_OPS P2  → RETIRE
+    14 scripts/fix-person-name-order-*.mjs          DEV_OPS P2  → RETIRE (applied)
+    15 scripts/sprint.ts                            DEV_OPS P2  → RETIRE
+    16 scripts/sprint-cleanup.ts                    DEV_OPS P2  → RETIRE
+    17 scripts/workspace-cli.ts                     DEV_OPS P2  → RETIRE (worktrees forbidden)
+    18 scripts/check-svar-widgets.mts               DEV_OPS P2  → RETIRE
+    19 scripts/generate-form-review-pdf.ts          DEV_OPS P2  → PORT P2 / RETIRE
+    20 scripts/rust-api-client.test.ts              DEV_OPS P2  → RETIRE
+    21 scripts/rust-ui-mount.test.ts                DEV_OPS P2  → RETIRE
+
+FORGE (27 files)
+
+    22 scripts/forge-packet-lint.ts                 FORGE P0    → PORT (gate, currently dead)
+    23 scripts/forge-packet-lint.test.ts            FORGE P0    → PORT (must-fail fixtures)
+    24 scripts/forge-sync-agents.ts                 FORGE P0    → PORT (one rule source with 22)
+    25 scripts/forge-sync-agents.test.ts            FORGE P0    → PORT
+    26 scripts/forge-manifest.ts                    FORGE P1    → PORT
+    27 scripts/forge-manifest.test.ts               FORGE P1    → PORT
+    28 scripts/forge-story-reset-config.ts          FORGE P1    → PORT (beside db_tool)
+    29 scripts/forge-handoff.mjs                    FORGE P1    → VERIFY → RETIRE / PORT
+    30 scripts/forge-human-gate-pass.mjs            FORGE P1    → VERIFY → PORT
+    31 scripts/forge-test-stories.ts                FORGE P1    → PORT
+    32 scripts/forge-record-stories.ts              FORGE P1    → PORT
+    33 scripts/forge-ladder.ts                      FORGE P2    → PORT (lowest of the feeders)
+    34 scripts/agent-work.ts                        FORGE P1    → RETIRE (verify forge_worker)
+    35 scripts/agent-work-entry.ts                  FORGE P1    → RETIRE (forge_worker.rs replaces it)
+    36 scripts/agent-runtime-invoke.ts              FORGE P1    → RETIRE
+    37 scripts/agent-runtime-deepseek.ts            FORGE P1    → RETIRE
+    38 scripts/forge-orchestrate-wake.ts            FORGE P1    → RETIRE
+    39 scripts/forge-runtime-recover.ts             FORGE P1    → RETIRE
+    40 scripts/forge-batch-release.mjs              FORGE P2    → RETIRE
+    41 scripts/forge-holes-board.mjs                FORGE P2    → RETIRE
+    42 scripts/update-core-daily.mjs                FORGE P2    → RETIRE
+    43 scripts/update-core-daily-2.mjs              FORGE P2    → RETIRE
+    44 scripts/update-core-daily-0910.mjs           FORGE P2    → RETIRE
+    45 scripts/update-rel-intel-stories.mjs         FORGE P2    → RETIRE
+    46 scripts/rel-intel-nav-close.mjs              FORGE P2    → RETIRE
+    47 scripts/projects-workspace-board.mjs         FORGE P2    → RETIRE
+    48 scripts/projects-workspace-scope-note.mjs    FORGE P2    → RETIRE
+
+APP (29 files)
+
+    49 scripts/apple-mailbox-intake.ts              APP P1      → VERIFY → PORT / promotion only
+    50 scripts/apple-messages-intake.ts              APP P1      → VERIFY → PORT
+    51 scripts/apple-messages-intake-proof.ts        APP P1      → fold into 50
+    52 scripts/apple-messages-real-load.ts           APP P1      → fold into 50
+    53 scripts/apple-calls-intake.ts                 APP P1      → PORT
+    54 scripts/load-apple-contacts.ts                APP P1      → VERIFY → RETIRE / fold into apple_sync
+    55 scripts/bank-transaction-load.ts              APP P1      → PORT
+    56 scripts/gmail-metadata-sync.ts                APP P1      → VERIFY → PORT
+    57 scripts/rel-intel-load-gmail.ts               APP P1      → VERIFY → PORT
+    58 scripts/whatsapp-coexistence-completion.test.ts APP P1    → PORT as a Rust test
+    59 scripts/calendar-eventkit-intake.ts           APP P2      → VERIFY → RETIRE
+    60 scripts/eventkit-seam-proof.ts                APP P2      → VERIFY → PORT P2 (one seam proof)
+    61 scripts/catchup-calendar-proof.ts             APP P2      → RETIRE
+    62 scripts/catchup-calendar-attention-proof.ts   APP P2      → RETIRE
+    63 scripts/catchup-dev-proof.ts                  APP P2      → RETIRE
+    64 scripts/verify-crm-intake.mjs                 APP P2      → RETIRE / Rust integration test
+    65 scripts/verify-crm-foundation.mjs             APP P2      → RETIRE
+    66 scripts/verify-crm-email-intake.mjs           APP P2      → RETIRE
+    67 scripts/verify-crm-communications-intake.mjs  APP P2      → RETIRE
+    68 scripts/verify-crm-person-creation.mjs        APP P2      → RETIRE
+    69 scripts/verify-website-intake.mjs             APP P2      → RETIRE
+    70 scripts/verify-website-intake-general-enquiry.mjs APP P2 → RETIRE
+    71 scripts/verify-needs-review-resolution.mjs    APP P2      → RETIRE
+    72 scripts/core-daily-proof-12-13.ts             APP P2      → RETIRE
+    73 scripts/rel-intel-proof-opps.ts               APP P2      → RETIRE
+    74 scripts/rel-intel-proof-readmodel.ts          APP P2      → RETIRE
+    75 scripts/verify-contract-mapper.ts             APP P2      → VERIFY
+    76 scripts/verify-listing-client-fill.ts         APP P2      → VERIFY
+    77 scripts/verify-listing-contract-bridge.ts     APP P2      → VERIFY
+
+
+
+
+
+

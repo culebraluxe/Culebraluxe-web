@@ -310,6 +310,13 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # db:parity is `cargo run -p cli -- db-tool parity` since the TypeScript gate scripts were
+      # deleted, so this job needs a working Rust toolchain the same way the `rust` job does.
+      - name: rust toolchain
+        run: |
+          rustc --version
+          cargo --version
+
       - name: schema parity (dev vs prod)
         run: pnpm db:parity
 

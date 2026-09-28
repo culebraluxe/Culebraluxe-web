@@ -1,4 +1,5 @@
 mod apple_sync;
+mod db_tool;
 
 use db::{Database, DbTarget, ProjectDao, ProjectTxDao};
 use domain::{CreateProjectRequest, ProjectStatus, UpdateProjectRequest, WbsCategory};
@@ -18,6 +19,19 @@ use uuid::Uuid;
 #[tokio::main]
 async fn main() -> ExitCode {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
+
+    // The database gates speak in exit codes (0 ok, 1 refused or drift, 2 configuration), and CI plus the
+    // DEV_OPS playbook read them, so they own their exit path instead of the generic mapping below.
+    if args.first().map(String::as_str) == Some("db-tool") {
+        return match db_tool::dispatch(&args[1..]).await {
+            Ok(code) => ExitCode::from(code),
+            Err(error) => {
+                eprintln!("db-tool: {error}");
+                ExitCode::from(error.exit_code())
+            }
+        };
+    }
+
     let result = dispatch_cli(&args).await;
 
     match result {
@@ -46,6 +60,9 @@ fn print_usage() {
     eprintln!("usage:");
     eprintln!("  cargo run -p cli -- db-smoke");
     eprintln!("  cargo run -p cli -- tx-smoke");
+    eprintln!("  cargo run -p cli -- db-tool status");
+    eprintln!("  cargo run -p cli -- db-tool apply <sql-file> [prod|dev] [--force] [--note \"…\"]");
+    eprintln!("  cargo run -p cli -- db-tool parity");
     eprintln!("  cargo run -p cli -- apple-sync drain");
     eprintln!("  cargo run -p cli -- apple-sync calendar-intake <snapshot.json>");
     eprintln!("  cargo run -p cli -- apple-sync reminder-intake <snapshot.json>");

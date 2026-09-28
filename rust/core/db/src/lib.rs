@@ -41,6 +41,10 @@ mod whatsapp;
 pub mod accounting;
 pub mod metrics;
 pub mod retry;
+// Schema parity (the `pnpm db:parity` release gate). Public and pure: a snapshot in, a report out, so it is
+// unit testable without a database and a Rust DEV_OPS gate can share the one comparison.
+pub mod schema_parity;
+mod schema_migration;
 mod security;
 mod security_audit;
 mod task;
@@ -97,6 +101,7 @@ pub use property::PropertyDao;
 pub use public_listing::PublicListingDao;
 pub use relationship_evidence::RelationshipEvidenceDao;
 pub use retry::{retry, RetryPolicy};
+pub use schema_migration::{MigrationLedgerRow, SchemaMigrationDao};
 pub use security::{IdentityPrincipal, SecurityDao};
 pub use security_audit::SecurityAuditDao;
 pub use showing::ShowingDao;

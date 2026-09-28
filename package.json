@@ -124,9 +124,9 @@
     "mq:worker": "node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/mq-worker.ts",
     "mq:worker:prod": "APP_ENV=production node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/mq-worker.ts",
     "workflow": "cargo run --manifest-path rust/Cargo.toml -p forge --bin re-workflow --",
-    "db:parity": "node --env-file=.env.local --import tsx scripts/check-schema-parity.ts",
-    "db:migrate": "node --import tsx --env-file=.env.local scripts/apply-migration.mjs",
-    "db:migrations": "node --import tsx --env-file=.env.local scripts/migration-status.mjs",
+    "db:parity": "cargo run --manifest-path rust/Cargo.toml -p cli -- db-tool parity",
+    "db:migrate": "cargo run --manifest-path rust/Cargo.toml -p cli -- db-tool apply",
+    "db:migrations": "cargo run --manifest-path rust/Cargo.toml -p cli -- db-tool status",
     "verify:public-reads": "node --env-file=.env.local --import tsx scripts/verify-public-reads-service.ts",
     "verify:forms": "node --env-file=.env.local --import tsx scripts/verify-forms-service.ts",
     "verify:forms:e2e": "node --env-file=.env.local --import tsx scripts/verify-listing-client-fill.ts",
@@ -145,7 +145,7 @@
     "verify:mapper": "node --env-file=.env.local --import tsx scripts/verify-contract-mapper.ts",
     "db:pull:dev": "node --import tsx --env-file=.env.local scripts/pull-prod-to-dev.mjs",
     "db:export:projects": "node --import tsx --env-file=.env.local scripts/export-dev-projects-workspace.mjs",
-    "db:seed:projects": "node --import tsx --env-file=.env.local scripts/apply-migration.mjs legacy/db/seeds/dev-projects-workspace.sql dev",
+    "db:seed:projects": "cargo run --manifest-path rust/Cargo.toml -p cli -- db-tool apply legacy/db/seeds/dev-projects-workspace.sql dev",
     "whatsapp:coexistence:test": "node --import tsx --test scripts/whatsapp-coexistence-completion.test.ts"
   },
   "dependencies": {

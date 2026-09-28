@@ -60,6 +60,15 @@ route or explaining why not in the same commit. A new violation fails `pnpm lint
 
 Prune it after removing an import: `npx eslint . --prune-suppressions`.
 
+**Dead TypeScript is marked, not deleted, and never revived.** The port deleted `lib/`, `agent-runtime/`
+and `legacy/db/`, so **77 of 197 files in `scripts/` (and 31 `package.json` commands) cannot load at
+all**. They carry a `⚠ BROKEN ON PURPOSE` banner instead of being deleted: read them for intent,
+translate the behaviour to Rust when it is wanted, never repair them in place. The priority list, the
+Rust home of each capability, and the reason each file is dead are in
+`docs/agent/BROKEN-TS-INVENTORY.md`. Re-running that sweep is how the count is kept honest — it may
+only fall. (An agent that re-integrates a live route with a retired TS library is the failure this
+rule exists to prevent: that is why the Node engine had to be dropped.)
+
 **Do not reintroduce these. They were bugs, and each one was measured** (all found and fixed 2026-09-21):
 
 - **A pool per call.** The engine built one per command: 2368ms per call. There is ONE pool per process — `db::shared`,
