@@ -236,13 +236,18 @@ is not at risk here; this is the paperwork machine that reads packets and vendor
    Enforces the packet rules, evidence-as-path-and-line-range (rule 10), and the drift check between
    AGENTS.md and the vendor pointer files. The file imports deleted `lib/agent-vendor-block` +
    `lib/scope-manifest`, so **`pnpm forge:packet-lint` cannot run and the guarantee is unenforced.**
-   **PORT**: a Rust bin (`rust/forge/src/bin/forge_lint.rs`) or a `cli` subcommand, with its own
-   must-fail/must-pass fixtures — "a gate nobody has seen fail is indistinguishable from a gate that
-   cannot fail" is written in the file itself, and it stays true.
+   **PORTED 2026-09-27** — `rust/cli` `forge harness-lint` (`rust/cli/src/forge/lint.rs` and its
+   helpers), with 39 must-fail/must-pass fixtures — "a gate nobody has seen fail is indistinguishable
+   from a gate that cannot fail" is written in the file itself, and it stays true. The four deleted
+   `lib/` modules it depended on (`agent-vendor-block`, `scope-manifest`, `forge-decision`,
+   `secret-shapes`) were recovered from `4cf98110^` and translated into
+   `rust/cli/src/forge/{vendor_block,citations,decision,secret_shapes}.rs`.
 2. `scripts/forge-sync-agents.ts`, `scripts/forge-sync-agents.test.ts` — `forge:sync-agents`.
-   Renders the managed guardrail block into vendor pointers. **PORT P0, in the same change as 1**,
-   reading the four load-bearing rules and the backing AGENTS.md sentences from ONE Rust module, so
-   lint and sync can never disagree.
+   Renders the managed guardrail block into vendor pointers. **PORTED 2026-09-27, in the same change
+   as 1** — `rust/cli` `forge sync-agents` (`rust/cli/src/forge/sync_agents.rs`); the four load-bearing
+   rules and the backing AGENTS.md sentences come from ONE Rust module (`forge::vendor_block`), so lint
+   and sync cannot disagree. Proof of the translation: `forge sync-agents --check` reports the existing
+   `CLAUDE.md` block `ok` — a byte-identical match with the block the TypeScript renderer wrote.
 3. `scripts/forge-manifest.ts`, `scripts/forge-manifest.test.ts` — `forge:manifest`,
    `forge:manifest:check`. **PORT P1** — a labour-saver, not a gate.
 
@@ -358,6 +363,12 @@ The product is largely Rust already. What is stranded here is intake and proof t
 1. **FORGE P0** (`forge-packet-lint` + `forge-sync-agents` in Rust, one rule source). First because
    it is a **gate that is currently enforcing nothing**, and because the file that defines the
    guardrails is itself unreadable to the tool that replicates them. It does not touch the engine.
+   **DONE 2026-09-27** — `rust/cli` `forge harness-lint` + `forge sync-agents`, one rule source in
+   `rust/cli/src/forge/vendor_block.rs`. What the first live run taught: the gate is green on HEAD
+   (0 failures) *because* it reports 175 baselined warnings — the 2026-09 port deleted the TypeScript
+   tree and 22 packets/maps/manifests still cite it — and it also found that
+   `docs/agent/harness-lint-baseline.json` had been CORRUPT JSON since it was written, which the
+   TypeScript read as "no debt at all".
 2. **DEV_OPS P0** (`db-tool` subcommands: the L→Warehouse promotion **including Apple mail**
    — decided PORT, not retire — plus `export-projects` and `zombies`). This is the highest-consequence
    dead code: a DEV refresh is lossy today, and the L→Warehouse hop has no live implementation at all.
@@ -409,10 +420,10 @@ DEV_OPS (21 files)
 
 FORGE (27 files)
 
-    22 scripts/forge-packet-lint.ts                 FORGE P0    → PORT (gate, currently dead)
-    23 scripts/forge-packet-lint.test.ts            FORGE P0    → PORT (must-fail fixtures)
-    24 scripts/forge-sync-agents.ts                 FORGE P0    → PORT (one rule source with 22)
-    25 scripts/forge-sync-agents.test.ts            FORGE P0    → PORT
+    22 scripts/forge-packet-lint.ts                 FORGE P0    → PORTED 2026-09-27 (rust/cli forge harness-lint)
+    23 scripts/forge-packet-lint.test.ts            FORGE P0    → PORTED 2026-09-27 (39 fixtures in rust/cli/src/forge/*)
+    24 scripts/forge-sync-agents.ts                 FORGE P0    → PORTED 2026-09-27 (rust/cli forge sync-agents)
+    25 scripts/forge-sync-agents.test.ts            FORGE P0    → PORTED 2026-09-27 (fixtures in forge/sync_agents.rs)
     26 scripts/forge-manifest.ts                    FORGE P1    → PORT
     27 scripts/forge-manifest.test.ts               FORGE P1    → PORT
     28 scripts/forge-story-reset-config.ts          FORGE P1    → PORT (beside db_tool)

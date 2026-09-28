@@ -1,6 +1,7 @@
 mod apple_messages;
 mod apple_sync;
 mod db_tool;
+mod forge;
 
 use db::{Database, DbTarget, ProjectDao, ProjectTxDao};
 use domain::{CreateProjectRequest, ProjectStatus, UpdateProjectRequest, WbsCategory};
@@ -28,6 +29,18 @@ async fn main() -> ExitCode {
             Ok(code) => ExitCode::from(code),
             Err(error) => {
                 eprintln!("db-tool: {error}");
+                ExitCode::from(error.exit_code())
+            }
+        };
+    }
+
+    // The harness gates speak in exit codes too (0 clean or reported-not-blocking, 1 drift, 2 usage), and
+    // `pnpm forge:packet-lint` / `pnpm forge:sync-agents` read them.
+    if args.first().map(String::as_str) == Some("forge") {
+        return match forge::dispatch(&args[1..]) {
+            Ok(code) => ExitCode::from(code),
+            Err(error) => {
+                eprintln!("forge: {error}");
                 ExitCode::from(error.exit_code())
             }
         };
@@ -68,6 +81,8 @@ fn print_usage() {
     eprintln!("  cargo run -p cli -- apple-sync calendar-intake <snapshot.json>");
     eprintln!("  cargo run -p cli -- apple-sync reminder-intake <snapshot.json>");
     eprintln!("  cargo run -p cli -- apple-sync messages-intake <export-dir> [--evidence-only] [--refresh]");
+    eprintln!("  cargo run -p cli -- forge harness-lint [--strict] [--format json]");
+    eprintln!("  cargo run -p cli -- forge sync-agents [--check] [--format json]");
     eprintln!("  cargo run -p cli -- service serve");
     eprintln!("  cargo run -p cli -- service catalog");
     eprintln!("  cargo run -p cli -- service health");

@@ -1,17 +1,28 @@
 {
-  "note": "Debt recorded when pnpm forge:packet-lint was introduced (2026-09-15, FORGE-GATES-01). Each key is `path::rule`; a finding listed here is reported as a warning instead of failing the lint, so a NEW violation blocks while pre-existing debt does not disable the gate on day one. Remove keys as the debt is paid; never add a key to silence a violation you just introduced.",
-  "debt": "EMPTY as of 2026-09-15, the same day it was recorded - both original debts were PAID rather than carried. (1) Four V4 packets used `## Skills` as a free-text capability list (16 'skills' in one of them) instead of naming packs from KNOWN_SKILLS; each now names `workflow`, the pack that actually applies to engine work, and the capability prose that mattered is gone rather than left to look loadable. (2) Three citations from an older file layout were stale: `engine.ts` and `db/document-form-instance.ts` no longer exist anywhere, and `components/portal/projects-workspace.tsx` had shrunk below the cited 889-908. Each is now re-pointed at the file that holds the code today (`workflow_engine/lib/workflow/engine.ts:1966-1975`, `lib/forms/form-instance-io.ts:121`/`:102`, `components/portal/projects-workspace.tsx:760-784`). The list is kept rather than deleted because the gate reads this file, and 'no debt' should be a stated fact rather than an absent file. Worth keeping: the rule that found the citations was calibrated before it was trusted - its first draft fired 16 times and 15 of those were the packets' bare-filename shorthand, so the basename resolver replaced it.",
-  "findings": []
-}
-  "debt": "Two separate debts, both in packets this story does not touch. (1) Four V4 packets use `## Skills` as a free-text capability list (16 'skills' in one of them) rather than naming packs from KNOWN_SKILLS, while the packet format (docs/agent/packets/README.md) says it lists packs. (2) Three citations from before the current file layout are stale: `engine.ts`, and `db/document-form-instance.ts`, no longer exist anywhere in the tree, and `components/portal/projects-workspace.tsx` has shrunk to 877 lines while PROJECTS-WORKSPACE-12 still cites 889-908. Found by rule 10 on its first live run (2026-09-15, PIRATE-01); the rule was calibrated first - its first draft fired 16 times, and 15 of those were the packets' bare-filename shorthand, so a basename resolver now handles that instead of a stricter rule that people would switch off.",
+  "note": "Debt recorded for the harness lint (`pnpm forge:packet-lint`, ported to `forge harness-lint` in Rust on 2026-09-27). Each key is `path::rule`: a finding listed here is reported as a warning instead of failing, so a NEW violation blocks while pre-existing debt does not. Remove keys as the debt is paid; never add a key to silence a violation you just introduced. THE LIST MAY ONLY SHRINK.",
+  "debt": "READ THIS BEFORE EDITING THE FILE. On 2026-09-27 this file was found CORRUPT: it held two JSON objects concatenated, so `JSON.parse` threw and the TypeScript lint caught the error and returned an empty debt list — a silent refusal that would have turned every baselined finding back into a violation without saying so. The Rust lint fails loudly instead (`baseline-unreadable`), and the file is one object again. THE DEBT ITSELF is port-era, created by `4cf98110` ('chore: delete the Next.js/TypeScript application'): 22 packets, MAP pages and generated manifests still cite files that commit deleted. 176 findings in total, under three rules: `evidence-cites-missing-file` (98), `map-cites-missing-path` (53), `manifest-cites-missing-path` (24). Keyed by file, not by citation, so editing a packet above a stale reference does not 'un-baseline' it. The map keys are the ones worth acting on: `ORIENTATION.md`, `MAP-engine.md` and `MAP-services.md` are the pages an agent reads first, and they still point at the TypeScript tree — re-pointing them at `rust/` is ordinary work, not history rewriting. The eight V4-packet keys recorded on 2026-09-15 are gone because that debt was PAID (those packets now name real packs and real paths), not carried.",
   "findings": [
-    "docs/agent/packets/ENG-FORGE-V4-10.md::skills-unknown",
-    "docs/agent/packets/ENG-FORGE-V4-10.md::skills-too-many",
-    "docs/agent/packets/ENG-FORGE-V4-10B.md::skills-unknown",
-    "docs/agent/packets/ENG-FORGE-V4-10B.md::skills-too-many",
-    "docs/agent/packets/ENG-FORGE-V4-10C.md::skills-unknown",
-    "docs/agent/packets/ENG-FORGE-V4-10C.md::skills-too-many",
-    "docs/agent/packets/ENG-FORGE-V4-11.md::skills-unknown",
-    "docs/agent/packets/ENG-FORGE-V4-11.md::skills-too-many"
+    "docs/agent/MAP-engine.md::map-cites-missing-path",
+    "docs/agent/MAP-services.md::map-cites-missing-path",
+    "docs/agent/ORIENTATION.md::map-cites-missing-path",
+    "docs/agent/manifest/ENG-CONTRACT-PARSER-RETIREMENT-01.md::manifest-cites-missing-path",
+    "docs/agent/manifest/ENG-FORGE-DOCTOR-01.md::manifest-cites-missing-path",
+    "docs/agent/manifest/ENG-QA-SINGLE-VERDICT-01.md::manifest-cites-missing-path",
+    "docs/agent/manifest/ENG-STRUCTURED-CONTRACTS-01.md::manifest-cites-missing-path",
+    "docs/agent/manifest/FORGE-GATES-01.md::manifest-cites-missing-path",
+    "docs/agent/manifest/PIRATE-01.md::manifest-cites-missing-path",
+    "docs/agent/packets/ENG-FORGE-ARCHITECT-BRIEF-01.md::evidence-cites-missing-file",
+    "docs/agent/packets/ENG-FORGE-DOCTOR-01.md::evidence-cites-missing-file",
+    "docs/agent/packets/ENG-FORGE-SPLIT-01.md::evidence-cites-missing-file",
+    "docs/agent/packets/ENG-FORGE-TYPESAFE-TRIAGE-01.md::evidence-cites-missing-file",
+    "docs/agent/packets/LEARN-SWALLOWED-CATCH-APP-PORTAL-TECH-PAGE-TSX-20260915.md::evidence-cites-missing-file",
+    "docs/agent/packets/LEARN-SWALLOWED-CATCH-WORKFLOW-APP-FORGE-AGENT-RUNTIME-ROLE-RUNNER-20260916.md::evidence-cites-missing-file",
+    "docs/agent/packets/PROJECTS-WORKSPACE-06.md::evidence-cites-missing-file",
+    "docs/agent/packets/PROJECTS-WORKSPACE-07.md::evidence-cites-missing-file",
+    "docs/agent/packets/PROJECTS-WORKSPACE-08.md::evidence-cites-missing-file",
+    "docs/agent/packets/PROJECTS-WORKSPACE-09.md::evidence-cites-missing-file",
+    "docs/agent/packets/PROJECTS-WORKSPACE-11.md::evidence-cites-missing-file",
+    "docs/agent/packets/PROJECTS-WORKSPACE-12.md::evidence-cites-missing-file",
+    "docs/agent/packets/PROJECTS-WORKSPACE-13.md::evidence-cites-missing-file"
   ]
 }

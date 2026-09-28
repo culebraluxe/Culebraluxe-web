@@ -301,6 +301,7 @@ dependencies = [
  "dotenvy",
  "forge",
  "integrations",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",
