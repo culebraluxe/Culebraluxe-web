@@ -511,6 +511,15 @@ async fn intake_band(
                 checkpoint.records_landed,
                 checkpoint.records_replayed
             );
+            if checkpoint.records_seen == 0 {
+                eprintln!(
+                    "applemail WARNING {account} band={band} landed nothing. The extractor reads this \
+                     account's Inbox and Sent mailboxes only, so a zero means Mail.app delivered no mail \
+                     into them for this window - a Gmail account whose traffic sits in [Gmail]/All Mail \
+                     reads as empty. Measured on this Mac, 2026-09-28: both Gmail accounts do. Nothing \
+                     landed is not the same as nothing to land."
+                );
+            }
             return Ok(tally);
         }
         if page.next_cursor.is_none() {

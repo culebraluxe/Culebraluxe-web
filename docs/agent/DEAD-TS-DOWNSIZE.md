@@ -27,8 +27,20 @@ scripts that already schedule them, so nothing new calls them into being —
 it the bridge exits 2 with a TCC message and `mail-intake` fails every account cleanly (non-zero exit,
 nothing landed, nothing promoted) — the promotion half needs no such permission and was verified against
 DEV. Grant Full Disk Access to the terminal/VS Code process, then fully restart it.
-(2) `gmail-sync` needs `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REFRESH_TOKEN` (the
-`gmail.readonly` scope) in `.env.local`; without them it refuses and names the missing key.
+(2) `gmail-sync` (the Gmail API path) needs `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` /
+`GOOGLE_REFRESH_TOKEN` (the `gmail.readonly` scope) in `.env.local`, which are deliberately unset — see the
+long comment at `.env.local:192-200`, whose claim is that *"Gmail arrives through the authenticated Apple
+Mail bridge instead"*. **Measured on this Mac, 2026-09-28: for Gmail that claim is not true.** Both Gmail
+accounts deliver nothing into `INBOX` — their whole recent traffic sits in `[Gmail]/All Mail`
+(`penfield33@gmail.com`: All Mail 3091 / Spam 757 / INBOX 0 recent; `culebraluxe@gmail.com`: All Mail 1148 /
+Trash 143 / INBOX 0 recent), while the IMAP accounts behave (`lisa@culebraluxe.com` INBOX 128 + Sent 88 →
+120 landed). The bridge reads INBOX + Sent and nothing else, on purpose: All Mail repeats one message once
+per label, and the extractor's own history (see `normalize_message_id_header`) is a bug caused by exactly
+that duplication. So **Gmail is currently captured by neither path** — the bridge sees no Gmail in INBOX,
+and the API job has no credentials. Whichever way out is chosen (mint the Gmail credentials, or teach the
+bridge to read All Mail with the global-message-id identity it already has), the account list in
+`MAIL_APP_ACCOUNTS` is also wrong today: it names the two Gmail accounts, which yield zero, and omits
+`lisapenfield@icloud.com` (INBOX 460 recent), which would yield real mail.
 
 ## 2. Already in Rust — do not port, do not rebuild
 
