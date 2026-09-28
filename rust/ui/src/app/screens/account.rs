@@ -228,7 +228,7 @@ fn client_room(room: &Remote<ClientRoomResponse>) -> Html {
                                                 }
                                             </div>
                                             <span class="text-[10px] font-light uppercase tracking-[0.14em] text-accent">
-                                                { if listing.is_published { "Published" } else if listing.is_active_listing { "Preparing" } else { title_case(&listing.status).as_str() } }
+                                                { if listing.is_published { "Published".to_string() } else if listing.is_active_listing { "Preparing".to_string() } else { title_case(&listing.status) } }
                                             </span>
                                         </div>
 
@@ -236,7 +236,7 @@ fn client_room(room: &Remote<ClientRoomResponse>) -> Html {
                                             { room_fact("Showings", &listing.showing_count.to_string()) }
                                             { room_fact("Offers", &listing.offer_count.to_string()) }
                                             { room_fact("Photos / Video", &format!("{} / {}", listing.image_count, listing.video_count)) }
-                                            { room_fact("Deal stage", listing.latest_deal_stage.as_deref().map(title_case).as_deref().unwrap_or("—")) }
+                                            { room_fact("Deal stage", &listing.latest_deal_stage.as_deref().map(title_case).unwrap_or_else(|| "—".into())) }
                                         </div>
 
                                         if let Some(project_name) = &listing.project_name {
