@@ -73,13 +73,21 @@ git diff --check && pnpm exec next build --webpack       # per AGENTS.md
 Story status, engine state and batch state are still in Neon: a manifest lists files, and never pretends
 to be status.
 
-Production is built **locally** and deployed prebuilt (Node 24 is required):
+Production is compiled **locally** and deployed prebuilt (Node 24 is required). The whole set —
+what each command does, and why — is `docs/agent/DEV-OPS-RELEASE.md`:
 
 ```
-bash scripts/vercel-build-prod.sh    # builds .vercel/output, stamps the commit; deploys nothing
+pnpm deploy:prod                     # THE clean path: local Docker compile, Vercel only unpacks,
+                                     # then a 7-URL 200 check on the canonical domain + rollback line
+pnpm release                         # build + deploy + probe + RECORD (docs/agent/releases.md)
+pnpm release --verify <sha>          # "is there an eligible receipt for this SHA?" (Forge asks THIS)
+pnpm smoke:prod                      # ask production whether it works, not whether it deployed
+bash scripts/vercel-build-prod.sh    # the older prebuilt path: builds .vercel/output, deploys nothing
 bash scripts/vercel-deploy-prod.sh   # needs main + a clean tree + a matching stamp; VERIFIES the live sha
 curl -s https://www.culebraluxe.com/api/build-info      # {"version","sha","builtAt"} — what is actually live
 ```
+
+A row is not a receipt, and the Forge chain never builds and never deploys — it asks `--verify`.
 
 ⚠️ **Never run a plain `next build` between `vercel-build-prod.sh` and `vercel-deploy-prod.sh`.** It
 overwrites `.next` and deletes `.next/required-server-files.json`, which the prebuilt deploy needs; the
