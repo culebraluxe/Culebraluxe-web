@@ -51,11 +51,19 @@ async fn client_room(
 
 /// One photograph's bytes. A portal user reads any media the firm holds (never cached by the browser); a visitor only
 /// published listing media. A miss is a plain 404; a failure is an `ApiError`, so it is captured like any other.
+#[derive(Debug, serde::Deserialize)]
+struct MediaQuery {
+    /// `card` (1200px, for listing cards and tiles) or `thumb` (400px); otherwise the web copy.
+    size: Option<String>,
+}
+
 async fn media(
     State(state): State<ApiState>,
     headers: HeaderMap,
     Path(id): Path<String>,
+    Query(query): Query<MediaQuery>,
 ) -> Result<Response, ApiError> {
+    let size = query.size.unwrap_or_default();
     let (found, cache) = if portal_open(&headers) {
         let resolved = resolve_portal_context(&state, &headers).await?;
         let found = state
@@ -74,9 +82,11 @@ async fn media(
         let found = state
             .services()
             .public_listings()
-            .media_bytes(&id, &context)
+            .media_bytes(&id, &size, &context)
             .await;
-        (found.map_err(ApiError::from)?, "public, max-age=3600")
+        // A photograph's bytes never change for its id and size (a new photo is a new id), so a public copy is cached
+        // for a year and marked immutable: a repeat visitor does not ask again.
+        (found.map_err(ApiError::from)?, "public, max-age=31536000, immutable")
     };
     Ok(match found {
         Some((mime_type, bytes)) => (
@@ -217,7 +227,8 @@ fn listing(source: &Value, taglines: &std::collections::HashMap<String, String>)
         "location": location,
         "price": number("listPrice").map(|price| format_price(Some(price))),
         "kind": at(source, "propertyType"),
-        "imagePath": text(source, "heroMediaId").map(|id| format!("/api/media/{id}")),
+        // A card shows the card copy, not the 3600px web copy it once pulled (2-3 MB per card).
+        "imagePath": text(source, "heroMediaId").map(|id| format!("/api/media/{id}?size=card")),
         "imageAlt": at(source, "heroAlt"),
         "beds": at(source, "bedrooms"),
         "baths": at(source, "bathrooms"),

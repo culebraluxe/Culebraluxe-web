@@ -21,6 +21,10 @@ const WEB_MAX_BYTES: usize = 3_500_000;
 const WEB_QUALITY: u8 = 90;
 const THUMB_EDGE: u32 = 400;
 const THUMB_QUALITY: u8 = 85;
+/// The CARD copy: what a listing card or a gallery tile shows. The web copy (3600px, 2-3 MB) is for the full-screen
+/// photograph; a card sent that was ten times the bytes it needed. Measured 2026-09-28: cards were 1.6-2.7 MB each.
+const CARD_EDGE: u32 = 1200;
+const CARD_QUALITY: u8 = 82;
 /// Refused before any decoding happens. A 13 MB JPEG is nothing; a decompression bomb is the same size and asks for
 /// many gigabytes once decoded.
 const MAX_PIXELS: u64 = 80_000_000;
@@ -38,6 +42,54 @@ pub struct Derivative {
 /// Returns `Err` with a sentence meant to be shown to a person — the caller surfaces it rather than a code, because
 /// "this file is not an image we can read" is worth more to whoever chose the file than a status number.
 pub fn derive_web_and_thumb(original: &[u8]) -> Result<Vec<Derivative>, String> {
+    let decoded = decode(original)?;
+
+    let thumb = fit(&decoded, THUMB_EDGE);
+    let thumb_bytes = encode_jpeg(&thumb, THUMB_QUALITY)?;
+    let card = card_of(&decoded)?;
+
+    // Step down until the copy is small enough to be served. If even the smallest step is too large, the smallest
+    // one is used and the caller is told, rather than failing an upload that is otherwise fine.
+    let mut web = fit(&decoded, WEB_EDGES[0]);
+    let mut web_bytes = encode_jpeg(&web, WEB_QUALITY)?;
+    for edge in WEB_EDGES.iter().skip(1) {
+        if web_bytes.len() <= WEB_MAX_BYTES {
+            break;
+        }
+        web = fit(&decoded, *edge);
+        web_bytes = encode_jpeg(&web, WEB_QUALITY)?;
+    }
+
+    Ok(vec![
+        Derivative {
+            kind: "web",
+            width: web.width(),
+            height: web.height(),
+            bytes: web_bytes,
+        },
+        card,
+        Derivative {
+            kind: "thumb",
+            width: thumb.width(),
+            height: thumb.height(),
+            bytes: thumb_bytes,
+        },
+    ])
+}
+
+/// Only the card copy — for photographs stored before cards existed (the backfill).
+pub fn derive_card(original: &[u8]) -> Result<Derivative, String> {
+    card_of(&decode(original)?)
+}
+
+fn card_of(decoded: &image::DynamicImage) -> Result<Derivative, String> {
+    let card = fit(decoded, CARD_EDGE);
+    let bytes = encode_jpeg(&card, CARD_QUALITY)?;
+    Ok(Derivative { kind: "card", width: card.width(), height: card.height(), bytes })
+}
+
+/// The original, checked and decoded, turned the way it was shot.
+fn decode(original: &[u8]) -> Result<image::DynamicImage, String> {
     let reader = ImageReader::new(Cursor::new(original))
         .with_guessed_format()
         .map_err(|error| format!("this file could not be read as an image ({error})"))?;
@@ -68,36 +120,7 @@ pub fn derive_web_and_thumb(original: &[u8]) -> Result<Vec<Derivative>, String> 
     let mut decoded = image::DynamicImage::from_decoder(decoder)
         .map_err(|error| format!("this image could not be decoded ({error})"))?;
     decoded.apply_orientation(orientation);
-
-    let thumb = fit(&decoded, THUMB_EDGE);
-    let thumb_bytes = encode_jpeg(&thumb, THUMB_QUALITY)?;
-
-    // Step down until the copy is small enough to be served. If even the smallest step is too large, the smallest
-    // one is used and the caller is told, rather than failing an upload that is otherwise fine.
-    let mut web = fit(&decoded, WEB_EDGES[0]);
-    let mut web_bytes = encode_jpeg(&web, WEB_QUALITY)?;
-    for edge in WEB_EDGES.iter().skip(1) {
-        if web_bytes.len() <= WEB_MAX_BYTES {
-            break;
-        }
-        web = fit(&decoded, *edge);
-        web_bytes = encode_jpeg(&web, WEB_QUALITY)?;
-    }
-
-    Ok(vec![
-        Derivative {
-            kind: "web",
-            width: web.width(),
-            height: web.height(),
-            bytes: web_bytes,
-        },
-        Derivative {
-            kind: "thumb",
-            width: thumb.width(),
-            height: thumb.height(),
-            bytes: thumb_bytes,
-        },
-    ])
+    Ok(decoded)
 }
 
 fn fit(image: &image::DynamicImage, edge: u32) -> image::DynamicImage {
@@ -170,7 +193,7 @@ mod tests {
         let original = jpeg(2000, 1400);
         let derived = derive_web_and_thumb(&original).expect("derivatives");
 
-        assert_eq!(derived.len(), 2);
+        assert_eq!(derived.len(), 3);
         let web = derived.iter().find(|d| d.kind == "web").expect("web copy");
         let thumb = derived.iter().find(|d| d.kind == "thumb").expect("thumb");
 

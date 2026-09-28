@@ -4335,7 +4335,7 @@ async fn public_media(
     let found = state
         .services()
         .public_listings()
-        .media_bytes(&id, &context)
+        .media_bytes(&id, "web", &context)
         .await
         .map_err(ApiError::from)?;
 

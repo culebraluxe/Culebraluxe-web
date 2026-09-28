@@ -15,7 +15,7 @@ pub trait PublicListingRepository: Send {
     /// `None` means no such Property — a genuine not-found, not a failure.
     async fn property(&self, key: &str) -> DbResult<Option<PublicProperty>>;
     /// `None` means no such media, or media that is not published. The two are indistinguishable on purpose.
-    async fn media_bytes(&self, id: &str) -> DbResult<Option<(String, Vec<u8>)>>;
+    async fn media_bytes(&self, id: &str, size: &str) -> DbResult<Option<(String, Vec<u8>)>>;
     /// Listings like this one, by the same visibility rule as the inventory.
     async fn similar(&self, key: &str, limit: i64) -> DbResult<Vec<PublicListing>>;
     /// Every slug the site can serve, for the sitemap.
@@ -34,9 +34,9 @@ impl PublicListingRepository for PublicListingDao {
         db::retrying_read!(PublicListingDao::property(self, &key))
     }
 
-    async fn media_bytes(&self, id: &str) -> DbResult<Option<(String, Vec<u8>)>> {
-        let id = id.to_owned();
-        db::retrying_read!(PublicListingDao::media_bytes(self, &id))
+    async fn media_bytes(&self, id: &str, size: &str) -> DbResult<Option<(String, Vec<u8>)>> {
+        let (id, size) = (id.to_owned(), size.to_owned());
+        db::retrying_read!(PublicListingDao::media_bytes(self, &id, &size))
     }
 
     async fn similar(&self, key: &str, limit: i64) -> DbResult<Vec<PublicListing>> {
@@ -110,6 +110,7 @@ impl<R: PublicListingRepository> PublicListingService<R> {
     pub async fn media_bytes(
         &self,
         id: &str,
+        size: &str,
         context: &ServiceContext,
     ) -> Result<Option<(String, Vec<u8>)>, CoreServiceError> {
         const OP: &str = "property.publicMediaBytes";
@@ -122,7 +123,7 @@ impl<R: PublicListingRepository> PublicListingService<R> {
             context,
         )
         .await?;
-        let result = self.repository.media_bytes(id).await.map_err(Into::into);
+        let result = self.repository.media_bytes(id, size).await.map_err(Into::into);
         audit_result(&self.runtime, "property", OP, context, decision, &result).await?;
         result
     }
@@ -239,7 +240,7 @@ mod tests {
             }
         }
 
-        async fn media_bytes(&self, id: &str) -> DbResult<Option<(String, Vec<u8>)>> {
+        async fn media_bytes(&self, id: &str, _size: &str) -> DbResult<Option<(String, Vec<u8>)>> {
             if id == "media-1" {
                 Ok(Some(("image/jpeg".into(), vec![1, 2, 3])))
             } else {

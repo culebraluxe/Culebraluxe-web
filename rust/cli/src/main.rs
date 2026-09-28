@@ -63,11 +63,56 @@ async fn dispatch_cli(args: &[String]) -> Result<(), Box<dyn Error>> {
         "tx-smoke" => tx_smoke().await,
         "service" => service_cli(&args[1..]).await,
         "apple-sync" => apple_sync::dispatch(&args[1..]).await,
+        "media-cards" => media_cards(&args[1..]).await,
         _ => {
             print_usage();
             Err(io::Error::other("unknown or missing command").into())
         }
     }
+}
+
+/// Gives every stored photograph its CARD copy (1200px) — made for new uploads since 2026-09-28; this backfills the
+/// rest. Safe to run again: it only touches photographs without one. One photograph at a time; a failure is reported
+/// and skipped, never fatal to the others.
+async fn media_cards(args: &[String]) -> Result<(), Box<dyn Error>> {
+    apple_sync::load_env();
+    let target = match args.first().map(String::as_str) {
+        Some("dev") => db::DbTarget::Dev,
+        Some("prod") => db::DbTarget::Prod,
+        _ => return Err(io::Error::other("usage: media-cards dev|prod").into()),
+    };
+    let database = db::Database::connect_target(target).await?;
+    let media = db::MediaDao::new(database);
+    let (mut made, mut failed, mut saved_bytes) = (0usize, 0usize, 0i64);
+    loop {
+        let batch = media.images_missing_copy("card", 20).await?;
+        if batch.is_empty() {
+            break;
+        }
+        let mut progressed = false;
+        for (id, filename) in batch {
+            let Some(original) = media.original_bytes(&id).await? else { continue };
+            match server::media::imaging::derive_card(&original) {
+                Ok(card) => {
+                    media.insert_copy(&id, "card", filename.as_deref(), &card.bytes).await?;
+                    made += 1;
+                    saved_bytes += card.bytes.len() as i64;
+                    progressed = true;
+                    println!("card {made}: {} ({}x{}, {} KB)", filename.as_deref().unwrap_or(&id), card.width, card.height, card.bytes.len() / 1024);
+                }
+                Err(reason) => {
+                    failed += 1;
+                    eprintln!("skipped {} — {reason}", filename.as_deref().unwrap_or(&id));
+                }
+            }
+        }
+        // A batch where every photograph failed would come back forever; stop rather than spin.
+        if !progressed {
+            break;
+        }
+    }
+    println!("done: {made} card copies ({} MB), {failed} skipped", saved_bytes / 1_048_576);
+    Ok(())
 }
 
 fn print_usage() {

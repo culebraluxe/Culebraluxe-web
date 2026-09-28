@@ -605,7 +605,10 @@ impl PublicListingDao {
     ///
     /// `None` covers both "no such media" and "not published": an anonymous visitor must not be able to tell those
     /// apart, which is why this returns one thing rather than an error.
-    pub async fn media_bytes(&self, id: &str) -> DbResult<Option<(String, Vec<u8>)>> {
+    /// `size`: `card` or `thumb` serve that copy when the photograph has one; anything else, and a photograph without
+    /// it, serves the web copy (then the original).
+    pub async fn media_bytes(&self, id: &str, size: &str) -> DbResult<Option<(String, Vec<u8>)>> {
+        let size = if matches!(size, "card" | "thumb") { size } else { "web" };
         let row = sqlx::query_as::<_, (String, Vec<u8>)>(
             r#"
             select
@@ -616,7 +619,8 @@ impl PublicListingDao {
             left join lateral (
                 select d.file_data, d.mime_type
                   from media d
-                 where d.derivative_of = root.id and d.derivative_kind = 'web'
+                 where d.derivative_of = root.id and d.derivative_kind in ($2, 'web')
+                 order by (d.derivative_kind = $2) desc
                  limit 1
             ) as copy on true
             where m.id = $1::uuid
@@ -634,6 +638,7 @@ impl PublicListingDao {
             "#,
         )
         .bind(id)
+        .bind(size)
         .fetch_optional(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("public_listing.media_bytes", &error))?;

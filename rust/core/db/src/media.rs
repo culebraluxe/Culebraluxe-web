@@ -91,6 +91,53 @@ impl MediaDao {
         Self { db }
     }
 
+    /// Photographs (originals, image type) that have no copy of this kind yet — the backfill's work list.
+    pub async fn images_missing_copy(&self, kind: &str, limit: i64) -> DbResult<Vec<(String, Option<String>)>> {
+        sqlx::query_as::<_, (String, Option<String>)>(
+            r#"
+            select m.id::text, m.filename
+              from media m
+             where m.media_type = 'image' and m.derivative_of is null and m.file_data is not null
+               and not exists (select 1 from media d where d.derivative_of = m.id and d.derivative_kind = $1)
+             order by m.created_at desc
+             limit $2
+            "#,
+        )
+        .bind(kind)
+        .bind(limit)
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("media.images_missing_copy", &error))
+    }
+
+    /// An original photograph's own bytes.
+    pub async fn original_bytes(&self, id: &str) -> DbResult<Option<Vec<u8>>> {
+        sqlx::query_scalar::<_, Vec<u8>>("select file_data from media where id = $1::uuid and derivative_of is null")
+            .bind(id)
+            .fetch_optional(self.db.pool())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("media.original_bytes", &error))
+    }
+
+    /// Attaches one derived copy (a JPEG) to its original.
+    pub async fn insert_copy(&self, original_id: &str, kind: &str, filename: Option<&str>, bytes: &[u8]) -> DbResult<()> {
+        sqlx::query(
+            r#"
+            insert into media (file_data, filename, mime_type, file_size, media_type, derivative_of, derivative_kind)
+            values ($1, $2, 'image/jpeg', $3, 'image', $4::uuid, $5)
+            "#,
+        )
+        .bind(bytes)
+        .bind(filename)
+        .bind(bytes.len() as i64)
+        .bind(original_id)
+        .bind(kind)
+        .execute(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("media.insert_copy", &error))?;
+        Ok(())
+    }
+
     pub async fn media_bytes(&self, id: &str) -> DbResult<Option<(String, Vec<u8>)>> {
         sqlx::query_as::<_, (String, Vec<u8>)>(
             r#"
