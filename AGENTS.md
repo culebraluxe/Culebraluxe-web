@@ -4,6 +4,31 @@ This file is the repo-owned handbook. Vendor filenames (`CLAUDE.md`, Warp, Curso
 
 Per-story work lives in `docs/agent/packets/<STORY-ID>.md`. Skills live in `docs/agent/skills/`. Decisions that must outlive a tool live in `docs/agent/MEMORY.md`. `docs/agent/CURRENT.md` is not the memory file.
 
+## House Rules — one house, one bathroom
+
+Several agents (Claude, GPT, DeepSeek, Cline) work in this repository at the same time. These rules keep it livable,
+and they override anything later in this file that says otherwise (including "worker branch" wording).
+
+1. **Main only.** All work lands on `main`. No feature, worker or sandbox branches. Work that is not on `origin/main`
+   does not exist: nobody can pull it, review it or deploy it.
+2. **Push after every commit.** Every commit is followed at once by `git pull --rebase && git push`. Never leave
+   commits only on your machine or in a sandbox — they strand the work and collide with everyone else's.
+3. **Small commits, often.** One working change per commit, committed as soon as it builds and its tests pass. No
+   multi-hour sessions of unpushed work.
+4. **Your own checkout.** When another agent works in the same folder, work in a separate `git worktree` checked out
+   from `origin/main`, and still push to `main`. Never commit changes you did not make.
+5. **`Cargo.lock` travels with `Cargo.toml`.** A commit that changes any `Cargo.toml` includes the updated
+   `rust/Cargo.lock`. The deploy builds with `--locked` and fails without it.
+6. **Never hold work back.** Running out of time, budget or context is not a reason to keep work on your side: push
+   what builds first, then say what is unfinished.
+7. **Leave the kitchen clean.** No uncommitted changes, stray files or running test servers left behind.
+8. **Done means pushed.** It builds, its tests pass, and `git log origin/main` shows your commit — report the commit
+   ids.
+
+The pre-push hook in `.githooks/` enforces rules 1 and 5 on this machine: it refuses to push any branch but `main`,
+and refuses a push whose `rust/Cargo.lock` is out of date. A new clone turns it on with
+`git config core.hooksPath .githooks`.
+
 ## Rust First — the domain is Rust now
 
 The port moved the domain to Rust. TypeScript remains for exactly one job, and this section is what keeps the line where

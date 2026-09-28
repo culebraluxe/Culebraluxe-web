@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# House Rules (AGENTS.md), enforced at push time.
+#   Rule 1 — main only: any branch but main is refused.
+#   Rule 5 — Cargo.lock travels with Cargo.toml: a lock that is out of date is refused (the deploy builds --locked).
+set -euo pipefail
+
+while read -r local_ref _local_sha remote_ref _remote_sha; do
+  case "$remote_ref" in
+    refs/heads/main|"") ;;
+    refs/heads/*)
+      echo "House Rules: push to main only — refusing '${remote_ref#refs/heads/}'. See AGENTS.md." >&2
+      exit 1
+      ;;
+  esac
+done
+
+root="$(git rev-parse --show-toplevel)"
+if [ -f "$root/rust/Cargo.toml" ] && command -v cargo >/dev/null 2>&1; then
+  if ! cargo metadata --manifest-path "$root/rust/Cargo.toml" --locked --offline --format-version 1 >/dev/null 2>&1; then
+    echo "House Rules: rust/Cargo.lock is out of date with a Cargo.toml. Run 'cargo metadata --manifest-path rust/Cargo.toml' and commit rust/Cargo.lock with it." >&2
+    exit 1
+  fi
+fi
