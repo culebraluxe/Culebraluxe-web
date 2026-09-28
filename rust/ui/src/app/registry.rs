@@ -553,5 +553,5 @@ mod tests {
         );
     }
 
-    const LEGACY_CEILING: usize = 2;
+    const LEGACY_CEILING: usize = 0;
 }
