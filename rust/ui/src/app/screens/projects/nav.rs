@@ -39,7 +39,7 @@ pub const DOMAINS: [(&str, &str, &str); 6] = [
     ("deals", "Deals", "handshake"),
     ("firm", "Firm", "building-2"),
     ("marketing", "Marketing", "megaphone"),
-    ("accounting", "Accounting", "banknote"),
+    ("accounting", "Books", "banknote"),
 ];
 
 pub fn domain_label(domain: &str) -> &'static str {
@@ -125,7 +125,7 @@ pub fn status_class(status: Option<&str>) -> &'static str {
     }
 }
 
-fn entity_domain(entity_type: &str) -> Option<&'static str> {
+pub fn entity_domain(entity_type: &str) -> Option<&'static str> {
     match entity_type {
         "property" => Some("properties"),
         "person" => Some("people"),
@@ -136,7 +136,8 @@ fn entity_domain(entity_type: &str) -> Option<&'static str> {
 
 const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-fn due_label(value: Option<&str>) -> String {
+/// A due date as the tree shows it: "Sep 28".
+pub fn due_label(value: Option<&str>) -> String {
     let Some(value) = value else { return String::new() };
     let (Some(month), Some(day)) = (value.get(5..7), value.get(8..10)) else { return String::new() };
     match (month.parse::<usize>(), day.parse::<u32>()) {
@@ -219,6 +220,136 @@ struct Bucket<'a> {
     projects: Vec<&'a PortalProject>,
 }
 
+/// The records a project is about: its own property, person and contract, then every record its work links to.
+pub fn anchors(project: &PortalProject, items: &[&PortalProjectWorkItem]) -> Vec<(String, String)> {
+    let mut anchors: Vec<(String, String)> = Vec::new();
+    let mut note = |kind: &str, id: &str| {
+        if !anchors.iter().any(|(k, i)| k == kind && i == id) {
+            anchors.push((kind.to_owned(), id.to_owned()));
+        }
+    };
+    if let Some(id) = &project.property_id {
+        note("property", id);
+    }
+    if let Some(id) = &project.person_id {
+        note("person", id);
+    }
+    if let Some(id) = &project.contract_id {
+        note("contract", id);
+    }
+    for item in items {
+        if let Some(entity) = &item.entity {
+            note(&entity.entity_type, &entity.id);
+        }
+    }
+    anchors
+}
+
+/// One place a project can be seen from: a lens, and the pole it sits under there.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Lens {
+    pub domain: &'static str,
+    pub pole_id: String,
+    pub label: String,
+}
+
+/// Every lens that shows `project`, in rail order: one entry per record it sits under in that lens (a property, a
+/// person, a contract), or the lens's collection when it has no record there.
+pub fn lenses(page: &PortalProjectsPage, project: &PortalProject) -> Vec<Lens> {
+    let items: Vec<&PortalProjectWorkItem> =
+        page.items.iter().filter(|item| item.project_id.as_deref() == Some(project.id.as_str())).collect();
+    let anchors = anchors(project, &items);
+    let mut out = Vec::new();
+    for (domain, label, _) in DOMAINS {
+        if !crate::projects::project_in_domain(project, &page.items, domain) {
+            continue;
+        }
+        let here: Vec<&(String, String)> =
+            anchors.iter().filter(|(kind, _)| entity_domain(kind) == Some(domain)).collect();
+        if here.is_empty() {
+            out.push(Lens { domain, pole_id: format!("collection-{domain}"), label: label.to_owned() });
+        }
+        for (kind, id) in here {
+            let name = page.identity_names.get(&format!("{kind}:{id}")).cloned().unwrap_or_else(|| id.clone());
+            out.push(Lens { domain, pole_id: format!("entity-{kind}-{id}"), label: name });
+        }
+    }
+    out
+}
+
+/// Whether a node is drawn open: searching opens every match; otherwise the operator's choice, with the selection's
+/// branch open unless they closed it.
+pub fn is_open(
+    node: &NavNode,
+    searching: bool,
+    open: &std::collections::BTreeSet<String>,
+    closed: &std::collections::BTreeSet<String>,
+    opened: &[String],
+) -> bool {
+    !node.children.is_empty()
+        && (searching || (!closed.contains(&node.id) && (open.contains(&node.id) || opened.contains(&node.id))))
+}
+
+/// One drawn row, in screen order — what the arrow keys walk.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Row {
+    pub id: String,
+    pub kind: NodeKind,
+    pub project_id: Option<String>,
+    pub work_id: Option<String>,
+    pub has_children: bool,
+    pub open: bool,
+    pub parent: Option<String>,
+    /// A pole's projects, in order — where the arrow keys enter a closed pole.
+    pub projects: Vec<String>,
+}
+
+pub fn visible_rows(
+    nodes: &[NavNode],
+    query: &str,
+    open: &std::collections::BTreeSet<String>,
+    closed: &std::collections::BTreeSet<String>,
+    opened: &[String],
+) -> Vec<Row> {
+    fn walk(
+        nodes: &[NavNode],
+        parent: Option<&str>,
+        query: &str,
+        open: &std::collections::BTreeSet<String>,
+        closed: &std::collections::BTreeSet<String>,
+        opened: &[String],
+        out: &mut Vec<Row>,
+    ) {
+        for node in nodes {
+            if !query.is_empty() && !node.search.contains(query) {
+                continue;
+            }
+            let is_open = is_open(node, !query.is_empty(), open, closed, opened);
+            out.push(Row {
+                id: node.id.clone(),
+                kind: node.kind,
+                project_id: node.project_id.clone(),
+                work_id: node.work_id.clone(),
+                has_children: !node.children.is_empty(),
+                open: is_open,
+                parent: parent.map(str::to_owned),
+                projects: node
+                    .children
+                    .iter()
+                    .filter(|child| child.kind == NodeKind::Project)
+                    .filter_map(|child| child.project_id.clone())
+                    .collect(),
+            });
+            if is_open {
+                walk(&node.children, Some(&node.id), query, open, closed, opened, out);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(nodes, None, query, open, closed, opened, &mut out);
+    out
+}
+
 /// The whole tree for the page's active domain.
 pub fn build(page: &PortalProjectsPage) -> Vec<NavNode> {
     let domain = page.active_domain.as_str();
@@ -234,26 +365,7 @@ pub fn build(page: &PortalProjectsPage) -> Vec<NavNode> {
         if !crate::projects::project_in_domain(project, &page.items, domain) {
             continue;
         }
-        let mut anchors: Vec<(String, String)> = Vec::new();
-        let mut note = |kind: &str, id: &str| {
-            if !anchors.iter().any(|(k, i)| k == kind && i == id) {
-                anchors.push((kind.to_owned(), id.to_owned()));
-            }
-        };
-        if let Some(id) = &project.property_id {
-            note("property", id);
-        }
-        if let Some(id) = &project.person_id {
-            note("person", id);
-        }
-        if let Some(id) = &project.contract_id {
-            note("contract", id);
-        }
-        for item in &items {
-            if let Some(entity) = &item.entity {
-                note(&entity.entity_type, &entity.id);
-            }
-        }
+        let anchors = anchors(project, &items);
         let matching: Vec<&(String, String)> =
             anchors.iter().filter(|(kind, _)| entity_domain(kind) == Some(domain)).collect();
         if matching.is_empty() {

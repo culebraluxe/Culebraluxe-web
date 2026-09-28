@@ -77,6 +77,13 @@ pub enum Msg {
     NavToggled { id: String, open: bool },
     /// A work item picked in the navigator: its project, then the item.
     NavWorkSelected { project_id: String, node_id: String },
+    /// A pole (a property, a person, a contract, or a lens's collection) clicked: open it and show its first project,
+    /// or keep the selected project when it is already one of the pole's.
+    PoleSelected { pole_id: String, project_id: String },
+    /// An arrow key in the navigator: "ArrowUp" / "ArrowDown" move, "ArrowLeft" / "ArrowRight" close and open.
+    NavKey(String),
+    /// A "seen from" link in the project header: flip to that lens, with that record open, on the same project.
+    LensJump { domain: String, pole_id: String },
     ProjectDomainSelected(String),
     ProjectSelected(String),
     ProjectNodeSelected(Option<String>),
@@ -613,6 +620,25 @@ impl Screen for Projects {
                 }
                 return Cmd::none();
             }
+            Msg::NavKey(key) => {
+                return nav_key(model, &key, _ctx);
+            }
+            Msg::LensJump { domain, pole_id } => {
+                model.controls.nav_closed.remove(&pole_id);
+                model.controls.nav_open.insert(pole_id);
+                model.controls.query.clear();
+                return Self::update(model, Msg::ProjectDomainSelected(domain), _ctx);
+            }
+            Msg::PoleSelected { pole_id, project_id } => {
+                model.controls.nav_closed.remove(&pole_id);
+                model.controls.nav_open.insert(pole_id);
+                let already = matches!(&model.read, Remote::Loaded(projects)
+                    if projects.selected_project_id.as_deref() == Some(project_id.as_str()) && !projects.catch_up);
+                if already {
+                    return Cmd::none();
+                }
+                return Self::update(model, Msg::ProjectSelected(project_id), _ctx);
+            }
             Msg::NavWorkSelected { project_id, node_id } => {
                 Self::update(model, Msg::ProjectSelected(project_id), _ctx);
                 return Self::update(model, Msg::ProjectNodeSelected(Some(node_id)), _ctx);
@@ -766,6 +792,66 @@ impl Screen for Projects {
     }
 }
 
+/// The arrow keys over the drawn tree. Up and down move between projects and work: an open pole is a heading, a closed
+/// one is entered at its nearest project, and the selected project's own row is skipped going up (selecting it lands
+/// back on its first work item). Right
+/// opens the row, left closes it — or, on a closed or leaf row, closes the branch it sits in.
+fn nav_key(model: &mut Model, key: &str, ctx: &ScreenCtx) -> Cmd<Msg> {
+    let Remote::Loaded(projects) = &model.read else {
+        return Cmd::none();
+    };
+    let tree = nav::build(projects);
+    let selected = nav::selected_id(&tree, projects.selected_project_id.as_deref(), projects.selected_node_id.as_deref());
+    let opened = selected.as_deref().map(|id| nav::ancestors(&tree, id)).unwrap_or_default();
+    let query = model.controls.query.trim().to_lowercase();
+    let rows = nav::visible_rows(&tree, &query, &model.controls.nav_open, &model.controls.nav_closed, &opened);
+    // The selection's row, or — when a closed branch hides it — the nearest ancestor that is drawn.
+    let current = selected
+        .iter()
+        .chain(opened.iter().rev())
+        .find_map(|id| rows.iter().position(|row| &row.id == id));
+    let current_project = projects.selected_project_id.clone();
+    let step = |down: bool| -> Option<Msg> {
+        let indices: Box<dyn Iterator<Item = usize>> = match (current, down) {
+            (Some(at), true) => Box::new(at + 1..rows.len()),
+            (Some(at), false) => Box::new((0..at).rev()),
+            (None, _) => Box::new(0..rows.len()),
+        };
+        indices.map(|index| &rows[index]).find_map(|row| match row.kind {
+            // An open pole is a heading (its projects follow); a closed one is entered at its nearest project.
+            nav::NodeKind::Pole if row.open => None,
+            nav::NodeKind::Pole => {
+                let entry = if down { row.projects.first() } else { row.projects.last() };
+                entry.filter(|id| Some(*id) != current_project.as_ref()).cloned().map(Msg::ProjectSelected)
+            }
+            nav::NodeKind::Project if !down && row.project_id == current_project => None,
+            nav::NodeKind::Project => row.project_id.clone().map(Msg::ProjectSelected),
+            nav::NodeKind::Work => Some(Msg::NavWorkSelected {
+                project_id: row.project_id.clone().unwrap_or_default(),
+                node_id: row.work_id.clone().unwrap_or_default(),
+            }),
+        })
+    };
+    let row = current.map(|at| rows[at].clone());
+    let msg = match key {
+        "ArrowDown" => step(true),
+        "ArrowUp" => step(false),
+        "ArrowRight" => row.filter(|row| row.has_children && !row.open).map(|row| Msg::NavToggled { id: row.id, open: false }),
+        "ArrowLeft" => row.and_then(|row| {
+            if row.has_children && row.open {
+                Some(Msg::NavToggled { id: row.id, open: true })
+            } else {
+                row.parent.map(|parent| Msg::NavToggled { id: parent, open: true })
+            }
+        }),
+        _ => None,
+    };
+    match msg {
+        Some(msg) => Projects::update(model, msg, ctx),
+        None => Cmd::none(),
+    }
+}
+
 /// Selection, views, catch-up and the two writes, on a loaded page.
 fn selection(projects: &mut PortalProjectsPage, error: &mut Option<String>, msg: Msg) -> Cmd<Msg> {
     match msg {
@@ -774,14 +860,25 @@ fn selection(projects: &mut PortalProjectsPage, error: &mut Option<String>, msg:
                 domain.as_str(),
                 "properties" | "people" | "deals" | "firm" | "marketing" | "accounting"
             ) {
-                projects.selected_project_id = first_project_for_domain(projects, &domain);
-                projects.selected_node_id =
-                    first_node_for_project(projects, projects.selected_project_id.as_deref());
+                // THE LENS CHANGES, THE PROJECT DOES NOT. Flipping from Properties to People shows the same project from
+                // the other side (under its seller, say); only a project the new lens cannot show falls back to that
+                // lens's first one.
+                let keeps = projects.selected_project_id.as_deref().is_some_and(|id| {
+                    projects.projects.iter().any(|project| {
+                        project.id == id
+                            && crate::projects::project_in_domain(project, &projects.items, &domain)
+                    })
+                });
+                if !keeps {
+                    projects.selected_project_id = first_project_for_domain(projects, &domain);
+                    projects.selected_node_id =
+                        first_node_for_project(projects, projects.selected_project_id.as_deref());
+                    projects.active_view = "work-plan".into();
+                    projects.work_collapsed = false;
+                    projects.work_dirty = false;
+                }
                 projects.active_domain = domain;
                 projects.catch_up = false;
-                projects.active_view = "work-plan".into();
-                projects.work_collapsed = false;
-                projects.work_dirty = false;
             }
         }
         Msg::ProjectSelected(project_id) => {
@@ -1195,6 +1292,102 @@ mod tests {
                 }
             ]
         } })
+    }
+
+    fn navigator_page() -> serde_json::Value {
+        json!({ "projects": {
+            "calendarToday": "2026-09-28",
+            "identityNames": { "property:prop-1": "Casa Luar", "person:per-1": "Ana Rivera", "property:prop-2": "Villa Mar" },
+            "projects": [
+                { "id": "p1", "name": "Casa Luar Listing", "propertyId": "prop-1", "personId": "per-1", "status": "doing" },
+                { "id": "p2", "name": "Villa Mar Listing", "propertyId": "prop-2", "status": "open" }
+            ],
+            "items": [
+                { "id": "a1", "projectId": "p1", "title": "Clients / Parties", "status": "done", "order": 1 },
+                { "id": "a2", "projectId": "p1", "title": "Listing Agreement", "status": "open", "order": 2, "dueAt": "2026-09-20" },
+                { "id": "b1", "projectId": "p2", "title": "Photos", "status": "open", "order": 1 }
+            ]
+        } })
+    }
+
+    fn navigator() -> Model {
+        let ctx = ScreenCtx::default();
+        let (mut model, cmd) = Projects::init(&ctx);
+        let request = cmd.into_requests().remove(0);
+        Projects::update(&mut model, request.respond(Ok(navigator_page())), &ctx);
+        model
+    }
+
+    fn at(model: &Model) -> (String, Option<String>, String) {
+        let p = model.read.loaded().unwrap();
+        (p.active_domain.clone(), p.selected_project_id.clone(), p.selected_node_id.clone().unwrap_or_default())
+    }
+
+    #[test]
+    fn a_lens_flip_keeps_the_project_when_the_lens_can_show_it() {
+        let ctx = ScreenCtx::default();
+        let mut model = navigator();
+        Projects::update(&mut model, Msg::ProjectViewSelected("timeline".into()), &ctx);
+        Projects::update(&mut model, Msg::ProjectDomainSelected("people".into()), &ctx);
+        assert_eq!(at(&model).1.as_deref(), Some("p1"), "Casa Luar Listing, now seen under Ana Rivera");
+        assert_eq!(model.read.loaded().unwrap().active_view, "timeline", "and on the same tab");
+
+        Projects::update(&mut model, Msg::ProjectDomainSelected("properties".into()), &ctx);
+        Projects::update(&mut model, Msg::ProjectSelected("p2".into()), &ctx);
+        Projects::update(&mut model, Msg::ProjectDomainSelected("people".into()), &ctx);
+        assert_eq!(at(&model).1.as_deref(), Some("p1"), "Villa Mar has no person, so People falls back to its first");
+    }
+
+    #[test]
+    fn clicking_a_pole_opens_it_on_its_project_and_a_second_click_keeps_the_tab() {
+        let ctx = ScreenCtx::default();
+        let mut model = navigator();
+        Projects::update(&mut model, Msg::PoleSelected { pole_id: "entity-property-prop-2".into(), project_id: "p2".into() }, &ctx);
+        assert_eq!(at(&model), ("properties".into(), Some("p2".into()), "b1".into()));
+        assert!(model.controls.nav_open.contains("entity-property-prop-2"));
+
+        Projects::update(&mut model, Msg::ProjectViewSelected("documents".into()), &ctx);
+        Projects::update(&mut model, Msg::PoleSelected { pole_id: "entity-property-prop-2".into(), project_id: "p2".into() }, &ctx);
+        assert_eq!(model.read.loaded().unwrap().active_view, "documents");
+    }
+
+    #[test]
+    fn the_arrow_keys_walk_the_tree_and_enter_closed_poles() {
+        let ctx = ScreenCtx::default();
+        let mut model = navigator();
+        assert_eq!(at(&model).2, "a2", "a project opens on its first unfinished work");
+        Projects::update(&mut model, Msg::NavKey("ArrowUp".into()), &ctx);
+        assert_eq!(at(&model).2, "a1");
+        Projects::update(&mut model, Msg::NavKey("ArrowDown".into()), &ctx);
+        assert_eq!(at(&model).2, "a2");
+        Projects::update(&mut model, Msg::NavKey("ArrowDown".into()), &ctx);
+        assert_eq!((at(&model).1.as_deref(), at(&model).2.as_str()), (Some("p2"), "b1"), "into the next, closed pole");
+        Projects::update(&mut model, Msg::NavKey("ArrowUp".into()), &ctx);
+        assert_eq!(at(&model).1.as_deref(), Some("p1"), "and back up into the first");
+
+        // Left closes the branch the selection sits in; right opens it again.
+        Projects::update(&mut model, Msg::NavKey("ArrowLeft".into()), &ctx);
+        assert!(model.controls.nav_closed.iter().any(|id| id.ends_with("::p1")));
+        Projects::update(&mut model, Msg::NavKey("ArrowRight".into()), &ctx);
+        assert!(!model.controls.nav_closed.iter().any(|id| id.ends_with("::p1")));
+    }
+
+    #[test]
+    fn seen_from_lists_every_lens_and_a_jump_flips_to_that_record() {
+        let ctx = ScreenCtx::default();
+        let mut model = navigator();
+        let page = model.read.loaded().unwrap().clone();
+        let lenses: Vec<(String, String)> = nav::lenses(&page, &page.projects[0])
+            .into_iter()
+            .map(|lens| (lens.domain.to_owned(), lens.label))
+            .collect();
+        assert!(lenses.contains(&("properties".into(), "Casa Luar".into())));
+        assert!(lenses.contains(&("people".into(), "Ana Rivera".into())));
+
+        Projects::update(&mut model, Msg::LensJump { domain: "people".into(), pole_id: "entity-person-per-1".into() }, &ctx);
+        assert_eq!(at(&model).0, "people");
+        assert_eq!(at(&model).1.as_deref(), Some("p1"));
+        assert!(model.controls.nav_open.contains("entity-person-per-1"));
     }
 
     fn opened() -> Model {
