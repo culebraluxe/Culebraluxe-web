@@ -31,6 +31,7 @@ use crate::app::screens::flight_recorder::FlightRecorder;
 use crate::app::screens::forms::{FormRecord, Forms};
 use crate::app::screens::listing_media::ListingMedia;
 use crate::app::screens::projects::Projects;
+use crate::app::screens::publishing::Publishing;
 use crate::app::screens::security::Security;
 use crate::app::screens::security_users::SecurityUsers;
 use crate::app::screens::seller_strategy::SellerStrategy;
@@ -167,8 +168,8 @@ pub const ENTRIES: &[Entry] = &[
     entry("accounting-expenses", "/portal/accounting/expenses", Surface::Accounting, "Expenses", Menu::Rail("Expenses"), "portal.read", "accounting.read", Kind::Screen(mount::<accounting::Expenses>)),
     entry("accounting-pnl", "/portal/accounting/pnl", Surface::Accounting, "P&L Statement", Menu::Rail("P&L Statement"), "portal.read", "accounting.read", Kind::Screen(mount::<accounting::Pnl>)),
     entry("accounting-receipt-scanner", "/portal/accounting/receipt-scanner", Surface::Accounting, "Receipt Scanner", Menu::Rail("Receipt Scanner"), "portal.read", "accounting.read", Kind::Screen(mount::<accounting::ReceiptScanner>)),
-    entry("marketing", "/portal/marketing", Surface::Marketing, "Dashboard", Menu::Rail("Dashboard"), "portal.read", "property.read", Kind::LegacyPortal("marketing")),
-    entry("marketing-syndication", "/portal/marketing/syndication", Surface::Marketing, "Syndication", Menu::Rail("Syndication"), "portal.read", "property.read", Kind::LegacyPortal("marketing-syndication")),
+    entry("marketing", "/portal/marketing", Surface::Marketing, "Publishing", Menu::Rail("Publishing"), "portal.read", "property.read", Kind::Screen(mount::<Publishing>)),
+    entry("marketing-syndication", "/portal/marketing/syndication", Surface::Marketing, "Publishing", Menu::None, "portal.read", "property.read", Kind::Screen(mount::<Publishing>)).of("marketing"),
     entry("property-admin", "/portal/property-admin", Surface::Ops, "Data Workbench", Menu::Rail("Records"), "portal.read", "property.read", Kind::Screen(mount::<Workbench>)),
     entry("property-media", "/portal/property-media", Surface::Ops, "Property Media", Menu::Rail("Listing Media"), "portal.read", "property.read", Kind::Screen(mount::<ListingMedia>)),
     entry("tech", "/portal/tech", Surface::Tech, "Cockpit", Menu::Rail("Cockpit"), "tech.access", "tech.access", Kind::Screen(mount::<TechCockpit>)),
