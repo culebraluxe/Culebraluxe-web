@@ -3,6 +3,7 @@ use crate::{
     calendar::CalendarService,
     clients::ClientService,
     cockpit::CockpitService,
+    catch_up::CatchUpService,
     communications::CommsService,
     contracts::ContractService,
     deals::DealPortalService,
@@ -34,7 +35,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use db::{
-    AccountingDao, CalendarDao, ClientDao, CockpitDao, CommsDao, ContractDao, Database,
+    AccountingDao, CalendarDao, CatchUpDao, ClientDao, CockpitDao, CommsDao, ContractDao, Database,
     DealPortalDao, FirmDao, FlightRecorderDao, FormDao, GuestDao, GuideDao, IntakeDao, IssueDao,
     MarketingDao, MediaDao, PersonDao, ProjectDao, PropertyDao, PublicListingDao,
     RelationshipEvidenceDao, SecurityDao, ShowingDao, SignatureDao, SupportDiagnosticsDao, TaskDao,
@@ -85,6 +86,7 @@ macro_rules! abstract_service {
 }
 
 abstract_service!(CockpitService<CockpitDao>, "cockpit", "Cockpit service");
+abstract_service!(CatchUpService<CatchUpDao>, "catch-up", "Relationship Catch-Up service");
 abstract_service!(GuideService<GuideDao>, "guide", "Island guide service");
 abstract_service!(IntakeService<IntakeDao>, "intake", "Website intake service");
 abstract_service!(IssueService<IssueDao>, "issue", "Issue service");
@@ -227,6 +229,7 @@ impl AbstractService for UnavailableService {
 pub struct ServiceCatalog {
     clients: Arc<ClientService<ClientDao>>,
     cockpit: Arc<CockpitService<CockpitDao>>,
+    catch_up: Arc<CatchUpService<CatchUpDao>>,
     guide: Arc<GuideService<GuideDao>>,
     intake: Arc<IntakeService<IntakeDao>>,
     issues: Arc<IssueService<IssueDao>>,
@@ -295,6 +298,10 @@ impl ServiceCatalog {
             )),
             cockpit: Arc::new(CockpitService::new(
                 CockpitDao::new(db.clone()),
+                infrastructure.clone(),
+            )),
+            catch_up: Arc::new(CatchUpService::new(
+                CatchUpDao::new(db.clone()),
                 infrastructure.clone(),
             )),
             guide: Arc::new(GuideService::new(
@@ -422,6 +429,7 @@ impl ServiceCatalog {
             self.contract.clone(),
             self.clients.clone(),
             self.cockpit.clone(),
+            self.catch_up.clone(),
             self.guide.clone(),
             self.intake.clone(),
             self.issues.clone(),
@@ -466,7 +474,7 @@ macro_rules! catalog_accessors {
 }
 
 catalog_accessors! {
-    clients: ClientService<ClientDao>, cockpit: CockpitService<CockpitDao>, guide: GuideService<GuideDao>,
+    clients: ClientService<ClientDao>, cockpit: CockpitService<CockpitDao>, catch_up: CatchUpService<CatchUpDao>, guide: GuideService<GuideDao>,
     intake: IntakeService<IntakeDao>, issues: IssueService<IssueDao>, marketing: MarketingService<MarketingDao>,
     media: MediaService<MediaDao>, person: PersonService<PersonDao>, firm: FirmService<FirmDao>,
     forms: FormService<FormDao>, public_listings: PublicListingService<PublicListingDao>,
