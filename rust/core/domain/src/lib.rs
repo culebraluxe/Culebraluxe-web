@@ -6,6 +6,7 @@ pub mod accounting;
 pub mod apple_messages;
 pub mod calendar;
 pub mod client;
+pub mod client_room;
 pub mod cockpit;
 pub mod catch_up;
 pub mod comms;
@@ -53,6 +54,7 @@ pub use apple_messages::{
     is_group_chat_guid, normalize_email, normalize_phone,
 };
 pub use client::*;
+pub use client_room::*;
 pub use cockpit::*;
 pub use catch_up::*;
 pub use firm::{FieldPatch, Firm, UpsertFirmRequest};
