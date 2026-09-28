@@ -257,6 +257,34 @@ pub struct AccountingDashboard {
     pub expense_categories: Vec<CategoryShare>,
 }
 
+/// One expected commission, dated by the strongest timing fact available:
+/// the linked deal's closing date, else the receivable's due date, else its issue date.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CommissionForecastItem {
+    pub receivable_id: String,
+    pub amount: Money,
+    pub expected_on: String,
+    pub expected_on_label: String,
+    /// closing | due | issued
+    pub timing_source: String,
+    pub deal_id: Option<String>,
+    pub property_name: Option<String>,
+    pub person_name: Option<String>,
+    pub description: String,
+}
+
+/// Expected OPEN commission receivables. All totals are Postgres numeric sums; Rust never adds money.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CommissionForecast {
+    pub next_30_days: Money,
+    pub next_60_days: Money,
+    pub next_90_days: Money,
+    pub undated_or_past: Money,
+    pub items: Vec<CommissionForecastItem>,
+}
+
 /// The period a P&L projection covers.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
