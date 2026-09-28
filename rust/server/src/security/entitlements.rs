@@ -164,12 +164,9 @@ impl AuthorizationPort for CasbinAuthorizationPort {
         {
             (false, "system:reserved")
         } else if let Some(principal) = request.principal.as_ref() {
-            if principal.account_type != "internal" {
+            if principal.account_type != domain::security::INTERNAL_ACCOUNT {
                 (false, "account:external")
-            } else if matches!(
-                request.action,
-                "security.entitlement.manage" | "security.role.manage"
-            ) {
+            } else if domain::security::is_root_only(request.action) {
                 if principal.role_codes.iter().any(|role| role == "root") {
                     (true, "rule:security.manage.root")
                 } else {

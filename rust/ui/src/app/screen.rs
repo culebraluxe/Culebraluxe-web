@@ -59,12 +59,10 @@ impl ScreenCtx {
     /// ROOT's; everything else is ROOT or a held entitlement. Nothing is offered before the grants arrive.
     pub fn can(&self, action: &str) -> bool {
         self.grants.as_ref().is_some_and(|grants| {
-            if grants.account_type != "internal" {
+            // The same list and account rule the server enforces (`domain::security`); this only decides what to offer.
+            if grants.account_type != domain::security::INTERNAL_ACCOUNT {
                 false
-            } else if matches!(
-                action,
-                "security.entitlement.manage" | "security.role.manage"
-            ) {
+            } else if domain::security::is_root_only(action) {
                 grants.is_root
             } else {
                 grants.security_level == "ROOT"

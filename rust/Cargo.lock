@@ -3133,6 +3133,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "console_error_panic_hook",
+ "domain",
  "gloo-net",
  "js-sys",
  "serde",

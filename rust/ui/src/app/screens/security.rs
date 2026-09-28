@@ -67,7 +67,7 @@ impl Screen for Security {
                 action,
                 granted,
             } => {
-                if model.role_grant_busy || !ctx.can("security.entitlement.manage") {
+                if model.role_grant_busy || !ctx.can(domain::security::ENTITLEMENT_MANAGE) {
                     return Cmd::none();
                 }
                 model.role_grant_busy = true;
@@ -231,7 +231,7 @@ impl Security {
                             </tbody>
                         </table>
                     </div>
-                    if ctx.can("security.entitlement.manage") {
+                    if ctx.can(domain::security::ENTITLEMENT_MANAGE) {
                         if let Some(role) = selected {
                             <div class="mt-6 border-t border-black/10 pt-5">
                                 <label for="role-grant-selector" class="text-xs font-medium uppercase tracking-[0.12em]">{"Edit role grants"}</label>
@@ -243,10 +243,7 @@ impl Security {
                                     }) }
                                 </select>
                                 <div class="mt-4 grid gap-2 md:grid-cols-2">
-                                    { for actions.iter().filter(|code| !matches!(
-                                        code.as_str(),
-                                        "security.entitlement.manage" | "security.role.manage"
-                                    )).map(|code| {
+                                    { for actions.iter().filter(|code| !domain::security::is_root_only(code)).map(|code| {
                                         let granted = role.entitlement_codes.contains(code);
                                         let on_msg = on_msg.clone();
                                         let role_code = role.role_code.clone();

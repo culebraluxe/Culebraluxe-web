@@ -1,5 +1,21 @@
 use serde::{Deserialize, Serialize};
 
+/// Granting entitlements to a role.
+pub const ENTITLEMENT_MANAGE: &str = "security.entitlement.manage";
+/// Assigning roles to a user.
+pub const ROLE_MANAGE: &str = "security.role.manage";
+/// The account type that may operate the portal at all; every other account is external (a guest, a client).
+pub const INTERNAL_ACCOUNT: &str = "internal";
+
+/// Actions only a ROOT principal may take, whatever else it has been granted. ONE LIST, used twice: the server enforces
+/// it (`server/src/security/entitlements.rs`) and the portal decides from it what to offer (`ui/src/app/screen.rs`), so
+/// renaming a code cannot hide a button the server still allows, or the reverse.
+pub const ROOT_ONLY_ACTIONS: [&str; 2] = [ENTITLEMENT_MANAGE, ROLE_MANAGE];
+
+pub fn is_root_only(action: &str) -> bool {
+    ROOT_ONLY_ACTIONS.contains(&action)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum SecurityLevel {
     Guest,

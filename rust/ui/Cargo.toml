@@ -11,6 +11,7 @@ publish = false
 # application — screens, registry and commands — on the host. Nothing here needs a browser to compile; `web_sys` values
 # are only used at runtime by the executor. The deploy's own check is `pnpm ui:check` (the wasm32 target).
 [dependencies]
+domain = { path = "../core/domain" }
 base64.workspace = true
 chrono.workspace = true
 serde = { workspace = true, features = ["derive"] }

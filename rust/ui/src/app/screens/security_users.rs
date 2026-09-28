@@ -86,7 +86,7 @@ impl Screen for SecurityUsers {
                 role_code,
             } => {
                 if model.user_role_busy.is_some()
-                    || !ctx.can("security.role.manage")
+                    || !ctx.can(domain::security::ROLE_MANAGE)
                     || !is_canonical_internal_role(&role_code)
                     || app_user_id.trim().is_empty()
                 {
@@ -136,7 +136,7 @@ impl SecurityUsers {
             return template::failure(error);
         }
         let users = model.read.loaded().map(Vec::as_slice);
-        let can_manage = ctx.can("security.role.manage");
+        let can_manage = ctx.can(domain::security::ROLE_MANAGE);
 
         html! {
             <div>
