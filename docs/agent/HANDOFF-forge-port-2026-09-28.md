@@ -179,3 +179,50 @@ The bytes on `origin/main` are the ones the S12 proof above ran against. Nothing
   every story rather than only for the ones whose packets are clean.
 - **`pnpm typecheck` (§6.6)**: keep it out of CI, or delete the dead TypeScript so it can be a gate again? The
   second is a policy reversal of "marked, not deleted", so it is the Captain's call.
+
+---
+
+## 8. ODS PORT — the mail half landed (2026-09-28, later)
+
+The Captain said `ods port`. Two of the four feeds are done, pushed, and verified; two are not started.
+
+**Landed, on `origin/main`:**
+
+| commit | what |
+| --- | --- |
+| `99f8609a` | Apple Mail: `domain::applemail` (rules recovered from the deleted `lib/relationship-intel/{applemail,icloud-mail}.ts` @ `4cf98110^`, 8 unit tests), `db::apple_ods` (`l_applemail` batch landing, promotion read, replay-safe interaction insert, `integration_intake_checkpoint`), and `rust/cli` `apple-sync mail-intake` + `mail-promote`. `scripts/email-sync.sh` repointed. Live check `scripts/rust-live-check/apple-mail.mjs`. |
+| `e6b0ca79` | Gmail: `domain::gmail` (recovered from `gmail-latest-context.ts`, 7 unit tests), `db::EmailLanding` + `land_email_batch`, `rust/cli gmail-sync`. `scripts/gmail-sync.sh` repointed. |
+
+**Verified**
+
+| # | Fact | How to check it |
+| --- | --- | --- |
+| V1 | The whole mail chain runs against a real database and is replay-safe both ways | `node scripts/rust-live-check/apple-mail.mjs` → 25 checks ok, DEV cleaned up (2 landed → 2 replayed; evidence exact-linked to a DEV person; 2 interactions; promotion replay inserts 0) |
+| V2 | The promotion reads real, large DEV data | `cargo run -p cli -- apple-sync mail-promote dev --days 365 --verify` → 542 landed rows → 504 observations, skips `{ambiguous:11, internal_only:27}` |
+| V3 | Rules | `cargo test -p domain` → 88 pass (8 mail, 7 gmail); `cargo check --workspace --all-targets` clean |
+| V4 | Gmail fails closed rather than reporting an empty success | `bash scripts/gmail-sync.sh` → refuses before compiling; `cargo run -p cli -- gmail-sync dev --verify` → *"missing required environment variable: GOOGLE_CLIENT_ID"* |
+
+**Not verified, and why (not "assumed done")**
+
+1. `mail-intake` against Mail's real store: macOS refuses `~/Library/Mail` without **Full Disk Access**
+   ("Operation not permitted"). The extractor reports it, the job fails that account with a non-zero
+   exit and lands nothing — no silent partial success. Granting FDA to the terminal/VS Code process is
+   the Captain's click, and the live check above covers the same code path with a stub extractor.
+2. `gmail-sync` against Google: `GOOGLE_CLIENT_ID` / `_SECRET` / `_REFRESH_TOKEN` are not in this
+   machine's `.env.local`. The API half is unexercised; the token/profile/identity-count path is
+   written but has never run.
+
+**Not started (the rest of `ods port`)**
+
+1. `apple-calls-intake.ts` (186) — small: `l_call` landing + evidence + latest interaction.
+2. The Contacts chain — the largest piece: `load-apple-contacts.ts` (545), `project-apple-contacts.ts`
+   (346), `promote-warehouse.ts` (405) **plus** `merge-contacts-notes.ts`, which `contacts-sync.sh:120`
+   also calls and which is equally dead. `promote-warehouse.ts` is still the hop with no Rust home at
+   all, and `contacts-sync.sh` still calls all four by name.
+3. Then the five wrappers are all Rust except `contacts-sync.sh` and `apple-calls-sync.sh`.
+
+**Ask the Captain:** (1) grant Full Disk Access to the terminal/VS Code process, then fully restart it,
+so `mail-intake` can be run against the real store; (2) say `contacts port` to take the Contacts chain
+next, or `calls port` for the small one first; (3) put `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` /
+`GOOGLE_REFRESH_TOKEN` (the `gmail.readonly` scope) into `.env.local` when Gmail should actually run.
+
