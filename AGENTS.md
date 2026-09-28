@@ -4,6 +4,11 @@ This file is the repo-owned handbook. Vendor filenames (`CLAUDE.md`, Warp, Curso
 
 Per-story work lives in `docs/agent/packets/<STORY-ID>.md`. Skills live in `docs/agent/skills/`. Decisions that must outlive a tool live in `docs/agent/MEMORY.md`. `docs/agent/CURRENT.md` is not the memory file.
 
+**Stopping mid-work is a deliverable, not a failure.** A session that runs out of context, budget or time writes
+`docs/agent/HANDOFF-<topic>-<date>.md` in the shape of `docs/agent/HANDOFF-TEMPLATE.md` — status, holds, what landed with
+its commit ids, what is open in order, what is not verified — and pushes it before it stops. "I am full, here is what I
+know" must be a file on `origin/main`, never a chat log the next agent cannot read.
+
 ## House Rules — one house, one bathroom
 
 Several agents (Claude, GPT, DeepSeek, Cline) work in this repository at the same time. These rules keep it livable,

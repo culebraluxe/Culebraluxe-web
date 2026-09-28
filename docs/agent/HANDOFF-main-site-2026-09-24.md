@@ -40,5 +40,5 @@ Work happens on `main` directly (owner's instruction: no side branches). Other s
 - The cloud sandbox cannot reach Neon over TCP or smtp.mail.me.com; the Neon MCP connector works for SQL. Live mail/DB tests run on Lisa's Mac.
 - WASM UI artifacts are committed: after changing `rust/ui`, run `pnpm ui:build:release` and commit `lib/rust-ui/ui.js`, `lib/rust-ui/ui.d.ts`, `public/rust-ui/ui_bg.wasm`.
 - `next dev` appends a Next.js block to AGENTS.md — revert it (`git checkout AGENTS.md`), don't commit it.
-- Rust gates: `cargo fmt --all --check`, `cargo test -p ui -p server -p integrations`.
+- Rust gates: `cargo fmt --all --check`, and the UI gate is `cargo check -p ui --features wasm --target wasm32-unknown-unknown --all-targets` (run from `rust/`, the workspace root). **Do not use plain `cargo test -p ui` as the UI gate**: `rust/ui/Cargo.toml:57` sets `default = []` and `app` is feature-gated at `rust/ui/src/lib.rs:40-41`, so it passes 146 tests while compiling **zero** of the 78 `#[test]`s under `rust/ui/src/app/` — every screen, registry and command test. Then `cargo test -p server -p integrations`.
 - SECURITY: the Neon password (shared by dev and prod), the Apple account password and the other keys in .env.local were pasted into a chat — rotate them.
