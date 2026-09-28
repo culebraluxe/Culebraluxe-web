@@ -173,8 +173,13 @@ pub fn carry_over(previous: Option<&PortalProjectsPage>, projects: &mut PortalPr
         } else {
             previous.timeline_mode.clone()
         };
+        projects.timeline_sort_key = previous.timeline_sort_key.clone();
+        projects.timeline_sort_desc = previous.timeline_sort_desc;
+        projects.timeline_focus_date = previous.timeline_focus_date.clone();
+        projects.timeline_link_target_id = previous.timeline_link_target_id.clone();
         projects.timeline_collapsed_items = previous.timeline_collapsed_items.clone();
         projects.timeline_dragging_item_id = None;
+        projects.timeline_drag_kind.clear();
         projects.timeline_drag_target_date = None;
     } else {
         projects.active_domain = initial_project_domain(projects);
@@ -194,8 +199,13 @@ pub fn carry_over(previous: Option<&PortalProjectsPage>, projects: &mut PortalPr
         projects.calendar_loaded_start = None;
         projects.calendar_loaded_end = None;
         projects.timeline_mode = "week".into();
+        projects.timeline_sort_key.clear();
+        projects.timeline_sort_desc = false;
+        projects.timeline_focus_date = None;
+        projects.timeline_link_target_id = None;
         projects.timeline_collapsed_items.clear();
         projects.timeline_dragging_item_id = None;
+        projects.timeline_drag_kind.clear();
         projects.timeline_drag_target_date = None;
     }
     if projects.calendar_day_start_hour >= projects.calendar_day_end_hour {

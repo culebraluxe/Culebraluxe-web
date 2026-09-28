@@ -4,7 +4,7 @@ use chrono::{Datelike, Duration, NaiveDate, Weekday};
 use yew::prelude::*;
 
 use crate::model::{PortalProject, PortalProjectWorkItem, PortalProjectsPage};
-use crate::timeline::{self, TimelineRange, TimelineSpec};
+use crate::timeline::{self, ProjectedSchedule, ProjectedTask, TimelineRange, TimelineSpec};
 
 use super::super::{Msg, Vm};
 
@@ -12,14 +12,18 @@ struct TimelineRow<'a> {
     item: &'a PortalProjectWorkItem,
     depth: usize,
     has_children: bool,
-    deadline_start: Option<NaiveDate>,
-    deadline_end: Option<NaiveDate>,
 }
 
 struct HeaderSegment {
     left: i64,
     width: i64,
     label: String,
+}
+
+const GRID_WIDTH: i64 = 534;
+
+fn columns(timeline_width: i64) -> String {
+    format!("grid-template-columns: 270px 100px 64px 100px {timeline_width}px;")
 }
 
 pub(super) fn view(
@@ -29,23 +33,23 @@ pub(super) fn view(
     on_msg: &Callback<Msg>,
 ) -> Html {
     let rows = visible_rows(projects, project);
+    let schedule = timeline::project_schedule(projects, &project.id);
     let timeline_spec = timeline::spec(&projects.timeline_mode);
-
-    let mut range_values = project_items(projects, &project.id)
-        .into_iter()
-        .filter_map(|item| item.due_at.as_deref())
-        .collect::<Vec<_>>();
-    if let Some(value) = project.starts_at.as_deref() {
-        range_values.push(value);
-    }
-    if let Some(value) = project.ends_at.as_deref() {
-        range_values.push(value);
-    }
-    let range = timeline::range(
-        range_values,
-        &projects.calendar_today,
-        &projects.timeline_mode,
-    );
+    let range = if let Some(focus) = projects.timeline_focus_date.as_deref().and_then(timeline::date) {
+        TimelineRange {
+            start: focus - Duration::days(timeline_spec.margin_before),
+            end: focus + Duration::days(timeline_spec.margin_after),
+        }
+    } else {
+        let mut range_values = project_items(projects, &project.id)
+            .into_iter()
+            .flat_map(|item| [item.due_at.as_deref(), item.planned_start.as_deref(), item.planned_finish.as_deref()])
+            .flatten()
+            .collect::<Vec<_>>();
+        range_values.extend(project.starts_at.as_deref());
+        range_values.extend(project.ends_at.as_deref());
+        timeline::range(range_values, &projects.calendar_today, &projects.timeline_mode)
+    };
     let timeline_width = range.width(timeline_spec).max(640);
     let days = timeline::days(range);
     let segments = header_segments(range, timeline_spec, &projects.timeline_mode);
@@ -64,21 +68,22 @@ pub(super) fn view(
         <section class="flex h-full min-h-0 flex-col overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/30">
             { toolbar(model, projects, on_msg) }
             <div class="min-h-0 flex-1 overflow-auto">
-                <div style={format!("min-width: {}px;", 402 + timeline_width)}>
-                    { header(projects, range, timeline_spec, timeline_width, &segments) }
+                <div class="relative" style={format!("min-width: {}px;", GRID_WIDTH + timeline_width)}>
+                    { header(projects, range, timeline_spec, timeline_width, &segments, on_msg) }
                     { project_row(projects, project, project_bounds, range, timeline_spec, timeline_width, &grid_style) }
                     if rows.is_empty() {
                         <div class="grid h-16 items-center border-t border-[var(--portal-panel-border)]/60 bg-white/35 text-sm font-light text-black/40"
-                            style={format!("grid-template-columns: 320px 82px {timeline_width}px;")}>
+                            style={columns(timeline_width)}>
                             <div class="sticky left-0 z-10 bg-[var(--portal-soft-bg)] px-4">{"No WBS items are attached to this project."}</div>
-                            <div class="sticky left-[320px] z-10 h-full bg-[var(--portal-soft-bg)]"></div>
+                            <div class="col-span-3 bg-[var(--portal-soft-bg)]"></div>
                             <div></div>
                         </div>
                     } else {
-                        { for rows.into_iter().map(|row| task_row(
+                        { for rows.iter().map(|row| task_row(
                             model,
                             projects,
                             row,
+                            schedule.tasks.iter().find(|task| task.id == row.item.id),
                             range,
                             timeline_spec,
                             timeline_width,
@@ -86,6 +91,7 @@ pub(super) fn view(
                             &grid_style,
                             on_msg,
                         )) }
+                        { link_overlay(&schedule, &rows, range, timeline_spec, timeline_width) }
                     }
                 </div>
             </div>
@@ -106,7 +112,7 @@ fn toolbar(model: &Vm<'_>, projects: &PortalProjectsPage, on_msg: &Callback<Msg>
                         {"Native WBS timeline"}
                     </p>
                     <p class="mt-0.5 text-[11px] font-light text-[var(--portal-blue-gray)]">
-                        {"Due dates are milestones. Parent bars summarize descendant deadlines; no duration is invented."}
+                        {"Planned spans are bars; due dates are separate milestones. Undated work stays unscheduled."}
                     </p>
                 </div>
                 <nav aria-label="Timeline scale" class="flex h-8 overflow-hidden rounded-md border border-[var(--portal-panel-border)] bg-white/65">
@@ -129,11 +135,19 @@ fn toolbar(model: &Vm<'_>, projects: &PortalProjectsPage, on_msg: &Callback<Msg>
                         }
                     }) }
                 </nav>
+                <nav aria-label="Timeline navigation" class="flex items-center gap-1">
+                    <button type="button" aria-label="Previous period" onclick={on_msg.reform(|_: MouseEvent| Msg::ProjectTimelineFocusShifted(-1))} class="rounded border border-[var(--portal-panel-border)] px-2 py-1 text-sm">{"‹"}</button>
+                    <button type="button" onclick={on_msg.reform(|_: MouseEvent| Msg::ProjectTimelineToday)} class="rounded border border-[var(--portal-panel-border)] px-2 py-1 text-xs">{"Today"}</button>
+                    <button type="button" aria-label="Next period" onclick={on_msg.reform(|_: MouseEvent| Msg::ProjectTimelineFocusShifted(1))} class="rounded border border-[var(--portal-panel-border)] px-2 py-1 text-sm">{"›"}</button>
+                    <input type="date" aria-label="Jump to date" value={projects.timeline_focus_date.clone().unwrap_or_default()}
+                        oninput={on_msg.reform(|event: InputEvent| Msg::ProjectTimelineFocusChanged(crate::app::template::input_value(&event)))}
+                        class="h-8 rounded border border-[var(--portal-panel-border)] bg-white/65 px-1 text-xs" />
+                </nav>
             </div>
             <div class="mt-1 flex items-center justify-between text-[9px] font-medium uppercase tracking-[0.08em] text-[var(--portal-blue-gray)]">
-                <span>{"◆ WBS deadline · bar = project/child deadline envelope"}</span>
+                <span>{"◆ Deadline · solid bar = stored plan (color = work status) · outline = descendant span · project % = completed WBS items"}</span>
                 if pending.is_some() {
-                    <span class="text-[var(--portal-gold-muted)]">{"Saving deadline through WBS…"}</span>
+                    <span class="text-[var(--portal-gold-muted)]">{"Saving through WBS…"}</span>
                 }
             </div>
         </div>
@@ -146,16 +160,23 @@ fn header(
     spec: TimelineSpec,
     timeline_width: i64,
     segments: &[HeaderSegment],
+    on_msg: &Callback<Msg>,
 ) -> Html {
     html! {
         <div
             class="sticky top-0 z-40 grid h-[52px] border-b border-[var(--portal-panel-border)] bg-[var(--portal-soft-bg)]/95 backdrop-blur"
-            style={format!("grid-template-columns: 320px 82px {timeline_width}px;")}
+            style={columns(timeline_width)}
         >
             <div class="sticky left-0 z-50 flex items-center border-r border-[var(--portal-panel-border)] bg-[var(--portal-soft-bg)] px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--portal-blue-gray)]">
-                {"Work item"}
+                { sort_heading(projects, "title", "Work item", on_msg) }
             </div>
-            <div class="sticky left-[320px] z-50 flex items-center justify-end border-r border-[var(--portal-panel-border)] bg-[var(--portal-soft-bg)] px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--portal-blue-gray)]">
+            <div class="sticky left-[270px] z-50 flex items-center justify-end border-r border-[var(--portal-panel-border)] bg-[var(--portal-soft-bg)] px-2 text-xs font-semibold text-[var(--portal-blue-gray)]">
+                { sort_heading(projects, "start", "Start", on_msg) }
+            </div>
+            <div class="sticky left-[370px] z-50 flex items-center justify-end border-r border-[var(--portal-panel-border)] bg-[var(--portal-soft-bg)] px-2 text-xs font-semibold text-[var(--portal-blue-gray)]">
+                { sort_heading(projects, "days", "Days", on_msg) }
+            </div>
+            <div class="sticky left-[434px] z-50 flex items-center justify-end border-r border-[var(--portal-panel-border)] bg-[var(--portal-soft-bg)] px-2 text-xs font-semibold text-[var(--portal-blue-gray)]">
                 {"Due"}
             </div>
             <div class="relative overflow-hidden">
@@ -173,6 +194,16 @@ fn header(
     }
 }
 
+fn sort_heading(projects: &PortalProjectsPage, key: &'static str, label: &'static str, on_msg: &Callback<Msg>) -> Html {
+    let active = projects.timeline_sort_key == key;
+    let arrow = if active { if projects.timeline_sort_desc { " ↓" } else { " ↑" } } else { "" };
+    html! { <button type="button" aria-label={format!("Sort by {label}")}
+        onclick={on_msg.reform(move |_: MouseEvent| Msg::ProjectTimelineSortSelected(key.into()))}
+        class="rounded px-1 py-1 text-left text-xs font-semibold uppercase tracking-[0.06em] hover:text-[var(--portal-gold-muted)]">
+        { format!("{label}{arrow}") }
+    </button> }
+}
+
 fn project_row(
     projects: &PortalProjectsPage,
     project: &PortalProject,
@@ -186,7 +217,7 @@ fn project_row(
     html! {
         <div
             class="grid h-[46px] border-b border-[var(--portal-panel-border)] bg-white/55"
-            style={format!("grid-template-columns: 320px 82px {timeline_width}px;")}
+            style={columns(timeline_width)}
         >
             <div class="sticky left-0 z-20 flex items-center gap-2 border-r border-[var(--portal-panel-border)] bg-[var(--portal-soft-bg)] px-3">
                 <span class="flex h-5 w-5 items-center justify-center text-[var(--portal-gold-muted)]">{"◆"}</span>
@@ -195,7 +226,9 @@ fn project_row(
                 </span>
                 <span class="text-[9px] font-medium text-[var(--portal-blue-gray)]">{ format!("{progress}%") }</span>
             </div>
-            <div class="sticky left-[320px] z-20 flex items-center justify-end border-r border-[var(--portal-panel-border)] bg-[var(--portal-soft-bg)] px-3 text-[9px] font-light text-[var(--portal-blue-gray)]">
+            <div class="sticky left-[270px] z-20 bg-[var(--portal-soft-bg)]"></div>
+            <div class="sticky left-[370px] z-20 bg-[var(--portal-soft-bg)]"></div>
+            <div class="sticky left-[434px] z-20 flex items-center justify-end border-r border-[var(--portal-panel-border)] bg-[var(--portal-soft-bg)] px-2 text-xs font-light text-[var(--portal-blue-gray)]">
                 { project.ends_at.as_deref().and_then(|value| value.get(0..10)).unwrap_or("—") }
             </div>
             <div class="relative" style={grid_style.to_owned()}>
@@ -219,7 +252,8 @@ fn project_row(
 fn task_row(
     model: &Vm<'_>,
     projects: &PortalProjectsPage,
-    row: TimelineRow<'_>,
+    row: &TimelineRow<'_>,
+    projected: Option<&ProjectedTask>,
     range: TimelineRange,
     spec: TimelineSpec,
     timeline_width: i64,
@@ -262,11 +296,9 @@ fn task_row(
                 selected.then_some("bg-[var(--portal-gold)]/[0.07]"),
                 pending.then_some("opacity-70")
             )}
-            style={format!("grid-template-columns: 320px 82px {timeline_width}px;")}
+            style={columns(timeline_width)}
         >
-            <button
-                type="button"
-                onclick={select}
+            <div
                 class={classes!(
                     "sticky","left-0","z-20","flex","min-w-0","items-center","border-r","border-[var(--portal-panel-border)]","px-2","text-left",
                     if selected { "bg-[var(--portal-soft-bg)] ring-1 ring-inset ring-[var(--portal-gold)]/35" } else { "bg-[var(--portal-soft-bg)] hover:bg-white" }
@@ -274,39 +306,49 @@ fn task_row(
             >
                 <span style={format!("width:{indent}px")} class="shrink-0"></span>
                 if let Some(toggle) = toggle {
-                    <span
-                        role="button"
-                        tabindex="0"
-                        onclick={toggle}
-                        class="mr-1 flex h-6 w-5 shrink-0 items-center justify-center text-[12px] text-[var(--portal-blue-gray)]"
+                    <button type="button" onclick={toggle}
+                        class="mr-1 flex h-8 w-6 shrink-0 items-center justify-center text-base text-[var(--portal-blue-gray)]"
                         aria-label={if collapsed { "Expand work item" } else { "Collapse work item" }}
+                        aria-expanded={(!collapsed).to_string()}
                     >
                         { if collapsed { "›" } else { "⌄" } }
-                    </span>
+                    </button>
                 } else {
-                    <span class="mr-1 w-5 shrink-0"></span>
+                    <span class="mr-1 w-6 shrink-0"></span>
                 }
-                <span class={classes!("mr-2","h-2.5","w-2.5","shrink-0","rounded-full",super::status_dot(&item.status))}></span>
-                <span class="min-w-0 flex-1">
-                    <span class="block truncate text-[12px] font-medium text-[var(--portal-navy)]">{ item.title.clone() }</span>
-                    <span class="block truncate text-[9px] font-light uppercase tracking-[0.06em] text-black/35">{ item.category.clone() }</span>
-                </span>
-            </button>
-            <div class="sticky left-[320px] z-20 flex items-center justify-end border-r border-[var(--portal-panel-border)] bg-[var(--portal-soft-bg)] px-3 text-[9px] font-light text-[var(--portal-blue-gray)]">
+                <button type="button" onclick={select} title={item.notes.clone()}
+                    class="flex min-w-0 flex-1 items-center text-left" aria-label={format!("Select {}", item.title)}>
+                    <span class={classes!("mr-2","h-2.5","w-2.5","shrink-0","rounded-full",super::status_dot(&item.status))}></span>
+                    <span class="min-w-0 flex-1">
+                        <span class="block truncate text-[13px] font-medium text-[var(--portal-navy)]">{ item.title.clone() }</span>
+                        <span class="block truncate text-[10px] font-light uppercase tracking-[0.06em] text-black/45">{ item.category.clone() }</span>
+                    </span>
+                </button>
+            </div>
+            <div class="sticky left-[270px] z-20 flex items-center justify-end border-r border-[var(--portal-panel-border)] bg-[var(--portal-soft-bg)] px-2 text-xs text-[var(--portal-blue-gray)]">
+                { projected.and_then(|task| task.planned.map(|(start, _)| start.to_string())).or_else(|| item.planned_start.clone()).unwrap_or_else(|| "—".into()) }
+            </div>
+            <div class="sticky left-[370px] z-20 flex items-center justify-end border-r border-[var(--portal-panel-border)] bg-[var(--portal-soft-bg)] px-2 text-xs text-[var(--portal-blue-gray)]">
+                { projected.and_then(|task| task.planned.map(|(start, finish)| timeline::planned_duration_days(start, finish).to_string())).unwrap_or_else(|| "—".into()) }
+            </div>
+            <div class="sticky left-[434px] z-20 flex items-center justify-end border-r border-[var(--portal-panel-border)] bg-[var(--portal-soft-bg)] px-2 text-xs text-[var(--portal-blue-gray)]">
                 { super::due_label(item.due_at.as_deref()) }
             </div>
             <div class="relative" style={grid_style.to_owned()}>
-                if row.has_children {
-                    if let (Some(start), Some(end)) = (row.deadline_start, row.deadline_end) {
+                if let Some(task) = projected {
+                    if let Some((start, end)) = task.descendant_span {
                         { summary_bar(
                             start,
                             end,
                             range,
                             spec,
-                            "Descendant deadline span",
-                            timeline::progress(&item.status),
+                            "Descendant planned span",
+                            0,
                             false,
                         ) }
+                    }
+                    if let Some((start, finish)) = task.planned {
+                        { planned_bar(item, start, finish, range, spec, on_msg) }
                     }
                 }
                 if let Some(due) = item.due_at.as_deref().and_then(timeline::date) {
@@ -319,7 +361,11 @@ fn task_row(
                         dragging,
                         on_msg,
                     ) }
-                } else if !row.has_children {
+                } else if projected.is_some_and(|task| task.partially_scheduled) {
+                    <span class="absolute left-2 top-1/2 -translate-y-1/2 rounded-full border border-dashed border-[var(--portal-gold-muted)] bg-white/70 px-2 py-1 text-[8px] font-medium uppercase tracking-[0.08em] text-[var(--portal-navy)]">
+                        {"Incomplete plan"}
+                    </span>
+                } else if !row.has_children && projected.is_none_or(|task| task.planned.is_none()) {
                     <span class="absolute left-2 top-1/2 -translate-y-1/2 rounded-full border border-dashed border-[var(--portal-panel-border)] bg-white/50 px-2 py-1 text-[8px] font-medium uppercase tracking-[0.08em] text-black/35">
                         {"Unscheduled"}
                     </span>
@@ -330,6 +376,65 @@ fn task_row(
                 { today_line(projects, range, spec, 42) }
             </div>
         </div>
+    }
+}
+
+fn planned_bar(item: &PortalProjectWorkItem, start: NaiveDate, finish: NaiveDate,
+    range: TimelineRange, spec: TimelineSpec, on_msg: &Callback<Msg>) -> Html {
+    let left = timeline::x(start, range, spec) + 2;
+    let width = timeline::planned_bar_width(start, finish, spec).max(10) - 4;
+    let id = item.id.clone();
+    let drag_id = id.clone();
+    let drag_start = on_msg.reform(move |event: web_sys::DragEvent| {
+        if let Some(data) = event.data_transfer() {
+            let _ = data.set_data("text/plain", &drag_id);
+            data.set_effect_allowed("move");
+        }
+        Msg::ProjectTimelinePlannedDragStarted(drag_id.clone())
+    });
+    let label = format!("{} planned {start} through {finish}; status {}; select or drag to reschedule", item.title, item.status);
+    html! {
+        <button type="button" draggable="true" ondragstart={drag_start}
+            ondragend={on_msg.reform(|_: web_sys::DragEvent| Msg::ProjectTimelineDragEnded)}
+            onclick={on_msg.reform(move |_: MouseEvent| Msg::ProjectNodeSelected(Some(id.clone())))}
+            aria-label={label.clone()} title={label}
+            class={classes!("absolute","top-[19px]","z-10","h-4","cursor-grab","rounded","shadow-sm","ring-1","ring-white/70",
+                match item.status.as_str() {
+                    "done" => "bg-[var(--portal-success)]/85",
+                    "doing" => "bg-[var(--portal-gold-muted)]/85",
+                    "dismissed" => "bg-black/30",
+                    _ => "bg-[var(--portal-navy)]/85",
+                })}
+            style={format!("left:{left}px;width:{width}px;")}>
+        </button>
+    }
+}
+
+fn link_overlay(schedule: &ProjectedSchedule, rows: &[TimelineRow<'_>], range: TimelineRange,
+    spec: TimelineSpec, width: i64) -> Html {
+    let height = rows.len() as i64 * 42;
+    html! {
+        <svg class="pointer-events-none absolute z-20 overflow-visible" aria-label="Project dependencies"
+            style={format!("left:{GRID_WIDTH}px;top:98px;width:{width}px;height:{height}px;")}
+            viewBox={format!("0 0 {width} {height}")}>
+            { for schedule.links.iter().filter_map(|link| {
+                let source_row = rows.iter().position(|row| row.item.id == link.source_id)? as i64;
+                let target_row = rows.iter().position(|row| row.item.id == link.target_id)? as i64;
+                let source = schedule.tasks.iter().find(|task| task.id == link.source_id)?;
+                let target = schedule.tasks.iter().find(|task| task.id == link.target_id)?;
+                let ((x1,y1),(x2,y2)) = timeline::link_anchors(source, target,
+                    source_row * 42 + 27, target_row * 42 + 27, range, spec)?;
+                if x1 < 0 || x1 > width || x2 < 0 || x2 > width { return None; }
+                let bend = if x2 > x1 + 16 { x1 + (x2-x1)/2 } else { x1 + 12 };
+                Some(html! {
+                    <g key={format!("{}:{}", link.source_id, link.target_id)}>
+                        <path d={format!("M{x1} {y1} H{bend} V{y2} H{x2}")}
+                            fill="none" stroke="var(--portal-gold-muted)" stroke-width="2" opacity="0.85" />
+                        <circle cx={x2.to_string()} cy={y2.to_string()} r="3" fill="var(--portal-gold-muted)" />
+                    </g>
+                })
+            }) }
+        </svg>
     }
 }
 
@@ -427,8 +532,15 @@ fn drag_targets(
                     let on_msg = on_msg.clone();
                     let date_text = date_text.clone();
                     let item_id = item_id.clone();
+                    let planned = projects.timeline_drag_kind == "planned";
                     Callback::from(move |event: web_sys::DragEvent| {
                         event.prevent_default();
+                        if planned {
+                            on_msg.emit(Msg::ProjectTimelinePlannedMoved {
+                                item_id: item_id.clone(), planned_start: date_text.clone(),
+                            });
+                            return;
+                        }
                         let Some(due_at) = timeline::midnight_utc(&date_text) else {
                             return;
                         };
@@ -444,7 +556,7 @@ fn drag_targets(
                         ondragenter={enter}
                         ondragover={over}
                         ondrop={drop}
-                        title={format!("Move deadline to {date_text}")}
+                        title={format!("Move {} to {date_text}", if projects.timeline_drag_kind == "planned" { "planned start" } else { "deadline" })}
                         class={classes!(
                             "h-full","shrink-0","border-r","border-transparent",
                             active.then_some("bg-[var(--portal-gold)]/20 border-[var(--portal-gold)]/40")
@@ -467,7 +579,7 @@ fn summary_bar(
     project: bool,
 ) -> Html {
     let left = timeline::x(start, range, spec) + 2;
-    let width = timeline::width_between(start, end, range, spec).max(14) - 4;
+    let width = timeline::planned_bar_width(start, end, spec).max(14) - 4;
     let progress = progress.clamp(0, 100);
     html! {
         <div
@@ -518,7 +630,9 @@ fn visible_rows<'a>(
 ) -> Vec<TimelineRow<'a>> {
     let mut out = Vec::new();
     let mut visited = BTreeSet::new();
-    for root in super::root_items(projects, &project.id) {
+    let mut roots = super::root_items(projects, &project.id);
+    timeline::sort_siblings(&mut roots, &projects.timeline_sort_key, projects.timeline_sort_desc);
+    for root in roots {
         append_row(projects, root, 0, &mut visited, &mut out);
     }
     out
@@ -534,54 +648,18 @@ fn append_row<'a>(
     if !visited.insert(item.id.clone()) {
         return;
     }
-    let children = super::child_items(projects, &item.id);
-    let bounds = deadline_bounds(projects, item);
+    let mut children = super::child_items(projects, &item.id);
+    timeline::sort_siblings(&mut children, &projects.timeline_sort_key, projects.timeline_sort_desc);
     out.push(TimelineRow {
         item,
         depth,
         has_children: !children.is_empty(),
-        deadline_start: bounds.map(|value| value.0),
-        deadline_end: bounds.map(|value| value.1),
     });
     if projects.timeline_collapsed_items.contains(&item.id) {
         return;
     }
     for child in children {
         append_row(projects, child, depth + 1, visited, out);
-    }
-}
-
-fn deadline_bounds(
-    projects: &PortalProjectsPage,
-    item: &PortalProjectWorkItem,
-) -> Option<(NaiveDate, NaiveDate)> {
-    let mut values = Vec::new();
-    collect_deadlines(projects, item, &mut BTreeSet::new(), &mut values);
-    let mut iter = values.into_iter();
-    let first = iter.next()?;
-    let mut min = first;
-    let mut max = first;
-    for value in iter {
-        min = min.min(value);
-        max = max.max(value);
-    }
-    Some((min, max))
-}
-
-fn collect_deadlines(
-    projects: &PortalProjectsPage,
-    item: &PortalProjectWorkItem,
-    visited: &mut BTreeSet<String>,
-    out: &mut Vec<NaiveDate>,
-) {
-    if !visited.insert(item.id.clone()) {
-        return;
-    }
-    if let Some(due) = item.due_at.as_deref().and_then(timeline::date) {
-        out.push(due);
-    }
-    for child in super::child_items(projects, &item.id) {
-        collect_deadlines(projects, child, visited, out);
     }
 }
 

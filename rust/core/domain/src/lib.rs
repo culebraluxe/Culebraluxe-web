@@ -81,7 +81,8 @@ pub use support::*;
 
 pub use wbs::{
     AppleReminderCommandReceipt, AppleReminderLanding, AppleReminderUpsertRequest,
-    CreateWbsItemRequest, SaveWbsItemRequest, WbsEntityLink, WbsEntityType, WbsItem, WbsStatus,
+    dependency_creates_cycle, validate_planned_dates, CreateWbsItemRequest, SaveWbsItemRequest,
+    WbsDependency, WbsEntityLink, WbsEntityType, WbsItem, WbsStatus,
 };
 
 pub use contract::{

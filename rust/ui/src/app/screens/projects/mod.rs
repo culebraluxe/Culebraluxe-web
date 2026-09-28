@@ -49,6 +49,8 @@ pub(super) struct PendingCalendarEdit {
 pub(super) struct PendingTimelineEdit {
     pub item_id: String,
     pub old_due_at: Option<String>,
+    pub old_planned_start: Option<String>,
+    pub old_planned_finish: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -75,14 +77,23 @@ pub enum Msg {
     ProjectNodeSelected(Option<String>),
     ProjectViewSelected(String),
     ProjectTimelineModeSelected(String),
+    ProjectTimelineSortSelected(String),
+    ProjectTimelineFocusChanged(String),
+    ProjectTimelineFocusShifted(i32),
+    ProjectTimelineToday,
     ProjectTimelineGroupToggled(String),
     ProjectTimelineDragStarted(String),
+    ProjectTimelinePlannedDragStarted(String),
     ProjectTimelineDragTargetChanged(Option<String>),
     ProjectTimelineDragEnded,
     ProjectTimelineDueMoved {
         item_id: String,
         due_at: String,
     },
+    ProjectTimelinePlannedMoved { item_id: String, planned_start: String },
+    ProjectTimelineLinkTargetSelected(String),
+    ProjectTimelineLinkAddRequested,
+    ProjectTimelineLinkRemoveRequested(String),
     TimelineSaved(Result<PortalPage, ApiError>),
     ProjectCalendarPrevious,
     ProjectCalendarNext,
@@ -124,6 +135,8 @@ pub enum Msg {
     ProjectWorkNotesChanged(String),
     ProjectWorkOwnerChanged(String),
     ProjectWorkDueChanged(String),
+    ProjectWorkPlannedStartChanged(String),
+    ProjectWorkPlannedFinishChanged(String),
     ProjectWorkStatusChanged(String),
     ProjectWorkCollapsedToggled,
     ProjectWorkSaveRequested,
@@ -157,6 +170,8 @@ fn save(
                 "notes": item.notes,
                 "status": status.unwrap_or(&item.status),
                 "dueAt": item.due_at,
+                "plannedStart": item.planned_start,
+                "plannedFinish": item.planned_finish,
                 "owner": item.owner,
             }),
         },
@@ -179,7 +194,7 @@ fn edit(model: &mut Model, change: impl FnOnce(&mut PortalProjectWorkItem)) {
     }
 }
 
-fn queue_timeline_due_move(model: &mut Model, item_id: String, due_at: String) -> Cmd<Msg> {
+fn queue_timeline_move(model: &mut Model, item_id: String, date: String, planned: bool) -> Cmd<Msg> {
     if model.pending_timeline.is_some() {
         return Cmd::none();
     }
@@ -198,18 +213,33 @@ fn queue_timeline_due_move(model: &mut Model, item_id: String, due_at: String) -
     };
 
     let old_due_at = projects.items[index].due_at.clone();
+    let old_planned_start = projects.items[index].planned_start.clone();
+    let old_planned_finish = projects.items[index].planned_finish.clone();
     let mut item = projects.items[index].clone();
-    item.due_at = Some(due_at);
+    if planned {
+        let Some((start, finish)) = item.planned_start.as_deref().and_then(crate::timeline::date)
+            .zip(item.planned_finish.as_deref().and_then(crate::timeline::date)) else { return Cmd::none(); };
+        let Some(new_start) = crate::timeline::date(&date) else { return Cmd::none(); };
+        item.planned_start = Some(new_start.to_string());
+        item.planned_finish = Some((new_start + (finish - start)).to_string());
+    } else {
+        item.due_at = Some(date);
+    }
     projects.items[index].due_at = item.due_at.clone();
+    projects.items[index].planned_start = item.planned_start.clone();
+    projects.items[index].planned_finish = item.planned_finish.clone();
     projects.selected_node_id = Some(item_id.clone());
     projects.work_collapsed = false;
     projects.work_dirty = false;
     projects.timeline_dragging_item_id = None;
+    projects.timeline_drag_kind.clear();
     projects.timeline_drag_target_date = None;
     projects.saving = true;
     model.pending_timeline = Some(PendingTimelineEdit {
         item_id,
         old_due_at,
+        old_planned_start,
+        old_planned_finish,
     });
     model.error = None;
 
@@ -222,6 +252,8 @@ fn queue_timeline_due_move(model: &mut Model, item_id: String, due_at: String) -
                 "notes": item.notes,
                 "status": item.status,
                 "dueAt": item.due_at,
+                "plannedStart": item.planned_start,
+                "plannedFinish": item.planned_finish,
                 "owner": item.owner,
             }),
         },
@@ -244,10 +276,13 @@ fn timeline_saved(model: &mut Model, result: Result<PortalPage, ApiError>) {
             if let Remote::Loaded(projects) = &mut model.read {
                 projects.saving = false;
                 projects.timeline_dragging_item_id = None;
+                projects.timeline_drag_kind.clear();
                 projects.timeline_drag_target_date = None;
                 if let Some(pending) = pending {
                     if let Some(item) = projects.items.iter_mut().find(|item| item.id == pending.item_id) {
                         item.due_at = pending.old_due_at;
+                        item.planned_start = pending.old_planned_start;
+                        item.planned_finish = pending.old_planned_finish;
                     }
                 }
             }
@@ -572,7 +607,10 @@ impl Screen for Projects {
                 return calendar_state_loaded(model, result);
             }
             Msg::ProjectTimelineDueMoved { item_id, due_at } => {
-                return queue_timeline_due_move(model, item_id, due_at);
+                return queue_timeline_move(model, item_id, due_at, false);
+            }
+            Msg::ProjectTimelinePlannedMoved { item_id, planned_start } => {
+                return queue_timeline_move(model, item_id, planned_start, true);
             }
             Msg::ProjectCalendarEditRequested {
                 occurrence_id,
@@ -599,6 +637,12 @@ impl Screen for Projects {
             }),
             Msg::ProjectWorkDueChanged(value) => edit(model, |item| {
                 item.due_at = (!value.trim().is_empty()).then_some(value)
+            }),
+            Msg::ProjectWorkPlannedStartChanged(value) => edit(model, |item| {
+                item.planned_start = (!value.trim().is_empty()).then_some(value)
+            }),
+            Msg::ProjectWorkPlannedFinishChanged(value) => edit(model, |item| {
+                item.planned_finish = (!value.trim().is_empty()).then_some(value)
             }),
             Msg::ProjectWorkStatusChanged(value) => {
                 if matches!(value.as_str(), "open" | "doing" | "done" | "dismissed") {
@@ -677,6 +721,7 @@ fn selection(projects: &mut PortalProjectsPage, error: &mut Option<String>, msg:
                     projects.work_collapsed = false;
                 }
                 projects.selected_node_id = node_id;
+                projects.timeline_link_target_id = None;
                 projects.calendar_selected_event_id = None;
                 projects.work_dirty = false;
             }
@@ -684,6 +729,33 @@ fn selection(projects: &mut PortalProjectsPage, error: &mut Option<String>, msg:
         Msg::ProjectTimelineModeSelected(mode) => {
             if matches!(mode.as_str(), "day" | "week" | "month") {
                 projects.timeline_mode = mode;
+            }
+        }
+        Msg::ProjectTimelineSortSelected(key) => {
+            if matches!(key.as_str(), "title" | "start" | "days") {
+                if projects.timeline_sort_key == key {
+                    projects.timeline_sort_desc = !projects.timeline_sort_desc;
+                } else {
+                    projects.timeline_sort_key = key;
+                    projects.timeline_sort_desc = false;
+                }
+            }
+        }
+        Msg::ProjectTimelineFocusChanged(date) => {
+            if crate::timeline::date(&date).is_some() {
+                projects.timeline_focus_date = Some(date);
+            }
+        }
+        Msg::ProjectTimelineToday => {
+            projects.timeline_focus_date = Some(projects.calendar_today.clone());
+        }
+        Msg::ProjectTimelineFocusShifted(direction) => {
+            let anchor = projects.timeline_focus_date.as_deref()
+                .and_then(crate::timeline::date)
+                .or_else(|| crate::timeline::date(&projects.calendar_today));
+            if let Some(anchor) = anchor {
+                let step = match projects.timeline_mode.as_str() { "day" => 7, "month" => 60, _ => 28 };
+                projects.timeline_focus_date = Some((anchor + chrono::Duration::days(i64::from(direction) * step)).to_string());
             }
         }
         Msg::ProjectTimelineGroupToggled(item_id) => {
@@ -700,6 +772,16 @@ fn selection(projects: &mut PortalProjectsPage, error: &mut Option<String>, msg:
                     && item.due_at.is_some()
             }) {
                 projects.timeline_dragging_item_id = Some(item_id);
+                projects.timeline_drag_kind = "due".into();
+                projects.timeline_drag_target_date = None;
+            }
+        }
+        Msg::ProjectTimelinePlannedDragStarted(item_id) => {
+            if projects.items.iter().any(|item| item.id == item_id
+                && item.project_id.as_deref() == projects.selected_project_id.as_deref()
+                && item.planned_start.is_some() && item.planned_finish.is_some()) {
+                projects.timeline_dragging_item_id = Some(item_id);
+                projects.timeline_drag_kind = "planned".into();
                 projects.timeline_drag_target_date = None;
             }
         }
@@ -708,7 +790,42 @@ fn selection(projects: &mut PortalProjectsPage, error: &mut Option<String>, msg:
         }
         Msg::ProjectTimelineDragEnded => {
             projects.timeline_dragging_item_id = None;
+            projects.timeline_drag_kind.clear();
             projects.timeline_drag_target_date = None;
+        }
+        Msg::ProjectTimelineLinkTargetSelected(id) => {
+            projects.timeline_link_target_id = Some(id).filter(|id| !id.is_empty());
+        }
+        Msg::ProjectTimelineLinkAddRequested => {
+            if projects.saving { return Cmd::none(); }
+            let (Some(project_id), Some(target_id), Some(source_id)) = (
+                projects.selected_project_id.as_deref(), projects.selected_node_id.as_deref(),
+                projects.timeline_link_target_id.as_deref(),
+            ) else { return Cmd::none(); };
+            if source_id == target_id || projects.dependencies.iter().any(|edge|
+                edge.project_id == project_id && edge.source_id == source_id && edge.target_id == target_id)
+                || !projects.items.iter().any(|item| item.id == source_id
+                && item.project_id.as_deref() == Some(project_id)) { return Cmd::none(); }
+            projects.saving = true;
+            *error = None;
+            return Cmd::request(ProjectsCommand { body: serde_json::json!({
+                "action": "wbsDependencyAdd", "projectId": project_id,
+                "sourceId": source_id, "targetId": target_id,
+            }) }, Msg::Saved);
+        }
+        Msg::ProjectTimelineLinkRemoveRequested(source_id) => {
+            if projects.saving { return Cmd::none(); }
+            let (Some(project_id), Some(target_id)) = (
+                projects.selected_project_id.as_deref(), projects.selected_node_id.as_deref(),
+            ) else { return Cmd::none(); };
+            if !projects.dependencies.iter().any(|edge| edge.project_id == project_id
+                && edge.source_id == source_id && edge.target_id == target_id) { return Cmd::none(); }
+            projects.saving = true;
+            *error = None;
+            return Cmd::request(ProjectsCommand { body: serde_json::json!({
+                "action": "wbsDependencyRemove", "projectId": project_id,
+                "sourceId": source_id, "targetId": target_id,
+            }) }, Msg::Saved);
         }
         Msg::ProjectViewSelected(view) => {
             if matches!(
@@ -866,6 +983,13 @@ fn selection(projects: &mut PortalProjectsPage, error: &mut Option<String>, msg:
             else {
                 return Cmd::none();
             };
+            if let (Some(start), Some(finish)) = (item.planned_start.as_deref(), item.planned_finish.as_deref()) {
+                if crate::timeline::date(start).zip(crate::timeline::date(finish))
+                    .is_none_or(|(start, finish)| start > finish) {
+                    *error = Some("Planned finish must be on or after planned start.".into());
+                    return Cmd::none();
+                }
+            }
             *error = None;
             return save(projects, &item, None);
         }
@@ -1080,6 +1204,62 @@ mod tests {
         );
         assert!(!projects.saving);
         assert_eq!(model.error.as_deref(), Some("WBS save unavailable."));
+    }
+
+    #[test]
+    fn planned_editor_drag_and_dependency_commands_use_canonical_wbs() {
+        let ctx = ScreenCtx::default();
+        let mut model = opened();
+        Projects::update(&mut model, Msg::ProjectTimelineSortSelected("start".into()), &ctx);
+        Projects::update(&mut model, Msg::ProjectTimelineToday, &ctx);
+        assert_eq!(model.read.loaded().unwrap().timeline_focus_date.as_deref(), Some("2026-09-27"));
+        assert_eq!(model.read.loaded().unwrap().timeline_sort_key, "start");
+
+        Projects::update(&mut model, Msg::ProjectWorkPlannedStartChanged("2026-10-05".into()), &ctx);
+        Projects::update(&mut model, Msg::ProjectWorkPlannedFinishChanged("2026-10-03".into()), &ctx);
+        assert!(Projects::update(&mut model, Msg::ProjectWorkSaveRequested, &ctx).into_requests().is_empty());
+        assert!(model.error.as_deref().unwrap().contains("Planned finish"));
+        Projects::update(&mut model, Msg::ProjectWorkPlannedFinishChanged("2026-10-07".into()), &ctx);
+        let request = Projects::update(&mut model, Msg::ProjectWorkSaveRequested, &ctx)
+            .into_requests().remove(0);
+        assert_eq!(request.body.as_ref().unwrap()["plannedStart"], "2026-10-05");
+        assert_eq!(request.body.as_ref().unwrap()["plannedFinish"], "2026-10-07");
+        Projects::update(&mut model, request.respond(Ok(page())), &ctx);
+        {
+            let Remote::Loaded(projects) = &mut model.read else { panic!("projects not loaded") };
+            let item = &mut projects.items[0];
+            item.planned_start = Some("2026-10-05".into());
+            item.planned_finish = Some("2026-10-07".into());
+        }
+        let move_request = Projects::update(&mut model, Msg::ProjectTimelinePlannedMoved {
+            item_id: "w1".into(), planned_start: "2026-10-12".into(),
+        }, &ctx).into_requests().remove(0);
+        assert_eq!(move_request.body.as_ref().unwrap()["plannedFinish"], "2026-10-14");
+        Projects::update(&mut model, move_request.respond(Err(ApiError::network("Rejected."))), &ctx);
+        assert_eq!(model.read.loaded().unwrap().items[0].planned_start.as_deref(), Some("2026-10-05"));
+        assert_eq!(model.read.loaded().unwrap().items[0].planned_finish.as_deref(), Some("2026-10-07"));
+
+        let Remote::Loaded(projects) = &mut model.read else { panic!("projects not loaded") };
+        projects.items.push(PortalProjectWorkItem {
+            id: "w3".into(), project_id: Some("p1".into()), title: "Publish".into(), ..Default::default()
+        });
+        Projects::update(&mut model, Msg::ProjectTimelineLinkTargetSelected("w3".into()), &ctx);
+        let add = Projects::update(&mut model, Msg::ProjectTimelineLinkAddRequested, &ctx)
+            .into_requests().remove(0);
+        assert_eq!(add.body.as_ref().unwrap()["action"], "wbsDependencyAdd");
+        assert_eq!(add.body.as_ref().unwrap()["sourceId"], "w3");
+        assert_eq!(add.body.as_ref().unwrap()["targetId"], "w1");
+        Projects::update(&mut model, add.respond(Err(ApiError::network("Link rejected."))), &ctx);
+        assert_eq!(model.error.as_deref(), Some("Link rejected."));
+        let Remote::Loaded(projects) = &mut model.read else { panic!("projects not loaded") };
+        projects.dependencies.push(crate::model::PortalWbsDependency {
+            project_id: "p1".into(), source_id: "w3".into(), target_id: "w1".into(),
+            kind: "finish_to_start".into(),
+        });
+        let remove = Projects::update(&mut model, Msg::ProjectTimelineLinkRemoveRequested("w3".into()), &ctx)
+            .into_requests().remove(0);
+        assert_eq!(remove.body.as_ref().unwrap()["action"], "wbsDependencyRemove");
+        assert_eq!(remove.body.as_ref().unwrap()["projectId"], "p1");
     }
 
     #[test]

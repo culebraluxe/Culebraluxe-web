@@ -1686,6 +1686,7 @@ pub struct PortalFormTemplateChoice {
 pub struct PortalProjectsPage {
     pub projects: Vec<PortalProject>,
     pub items: Vec<PortalProjectWorkItem>,
+    pub dependencies: Vec<PortalWbsDependency>,
     pub documents: Vec<PortalProjectDocument>,
     pub media: Vec<PortalProjectMedia>,
     pub activity: Vec<PortalProjectActivity>,
@@ -1713,8 +1714,17 @@ pub struct PortalProjectsPage {
     /// Native Timeline/Gantt UI state. The view owns no scheduling truth.
     /// "day" | "week" | "month" controls scale density only.
     pub timeline_mode: String,
+    /// Empty means canonical WBS order; otherwise title, start or days.
+    pub timeline_sort_key: String,
+    pub timeline_sort_desc: bool,
+    /// UI viewport anchor, independent of stored project dates.
+    pub timeline_focus_date: Option<String>,
+    /// Target chosen for the selected work item's dependency command.
+    pub timeline_link_target_id: Option<String>,
     pub timeline_collapsed_items: BTreeSet<String>,
     pub timeline_dragging_item_id: Option<String>,
+    /// "due" or "planned" while the native timeline is dragging.
+    pub timeline_drag_kind: String,
     pub timeline_drag_target_date: Option<String>,
     pub identity_names: BTreeMap<String, String>,
     /// Workspace state lives with the payload and changes only in update().
@@ -1727,6 +1737,15 @@ pub struct PortalProjectsPage {
     pub work_collapsed: bool,
     pub work_dirty: bool,
     pub saving: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalWbsDependency {
+    pub project_id: String,
+    pub source_id: String,
+    pub target_id: String,
+    pub kind: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
@@ -1761,6 +1780,8 @@ pub struct PortalProjectWorkItem {
     pub project_id: Option<String>,
     pub parent_id: Option<String>,
     pub due_at: Option<String>,
+    pub planned_start: Option<String>,
+    pub planned_finish: Option<String>,
     pub owner: Option<String>,
     pub order: Option<i32>,
     pub entity: Option<PortalProjectEntity>,

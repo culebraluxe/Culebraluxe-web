@@ -568,6 +568,8 @@ fn selected_work_editor(
     let title_change = input_msg(on_msg, MsgKind::Title);
     let owner_change = input_msg(on_msg, MsgKind::Owner);
     let due_change = input_msg(on_msg, MsgKind::Due);
+    let planned_start_change = input_msg(on_msg, MsgKind::PlannedStart);
+    let planned_finish_change = input_msg(on_msg, MsgKind::PlannedFinish);
     let notes_change = textarea_msg(on_msg);
     let status_change = select_status_msg(on_msg);
     let save = {
@@ -605,7 +607,7 @@ fn selected_work_editor(
                 </span>
             </button>
             if !projects.work_collapsed {
-                <div class="grid grid-cols-2 gap-2 border-t border-[var(--portal-panel-border)] px-3 pb-3 pt-2 md:grid-cols-3 xl:grid-cols-[minmax(180px,1.2fr)_130px_135px_150px_minmax(220px,1.35fr)_auto] xl:items-end">
+                <div class="grid grid-cols-2 gap-2 border-t border-[var(--portal-panel-border)] px-3 pb-3 pt-2 md:grid-cols-3 xl:grid-cols-4 xl:items-end">
                     <label class="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
                         {"Title"}
                         <input value={item.title.clone()} oninput={title_change} class={work_input_class()} />
@@ -622,6 +624,14 @@ fn selected_work_editor(
                     <label class="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
                         {"Due"}
                         <input type="date" value={date_value(item.due_at.as_deref())} oninput={due_change} class={work_input_class()} />
+                    </label>
+                    <label class="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
+                        {"Planned start"}
+                        <input type="date" value={date_value(item.planned_start.as_deref())} oninput={planned_start_change} class={work_input_class()} />
+                    </label>
+                    <label class="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
+                        {"Planned finish"}
+                        <input type="date" value={date_value(item.planned_finish.as_deref())} oninput={planned_finish_change} class={work_input_class()} />
                     </label>
                     <label class="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
                         {"Owner"}
@@ -645,6 +655,40 @@ fn selected_work_editor(
                         { if projects.saving { "Saving…" } else { "Save" } }
                     </button>
                 </div>
+                if projects.active_view == "timeline" {
+                    <div class="flex flex-wrap items-end gap-2 border-t border-[var(--portal-panel-border)] px-3 py-2 text-xs text-[var(--portal-blue-gray)]">
+                        <label class="min-w-[210px] flex-1">
+                            <span class="block text-[10px] font-semibold uppercase tracking-[0.1em]">{"Add predecessor (finish to start)"}</span>
+                            <select value={projects.timeline_link_target_id.clone().unwrap_or_default()}
+                                onchange={on_msg.reform(|event: Event| Msg::ProjectTimelineLinkTargetSelected(event.target_unchecked_into::<web_sys::HtmlSelectElement>().value()))}
+                                class={work_input_class()}>
+                                <option value="">{"Choose work item"}</option>
+                            { for projects.items.iter().filter(|candidate| candidate.project_id.as_deref() == item.project_id.as_deref()
+                                && candidate.id != item.id && !projects.dependencies.iter().any(|edge| edge.source_id == candidate.id && edge.target_id == item.id))
+                                    .map(|candidate| html! { <option value={candidate.id.clone()}>{candidate.title.clone()}</option> }) }
+                            </select>
+                        </label>
+                        <button type="button" disabled={projects.saving || projects.timeline_link_target_id.is_none()}
+                            onclick={on_msg.reform(|_: MouseEvent| Msg::ProjectTimelineLinkAddRequested)}
+                            class="h-9 rounded bg-[var(--portal-navy)] px-3 text-white disabled:opacity-35">{"Add link"}</button>
+                        <div class="flex-1" aria-label="Predecessors">
+                            <span class="block text-[10px] font-semibold uppercase tracking-[0.1em]">{"Predecessors"}</span>
+                            { for projects.dependencies.iter().filter(|edge| edge.target_id == item.id && Some(edge.project_id.as_str()) == item.project_id.as_deref())
+                                .map(|edge| {
+                                    let name = projects.items.iter().find(|candidate| candidate.id == edge.source_id)
+                                        .map(|candidate| candidate.title.as_str()).unwrap_or("Work item");
+                                    let source_id = edge.source_id.clone();
+                                    html! { <span class="mr-2 inline-flex items-center gap-1 rounded border border-[var(--portal-panel-border)] px-2 py-1">
+                                        {name}
+                                        <button type="button" aria-label={format!("Remove dependency from {name}")}
+                                            disabled={projects.saving}
+                                            onclick={on_msg.reform(move |_: MouseEvent| Msg::ProjectTimelineLinkRemoveRequested(source_id.clone()))}
+                                            class="rounded px-1 text-[var(--portal-gold-muted)] hover:bg-white">{"×"}</button>
+                                    </span> }
+                                }) }
+                        </div>
+                    </div>
+                }
             }
         </section>
     }
@@ -669,6 +713,8 @@ enum MsgKind {
     Title,
     Owner,
     Due,
+    PlannedStart,
+    PlannedFinish,
 }
 
 fn input_msg(on_msg: &Callback<Msg>, kind: MsgKind) -> Callback<InputEvent> {
@@ -681,6 +727,8 @@ fn input_msg(on_msg: &Callback<Msg>, kind: MsgKind) -> Callback<InputEvent> {
             MsgKind::Title => Msg::ProjectWorkTitleChanged(value),
             MsgKind::Owner => Msg::ProjectWorkOwnerChanged(value),
             MsgKind::Due => Msg::ProjectWorkDueChanged(value),
+            MsgKind::PlannedStart => Msg::ProjectWorkPlannedStartChanged(value),
+            MsgKind::PlannedFinish => Msg::ProjectWorkPlannedFinishChanged(value),
         });
     })
 }

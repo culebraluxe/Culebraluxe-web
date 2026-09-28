@@ -2037,6 +2037,12 @@ async fn projects_page(state: &ApiState, resolved: &ResolvedRequestContext) -> R
     let (projects, items, documents) = (to_json(projects), to_json(items), to_json(documents));
     let empty = Vec::new();
     let (projects, items) = (projects.as_array().unwrap_or(&empty), items.as_array().unwrap_or(&empty));
+    let mut dependencies = Vec::new();
+    for project in projects {
+        if let Some(id) = str_at(project, "id") {
+            dependencies.extend(wbs.list_dependencies(id, context).await.map_err(failed(resolved))?);
+        }
+    }
 
     let mut people = std::collections::BTreeSet::new();
     let mut properties = std::collections::BTreeSet::new();
@@ -2113,6 +2119,7 @@ async fn projects_page(state: &ApiState, resolved: &ResolvedRequestContext) -> R
     Ok(Json(json!({ "projects": {
         "projects": camel_keys(Value::Array(projects.clone())),
         "items": camel_keys(Value::Array(items.clone())),
+        "dependencies": to_json(dependencies),
         "documents": documents,
         "media": media,
         "activity": activity,
@@ -2238,15 +2245,35 @@ async fn projects_act(
             let Some(id) = id_of("itemId") else {
                 return Err(ApiError::bad_request("WBS_ID_REQUIRED", "itemId is required."));
             };
-            let update: UpdateWbsBody = serde_json::from_value(json!({
+            let mut update_body = json!({
                 "title": body.get("title"),
                 "notes": body.get("notes"),
                 "status": body.get("status"),
                 "dueAt": body.get("dueAt"),
                 "owner": body.get("owner"),
-            }))
+            });
+            for key in ["plannedStart", "plannedFinish"] {
+                if let Some(value) = body.get(key) {
+                    update_body[key] = value.clone();
+                }
+            }
+            let update: UpdateWbsBody = serde_json::from_value(update_body)
             .map_err(|error| ApiError::bad_request("WBS_UPDATE_INVALID", error.to_string()))?;
             apply_wbs_update(&state, &resolved, id, update).await?;
+        }
+        Some("wbsDependencyAdd") | Some("wbsDependencyRemove") => {
+            let (Some(project_id), Some(source_id), Some(target_id)) =
+                (id_of("projectId"), id_of("sourceId"), id_of("targetId")) else {
+                return Err(ApiError::bad_request("WBS_DEPENDENCY_INVALID", "projectId, sourceId and targetId are required."));
+            };
+            if str_at(&body, "action") == Some("wbsDependencyAdd") {
+                state.services().wbs().add_dependency(&domain::WbsDependency {
+                    project_id, source_id, target_id, kind: "finish_to_start".into(),
+                }, &resolved.service).await.map_err(failed(&resolved))?;
+            } else {
+                state.services().wbs().remove_dependency(&project_id, &source_id, &target_id, &resolved.service)
+                    .await.map_err(failed(&resolved))?;
+            }
         }
         _ => return Err(ApiError::bad_request("PROJECT_ACTION_UNSUPPORTED", "Unsupported Projects action.")),
     }

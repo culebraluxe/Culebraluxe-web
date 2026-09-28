@@ -494,8 +494,18 @@ struct CreateWbsBody {
     project_id: Option<String>,
     parent_id: Option<String>,
     due_at: Option<String>,
+    planned_start: Option<String>,
+    planned_finish: Option<String>,
     owner: Option<String>,
     order: Option<i32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct AddWbsDependencyBody {
+    source_id: String,
+    target_id: String,
+    kind: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -504,8 +514,32 @@ pub(super) struct UpdateWbsBody {
     title: Option<String>,
     notes: Option<String>,
     status: Option<String>,
+    #[serde(default, deserialize_with = "present_nullable_date")]
     due_at: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present_nullable_date")]
+    planned_start: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present_nullable_date")]
+    planned_finish: Option<Option<String>>,
     owner: Option<Option<String>>,
+}
+
+fn present_nullable_date<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<Option<String>>, D::Error> {
+    Option::<String>::deserialize(deserializer).map(Some)
+}
+
+#[cfg(test)]
+mod wbs_schedule_body_tests {
+    use super::UpdateWbsBody;
+
+    #[test]
+    fn patch_distinguishes_omitted_planned_date_from_explicit_clear() {
+        let omitted: UpdateWbsBody = serde_json::from_str("{}").unwrap();
+        let cleared: UpdateWbsBody = serde_json::from_str(r#"{"plannedStart":null}"#).unwrap();
+        let changed: UpdateWbsBody = serde_json::from_str(r#"{"plannedStart":"2026-09-10"}"#).unwrap();
+        assert_eq!(omitted.planned_start, None);
+        assert_eq!(cleared.planned_start, Some(None));
+        assert_eq!(changed.planned_start, Some(Some("2026-09-10".into())));
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -948,6 +982,8 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/projects/{id}", get(project).patch(update_project))
         .route("/v1/wbs", post(create_wbs_item))
         .route("/v1/wbs/project-items", get(wbs_project_items))
+        .route("/v1/wbs/dependencies/{project_id}", get(wbs_dependencies).post(add_wbs_dependency))
+        .route("/v1/wbs/dependencies/{project_id}/{source_id}/{target_id}", axum::routing::delete(remove_wbs_dependency))
         .route("/v1/wbs/{id}", get(wbs_item).patch(update_wbs_item))
         .route("/v1/tasks/{id}/complete", post(complete_task))
         .route("/v1/wbs/{id}/apple-reminder", post(queue_apple_reminder))
@@ -2162,6 +2198,8 @@ async fn create_wbs_item(
                 project_id: body.project_id,
                 parent_id: body.parent_id,
                 due_at: body.due_at,
+                planned_start: body.planned_start,
+                planned_finish: body.planned_finish,
                 owner: body.owner,
                 order: body.order,
                 entity: None,
@@ -2184,6 +2222,36 @@ async fn wbs_project_items(
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(value, &resolved))
+}
+
+async fn wbs_dependencies(
+    State(state): State<ApiState>, headers: HeaderMap, Path(project_id): Path<String>,
+) -> Result<Json<ApiSuccess<Vec<domain::WbsDependency>>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let value = state.services().wbs().list_dependencies(&project_id, &resolved.service)
+        .await.map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn add_wbs_dependency(
+    State(state): State<ApiState>, headers: HeaderMap, Path(project_id): Path<String>,
+    Json(body): Json<AddWbsDependencyBody>,
+) -> Result<Json<ApiSuccess<domain::WbsDependency>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let value = state.services().wbs().add_dependency(&domain::WbsDependency {
+        project_id, source_id: body.source_id, target_id: body.target_id, kind: body.kind,
+    }, &resolved.service).await.map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn remove_wbs_dependency(
+    State(state): State<ApiState>, headers: HeaderMap,
+    Path((project_id, source_id, target_id)): Path<(String, String, String)>,
+) -> Result<Json<ApiSuccess<serde_json::Value>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    state.services().wbs().remove_dependency(&project_id, &source_id, &target_id, &resolved.service)
+        .await.map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(json!({"removed": true}), &resolved))
 }
 
 async fn wbs_item(
@@ -2258,6 +2326,8 @@ pub(super) async fn apply_wbs_update(
                         Some(value) => value,
                         None => current.due_at,
                     },
+                    planned_start: body.planned_start.unwrap_or(current.planned_start),
+                    planned_finish: body.planned_finish.unwrap_or(current.planned_finish),
                     owner: match body.owner {
                         Some(value) => value,
                         None => current.owner,
@@ -3837,6 +3907,8 @@ async fn route_project_work(
                     project_id: current.project_id.clone(),
                     parent_id: current.parent_id.clone(),
                     due_at: body.due_at,
+                    planned_start: current.planned_start,
+                    planned_finish: current.planned_finish,
                     owner: body.owner,
                     order: current.order,
                     entity: current.entity.clone(),
