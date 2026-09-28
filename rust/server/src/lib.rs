@@ -30,6 +30,7 @@ pub mod mq_runtime;
 pub mod observability;
 pub mod people;
 pub mod projects;
+pub mod publishing;
 pub mod properties;
 pub mod public_listings;
 pub mod relationship_evidence;
