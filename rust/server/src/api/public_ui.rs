@@ -18,7 +18,35 @@ pub fn router() -> Router<ApiState> {
     Router::new()
         .route("/api/media/{id}", get(media))
         .route("/api/rust-ui/public-page", get(public_page))
+        .route("/api/rust-ui/client-room", get(client_room))
         .route("/api/rust-ui/website-intake", axum::routing::post(website_intake))
+}
+
+/// The signed-in external client's own transaction room. The subject comes from the session's resolved
+/// app_user.person_id; no caller-selected person id exists on this route.
+async fn client_room(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<axum::Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    if resolved.acting_user.account_type != "external" {
+        return Err(ApiError::forbidden(
+            "CLIENT_ROOM_EXTERNAL_ONLY",
+            "The client room is for external client accounts.",
+        ));
+    }
+    let Some(person_id) = resolved.acting_user.person_id.as_deref() else {
+        return Ok(axum::Json(json!({ "linked": false, "room": null })));
+    };
+    let room = state
+        .services()
+        .client_room()
+        .snapshot(person_id, &resolved.service)
+        .await
+        .map_err(|error| {
+            ApiError::from(error).with_correlation(resolved.service.correlation_id.clone())
+        })?;
+    Ok(axum::Json(json!({ "linked": room.is_some(), "room": room })))
 }
 
 /// One photograph's bytes. A portal user reads any media the firm holds (never cached by the browser); a visitor only
