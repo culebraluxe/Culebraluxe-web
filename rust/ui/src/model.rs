@@ -1035,6 +1035,8 @@ pub struct PortalPage {
     pub cockpit: Option<PortalCockpitPage>,
     /// CORE Catch-Up — deterministic relationship attention queue.
     pub catch_up: Option<PortalCatchUpPage>,
+    /// MARKETING redesigned as one operational Publishing Center.
+    pub publishing: Option<PortalPublishingPage>,
     /// CORE Cabinet — canonical immutable issued-document repository.
     pub cabinet: Option<PortalCabinetPage>,
     /// `/portal/activity` — the unified feed, ordered as the read model returned it.
@@ -1390,6 +1392,39 @@ pub struct PortalCabinetDocument {
     pub created_at: String,
     pub signed_artifact_available: bool,
     pub signed_audit_available: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalPublishingPage {
+    pub listings: Vec<PortalPublishingListing>,
+    pub ready_count: i64,
+    pub live_count: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PortalPublishingListing {
+    pub property_id: String,
+    pub name: String,
+    pub status: String,
+    pub slug: Option<String>,
+    pub location: Option<String>,
+    pub is_active_listing: bool,
+    pub is_published: bool,
+    pub list_price: Option<String>,
+    pub property_type: Option<String>,
+    pub image_count: i64,
+    pub video_count: i64,
+    pub has_hero: bool,
+    pub copy_ready: bool,
+    pub media_ready: bool,
+    pub website_ready: bool,
+    pub facebook_ready: bool,
+    pub stellar_package_ready: bool,
+    pub listing_type: Option<String>,
+    pub agent_mls_id: Option<String>,
+    pub missing: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
