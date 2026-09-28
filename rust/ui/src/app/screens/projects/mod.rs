@@ -83,6 +83,8 @@ pub enum Msg {
     /// The signed PDF chosen: it uploads at once, with the date given.
     ProjectSignedCopyChosen(web_sys::File),
     ProjectSignedCopySaved(Result<serde_json::Value, ApiError>),
+    /// Signed, but no PDF yet: "copy to come".
+    ProjectSignedCopyToCome,
     ProjectTimelineModeSelected(String),
     ProjectTimelineSortSelected(String),
     ProjectTimelineFocusChanged(String),
@@ -884,6 +886,25 @@ fn selection(projects: &mut PortalProjectsPage, error: &mut Option<String>, msg:
                 format!("/api/portal/projects/documents/{document_id}/signed"),
                 fields,
                 file,
+                Msg::ProjectSignedCopySaved,
+            );
+        }
+        Msg::ProjectSignedCopyToCome => {
+            let Some(document_id) = projects.signing_document_id.clone() else {
+                return Cmd::none();
+            };
+            if projects.signing_date.trim().is_empty() {
+                *error = Some("Give the date it was signed.".into());
+                return Cmd::none();
+            }
+            projects.signing_busy = true;
+            *error = None;
+            return Cmd::request(
+                crate::app::api::ProjectDocumentSignedCopyToCome {
+                    document_id,
+                    project_id: projects.selected_project_id.clone().unwrap_or_default(),
+                    signed_at: projects.signing_date.clone(),
+                },
                 Msg::ProjectSignedCopySaved,
             );
         }

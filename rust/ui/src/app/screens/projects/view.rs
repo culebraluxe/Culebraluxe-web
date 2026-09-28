@@ -465,6 +465,13 @@ fn asset_date(value: Option<&str>) -> String {
 fn documents_view(projects: &PortalProjectsPage, project: &PortalProject, on_msg: &Callback<Msg>) -> Html {
     let property_id = project.property_id.as_deref();
     let person_id = project.person_id.as_deref();
+    // Signed with the copy still to come: the document is sent and the project's signing step is done.
+    let signing_step_done = projects
+        .items
+        .iter()
+        .find(|item| item.project_id.as_deref() == Some(project.id.as_str()) && item.title == "Listing Contract Signed")
+        .filter(|item| item.status == "done")
+        .map(|item| asset_date(item.planned_start.as_deref()));
     let mut assets: Vec<ProjectAsset> = projects
         .documents
         .iter()
@@ -480,10 +487,10 @@ fn documents_view(projects: &PortalProjectsPage, project: &PortalProject, on_msg
                 key: format!("document:{}", document.id),
                 kind: "document",
                 name: document.title.clone(),
-                caption: Some(if signed {
-                    format!("Signed {}", asset_date(document.signed_at.as_deref()))
-                } else {
-                    "Issued — awaiting signature".to_owned()
+                caption: Some(match (signed, document.state.as_str(), &signing_step_done) {
+                    (true, _, _) => format!("Signed {}", asset_date(document.signed_at.as_deref())),
+                    (false, "sent", Some(day)) => format!("Signed {day} · copy to come"),
+                    _ => "Issued — awaiting signature".to_owned(),
                 }),
                 thumbnail: None,
                 href: format!(
@@ -642,7 +649,12 @@ fn documents_view(projects: &PortalProjectsPage, project: &PortalProject, on_msg
                                             class="h-9 rounded-md bg-[var(--portal-gold)] px-4 text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-navy)] disabled:opacity-50">
                                             { if projects.signing_busy { "Recording…" } else { "Choose the signed PDF" } }
                                         </button>
-                                        <span class="text-[11px] font-light text-white/50">{"Stored as the executed copy; the project's signing step is marked done."}</span>
+                                        <button type="button" disabled={projects.signing_busy}
+                                            onclick={on_msg.reform(|_: MouseEvent| Msg::ProjectSignedCopyToCome)}
+                                            class="h-9 rounded-md border border-[var(--portal-gold)]/70 px-4 text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-gold)] hover:bg-white/10 disabled:opacity-50">
+                                            {"Mark signed — copy to come"}
+                                        </button>
+                                        <span class="text-[11px] font-light text-white/50">{"The PDF becomes the executed copy; without it, the contract waits as “copy to come”. Either way the project's signing step is done."}</span>
                                     </div>
                                 }
                             </li>

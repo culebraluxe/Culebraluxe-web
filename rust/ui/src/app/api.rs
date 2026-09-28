@@ -993,6 +993,24 @@ impl Endpoint for PropertyMergeParcel {
     }
 }
 
+/// A contract known to be signed, its PDF still to come: recorded as sent, and the project's signing step done.
+pub struct ProjectDocumentSignedCopyToCome {
+    pub document_id: String,
+    pub project_id: String,
+    pub signed_at: String,
+}
+
+impl Endpoint for ProjectDocumentSignedCopyToCome {
+    const METHOD: Method = Method::Post;
+    type Response = serde_json::Value;
+    fn path(&self) -> String {
+        format!("/api/portal/projects/documents/{}/signed-copy-to-come", self.document_id)
+    }
+    fn body(&self) -> Option<serde_json::Value> {
+        Some(serde_json::json!({ "projectId": self.project_id, "signedAt": self.signed_at }))
+    }
+}
+
 /// Take a photograph off a property (deleted with its copies unless another property shows it).
 pub struct PropertyMediaRemove {
     pub property_id: String,

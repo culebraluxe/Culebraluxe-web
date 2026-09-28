@@ -60,6 +60,7 @@ pub fn router() -> Router<ApiState> {
         .route("/api/property-media/remove", axum::routing::post(property_media_remove))
         .route("/api/portal/property/merge-parcel", axum::routing::post(property_merge_parcel))
         .route("/api/portal/documents/{id}/file", get(portal_document_file))
+        .route("/api/portal/projects/documents/{id}/signed-copy-to-come", axum::routing::post(project_document_signed_copy_to_come))
         .route(
             "/api/portal/projects/documents/{id}/signed",
             axum::routing::post(project_document_signed).layer(axum::extract::DefaultBodyLimit::max(20 * 1024 * 1024)),
@@ -3401,38 +3402,95 @@ async fn project_document_signed(
         .await
         .map_err(failed(&resolved))?;
 
-    // The project's step, done on the day it was signed.
-    let mut step_done = false;
-    if !project_id.is_empty() {
-        let wbs = services.wbs();
-        let items = wbs.list_project_items(&resolved.service).await.map_err(failed(&resolved))?;
-        if let Some(step) = items
-            .into_iter()
-            .find(|item| item.project_id.as_deref() == Some(project_id.as_str()) && item.title == "Listing Contract Signed")
-        {
-            let day = signed_day.to_string();
-            let request = domain::SaveWbsItemRequest {
-                create: domain::CreateWbsItemRequest {
-                    id: step.id,
-                    title: step.title,
-                    notes: Some(step.notes),
-                    category: step.category,
-                    project_id: step.project_id,
-                    parent_id: step.parent_id,
-                    due_at: step.due_at,
-                    planned_start: Some(day.clone()),
-                    planned_finish: Some(day),
-                    owner: step.owner,
-                    order: step.order,
-                    entity: step.entity,
-                },
-                status: Some(domain::WbsStatus::Done),
-            };
-            wbs.save(&request, &resolved.service).await.map_err(failed(&resolved))?;
-            step_done = true;
+    let step_done = mark_signing_step(&state, &resolved, &project_id, signed_day).await?;
+    Ok(Json(json!({ "ok": true, "signed": true, "signedAt": signed_day.to_string(), "stepDone": step_done })))
+}
+
+/// The project's "Listing Contract Signed" step, done on the day the contract was signed — the same for a signed copy
+/// recorded and for a signing whose copy is still to come. `false` when the project has no such step.
+async fn mark_signing_step(
+    state: &ApiState,
+    resolved: &ResolvedRequestContext,
+    project_id: &str,
+    signed_day: chrono::NaiveDate,
+) -> Result<bool, ApiError> {
+    if project_id.is_empty() {
+        return Ok(false);
+    }
+    let wbs = state.services().wbs();
+    let items = wbs.list_project_items(&resolved.service).await.map_err(failed(resolved))?;
+    let Some(step) = items
+        .into_iter()
+        .find(|item| item.project_id.as_deref() == Some(project_id) && item.title == "Listing Contract Signed")
+    else {
+        return Ok(false);
+    };
+    let day = signed_day.to_string();
+    let request = domain::SaveWbsItemRequest {
+        create: domain::CreateWbsItemRequest {
+            id: step.id,
+            title: step.title,
+            notes: Some(step.notes),
+            category: step.category,
+            project_id: step.project_id,
+            parent_id: step.parent_id,
+            due_at: step.due_at,
+            planned_start: Some(day.clone()),
+            planned_finish: Some(day),
+            owner: step.owner,
+            order: step.order,
+            entity: step.entity,
+        },
+        status: Some(domain::WbsStatus::Done),
+    };
+    wbs.save(&request, &resolved.service).await.map_err(failed(resolved))?;
+    Ok(true)
+}
+
+/// SIGNED, COPY TO COME — the contract is known to be signed but its PDF has not arrived. The Vault only calls a
+/// document signed with the signed copy in hand, so the document is recorded as sent (it went out), and the project's
+/// signing step is done on the signing date. Recording the copy later makes the document signed.
+async fn project_document_signed_copy_to_come(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let resolved = resolve_portal_context(&state, &headers).await?;
+    let bad = |code: &str, message: &str| correlate(ApiError::bad_request(code, message), &resolved);
+    let Ok(signed_day) = chrono::NaiveDate::parse_from_str(str_at(&body, "signedAt").unwrap_or_default().trim(), "%Y-%m-%d") else {
+        return Err(bad("SIGNED_DATE_REQUIRED", "Give the date it was signed."));
+    };
+    let project_id = str_at(&body, "projectId").unwrap_or_default().trim().to_owned();
+    let vault = state.services().vault();
+    let document = vault
+        .get_document(&id, &resolved.service)
+        .await
+        .map_err(failed(&resolved))?
+        .ok_or_else(|| correlate(ApiError::not_found("VAULT_DOCUMENT_NOT_FOUND", "That document was not found."), &resolved))?;
+    match document.state {
+        domain::TransactionDocumentState::Ready => {
+            vault
+                .transition_state(
+                    &domain::TransitionTransactionDocumentRequest {
+                        command_id: uuid::Uuid::new_v4().to_string(),
+                        document_id: id.clone(),
+                        to: domain::TransactionDocumentState::Sent,
+                        signed_artifact: None,
+                        actor_app_user_id: resolved.service.actor.id.clone(),
+                    },
+                    &resolved.service,
+                )
+                .await
+                .map_err(failed(&resolved))?;
+        }
+        domain::TransactionDocumentState::Sent => {}
+        other => {
+            return Err(bad("SIGNED_COPY_STATE", &format!("This document is {} — only an issued one can be marked signed.", other.as_str())));
         }
     }
-    Ok(Json(json!({ "ok": true, "signed": true, "signedAt": signed_day.to_string(), "stepDone": step_done })))
+    let step_done = mark_signing_step(&state, &resolved, &project_id, signed_day).await?;
+    Ok(Json(json!({ "ok": true, "signed": false, "copyToCome": true, "signedAt": signed_day.to_string(), "stepDone": step_done })))
 }
 
 /// FIND by catastro on the Records screen: the other record for that parcel is merged into the open one.
