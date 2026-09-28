@@ -189,7 +189,14 @@ impl<R: DealPortalRepository> DealPortalService<R> {
                         "Showing time is required.",
                     ));
                 }
-                DealWorkspaceCommand::SubmitOffer { amount, .. } => {
+                DealWorkspaceCommand::SubmitOffer {
+                    amount,
+                    deposit_amount,
+                    inspection_days,
+                    seller_credits,
+                    proposed_closing_date,
+                    ..
+                } => {
                     let parsed = amount.trim().parse::<f64>().map_err(|_| {
                         CoreServiceError::business(
                             "OFFER_AMOUNT_INVALID",
@@ -201,6 +208,53 @@ impl<R: DealPortalRepository> DealPortalService<R> {
                             "OFFER_AMOUNT_INVALID",
                             "Offer amount must be a positive number.",
                         ));
+                    }
+                    for (value, code, label) in [
+                        (deposit_amount.as_deref(), "OFFER_DEPOSIT_INVALID", "Deposit"),
+                        (seller_credits.as_deref(), "OFFER_CREDITS_INVALID", "Seller credits"),
+                    ] {
+                        if let Some(value) = value.filter(|value| !value.trim().is_empty()) {
+                            let number = value.trim().parse::<f64>().map_err(|_| {
+                                CoreServiceError::business(
+                                    code,
+                                    format!("{label} must be a non-negative number."),
+                                )
+                            })?;
+                            if !number.is_finite() || number < 0.0 {
+                                return Err(CoreServiceError::business(
+                                    code,
+                                    format!("{label} must be a non-negative number."),
+                                ));
+                            }
+                        }
+                    }
+                    if let Some(days) = inspection_days
+                        .as_deref()
+                        .filter(|value| !value.trim().is_empty())
+                    {
+                        let days = days.trim().parse::<i32>().map_err(|_| {
+                            CoreServiceError::business(
+                                "OFFER_INSPECTION_INVALID",
+                                "Inspection period must be a whole number of days.",
+                            )
+                        })?;
+                        if !(0..=365).contains(&days) {
+                            return Err(CoreServiceError::business(
+                                "OFFER_INSPECTION_INVALID",
+                                "Inspection period must be between 0 and 365 days.",
+                            ));
+                        }
+                    }
+                    if let Some(date) = proposed_closing_date
+                        .as_deref()
+                        .filter(|value| !value.trim().is_empty())
+                    {
+                        chrono::NaiveDate::parse_from_str(date.trim(), "%Y-%m-%d").map_err(|_| {
+                            CoreServiceError::business(
+                                "OFFER_CLOSING_DATE_INVALID",
+                                "Proposed closing date must be a date.",
+                            )
+                        })?;
                     }
                 }
                 DealWorkspaceCommand::AddOtherParticipant { role_label, .. }
