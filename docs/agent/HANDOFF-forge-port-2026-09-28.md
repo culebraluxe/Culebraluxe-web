@@ -20,6 +20,8 @@ the doctor, and the writer. What is left is below with the exact files to open.
 | S10 | **`rust/ui` compiles again on `main`, and production runs it**: `305026d7` closes five call sites the offer-room workstream left behind — `update.rs:2513`'s seven missing `PortalDealCommand` fields, the bare `PortalPage` name in `api.rs`, a `</textarea>` closing tag, one arm holding a `&mut` across its own call, and a duplicate icon arm | `cd rust && cargo check -p ui --features wasm --target wasm32-unknown-unknown` → 0 errors; `cargo check --workspace --all-targets` → 0 errors |
 | S11 | `main` had been red for `server` since `0e832a9b` (the publishing feature was never re-exported nor registered); repaired in `c6bfc6a6` | `cd rust && cargo check -p server` |
 
+| S12 | **the deploy's own build is a gate now, not a habit**: `pnpm ui:check` (`cargo check -p ui --features wasm --target wasm32-unknown-unknown`) plus a `.githooks/pre-push` rule that runs it whenever the pushed range touches `rust/ui` (and `cargo check --workspace --all-targets` for any other crate), refusing the push on failure | with one type error inside a `#![cfg(feature = "wasm")]` file, `cargo check --workspace --all-targets` exited **0** while `pnpm ui:check` reported `E0308` (`shell.rs:399`) and the hook refused that push in the compiler's own words; a docs-only range exits 0 and compiles nothing (`e6879e60`) |
+
 ## 2. HOLDS — do not act on these
 
 | # | Held | Who holds it | What an agent must do |
@@ -56,6 +58,8 @@ the doctor, and the writer. What is left is below with the exact files to open.
 | `56fcab57` | **the false outage, fixed:** `apple_sync::repo_root()` is the git toplevel, not `current_dir()`, so `.env.local` is found from any directory; ONE `forge::connect()` replaces four copies and prints `DbFailure.detail` | `cargo test -p cli` 74 (2 new: the message names the reason; and names the file with no detail); `-p db` 40, `-p forge` 76; `forge roi` answers from the root **and** from `rust/`; a missing `.env.local` prints the variable and exits 2 |
 | `26005949` | `.env.example` names the Mux pairs the code reads (`_PROD`, `_DEV`) instead of only the unsuffixed fallback — the template was the reason "which names do I type?" had two answers; handoff + MEMORY record that the `.env.local` mtime of 2026-09-27 21:54 was the Captain's Mux token, not a database edit | `pnpm forge:packet-lint` → 0 failures / 132 warnings (126 baselined); `git log origin/main` shows the commit; working tree clean |
 | `305026d7` | **the wasm build green, and production on it:** `api.rs:682,693,724` spell `crate::model::PortalPage` like their neighbours; the offer-room `<textarea>` is in void-element form; the reducer and the Contracts screen both send the seven structured terms the model grew; `deals/mod.rs:416` reads the terms into locals so the `&mut` borrow ends before `command`; the duplicate `check-circle-2` arm is gone | `cargo check -p ui --features wasm --target wasm32-unknown-unknown` 0 errors; `cargo check --workspace --all-targets` 0 errors; `docker build -f deploy/Dockerfile.build --output type=local,dest=/tmp/…` → `culebraluxe` + `ui.js` + `ui_bg.wasm`; `pnpm deploy:prod` → 7/7 smoke checks 200, "DEPLOY COMPLETE" |
+
+| `e6879e60` | **the build can no longer break like glass**: `pnpm ui:check`; the pre-push build guard (wasm check for `rust/ui`, workspace check for any other crate, `CULEBRALUXE_SKIP_BUILD_CHECK=1` to skip — and to say so); the rule in AGENTS.md "Build and QA" and in MEMORY; three stale doc claims corrected (the Forge gates **do** run — `rust/cli/src/forge/`; DEAD-COMMANDS' `mailbox:promote` row contradicted its own findings page; Gmail is KEEP on the Captain's word) | the hook refused a push carrying an `E0308` in a wasm-gated file; passed on a docs-only range (exit 0, no compile) and on a fresh push; a non-main branch is still refused; `pnpm forge:packet-lint` 0 failures / 132 warnings (126 baselined); `pnpm broken:ts:sweep` → "the tree and the inventory agree"; pushed — `git log origin/main` shows it |
 
 ## 5. NOT VERIFIED — the honest gaps
 
@@ -95,7 +99,18 @@ the doctor, and the writer. What is left is below with the exact files to open.
 
 1. **CLOSED THIS SESSION** — `forge:manifest` (item 1 of the previous version of this list) and the five harness
    gate fixes all landed; see §4 for the commit ids and the receipts.
-2. **The remaining dead Forge/story commands — the measured list is `docs/agent/DEAD-COMMANDS.md` Block A, and it
+2. **The ODS/mail chain — the Captain's "fix email sync", green-lit 2026-09-28.** Every scheduled feed except
+   iMessage is broken, and it is one job rather than five: `contacts-sync.sh:135,143,149` (load → project →
+   warehouse promotion), `apple-calls-sync.sh:20`, `email-sync.sh:41` **and** `:49` (the Apple Mail intake is dead
+   as well as its promotion) and `gmail-sync.sh:26` all call banner-marked files. The shape is already decided in
+   `docs/agent/DEAD-TS-DOWNSIZE.md` §1: ≈2,480 lines of TypeScript become **one Rust job — four feeds in, one
+   promotion out** — with the promotion shared by contacts and mail. Gmail is **KEEP** on the Captain's word. Home:
+   extend `rust/cli/src/apple_sync.rs` (the intake command family that already works for iMessage), `db::landing`
+   (today: `land_imessage_batch` only) and the missing promotion hop in `rust/core/db/`; repoint the five shell
+   scripts at the Rust binary; only then may the dead names leave `package.json`. These loaders are PROD by design
+   (`scripts/ods-load.sh` fails closed on a PROD target), so the Captain's gate applies when they run, never at
+   build time.
+3. **The remaining dead Forge/story commands — the measured list is `docs/agent/DEAD-COMMANDS.md` Block A, and it
    is now 16 of 17, not 21.** `forge:roi` landed (`be6df89d`). Order: the board feeders first
    (`forge:test-stories` P1, `forge:record-stories` P1, `forge:ladder` P2 — the engine's own dispatch surface),
    then the reports (`forge:decision` — half-built, `rust/cli/src/forge/decision.rs` is only wired into the lint;
@@ -106,12 +121,12 @@ the doctor, and the writer. What is left is below with the exact files to open.
    `rust/core/db/src/`, gather-and-print in `rust/cli/src/forge/`, repoint `package.json`, verify against DEV,
    commit. **"Verify against DEV" is unblocked (S9 was a false alarm) — and the CLI now answers from any
    directory, so those runs are cheap.**
-3. **`AGENTS.md` guard paths** (S8): repoint the `workflow_app/tests/*` citations at the Rust tests that now own
+4. **`AGENTS.md` guard paths** (S8): repoint the `workflow_app/tests/*` citations at the Rust tests that now own
    those rules, or say where each is enforced instead. `pnpm forge:packet-lint` reports them as warnings until then.
-4. **The packets that cite deleted `lib/` files** — `PIRATE-01` cites three of them, which is why
+5. **The packets that cite deleted `lib/` files** — `PIRATE-01` cites three of them, which is why
    `pnpm forge:manifest PIRATE-01` exits 1 and why 20 citations are noted as stale by `--check-all`. The packets
    now have Rust homes to point at (`rust/forge/src/scope_manifest.rs`, `rust/cli/src/forge/vendor_block.rs`).
-5. **`pnpm typecheck` is not a gate any more** (removed from CI in `4d5bb707`): 679 errors, all in reference-only
+6. **`pnpm typecheck` is not a gate any more** (removed from CI in `4d5bb707`): 679 errors, all in reference-only
    dead TypeScript. Restoring it as a real gate is a deletion policy decision for the Captain, not a code fix.
 
 ## 7. ASK THE OWNER
@@ -146,12 +161,17 @@ the doctor, and the writer. What is left is below with the exact files to open.
 - **May `pnpm forge:clean` be exercised once against PROD, with the Captain watching, so the writer's happy path
   is verified rather than assumed?** Yes → the printed post-condition is the receipt. No → the writer's SQL stays
   unverified, which is recorded above rather than discovered later.
-- **Which is worth the next block of tokens: the remaining `forge:*` ports (§6.2) or a small Rust-first story?**
+- **Which is worth the next block of tokens: the remaining `forge:*` ports (§6.3) or a small Rust-first story?**
   The Captain's standing offer of a small build (a screen + a service, each following its own rules) cannot start
   while H2 holds `rust/ui`, so a screen story needs the hold lifted first; a service-only story (Rust, no UI) can
   start now without touching `rust/ui`.
-- **The packets citing deleted `lib/` files (§6.4)** — a five-minute edit each. Say the word and the next agent
+- **Two words settle the next block of work: `ods port` and `contracts`.** `ods port` = build the ODS/mail
+  Rust job (all four feeds, Gmail kept, then repoint the five shell scripts). `contracts` = collapse the duplicate
+  writer for `DealWorkspaceSubmitOfferRequested` — two `Msg` owners, `rust/ui/src/update.rs` and the Contracts
+  screen's own `update` — **before** the Captain refactors the deal/contract piece. If both are wanted, say which
+  comes first.
+- **The packets citing deleted `lib/` files (§6.5)** — a five-minute edit each. Say the word and the next agent
   repoints them at the Rust modules that replaced them, which makes `pnpm forge:manifest <scope>` exit 0 for
   every story rather than only for the ones whose packets are clean.
-- **`pnpm typecheck` (§6.5)**: keep it out of CI, or delete the dead TypeScript so it can be a gate again? The
+- **`pnpm typecheck` (§6.6)**: keep it out of CI, or delete the dead TypeScript so it can be a gate again? The
   second is a policy reversal of "marked, not deleted", so it is the Captain's call.
