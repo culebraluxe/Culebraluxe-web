@@ -339,6 +339,21 @@ in `rust/ui` (wasm + Tailwind) served by the Rust server (`rust/server/src/site.
 "UI: `app/`, `components/`" row and the line "CulebraLuxe is a Next.js application" as historical: new UI
 lives in `rust/ui/src/app/screens/**`, and `pnpm dev` runs `scripts/dev.sh`.
 
+**2026-09-28 — a green `cargo check --workspace` does not mean `rust/ui` builds.** `ui` is a workspace
+member, but the application — screens, shell, the whole browser surface — is behind `--features wasm`, so the
+workspace check compiles `model`/`update` on the host target only and never the code the deploy ships. Roughly
+thirty commits landed with `rust/ui` uncompilable: the workspace was clean, `cargo check --workspace --all-targets`
+passed, the next `pnpm deploy:prod` died in the Docker step, and production served an older build until it was
+fixed (`305026d7`). The check that matches the artifact, to be run before pushing anything under `rust/ui`:
+
+```sh
+pnpm ui:check           # cargo check --manifest-path rust/Cargo.toml -p ui --features wasm --target wasm32-unknown-unknown
+```
+
+`.githooks/pre-push` now runs it by itself when the pushed commits touch `rust/ui` (and
+`cargo check --workspace --all-targets` when they touch any other crate), and refuses the push on failure.
+`CULEBRALUXE_SKIP_BUILD_CHECK=1` skips that check, and using it must be stated in the report.
+
 Known issues:
 
 - The `.next`/Turbopack cache can become stale. A clean `.next` restart may be needed before concluding that a component is broken.

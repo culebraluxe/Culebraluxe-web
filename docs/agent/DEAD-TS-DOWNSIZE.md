@@ -16,7 +16,7 @@ translated, not kept alive, not paid for.** This page is the whole decision; the
 | `promote-warehouse.ts` | landing tables → `person` / `property` — **the hop with no Rust home at all** | 405 | **PORT** |
 | `apple-mail-envelope-intake.ts` | Apple Mail headers → landing | 440 | **PORT** |
 | `promote-applemail.ts` | mail landing → mail timeline | 193 | **PORT** |
-| `gmail-metadata-sync.ts` | Gmail metadata → landing | 193 | one word: keep or kill |
+| `gmail-metadata-sync.ts` | Gmail metadata → landing | 193 | **KEEP** — the captain's word, 2026-09-28: "yes fix email sync" (the Gmail path is the orphaned one) |
 
 ≈2,480 lines of TS become **one Rust job: four feeds in, one promotion out**. These are the five shell
 scripts that already schedule them, so nothing new calls them into being —
@@ -36,9 +36,12 @@ Only two reasons, and both are final: **(a) already in Rust** (every `forge-*.ts
 it** — 14 verifiers of a UI that no longer exists, the phone-identity one-offs, the bank transaction
 loader, dev fixtures, story scaffolding, the runtime dogfood harness. None of it is translated.
 
-**Two exceptions, and they matter:** `forge-packet-lint.ts` (663) and `forge-sync-agents.ts` (172) are
-the gates that keep AGENTS.md and the vendor pointer files honest. Rust does neither. **PORT, right after
-Apple.** Until then that guarantee is enforced by nothing.
+**Two exceptions, and they matter — and both are already Rust (corrected 2026-09-28):**
+`forge-packet-lint.ts` (663) and `forge-sync-agents.ts` (172) are the gates that keep AGENTS.md and the
+vendor pointer files honest. They are no longer enforced by nothing: `rust/cli/src/forge/{lint,sync_agents,vendor_block}.rs`
+replace them, `package.json` runs the Rust binary (`forge:packet-lint` → `forge harness-lint`,
+`forge:sync-agents` → `forge sync-agents`), and both were run green on 2026-09-28. The earlier claim that they
+"cannot run at all" was true of the deleted TypeScript and is now stale. Nothing to port here.
 
 ## 4. The menu is lying — 64 commands cannot run
 

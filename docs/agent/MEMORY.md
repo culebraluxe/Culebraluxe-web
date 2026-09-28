@@ -273,4 +273,14 @@ Short facts that are expensive to rediscover. Not the current story — that is 
   `pnpm deploy:prod` is the receipt that the artifact really compiles.** One warning left as a story, not a fix: two
   Msg owners answer one command (the monolith reducer `rust/ui/src/update.rs` and the Contracts screen's own `update`
   both handle `DealWorkspaceSubmitOfferRequested`); both were made to send the same seven terms, which is a duplicate
-  writer, not a design.
+  writer, not a design. **And that rule is a hook now, because a sentence in a document enforced nothing (same
+  day):** `pnpm ui:check` is the command, and `.githooks/pre-push` refuses a push whose commits touch `rust/ui`
+  unless it passes (any other crate: `cargo check --workspace --all-targets`; `CULEBRALUXE_SKIP_BUILD_CHECK=1`
+  skips it and must be named in the report). Proven rather than asserted: with one type error inside a
+  `#![cfg(feature = "wasm")]` file, `cargo check --workspace --all-targets` exited **0** while `pnpm ui:check`
+  reported `E0308` at `shell.rs:399`, and the hook refused that push in the compiler's own words; a docs-only
+  range exits 0 and compiles nothing. **Two 2026-09-27 claims were found stale the same day and corrected:**
+  the Forge gates (`forge:packet-lint`, `forge:sync-agents`, `forge:manifest`, `forge:harness`) **do** run — they
+  are Rust (`rust/cli/src/forge/`) and green — and the ODS chain is down at more places than the mail promotion:
+  `contacts-sync.sh` (3 dead calls), `apple-calls-sync.sh`, `email-sync.sh` (both steps) and `gmail-sync.sh`, so
+  **every scheduled feed except iMessage is broken**, which is one story and not five.

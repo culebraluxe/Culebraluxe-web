@@ -70,9 +70,12 @@ capabilities are not "dead weight", they are **broken in production** (checked 2
 tables"*, and no Rust implementation of that hop exists anywhere under `rust/` — so that is a missing
 capability, not a dead script. It is the DEV_OPS P0 item and the captain has already green-lit the port.
 
-**Operator commands that cannot run and are named in AGENTS.md or used daily:** `forge:doctor`,
-`forge:clean` / `forge:story:reset`, `forge:packet-lint`, `forge:manifest`, `forge:sync-agents`,
-`forge:harness`, `sprint`, `health`, `test:story`, `db:pull:dev`, `probe:kind:dev`. A runbook step that
+**Operator commands that cannot run and are named in AGENTS.md or used daily** — corrected 2026-09-28, because
+the Forge half of this list was stale: `forge:doctor`, `forge:clean`, `forge:story:reset`, `forge:packet-lint`,
+`forge:manifest`, `forge:sync-agents` and `forge:harness` **all run**. `package.json` points them at the Rust CLI
+(`rust/cli/src/forge/`), `pnpm broken:ts:commands` counts none of them among the 53 dead names, and both gates were
+run green on 2026-09-28. Still dead and used daily: `sprint`, `health`, `test:story`, `test:sprint-fences`,
+`story:status`, `story:preflight`, `db:pull:dev`, `probe:kind:dev`. A runbook step that
 cannot execute is a finding, not a footnote.
 
 

@@ -2,9 +2,18 @@
 # House Rules (AGENTS.md), enforced at push time.
 #   Rule 1 — main only: any branch but main is refused.
 #   Rule 5 — Cargo.lock travels with Cargo.toml: a lock that is out of date is refused (the deploy builds --locked).
+#   The artifact's own build — a push that touches rust/ui compiles it for wasm first, because
+#     `cargo check --workspace` does NOT compile the app (it lives behind `--features wasm`), and a green
+#     workspace can still fail the deploy. See AGENTS.md "Build and QA".
 set -euo pipefail
 
-while read -r local_ref _local_sha remote_ref _remote_sha; do
+root="$(git rev-parse --show-toplevel)"
+
+# pre-push hands us "<local ref> <local sha> <remote ref> <remote sha>" per line on stdin, and stdin can only
+# be read once, so keep it for both passes below.
+push_input="$(cat)"
+
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
   case "$remote_ref" in
     refs/heads/main|"") ;;
     refs/heads/*)
@@ -12,12 +21,77 @@ while read -r local_ref _local_sha remote_ref _remote_sha; do
       exit 1
       ;;
   esac
-done
+done <<< "$push_input"
 
-root="$(git rev-parse --show-toplevel)"
+# --- Rule 5: Cargo.lock travels with Cargo.toml --------------------------------
 if [ -f "$root/rust/Cargo.toml" ] && command -v cargo >/dev/null 2>&1; then
   if ! cargo metadata --manifest-path "$root/rust/Cargo.toml" --locked --offline --format-version 1 >/dev/null 2>&1; then
     echo "House Rules: rust/Cargo.lock is out of date with a Cargo.toml. Run 'cargo metadata --manifest-path rust/Cargo.toml' and commit rust/Cargo.lock with it." >&2
     exit 1
+  fi
+fi
+
+# --- the artifact's own build ---------------------------------------------------
+# What the pushed range changes decides how much has to be compiled. `rust/ui` is the one crate whose shipped
+# code is behind a feature flag, so a plain workspace check cannot see it.
+has_prefix() { # $1 = prefix, $2 = newline-separated paths. No pipes: grep -q would SIGPIPE git under pipefail.
+  while IFS= read -r line; do
+    case "$line" in "$1"*) return 0 ;; esac
+  done <<< "$2"
+  return 1
+}
+
+ui_changed=0
+rust_changed=0
+all_new=0
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+  [ -n "${local_sha:-}" ] || continue
+  case "${remote_sha:-}" in
+    ""|0000000000000000000000000000000000000000) all_new=1 ;;
+    *)
+      files="$(git -c core.quotepath=false diff --name-only "$remote_sha..$local_sha" 2>/dev/null || true)"
+      if has_prefix "rust/ui/" "$files"; then ui_changed=1; fi
+      if has_prefix "rust/" "$files"; then rust_changed=1; fi
+      ;;
+  esac
+done <<< "$push_input"
+
+# A first push to a fresh main has nothing to diff against: check everything.
+if [ "$all_new" = "1" ]; then ui_changed=1; rust_changed=1; fi
+
+if [ "$ui_changed" = "1" ] || [ "$rust_changed" = "1" ]; then
+  if [ -n "${CULEBRALUXE_SKIP_BUILD_CHECK:-}" ]; then
+    echo "House Rules: CULEBRALUXE_SKIP_BUILD_CHECK is set — the build check was SKIPPED. Name that in your report." >&2
+  elif ! command -v cargo >/dev/null 2>&1; then
+    echo "House Rules: Rust changed but cargo is not on PATH, so the build could not be checked." >&2
+    echo "  Install Rust, or push with CULEBRALUXE_SKIP_BUILD_CHECK=1 and say the check was skipped." >&2
+    exit 1
+  else
+    out="$(mktemp -t cul-build-check)"
+    if [ "$ui_changed" = "1" ]; then
+      targets="$(rustup target list --installed 2>/dev/null || true)"
+      case "$targets" in
+        *wasm32-unknown-unknown*) ;;
+        *) echo "House Rules: rust/ui changed but the wasm target is not installed. Run: rustup target add wasm32-unknown-unknown" >&2
+           rm -f "$out"; exit 1 ;;
+      esac
+      echo "pre-push: checking rust/ui compiles for wasm (what the deploy builds)..." >&2
+      if ! cargo check --manifest-path "$root/rust/Cargo.toml" -p ui --features wasm --target wasm32-unknown-unknown --quiet >"$out" 2>&1; then
+        echo "House Rules: rust/ui does not compile for wasm — refusing the push. The deploy builds exactly this." >&2
+        echo "  Run it yourself with: pnpm ui:check" >&2
+        cat "$out" >&2
+        rm -f "$out"
+        exit 1
+      fi
+    else
+      echo "pre-push: checking the Rust workspace..." >&2
+      if ! cargo check --manifest-path "$root/rust/Cargo.toml" --workspace --all-targets --quiet >"$out" 2>&1; then
+        echo "House Rules: the Rust workspace does not compile — refusing the push." >&2
+        cat "$out" >&2
+        rm -f "$out"
+        exit 1
+      fi
+    fi
+    rm -f "$out"
   fi
 fi
