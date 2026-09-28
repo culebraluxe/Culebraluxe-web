@@ -3,8 +3,8 @@
 <!-- GENERATED FILE. Do not hand-edit. The freshness gate compares the structural rows
      (handbook, packet, cited, commit, index); the lexical tail is informational. -->
 
-- generated: 2026-09-28 08:33:29Z
-- commit: `c9520336` (working tree dirty) on `main`
+- generated: 2026-09-28 08:37:53Z
+- commit: `d48b2b35` on `main`
 - regenerate: `pnpm forge:manifest PIRATE-01`
 - rows: 27 — packet, cited paths and story commits first, lexical matches after
 
@@ -33,7 +33,7 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/RUNLOG.md` — lexical · term match: acceptance, accepted, against, agent · last touched 2026-09-28
 - `docs/agent/ARCH-HANDOFF.md` — lexical · term match: acceptance, against, agent, agents · last touched untracked
 - `docs/agent/preserved/arch-handoff/ARCH-HANDOFF-pre-cleanup-2026-09-12.md` — lexical · term match: acceptance, against, agent, agents · last touched untracked
+- `docs/agent/HANDOFF-forge-port-2026-09-28.md` — lexical · term match: against, agent, agent-vendor-block, agents · last touched 2026-09-28
 - `docs/agent/WORKFLOW-ARCHITECTURE.md` — lexical · term match: acceptance, accepted, against, agent · last touched untracked
 - `docs/agent/FORGE-WORKSHOP.md` — lexical · term match: acceptance, accepted, against, agent · last touched untracked
 - `docs/agent/TECH-DEBT.md` — lexical · term match: 2026-09-15, acceptance, against, agent · last touched 2026-09-28
-- `docs/agent/packets/FORGE-HOLES-WORKORDER.md` — lexical · term match: acceptance, accepted, against, agent · last touched untracked
