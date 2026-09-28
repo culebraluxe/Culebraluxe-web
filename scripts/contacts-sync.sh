@@ -5,12 +5,15 @@
 # One operator command for the complete Contacts lifecycle:
 #   Apple Contacts (CNContactStore, local Mac)
 #     -> contact-export/contacts-export.json
-#     -> historical PROD ODS
+#     -> historical PROD ODS            (load: still scripts/load-apple-contacts.ts        — PORT PENDING)
 #     -> landing tables (l_person, l_property)  <- current source state
-#     -> THE promotion (promote-warehouse.ts)   <- the only reader of the landing tables
+#     -> projection of the current state (project: still scripts/project-apple-contacts.ts — PORT PENDING)
+#     -> THE promotion (apple-sync warehouse-promote -> warehouse_promote_apple_contacts)
 #     -> warehouse (person, property) + Clients materialized read models
 #
-# Nothing else reads the landing tables. Historical ODS is append/replay-safe.
+# The promotion runs IN THE DATABASE: it is a set-based function in Neon, not a script that pulls every
+# landing row into an application to mutate it. Nothing else reads the landing tables. Historical ODS
+# is append/replay-safe.
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
@@ -88,6 +91,13 @@ fi
 
 [ -n "$SOURCE_ACCOUNT" ] || fail "Apple Contacts source account resolved empty"
 
+# The Rust CLI is the only caller of the Contacts chain since the port; APP_ENV=production is what
+# makes the target PRODUCTION (the resolver refuses to guess and names the target it used).
+run_cli() {
+  APP_ENV=production CULEBRALUXE_REPO="$REPO_ROOT" \
+    cargo run -q --manifest-path "$REPO_ROOT/rust/Cargo.toml" -p cli -- "$@"
+}
+
 log "exporting Apple Contacts from this Mac"
 if ! swift run -c release --package-path "$EXPORT_DIR" contact-export > "$TMP_EXPORT"; then
   fail "Apple Contacts export failed; PROD ODS was not touched"
@@ -127,7 +137,7 @@ mv "$TMP_EXPORT" "$EXPORT_FILE"
 # own access instead. BULK property fetch (~5s); a per-person loop measured 336s.
 # Non-fatal by design: notes are context, and a missing note must never block the load.
 log "merging Apple Contacts NOTES into the fresh export"
-if ! node --env-file=.env.local --import tsx scripts/merge-contacts-notes.ts --file "$EXPORT_FILE"; then
+if ! run_cli apple-sync contacts-notes --file "$EXPORT_FILE" --quiet; then
   log "WARNING: notes merge failed; continuing WITHOUT notes for this run"
 fi
 
@@ -146,7 +156,9 @@ if ! node --env-file=.env.local --import tsx scripts/project-apple-contacts.ts -
 fi
 
 log "promoting landing tables into the warehouse (person, property)"
-if ! node --env-file=.env.local --import tsx scripts/promote-warehouse.ts --env prod --apply; then
+# The rules of the promotion are a database function (`db/migrations/253_apple_contacts_promote.sql`);
+# this is the shell that calls it. Set-based in Neon, never read out, mutated in Node and pushed back.
+if ! run_cli apple-sync warehouse-promote prod --apply; then
   fail "landing -> warehouse promotion failed; Person/Property may be missing facts"
 fi
 

@@ -1,3 +1,22 @@
+> **UPDATE 2026-09-28 (afternoon) — step 3 of §5 is DONE, and the architecture changed.**
+> The captain refused the shape of the port, not just its absence: *"you have to pull all the data out to
+> RUST mutate then push back to DB — not the correct architecture"*. The landing → warehouse hop is a
+> set-based transformation, so it lives in Neon as a function and Rust is only the caller:
+>
+>   * `db/migrations/253_apple_contacts_promote.sql` — `normalize_identity_email`, `normalize_identity_phone`
+>     (the Rust domain rules restated in SQL, because the matching happens in SQL) and
+>     `warehouse_promote_apple_contacts(p_apply boolean)` — plan, tallies and every write, set-based.
+>   * `rust/cli/src/apple_contacts.rs` `warehouse_promote` + `apple-sync warehouse-promote [dev|prod] [--apply]`,
+>     thin caller, `--apply` refreshes the client read models afterwards (a materialized view cannot be
+>     refreshed `concurrently` inside a function's transaction).
+>   * `scripts/contacts-sync.sh:158` repointed; `promote-warehouse.ts` is dead and stays dead.
+>
+> Applied and run: DEV dry → apply → apply again (identical tallies, counts stable), then PROD
+> (2855 landing rows, 2814 matched, 41 skipped no identity, 0 ambiguous, 11 places created, 11 linked,
+> 0 legacy links retired, read models refreshed). **Steps 1 (load) and 2 (project) are still TS and still
+> dead — and they are to be ported the same way: SQL functions with a thin caller, not scripts.**
+
+
 # Handoff — the Contacts chain (`contacts-sync.sh`), 2026-09-28
 
 The Apple/contacts/mail/Gmail chain was broken by the Rust port: four shell wrappers called deleted

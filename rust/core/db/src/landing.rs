@@ -279,6 +279,21 @@ impl LandingDao {
     ///
     /// `refresh materialized view concurrently` is used (both carry a unique index) so readers are
     /// never blocked. This is the single place the read models are rebuilt.
+    /// `warehouse_promote_apple_contacts` — the landing -> warehouse promotion for Apple Contacts.
+    ///
+    /// The transformation is a database function (`db/migrations/253_apple_contacts_promote.sql`): the
+    /// rules about what is true of a person are set-based, and the rows never have to leave the
+    /// database to be decided. This call is the shell around it — dry run by default, one jsonb tally
+    /// back. Refreshing the client read models is the caller's job afterwards: a materialized view
+    /// cannot be refreshed `concurrently` inside a function's transaction.
+    pub async fn promote_apple_contacts(&self, apply: bool) -> DbResult<Value> {
+        sqlx::query_scalar("select warehouse_promote_apple_contacts($1)")
+            .bind(apply)
+            .fetch_one(self.db.pool())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("landing.promote.apple_contacts", &error))
+    }
+
     pub async fn refresh_client_read_models(&self) -> DbResult<()> {
         for (operation, sql) in [
             (

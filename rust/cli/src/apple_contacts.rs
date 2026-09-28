@@ -160,6 +160,32 @@ pub async fn contacts_notes(args: &[String]) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// `apple-sync warehouse-promote [dev|prod] [--apply]`
+///
+/// The landing -> warehouse step of the Contacts chain (`scripts/contacts-sync.sh`), which used to be
+/// `scripts/promote-warehouse.ts` — read every landing row into Node, decide in memory, push back.
+/// The rules are a database function now; this is the shell that calls it and prints its tally.
+pub async fn warehouse_promote(args: &[String]) -> Result<(), Box<dyn Error>> {
+    crate::apple_sync::load_env();
+    let target = crate::apple_mail::target_arg(args)?;
+    let apply = args.iter().any(|arg| arg == "--apply");
+    println!(
+        "[promote] landing -> warehouse (target={}, apply={apply})",
+        target.as_str()
+    );
+
+    let database = crate::apple_mail::connect(target).await?;
+    let landing = db::LandingDao::new(database);
+    let tally = landing.promote_apple_contacts(apply).await?;
+    println!("{tally}");
+
+    if apply {
+        landing.refresh_client_read_models().await?;
+        println!("[promote] client read models refreshed");
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

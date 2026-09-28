@@ -61,14 +61,17 @@ capabilities are not "dead weight", they are **broken in production** (checked 2
 | --- | --- | --- |
 | `scripts/apple-sync.sh` — launchd `com.culebraluxe.apple-sync`, twice daily | **`rust/cli` apple-sync messages-intake** (was `scripts/apple-messages-intake.ts`) | **fixed 2026-09-27**: the launchd job's exit status 1 was the deleted intake script; the step is Rust now and the job needs re-arming (see §"Apple intake — ported") |
 | `scripts/apple-message-repair.sh` (`apple:repair:prod`) | **`rust/cli` apple-sync messages-intake --evidence-only --refresh** (was the same deleted file) | **fixed 2026-09-27**: repairs ODS evidence for the existing export and refreshes the Client read models, without replaying interactions |
-| `scripts/contacts-sync.sh:135,143,149` | `load-apple-contacts.ts`, `project-apple-contacts.ts`, `promote-warehouse.ts` | **the warehouse promotion is down**: the Contacts chain fails before it reaches `l_person`/`l_property` → `person`/`property`. Its first dead line (the notes merge, `:130`) is Rust now (`apple-sync contacts-notes`, `82030fed`); the three remaining steps are specified command-by-command in `docs/agent/HANDOFF-contacts-port-2026-09-28.md` §5 |
+| `scripts/contacts-sync.sh:145,154` | `load-apple-contacts.ts`, `project-apple-contacts.ts` | **the load and the projection are still down**: the Contacts chain fails between the export and `l_person`/`l_property`. The notes merge (`:137`) and **the promotion (`:158`) are Rust now** — the promotion is a database function called from `apple-sync warehouse-promote` (`db/migrations/253_apple_contacts_promote.sql`, applied+run on DEV and PROD 2026-09-28: 2855 landing rows → 2814 matched, 11 places created, 11 linked). The two remaining steps are specified command-by-command in `docs/agent/HANDOFF-contacts-port-2026-09-28.md` §5 and must land as SQL functions, not as row-by-row scripts |
 | `scripts/apple-calls-sync.sh:41` | **`rust/cli` apple-sync calls-intake** (was `scripts/apple-calls-intake.ts`) | **fixed 2026-09-28**: the wrapper is repointed; chain ported to Rust (`rust/cli/src/apple_calls.rs` + `domain::apple_calls`), DEV-verified (5236 calls replayed, 864 evidence rows, 4 interactions written / 403 already current) |
 | `scripts/email-sync.sh` | **`rust/cli` apple-sync mail-intake + mail-promote** (was `apple-mail-envelope-intake.ts` + `promote-applemail.ts`) | **fixed 2026-09-28**: the wrapper is repointed; intake needs macOS Full Disk Access (see `DEAD-TS-DOWNSIZE.md` §1) |
 | `scripts/gmail-sync.sh` | **`rust/cli` gmail-sync** (was `scripts/gmail-metadata-sync.ts`) | **fixed 2026-09-28**: repointed; needs GOOGLE_CLIENT_ID / SECRET / REFRESH_TOKEN in `.env.local`, which this machine does not have |
 
-`promote-warehouse.ts` is still described in `contacts-sync.sh` as *"the only reader of the landing
-tables"*, and no Rust implementation of that hop exists anywhere under `rust/` — so that is a missing
-capability, not a dead script. It is the DEV_OPS P0 item and the captain has already green-lit the port.
+**The promotion hop exists now, and it is not a script.** `warehouse_promote_apple_contacts(p_apply)`
+(`db/migrations/253_apple_contacts_promote.sql`) does the whole landing → warehouse transformation
+set-based inside Neon, called by `apple-sync warehouse-promote` (`rust/cli/src/apple_contacts.rs`) and
+repointed in `contacts-sync.sh:158`. `scripts/promote-warehouse.ts` is therefore **dead and stays dead**:
+do not re-instate it. Its sibling for the load and the projection is the same shape of work and gets the
+same treatment — a database function with a thin caller, never a script that pulls rows out to mutate them.
 
 **Operator commands that cannot run and are named in AGENTS.md or used daily** — corrected 2026-09-28, because
 the Forge half of this list was stale: `forge:doctor`, `forge:clean`, `forge:story:reset`, `forge:packet-lint`,
