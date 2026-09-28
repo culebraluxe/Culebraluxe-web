@@ -125,6 +125,7 @@ pub use pool::{resolve_declared_target, Database, DbTarget};
 pub use project::{ProjectDao, ProjectTxDao};
 pub use property::PropertyDao;
 pub use public_listing::PublicListingDao;
+pub use publishing::PublishingDao;
 pub use relationship_evidence::{
     EvidenceUpsert, PersonIdentityOwner, RelationshipEvidenceDao, SourcePersonLink,
 };

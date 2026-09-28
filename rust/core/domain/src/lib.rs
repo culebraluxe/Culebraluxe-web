@@ -83,6 +83,7 @@ pub use relationship_evidence::{
 pub use public_listing::{
     PublicListing, PublicListingCopy, PublicProperty, PublicPropertyImage, PublicPropertyMedia,
 };
+pub use publishing::{PublishingListing, PublishingSnapshot};
 pub use website_lead::{WebsiteLead, WebsiteLeadNotice};
 
 pub use security::{

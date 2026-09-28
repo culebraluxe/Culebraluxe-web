@@ -243,6 +243,7 @@ pub struct ServiceCatalog {
     firm: Arc<FirmService<FirmDao>>,
     forms: Arc<FormService<FormDao>>,
     public_listings: Arc<PublicListingService<PublicListingDao>>,
+    publishing: Arc<PublishingService<PublishingDao>>,
     guest_sign_in: Arc<GuestSignInService<GuestDao>>,
     website_leads: Arc<WebsiteLeadService<WebsiteLeadDao>>,
     relationship_evidence: Arc<RelationshipEvidenceService<RelationshipEvidenceDao>>,
@@ -340,6 +341,10 @@ impl ServiceCatalog {
             )),
             public_listings: Arc::new(PublicListingService::new(
                 PublicListingDao::new(db.clone()),
+                infrastructure.clone(),
+            )),
+            publishing: Arc::new(PublishingService::new(
+                PublishingDao::new(db.clone()),
                 infrastructure.clone(),
             )),
             guest_sign_in: Arc::new(GuestSignInService::new(
@@ -487,6 +492,7 @@ catalog_accessors! {
     intake: IntakeService<IntakeDao>, issues: IssueService<IssueDao>, marketing: MarketingService<MarketingDao>,
     media: MediaService<MediaDao>, person: PersonService<PersonDao>, firm: FirmService<FirmDao>,
     forms: FormService<FormDao>, public_listings: PublicListingService<PublicListingDao>,
+    publishing: PublishingService<PublishingDao>,
     guest_sign_in: GuestSignInService<GuestDao>, website_leads: WebsiteLeadService<WebsiteLeadDao>,
     relationship_evidence: RelationshipEvidenceService<RelationshipEvidenceDao>, property: PropertyService<PropertyDao>,
     calendar: CalendarService<CalendarDao>, comms: CommsService<CommsDao>, deal_portal: DealPortalService<DealPortalDao>,
