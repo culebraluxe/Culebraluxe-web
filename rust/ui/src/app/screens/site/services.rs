@@ -12,7 +12,7 @@ use yew::prelude::*;
 use crate::app::screen::ScreenCtx;
 use crate::app::site::{page_hero, StaticPage, StaticPageSpec};
 use crate::icons::icon_html;
-use crate::view::{SERVICES, SERVICE_PRINCIPLES, SERVICE_PROCESS, SERVICE_REASONS};
+use super::content::{SERVICES, SERVICE_PRINCIPLES, SERVICE_PROCESS, SERVICE_REASONS};
 
 pub struct Services;
 

@@ -11,7 +11,7 @@ use crate::app::api::{AuthCsrf, CsrfToken};
 use crate::app::cmd::{ApiError, Cmd};
 use crate::app::screen::{Link, Screen, ScreenCtx};
 use crate::app::site::{StaticPage, StaticPageSpec};
-use crate::view::{
+use super::content::{
     LOGIN_RECOVERY_VIEW_CONTENT, LOGIN_UNAUTHORIZED_VIEW_CONTENT, PRIVACY_VIEW_CONTENT,
 };
 

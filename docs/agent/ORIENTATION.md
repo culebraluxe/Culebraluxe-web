@@ -28,7 +28,6 @@ place (`docs/agent/BROKEN-TS-INVENTORY.md`).
 | Layer | Where | What it is |
 | --- | --- | --- |
 | Website and portal UI | `rust/ui/src/app/` | Screens on the `Screen` trait (MVI: `Model` / `Msg` / `update` / `view`), the screen table `registry.rs`, the master `template.rs`, the `shell.rs` and its executor. |
-| The old loop, now unused | `rust/ui/src/view.rs`, `update.rs`, `yew_effects.rs`, `yew_views/` | The pre-trait global MVI loop. No registry entry mounts it since Marketing became the Publishing Center (2026-09-28); `LEGACY_CEILING = 0`, and the code is due for deletion. |
 | HTTP API | `rust/server/src/api/` | `routes.rs` (the whole surface), `portal_bridge.rs` (the portal's screen reads and its commands), `public_ui.rs` (the public site), `context.rs` and `ui_auth.rs` (identity), `engine.rs` (the engine's door), `error.rs` (`ApiError`). |
 | Services | `rust/server/src/<domain>` (`mod.rs` or `<domain>.rs`) | One service per domain: the rules, typed over a repository. Registered once in `composition.rs`. |
 | Service kernel | `rust/core/service/src/` | `AbstractService`, `ServiceRuntime`, `ServiceContext`, authorization, audit, domain events, lifecycle, mailbox, error sink. |

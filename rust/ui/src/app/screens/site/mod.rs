@@ -2,6 +2,7 @@
 
 pub mod about;
 pub mod buyers;
+pub mod content;
 pub mod contact;
 pub mod faq;
 pub mod favorites;

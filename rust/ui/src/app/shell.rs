@@ -1,7 +1,7 @@
 //! THE MASTER SHELL — one Yew application, one router, for every URL: the public site and the portal.
 //!
 //! The URL is resolved against the registry; the entry decides the frame (site or portal chrome) and the content (a
-//! `Screen` in its `ScreenHost`, or — until it is ported — the old loop's screen). Moving between screens of one area is
+//! `Screen` in its `ScreenHost`). Moving between screens of one area is
 //! in-app: no page load, no fresh boot.
 //!
 //! WHAT NEXT STILL DOES: serves the document (every page file renders `<RustUi />`), guards `/portal` on the server,
@@ -27,8 +27,6 @@ thread_local! {
 /// URL that FAILED and so must not resolve that URL to a screen.
 pub fn mount_in(root: web_sys::Element, error: bool) {
     console_error_panic_hook::set_once();
-    // The old loop's markup screens are driven by document listeners until they are ported.
-    crate::shell::listen();
     MOUNTED.with(|slot| {
         if let Some(previous) = slot.borrow_mut().take() {
             previous.destroy();
@@ -113,11 +111,6 @@ fn frame_component(props: &MasterProps) -> Html {
         Kind::Screen(mount) => html! {
             <div key={entry.key} class="min-w-0" data-screen-key={entry.key}>{ mount(ctx) }</div>
         },
-        Kind::LegacyPortal(screen_key) => html! {
-            <div key={format!("legacy:{path}")} class="min-w-0" data-screen-key={entry.key}>
-                <LegacyPortal screen_key={screen_key} scope={ctx.id.clone()} />
-            </div>
-        },
         // There is no other host any more: the Rust server answers every path with this app, so loading the document
         // again would land right back here, forever (the WhatsApp Activation page reloaded ~60 times a second).
         Kind::External => html! {
@@ -127,26 +120,6 @@ fn frame_component(props: &MasterProps) -> Html {
         },
     };
     frame(entry.area(), entry.surface, content)
-}
-
-#[derive(Properties, PartialEq)]
-struct LegacyPortalProps {
-    screen_key: &'static str,
-    scope: Option<String>,
-}
-
-/// A portal screen still on the old loop, hosted in the master frame until it is ported. Temporary by construction:
-/// the registry's `legacy_count_only_goes_down` ledger counts every use.
-#[function_component(LegacyPortal)]
-fn legacy_portal(props: &LegacyPortalProps) -> Html {
-    match crate::model::screen(props.screen_key) {
-        Some(screen) => {
-            html! { <crate::yew_portal::PortalApp screen={screen} scope={props.scope.clone()} /> }
-        }
-        None => {
-            html! { <p role="alert">{ format!("'{}' is not a known screen.", props.screen_key) }</p> }
-        }
-    }
 }
 
 fn not_found(area: Area) -> Html {

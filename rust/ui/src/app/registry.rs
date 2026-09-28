@@ -3,12 +3,12 @@
 //! Routing, the site header, the portal rail, the headless navigation walk and the "every page has a screen" check are
 //! all generated from `ENTRIES`. Nothing else lists screens. Adding a screen is: implement `Screen`, add one line here.
 //!
-//! THE KINDS, and why three of them are temporary:
-//!   * `Screen(mount)` — a screen on the `Screen` trait. The only kind that survives the cutover.
-//!   * `LegacyPortal(key)` — a screen still on the old global MVI loop, hosted inside this shell while it
-//!     is ported. Each one is a debt: the count only goes down (`legacy_count` test), and at zero both kinds are deleted.
-//!   * `External` — a page Next still renders itself (Auth.js sign-in, the React Forms editor). Links to it load the
-//!     document.
+//! THE KINDS:
+//!   * `Screen(mount)` — a screen on the `Screen` trait. Every screen the app renders is one.
+//!   * `External` — a route this app cannot render yet; it shows a notice and never reloads the document.
+//!
+//! The old global MVI loop (and its `LegacyPortal` kind) was deleted on 2026-09-28, when Marketing, its last screen,
+//! became the Publishing Center.
 //!
 //! The nav order is the table order. The rail and header labels are the designed menu (ported from
 //! `lib/navigation/registry.ts` item for item), not screen titles.
@@ -70,8 +70,6 @@ pub enum Menu {
 pub enum Kind {
     /// On the `Screen` trait. The function mounts `ScreenHost<S>`.
     Screen(fn(ScreenCtx) -> Html),
-    /// Still on the old loop: the old portal app for this screen key. Temporary.
-    LegacyPortal(&'static str),
     /// Was a Next page; not in the Rust application yet. Shows a notice — never reloads the document, which would
     /// only land back in this app.
     External,
@@ -81,7 +79,6 @@ impl std::fmt::Debug for Kind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Kind::Screen(_) => write!(f, "Screen"),
-            Kind::LegacyPortal(key) => write!(f, "LegacyPortal({key})"),
             Kind::External => write!(f, "External"),
         }
     }
@@ -538,20 +535,4 @@ mod tests {
             );
         }
     }
-
-    /// THE CUTOVER LEDGER. Screens still on the old loop. This number only goes down; at zero, the legacy kinds and the
-    /// old loop are deleted. Update it downward when a screen is ported — never upward.
-    #[test]
-    fn legacy_count_only_goes_down() {
-        let legacy = ENTRIES
-            .iter()
-            .filter(|entry| matches!(entry.kind, Kind::LegacyPortal(_)))
-            .count();
-        assert!(
-            legacy <= LEGACY_CEILING,
-            "{legacy} legacy screens; the ceiling is {LEGACY_CEILING}"
-        );
-    }
-
-    const LEGACY_CEILING: usize = 0;
 }

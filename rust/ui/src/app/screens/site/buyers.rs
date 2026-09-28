@@ -15,7 +15,7 @@ use super::visitor::{Model, Msg};
 pub use crate::app::site::page_hero;
 
 use crate::model::Listing;
-use crate::view::{buyers_visible, BUYER_SERVICES, BUYER_STEPS};
+use super::content::{buyers_visible, BUYER_SERVICES, BUYER_STEPS};
 
 pub struct Buyers;
 
@@ -683,7 +683,7 @@ pub(crate) fn card(
                         {"Featured"}
                     </span>
                 }
-                if crate::view::listing_is_land(listing) {
+                if super::content::listing_is_land(listing) {
                     <span class="absolute bottom-4 left-4 z-20 bg-foreground/80 px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.18em] text-background backdrop-blur-sm">
                         {"Land"}
                     </span>

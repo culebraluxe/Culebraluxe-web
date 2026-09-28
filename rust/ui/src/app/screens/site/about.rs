@@ -11,7 +11,7 @@ use yew::prelude::*;
 use crate::app::screen::ScreenCtx;
 use crate::app::site::{page_hero, StaticPage, StaticPageSpec};
 use crate::icons::icon_html;
-use crate::view::{ABOUT_CREDENTIALS, ABOUT_LIFE, ABOUT_REASONS, ABOUT_STATS, ABOUT_VALUES};
+use super::content::{ABOUT_CREDENTIALS, ABOUT_LIFE, ABOUT_REASONS, ABOUT_STATS, ABOUT_VALUES};
 
 pub struct About;
 

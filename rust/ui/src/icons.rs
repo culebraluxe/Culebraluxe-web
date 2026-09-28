@@ -237,8 +237,24 @@ pub fn icon(name: &str, class: &str, stroke_width: &str) -> Option<String> {
          class=\"{class}\" aria-hidden=\"true\">{paths}</svg>",
         // The view's own escaper, which covers the attribute case too (`"` and `'` as well as the text ones). `class` is
         // a literal at every call site, so this is belt and braces rather than a live hazard.
-        class = crate::view::escape(class),
+        class = escape(class),
     ))
+}
+
+/// HTML-escape an attribute value.
+fn escape(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 #[cfg(test)]

@@ -9,10 +9,10 @@ Code: `rust/ui/src/app/`.
 | --- | --- | --- |
 | S1 | The registry | `rust/ui/src/app/registry.rs` — 59 entries, one line per screen, the only path→screen map |
 | S2 | On the `Screen` trait | 57 entries, `Kind::Screen(mount::<S>)` — both Marketing entries mount `Publishing` |
-| S3 | Still on the old loop | 0 entries — no registry line uses `Kind::LegacyPortal` |
+| S3 | Still on the old loop | none — the old loop and its `LegacyPortal` kind were deleted 2026-09-28 |
 | S4 | Not renderable here | 2 entries, `Kind::External` — WhatsApp Activation, `/portal` itself |
-| S5 | The cutover ledger | `legacy_count_only_goes_down`, `LEGACY_CEILING = 0`. The ceiling only ever moves down |
-| S6 | What the old loop is | `view.rs`, `update.rs`, `yew_effects.rs`, `yew_views/` — Rust, and now reached by no registry entry: S3 is zero, so it is due for deletion (§ roadmap step 3) |
+| S5 | The cutover ledger | closed: every entry is `Kind::Screen` or `Kind::External` |
+| S6 | What the old loop is | `view.rs`, `update.rs`, `yew_effects.rs`, `yew_views/` — deleted 2026-09-28 (with `document.rs`, `yew_portal.rs`, the old shell listeners and the global `Model`/`Msg`/`Effect`). The site copy it held lives in `app/screens/site/content.rs` |
 | S7 | There is no Next.js application | `rust/server/src/site.rs` answers every path with this one Yew app; `legacy/` TypeScript is read-only and out of scope |
 
 ## HOLDS — do not act on these
@@ -208,8 +208,6 @@ entry("db-test", "/portal/db-test", Surface::Support, "DB Test", Menu::Rail("DB 
   menus, the breadcrumb and the walk are all generated from this one table.
 - `.of("parent")` — a drill-in: it names the screen it hangs off (settings' users/roles/authorities, activity, every
   `:id` record route), so it is reachable and breadcrumbed without appearing in the rail.
-- `Kind::LegacyPortal(key)` — a screen on the old loop. None remain (2026-09-28); `legacy_count_only_goes_down` holds
-  the count to `LEGACY_CEILING = 0`.
 - `Kind::External` — a route this app cannot render; today that is WhatsApp Activation, which draws a placeholder
   panel. See §8 for why it must not reload.
 
@@ -310,7 +308,7 @@ The owner's direction: done correctly, big-bang if needed; no permanent adapters
    `RowsScreen`, the executor and the registry are written and in use.
 2. **Port every screen onto the trait — done, 57 of 59 entries** (the other two are `Kind::External`). Marketing was the
    last, replaced by the Publishing Center on 2026-09-28.
-3. **Then delete the old loop — now due**: the last `LegacyPortal` entry has gone, so so do `Model`/`Msg`/`update.rs`/`view.rs`/
+3. **Then delete the old loop — done 2026-09-28**: the last `LegacyPortal` entry went, and so did so do `Model`/`Msg`/`update.rs`/`view.rs`/
    `yew_effects.rs`/`yew_views/`, the document listeners in `shell.rs`, `StringBody`, `render_page`, and the raw-markup
    use in `yew_portal.rs`. (`icons.rs` stays: the ported screens use its SVG table.)
 4. **Two entries are neither screen nor port**: the two `Kind::External` routes. Each is either ported or deleted — a
