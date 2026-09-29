@@ -599,11 +599,19 @@ fn timeline(trace: &FlightRecorderTrace, model: &Model, link: &Link<Msg>) -> Htm
                 <div>{ "Details" }</div>
                 <div>{ "System" }</div>
             </div>
-            <div tabindex="0" onkeydown={link.callback(|event: KeyboardEvent| match event.key().as_str() {
-                    "ArrowDown" => Msg::KeyNav(KeyNav::Down),
-                    "ArrowUp" => Msg::KeyNav(KeyNav::Up),
-                    "Escape" => Msg::KeyNav(KeyNav::Escape),
-                    _ => Msg::KeyNav(KeyNav::None),
+            <div tabindex="0" onkeydown={link.callback(|event: KeyboardEvent| {
+                    // The owner's console called preventDefault on the arrows; without it the focused
+                    // scroll container moves the viewport as well as the selection.
+                    let msg = match event.key().as_str() {
+                        "ArrowDown" => Msg::KeyNav(KeyNav::Down),
+                        "ArrowUp" => Msg::KeyNav(KeyNav::Up),
+                        "Escape" => Msg::KeyNav(KeyNav::Escape),
+                        _ => Msg::KeyNav(KeyNav::None),
+                    };
+                    if matches!(event.key().as_str(), "ArrowDown" | "ArrowUp") {
+                        event.prevent_default();
+                    }
+                    msg
                 })}
                 class="min-h-0 flex-1 overflow-auto outline-none" role="grid" aria-rowcount={events.len().to_string()}>
                 { for events.into_iter().map(|event| {
