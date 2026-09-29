@@ -42,6 +42,16 @@ started).
    **This is very likely the same cause as item 2's Broken pipe**: a socket whose server side has gone, written to
    by the next statement, is EPIPE. Treat it as one cause until someone proves two, and do not "fix" it by
    lengthening the timeout.
+   **CORRECTED 2026-09-29 (same day) — the sentence in bold is wrong, and the code disproves it.**
+   `rust/forge` contains **no** transaction call site at all (0 hits for `with_tx` / `.begin(` / `Transaction`), the
+   kernel's `with_tx` is synchronous over a sync SQL-only `Store` trait (`rust/core/workflow/src/store.rs:119-121`),
+   the role turn is called from exactly one place and its caller holds no connection (`rust/forge/src/engine/runner.rs:91`,
+   fields at `:46-51`), and the label this incident prints — `workflow.step` — is the constant that *every* kernel
+   transaction carries (`rust/core/workflow/src/neon/neon_store.rs:68`), which is why an error at any store call reads
+   as "at a step boundary". The run also dies before any role-turn output, and `forge story-show` reports no run has
+   ever been recorded for the story being dispatched. "One cause, two error strings" still looks right; the cause is
+   not a transaction of ours. Full evidence: `docs/agent/HANDOFF-forge-pool-io-2026-09-29.md`, §1.
+
 
 Items 3 and 4 are both "the engine's cold-start budget was the request path's": the pool ships a 30s statement
 ceiling and a 10s connect budget with a floor of five connections, which is right for a page load and wrong for a
