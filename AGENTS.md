@@ -102,6 +102,10 @@ Always
 - Work in the isolated worktree when Forge provisioned one.
 - Run only the packet's Assay commands (SCOPED). Do not invent `pnpm test` as FULL.
 - Report exact files changed and the tests that ran.
+- **Never say FINISHED without the raw output of the verification commands behind it.** Paste the command, its
+  exit status and the lines that carry the verdict — a proof doc at the head you are reporting, and the block in
+  the report. A claim with no output is not evidence, and a summary of output nobody saw is a claim about a
+  claim. (2026-09-29: the captain asked for this after a report he could only take on trust.)
 - Commit on the worker branch only when the role is Builder.
 - Route every failure that reaches a seam through the durable error-capture framework (see "Error Capture Obligation"). Never let an exception vanish as a silent 500/fallback or only a console.error.
 
@@ -203,6 +207,12 @@ item must be referenceable by number ("problem 2", "next 1", "captain 3"). No ta
 verification dumps, no file lists, no restating the plan. Detail only when asked.
 The captain reads for status and blockers, not completeness. Exact files and tests
 still get reported — named in one line, not pasted.
+
+A FINISHED yes is the one thing that carries output, because a report the captain cannot
+check is a report he has to trust (he asked for this on 2026-09-29). Below the four items,
+paste the raw output behind item 1 — the command, its exit status and the lines that carry
+the verdict. "No verification dumps" bans output inside the numbered items; it was never a
+licence to claim a green build nobody can see.
 
 ## Working Style
 
