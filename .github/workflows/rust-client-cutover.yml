@@ -27,6 +27,16 @@ jobs:
       # Yew's browser module is feature-gated. The host workspace check above never
       # compiled it, which let the production WASM build fail after the Rust API was live.
 
+      # THE ALLOWLIST NAMES A MODULE TREE, NOT A FILE (fixed 2026-09-28).
+      #
+      # `rust/core/workflow/src/neon.rs` became the directory `rust/core/workflow/src/neon/` when that file was
+      # split under the 800-line rule, and this gate's exemption was a literal file prefix — so the split turned a
+      # green step red at `neon/new_id.rs` without one line of SQL moving or changing. The exemption is now one
+      # filter per path shape (the `neon.rs` file and the `neon/` directory), so it follows the adapter wherever its
+      # parts live, which is what "confined to named persistence adapters" always meant — and a second split cannot
+      # redden this step again. Spelled out rather than alternated because these filters are BRE: `(a|b)` is literal
+      # text to a plain `grep -v`, which is the trap that made the first version of this fix a no-op.
+
       # BOTTOM-UP PERSISTENCE GATE: application/domain/runtime crates do not own SQL.
       # SQL is confined to named persistence adapters. Experimental pool benchmarks are excluded because
       # direct pool access is the subject being measured; they are not linked into application/runtime crates.
@@ -36,7 +46,7 @@ jobs:
         run: |
           set -euo pipefail
           violations="$(
-            grep -RInE 'sqlx::(query|query_as|query_scalar)|\.pool\(\)' rust --include='*.rs'               | grep -v '^rust/core/db/'               | grep -v '^rust/core/workflow/src/neon.rs:'               | grep -v '^rust/integrations/src/boldsign/store.rs:'               | grep -v '^rust/core/db/tests/'               | grep -v '^rust/server/tests/'               | grep -v '^rust/experiments/'               || true
+            grep -RInE 'sqlx::(query|query_as|query_scalar)|\.pool\(\)' rust --include='*.rs'               | grep -v '^rust/core/db/'               | grep -v '^rust/core/workflow/src/neon.rs:'               | grep -v '^rust/core/workflow/src/neon/'               | grep -v '^rust/integrations/src/boldsign/store.rs:'               | grep -v '^rust/core/db/tests/'               | grep -v '^rust/server/tests/'               | grep -v '^rust/experiments/'               || true
           )"
           if [ -n "$violations" ]; then
             echo "Raw database access escaped the approved Rust persistence boundaries:"
