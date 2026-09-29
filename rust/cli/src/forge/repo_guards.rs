@@ -15,7 +15,8 @@
 //!     database workflow. **NO TREES. EVER.**" The estate grew to 83 worktrees under
 //!     `Documents/Culebraluxe-worktrees/` plus `.assay-workspaces/`, and on 2026-09-16 a lane
 //!     produced verdicts about a tree instead of about the code. The scan freezes the set of files
-//!     that can CREATE a worktree; a new file joining it fails.
+//!     that can CREATE a worktree — matched by the estate name in the file's PATH or its CONTENT,
+//!     and by the `git worktree add` command in either form; a new file joining it fails.
 //!   * `AGENTS.md:172` — "Let two sources answer one fact. One fact has ONE writer; if two ever
 //!     disagree, that is a REFUSAL (HOLD) naming both...". A source-only scan cannot decide whether
 //!     two files write the SAME COLUMN, so the decidable thing is pinned instead: the set of files
@@ -77,6 +78,22 @@ fn worktree_add_split() -> &'static Regex {
         Regex::new(r#"(?i)["']worktree["']\s*,\s*["']add["']"#)
             .expect("the split worktree-add pattern is valid")
     })
+}
+
+/// Every estate-name token in a tracked file's own PATH. Paths are not content: a file checked in
+/// UNDER `Culebraluxe-worktrees/` or `.assay-workspaces/` re-creates the very tree the rule keeps at
+/// zero, even when its bytes say nothing at all. Case-insensitive, because the same directory can be
+/// spelled differently on a case-folding filesystem and it is still the same tree.
+fn worktree_tokens_in_path(path: &str) -> Vec<String> {
+    let lowered = path.to_ascii_lowercase();
+    let mut found: Vec<String> = TREE_PATH_TOKENS
+        .iter()
+        .filter(|token| lowered.contains(&token.to_ascii_lowercase()))
+        .map(|token| token.to_string())
+        .collect();
+    found.sort();
+    found.dedup();
+    found
 }
 
 /// Every token in `text` that names or creates a per-lane worktree. Sorted and de-duplicated, so the
@@ -280,8 +297,14 @@ struct ResidueScan {
 fn residue_scan(root: &Path) -> ResidueScan {
     let files = tracked_files(root, &RESIDUE_ROOTS);
     let mut scanned = 0usize;
-    let mut hits = Vec::new();
+    let mut hits: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for relative in files {
+        // A path hit counts for every tracked file, whatever its extension: a file living UNDER a
+        // worktree-named directory is the residue itself, independent of what it contains.
+        let path_tokens = worktree_tokens_in_path(&relative);
+        if !path_tokens.is_empty() {
+            hits.entry(relative.clone()).or_default().extend(path_tokens);
+        }
         if is_guard_source(&relative) || is_test_path(&relative) {
             continue;
         }
@@ -297,10 +320,13 @@ fn residue_scan(root: &Path) -> ResidueScan {
         scanned += 1;
         let tokens = worktree_tokens_in(&text);
         if !tokens.is_empty() {
-            hits.push((relative, tokens));
+            hits.entry(relative).or_default().extend(tokens);
         }
     }
-    hits.sort();
+    let hits = hits
+        .into_iter()
+        .map(|(file, tokens)| (file, tokens.into_iter().collect()))
+        .collect();
     ResidueScan { scanned, hits }
 }
 
@@ -363,6 +389,20 @@ mod tests {
         assert!(worktree_tokens_in("const DIR: &str = \"Culebraluxe-worktrees\";")
             .contains(&"Culebraluxe-worktrees".to_string()));
         assert!(worktree_tokens_in("let x = 1; // harmless\n").is_empty());
+    }
+
+    /// `.guard: AGENTS.md:151` — "Create a worktree, a per-lane tree, or any file-based parallel to
+    /// the database workflow. **NO TREES. EVER.**" Proves the scan sees the estate name in a PATH, not
+    /// only in a file's bytes.
+    #[test]
+    fn the_worktree_matcher_sees_the_estate_name_in_a_tracked_path() {
+        assert!(worktree_tokens_in_path("rust/.assay-workspaces/case.rs")
+            .contains(&".assay-workspaces".to_string()));
+        assert!(worktree_tokens_in_path("scripts/Culebraluxe-worktrees/run.sh")
+            .contains(&"Culebraluxe-worktrees".to_string()));
+        // The sole legitimate creator lives in a file NAMED worktree.rs; the bare word is not the
+        // estate, so its path must not trip the guard.
+        assert!(worktree_tokens_in_path("rust/forge/src/engine/worktree.rs").is_empty());
     }
 
     /// `.guard: AGENTS.md:172` — "Let two sources answer one fact. One fact has ONE writer; if two
