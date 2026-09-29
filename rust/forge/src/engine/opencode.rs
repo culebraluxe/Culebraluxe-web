@@ -15,7 +15,14 @@ use crate::engine::vendor_session;
 use workflow::{Result, WorkflowError};
 
 /// Live pin from ENG-FORGE-V5-01. Override only with OPENCODE_MODEL.
-pub const OPENCODE_PINNED_MODEL: &str = "deepseek/deepseek-v4-flash";
+///
+/// RENAMED UPSTREAM, 2026-09-29. The pin was `deepseek/deepseek-v4-flash` from the port until today, and that
+/// id no longer exists: `opencode models` now lists `deepseek/deepseek-flash` and `deepseek/deepseek-v4-pro`,
+/// and an unknown id comes back as `{"name":"UnknownError","message":"Unexpected server error"}` — a
+/// provider-shaped error that reads like an outage. Every role died on its first turn because of it (a bare
+/// `opencode run --model deepseek/deepseek-v4-flash` fails the same way, which is how this was told apart from
+/// a Forge defect). `deepseek-flash` is the renamed same tier, and answers a smoke prompt.
+pub const OPENCODE_PINNED_MODEL: &str = "deepseek/deepseek-flash";
 pub const OPENCODE_HARNESS_ADAPTER_ID: &str = "opencode-harness";
 pub const SESSION_MARKER_FILENAME: &str = ".forge-session.continue";
 pub const SESSION_CONTINUITY_ENV: &str = "FORGE_SESSION_CONTINUITY";

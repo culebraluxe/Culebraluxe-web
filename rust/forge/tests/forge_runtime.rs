@@ -648,7 +648,7 @@ fn opencode_argv_pins_model_and_auto() {
         vec![
             "run",
             "--model",
-            "deepseek/deepseek-v4-flash",
+            "deepseek/deepseek-flash",
             "--auto",
             "do the smith work"
         ]
