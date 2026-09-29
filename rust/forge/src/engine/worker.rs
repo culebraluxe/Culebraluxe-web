@@ -20,6 +20,13 @@ pub struct WorkerDispatch {
     pub work_item_id: String,
     pub story_id: String,
     pub work_type: String,
+    /// The durable dispatch envelope, straight off the claimed row (migrations 029 and 167). It travels to the child
+    /// because the child is a different process: whatever the row says this dispatch may do, the process that runs it
+    /// has to be told, or the envelope is decoration.
+    pub execution_policy: String,
+    pub model_policy: Option<String>,
+    pub stop_after: Option<String>,
+    pub launch_intent: Option<String>,
 }
 
 /// Who holds the claim. `AGENT_WORKER_ID` is the name the scheduler already exports
@@ -196,7 +203,20 @@ pub fn claim_next_dispatch(worker_id: &str) -> Result<Option<WorkerDispatch>, St
         work_type: work_type_for_kind(item.kind.as_deref()).to_string(),
         work_item_id: item.id,
         story_id: item.story_id,
+        execution_policy: item.execution_policy,
+        model_policy: item.model_policy,
+        stop_after: item.stop_after,
+        launch_intent: item.launch_intent,
     }))
+}
+
+/// The fence that keeps an unattended run off work the durable envelope says needs a human.
+///
+/// The poller's own claim already excludes these items (the eligibility predicate), so this catches the deliberate,
+/// by-id path — a worker told to run one named item. There the operator is present and `FORGE_ATTENDED=1` says so;
+/// without it, the run does not happen and the claim goes back to the queue.
+fn attended_override() -> bool {
+    std::env::var("FORGE_ATTENDED").ok().as_deref() == Some("1")
 }
 
 pub fn run_worker_pass() -> Result<i32, String> {
@@ -238,9 +258,49 @@ pub fn run_worker_pass() -> Result<i32, String> {
     };
 
     eprintln!(
-        "forge-worker: claimed={} worker={} story={} work_type={}",
-        dispatch.work_item_id, worker_id, dispatch.story_id, dispatch.work_type
+        "forge-worker: claimed={} worker={} story={} work_type={} policy={} model_policy={} stop_after={} launch_intent={}",
+        dispatch.work_item_id,
+        worker_id,
+        dispatch.story_id,
+        dispatch.work_type,
+        dispatch.execution_policy,
+        dispatch.model_policy.as_deref().unwrap_or("(none)"),
+        dispatch.stop_after.as_deref().unwrap_or("(full chain)"),
+        dispatch.launch_intent.as_deref().unwrap_or("(lead decides)")
     );
+
+    // The durable envelope is read here, before the child exists, so a policy that names a human never reaches a
+    // model. The claim goes back to the queue rather than being held against the story: no run happened.
+    if !agent_work::execution_policy_allows_unattended(&dispatch.execution_policy)
+        && !attended_override()
+    {
+        let reason = format!(
+            "execution_policy={} requires a human; refusing to dispatch {} unattended",
+            dispatch.execution_policy, dispatch.work_item_id
+        );
+        eprintln!("forge-worker: {reason} (set FORGE_ATTENDED=1 for a deliberate, attended run)");
+        match agent_work::finish_agent_work_run(
+            &dispatch.work_item_id,
+            AgentWorkOutcome::Abandoned,
+            Some(&reason),
+        ) {
+            Ok(Some(settled)) => eprintln!(
+                "forge-worker: settled {} as {} (story {})",
+                dispatch.work_item_id,
+                settled.item_state,
+                settled.story_status.unwrap_or("unchanged")
+            ),
+            Ok(None) => eprintln!(
+                "forge-worker: {} already had a verdict; left as-is",
+                dispatch.work_item_id
+            ),
+            Err(settle) => eprintln!(
+                "forge-worker: could not settle {}: {settle}",
+                dispatch.work_item_id
+            ),
+        }
+        return Ok(0);
+    }
 
     // The claim is only worth holding if it stays fresh for as long as the run lasts.
     let heartbeat = spawn_heartbeat(
@@ -248,23 +308,29 @@ pub fn run_worker_pass() -> Result<i32, String> {
         Duration::from_secs(heartbeat_seconds(stale)),
     );
 
-    let launch = Command::new("cargo")
-        .args([
-            "run",
-            "--manifest-path",
-            "rust/Cargo.toml",
-            "-p",
-            "forge",
-            "--bin",
-            "forge",
-            "--",
-            "--story",
-            &dispatch.story_id,
-            "--work-type",
-            &dispatch.work_type,
-            "--work-item",
-            &dispatch.work_item_id,
-        ])
+    let mut command = Command::new("cargo");
+    command.args([
+        "run",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "-p",
+        "forge",
+        "--bin",
+        "forge",
+        "--",
+        "--story",
+        &dispatch.story_id,
+        "--work-type",
+        &dispatch.work_type,
+        "--work-item",
+        &dispatch.work_item_id,
+    ]);
+    // The dispatch cap travels with the dispatch (migration 167: "read by the engine worker when it claims the
+    // item"). It is omitted when the column is NULL, which is the full chain — the child's own default.
+    if let Some(stop_after) = dispatch.stop_after.as_deref() {
+        command.args(["--stop-after", stop_after]);
+    }
+    let launch = command
         .env(
             "APP_ENV",
             std::env::var("APP_ENV").unwrap_or_else(|_| "production".into()),

@@ -5,6 +5,18 @@ use db::ForgeEngineDao;
 
 pub const AGENT_CLAIM_LOCK: i64 = 9_000_212;
 
+/// The one policy the unattended poller may run (migration 029: "only 'Unattended OK' work may be claimed by the
+/// unattended poller"). The other three values are `Daytime Only`, `Human Gate` and `Manual Only`.
+pub const UNATTENDED_OK: &str = "Unattended OK";
+
+/// May this item be executed with nobody watching?
+///
+/// The column is NOT NULL and CHECK-constrained to four values, but an unrecognised value is **not** allowed
+/// through: this is a rail, and a rail that opens on a value it does not know is not a rail.
+pub fn execution_policy_allows_unattended(policy: &str) -> bool {
+    policy.trim() == UNATTENDED_OK
+}
+
 #[derive(Debug, Clone)]
 pub struct AgentWorkItem {
     pub id: String,
@@ -13,6 +25,13 @@ pub struct AgentWorkItem {
     pub claimed_by: Option<String>,
     pub role: Option<String>,
     pub kind: Option<String>,
+    /// The durable dispatch envelope (migrations 029 and 167), carried on the claim so the run is configured by the
+    /// row rather than by argv. `None`/`null` means "not set", which has a meaning of its own: a null `stop_after`
+    /// is the full chain, a null `launch_intent` leaves the decision to the Lead.
+    pub execution_policy: String,
+    pub model_policy: Option<String>,
+    pub stop_after: Option<String>,
+    pub launch_intent: Option<String>,
 }
 
 fn map(row: db::ForgeAgentWorkRow) -> AgentWorkItem {
@@ -23,6 +42,10 @@ fn map(row: db::ForgeAgentWorkRow) -> AgentWorkItem {
         claimed_by: row.claimed_by,
         role: row.role,
         kind: row.kind,
+        execution_policy: row.execution_policy,
+        model_policy: row.model_policy,
+        stop_after: row.stop_after,
+        launch_intent: row.launch_intent,
     }
 }
 
@@ -53,10 +76,13 @@ pub fn claim_next_agent_work(worker_id: &str) -> Result<Option<AgentWorkItem>, S
     })?
 }
 
-/// `Claimed → Running`. `Ok(false)` means the row was not `Claimed`, so this process does not own the run it is
-/// about to start and must not drive the story. It is a fence, not a formality: the update is a CAS, and the engine
-/// is only ever launched behind it.
-pub fn begin_agent_work_run(work_item_id: &str) -> Result<bool, String> {
+/// `Claimed → Running`, returning the claimed row's `execution_policy`. `Ok(None)` means the row was not `Claimed`,
+/// so this process does not own the run it is about to start and must not drive the story. It is a fence, not a
+/// formality: the update is a CAS, and the engine is only ever launched behind it.
+///
+/// The policy rides the fence because it decides whether the run may happen at all — see
+/// `execution_policy_allows_unattended`.
+pub fn begin_agent_work_run(work_item_id: &str) -> Result<Option<String>, String> {
     with_shared(|db, rt| {
         let dao = ForgeEngineDao::new(db.clone());
         rt.block_on(async {
@@ -111,6 +137,29 @@ pub fn reconcile_dispatch_queue() -> Result<db::DispatchReconcile, String> {
                 .map_err(|error| error.to_string())
         })
     })?
+}
+
+#[cfg(test)]
+mod execution_policy_tests {
+    use super::*;
+
+    /// Migration 029's rule, as a test: only `Unattended OK` may run with nobody watching.
+    ///
+    /// `Human Gate` is the one that matters most — the column is NOT NULL, the engine's own vocabulary has a value
+    /// that says "needs a human", and nothing in the Rust engine read it, so work the rail marked as human-gated was
+    /// dispatched to a model exactly like unattended work.
+    #[test]
+    fn only_unattended_ok_may_run_unattended() {
+        assert!(execution_policy_allows_unattended("Unattended OK"));
+        assert!(execution_policy_allows_unattended("  Unattended OK  "));
+        for policy in ["Daytime Only", "Human Gate", "Manual Only"] {
+            assert!(!execution_policy_allows_unattended(policy), "{policy}");
+        }
+        // A value nobody defined is refused, not admitted: this is a rail.
+        for unknown in ["", "unattended ok", "UNATTENDED OK", "anything", "null"] {
+            assert!(!execution_policy_allows_unattended(unknown), "{unknown}");
+        }
+    }
 }
 
 /// Touch the claim so `stale_agent_work` does not requeue a run that is still alive. False = no longer claimable.

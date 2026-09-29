@@ -5,7 +5,9 @@ use db::{AgentWorkOutcome, AgentWorkSettlement};
 use forge::engine::agent_work;
 use forge::engine::db_writer::DbForgeStateWriter;
 use forge::engine::definition::forge_sdlc_definition;
-use forge::engine::executor::{drive_forge_story, DriveForgeStoryOptions};
+use forge::engine::executor::{
+    drive_forge_story, parse_forge_stop_after, DriveForgeStoryOptions, ForgeStopTarget,
+};
 use forge::engine::facts::ForgeGateEvidence;
 use forge::engine::git_publish::{GitReleaseOps, HostReleaseExecutor};
 use forge::engine::opencode::OpenCodeHarness;
@@ -119,6 +121,26 @@ fn main() {
         eprintln!("invalid --work-type {work_type}");
         std::process::exit(2);
     }
+    // The dispatch cap the worker carried off the claimed row (migration 167). An unrecognised value is refused
+    // rather than widened: a cap that cannot be read must not become "run the whole chain".
+    let stop_after = match flag(&args, "--stop-after")
+        .or_else(|| env::var("FORGE_STOP_AFTER").ok())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    {
+        None => None,
+        Some(raw) => match parse_forge_stop_after(&raw) {
+            Some(target) => Some(target),
+            None => {
+                reject_configuration(
+                    work_item.as_deref(),
+                    &format!("invalid --stop-after {raw}"),
+                );
+                eprintln!("invalid --stop-after {raw}: expected scout|architect|lead");
+                std::process::exit(2);
+            }
+        },
+    };
     match forge::engine::execution_target::assert_forge_lane_may_start(
         &forge::engine::execution_target::env_pairs_from_process(),
     ) {
@@ -133,11 +155,34 @@ fn main() {
     // start at all: a story driven without a claim is exactly the unowned dispatch this seam exists to remove.
     if let Some(item) = work_item.as_deref() {
         match agent_work::begin_agent_work_run(item) {
-            Ok(true) => eprintln!("work_item={item} state=Running"),
+            Ok(Some(policy)) => {
+                // The durable envelope is read at the moment the run starts (migration 029: "only 'Unattended OK'
+                // work may be claimed by the unattended poller"). A policy that names a human is a rail, not a
+                // note: no model turn happens and the claim goes back to the queue.
+                if !agent_work::execution_policy_allows_unattended(&policy)
+                    && env::var("FORGE_ATTENDED").ok().as_deref() != Some("1")
+                {
+                    let reason = format!(
+                        "execution_policy={policy} requires a human; refusing to run {item} unattended"
+                    );
+                    eprintln!("{reason} (set FORGE_ATTENDED=1 for a deliberate, attended run)");
+                    if settle_work_item(
+                        work_item.as_deref(),
+                        AgentWorkOutcome::Abandoned,
+                        Some(&reason),
+                    )
+                    .is_err()
+                    {
+                        eprintln!("work_item could not be settled; the claim is left to recovery");
+                    }
+                    std::process::exit(2);
+                }
+                eprintln!("work_item={item} state=Running policy={policy}");
+            }
             // The row was not `Claimed`: it already settled, or was cancelled, or recovery requeued it. The claim is
             // not ours, so the story must not be driven — and the row must not be touched either, because settling a
             // claim we do not own is how a second writer gets on to a live story.
-            Ok(false) => {
+            Ok(None) => {
                 eprintln!(
                     "work_item={item} is not Claimed; refusing to run a story whose claim this process does not own"
                 );
@@ -286,12 +331,21 @@ fn main() {
             &harness,
             &story,
             &work_type,
+            stop_after.clone(),
         )
     } else {
         match NeonStore::connect_from_env() {
             Ok(store) => {
                 eprintln!("workflow store=neon");
-                drive(store, release, writer.clone(), &harness, &story, &work_type)
+                drive(
+                    store,
+                    release,
+                    writer.clone(),
+                    &harness,
+                    &story,
+                    &work_type,
+                    stop_after.clone(),
+                )
             }
             Err(e) => Err(format!("neon store: {e}")),
         }
@@ -350,6 +404,7 @@ fn drive<S: TxStore>(
     harness: &OpenCodeHarness,
     story: &str,
     work_type: &str,
+    stop_after: Option<ForgeStopTarget>,
 ) -> Result<String, String> {
     let mut rt = match ForgeRuntime::from_store(
         store,
@@ -381,7 +436,7 @@ fn drive<S: TxStore>(
             max_steps: 40,
             worker_id: "forge",
             split_concurrency: 1,
-            stop_after: None,
+            stop_after,
         },
     ) {
         Ok(out) => Ok(format!(

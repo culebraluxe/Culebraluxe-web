@@ -15,6 +15,17 @@ pub struct ForgeAgentWorkRow {
     /// forward so the worker can still choose the engine work type it used to read off `next_ready_work` — losing it
     /// would silently downgrade every `fix` item to a FEATURE lane.
     pub kind: Option<String>,
+    /// `Unattended OK` / `Daytime Only` / `Human Gate` / `Manual Only` (migration 029). NOT NULL.
+    ///
+    /// It is on the claim because the claim decides whether a run may be unattended at all: the migration says
+    /// only `Unattended OK` work may be claimed by the unattended poller, and no Rust reader honoured it.
+    pub execution_policy: String,
+    /// `cheap` / `judgment`, or NULL for an item queued before migration 179.
+    pub model_policy: Option<String>,
+    /// How far THIS dispatch may run: `scout` / `architect` / `lead`, NULL = the full chain (migration 167).
+    pub stop_after: Option<String>,
+    /// Operator launch cap for THIS dispatch: `SOLO` / `SMITH` / `SPLIT` / `HOLD`, NULL = the Lead decides.
+    pub launch_intent: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -307,7 +318,8 @@ impl ForgeEngineDao {
              set state='Claimed', claimed_at=now(), claimed_by=$2,
                  attempts=attempts+1, updated_at=now()
              where id=$1::uuid and state='Ready'
-             returning id::text as id, story_id, state, claimed_by, role, kind",
+             returning id::text as id, story_id, state, claimed_by, role, kind,
+                       execution_policy, model_policy, stop_after, launch_intent",
         )
         .bind(work_item_id)
         .bind(worker_id)
@@ -344,6 +356,10 @@ impl ForgeEngineDao {
         // still be on the board as `Ready`. Selecting on the queue alone will dispatch a story the board says is
         // already being worked — the rerun of a live story — and that is the same one-fact-two-writers hole that
         // left a `Ready` story undispatchable after `forge:clean`. One selection consults both authorities.
+        //
+        // The execution policy is the second authority restored the same day: migration 029 says in as many words
+        // that "only 'Unattended OK' work may be claimed by the unattended poller", and this poller claimed a
+        // `Human Gate` item exactly as happily as an unattended one, because nothing read the column.
         let row = sqlx::query_as::<_, ForgeAgentWorkRow>(
             "update agent_work_item
              set state='Claimed', claimed_at=now(), claimed_by=$1,
@@ -352,9 +368,11 @@ impl ForgeEngineDao {
                select w.id from agent_work_item w
                join storyboard_story s on s.id = w.story_id
                where w.state='Ready' and s.status='Ready'
+                 and w.execution_policy='Unattended OK'
                order by w.priority desc, w.queued_at asc, w.id limit 1
              )
-             returning id::text as id, story_id, state, claimed_by, role, kind",
+             returning id::text as id, story_id, state, claimed_by, role, kind,
+                       execution_policy, model_policy, stop_after, launch_intent",
         )
         .bind(worker_id)
         .fetch_optional(tx.connection())
@@ -364,24 +382,29 @@ impl ForgeEngineDao {
         Ok(row)
     }
 
-    /// `Claimed → Running`, and nothing else. False means the row was not in `Claimed`, so this process does not own
-    /// the run it is about to start.
+    /// `Claimed → Running`, and nothing else. `Ok(None)` means the row was not in `Claimed`, so this process does not
+    /// own the run it is about to start.
     ///
     /// The check is the point. When this was ported it returned `Ok(())` unconditionally, so a row that had already
     /// settled, or been cancelled, or requeued by recovery, took the `Claimed → Running` update as a zero-row no-op
     /// and the engine was told the claim was open and drove the story anyway — an unowned run, produced by the very
     /// seam that exists to remove unowned runs (2026-09-29 review).
-    pub async fn begin_agent_work_run(&self, work_item_id: &str) -> DbResult<bool> {
-        let result = sqlx::query(
+    ///
+    /// `Ok(Some(policy))` is the claimed row's `execution_policy`, returned with the transition that gates the run:
+    /// the engine reads the durable envelope **at the moment it starts executing**, not from a flag a caller may
+    /// have set, so an item whose policy names a human can never be executed unattended by any launcher.
+    pub async fn begin_agent_work_run(&self, work_item_id: &str) -> DbResult<Option<String>> {
+        let result = sqlx::query_scalar::<_, String>(
             "update agent_work_item
              set state='Running', started_at=coalesce(started_at,now()), updated_at=now()
-             where id=$1::uuid and state='Claimed'",
+             where id=$1::uuid and state='Claimed'
+             returning execution_policy",
         )
         .bind(work_item_id)
-        .execute(self.db.pool())
+        .fetch_optional(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("forge_engine.begin_agent_work_run", &error))?;
-        Ok(result.rows_affected() > 0)
+        Ok(result)
     }
 
     /// Terminalize a claim that never became a run, because the configuration it was launched with is unusable.
