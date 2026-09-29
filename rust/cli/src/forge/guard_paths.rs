@@ -117,24 +117,29 @@ pub fn rules_without_guard(agents_md: &str) -> Vec<(usize, String)> {
     out
 }
 
-/// A file is a guard when it is a test by location or by name, or when its body carries a test marker.
-/// The marker check is deliberately per-language: a Rust guard is a `#[test]`, a TypeScript guard is a
-/// file named `.test.ts`.
+/// A file is a guard when its BODY carries a test. Location and name are not enough: an empty file under
+/// `tests/` is a Cargo integration-test target that runs zero tests, and a `*.test.ts` with no `it`/`test`/
+/// `describe` body asserts nothing — neither guards a rule (the acceptance criterion is explicit: an empty
+/// file is not a guard). So the body is read, whatever the path calls itself.
 fn holds_a_test(path: &str, content: &str) -> bool {
+    if content.trim().is_empty() {
+        return false;
+    }
     let normalized = path.replace('\\', "/");
-    if normalized.contains("/tests/") || normalized.ends_with("_test.rs") {
-        return true;
-    }
-    let name = normalized.rsplit('/').next().unwrap_or(&normalized);
-    if name.contains(".test.") || name.contains(".spec.") {
-        return true;
-    }
     if normalized.ends_with(".rs") {
-        return content.contains("#[cfg(test)]")
-            || content.contains("#[test]")
-            || content.contains("mod tests");
+        // `#[test]` and `#[cfg(test)]` are the plain markers; `::test]` covers the async/DB wrappers
+        // (`#[tokio::test]`, `#[sqlx::test]`), `test_case` the parameterised form.
+        return content.contains("#[test]")
+            || content.contains("#[cfg(test)]")
+            || content.contains("mod tests")
+            || content.contains("::test]")
+            || content.contains("test_case");
     }
-    content.contains("describe(") || content.contains("it(") || content.contains("test(")
+    content.contains("describe(")
+        || content.contains("it(")
+        || content.contains("test(")
+        || content.contains("it.each")
+        || content.contains("test.each")
 }
 
 /// Check the handbook against the tree rooted at `root`. Deterministic: sorted by the line the finding
@@ -322,6 +327,45 @@ mod tests {
                 .any(|finding| finding.rule == "guard-path-not-a-test"),
             "a file with no test is not a guard: {findings:?}"
         );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_empty_file_in_a_tests_directory_is_not_a_guard() {
+        // Location is not a guard: `tests/` makes Cargo compile the file, but a body with no test runs
+        // zero assertions. Criterion 2's "an empty file is not a guard" must hold there too.
+        let root = fixture_root("empty-tests-dir");
+        write_file(
+            &root,
+            "rust/core/db/tests/empty_case.rs",
+            "// a test target that runs nothing\n",
+        );
+        let findings = check(
+            &root,
+            &handbook("- A rule. guard: rust/core/db/tests/empty_case.rs\n"),
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|finding| finding.rule == "guard-path-not-a-test"),
+            "an empty file under tests/ is still not a guard: {findings:?}"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_file_in_a_tests_directory_that_holds_a_test_passes() {
+        let root = fixture_root("real-tests-dir");
+        write_file(
+            &root,
+            "rust/core/db/tests/real_case.rs",
+            "#[tokio::test]\nasync fn guarded() {}\n",
+        );
+        let findings = check(
+            &root,
+            &handbook("- A rule. guard: rust/core/db/tests/real_case.rs\n"),
+        );
+        assert!(findings.is_empty(), "{findings:?}");
         let _ = fs::remove_dir_all(&root);
     }
 
