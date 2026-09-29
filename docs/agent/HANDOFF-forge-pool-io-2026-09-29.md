@@ -358,8 +358,65 @@ the item and its board status**; the two proof stories are deleted. PROD was not
    seventh writer of a half. Not changed here, because changing it would change that meaning.
 2. Two writes that are not strands but are not one write either: `mark_story_in_progress` (the engine) beside the
    item's `Claimed → Running` — harmless, the item holds the single-active slot, but the board briefly says `Ready`
+
    during a run; and `fire_flight`'s story → `Ready` beside its item stamp (`forge_control.rs:244-275`) — the Ready
    trigger creates the item in between, so nothing is stranded, and the command reports `queued`/`stamped`
    separately.
-3. `25P03` (S9, §5), AC #5's live-run rows (§10.5) and the `ENG-AUTH-GOOGLE-01` reproducer (§9) are unchanged.
+3. `25P03` (S9, §5), AC #5's live-run rows (§10.5) and the `ENG-AUTH-GOOGLE-01` reproducer (§9) are unchanged. See
+   §12: the mechanism is named there, and the failure no longer ends a run.
+
+## 12. ENGINE FAULTS CLEAR; THE PLANE IS SWEPT BEFORE EACH RUN — LANDED 2026-09-29 (`fdee9d1f`)
+
+The captain's instruction, and it overrides the semantics this file has been arguing about for two rounds:
+"if the failure is because our engine is broken just clear it, it should never be in this state ... clean the junk
+before each run".
+
+**What landed (`fdee9d1f`, pushed to `origin/main`):**
+
+1. `AgentWorkOutcome::Abandoned` — the fourth outcome. Its pair (`db::settlement_pair`): while the board still
+   expects a run (`Ready`/`In Progress`), item `Ready` + story `Ready`, claim unset, reason kept on the row; over
+   any other board, item `Cancelled` and the board untouched. `Hold` is never written for a run that never happened.
+2. `finish_agent_work_run` refuses to clear for ever: at `attempts >= max_attempts` the pair stops clearing and
+   holds the story, so a permanently broken engine cannot cycle one story through the queue without end.
+3. `forge::engine::engine_fault::is_engine_fault` — the child classifies its own failure (DatabaseUnavailable,
+   sqlstate 25P03/57P02/53300, broken pipe, reset, EOF, timeouts); only a failure *about the work* is recorded
+   against the story. An unrecognised message stays a failure (safe direction). Harness and provision failures clear
+   too: nothing was attempted.
+4. The worker's two fallback settles are `Abandoned` by construction — reaching them means the child left **no
+   verdict**, which is never a story's failure.
+5. `reconcile_dispatch_queue` — the pre-run sweep. Called at the top of every worker pass, before the claim, one
+   transaction: (a) a story `In Progress` that nothing holds (no `Claimed`/`Running` item **and** no active
+   `process_instances` row) goes back to `Ready`; (b) a `Ready` story with no item gets one; (c) an open item whose
+   story no longer expects a run is cleared. A live run is never touched — both authorities are consulted first.
+
+**Verified (raw):** `cargo check --workspace --all-targets` → clean; `cargo test -p db -p forge --lib` → **49 + 85
+passed, 0 failed**; DEV walk `cargo test -p db --test forge_work_claim_dev -- --ignored --test-threads=1` → **2
+passed**, the new one asserting: clear → `Ready`/`Ready` with `claimed_by`/`claimed_at`/`started_at`/`finished_at`
+unset and the 25P03 reason on the row; the same item claimable again; the ceiling holding at `max_attempts`; a junk
+item cleared; a `Ready` story re-queued exactly once (no duplicate). DEV left as found.
+
+**Live state at the time of this commit (read, not assumed):** 8 open items, all `Ready`, `attempts 0`; 7 `Ready`
+stories queued and claimable, 1 (`TECH-FLIGHT-RECORDER-01`) `In Progress` with `Ready` item and a **live run** — its
+`process_instances` row (`subject_type=story`) is active, which is exactly what the sweep checks before it moves
+anything. That run was launched at `12:20Z` by a **pre-fix** worker: `ps` shows
+`forge --story TECH-FLIGHT-RECORDER-01 --work-type FEATURE` with **no `--work-item`**, i.e. it owns no queue row and
+is why the story/item pair looks split. It holds the single-active slot for the wrapper's pass, not for the queue.
+
+**Not verified (honest gap).** No post-fix tick has been observed: the live invocation pulled an older head and is
+still in flight, so the sweep's first real run on the plane, and a first `Abandoned` clear in PROD, are still
+unobserved. The next scheduled wake pulls `fdee9d1f` (the wrapper does `git pull --ff-only origin main` before
+`cargo run -p forge --bin forge-worker`), cleans the plane at the top of its first pass, and then claims one of the
+`Ready` stories.
+
+**Closed by this slice, from §7/§9:** (a) "should `recover` re-ready the story?" — moot: the sweep re-readies *any*
+stranded pair, whoever stranded it, before every run. (b) "requeue `ENG-AUTH-GOOGLE-01` to reproduce 25P03?" — the
+mechanism is named (idle-in-transaction kill on a transaction held across a role turn) and, more importantly, the
+failure is no longer terminal: it clears and retries, bounded by `max_attempts`. (c) the `with_tx` sync/closure
+fence test stays open and stays low value.
+
+**Two traps found while diagnosing, now in `MEMORY.md`:** `pnpm forge:clean` must **not** be used to "clear junk"
+(its 15-minute stale window cancels the very `Ready` items a queue is made of — 7 queued PROD stories would have been
+cancelled and their boards held), and a live run is only protected from twin dispatch by checking **both** a held item
+and an active instance, because pre-fix unowned runs hold nothing at all.
+
 

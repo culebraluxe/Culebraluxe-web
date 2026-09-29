@@ -389,3 +389,27 @@ Short facts that are expensive to rediscover.
   Rule: when you introduce a lease, add its beat in the same commit, and let the state come from an enum so an
   illegal state cannot be passed.**
 
+
+- **2026-09-29 (an engine fault was recorded as the story's verdict, and the queue kept junk a run should have
+  cleaned).** The captain's rule, verbatim: "if the failure is because our engine is broken just clear it, it should
+  never be in this state ... clean the junk before each run". A failure that is the engine's own plumbing — a session
+  the server took away (`sqlstate 25P03`, which is `idle_in_transaction_session_timeout`: the engine holds a
+  transaction open across a role turn, so the server ends the session; the Broken pipe is the same cause), a dead
+  socket, a launch that never started, a child that died with no verdict — was settled `Error`, and after the pair
+  rule landed the same day that moved the board to `Hold`: a human gate nobody had decided, on a story nothing had
+  been attempted against. Landing `fdee9d1f`: a fourth outcome `Abandoned` whose pair is **item `Ready` + story
+  `Ready`** (claim unset, reason kept on the row) while the board still expects a run, and `Cancelled` over the item
+  alone when the board has already settled; a ceiling (`attempts >= max_attempts`) so a permanently broken engine
+  stops clearing and holds instead of cycling one story for ever; the child classifying its own failure
+  (`engine::engine_fault` — the plumbing vocabulary only, an unrecognised message stays a failure, which is the safe
+  direction); and `reconcile_dispatch_queue` at the top of every worker pass, **before the claim**, repairing the
+  three junk shapes in one transaction — a story `In Progress` that nothing holds (`Claimed`/`Running` item or an
+  active `process_instances` row) goes back to `Ready`; a `Ready` story with no item gets one (the dispatch trigger
+  fires only on a *change* to `Ready`, so a story already `Ready` when its item went terminal had nothing left to
+  fire it and sat dispatching nothing — seven such stories were live in PROD); an open item whose story no longer
+  expects a run is cleared. Rules: **a failure that says nothing about the work is the engine's, and the engine's
+  failure may never spend the story's turn — clear it, do not hold it. Clean the pair before every run.** Two traps
+  found on the way: `pnpm forge:clean` is *not* that cleanup (its 15-minute stale window cancels the very `Ready`
+  items a queue is made of, so running it to "clear junk" kills the queued work), and a live run is only protected
+  from a twin dispatch by consulting **both** authorities — a held item *and* an active instance — because a
+  pre-fix unowned run holds no item at all.**
