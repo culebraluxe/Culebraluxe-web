@@ -155,13 +155,6 @@ impl<R: TechCockpitRepository> TechCockpitService<R> {
         let id = request.story_id.as_deref().unwrap_or("").trim();
 
         let result: Result<TechCommandResult, CoreServiceError> = async {
-            let ok = |message: String| -> Result<TechCommandResult, CoreServiceError> {
-                Ok(TechCommandResult {
-                    ok: true,
-                    message,
-                    data: Value::Null,
-                })
-            };
             let ok_data = |message: String, data: Value| -> Result<TechCommandResult, CoreServiceError> {
                 Ok(TechCommandResult {
                     ok: true,

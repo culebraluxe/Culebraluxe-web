@@ -9,7 +9,7 @@
 //! images and records their evidence; that belongs with the signature transport, which is already Rust and has its own
 //! story. What is here is what issuance needs — the document, and where the signatures go.
 
-use crate::vault::pdf::{decimal, resources, Content, Pdf, PdfError, Rgb};
+use crate::vault::pdf::{resources, Content, Pdf, PdfError, Rgb};
 use domain::forms_applied_signature::{
     format_broker_initials, format_broker_signature_date, AppliedSignatureEvidence,
     FormAppliedSignature,
@@ -17,7 +17,7 @@ use domain::forms_applied_signature::{
 use domain::forms_font::{encode, text_width, StandardFont};
 use domain::forms_template::{
     TemplateDefinition, TemplateFieldDefinition, TemplateFieldType, TemplatePresentation,
-    TemplateSectionDefinition, TemplateSectionSegment, TemplateSignatureGroup, TemplateWhen,
+    TemplateSectionDefinition, TemplateSectionSegment, TemplateSignatureGroup,
 };
 use std::collections::BTreeMap;
 mod draw_overview;
@@ -313,34 +313,6 @@ mod tests {
         );
     }
 
-    /// Every stream in the file, inflated. A PDF's resource dictionary and its content stream are COMPRESSED, so a
-    /// plain-text search of the bytes proves nothing about what a viewer will resolve.
-    fn inflated_streams(pdf: &[u8]) -> String {
-        use std::io::Read;
-        let mut out = String::new();
-        let mut cursor = 0;
-        while let Some(start) = find_bytes(pdf, b"stream\n", cursor) {
-            let body = start + 7;
-            let Some(end) = find_bytes(pdf, b"\nendstream", body) else {
-                break;
-            };
-            let mut decoded = String::new();
-            let mut decoder = flate2::read::ZlibDecoder::new(&pdf[body..end]);
-            if decoder.read_to_string(&mut decoded).is_ok() {
-                out.push_str(&decoded);
-            }
-            cursor = end + 1;
-        }
-        out
-    }
-
-    fn find_bytes(haystack: &[u8], needle: &[u8], from: usize) -> Option<usize> {
-        haystack[from..]
-            .windows(needle.len())
-            .position(|window| window == needle)
-            .map(|index| index + from)
-    }
-
     /// THE DOCUMENT AS A VIEWER SEES IT. Rectangles draw while every glyph is missing when the page's resources declare
     /// no font, or when the text is drawn in the background's own colour — both look identical to "white text on white".
     #[test]
@@ -358,7 +330,6 @@ mod tests {
         )
         .expect("the agreement renders");
         let pdf = String::from_utf8_lossy(&rendered.bytes).to_string();
-        let streams = inflated_streams(&rendered.bytes);
 
         assert!(
             pdf.contains("/Type /Font"),

@@ -443,7 +443,9 @@ impl<R: PropertyRepository> PropertyService<R> {
         )
         .await?;
         let result = db::service_mutation(self.repository.database(), async {
-            let current = self
+            // Loaded to REFUSE a save against a property that does not exist — the value itself is not consulted
+            // beyond that, which is why it is bound with the underscore rather than passed to the validator.
+            let _current = self
                 .repository
                 .admin_get(&request.property_id)
                 .await?
@@ -453,7 +455,7 @@ impl<R: PropertyRepository> PropertyService<R> {
                         format!("Property not found: {}", request.property_id),
                     )
                 })?;
-            validate_admin_save(&current, request)?;
+            validate_admin_save(request)?;
             let property = self.repository.admin_save(request).await?.ok_or_else(|| {
                 CoreServiceError::business(
                     "PROPERTY_NOT_FOUND",
@@ -629,10 +631,7 @@ fn parse_iso_date(value: &str) -> Option<NaiveDate> {
     NaiveDate::parse_from_str(value, "%Y-%m-%d").ok()
 }
 
-fn validate_admin_save(
-    current: &PropertyAdminRecord,
-    request: &SavePropertyAdminRequest,
-) -> Result<(), CoreServiceError> {
+fn validate_admin_save(request: &SavePropertyAdminRequest) -> Result<(), CoreServiceError> {
     if request.name.trim().is_empty() {
         return Err(CoreServiceError::business(
             "PROPERTY_NAME_REQUIRED",

@@ -28,6 +28,10 @@ struct CalendarChip {
     all_day: bool,
     source: String,
     kind: String,
+    // Carried by the event and not drawn by this row. Kept rather than dropped because the chip is the screen's
+    // shape as the owner designed it, and removing a field to satisfy a compiler is how a screen quietly loses
+    // something a later layout pass would need. Allowance, not silence: delete it when a rule needs the field.
+    #[allow(dead_code)]
     location: Option<String>,
     provider_event_id: Option<String>,
     provider_series_id: Option<String>,

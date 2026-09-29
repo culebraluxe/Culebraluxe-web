@@ -80,10 +80,6 @@ impl BoldSignStore {
         Self { db }
     }
 
-    pub fn database(&self) -> Database {
-        self.db.clone()
-    }
-
     pub async fn load_document_pdf(
         &self,
         transaction_document_id: &str,

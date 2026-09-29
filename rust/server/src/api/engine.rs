@@ -298,6 +298,10 @@ pub async fn reclaim(
 }
 
 /// Read an ApiError's response body as JSON - the same path a client sees, including the capture branch.
+///
+/// Test-only: it exists so a test can assert what a caller receives, which is why it is gated rather than deleted
+/// (the lib target's "never used" warning is the normal shape of a helper only the tests call).
+#[cfg(test)]
 async fn error_body(error: ApiError) -> serde_json::Value {
     use axum::response::IntoResponse;
     let response = error.into_response();
