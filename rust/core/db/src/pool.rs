@@ -69,20 +69,37 @@ impl Database {
         let normalized = normalize_ssl_mode(&url);
         let options = PgConnectOptions::from_str(&normalized)
             .map_err(|_| DbFailure::configuration("db.connect", "invalid database connection URL"))?
-            .application_name(&format!("culebraluxe-rust-{}", target.as_str()))
-            // A CEILING ON EVERY STATEMENT.
-            //
-            // Without one, a query that goes wrong holds its connection until Postgres or the network gives up.
-            // There are twelve connections in production, so a handful of stuck statements is the whole portal
-            // waiting, and the symptom reads as "the site is slow" rather than "this statement never returned".
-            // Thirty seconds is far above the slowest page (the worst statement measured here is 872ms) and far
-            // below the patience of a person.
-            //
-            // This is a session setting, so it is applied on connect and covers every statement on the pool.
-            // `FORGE_DB_STATEMENT_TIMEOUT_MS=0` disables it; work that is deliberately long — a migration that
-            // builds an index, a bulk load — calls `db::disable_statement_timeout()` instead, because waiting
-            // there is the operator's own decision and not a request a browser is holding open.
-            .options([("statement_timeout", statement_timeout_ms().to_string())]);
+            .application_name(&format!("culebraluxe-rust-{}", target.as_str()));
+
+        // A CEILING ON EVERY STATEMENT — APPLIED AS A STATEMENT, NOT AS A STARTUP PARAMETER.
+        //
+        // Without a ceiling, a query that goes wrong holds its connection until Postgres or the network gives up.
+        // There are twelve connections in production, so a handful of stuck statements is the whole portal
+        // waiting, and the symptom reads as "the site is slow" rather than "this statement never returned".
+        // Thirty seconds is far above the slowest page (the worst statement measured here is 872ms) and far
+        // below the patience of a person.
+        //
+        // THIS SETTING USED TO TRAVEL IN `PgConnectOptions::options(...)`, AND THAT COULD NOT CONNECT AT ALL.
+        // libpq's `options` is part of the STARTUP PACKET, and both of this project's endpoints — DEV and PROD — are
+        // Neon `-pooler` endpoints (PgBouncer). PgBouncer refuses a startup option it does not track, so every
+        // connection died before a single query ran:
+        //
+        //   unsupported startup parameter in options: statement_timeout.
+        //   Please use unpooled connection or remove this parameter from the startup package.
+        //
+        // It was found by starting the server against DEV (2026-09-28, `db.connect` on the boot line, SQLSTATE
+        // 08P01) — the unit tests never open a socket, which is exactly the gap `docs/rust-contributing.md` warns
+        // about. `SET` is an ordinary statement and is honoured on a pooled connection, so the ceiling is applied
+        // once per connection, after it is established.
+        //
+        // `FORGE_DB_STATEMENT_TIMEOUT_MS=0` disables it; work that is deliberately long — a migration that builds an
+        // index, a bulk load — calls `db::disable_statement_timeout()` instead, because waiting there is the
+        // operator's own decision and not a request a browser is holding open. Connections opened after that call
+        // get `0`; connections already open keep the ceiling until they are recycled, which is the same behaviour the
+        // startup parameter had.
+        //
+        // The value is a `u64` formatted into the statement: a number cannot carry a quote, so this is not
+        // string-built SQL, and `SET` does not accept a bind parameter.
 
         // PREPARED STATEMENTS STAY ON. This was briefly disabled, on the reasoning that Neon's `-pooler` endpoint is
         // PgBouncer in transaction mode and transaction mode does not honour named prepared statements - so a
@@ -134,6 +151,21 @@ impl Database {
             .idle_timeout(Some(Duration::from_millis(idle_ms)))
             .acquire_timeout(Duration::from_millis(connect_ms))
             .test_before_acquire(false)
+            // THE CEILING GOES ON HERE, NOT IN THE STARTUP PACKET (see the comment above `options`).
+            // `set_config(..., false)` is the session-scoped form, and it takes the value as a BIND: sqlx 0.9's
+            // `SqlSafeStr` refuses dynamically built SQL (`sqlx::query` only accepts `&'static str`), which is the
+            // right fence to have — and `SET` cannot take a parameter, so the statement is static and the number
+            // travels as a bind.
+            .after_connect(move |conn, _meta| {
+                Box::pin(async move {
+                    let millis = format!("{}ms", statement_timeout_ms());
+                    sqlx::query("SELECT set_config('statement_timeout', $1, false)")
+                        .bind(millis)
+                        .execute(conn)
+                        .await
+                        .map(|_| ())
+                })
+            })
             .before_acquire(move |conn, meta| {
                 crate::metrics::record_checkout();
                 // `age` is the time since the connection was opened, so a connection being opened right now has an age
