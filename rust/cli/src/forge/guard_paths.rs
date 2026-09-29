@@ -47,12 +47,32 @@ pub struct GuardFinding {
     pub message: String,
 }
 
+/// Byte offsets of the real `guard:` clauses in a line. A clause is the WORD `guard:`: `safeguard:` and
+/// `vanguard:` merely contain those bytes and are prose, so the character before the colon must not be
+/// alphanumeric. Without this, "safeguard: against drift" would scrape the token after the colon as a
+/// guard PATH and fail the gate on a sentence, and a rule whose only `guard:` sat inside another word
+/// would read as guarded when it is not.
+fn guard_clause_offsets(line: &str) -> Vec<usize> {
+    let mut out = Vec::new();
+    for (at, _) in line.match_indices("guard:") {
+        let preceded_by_word = line[..at]
+            .chars()
+            .next_back()
+            .map(|c| c.is_alphanumeric())
+            .unwrap_or(false);
+        if !preceded_by_word {
+            out.push(at);
+        }
+    }
+    out
+}
+
 /// Every `guard:` clause in the document, with the line it sits on. A `guard: NONE — <reason>` clause
 /// yields `NONE`; the reason stays in the document, where a reader needs it and this gate does not.
 pub fn guard_declarations(agents_md: &str) -> Vec<GuardDeclaration> {
     let mut out = Vec::new();
     for (index, line) in agents_md.split('\n').enumerate() {
-        for (at, _) in line.match_indices("guard:") {
+        for at in guard_clause_offsets(line) {
             let rest = line[at + "guard:".len()..].trim_start();
             let value = rest.split_whitespace().next().unwrap_or("").to_string();
             if value.is_empty() {
@@ -99,7 +119,8 @@ pub fn rules_without_guard(agents_md: &str) -> Vec<(usize, String)> {
     let mut item: Option<(usize, String)> = None;
     let flush = |item: &mut Option<(usize, String)>, out: &mut Vec<(usize, String)>| {
         if let Some((at, text)) = item.take() {
-            if !text.contains("guard:") {
+            // A real clause, not the bytes inside `safeguard:` — the same boundary the path scan uses.
+            if guard_clause_offsets(&text).is_empty() {
                 out.push((at, text.trim().to_string()));
             }
         }
@@ -385,6 +406,28 @@ mod tests {
             ),
         );
         assert!(findings.is_empty(), "{findings:?}");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_word_ending_in_guard_is_not_a_guard_clause() {
+        // `safeguard:` contains the bytes `guard:`, but it is prose. A rule whose only "guard:" sits
+        // inside another word therefore has NO guard: it must be reported as a silent hole, and no path
+        // may be scraped from the word after the colon (which would fail the gate on a sentence).
+        let root = fixture_root("safeguard");
+        let findings = check(&root, &handbook("- A safeguard: against drift.\n"));
+        assert!(
+            findings
+                .iter()
+                .any(|finding| finding.rule == "guard-missing"),
+            "prose ending in `guard:` is not a guard clause: {findings:?}"
+        );
+        assert!(
+            !findings
+                .iter()
+                .any(|finding| finding.rule == "guard-path-missing"),
+            "no path may be scraped from a word like `safeguard:`: {findings:?}"
+        );
         let _ = fs::remove_dir_all(&root);
     }
 
