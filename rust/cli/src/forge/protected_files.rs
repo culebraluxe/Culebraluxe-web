@@ -128,15 +128,14 @@ mod tests {
 
     #[test]
     fn intact_marker_allows_following_content() {
-        assert_eq!(
-            marker_refusal(
-                "x.md",
-                Some("# Column writer audit\n\n| table |\n"),
-                "# Column writer audit",
-            ),
-            None,
+        let with_body = marker_refusal(
+            "x.md",
+            Some("# Column writer audit\n\n| table |\n"),
+            "# Column writer audit",
         );
-        assert_eq!(marker_refusal("x.md", Some("stray no newline"), "stray"), None);
+        assert!(with_body.is_none());
+        let single_line = marker_refusal("x.md", Some("stray no newline"), "stray");
+        assert!(single_line.is_none());
     }
 
     #[test]
