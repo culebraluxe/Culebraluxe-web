@@ -149,7 +149,7 @@ impl SecurityDao {
                 from security_role r cross join entitlement e
                 where r.code = $1 and r.active = true and r.account_type = 'internal'
                   and e.code = $2 and e.active = true
-                  and (e.code not in ('security.entitlement.manage', 'security.role.manage') or r.code = 'root')
+                  and (e.code <> all($4::text[]) or r.code = 'root')
             ), added as (
                 insert into role_entitlement (role_id, entitlement_id)
                 select role_id, entitlement_id from target where $3
@@ -165,6 +165,8 @@ impl SecurityDao {
         .bind(role_code)
         .bind(action)
         .bind(granted)
+        // Only ROOT's role may hold these: the one list the server and the portal also use (`domain::security`).
+        .bind(domain::security::ROOT_ONLY_ACTIONS.to_vec())
         .fetch_one(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("security.set_role_entitlement", &error))

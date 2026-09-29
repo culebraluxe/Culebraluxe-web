@@ -262,7 +262,7 @@ impl<R: SecurityRepository> SecurityService<R> {
         let decision = authorize(
             &self.runtime,
             "security",
-            "security.entitlement.manage",
+            domain::security::ENTITLEMENT_MANAGE,
             OP,
             OperationKind::Command,
             context,
@@ -317,7 +317,7 @@ impl<R: SecurityRepository> SecurityService<R> {
         let decision = authorize(
             &self.runtime,
             "security",
-            "security.role.manage",
+            domain::security::ROLE_MANAGE,
             OP,
             OperationKind::Command,
             context,

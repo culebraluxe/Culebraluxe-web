@@ -443,7 +443,7 @@ mod tests {
         );
 
         // NOT PUBLISHED: other people's data.
-        for action in ["deal.read", "firm.read", "security.role.manage"] {
+        for action in ["deal.read", "firm.read", domain::security::ROLE_MANAGE] {
             public_read.action = action;
             assert!(
                 !auth.authorize(public_read.clone()).await.unwrap().allowed,
@@ -543,9 +543,9 @@ mod tests {
     async fn only_root_can_manage_role_entitlements() {
         let auth = CasbinAuthorizationPort::new().await.unwrap();
         let mut req = request(
-            "security.entitlement.manage",
+            domain::security::ENTITLEMENT_MANAGE,
             OperationKind::Command,
-            &["security.entitlement.manage"],
+            &[domain::security::ENTITLEMENT_MANAGE],
         );
         req.domain = "security";
         req.operation = "security.setRoleEntitlement";
@@ -556,13 +556,37 @@ mod tests {
         assert!(auth.authorize(req).await.unwrap().allowed);
     }
 
+    /// ONE LIST, THREE READERS. `domain::security::ROOT_ONLY_ACTIONS` is the list the portal offers from
+    /// (`ScreenCtx::can`), the database guards grants with (`SecurityDao::set_role_entitlement`) and this port enforces.
+    /// Every entry must be a catalogued command, refused to a non-root internal user who holds the grant, and allowed
+    /// to root — so a code renamed in one place and not another fails here, not in production.
+    #[tokio::test]
+    async fn every_root_only_action_is_catalogued_and_root_only() {
+        let auth = CasbinAuthorizationPort::new().await.unwrap();
+        assert!(!domain::security::ROOT_ONLY_ACTIONS.is_empty());
+        for action in domain::security::ROOT_ONLY_ACTIONS {
+            assert!(
+                catalog::ACTIONS.contains(&(action, "command")),
+                "{action} must be a catalogued command"
+            );
+            assert!(domain::security::is_root_only(action));
+            let mut req = request(action, OperationKind::Command, &[action]);
+            req.domain = "security";
+            req.principal.as_mut().unwrap().role_codes = vec!["owner".into()];
+            assert!(!auth.authorize(req.clone()).await.unwrap().allowed, "{action}: owner holding the grant is refused");
+            req.principal.as_mut().unwrap().role_codes = vec!["root".into()];
+            assert!(auth.authorize(req).await.unwrap().allowed, "{action}: root is allowed");
+        }
+        assert!(!domain::security::is_root_only("deal.read"), "an ordinary action is not root-only");
+    }
+
     #[tokio::test]
     async fn only_root_can_manage_user_roles() {
         let auth = CasbinAuthorizationPort::new().await.unwrap();
         let mut req = request(
-            "security.role.manage",
+            domain::security::ROLE_MANAGE,
             OperationKind::Command,
-            &["security.role.manage"],
+            &[domain::security::ROLE_MANAGE],
         );
         req.domain = "security";
         req.operation = "security.setUserPrimaryRole";

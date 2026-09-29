@@ -149,6 +149,30 @@ fn percent_decode(text: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
 
+    /// The portal offers a root-only action exactly when the server would allow it: the same list
+    /// (`domain::security::ROOT_ONLY_ACTIONS`), never a copy.
+    #[test]
+    fn root_only_actions_are_offered_to_root_alone() {
+        let ctx = |is_root: bool, level: &str| ScreenCtx {
+            grants: Some(crate::model::PortalEntitlements {
+                account_type: domain::security::INTERNAL_ACCOUNT.into(),
+                security_level: level.into(),
+                is_root,
+                entitlement_codes: domain::security::ROOT_ONLY_ACTIONS.iter().map(|code| code.to_string()).collect(),
+            }),
+            ..ScreenCtx::default()
+        };
+        for action in domain::security::ROOT_ONLY_ACTIONS {
+            assert!(!ctx(false, "BUSINESS_POWER_USER").can(action), "{action}: holding the grant is not enough");
+            assert!(ctx(true, "ROOT").can(action), "{action}: root may");
+        }
+        let external = ScreenCtx {
+            grants: Some(crate::model::PortalEntitlements { account_type: "external".into(), is_root: true, ..Default::default() }),
+            ..ScreenCtx::default()
+        };
+        assert!(!external.can(domain::security::ROLE_MANAGE), "an external account is offered nothing");
+    }
+
     #[test]
     fn a_part_that_does_not_decode_is_kept_as_written() {
         let query = parse_query("?propertyId=villa%2&ref=50%&name=caf%C3%A9&bad=%FF");
