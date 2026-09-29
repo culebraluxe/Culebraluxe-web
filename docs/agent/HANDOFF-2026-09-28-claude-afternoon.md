@@ -45,7 +45,11 @@ Read `AGENTS.md`, `docs/agent/ORIENTATION.md`, `docs/agent/MEMORY.md` (top entri
 
 1. DONE: `mailbox.rs` split (637 lines + `mailbox/tests.rs`). DONE-BY-COMPILER: a service on `abstract_service!` cannot
    grow an envelope operation — adding its own `dispatch` is a second `AbstractService` impl, `E0119`.
-3. Grok's suggested vertical review: clients screen → `api.rs` → `portal_bridge` → clients service → DAO.
+3. DONE: Grok's vertical review of clients (screen → `api::ClientsRead` → `portal_bridge`/`routes.rs` → `ClientService`
+   → `ClientDao`). One door: the routes call the service; every method authorizes then audits; the person-admin write and
+   its cache refresh live once (`apply_person_admin_update`, shared by `/v1` and the portal); the DAO binds every value.
+   One naming wrinkle left on purpose: the service authorizes and audits under domain `"clients"` while its registry
+   descriptor says `"client"` — aligning it would split the audit history under two names, so it needs the owner's word.
 4. Screens over 800 lines split on their next edit (workbench/view.rs 2,492; deals/view.rs 1,642; forms.rs 1,706;
    system_health.rs 1,351; projects/view/calendar.rs 940).
 
