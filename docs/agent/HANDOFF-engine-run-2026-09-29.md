@@ -15,7 +15,9 @@ is the owner's call to start (§7). This file is the state, not the story.
 | S6 | The scheduler is **installed but not loaded** (`running: no`, `disabled: yes`) | `rust/target/debug/cli launchd agent-worker status` |
 | S7 | The 10:34 tick reached `pass=1 start` and never logged an end; its claim is the stale `Running` row in S5 | the invocation log named by `launchd agent-worker status` |
 | S8 | Seven of the eight queued PROD stories have **no packet file** on disk; the packet the engine loads is the `storyboard_story` row | `ls docs/agent/packets/`; `StoryPacket::load_from_neon` |
-| S9 | Working tree clean; `HEAD == origin/main == 4ff9c1de` | `git status --porcelain` → empty; `git --no-pager log --oneline -1 origin/main` |
+| S9 | Working tree clean; `HEAD == origin/main` (`4ff9c1de`, then this handoff's own commit) | `git status --porcelain` → empty; `git --no-pager log --oneline -1 origin/main` |
+| S10 | **The one engine run the Captain authorized started `2026-09-29T20:33:20Z`**: item → `Running`, run `5a60ad40-8cca-43f4-859a-d0347a098fc9` for `ENG-GUARD-AGENTS-LINT-01`, opened with `run_type=dispatch`, `execution_environment=PROD`, `goal_snapshot` 255 chars, `acceptance_criteria_snapshot` 1065 chars, `scope_snapshot` the full story scope | `forge sql --target prod` on `storyboard_story_run` for `5a60ad40-…` |
+| S11 | The run's model policy came from the row: the lane runs `opencode run --model deepseek/deepseek-flash` (`model_policy` NULL → `cheap` default), and the board shows the story `In Progress` | `pgrep -fl 'opencode run'`; `storyboard_story.status` |
 
 ## 2. HOLDS — do not act on these
 
@@ -56,17 +58,17 @@ is the owner's call to start (§7). This file is the state, not the story.
 
 ## 6. OPEN — the next actions, in order
 
-1. Run the engine once, if §7 A1 answers `run`: `APP_ENV=production EXECUTION_ENV=PROD AGENT_WORKER_MAX_PASSES=1 bash scripts/agent-worker-once.sh`
-   Finished when `forge sql --target prod` shows a `storyboard_story_run` row for the claimed story with `goal_snapshot is
-   not null`, `acceptance_criteria_snapshot is not null`, `run_type` and `execution_environment` set, and
-   `agent_work_item.story_run_id` pointing at it.
+1. **The run answered `A1 = run`, one pass, and it is in flight** (S10). Watch it to a terminal state — do not start a
+   second lane while this one holds the item:
+   - `forge sql --target prod --sql "select state, attempts from agent_work_item where story_run_id='5a60ad40-8cca-43f4-859a-d0347a098fc9'::uuid"`
+   - `forge sql --target prod --sql "select result_status, base_commit_hash from storyboard_story_run where id='5a60ad40-8cca-43f4-859a-d0347a098fc9'::uuid"`
+   Finished when the item leaves `Running` and the run row carries a `result_status` (`Complete`/`Failed`) or stays unruled
+   because the claim was **cleared** — the second is a legal outcome, not a defect.
 2. Then check that the same row carries a non-null `base_commit_hash` once provisioning answers, and that
    `forge_tool_artifact` children hang off that `story_run_id`.
 3. Decide whether the eight `Ready` stories keep running on defaults, or are dispatched from the Cockpit with a policy.
 
 ## 7. ASK THE OWNER
 
-- **A1 — run the single PROD engine run now?** One word: `run` (I launch the one-pass command in §6.1 and report the run
-  row), or `hold` (the seams stay landed and unobserved on PROD, and §5 stays as it is).
-- **A2 — if `run`, one pass or the whole queue?** `one` (bounded; proves the seam) or `all` (the queue drains; every story
-  is a model-billed lane).
+- **A1 — answered: `run`, one pass.** The lane for `ENG-GUARD-AGENTS-LINT-01` is the one run; nothing else is started.
+- **A2 — answered: `one`.** The other seven `Ready` items wait for a separate decision (§6.3).
