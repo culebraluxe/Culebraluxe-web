@@ -97,6 +97,18 @@ jobs:
       - name: harness gates (packets, manifests, vendor blocks)
         run: pnpm forge:packet-lint
 
+      # THE HANDBOOK'S GUARD PATHS ARE LINTED, NOT ASSUMED (ENG-GUARD-AGENTS-LINT-01).
+      #
+      # Every `guard:` line in AGENTS.md is a CLAIM that a test exists, and nothing read those claims: eight
+      # `guard: workflow_app/tests/*.test.ts` lines survived the deletion of the whole TypeScript application,
+      # so the handbook read as if nine rules were guarded and not one file was there. `forge guard-lint`
+      # (`rust/cli/src/forge/guard_paths.rs`) is the blocking half: a path that does not exist, or that exists
+      # but holds no test, FAILS with its line number and exits 1. `pnpm forge:packet-lint` above runs the same
+      # check but only WARNS, and the `cargo test` assertion in the rust job sits below the format step — so
+      # this explicit step is what makes a dead guard path actually stop the pipeline.
+      - name: guard paths (every `guard:` in AGENTS.md resolves to a test)
+        run: pnpm forge:guard-lint
+
       - name: lint
         run: pnpm lint
 

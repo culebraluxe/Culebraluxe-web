@@ -70,6 +70,7 @@
     "forge:story:show": "APP_ENV=production cargo run --manifest-path rust/Cargo.toml -p cli -- forge story-show",
     "forge:doctor": "APP_ENV=production cargo run --manifest-path rust/Cargo.toml -p cli -- forge doctor",
     "forge:packet-lint": "cargo run --manifest-path rust/Cargo.toml -p cli -- forge harness-lint",
+    "forge:guard-lint": "cargo run --manifest-path rust/Cargo.toml -p cli -- forge guard-lint",
     "forge:manifest": "cargo run --manifest-path rust/Cargo.toml -p cli -- forge manifest",
     "forge:manifest:check": "cargo run --manifest-path rust/Cargo.toml -p cli -- forge manifest --check-all",
     "forge:sync-agents": "cargo run --manifest-path rust/Cargo.toml -p cli -- forge sync-agents",
