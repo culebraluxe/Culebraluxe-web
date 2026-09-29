@@ -119,6 +119,9 @@ jobs:
       - name: live-TS count (may only fall)
         run: pnpm ts:count
 
+      - name: TS/JS ratchet (allowlist may only shrink)
+        run: bash scripts/ts-ratchet.sh
+
       # THE APP SUITE, AND THE REASON IT IS NEW HERE (Astra review, 2026-09-18).
       #
       # This step did not exist, and its absence is why four High defects — a secret scan that read only

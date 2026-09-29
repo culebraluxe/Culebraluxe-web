@@ -63,7 +63,7 @@ Rust home of each capability, and the reason each file is dead are in
 only fall. (An agent that re-integrates a live route with a retired TS library is the failure this
 rule exists to prevent: that is why the Node engine had to be dropped.)
 
-**Do not reintroduce these. They were bugs, and each one was measured** (all found and fixed 2026-09-21):
+**TypeScript ratchet.** New tests are Rust `#[test]`. If you change code that has a TS test, port or delete that test in the same commit. `ts-allowlist.txt` may only shrink. Run `bash scripts/ts-ratchet.sh`; new tracked TS/JS outside `legacy/` is forbidden.\n\n**Do not reintroduce these. They were bugs, and each one was measured** (all found and fixed 2026-09-21):
 
 - **A pool per call.** The engine built one per command: 2368ms per call. There is ONE pool per process — `db::shared`,
   installed by the composition root.
