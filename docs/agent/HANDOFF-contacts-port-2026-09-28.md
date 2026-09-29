@@ -1,4 +1,43 @@
-> **UPDATE 2026-09-28 (evening) — the chain is CLOSED. The load and the projection are database functions too.**
+> **UPDATE 2026-09-28 (night) — the port was one character wrong, and the load found it: `btrim` is not JS `.trim()`.**
+>
+>   * `db/migrations/255_apple_trim.sql` — `apple_trim(text)` is JavaScript's
+>     WhiteSpace + LineTerminator set (Postgres `btrim(x)` strips spaces only, the
+>     retired loader's `.trim()` also strips `\n \t \r \v \f`, NBSP, U+2000–U+200A,
+>     U+2028/9, U+202F, U+205F, U+3000, ZWNBSP — checked field by field against `node`).
+>     The three canonical-text builders of 254 (`apple_contacts_labeled_text`,
+>     `apple_contacts_postal_text`, `apple_contacts_profile_text`) now use it; key
+>     order, the empty-value filter and the sort keys are unchanged.
+>   * Why it mattered: the canonical text is what `apple_contacts_fingerprint` hashes, and
+>     the fingerprint is the ODS revision identity. PROD's first post-port load was
+>     `2854 replay / 1 changed` and the one contact — `E6B1694F…ABPerson`, **Juan A. Santa
+>     Cruz, not Dwayne** — differed only by a leading newline on a *Work* postal street.
+>   * Applied + ledger-recorded on DEV and PROD; re-load and re-project on both
+>     (`changed 0 / replay 2855`, projection `before=after=2855`, `l_person` 2685 /
+>     `l_property` 2155 untouched). `apple_contacts_fingerprint_audit()`: **4794 matched of
+>     4795 on both** — every row the retired TypeScript loader wrote re-derives byte for
+>     byte; the single mismatch is the phantom revision the pre-fix function wrote today.
+>   * The phantom is not self-healing (the staged insert dedupes on the fingerprint, so the
+>     corrected text matches *revision 4* and nothing supersedes revision 5, which the
+>     projection reads by `revision desc`). Its visible effect is nil — the newline is in the
+>     **Work** address and `l_person.display_address` projects the Home one — so removing it
+>     (DEV `f374d68f…`, PROD `a455636e…`) is hygiene, and it is destructive, so it waits for
+>     the Captain's word.
+>   * Also fixed while verifying: `rust/server/src/catch_up.rs`'s test harness built a
+>     context with no principal, which is GUEST, and GUEST may not command
+>     (`default:guest.command-deny`) — the test had been failing since that default landed.
+>     It now carries a `BUSINESS_POWER_USER` principal and a second test pins the refusal.
+>   * Open (Captain, 2026-09-28): a **human correction must survive the next export** —
+>     "my fixing will have to add some kind of flag don't let apple override; I had to do
+>     corporate actions this way once it worked." Golden-data rule 2 already says *no feed
+>     overwrites a human correction*; today `apple_contacts_project` takes the latest
+>     revision unconditionally, so a hand-edited person would be overwritten. Not built —
+>     it needs a design decision (where the flag lives: on `l_person`? a person-level
+>     "hold" the projection honours?) before any code.
+>   * Behaviour change still to confirm: inbox `occurred_at`/`observed_at` come from the
+>     export's own `exportedAt`, not the run clock. (Captain, 2026-09-28: *"the date for
+>     export is useful to include yes do that"* — so it stays.)
+>
+
 >
 >   * `db/migrations/254_apple_contacts_load_project.sql` —
 >     `apple_uri_component` (encodeURIComponent), `apple_timestamp` (the Apple date normalizer),

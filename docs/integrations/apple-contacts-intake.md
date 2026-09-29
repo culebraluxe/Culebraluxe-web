@@ -131,6 +131,34 @@ immutably; the load projection always reflects the current one.
 
 ---
 
+## 9.1 The canonical profile text is the revision identity — trim it like JavaScript
+
+`apple_contacts_fingerprint` is `sha256(apple_contacts_profile_text(contact))`, so the
+text is not a display detail: it **is** what decides new / replay / changed. The text
+is `JSON.stringify(normalizeProfile(contact))` of the retired loader
+(`scripts/load-apple-contacts.ts:119-153`), including its `.trim()` on every field.
+
+**`btrim(x)` is not `.trim()`.** Postgres `btrim` with one argument strips **spaces
+only**; JavaScript's `.trim()` strips TAB, LF, VT, FF, CR, SP, NBSP, U+2000–U+200A,
+U+2028/9, U+202F, U+205F, U+3000 and ZWNBSP. Migration 254 used `btrim`, so a street of
+`E'\nBo. Delicias 17a'` was kept where the retired loader trimmed it — found by the
+PROD load on 2026-09-28 (2854 replay / **1 changed**, differing only in a leading
+newline on a postal street). `db/migrations/255_apple_trim.sql` adds `apple_trim(text)`
+(the JavaScript character set, tested against `node`'s `String.prototype.trim`) and
+rebuilds the three canonical-text functions on it. Re-project and re-load after any
+change to those functions; `apple_contacts_fingerprint_audit()` is the check.
+
+**One consequence worth knowing before reading the audit.** The staged insert dedupes
+on `(source, source_account, source_contact_id, payload_fingerprint)` — the retired
+loader's own rule — so when a corrected normalizer returns a text the ODS already holds
+as an *older* revision, the load writes nothing (it counts as replay) and the newer
+revision stays the latest one, which is what the projection reads by `revision desc`.
+A wrong-but-stored revision is therefore not self-healing: it has to be removed (a
+destructive change, so a Captain decision), and the audit reports it as
+`mismatched: 1` until then.
+
+---
+
 ## 10. Failure inspection and recovery
 
 - Loader: check `integration_intake_batch.load_status`; a `conflict` means the

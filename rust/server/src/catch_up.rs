@@ -140,7 +140,10 @@ fn required<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use service::{CapturingAuditPort, CapturingDomainEventPort, DefaultAuthorizationPort, ServiceActor, ServiceActorKind};
+    use service::{
+        CapturingAuditPort, CapturingDomainEventPort, DefaultAuthorizationPort, ServiceActor,
+        ServiceActorKind, ServicePrincipal,
+    };
     use std::sync::{Arc, Mutex};
 
     #[derive(Default)]
@@ -163,20 +166,52 @@ mod tests {
         }
     }
 
-    fn harness() -> (CatchUpService<Arc<Fake>>, Arc<Fake>, ServiceContext) {
+    /// A context that may COMMAND (the tests below exercise `handle`/`snooze`, both
+    /// `OperationKind::Command`). The default authorization port reads a missing principal as GUEST
+    /// and refuses commands (`default:guest.command-deny`), so a harness that commands must carry a
+    /// principal — see `a_command_without_a_principal_is_forbidden_...` for the refusal pinned.
+    fn context(actor_kind: ServiceActorKind, principal: Option<ServicePrincipal>) -> ServiceContext {
+        ServiceContext {
+            actor: ServiceActor {
+                id: Some("tester".into()),
+                kind: actor_kind,
+            },
+            correlation_id: "catch-up-test".into(),
+            causation_id: None,
+            principal,
+        }
+    }
+
+    fn business_power_user() -> ServicePrincipal {
+        ServicePrincipal {
+            app_user_id: "tester".into(),
+            level: "BUSINESS_POWER_USER".into(),
+            role_codes: vec![],
+            account_type: "internal".into(),
+            entitlement_codes: vec![],
+        }
+    }
+
+    fn service() -> (CatchUpService<Arc<Fake>>, Arc<Fake>) {
         let fake = Arc::new(Fake::default());
         let infrastructure = ServiceInfrastructure::new(
             Arc::new(DefaultAuthorizationPort),
             Arc::new(CapturingAuditPort::default()),
             Arc::new(CapturingDomainEventPort::default()),
         );
-        let context = ServiceContext {
-            actor: ServiceActor { id: Some("tester".into()), kind: ServiceActorKind::System },
-            correlation_id: "catch-up-test".into(),
-            causation_id: None,
-            principal: None,
-        };
-        (CatchUpService::new(fake.clone(), infrastructure), fake, context)
+        (CatchUpService::new(fake.clone(), infrastructure), fake)
+    }
+
+    fn harness() -> (CatchUpService<Arc<Fake>>, Arc<Fake>, ServiceContext) {
+        let (service, fake) = service();
+        (
+            service,
+            fake,
+            context(
+                ServiceActorKind::User,
+                Some(business_power_user()),
+            ),
+        )
     }
 
     #[tokio::test]
@@ -190,5 +225,23 @@ mod tests {
         );
         let error = service.snooze("p2", "inbound", 31, &context).await.unwrap_err();
         assert!(error.to_string().contains("Snooze"));
+    }
+
+    /// The other half of the same rule, and the reason this harness now carries a principal: a
+    /// command with no principal is GUEST, GUEST cannot command, and the refusal must happen
+    /// BEFORE the repository — `default:guest.command-deny`. If this test ever fails by passing
+    /// (the command went through), the deny was loosened, not the test fixed.
+    #[tokio::test]
+    async fn a_command_without_a_principal_is_forbidden_and_never_reaches_the_repository() {
+        let (service, fake) = service();
+        let context = context(ServiceActorKind::System, None);
+
+        let error = service.handle("p1", "quiet", &context).await.unwrap_err();
+        assert_eq!(error.code(), "FORBIDDEN");
+
+        let error = service.snooze("p1", "quiet", 3, &context).await.unwrap_err();
+        assert_eq!(error.code(), "FORBIDDEN");
+
+        assert!(fake.actions.lock().unwrap().is_empty());
     }
 }
