@@ -5,7 +5,7 @@ use crate::engine::agents::forge_agent_collect;
 use crate::engine::architect::{
     assess_architect_handoff, parse_architect_handoff, ArchitectAssessment,
 };
-use crate::engine::assay::{collect_assay_evidence, CommandResult};
+use crate::engine::assay::{collect_assay_evidence, AssayEvidence, AssayVerdict, CommandResult};
 use crate::engine::execution_target::{assert_forge_execution_target, env_pairs_from_process};
 use crate::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::facts::ForgeGateEvidence;
@@ -55,6 +55,9 @@ pub struct ProductionRoleRunner<'a> {
     pub harness: &'a dyn RoleHarness,
     pub current: ForgeGateEvidence,
     pub writer: Option<&'a dyn ForgeStateWriter>,
+    /// The Story Run this lane is executing (the row a claim opened). Every artifact the lane produces is keyed to
+    /// it, so a later reader can see which execution a reading came out of instead of re-deriving it.
+    pub story_run_id: Option<String>,
     pub require_prod: bool,
 }
 
@@ -64,8 +67,45 @@ impl<'a> ProductionRoleRunner<'a> {
             harness,
             current,
             writer: None,
+            story_run_id: None,
             require_prod: false,
         }
+    }
+
+    /// Name the run this lane is executing. Without it an artifact is still recorded (the measurement happened) but
+    /// it hangs on the story alone, and no run's ruling can be read against it.
+    pub fn with_story_run(mut self, story_run_id: Option<String>) -> Self {
+        self.story_run_id = story_run_id;
+        self
+    }
+}
+
+/// The artifact a QA lane's own measurement becomes (migration 130, `kind = 'qa-assay-evidence'`).
+///
+/// The verdict is the lane's **own** reading: `PASS` when the assay passed, `FAIL` when it did not, and `UNPROVEN`
+/// when the lane measured nothing at all — three answers, because collapsing "not proven" into "failed" is a verdict
+/// nobody measured. `tool` is `assay` and the summary is the blocker text, so a reader gets the reason with the
+/// reading.
+pub fn assay_tool_artifact(
+    story_id: &str,
+    story_run_id: Option<&str>,
+    evidence: &ForgeGateEvidence,
+    verdict: AssayVerdict,
+) -> db::NewToolArtifact {
+    let verdict = match verdict {
+        AssayVerdict::Pass => "PASS",
+        AssayVerdict::Fail => "FAIL",
+        AssayVerdict::Unproven => "UNPROVEN",
+    };
+    db::NewToolArtifact {
+        story_id: story_id.to_string(),
+        story_run_id: story_run_id.map(str::to_string),
+        tool: "assay".to_string(),
+        kind: "qa-assay-evidence".to_string(),
+        verdict: Some(verdict.to_string()),
+        summary: evidence.deliverable_rejection.clone(),
+        detail: None,
+        sha: evidence.candidate_sha.clone(),
     }
 }
 
@@ -145,6 +185,20 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
         };
         let ports = RoleEffectPorts::default();
 
+        // ONE identity, taken from the task this lane was listed with. It is read here, before any write this turn
+        // makes, because the writes below are identity-bearing: `forge_hold_record.story_id` and
+        // `forge_tool_artifact.story_id` are foreign keys to `storyboard_story(id)`, so a process-instance UUID
+        // substituted here is a row the database refuses. `runtime::list_role_tasks` fills it from the story that
+        // owns the instance; a task that carries none is refused rather than given one.
+        let story_id = task.story_id.as_str();
+        if story_id.trim().is_empty() {
+            return Err(WorkflowError::generic(format!(
+                "role task {} carries no story id; refusing to write identity-bearing Forge records against \
+                 the process-instance id",
+                task.task_id
+            )));
+        }
+
         if node_id == "architect" || node_id == "repair_architect" {
             let handoff = parse_architect_handoff(&out.raw);
             match assess_architect_handoff(
@@ -195,13 +249,31 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
         }
 
         if matches!(node_id, "qa_verify" | "fast_qa_verify") {
-            evidence = collect_assay_evidence(
+            let collected = collect_assay_evidence(
                 evidence,
                 &ports,
                 Some(&|cmd| self.harness.run_command(cmd)),
                 &out.assay_commands,
                 out.acceptance_mapped,
             );
+            let AssayEvidence { evidence: measured, verdict } = collected;
+            evidence = measured;
+            // The lane's own measurement becomes a row (migration 130). It is written the moment it exists, not at
+            // the end of the story, because the next question anyone asks about a QA lane is what it measured — and
+            // this is the only moment the measurement is in hand. A write that fails fails the lane, like every other
+            // state write here: a measurement nobody can read is not evidence.
+            if let Some(writer) = self.writer {
+                writer
+                    .record_tool_artifact(&assay_tool_artifact(
+                        story_id,
+                        self.story_run_id.as_deref(),
+                        &evidence,
+                        verdict,
+                    ))
+                    .map_err(|error| {
+                        WorkflowError::generic(format!("record_tool_artifact({story_id}): {error}"))
+                    })?;
+            }
         }
 
         let agent = ForgePhaseAgent::new(node_id).map_err(WorkflowError::generic)?;
@@ -221,19 +293,8 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
             }
         }
 
-        // ONE identity, taken from the task this lane was listed with. `runtime::list_role_tasks` fills it
-        // from the story that owns the instance; the process-instance UUID is not a story id and was
-        // substituted here at all three write sites below until 2026-09-29 (`forge_hold_record.story_id` is a
-        // foreign key to `storyboard_story(id)`, so those holds were rejected and the rejection was thrown
-        // away). A task that carries no story id is refused rather than given one.
-        let story_id = task.story_id.as_str();
-        if story_id.trim().is_empty() {
-            return Err(WorkflowError::generic(format!(
-                "role task {} carries no story id; refusing to write identity-bearing Forge records against \
-                 the process-instance id",
-                task.task_id
-            )));
-        }
+        // ONE identity, taken from the task this lane was listed with (checked above, before any write).
+        let story_id = story_id;
 
         // Trace recording is diagnostic (see `engine::observer`) and is deliberately contained, so its failure
         // is not a lane failure. It is written only for a run that has a state writer: a writer-less run

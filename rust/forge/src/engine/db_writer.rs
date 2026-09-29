@@ -67,4 +67,16 @@ impl ForgeStateWriter for DbForgeStateWriter {
             })
         })
     }
+
+    fn record_tool_artifact(&self, input: &db::NewToolArtifact) -> Result<Option<String>, String> {
+        with_shared(|db, rt| {
+            let dao = ForgeEngineDao::new(db.clone());
+            rt.block_on(async {
+                dao.record_tool_artifact(input)
+                    .await
+                    .map(|row| Some(row.id))
+                    .map_err(|e| e.to_string())
+            })
+        })?
+    }
 }

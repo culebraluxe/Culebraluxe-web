@@ -153,10 +153,15 @@ fn main() {
     }
     // Only now is this run real, so only now does it go `Running`. If the claim cannot be opened the run must not
     // start at all: a story driven without a claim is exactly the unowned dispatch this seam exists to remove.
+    //
+    // The run this claim opens is carried on: every artifact a lane produces is keyed to it (migration 130), so the
+    // id has to reach the runner that writes them.
+    let mut story_run_id: Option<String> = None;
     if let Some(item) = work_item.as_deref() {
         match agent_work::begin_agent_work_run(item) {
             Ok(Some(begin)) => {
                 let policy = begin.execution_policy.clone();
+                story_run_id = Some(begin.story_run_id.clone());
                 // The Story Run this claim opened. It is named here, once, because every durable artifact the lane
                 // produces is keyed to it and a run whose id is never printed cannot be followed.
                 eprintln!("story_run={} policy={policy}", begin.story_run_id);
@@ -336,6 +341,7 @@ fn main() {
             &story,
             &work_type,
             stop_after.clone(),
+            story_run_id.clone(),
         )
     } else {
         match NeonStore::connect_from_env() {
@@ -349,6 +355,7 @@ fn main() {
                     &story,
                     &work_type,
                     stop_after.clone(),
+                    story_run_id.clone(),
                 )
             }
             Err(e) => Err(format!("neon store: {e}")),
@@ -409,6 +416,7 @@ fn drive<S: TxStore>(
     story: &str,
     work_type: &str,
     stop_after: Option<ForgeStopTarget>,
+    story_run_id: Option<String>,
 ) -> Result<String, String> {
     let mut rt = match ForgeRuntime::from_store(
         store,
@@ -432,7 +440,7 @@ fn drive<S: TxStore>(
         scout_required: Some(false),
         ..Default::default()
     };
-    let runner = ProductionRoleRunner::new(harness, evidence.clone());
+    let runner = ProductionRoleRunner::new(harness, evidence.clone()).with_story_run(story_run_id);
     match drive_forge_story(
         &mut rt,
         story,

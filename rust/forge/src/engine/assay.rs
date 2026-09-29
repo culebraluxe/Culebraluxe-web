@@ -61,18 +61,31 @@ pub fn adjudicate_assay(
     }
 }
 
+/// The QA lane's reading, with the durable evidence it produced.
+///
+/// The two are kept apart on purpose: `verdict` is the assay's **own three-way reading** (`PASS`/`FAIL`/`UNPROVEN`,
+/// the token the `forge_tool_artifact` row carries), while `evidence.qa_passed` is the gate's boolean. Collapsing
+/// "not proven" into "failed" inside the evidence is the gate's business; it must not erase what the lane measured.
+pub struct AssayEvidence {
+    pub evidence: ForgeGateEvidence,
+    pub verdict: AssayVerdict,
+}
+
 pub fn collect_assay_evidence(
     mut evidence: ForgeGateEvidence,
     ports: &RoleEffectPorts,
     run_command: Option<&dyn Fn(&str) -> CommandResult>,
     assay_commands: &[String],
     acceptance_mapped: bool,
-) -> ForgeGateEvidence {
+) -> AssayEvidence {
     if run_command.is_none() {
         evidence.qa_passed = Some(false);
         evidence.deliverable_rejection =
             Some("QA FAIL: the lane was handed assay commands but no way to run them.".into());
-        return evidence;
+        return AssayEvidence {
+            evidence,
+            verdict: AssayVerdict::Fail,
+        };
     }
     let run = run_command.unwrap();
     let results: Vec<CommandResult> = assay_commands.iter().map(|c| run(c)).collect();
@@ -90,8 +103,14 @@ pub fn collect_assay_evidence(
             report.blockers.join(", "),
             failed.join(" | ")
         ));
-        return evidence;
+        return AssayEvidence {
+            evidence,
+            verdict: report.verdict,
+        };
     }
     evidence.qa_passed = Some(true);
-    evidence
+    AssayEvidence {
+        evidence,
+        verdict: AssayVerdict::Pass,
+    }
 }

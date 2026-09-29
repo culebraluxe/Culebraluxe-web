@@ -689,6 +689,12 @@ fn a_hold_that_cannot_be_recorded_fails_the_lane() {
         fn open_hold(&self, _i: &forge::engine::hold::OpenHold) -> Result<String, String> {
             Err("no such story".into())
         }
+        fn record_tool_artifact(
+            &self,
+            _i: &db::NewToolArtifact,
+        ) -> Result<Option<String>, String> {
+            Ok(None)
+        }
     }
     let h = ScriptedHarness {
         raw: "I thought about the plan".into(),
@@ -716,6 +722,151 @@ fn a_hold_that_cannot_be_recorded_fails_the_lane() {
     };
     assert!(error.to_string().contains("forge_hold_record"), "{error}");
     assert!(error.to_string().contains("ENG-GUARD-REPO-RUST-01"), "{error}");
+}
+
+/// The QA lane's own measurement is recorded as a `forge_tool_artifact` row keyed to the run it executed
+/// (migration 130) — through the state-writer port, so a writer-less run records nothing rather than writing into
+/// whichever pool happens to be installed.
+#[test]
+fn a_qa_lane_records_its_measurement_as_an_artifact() {
+    let h = ScriptedHarness {
+        raw: "assay complete".into(),
+        sha: Some("abc1234".into()),
+        commands: vec!["cargo test -p db".into()],
+        mapped: true,
+        cmd_ok: true,
+    };
+    let writer = RecordingWriter::default();
+    let role = runner::ProductionRoleRunner::new(
+        &h,
+        ForgeGateEvidence {
+            candidate_sha: Some("abc1234".into()),
+            ..Default::default()
+        },
+    )
+    .with_story_run(Some("11111111-1111-1111-1111-111111111111".into()));
+    let mut role = role;
+    role.writer = Some(&writer as &dyn ForgeStateWriter);
+    let task = runtime::ActiveForgeRoleTask {
+        task_id: "t".into(),
+        process_instance_id: "p".into(),
+        story_id: "ENG-PROOF-ARTIFACT-01".into(),
+        token_id: Some("k".into()),
+        node_id: Some("qa_verify".into()),
+        status: workflow::TaskStatus::Ready,
+        assignee: None,
+        candidates: vec!["qa_verify".into()],
+    };
+    executor::ForgeRoleRunner::run(&role, "qa_verify", &task).expect("a clean assay is a clean lane");
+
+    let recorded = writer.artifacts.lock().unwrap();
+    assert_eq!(recorded.len(), 1, "one measurement, one artifact");
+    let artifact = &recorded[0];
+    assert_eq!(artifact.story_id, "ENG-PROOF-ARTIFACT-01");
+    assert_eq!(
+        artifact.story_run_id.as_deref(),
+        Some("11111111-1111-1111-1111-111111111111"),
+        "the artifact names the execution it came out of"
+    );
+    assert_eq!(artifact.tool, "assay");
+    assert_eq!(artifact.kind, "qa-assay-evidence");
+    assert_eq!(artifact.verdict.as_deref(), Some("PASS"));
+    assert_eq!(artifact.sha.as_deref(), Some("abc1234"));
+}
+
+/// A failing assay records `FAIL`, and a lane that measured nothing records `UNPROVEN` — three answers, because a
+/// measurement nobody took is not a failed measurement.
+#[test]
+fn the_recorded_verdict_is_the_lanes_own_reading() {
+    for (commands, mapped, cmd_ok, expected) in [
+        (vec!["cargo test".to_string()], true, false, "FAIL"),
+        (vec![], true, true, "FAIL"),
+        (vec!["cargo test".to_string()], false, true, "UNPROVEN"),
+    ] {
+        let h = ScriptedHarness {
+            raw: "assay".into(),
+            sha: None,
+            commands,
+            mapped,
+            cmd_ok,
+        };
+        let writer = RecordingWriter::default();
+        let mut role = runner::ProductionRoleRunner::new(&h, ForgeGateEvidence::default());
+        role.writer = Some(&writer as &dyn ForgeStateWriter);
+        let task = runtime::ActiveForgeRoleTask {
+            task_id: "t".into(),
+            process_instance_id: "p".into(),
+            story_id: "ENG-PROOF-ARTIFACT-02".into(),
+            token_id: None,
+            node_id: Some("qa_verify".into()),
+            status: workflow::TaskStatus::Ready,
+            assignee: None,
+            candidates: vec!["qa_verify".into()],
+        };
+        executor::ForgeRoleRunner::run(&role, "qa_verify", &task).expect("the lane completes");
+        let recorded = writer.artifacts.lock().unwrap();
+        assert_eq!(
+            recorded[0].verdict.as_deref(),
+            Some(expected),
+            "the lane's own reading is what is recorded"
+        );
+    }
+}
+
+/// A measurement the engine cannot record is a failed lane, exactly as an unrecordable hold is: nothing here is
+/// `let _ =`d, so evidence that could not be stored is visible as a failure rather than as silence.
+#[test]
+fn an_artifact_that_cannot_be_recorded_fails_the_lane() {
+    struct BrokenArtifact;
+    impl ForgeStateWriter for BrokenArtifact {
+        fn mark_story_human_hold(&self, _s: &str, _r: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn mark_story_complete(&self, _s: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn mark_story_in_progress(&self, _s: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn append_run_detail(&self, _r: &str, _d: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn open_hold(&self, _i: &forge::engine::hold::OpenHold) -> Result<String, String> {
+            Ok("hold-1".into())
+        }
+        fn record_tool_artifact(
+            &self,
+            _i: &db::NewToolArtifact,
+        ) -> Result<Option<String>, String> {
+            Err("artifact table is unreachable".into())
+        }
+    }
+    let h = ScriptedHarness {
+        raw: "assay complete".into(),
+        sha: None,
+        commands: vec!["cargo test".into()],
+        mapped: true,
+        cmd_ok: true,
+    };
+    let writer = BrokenArtifact;
+    let mut role = runner::ProductionRoleRunner::new(&h, ForgeGateEvidence::default());
+    role.writer = Some(&writer as &dyn ForgeStateWriter);
+    let task = runtime::ActiveForgeRoleTask {
+        task_id: "t".into(),
+        process_instance_id: "p".into(),
+        story_id: "ENG-PROOF-ARTIFACT-03".into(),
+        token_id: None,
+        node_id: Some("qa_verify".into()),
+        status: workflow::TaskStatus::Ready,
+        assignee: None,
+        candidates: vec!["qa_verify".into()],
+    };
+    let error = match executor::ForgeRoleRunner::run(&role, "qa_verify", &task) {
+        Ok(_) => panic!("a measurement nobody could store is a failed lane"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("record_tool_artifact"), "{error}");
+    assert!(error.to_string().contains("ENG-PROOF-ARTIFACT-03"), "{error}");
 }
 
 #[test]

@@ -13,6 +13,13 @@ pub trait ForgeStateWriter: Send + Sync {
     /// writing into whichever pool `with_shared` happens to resolve — which is how a `cargo test` on a
     /// development machine put fixture rows (`story_id = 's'`) into the DEV trace table.
     fn open_hold(&self, input: &crate::engine::hold::OpenHold) -> Result<String, String>;
+    /// Record a tool's own reading of this run as a `forge_tool_artifact` row (migration 130), answering with the
+    /// row's id.
+    ///
+    /// Same port and same sink decision as `open_hold`: a run with no state writer records no artifact. The
+    /// polarity guard lives behind this call, in the one writer of the table, so a caller cannot record a verdict
+    /// that contradicts its run by going through a second door.
+    fn record_tool_artifact(&self, input: &db::NewToolArtifact) -> Result<Option<String>, String>;
 }
 
 /// Release-critical command-nodes (publish / migrate / verify).
@@ -44,6 +51,9 @@ impl ForgeStateWriter for NullWriter {
     fn open_hold(&self, _i: &crate::engine::hold::OpenHold) -> Result<String, String> {
         Ok(String::new())
     }
+    fn record_tool_artifact(&self, _i: &db::NewToolArtifact) -> Result<Option<String>, String> {
+        Ok(None)
+    }
 }
 
 pub struct RecordingWriter {
@@ -53,6 +63,8 @@ pub struct RecordingWriter {
     pub details: std::sync::Mutex<Vec<(String, String)>>,
     /// `(story_id, failure_class, reason)` for every `forge_hold_record` the engine asked to open.
     pub opened_holds: std::sync::Mutex<Vec<(String, String, String)>>,
+    /// Every tool artifact the engine asked to record, in the order it asked.
+    pub artifacts: std::sync::Mutex<Vec<db::NewToolArtifact>>,
 }
 
 impl Default for RecordingWriter {
@@ -63,6 +75,7 @@ impl Default for RecordingWriter {
             in_progress: std::sync::Mutex::new(vec![]),
             details: std::sync::Mutex::new(vec![]),
             opened_holds: std::sync::Mutex::new(vec![]),
+            artifacts: std::sync::Mutex::new(vec![]),
         }
     }
 }
@@ -98,6 +111,11 @@ impl ForgeStateWriter for RecordingWriter {
             input.reason.clone(),
         ));
         Ok(format!("hold-{}", opened.len()))
+    }
+    fn record_tool_artifact(&self, input: &db::NewToolArtifact) -> Result<Option<String>, String> {
+        let mut artifacts = self.artifacts.lock().unwrap();
+        artifacts.push(input.clone());
+        Ok(Some(format!("artifact-{}", artifacts.len())))
     }
 }
 
