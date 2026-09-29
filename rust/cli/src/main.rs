@@ -6,6 +6,7 @@ mod apple_sync;
 mod db_tool;
 mod forge;
 mod gmail;
+mod launchd;
 mod smoke;
 
 use db::{Database, DbTarget, ProjectDao, ProjectTxDao};
@@ -51,6 +52,19 @@ async fn main() -> ExitCode {
             Ok(code) => ExitCode::from(code),
             Err(error) => {
                 eprintln!("forge: {error}");
+                ExitCode::from(error.exit_code())
+            }
+        };
+    }
+
+    // THE macOS LAUNCHD BRIDGE (`pnpm agent:scheduler:*`, `apple:sync:*`, `calendar:sync:*`). It speaks in
+    // exit codes for the same reason the gates do: `run` uses 2 for "refused — the deployed wrapper has
+    // drifted from the repository's", and an operator reads that differently from 1.
+    if args.first().map(String::as_str) == Some("launchd") {
+        return match launchd::run(&args[1..]) {
+            Ok(code) => ExitCode::from(code),
+            Err(error) => {
+                eprintln!("launchd: {error}");
                 ExitCode::from(error.exit_code())
             }
         };
@@ -163,6 +177,9 @@ fn print_usage() {
     eprintln!("  cargo run -p cli -- forge roi [--days N] [--format json]");
     eprintln!("  cargo run -p cli -- forge ts-sweep [roots...]");
     eprintln!("  cargo run -p cli -- forge dead-commands [--check] [--format json]");
+    eprintln!(
+        "  cargo run -p cli -- launchd agent-worker <render|install|status|run|stop|uninstall>"
+    );
     eprintln!("  cargo run -p cli -- service serve");
     eprintln!("  cargo run -p cli -- service catalog");
     eprintln!("  cargo run -p cli -- service health");

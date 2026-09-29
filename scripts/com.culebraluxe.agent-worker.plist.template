@@ -4,7 +4,8 @@
   CulebraLuxe agent worker scheduler — periodic `pnpm agent:work` invoker.
 
   Generated from this template by `pnpm agent:scheduler:install`
-  (scripts/agent-scheduler.mjs), which substitutes {{SUPPORT_DIR}},
+  (rust/cli/src/launchd/agent_worker.rs — it was scripts/agent-scheduler.mjs until the
+  port), which substitutes {{SUPPORT_DIR}},
   {{REPO_ROOT}}, {{HOME}}, {{LOG_DIR}}, {{LABEL}}, and {{CADENCE_SECONDS}},
   validates the result with plutil, and bootstraps it into launchd
   (gui/$(id -u)).
@@ -15,7 +16,7 @@
   deployed copy receives AGENT_WORKER_REPO={{REPO_ROOT}} through the plist
   environment, cd's into the repository, and runs `pnpm agent:work`.
 
-  Cadence: StartInterval {{CADENCE_SECONDS}} seconds (5 minutes). Each
+  Cadence: StartInterval {{CADENCE_SECONDS}} seconds (3 minutes). Each
   invocation claims AT MOST ONE story and exits. The wrapper's local lock plus
   the database single-worker index prevent overlapping local invocations.
 

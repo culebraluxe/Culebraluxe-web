@@ -1,5 +1,4 @@
 eslint.config.mjs
-scripts/agent-scheduler.mjs
 scripts/apple-local-listener.mjs
 scripts/apple-sync-agent.mjs
 scripts/calendar-sync-agent.mjs

@@ -23,7 +23,7 @@ used, **port it to Rust or a shell script and then delete it**; remove any `pnpm
 it; remove its allowlist row in the same commit. Two lanes ran it: **Cline — everything outside `scripts/`, plus
 `scripts/a*` to `scripts/f*`**; GPT — `scripts/g*` to `scripts/z*`.
 
-This lane is done. **139 entries in this half, 5 left**, in three sweep commits and one port commit:
+This lane is done. **139 entries in this half, 4 left**, in three sweep commits and two port commits:
 
 1. `08648e86` — 88 files, every one carrying the `⚠ BROKEN ON PURPOSE` banner (the sweep's two unloadable
    categories — `cannot load`, and `loads, but lazy target gone`, `scripts/broken-ts-sweep.mjs:136-139`), all with
@@ -47,6 +47,13 @@ This lane is done. **139 entries in this half, 5 left**, in three sweep commits 
    `BASELINE` re-measured on the tree this landed on: **19 → 10 → 0** — the menu names no bannered file at
    all, out of 97 scripts. Both gates were run against the TypeScript they replace and agree line for line,
    including the `--check` refusal and `--format json`.
+5. *(port, not sweep)* **`scripts/agent-scheduler.mjs` is Rust**: `rust/cli/src/launchd/`
+   (`cargo run -p cli -- launchd agent-worker <render|install|status|run|stop|uninstall>`), the five
+   `pnpm agent:scheduler:*` names repointed, the script deleted, its `ts-allowlist.txt` row and its
+   `eslint-suppressions.json` entry removed with it. Proven by **byte-diff, not by reading**: Rust `render`
+   was identical to the TypeScript's render AND to the plist actually installed on this machine, and `status`
+   and the `run` refusal (exit 2) were diffed line for line against the TypeScript before it was deleted.
+   The other two installers reuse this module; see §6 of the handoff.
 
 Two of those were decided by fact, not by guessing: `postcss.config.mjs` went only after the Tailwind v4 CLI
 built `rust/ui/styles/app.css` byte-identically without it (its consumer was Next.js; `scripts/site-build.sh` runs
@@ -65,7 +72,7 @@ that cited deleted files had their citations **removed, not baselined**, because
 | `eslint.config.mjs` | `pnpm lint` is a CI gate and eslint is configured in JS; delete it and the lint stops | none exists — it goes when the last JS tool does |
 | ~~`scripts/broken-ts-sweep.mjs`~~ | **PORTED 2026-09-29** → `rust/cli/src/forge/ts_sweep.rs` (`cargo run -p cli -- forge ts-sweep`); its output was verified byte-identical, and one thing changed on purpose: the drift lists print sorted, because the filesystem's `readdir` order is not stable enough to diff | — |
 | ~~`scripts/dead-command-sweep.mjs`~~ | **PORTED 2026-09-29** → `rust/cli/src/forge/dead_commands.rs` (`forge dead-commands`); text, `--format json` and the `--check` refusal are byte-identical, `BASELINE` is re-measured — the menu is read through an `IndexMap` so the row order stays `package.json`'s | — |
-| `scripts/agent-scheduler.mjs` | installs/status/run/stop/uninstall `com.culebraluxe.agent-worker`, whose plist is **installed on this machine** and drives `pnpm agent:work` (already Rust) | a `rust/cli` launchd subcommand — nothing under `rust/` mentions `LaunchAgents` today |
+| `scripts/agent-scheduler.mjs` | **PORTED 2026-09-29** → `rust/cli/src/launchd/` (`forge`'s sibling: `launchd agent-worker`), proven by byte-diff of `render` against the installed plist and line-for-line diffs of `status` and the `run` refusal | — (done) |
 | `scripts/apple-sync-agent.mjs` | same, for the installed `com.culebraluxe.apple-sync` agent (6 `pnpm` commands) | as above |
 | `scripts/calendar-sync-agent.mjs` | same, for the installed `com.culebraluxe.calendar-sync` agent (5 `pnpm` commands) | as above |
 | `scripts/apple-local-listener.mjs` | the Apple intake listener, **loaded and running under launchd**; a long-lived process, not a utility | a Rust listener, or accept it as part of the macOS bridge beside `apple-messages-export/` |

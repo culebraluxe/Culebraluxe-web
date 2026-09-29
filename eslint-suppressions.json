@@ -1,12 +1,4 @@
 {
-  "scripts/agent-scheduler.mjs": {
-    "no-useless-assignment": {
-      "count": 2
-    },
-    "no-useless-escape": {
-      "count": 4
-    }
-  },
   "scripts/apple-local-listener.mjs": {
     "no-useless-escape": {
       "count": 1
