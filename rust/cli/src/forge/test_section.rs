@@ -555,12 +555,18 @@ mod tests {
 
     #[test]
     fn rust_tree_is_classified_by_crate() {
-        assert_eq!(section_for_file("rust/forge/src/scope_manifest.rs"), Some("forge-engine"));
-        assert_eq!(section_for_file("rust/cli/src/forge/manifest.rs"), Some("forge-engine"));
-        assert_eq!(section_for_file("rust/core/workflow/src/types.rs"), Some("forge-engine"));
-        assert_eq!(section_for_file("rust/server/src/api/engine.rs"), Some("app-core"));
-        assert_eq!(section_for_file("rust/ui/src/update.rs"), Some("app-portal"));
-        assert_eq!(section_for_file("rust/cli/src/main.rs"), Some("harness"));
+        let cases = [
+            ("rust/forge/src/scope_manifest.rs", "forge-engine"),
+            ("rust/cli/src/forge/manifest.rs", "forge-engine"),
+            ("rust/core/workflow/src/types.rs", "forge-engine"),
+            ("rust/server/src/api/engine.rs", "app-core"),
+            ("rust/ui/src/update.rs", "app-portal"),
+            ("rust/cli/src/main.rs", "harness"),
+        ];
+
+        for (path, expected) in cases {
+            assert_eq!(section_for_file(path), Some(expected));
+        }
     }
 
     #[test]
