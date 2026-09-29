@@ -287,3 +287,79 @@ caller passes. The DEV proof exercises the path live.
 3. A test that fails when dispatch selects without claiming now exists in its strongest form — the selector
    itself is deleted, so a regression would have to be a *new* selector; the DEV proof covers the rest.
 4. The `25P03` mechanism itself: unchanged, unexplained, still last (S9, §5).
+
+## 11. THE PAIR — LANDED 2026-09-29 (`f95a37f8`), answering the review of §10
+
+The review checked §10 against `main` and found the ownership seam repaired but the **queue and the Story Board
+still settling separately**. Six defects, one root cause, all six now closed. The rule lives in one function,
+`db::settlement_pair` (`rust/core/db/src/forge_engine.rs`), and it derives the board half from the story status
+read **inside the settling transaction** — never from a caller:
+
+| outcome | board says | item becomes | story becomes |
+| --- | --- | --- | --- |
+| `Done` | `Complete` / `Hold` | `Done` | untouched (the truth is already there) |
+| `Done` | anything else | **`Error`** | **`Hold`** — `Done` is refused, with the reason on the row |
+| `Error` | `Complete` / `Hold` / `Planned` / `Batched` | `Error` | untouched |
+| `Error` | `Ready` / `In Progress` | `Error` | `Hold` |
+| `Cancelled` | `Ready` / `In Progress` | `Cancelled` | `Hold` |
+
+What changed, per finding in the review:
+
+1. **An `Error` moved only the item** — `finish_agent_work_run` now reads the story in the transaction, writes the
+   item, and moves the story when the board still expects a run. `reject_agent_work_configuration` (a `Ready` item
+   is legal there too) does the same.
+2. **`begin_agent_work_run` said it refused an invalid claim but did not** — it returns `DbResult<bool>` now, and
+   `forge` exits `2` without touching a claim it does not own.
+3. **`forge:clean` stranded `Ready` stories** — `forge_reset::cancel_stale_open_items` cancels the stale items and
+   holds their stories in one transaction, from the very rows it just cancelled (no re-derived time window). The
+   report gains a line when it held any: `held stories whose stale work was cancelled`.
+4. **`Ok` was equated with `Done`** — the refusal is in the database, so it holds for every caller. `forge`'s exit
+   status follows the row: a run that ends `Error` exits non-zero.
+5. **A failed terminal write was swallowed** — `settle_work_item` returns its result; the process exits non-zero
+   when the verdict did not land, so the worker's fallback and recovery own the row.
+6. **The heartbeat override was unclamped** — `heartbeat_seconds_from` accepts an override only strictly inside the
+   window (`0 < hb < stale`), else the window-derived default.
+
+Extra, found while checking the review: **`requeue_stale_work` reset the story to `Ready` whatever the board
+said**, so a stale claim beside a `Complete` story could resurrect it and run it a second time — the mirror image
+of finding 3. It reads the board first now: `Complete` → item `Done`, `Hold` → item `Error`, otherwise → item
+`Ready` **and** story `Ready`.
+
+### Verification (raw)
+
+```
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.14s        # exit 0
+
+$ cargo test -p db -p forge --lib
+running 47 tests ... test result: ok. 47 passed; 0 failed                    # db
+running 83 tests ... test result: ok. 83 passed; 0 failed                    # forge
+
+$ DATABASE_URL_DEV=… cargo test -p db --test forge_work_claim_dev -- --ignored --nocapture
+proof: item cb05111f-… walked Ready->Claimed->Running->Done; a `Ready` item over an `In Progress` story was not dispatched
+test a_claimed_item_walks_ready_to_done_and_never_settles_twice ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+The DEV proof asserts, in one run: `Claimed → Running` once and **refused** the second time (finding 2); `Done`
+accepted over a `Complete` board; `Done` **refused** over `In Progress`, with the item `Error` and the story `Hold`
+in the same write (findings 1 and 4); a second settle is a no-op; the configuration rejection writes `Error` **and**
+holds the board. Five new unit tests cover `settlement_pair` on every board status. It touched the DEV item
+`cb05111f-a073-41f0-9658-7797b8c5f239` (story `TECH-FLIGHT-RECORDER-01`, a leftover `Ready` row) and **restored both
+the item and its board status**; the two proof stories are deleted. PROD was not touched.
+
+### Still open after this round
+
+1. `recover_story` (reset mode `recover`) cancels `Claimed`/`Running` items and leaves the board at `In Progress` —
+   where the claim gate refuses it until something moves the story. The other half is a *human* action: the portal's
+   status setter (`rust/core/db/src/tech.rs:300`), a flight firing (`forge_control.rs:244`) or a learn item opening
+   (`forge_control.rs:405`). None of those is what `recover` is documented to mean ("release stale claims so an
+   existing instance RESUMES"), so if `recover` is expected to leave a story re-dispatchable on its own, it is a
+   seventh writer of a half. Not changed here, because changing it would change that meaning.
+2. Two writes that are not strands but are not one write either: `mark_story_in_progress` (the engine) beside the
+   item's `Claimed → Running` — harmless, the item holds the single-active slot, but the board briefly says `Ready`
+   during a run; and `fire_flight`'s story → `Ready` beside its item stamp (`forge_control.rs:244-275`) — the Ready
+   trigger creates the item in between, so nothing is stranded, and the command reports `queued`/`stamped`
+   separately.
+3. `25P03` (S9, §5), AC #5's live-run rows (§10.5) and the `ENG-AUTH-GOOGLE-01` reproducer (§9) are unchanged.
+
