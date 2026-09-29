@@ -25,7 +25,12 @@ pub trait PersonRepository: Send + Sync {
         request: &AttachPersonIdentityRequest,
     ) -> DbResult<PersonIdentity>;
     async fn update_admin(&self, request: &UpdatePersonAdminRequest) -> DbResult<Option<Person>>;
-    async fn set_contact(&self, person_id: &str, kind: &str, value: &str) -> DbResult<Option<String>>;
+    async fn set_contact(
+        &self,
+        person_id: &str,
+        kind: &str,
+        value: &str,
+    ) -> DbResult<Option<String>>;
     async fn create_seller(&self, display_name: &str) -> DbResult<Person>;
     async fn search(&self, request: &SearchPeopleRequest) -> DbResult<Vec<PersonSearchResult>>;
 }
@@ -61,7 +66,12 @@ impl PersonRepository for PersonDao {
         PersonDao::update_admin(self, request).await
     }
 
-    async fn set_contact(&self, person_id: &str, kind: &str, value: &str) -> DbResult<Option<String>> {
+    async fn set_contact(
+        &self,
+        person_id: &str,
+        kind: &str,
+        value: &str,
+    ) -> DbResult<Option<String>> {
         PersonDao::set_contact(self, person_id, kind, value).await
     }
 
@@ -188,12 +198,27 @@ impl<R: PersonRepository> PersonService<R> {
 
     /// The seller a contract names, as a new person — used when no one with that name exists yet (the contract is the
     /// accurate source of a seller's legal name).
-    pub async fn create_seller(&self, display_name: &str, context: &ServiceContext) -> Result<Person, CoreServiceError> {
+    pub async fn create_seller(
+        &self,
+        display_name: &str,
+        context: &ServiceContext,
+    ) -> Result<Person, CoreServiceError> {
         const OP: &str = "person.createSeller";
-        let decision = authorize(&self.runtime, "person", "person.write", OP, OperationKind::Command, context).await?;
+        let decision = authorize(
+            &self.runtime,
+            "person",
+            "person.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
         let result = db::service_mutation(self.repository.database(), async {
             if display_name.trim().is_empty() {
-                return Err(CoreServiceError::business("PERSON_NAME_REQUIRED", "Person display name is required."));
+                return Err(CoreServiceError::business(
+                    "PERSON_NAME_REQUIRED",
+                    "Person display name is required.",
+                ));
             }
             let person = self.repository.create_seller(display_name).await?;
             self.runtime
@@ -272,8 +297,15 @@ impl<R: PersonRepository> PersonService<R> {
                 })?;
 
             // What is typed here overrides what any intake gave: the record shows these, as typed.
-            for (kind, label, value) in [("email", "email", &request.email), ("phone", "phone number", &request.phone)] {
-                let Some(value) = value.as_deref().map(str::trim).filter(|value| !value.is_empty()) else {
+            for (kind, label, value) in [
+                ("email", "email", &request.email),
+                ("phone", "phone number", &request.phone),
+            ] {
+                let Some(value) = value
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                else {
                     continue;
                 };
                 if let Some(owner) = self.repository.set_contact(&person.id, kind, value).await? {

@@ -7,7 +7,12 @@ use super::*;
 pub(super) const ROW: &str = "border-b border-[var(--portal-border)] transition-colors last:border-b-0 hover:bg-[var(--portal-blue-pale)]/40";
 
 /// One metric card, with the emphasis the live card's red value used.
-pub(super) fn workflow_metric(label: &str, value: &str, detail_text: &str, emphasize: bool) -> Html {
+pub(super) fn workflow_metric(
+    label: &str,
+    value: &str,
+    detail_text: &str,
+    emphasize: bool,
+) -> Html {
     html! {
         <div class="rounded-[var(--portal-panel-radius)] portal-glass-panel p-6">
             <div class="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">

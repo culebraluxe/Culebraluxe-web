@@ -367,10 +367,7 @@ impl CalendarDao {
         })
     }
 
-    pub async fn command_state(
-        &self,
-        command_id: &str,
-    ) -> DbResult<Option<CalendarCommandState>> {
+    pub async fn command_state(&self, command_id: &str) -> DbResult<Option<CalendarCommandState>> {
         #[derive(sqlx::FromRow)]
         struct Row {
             command_id: String,

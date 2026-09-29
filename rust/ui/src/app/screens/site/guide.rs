@@ -9,10 +9,10 @@
 
 use yew::prelude::*;
 
+use super::content::GUIDE_SECTIONS;
 use crate::app::screen::ScreenCtx;
 use crate::app::site::{page_hero, SitePage, SitePageSpec};
 use crate::model::GuideItem;
-use super::content::GUIDE_SECTIONS;
 
 pub struct Guide;
 

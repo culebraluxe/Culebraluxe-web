@@ -20,7 +20,13 @@ impl Rect {
     /// The largest box with this image's proportions that fits inside `self`, inset by nothing.
     ///
     /// This is `pdf-lib`'s `scaleToFit`, and it is what keeps a wide signature from being stretched by the slot.
-    pub fn scale_to_fit(&self, width: f64, height: f64, image_width: f64, image_height: f64) -> (f64, f64) {
+    pub fn scale_to_fit(
+        &self,
+        width: f64,
+        height: f64,
+        image_width: f64,
+        image_height: f64,
+    ) -> (f64, f64) {
         if image_width <= 0.0 || image_height <= 0.0 {
             return (width, height);
         }

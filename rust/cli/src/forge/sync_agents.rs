@@ -148,8 +148,9 @@ pub fn run(args: &[String]) -> Result<u8, Failure> {
 
     if !check {
         for (path, content) in &plan.writes {
-            fs::write(root.join(path), content)
-                .map_err(|error| Failure::failed(format!("{path} could not be written: {error}")))?;
+            fs::write(root.join(path), content).map_err(|error| {
+                Failure::failed(format!("{path} could not be written: {error}"))
+            })?;
         }
     }
 
@@ -260,7 +261,11 @@ mod tests {
     fn a_fresh_block_is_unchanged_and_a_hand_edit_is_drift() {
         let block = render_block();
         let fresh = upsert_block(Some("# CLAUDE\n"), &block);
-        let unchanged = plan_sync(&[("CLAUDE.md".to_string(), fresh.clone())], &[], "AGENTS body");
+        let unchanged = plan_sync(
+            &[("CLAUDE.md".to_string(), fresh.clone())],
+            &[],
+            "AGENTS body",
+        );
         assert_eq!(unchanged.files[0].status, Status::Unchanged);
         assert!(unchanged.writes.is_empty());
 

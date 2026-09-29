@@ -137,7 +137,11 @@ fn require_env(targets: &[DbTarget]) -> Result<(), Failure> {
 /// ambiguous about where it pointed.
 async fn connect(target: DbTarget) -> Result<Database, Failure> {
     let database = Database::connect_target(target).await?;
-    println!("database: target={} {}", target.as_str(), host_label(target));
+    println!(
+        "database: target={} {}",
+        target.as_str(),
+        host_label(target)
+    );
     Ok(database)
 }
 
@@ -193,7 +197,6 @@ fn ledger_key(file: &str) -> String {
     file.rsplit('/').next().unwrap_or(file).to_owned()
 }
 
-
 /// `db:migrations` — what is recorded as applied, where, and what is not.
 ///
 /// "Unrecorded" is honest, not alarming: the ledger is authoritative only from the 2026-09-10 baseline
@@ -233,7 +236,11 @@ async fn status() -> Result<u8, Failure> {
     ledger.sort_by(|left, right| right.applied_at.cmp(&left.applied_at));
 
     println!("\nrecently recorded:");
-    for row in ledger.iter().filter(|row| row.filename != BASELINE).take(12) {
+    for row in ledger
+        .iter()
+        .filter(|row| row.filename != BASELINE)
+        .take(12)
+    {
         let note = match row.note.as_deref() {
             Some(note) if !note.is_empty() => format!("  — {note}"),
             _ => String::new(),
@@ -334,7 +341,6 @@ fn recorded_by_filename(rows: &[MigrationLedgerRow]) -> BTreeMap<String, &Migrat
     map
 }
 
-
 /// `db:migrate` — apply a migration SQL file to one control plane and record it in `schema_migration`.
 ///
 /// The file is executed as ONE simple query, so a multi-statement migration behaves as written (each file
@@ -400,7 +406,9 @@ async fn apply(args: &[String]) -> Result<u8, Failure> {
     }
 
     database.run_text(&sql).await?;
-    ledger.record(&file, &checksum, target, note.as_deref()).await?;
+    ledger
+        .record(&file, &checksum, target, note.as_deref())
+        .await?;
 
     println!("applied {file} -> {which} control plane (recorded in schema_migration)");
     Ok(0)
@@ -474,7 +482,6 @@ fn join_or_none(values: &[String]) -> String {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::{host_of, Failure};
@@ -497,7 +504,9 @@ mod tests {
             host_of("postgresql://neondb_owner:npg_SECRET@ep-cool-db-12345.us-east-2.aws.neon.tech/neondb?sslmode=require"),
             "ep-cool-db-12345.us-east-2.aws.neon.tech"
         );
-        assert_eq!(host_of("postgres://user:pw@localhost:5432/db"), "localhost:5432");
+        assert_eq!(
+            host_of("postgres://user:pw@localhost:5432/db"),
+            "localhost:5432"
+        );
     }
 }
-

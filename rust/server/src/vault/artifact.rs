@@ -12,7 +12,9 @@
 
 use async_trait::async_trait;
 use domain::forms_template::{templates_dir, TemplateLibrary};
-use domain::{VaultArtifactFailure, VaultCommandOutcome, VaultRenderRequest, VaultRenderedArtifact};
+use domain::{
+    VaultArtifactFailure, VaultCommandOutcome, VaultRenderRequest, VaultRenderedArtifact,
+};
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -413,7 +415,11 @@ mod tests {
             .render_issued_document(absent)
             .await
             .expect_err("v99 is not authored");
-        assert!(error.message.contains("LISTING-01 v99"), "{}", error.message);
+        assert!(
+            error.message.contains("LISTING-01 v99"),
+            "{}",
+            error.message
+        );
         assert!(error.message.contains("not in the templates directory"));
         // The refusal is explicit and typed, which is what the test this replaced used to assert about the stub: a
         // missing renderer and a missing template are both precondition failures, never a silent empty document.
@@ -440,7 +446,10 @@ mod tests {
         showing.template_id = "SHOW-INFO".to_string();
         showing.template_version = 1;
         assert!(
-            renderer.render_issued_document(showing.clone()).await.is_ok(),
+            renderer
+                .render_issued_document(showing.clone())
+                .await
+                .is_ok(),
             "the copied template renders"
         );
         let mut absent = showing.clone();

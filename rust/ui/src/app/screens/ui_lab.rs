@@ -120,7 +120,6 @@ impl View<'_> {
             </section>
         }
     }
-
 }
 
 impl View<'_> {
@@ -174,9 +173,8 @@ impl View<'_> {
         let on_query = link.callback(|event: InputEvent| {
             LabMsg::QueryChanged(crate::app::exec::input_value(&event))
         });
-        let on_role = link.callback(|event: Event| {
-            LabMsg::RoleChanged(crate::app::exec::select_value(&event))
-        });
+        let on_role = link
+            .callback(|event: Event| LabMsg::RoleChanged(crate::app::exec::select_value(&event)));
         let on_notifications = link.callback(|event: Event| {
             LabMsg::NotificationsChanged(crate::app::exec::checked(&event))
         });

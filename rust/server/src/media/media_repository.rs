@@ -33,7 +33,12 @@ pub trait MediaRepository: Send {
         bytes: &[u8],
     ) -> DbResult<db::MediaUploadStatus>;
     async fn remove_property_media(&self, property_id: &str, media_id: &str) -> DbResult<bool>;
-    async fn property_has_photo(&self, property_id: &str, filename: &str, byte_size: i64) -> DbResult<bool>;
+    async fn property_has_photo(
+        &self,
+        property_id: &str,
+        filename: &str,
+        byte_size: i64,
+    ) -> DbResult<bool>;
     async fn resumable_media_upload(
         &self,
         property_id: &str,
@@ -121,7 +126,12 @@ impl MediaRepository for MediaDao {
         MediaDao::remove_property_media(self, property_id, media_id).await
     }
 
-    async fn property_has_photo(&self, property_id: &str, filename: &str, byte_size: i64) -> DbResult<bool> {
+    async fn property_has_photo(
+        &self,
+        property_id: &str,
+        filename: &str,
+        byte_size: i64,
+    ) -> DbResult<bool> {
         MediaDao::property_has_photo(self, property_id, filename, byte_size).await
     }
 
@@ -196,7 +206,11 @@ pub enum UploadLookup {
     /// The property already shows this file: nothing to send.
     AlreadyStored,
     /// An earlier try left this upload: send only the chunks it lacks (`status` `complete` means it is being finished).
-    Unfinished { upload_id: String, status: String, received: Vec<i32> },
+    Unfinished {
+        upload_id: String,
+        status: String,
+        received: Vec<i32>,
+    },
     New,
 }
 

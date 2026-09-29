@@ -23,15 +23,10 @@ pub(super) fn forms_rail(
         })
         .collect::<Vec<_>>();
     let query_changed = link.callback(|event: InputEvent| {
-        Msg::SessionQueryChanged(
-            crate::app::exec::input_value(&event),
-        )
+        Msg::SessionQueryChanged(crate::app::exec::input_value(&event))
     });
-    let template_changed = link.callback(|event: Event| {
-        Msg::TemplateSelected(
-            crate::app::exec::select_value(&event),
-        )
-    });
+    let template_changed =
+        link.callback(|event: Event| Msg::TemplateSelected(crate::app::exec::select_value(&event)));
 
     html! {
         <aside class="portal-glass-panel flex max-h-72 min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)] lg:max-h-none">

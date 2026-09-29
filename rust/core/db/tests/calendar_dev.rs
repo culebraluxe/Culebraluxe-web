@@ -25,16 +25,12 @@ async fn recurring_occurrence_id_change_reconciles_without_duplicate_landing() {
     let series_id = format!("series-{tag}");
     let old_event_id = format!("event-old-{tag}");
     let new_event_id = format!("event-new-{tag}");
-    let original_start = (Utc::now() + Duration::days(2))
-        .with_nanosecond(0)
-        .unwrap();
+    let original_start = (Utc::now() + Duration::days(2)).with_nanosecond(0).unwrap();
     let original_end = original_start + Duration::hours(1);
     let target_start = original_start + Duration::minutes(30);
     let target_end = target_start + Duration::hours(1);
-    let legacy_source_message_id =
-        format!("{}|{}", old_event_id, original_start.to_rfc3339());
-    let stable_source_message_id =
-        format!("{}|{}", series_id, original_start.to_rfc3339());
+    let legacy_source_message_id = format!("{}|{}", old_event_id, original_start.to_rfc3339());
+    let stable_source_message_id = format!("{}|{}", series_id, original_start.to_rfc3339());
 
     calendar
         .upsert_landing_event(&CalendarLandingEvent {

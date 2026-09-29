@@ -425,7 +425,10 @@ mod tests {
     #[test]
     fn the_requested_window_is_read_from_the_flags_and_a_typo_cannot_ask_for_everything() {
         assert_eq!(parse_window_days(&[]), ROI_DEFAULT_WINDOW_DAYS);
-        assert_eq!(parse_window_days(&["roi".to_string()]), ROI_DEFAULT_WINDOW_DAYS);
+        assert_eq!(
+            parse_window_days(&["roi".to_string()]),
+            ROI_DEFAULT_WINDOW_DAYS
+        );
         assert_eq!(
             parse_window_days(&["roi".to_string(), "--days".to_string(), "30".to_string()]),
             30
@@ -468,12 +471,23 @@ mod tests {
 
     #[test]
     fn the_report_says_which_database_and_which_unit_before_it_says_any_number() {
-        let summary = summarize_roi(&[attempt(Some("fix"), Some("cheap"), "Done", Some(4.0), Some(12.0))], 7);
+        let summary = summarize_roi(
+            &[attempt(
+                Some("fix"),
+                Some("cheap"),
+                "Done",
+                Some(4.0),
+                Some(12.0),
+            )],
+            7,
+        );
         let text = render_roi_report(&summary, &plane());
         let lines: Vec<&str> = text.lines().collect();
         assert_eq!(lines[0], "forge:roi — last 7 days (APP_ENV=dev → dev)");
         assert_eq!(lines[1], format!("  unit: {ROI_UNIT}"));
-        assert!(lines.iter().any(|line| line.starts_with("  fix/cheap · 1 attempt")));
+        assert!(lines
+            .iter()
+            .any(|line| line.starts_with("  fix/cheap · 1 attempt")));
         assert!(text.contains("  totals: 1 attempt(s) · 1 done · 0 failed · 12 widgets"));
         assert!(text.contains("  coverage: cost captured on 1/1 · wall time on 1/1"));
         assert!(text.contains("not currency."));

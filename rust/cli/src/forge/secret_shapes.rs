@@ -31,7 +31,8 @@ fn compiled() -> &'static Vec<(&'static str, Regex)> {
             .map(|(name, pattern)| {
                 (
                     *name,
-                    Regex::new(pattern).expect("credential shape pattern is a compile-time constant"),
+                    Regex::new(pattern)
+                        .expect("credential shape pattern is a compile-time constant"),
                 )
             })
             .collect()
@@ -53,7 +54,10 @@ mod tests {
 
     #[test]
     fn catches_the_shapes_the_catalog_names() {
-        assert_eq!(shapes_in_line("token: sk-abcdefghijklmnopqrstuvwx"), vec!["openai-style key"]);
+        assert_eq!(
+            shapes_in_line("token: sk-abcdefghijklmnopqrstuvwx"),
+            vec!["openai-style key"]
+        );
         assert_eq!(
             shapes_in_line("db: postgres://user:pw@host/db"),
             vec!["database url with credentials"]

@@ -171,9 +171,12 @@ impl LandingDao {
         let call_type: Vec<Option<String>> =
             inputs.iter().map(|input| input.call_type.clone()).collect();
         let answered: Vec<Option<bool>> = inputs.iter().map(|input| input.answered).collect();
-        let duration: Vec<Option<f64>> = inputs.iter().map(|input| input.duration_seconds).collect();
-        let started_at: Vec<Option<String>> =
-            inputs.iter().map(|input| input.started_at.clone()).collect();
+        let duration: Vec<Option<f64>> =
+            inputs.iter().map(|input| input.duration_seconds).collect();
+        let started_at: Vec<Option<String>> = inputs
+            .iter()
+            .map(|input| input.started_at.clone())
+            .collect();
         let raw: Vec<String> = inputs
             .iter()
             .map(|input| serde_json::to_string(&input.raw).unwrap_or_else(|_| "null".to_owned()))

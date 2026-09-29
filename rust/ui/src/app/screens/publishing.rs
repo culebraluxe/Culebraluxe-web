@@ -45,9 +45,15 @@ impl Screen for Publishing {
             }) {
                 Ok(page) => {
                     if model.selected_id.as_ref().is_none_or(|id| {
-                        !page.listings.iter().any(|listing| &listing.property_id == id)
+                        !page
+                            .listings
+                            .iter()
+                            .any(|listing| &listing.property_id == id)
                     }) {
-                        model.selected_id = page.listings.first().map(|listing| listing.property_id.clone());
+                        model.selected_id = page
+                            .listings
+                            .first()
+                            .map(|listing| listing.property_id.clone());
                     }
                     model.read = Remote::Loaded(page);
                 }
@@ -77,7 +83,11 @@ fn workspace(page: &PortalPublishingPage, model: &Model, on_msg: &Callback<Msg>)
     let selected = model
         .selected_id
         .as_deref()
-        .and_then(|id| page.listings.iter().find(|listing| listing.property_id == id))
+        .and_then(|id| {
+            page.listings
+                .iter()
+                .find(|listing| listing.property_id == id)
+        })
         .or_else(|| page.listings.first());
 
     html! {
@@ -104,7 +114,11 @@ fn workspace(page: &PortalPublishingPage, model: &Model, on_msg: &Callback<Msg>)
     }
 }
 
-fn listing_row(listing: &PortalPublishingListing, selected: Option<&str>, on_msg: &Callback<Msg>) -> Html {
+fn listing_row(
+    listing: &PortalPublishingListing,
+    selected: Option<&str>,
+    on_msg: &Callback<Msg>,
+) -> Html {
     let id = listing.property_id.clone();
     let onclick = {
         let on_msg = on_msg.clone();
@@ -213,7 +227,10 @@ fn title_case(value: &str) -> String {
         .split('_')
         .map(|part| {
             let mut chars = part.chars();
-            chars.next().map(|first| first.to_uppercase().collect::<String>() + chars.as_str()).unwrap_or_default()
+            chars
+                .next()
+                .map(|first| first.to_uppercase().collect::<String>() + chars.as_str())
+                .unwrap_or_default()
         })
         .collect::<Vec<_>>()
         .join(" ")
@@ -226,6 +243,9 @@ mod tests {
     #[test]
     fn publishing_reads_its_one_projection() {
         let (_model, cmd) = Publishing::init(&ScreenCtx::default());
-        assert_eq!(cmd.into_requests().remove(0).path, "/api/portal/rust-ui/publishing");
+        assert_eq!(
+            cmd.into_requests().remove(0).path,
+            "/api/portal/rust-ui/publishing"
+        );
     }
 }

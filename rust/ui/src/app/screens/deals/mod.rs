@@ -23,7 +23,6 @@ mod update;
 #[allow(unused_imports)]
 pub(super) use update::*;
 
-
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Controls {
     /// The portfolio's stage filter (`None` is all). Applied to the rows on the page, not a new read.

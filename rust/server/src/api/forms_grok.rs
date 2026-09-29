@@ -52,9 +52,14 @@ pub async fn fill(
     document_body: &str,
     agent_said: &str,
 ) -> Result<GrokFill, GrokFailure> {
-    let key = std::env::var("XAI_API_KEY").ok().map(|key| key.trim().to_owned()).filter(|key| !key.is_empty());
+    let key = std::env::var("XAI_API_KEY")
+        .ok()
+        .map(|key| key.trim().to_owned())
+        .filter(|key| !key.is_empty());
     let Some(key) = key else {
-        return Err(GrokFailure("Grok is not configured on this server yet.".into()));
+        return Err(GrokFailure(
+            "Grok is not configured on this server yet.".into(),
+        ));
     };
     let described: Vec<Value> = fields
         .iter()
@@ -77,7 +82,8 @@ pub async fn fill(
             { "role": "user", "content": user.to_string() },
         ],
     });
-    let unavailable = || GrokFailure("Grok could not fill the form right now. Try again in a moment.".into());
+    let unavailable =
+        || GrokFailure("Grok could not fill the form right now. Try again in a moment.".into());
     let response = reqwest::Client::new()
         .post("https://api.x.ai/v1/chat/completions")
         .bearer_auth(key)
@@ -109,7 +115,10 @@ pub fn parse(raw: &str, fields: &[GrokField]) -> Result<GrokFill, GrokFailure> {
         }
         _ => text,
     };
-    let (start, end) = (text.find('{').ok_or_else(missing)?, text.rfind('}').ok_or_else(missing)?);
+    let (start, end) = (
+        text.find('{').ok_or_else(missing)?,
+        text.rfind('}').ok_or_else(missing)?,
+    );
     if end <= start {
         return Err(missing());
     }
@@ -118,7 +127,10 @@ pub fn parse(raw: &str, fields: &[GrokField]) -> Result<GrokFill, GrokFailure> {
     let suggested = parsed.get("fieldValues").and_then(Value::as_object);
     let mut field_values = Map::new();
     for field in fields {
-        let Some(value) = suggested.and_then(|values| values.get(&field.name)).and_then(Value::as_str) else {
+        let Some(value) = suggested
+            .and_then(|values| values.get(&field.name))
+            .and_then(Value::as_str)
+        else {
             continue;
         };
         let value = value.trim();
@@ -126,18 +138,29 @@ pub fn parse(raw: &str, fields: &[GrokField]) -> Result<GrokFill, GrokFailure> {
             continue;
         }
         if field.field_type == "select" {
-            if let Some(option) = field.options.iter().find(|option| option.eq_ignore_ascii_case(value)) {
+            if let Some(option) = field
+                .options
+                .iter()
+                .find(|option| option.eq_ignore_ascii_case(value))
+            {
                 field_values.insert(field.name.clone(), json!(option));
             }
             continue;
         }
         field_values.insert(field.name.clone(), json!(value));
     }
-    let text_at = |key: &str| parsed.get(key).and_then(Value::as_str).filter(|text| !text.trim().is_empty());
+    let text_at = |key: &str| {
+        parsed
+            .get(key)
+            .and_then(Value::as_str)
+            .filter(|text| !text.trim().is_empty())
+    };
     Ok(GrokFill {
         field_values,
         body: text_at("body").map(str::to_owned),
-        note: text_at("note").map(|note| note.trim().to_owned()).unwrap_or_else(|| "Filled from what you told Grok.".into()),
+        note: text_at("note")
+            .map(|note| note.trim().to_owned())
+            .unwrap_or_else(|| "Filled from what you told Grok.".into()),
     })
 }
 
@@ -147,7 +170,12 @@ mod tests {
 
     fn fields() -> Vec<GrokField> {
         vec![
-            GrokField { name: "buyerName".into(), label: "Buyer".into(), field_type: "text".into(), options: vec![] },
+            GrokField {
+                name: "buyerName".into(),
+                label: "Buyer".into(),
+                field_type: "text".into(),
+                options: vec![],
+            },
             GrokField {
                 name: "financing".into(),
                 label: "Financing".into(),
@@ -170,7 +198,8 @@ mod tests {
 
     #[test]
     fn a_select_value_outside_its_options_is_dropped() {
-        let fill = parse(r#"{"fieldValues":{"financing":"Seller carry"}}"#, &fields()).expect("parses");
+        let fill =
+            parse(r#"{"fieldValues":{"financing":"Seller carry"}}"#, &fields()).expect("parses");
         assert!(fill.field_values.is_empty());
         assert_eq!(fill.note, "Filled from what you told Grok.");
     }

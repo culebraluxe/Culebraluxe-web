@@ -16,7 +16,6 @@ pub(super) use media::*;
 #[allow(unused_imports)]
 pub(super) use sections::*;
 
-
 #[derive(Clone, PartialEq)]
 struct Photo {
     src: String,

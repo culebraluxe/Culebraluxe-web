@@ -6,16 +6,15 @@ use crate::model::{
 };
 
 use super::super::{Msg, Vm};
+mod drag;
 mod month;
 mod time_grid;
-mod drag;
+#[allow(unused_imports)]
+pub(super) use drag::*;
 #[allow(unused_imports)]
 pub(super) use month::*;
 #[allow(unused_imports)]
 pub(super) use time_grid::*;
-#[allow(unused_imports)]
-pub(super) use drag::*;
-
 
 #[derive(Clone)]
 struct CalendarChip {

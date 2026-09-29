@@ -2,8 +2,8 @@
 
 pub mod about;
 pub mod buyers;
-pub mod content;
 pub mod contact;
+pub mod content;
 pub mod faq;
 pub mod favorites;
 pub mod guide;

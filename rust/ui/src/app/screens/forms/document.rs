@@ -16,7 +16,11 @@ pub(super) fn preferred_form_id(page: &FormsPage) -> Option<String> {
                 item.template_id == "LISTING-01" && item.template_version == item.active_version
             })
         })
-        .or_else(|| page.items.iter().find(|item| item.template_id == "LISTING-01"))
+        .or_else(|| {
+            page.items
+                .iter()
+                .find(|item| item.template_id == "LISTING-01")
+        })
         .or_else(|| page.items.first())
         .map(|item| item.id.clone())
 }
@@ -36,9 +40,7 @@ pub(super) fn current_template_id(model: &Model) -> String {
         .and_then(|page| page.selected.as_ref())
         .map(|form| form.template_id.clone())
         .filter(|value| !value.is_empty())
-        .or_else(|| {
-            (!model.selected_template.is_empty()).then(|| model.selected_template.clone())
-        })
+        .or_else(|| (!model.selected_template.is_empty()).then(|| model.selected_template.clone()))
         .unwrap_or_else(|| "LISTING-01".into())
 }
 
@@ -114,7 +116,11 @@ pub(super) fn document_body_text(
             } else {
                 ""
             };
-            let text = if edited.is_empty() { generated } else { edited.into() };
+            let text = if edited.is_empty() {
+                generated
+            } else {
+                edited.into()
+            };
             if text.trim().is_empty() {
                 section.label.clone()
             } else {
@@ -134,10 +140,7 @@ pub(super) fn format_field_value(field: &FormTemplateField, value: &str) -> Stri
 }
 
 pub(super) fn format_money(value: &str) -> String {
-    let raw = value
-        .trim()
-        .trim_start_matches('$')
-        .replace(',', "");
+    let raw = value.trim().trim_start_matches('$').replace(',', "");
     if raw.is_empty() {
         return String::new();
     }
@@ -215,7 +218,12 @@ pub(super) fn session_label(item: &FormItem) -> String {
     [
         Some(party_name(item)),
         item.property_label.clone(),
-        Some(item.updated_at.get(0..10).unwrap_or(&item.updated_at).to_owned()),
+        Some(
+            item.updated_at
+                .get(0..10)
+                .unwrap_or(&item.updated_at)
+                .to_owned(),
+        ),
     ]
     .into_iter()
     .flatten()

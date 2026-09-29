@@ -493,7 +493,9 @@ pub(in super::super) struct UpdateWbsBody {
     pub(super) owner: Option<Option<String>>,
 }
 
-pub(super) fn present_nullable_date<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<Option<String>>, D::Error> {
+pub(super) fn present_nullable_date<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Option<String>>, D::Error> {
     Option::<String>::deserialize(deserializer).map(Some)
 }
 
@@ -505,7 +507,8 @@ mod wbs_schedule_body_tests {
     fn patch_distinguishes_omitted_planned_date_from_explicit_clear() {
         let omitted: UpdateWbsBody = serde_json::from_str("{}").unwrap();
         let cleared: UpdateWbsBody = serde_json::from_str(r#"{"plannedStart":null}"#).unwrap();
-        let changed: UpdateWbsBody = serde_json::from_str(r#"{"plannedStart":"2026-09-10"}"#).unwrap();
+        let changed: UpdateWbsBody =
+            serde_json::from_str(r#"{"plannedStart":"2026-09-10"}"#).unwrap();
         assert_eq!(omitted.planned_start, None);
         assert_eq!(cleared.planned_start, Some(None));
         assert_eq!(changed.planned_start, Some(Some("2026-09-10".into())));
@@ -528,8 +531,14 @@ mod person_hold_body_tests {
         };
 
         assert_eq!(read("").manual_override, None);
-        assert_eq!(read(r#","manualOverride":true"#).manual_override, Some(true));
-        assert_eq!(read(r#","manualOverride":false"#).manual_override, Some(false));
+        assert_eq!(
+            read(r#","manualOverride":true"#).manual_override,
+            Some(true)
+        );
+        assert_eq!(
+            read(r#","manualOverride":false"#).manual_override,
+            Some(false)
+        );
     }
 }
 

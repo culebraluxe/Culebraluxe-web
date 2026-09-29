@@ -43,7 +43,8 @@ pub(super) const ACTIVE_FORM_TEMPLATE_VERSIONS: &[(&str, i32)] = &[
     ("SHOW-RPT", 1),
 ];
 
-pub(super) const PORTAL_FORM_TEMPLATE_IDS: &[&str] = &["SHOW-RPT", "OFFER-01", "PR-PNS", "LISTING-01"];
+pub(super) const PORTAL_FORM_TEMPLATE_IDS: &[&str] =
+    &["SHOW-RPT", "OFFER-01", "PR-PNS", "LISTING-01"];
 
 pub(super) fn active_form_template<'a>(
     library: &'a domain::forms_template::TemplateLibrary,
@@ -55,7 +56,9 @@ pub(super) fn active_form_template<'a>(
     library.version(id, version)
 }
 
-pub(super) fn form_presentation(value: domain::forms_template::TemplatePresentation) -> &'static str {
+pub(super) fn form_presentation(
+    value: domain::forms_template::TemplatePresentation,
+) -> &'static str {
     match value {
         domain::forms_template::TemplatePresentation::Agreement => "agreement",
         domain::forms_template::TemplatePresentation::Letter => "letter",
@@ -150,7 +153,9 @@ pub(super) fn form_template_payload(
     })
 }
 
-pub(super) fn form_template_choices(library: &domain::forms_template::TemplateLibrary) -> Vec<Value> {
+pub(super) fn form_template_choices(
+    library: &domain::forms_template::TemplateLibrary,
+) -> Vec<Value> {
     PORTAL_FORM_TEMPLATE_IDS
         .iter()
         .filter_map(|id| active_form_template(library, id))
@@ -289,9 +294,8 @@ pub(super) async fn forms_page(
                 .await
                 .map_err(failed(resolved))?
             {
-                if let Some(civil_status) = person
-                    .civil_status
-                    .filter(|value| !value.trim().is_empty())
+                if let Some(civil_status) =
+                    person.civil_status.filter(|value| !value.trim().is_empty())
                 {
                     // Person is canonical for civil status. Old form JSON must never shadow a repaired Person value.
                     field_values.insert("sellerCivilStatus".into(), civil_status);
@@ -391,7 +395,12 @@ pub(super) fn one_line_address_part(value: Option<&str>) -> Option<String> {
 }
 
 pub(super) fn redundant_pr_country(country: Option<&str>, state: Option<&str>) -> bool {
-    if state.map(str::trim).unwrap_or_default().to_ascii_uppercase() != "PR" {
+    if state
+        .map(str::trim)
+        .unwrap_or_default()
+        .to_ascii_uppercase()
+        != "PR"
+    {
         return false;
     }
     let country = country

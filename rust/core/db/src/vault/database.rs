@@ -552,5 +552,4 @@ impl VaultDao {
         .map(|value| value.flatten())
         .map_err(|error| DbFailure::from_sqlx("vault.form_contract_id", &error))
     }
-
 }

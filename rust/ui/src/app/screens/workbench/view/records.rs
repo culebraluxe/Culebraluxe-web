@@ -2,7 +2,11 @@
 
 use super::*;
 
-pub(super) fn person_editor(model: &Vm<'_>, person: Option<&PortalOpsPerson>, on_msg: &Callback<Msg>) -> Html {
+pub(super) fn person_editor(
+    model: &Vm<'_>,
+    person: Option<&PortalOpsPerson>,
+    on_msg: &Callback<Msg>,
+) -> Html {
     let Some(person) = person else {
         return empty_record("Person");
     };
@@ -85,7 +89,9 @@ pub(in super::super) fn usd(raw: &str) -> String {
     if raw.is_empty() {
         return String::new();
     }
-    let (whole, fraction) = raw.split_once('.').map_or((raw, None), |(w, f)| (w, Some(f)));
+    let (whole, fraction) = raw
+        .split_once('.')
+        .map_or((raw, None), |(w, f)| (w, Some(f)));
     let digits: String = whole.chars().filter(char::is_ascii_digit).collect();
     let digits = digits.trim_start_matches('0');
     let digits = if digits.is_empty() { "0" } else { digits };
@@ -97,7 +103,14 @@ pub(in super::super) fn usd(raw: &str) -> String {
         grouped.push(ch);
     }
     match fraction {
-        Some(cents) => format!("${grouped}.{}", cents.chars().filter(char::is_ascii_digit).take(2).collect::<String>()),
+        Some(cents) => format!(
+            "${grouped}.{}",
+            cents
+                .chars()
+                .filter(char::is_ascii_digit)
+                .take(2)
+                .collect::<String>()
+        ),
         None => format!("${grouped}"),
     }
 }

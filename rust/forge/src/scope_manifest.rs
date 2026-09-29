@@ -82,9 +82,7 @@ pub fn tokenize(text: &str) -> Vec<String> {
     text.to_lowercase()
         .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'))
         .map(|token| token.trim_matches(|c| c == '-' || c == '_').to_string())
-        .filter(|token| {
-            token.len() >= 3 && !STOPWORDS.split_whitespace().any(|word| word == token)
-        })
+        .filter(|token| token.len() >= 3 && !STOPWORDS.split_whitespace().any(|word| word == token))
         .collect()
 }
 
@@ -136,7 +134,10 @@ fn corpus_stats(corpus: &[&CorpusFile]) -> (HashMap<String, usize>, HashMap<Stri
 }
 
 /// The structural lanes only: everything a reader must open regardless of the corpus's mood.
-fn push_structural(input: &RankInput<'_>, exists: &dyn Fn(&str) -> bool) -> (Vec<Entry>, HashSet<String>) {
+fn push_structural(
+    input: &RankInput<'_>,
+    exists: &dyn Fn(&str) -> bool,
+) -> (Vec<Entry>, HashSet<String>) {
     let mut rows: Vec<Entry> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
     let mut push = |path: &str, lane: Lane, detail: String, rows: &mut Vec<Entry>| {
@@ -155,7 +156,12 @@ fn push_structural(input: &RankInput<'_>, exists: &dyn Fn(&str) -> bool) -> (Vec
     };
 
     for path in HANDBOOK_PATHS {
-        push(path, Lane::Handbook, "always-read handbook".to_string(), &mut rows);
+        push(
+            path,
+            Lane::Handbook,
+            "always-read handbook".to_string(),
+            &mut rows,
+        );
     }
     if let Some(packet) = input.packet_path {
         push(
@@ -261,7 +267,12 @@ fn lexical_rows(
             lane: Lane::Lexical,
             detail: format!(
                 "term match: {}",
-                matched.iter().take(4).cloned().collect::<Vec<_>>().join(", ")
+                matched
+                    .iter()
+                    .take(4)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ),
             score,
         })
@@ -335,7 +346,11 @@ pub fn render(entries: &[Entry], meta: &Meta) -> String {
     lines.push(format!(
         "- commit: `{}`{} on `{}`",
         meta.commit,
-        if meta.dirty { " (working tree dirty)" } else { "" },
+        if meta.dirty {
+            " (working tree dirty)"
+        } else {
+            ""
+        },
         meta.branch
     ));
     lines.push(format!("- regenerate: `{}`", meta.command));
@@ -345,7 +360,8 @@ pub fn render(entries: &[Entry], meta: &Meta) -> String {
     ));
     lines.push(String::new());
     lines.push(
-        "Read top-down. A row is a file to open, and the why column says why it is here.".to_string(),
+        "Read top-down. A row is a file to open, and the why column says why it is here."
+            .to_string(),
     );
     lines.push(String::new());
     for entry in entries {
@@ -585,7 +601,10 @@ mod tests {
             lexical_limit: None,
         };
         let rows = rank_entries(&input, &|_| true);
-        let lexical: Vec<&Entry> = rows.iter().filter(|row| row.lane == Lane::Lexical).collect();
+        let lexical: Vec<&Entry> = rows
+            .iter()
+            .filter(|row| row.lane == Lane::Lexical)
+            .collect();
         assert_eq!(lexical.len(), 2);
         assert_eq!(lexical[0].path, "docs/agent/a.md");
         assert!((lexical[0].score / lexical[1].score - 3.0).abs() < 0.01);
@@ -697,7 +716,8 @@ mod tests {
     #[test]
     fn an_audit_table_in_the_manifest_directory_is_never_overwritten() {
         assert!(
-            non_manifest_refusal(Some("# Scope manifest — X\n"), "docs/agent/manifest/X.md").is_none()
+            non_manifest_refusal(Some("# Scope manifest — X\n"), "docs/agent/manifest/X.md")
+                .is_none()
         );
         assert!(non_manifest_refusal(None, "docs/agent/manifest/X.md").is_none());
         let refusal =
@@ -707,4 +727,3 @@ mod tests {
         assert!(refusal.contains("docs/agent/manifest/X.md"));
     }
 }
-

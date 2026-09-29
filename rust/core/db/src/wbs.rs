@@ -119,7 +119,10 @@ impl WbsDao {
     }
 
     /// The links of several projects in one query (the Projects screen reads every project's at once).
-    pub async fn list_dependencies_for(&self, project_ids: &[String]) -> DbResult<Vec<WbsDependency>> {
+    pub async fn list_dependencies_for(
+        &self,
+        project_ids: &[String],
+    ) -> DbResult<Vec<WbsDependency>> {
         let rows = sqlx::query_as::<_, DependencyRow>(
             "select project_id, source_id, target_id, kind from wbs_dependency \
              where project_id = any($1) order by project_id, source_id, target_id",
@@ -158,7 +161,12 @@ impl WbsDao {
         Ok(row.into())
     }
 
-    pub async fn delete_dependency(&self, project_id: &str, source_id: &str, target_id: &str) -> DbResult<bool> {
+    pub async fn delete_dependency(
+        &self,
+        project_id: &str,
+        source_id: &str,
+        target_id: &str,
+    ) -> DbResult<bool> {
         let result = sqlx::query(
             "delete from wbs_dependency where project_id=$1 and source_id=$2 and target_id=$3",
         )

@@ -573,11 +573,20 @@ mod tests {
             let mut req = request(action, OperationKind::Command, &[action]);
             req.domain = "security";
             req.principal.as_mut().unwrap().role_codes = vec!["owner".into()];
-            assert!(!auth.authorize(req.clone()).await.unwrap().allowed, "{action}: owner holding the grant is refused");
+            assert!(
+                !auth.authorize(req.clone()).await.unwrap().allowed,
+                "{action}: owner holding the grant is refused"
+            );
             req.principal.as_mut().unwrap().role_codes = vec!["root".into()];
-            assert!(auth.authorize(req).await.unwrap().allowed, "{action}: root is allowed");
+            assert!(
+                auth.authorize(req).await.unwrap().allowed,
+                "{action}: root is allowed"
+            );
         }
-        assert!(!domain::security::is_root_only("deal.read"), "an ordinary action is not root-only");
+        assert!(
+            !domain::security::is_root_only("deal.read"),
+            "an ordinary action is not root-only"
+        );
     }
 
     #[tokio::test]

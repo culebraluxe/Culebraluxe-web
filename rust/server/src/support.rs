@@ -128,7 +128,10 @@ impl<R: SupportDiagnosticsRepository> SupportDiagnosticsService<R> {
 
     /// The two sanity counts `/v1/diagnostics/db` reports beside the pool metrics. Read by the internal key's System
     /// actor (`workflow-engine`), which the authorization port grants this one operation explicitly.
-    pub async fn db_counts(&self, context: &ServiceContext) -> Result<(i64, i64), CoreServiceError> {
+    pub async fn db_counts(
+        &self,
+        context: &ServiceContext,
+    ) -> Result<(i64, i64), CoreServiceError> {
         const OP: &str = "support.dbDiagnostics";
         let decision = authorize(
             &self.runtime,
@@ -139,7 +142,11 @@ impl<R: SupportDiagnosticsRepository> SupportDiagnosticsService<R> {
             context,
         )
         .await?;
-        let result = self.repository.db_diagnostic_counts().await.map_err(Into::into);
+        let result = self
+            .repository
+            .db_diagnostic_counts()
+            .await
+            .map_err(Into::into);
         audit_result(&self.runtime, "support", OP, context, decision, &result).await?;
         result
     }

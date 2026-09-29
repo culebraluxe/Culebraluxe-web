@@ -51,7 +51,10 @@ impl<R: ClientRoomRepository> ClientRoomService<R> {
                 "This account is not linked to a client record yet.",
             ))
         } else {
-            self.repository.snapshot(person_id).await.map_err(Into::into)
+            self.repository
+                .snapshot(person_id)
+                .await
+                .map_err(Into::into)
         };
         audit_result(&self.runtime, "client-room", OP, context, decision, &result).await?;
         result

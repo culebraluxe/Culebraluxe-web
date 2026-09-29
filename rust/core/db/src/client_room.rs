@@ -1,5 +1,8 @@
 use crate::{Database, DbFailure, DbResult};
-use domain::{ClientRoomDocument, ClientRoomProject, ClientRoomSellerListing, ClientRoomSnapshot, ClientRoomTransaction};
+use domain::{
+    ClientRoomDocument, ClientRoomProject, ClientRoomSellerListing, ClientRoomSnapshot,
+    ClientRoomTransaction,
+};
 use sqlx::FromRow;
 
 #[derive(Debug, FromRow)]
@@ -396,7 +399,11 @@ mod tests {
     #[test]
     fn progress_is_integer_and_bounded_by_the_projection_rule() {
         let percent = |done: i64, total: i64| {
-            if total > 0 { ((done * 100) / total).clamp(0, 100) as i32 } else { 0 }
+            if total > 0 {
+                ((done * 100) / total).clamp(0, 100) as i32
+            } else {
+                0
+            }
         };
         assert_eq!(percent(3, 4), 75);
         assert_eq!(percent(9, 4), 100);

@@ -1,11 +1,10 @@
 use serde::{Deserialize, Serialize};
-mod evaluate;
 mod advice;
-#[allow(unused_imports)]
-pub use evaluate::*;
+mod evaluate;
 #[allow(unused_imports)]
 pub use advice::*;
-
+#[allow(unused_imports)]
+pub use evaluate::*;
 
 pub type OptionId = u8;
 

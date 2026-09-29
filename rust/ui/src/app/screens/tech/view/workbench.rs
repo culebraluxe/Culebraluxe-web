@@ -85,7 +85,11 @@ pub(super) fn workbench_queue(tech: &PortalTechPage, on_msg: &Callback<Msg>) -> 
     }
 }
 
-pub(super) fn workbench_row(story: &PortalTechStory, tech: &PortalTechPage, on_msg: &Callback<Msg>) -> Html {
+pub(super) fn workbench_row(
+    story: &PortalTechStory,
+    tech: &PortalTechPage,
+    on_msg: &Callback<Msg>,
+) -> Html {
     let selected = tech
         .selected_story
         .as_ref()
@@ -111,7 +115,11 @@ pub(super) fn workbench_row(story: &PortalTechStory, tech: &PortalTechPage, on_m
     }
 }
 
-pub(super) fn selected_story(model: &Vm<'_>, tech: &PortalTechPage, on_msg: &Callback<Msg>) -> Html {
+pub(super) fn selected_story(
+    model: &Vm<'_>,
+    tech: &PortalTechPage,
+    on_msg: &Callback<Msg>,
+) -> Html {
     let Some(story) = tech.selected_story.as_ref() else {
         return html! {
             <article class="rounded-md border border-white/10 bg-white/[0.025] p-5 text-sm text-slate-500">

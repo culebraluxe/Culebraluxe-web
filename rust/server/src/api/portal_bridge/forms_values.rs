@@ -120,9 +120,7 @@ pub(super) async fn save_form_values(
             current.person_id.as_deref(),
             field_values.get("sellerCivilStatus"),
         ) {
-            let desired = raw_civil_status
-                .trim()
-                .to_owned();
+            let desired = raw_civil_status.trim().to_owned();
             let desired = (!desired.is_empty()).then_some(desired);
             if let Some(person) = services
                 .person()
@@ -257,7 +255,10 @@ pub(super) async fn forms_grok(
 ) -> Result<Json<Value>, ApiError> {
     let resolved = resolve_portal_context(&state, &headers).await?;
     if body.prompt.trim().is_empty() {
-        return Err(correlate(ApiError::bad_request("GROK_PROMPT_REQUIRED", "Tell Grok what happened first."), &resolved));
+        return Err(correlate(
+            ApiError::bad_request("GROK_PROMPT_REQUIRED", "Tell Grok what happened first."),
+            &resolved,
+        ));
     }
     state
         .services()
@@ -265,13 +266,34 @@ pub(super) async fn forms_grok(
         .get_instance(body.form_id.trim(), &resolved.service)
         .await
         .map_err(failed(&resolved))?
-        .ok_or_else(|| correlate(ApiError::not_found("FORM_NOT_FOUND", "That form was not found."), &resolved))?;
-    let fill = super::super::forms_grok::fill(&body.form_name, &body.fields, &body.field_values, &body.details_text, body.prompt.trim())
-        .await
-        .map_err(|failure| {
-            correlate(ApiError::new(axum::http::StatusCode::BAD_GATEWAY, "GROK_UNAVAILABLE", failure.0, true), &resolved)
+        .ok_or_else(|| {
+            correlate(
+                ApiError::not_found("FORM_NOT_FOUND", "That form was not found."),
+                &resolved,
+            )
         })?;
-    Ok(Json(json!({ "ok": true, "fieldValues": fill.field_values, "body": fill.body, "note": fill.note })))
+    let fill = super::super::forms_grok::fill(
+        &body.form_name,
+        &body.fields,
+        &body.field_values,
+        &body.details_text,
+        body.prompt.trim(),
+    )
+    .await
+    .map_err(|failure| {
+        correlate(
+            ApiError::new(
+                axum::http::StatusCode::BAD_GATEWAY,
+                "GROK_UNAVAILABLE",
+                failure.0,
+                true,
+            ),
+            &resolved,
+        )
+    })?;
+    Ok(Json(
+        json!({ "ok": true, "fieldValues": fill.field_values, "body": fill.body, "note": fill.note }),
+    ))
 }
 
 pub(super) async fn forms_preview(

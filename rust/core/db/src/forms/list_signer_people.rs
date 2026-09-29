@@ -51,7 +51,7 @@ impl FormDao {
             .map_err(|error| DbFailure::from_sqlx("form.signers.direct_email", &error))?;
 
             people.push(FormSignerPerson {
-                            slot_id: None,
+                slot_id: None,
                 person_id: Some(person_id),
                 name: form.person_name.unwrap_or_default(),
                 email,
@@ -88,7 +88,7 @@ impl FormDao {
             .map_err(|error| DbFailure::from_sqlx("form.signers.deal_client", &error))?
             {
                 people.push(FormSignerPerson {
-                                slot_id: None,
+                    slot_id: None,
                     person_id: client.person_id,
                     name: client.display_name,
                     email: compact(client.email),
@@ -120,7 +120,7 @@ impl FormDao {
 
             for row in participants {
                 people.push(FormSignerPerson {
-                                slot_id: None,
+                    slot_id: None,
                     person_id: row.person_id,
                     name: row.display_name,
                     email: compact(row.email),
@@ -153,7 +153,7 @@ impl FormDao {
 
             for row in deal_people {
                 people.push(FormSignerPerson {
-                                slot_id: None,
+                    slot_id: None,
                     person_id: row.person_id,
                     name: row.display_name,
                     email: compact(row.email),
@@ -188,7 +188,7 @@ impl FormDao {
             }
             let broker = brokers.into_iter().next().expect("checked len == 1");
             people.push(FormSignerPerson {
-                            slot_id: None,
+                slot_id: None,
                 person_id: broker.person_id,
                 name: SELLER_BROKER_NAME.into(),
                 email: compact(broker.email),

@@ -182,7 +182,10 @@ pub(super) fn merge_address(
     }
 }
 
-pub(super) async fn get_on(connection: &mut PgConnection, property_id: &str) -> DbResult<Option<Property>> {
+pub(super) async fn get_on(
+    connection: &mut PgConnection,
+    property_id: &str,
+) -> DbResult<Option<Property>> {
     let row = sqlx::query_as::<_, PropertyRow>(property_sql!(
         "select ",
         " from property p where p.id = $1::uuid limit 1"

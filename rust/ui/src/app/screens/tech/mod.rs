@@ -281,12 +281,34 @@ mod tests {
             }),
             ..Model::default()
         };
-        TechCockpit::update(&mut model, Msg::SorterDragStarted("FORGE-9#handoff".into()), &ctx);
-        assert!(TechCockpit::update(&mut model, Msg::SorterDropped("engine".into()), &ctx).into_requests().is_empty(), "same column: nothing");
-        TechCockpit::update(&mut model, Msg::SorterDragStarted("FORGE-9#handoff".into()), &ctx);
-        let request = TechCockpit::update(&mut model, Msg::SorterDropped("backlog".into()), &ctx).into_requests().remove(0);
+        TechCockpit::update(
+            &mut model,
+            Msg::SorterDragStarted("FORGE-9#handoff".into()),
+            &ctx,
+        );
+        assert!(
+            TechCockpit::update(&mut model, Msg::SorterDropped("engine".into()), &ctx)
+                .into_requests()
+                .is_empty(),
+            "same column: nothing"
+        );
+        TechCockpit::update(
+            &mut model,
+            Msg::SorterDragStarted("FORGE-9#handoff".into()),
+            &ctx,
+        );
+        let request = TechCockpit::update(&mut model, Msg::SorterDropped("backlog".into()), &ctx)
+            .into_requests()
+            .remove(0);
         let body = request.body.clone().unwrap();
-        assert_eq!((body["action"].as_str(), body["storyId"].as_str(), body["target"].as_str()), (Some("moveStoryBucket"), Some("FORGE-9"), Some("backlog")));
+        assert_eq!(
+            (
+                body["action"].as_str(),
+                body["storyId"].as_str(),
+                body["target"].as_str()
+            ),
+            (Some("moveStoryBucket"), Some("FORGE-9"), Some("backlog"))
+        );
     }
 
     #[test]

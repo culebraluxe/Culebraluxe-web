@@ -86,7 +86,6 @@ pub struct CalendarCommandReceipt {
     pub state: String,
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CalendarCommandState {

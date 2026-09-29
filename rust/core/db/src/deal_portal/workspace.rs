@@ -179,7 +179,10 @@ impl DealPortalDao {
             .collect())
     }
 
-    pub(super) async fn workspace_activity(&self, deal_id: &str) -> DbResult<Vec<DealWorkspaceActivity>> {
+    pub(super) async fn workspace_activity(
+        &self,
+        deal_id: &str,
+    ) -> DbResult<Vec<DealWorkspaceActivity>> {
         let rows = crate::retrying_read!(async {
             sqlx::query_as::<_, WorkspaceActivityRow>(
                 r#"
@@ -312,7 +315,10 @@ impl DealPortalDao {
             .collect())
     }
 
-    pub(super) async fn workspace_offers(&self, deal_id: &str) -> DbResult<Vec<DealWorkspaceOffer>> {
+    pub(super) async fn workspace_offers(
+        &self,
+        deal_id: &str,
+    ) -> DbResult<Vec<DealWorkspaceOffer>> {
         let rows = crate::retrying_read!(async {
             sqlx::query_as::<_, WorkspaceOfferRow>(
                 r#"
@@ -379,7 +385,10 @@ impl DealPortalDao {
             .collect())
     }
 
-    pub(super) async fn workspace_showings(&self, deal_id: &str) -> DbResult<Vec<DealWorkspaceShowing>> {
+    pub(super) async fn workspace_showings(
+        &self,
+        deal_id: &str,
+    ) -> DbResult<Vec<DealWorkspaceShowing>> {
         let rows = crate::retrying_read!(async {
             sqlx::query_as::<_, WorkspaceShowingRow>(
                 r#"
@@ -493,5 +502,4 @@ impl DealPortalDao {
             })
             .collect())
     }
-
 }

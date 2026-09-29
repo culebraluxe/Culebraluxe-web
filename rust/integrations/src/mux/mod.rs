@@ -282,7 +282,6 @@ fn http_error(status: StatusCode, body: &str) -> MuxClientError {
 mod tests {
     use super::*;
 
-
     #[test]
     fn parses_ready_asset_with_public_playback() {
         let value = serde_json::json!({

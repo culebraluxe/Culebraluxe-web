@@ -117,7 +117,11 @@ pub fn compare_snapshots(dev: &SchemaSnapshot, prod: &SchemaSnapshot) -> ParityR
             .collect();
         let type_drift: Vec<&str> = dev_columns
             .keys()
-            .filter(|c| prod_columns.get(*c).is_some_and(|value| Some(value) != dev_columns.get(*c)))
+            .filter(|c| {
+                prod_columns
+                    .get(*c)
+                    .is_some_and(|value| Some(value) != dev_columns.get(*c))
+            })
             .map(String::as_str)
             .collect();
 
@@ -155,11 +159,11 @@ pub fn compare_snapshots(dev: &SchemaSnapshot, prod: &SchemaSnapshot) -> ParityR
     }
 
     let mut fk_drift: Vec<String> = Vec::new();
-    for key in dev.fks.keys().chain(
-        prod.fks
-            .keys()
-            .filter(|key| !dev.fks.contains_key(*key)),
-    ) {
+    for key in dev
+        .fks
+        .keys()
+        .chain(prod.fks.keys().filter(|key| !dev.fks.contains_key(*key)))
+    {
         let dev_value = dev.fks.get(key);
         let prod_value = prod.fks.get(key);
         if dev_value == prod_value {
@@ -260,7 +264,10 @@ pub async fn read_snapshot(db: &Database) -> DbResult<SchemaSnapshot> {
         let table: String = row.try_get("tablename").map_err(read)?;
         let index: String = row.try_get("indexname").map_err(read)?;
         let definition: String = row.try_get("indexdef").map_err(read)?;
-        indexes.insert(format!("{table}.{index}"), normalize_whitespace(&definition));
+        indexes.insert(
+            format!("{table}.{index}"),
+            normalize_whitespace(&definition),
+        );
     }
 
     let mut fks: BTreeMap<String, String> = BTreeMap::new();
@@ -309,7 +316,6 @@ pub async fn read_snapshot(db: &Database) -> DbResult<SchemaSnapshot> {
         checks,
     })
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -493,7 +499,13 @@ mod tests {
             &[],
             &[(name, "CHECK ((a > 0)) NOT VALID")],
         );
-        let prod = snapshot(&["agent_work_item"], &[], &[], &[], &[(name, "CHECK ((a > 0))")]);
+        let prod = snapshot(
+            &["agent_work_item"],
+            &[],
+            &[],
+            &[],
+            &[(name, "CHECK ((a > 0))")],
+        );
         let report = compare_snapshots(&dev, &prod);
         assert_eq!(report.check_drift.len(), 1, "{report:?}");
         assert!(report.check_drift[0].contains("DEV=CHECK ((a > 0)) NOT VALID"));
@@ -510,7 +522,13 @@ mod tests {
         // Postgres hands back the same constraint with different whitespace.
         let normalized = check_value("CHECK  ((a\n  > 0))", true);
         assert_eq!(normalized, "CHECK ((a > 0))");
-        let dev = snapshot(&["t"], &[], &[], &[], &[("t.t_a_check", normalized.as_str())]);
+        let dev = snapshot(
+            &["t"],
+            &[],
+            &[],
+            &[],
+            &[("t.t_a_check", normalized.as_str())],
+        );
         let prod = snapshot(&["t"], &[], &[], &[], &[("t.t_a_check", "CHECK ((a > 0))")]);
         assert!(compare_snapshots(&dev, &prod).clean);
     }
@@ -526,7 +544,4 @@ mod tests {
         );
         assert!(!report.clean);
     }
-
-
 }
-

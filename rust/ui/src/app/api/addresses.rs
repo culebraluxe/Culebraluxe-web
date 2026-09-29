@@ -19,7 +19,9 @@ pub mod auth {
     fn encode(text: &str) -> String {
         text.bytes()
             .map(|byte| match byte {
-                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => (byte as char).to_string(),
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                    (byte as char).to_string()
+                }
                 _ => format!("%{byte:02X}"),
             })
             .collect()
@@ -41,7 +43,10 @@ pub mod links {
 
     /// A Vault document's PDF: the executed copy when `signed`, the issued one otherwise.
     pub fn vault_document(document_id: &str, signed: bool) -> String {
-        format!("/api/portal/documents/{document_id}/file{}", if signed { "?artifact=signed" } else { "" })
+        format!(
+            "/api/portal/documents/{document_id}/file{}",
+            if signed { "?artifact=signed" } else { "" }
+        )
     }
 
     /// A Vault document's signature audit trail.
@@ -119,7 +124,10 @@ impl Endpoint for ProjectDocumentSignedCopyToCome {
     const METHOD: Method = Method::Post;
     type Response = serde_json::Value;
     fn path(&self) -> String {
-        format!("/api/portal/projects/documents/{}/signed-copy-to-come", self.document_id)
+        format!(
+            "/api/portal/projects/documents/{}/signed-copy-to-come",
+            self.document_id
+        )
     }
     fn body(&self) -> Option<serde_json::Value> {
         Some(serde_json::json!({ "projectId": self.project_id, "signedAt": self.signed_at }))

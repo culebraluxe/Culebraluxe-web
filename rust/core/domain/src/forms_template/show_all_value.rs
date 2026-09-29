@@ -208,7 +208,10 @@ pub(super) fn decode_entities(value: &str) -> String {
 pub(super) fn name_end(value: &str) -> usize {
     value
         .find(|character: char| {
-            !(character.is_ascii_alphanumeric() || character == '_' || character == '-' || character == ':')
+            !(character.is_ascii_alphanumeric()
+                || character == '_'
+                || character == '-'
+                || character == ':')
         })
         .unwrap_or(value.len())
 }
@@ -285,7 +288,9 @@ pub(super) fn tokenize(source: &str) -> Result<Vec<Token>, TemplateXmlError> {
         let rest = &source[lt..];
         if rest.starts_with("<!--") {
             let Some(end) = rest.find("-->") else {
-                return Err(TemplateXmlError::new("Malformed XML: unterminated comment."));
+                return Err(TemplateXmlError::new(
+                    "Malformed XML: unterminated comment.",
+                ));
             };
             i = lt + end + 3;
             continue;
@@ -492,7 +497,10 @@ pub(super) const BINDINGS: [&str; 8] = [
     "property.location",
 ];
 
-pub(super) fn parse_when(raw: Option<&str>, label: &str) -> Result<Option<TemplateWhen>, TemplateXmlError> {
+pub(super) fn parse_when(
+    raw: Option<&str>,
+    label: &str,
+) -> Result<Option<TemplateWhen>, TemplateXmlError> {
     let Some(raw) = raw.map(str::trim).filter(|value| !value.is_empty()) else {
         return Ok(None);
     };

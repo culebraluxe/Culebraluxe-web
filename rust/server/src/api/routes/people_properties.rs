@@ -170,7 +170,11 @@ pub(in super::super) async fn apply_person_admin_update(
     body: UpdatePersonAdminBody,
 ) -> Result<domain::Person, ApiError> {
     let service = state.services().person();
-    let (location, email, phone) = (body.location.clone(), body.email.clone(), body.phone.clone());
+    let (location, email, phone) = (
+        body.location.clone(),
+        body.email.clone(),
+        body.phone.clone(),
+    );
     let value = service
         .update_admin(
             &domain::UpdatePersonAdminRequest {
@@ -189,7 +193,12 @@ pub(in super::super) async fn apply_person_admin_update(
         .await
         .map_err(|error| correlate(ApiError::from(error), resolved))?;
     state.services().clients().update_cached_person(&value);
-    state.services().clients().update_cached_contact(&value.id, location.as_deref(), email.as_deref(), phone.as_deref());
+    state.services().clients().update_cached_contact(
+        &value.id,
+        location.as_deref(),
+        email.as_deref(),
+        phone.as_deref(),
+    );
     Ok(value)
 }
 

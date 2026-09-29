@@ -46,10 +46,18 @@ pub fn cookie<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
 }
 
 fn signature(payload: &str) -> Option<String> {
-    let secret = std::env::var("AUTH_SECRET").ok().filter(|secret| secret.len() >= 16)?;
+    let secret = std::env::var("AUTH_SECRET")
+        .ok()
+        .filter(|secret| secret.len() >= 16)?;
     let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).ok()?;
     mac.update(payload.as_bytes());
-    Some(mac.finalize().into_bytes().iter().map(|byte| format!("{byte:02x}")).collect())
+    Some(
+        mac.finalize()
+            .into_bytes()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect(),
+    )
 }
 
 /// A session cookie's value for a provider identity: `provider|subject|expires.signature`.
@@ -68,15 +76,28 @@ fn base64_url(text: &str) -> String {
 pub fn session_identity(headers: &HeaderMap, now: i64) -> Option<(String, String)> {
     use base64::Engine;
     let (encoded, given) = cookie(headers, SESSION_COOKIE)?.split_once('.')?;
-    let payload = String::from_utf8(base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(encoded).ok()?).ok()?;
+    let payload = String::from_utf8(
+        base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(encoded)
+            .ok()?,
+    )
+    .ok()?;
     let expected = signature(&payload)?;
     let same = expected.len() == given.len()
-        && expected.bytes().zip(given.bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0;
+        && expected
+            .bytes()
+            .zip(given.bytes())
+            .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+            == 0;
     if !same {
         return None;
     }
     let mut parts = payload.splitn(3, '|');
-    let (provider, subject, expires) = (parts.next()?, parts.next()?, parts.next()?.parse::<i64>().ok()?);
+    let (provider, subject, expires) = (
+        parts.next()?,
+        parts.next()?,
+        parts.next()?.parse::<i64>().ok()?,
+    );
     (expires > now).then(|| (provider.to_owned(), subject.to_owned()))
 }
 
@@ -104,7 +125,12 @@ pub fn stub_user() -> String {
 /// The portal chrome's projection of the signed-in user (`#rust-actor` in the shell): what it may be offered.
 pub fn actor_projection(resolved: &ResolvedRequestContext) -> String {
     let user = &resolved.acting_user;
-    let level = resolved.service.principal.as_ref().map(|p| p.level.clone()).unwrap_or_else(|| "GUEST".into());
+    let level = resolved
+        .service
+        .principal
+        .as_ref()
+        .map(|p| p.level.clone())
+        .unwrap_or_else(|| "GUEST".into());
     serde_json::json!({
         "accountType": user.account_type,
         "securityLevel": level,
@@ -121,7 +147,10 @@ pub async fn resolve_portal_context(
     headers: &HeaderMap,
 ) -> Result<ResolvedRequestContext, ApiError> {
     let Some((provider, subject)) = request_identity(headers) else {
-        return Err(ApiError::unauthorized("SIGN_IN_REQUIRED", "Sign in to use the portal."));
+        return Err(ApiError::unauthorized(
+            "SIGN_IN_REQUIRED",
+            "Sign in to use the portal.",
+        ));
     };
     resolve_identity_context(state, &provider, &subject, correlation(headers), None).await
 }
@@ -151,21 +180,41 @@ mod tests {
         std::env::set_var("CULEBRA_UI_AUTH_STUB", "root");
         std::env::remove_var("VERCEL_ENV");
         std::env::set_var("APP_ENV", "development");
-        assert!(stub_enabled() && portal_open(&HeaderMap::new()), "development: the stub opens the portal");
+        assert!(
+            stub_enabled() && portal_open(&HeaderMap::new()),
+            "development: the stub opens the portal"
+        );
         std::env::set_var("APP_ENV", "production");
-        assert!(!portal_open(&HeaderMap::new()), "production: nothing without a session");
+        assert!(
+            !portal_open(&HeaderMap::new()),
+            "production: nothing without a session"
+        );
 
         let now = 1_000_000;
         let value = session_value("google", "sub-123", now).unwrap();
         let with = |value: &str| {
             let mut headers = HeaderMap::new();
-            headers.insert(header::COOKIE, format!("x=y; {SESSION_COOKIE}={value}").parse().unwrap());
+            headers.insert(
+                header::COOKIE,
+                format!("x=y; {SESSION_COOKIE}={value}").parse().unwrap(),
+            );
             headers
         };
-        assert_eq!(session_identity(&with(&value), now), Some(("google".into(), "sub-123".into())));
-        assert_eq!(session_identity(&with(&value), now + SESSION_SECONDS + 1), None, "an expired session");
+        assert_eq!(
+            session_identity(&with(&value), now),
+            Some(("google".into(), "sub-123".into()))
+        );
+        assert_eq!(
+            session_identity(&with(&value), now + SESSION_SECONDS + 1),
+            None,
+            "an expired session"
+        );
         let forged = value.replace("Z29vZ2xl", "Z29vZ2xm");
-        assert_eq!(session_identity(&with(&forged), now), None, "a changed payload fails the signature");
+        assert_eq!(
+            session_identity(&with(&forged), now),
+            None,
+            "a changed payload fails the signature"
+        );
         std::env::remove_var("CULEBRA_UI_AUTH_STUB");
         std::env::remove_var("APP_ENV");
     }

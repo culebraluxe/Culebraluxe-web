@@ -183,7 +183,9 @@ impl View {
         let change = {
             let on_msg = on_msg.clone();
             Callback::from(move |event: Event| {
-                on_msg.emit(Msg::ScannerCategoryChanged(crate::app::exec::select_value(&event)));
+                on_msg.emit(Msg::ScannerCategoryChanged(crate::app::exec::select_value(
+                    &event,
+                )));
             })
         };
         let submit = {

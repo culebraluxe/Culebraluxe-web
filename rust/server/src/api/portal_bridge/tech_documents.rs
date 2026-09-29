@@ -15,10 +15,23 @@ pub(super) async fn tech(
     Query(query): Query<TechQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let resolved = resolve_portal_context(&state, &headers).await?;
-    let selected = query.selected.as_deref().map(str::trim).filter(|id| !id.is_empty());
-    let snapshot = state.services().tech().snapshot(selected, &resolved.service).await.map_err(failed(&resolved))?;
+    let selected = query
+        .selected
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty());
+    let snapshot = state
+        .services()
+        .tech()
+        .snapshot(selected, &resolved.service)
+        .await
+        .map_err(failed(&resolved))?;
     let now = chrono::Utc::now().to_rfc3339();
-    Ok(Json(super::super::tech_page::cockpit(&to_json(snapshot), selected, &now)))
+    Ok(Json(super::super::tech_page::cockpit(
+        &to_json(snapshot),
+        selected,
+        &now,
+    )))
 }
 
 /// A Cockpit command (a Kanban move, the workbench, a flight): the tech service's own command, answered as it answers.
@@ -29,18 +42,33 @@ pub(super) async fn tech_act(
 ) -> Result<Json<Value>, ApiError> {
     let resolved = resolve_portal_context(&state, &headers).await?;
     if body.action.trim().is_empty() {
-        return Err(ApiError::bad_request("TECH_COMMAND_REQUIRED", "Missing TECH Cockpit command."));
+        return Err(ApiError::bad_request(
+            "TECH_COMMAND_REQUIRED",
+            "Missing TECH Cockpit command.",
+        ));
     }
-    let result = state.services().tech().command(body, &resolved.service).await.map_err(failed(&resolved))?;
+    let result = state
+        .services()
+        .tech()
+        .command(body, &resolved.service)
+        .await
+        .map_err(failed(&resolved))?;
     Ok(Json(to_json(result)))
 }
 
 /// Make a photograph the property's hero after upload.
 /// A Mux direct upload for a property film: the browser sends the video straight to Mux, in pieces, never through
 /// this server. The upload is allowed from the page's own origin only.
-pub(super) async fn property_video_upload(State(state): State<ApiState>, headers: HeaderMap) -> Result<Json<Value>, ApiError> {
+pub(super) async fn property_video_upload(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
     let resolved = resolve_portal_context(&state, &headers).await?;
-    let origin = headers.get("origin").and_then(|value| value.to_str().ok()).unwrap_or("").to_owned();
+    let origin = headers
+        .get("origin")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("")
+        .to_owned();
     let mux = super::super::routes::mux_video().map_err(|error| correlate(error, &resolved))?;
     let session = state
         .services()
@@ -48,7 +76,9 @@ pub(super) async fn property_video_upload(State(state): State<ApiState>, headers
         .create_property_video_upload(&mux, &origin, &resolved.service)
         .await
         .map_err(failed(&resolved))?;
-    Ok(Json(json!({ "ok": true, "uploadId": session.upload_id, "uploadUrl": session.upload_url })))
+    Ok(Json(
+        json!({ "ok": true, "uploadId": session.upload_id, "uploadUrl": session.upload_url }),
+    ))
 }
 
 /// Where a Mux upload stands (`waiting`, `preparing`, …); once Mux has it ready, the film is attached to the property.
@@ -58,16 +88,34 @@ pub(super) async fn property_video_finalize(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let resolved = resolve_portal_context(&state, &headers).await?;
-    let (Some(property_id), Some(upload_id)) = (str_at(&body, "propertyId"), str_at(&body, "uploadId")) else {
-        return Err(correlate(ApiError::bad_request("VIDEO_UPLOAD_REQUIRED", "propertyId and uploadId are required."), &resolved));
+    let (Some(property_id), Some(upload_id)) =
+        (str_at(&body, "propertyId"), str_at(&body, "uploadId"))
+    else {
+        return Err(correlate(
+            ApiError::bad_request(
+                "VIDEO_UPLOAD_REQUIRED",
+                "propertyId and uploadId are required.",
+            ),
+            &resolved,
+        ));
     };
     let role = str_at(&body, "role").unwrap_or("video").to_owned();
-    let caption = str_at(&body, "caption").map(str::trim).filter(|c| !c.is_empty()).map(str::to_owned);
+    let caption = str_at(&body, "caption")
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+        .map(str::to_owned);
     let mux = super::super::routes::mux_video().map_err(|error| correlate(error, &resolved))?;
     let result = state
         .services()
         .media()
-        .finalize_property_video_upload(&mux, property_id, upload_id, &role, caption, &resolved.service)
+        .finalize_property_video_upload(
+            &mux,
+            property_id,
+            upload_id,
+            &role,
+            caption,
+            &resolved.service,
+        )
         .await
         .map_err(failed(&resolved))?;
     Ok(Json(json!({
@@ -93,16 +141,32 @@ pub(super) async fn portal_document_file(
     Query(query): Query<DocumentFileQuery>,
 ) -> Result<axum::response::Response, ApiError> {
     let resolved = resolve_portal_context(&state, &headers).await?;
-    let missing = || correlate(ApiError::not_found("VAULT_DOCUMENT_NOT_FOUND", "That document has no such file."), &resolved);
+    let missing = || {
+        correlate(
+            ApiError::not_found(
+                "VAULT_DOCUMENT_NOT_FOUND",
+                "That document has no such file.",
+            ),
+            &resolved,
+        )
+    };
     let vault = state.services().vault();
-    let document = vault.get_document(&id, &resolved.service).await.map_err(failed(&resolved))?.ok_or_else(missing)?;
+    let document = vault
+        .get_document(&id, &resolved.service)
+        .await
+        .map_err(failed(&resolved))?
+        .ok_or_else(missing)?;
     let media_id = match query.artifact.as_deref() {
         Some("signed") => document.signed_artifact.map(|artifact| artifact.media_id),
         Some("audit") => document.signed_audit_media_id,
         _ => document.media_id,
     }
     .ok_or_else(missing)?;
-    let bytes = vault.media_bytes(&media_id, &resolved.service).await.map_err(failed(&resolved))?.ok_or_else(missing)?;
+    let bytes = vault
+        .media_bytes(&media_id, &resolved.service)
+        .await
+        .map_err(failed(&resolved))?
+        .ok_or_else(missing)?;
     super::super::routes::vault_document_response(bytes, false)
 }
 
@@ -116,13 +180,25 @@ pub(super) async fn project_document_signed(
     mut multipart: axum::extract::Multipart,
 ) -> Result<Json<Value>, ApiError> {
     let resolved = resolve_portal_context(&state, &headers).await?;
-    let bad = |code: &str, message: &str| correlate(ApiError::bad_request(code, message), &resolved);
-    let (mut file, mut filename, mut signed_on, mut project_id) = (None::<Vec<u8>>, String::new(), String::new(), String::new());
-    while let Some(field) = multipart.next_field().await.map_err(|_| bad("SIGNED_COPY_INVALID", "The upload could not be read."))? {
+    let bad =
+        |code: &str, message: &str| correlate(ApiError::bad_request(code, message), &resolved);
+    let (mut file, mut filename, mut signed_on, mut project_id) =
+        (None::<Vec<u8>>, String::new(), String::new(), String::new());
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|_| bad("SIGNED_COPY_INVALID", "The upload could not be read."))?
+    {
         match field.name().unwrap_or_default() {
             "file" => {
                 filename = field.file_name().unwrap_or("signed.pdf").to_owned();
-                file = Some(field.bytes().await.map_err(|_| bad("SIGNED_COPY_INVALID", "The PDF could not be read."))?.to_vec());
+                file = Some(
+                    field
+                        .bytes()
+                        .await
+                        .map_err(|_| bad("SIGNED_COPY_INVALID", "The PDF could not be read."))?
+                        .to_vec(),
+                );
             }
             "signedAt" => signed_on = field.text().await.unwrap_or_default().trim().to_owned(),
             "projectId" => project_id = field.text().await.unwrap_or_default().trim().to_owned(),
@@ -130,7 +206,10 @@ pub(super) async fn project_document_signed(
         }
     }
     let Some(bytes) = file.filter(|bytes| bytes.starts_with(b"%PDF-")) else {
-        return Err(bad("SIGNED_COPY_NOT_PDF", "Choose the signed contract as a PDF."));
+        return Err(bad(
+            "SIGNED_COPY_NOT_PDF",
+            "Choose the signed contract as a PDF.",
+        ));
     };
     let Ok(signed_day) = chrono::NaiveDate::parse_from_str(&signed_on, "%Y-%m-%d") else {
         return Err(bad("SIGNED_DATE_REQUIRED", "Give the date it was signed."));
@@ -143,9 +222,23 @@ pub(super) async fn project_document_signed(
         .get_document(&id, &resolved.service)
         .await
         .map_err(failed(&resolved))?
-        .ok_or_else(|| correlate(ApiError::not_found("VAULT_DOCUMENT_NOT_FOUND", "That document was not found."), &resolved))?;
-    if !matches!(document.state, domain::TransactionDocumentState::Ready | domain::TransactionDocumentState::Sent) {
-        return Err(bad("SIGNED_COPY_STATE", &format!("This document is {} — only an issued one can be recorded as signed.", document.state.as_str())));
+        .ok_or_else(|| {
+            correlate(
+                ApiError::not_found("VAULT_DOCUMENT_NOT_FOUND", "That document was not found."),
+                &resolved,
+            )
+        })?;
+    if !matches!(
+        document.state,
+        domain::TransactionDocumentState::Ready | domain::TransactionDocumentState::Sent
+    ) {
+        return Err(bad(
+            "SIGNED_COPY_STATE",
+            &format!(
+                "This document is {} — only an issued one can be recorded as signed.",
+                document.state.as_str()
+            ),
+        ));
     }
 
     let (media_id, ..) = services
@@ -153,7 +246,8 @@ pub(super) async fn project_document_signed(
         .upload_standalone(&filename, "application/pdf", bytes, &resolved.service)
         .await
         .map_err(failed(&resolved))?;
-    let transition = |to: domain::TransactionDocumentState, signed_artifact: Option<domain::SignedArtifactRef>| {
+    let transition = |to: domain::TransactionDocumentState,
+                      signed_artifact: Option<domain::SignedArtifactRef>| {
         domain::TransitionTransactionDocumentRequest {
             command_id: uuid::Uuid::new_v4().to_string(),
             document_id: id.clone(),
@@ -163,18 +257,32 @@ pub(super) async fn project_document_signed(
         }
     };
     if document.state == domain::TransactionDocumentState::Ready {
-        vault.transition_state(&transition(domain::TransactionDocumentState::Sent, None), &resolved.service).await.map_err(failed(&resolved))?;
+        vault
+            .transition_state(
+                &transition(domain::TransactionDocumentState::Sent, None),
+                &resolved.service,
+            )
+            .await
+            .map_err(failed(&resolved))?;
     }
     vault
         .transition_state(
-            &transition(domain::TransactionDocumentState::Signed, Some(domain::SignedArtifactRef { media_id, signed_at })),
+            &transition(
+                domain::TransactionDocumentState::Signed,
+                Some(domain::SignedArtifactRef {
+                    media_id,
+                    signed_at,
+                }),
+            ),
             &resolved.service,
         )
         .await
         .map_err(failed(&resolved))?;
 
     let step_done = mark_signing_step(&state, &resolved, &project_id, signed_day).await?;
-    Ok(Json(json!({ "ok": true, "signed": true, "signedAt": signed_day.to_string(), "stepDone": step_done })))
+    Ok(Json(
+        json!({ "ok": true, "signed": true, "signedAt": signed_day.to_string(), "stepDone": step_done }),
+    ))
 }
 
 /// The words of a name, lowercased and sorted, titles dropped: "LAMKEN WAYNE" and "Wayne Lamken" are one key.
@@ -191,10 +299,17 @@ pub(super) fn name_key(name: &str) -> String {
 
 /// The person a contract names as seller: the one person with that name (any word order), or a new person made
 /// from it. Two people with that name is a question for a person, not a guess.
-pub(super) async fn seller_person(state: &ApiState, resolved: &ResolvedRequestContext, seller: &str) -> Result<String, ApiError> {
+pub(super) async fn seller_person(
+    state: &ApiState,
+    resolved: &ResolvedRequestContext,
+    seller: &str,
+) -> Result<String, ApiError> {
     let people = state.services().person();
     let key = name_key(seller);
-    let request = domain::SearchPeopleRequest { query: seller.to_owned(), limit: Some(50) };
+    let request = domain::SearchPeopleRequest {
+        query: seller.to_owned(),
+        limit: Some(50),
+    };
     let found: Vec<_> = people
         .search(&request, &resolved.service)
         .await
@@ -204,11 +319,18 @@ pub(super) async fn seller_person(state: &ApiState, resolved: &ResolvedRequestCo
         .collect();
     match found.as_slice() {
         [one] => Ok(one.id.clone()),
-        [] => Ok(people.create_seller(seller, &resolved.service).await.map_err(failed(resolved))?.id),
+        [] => Ok(people
+            .create_seller(seller, &resolved.service)
+            .await
+            .map_err(failed(resolved))?
+            .id),
         _ => Err(correlate(
             ApiError::bad_request(
                 "FORM_SELLER_AMBIGUOUS",
-                format!("{} people are named {seller} — merge them on Records → Person first.", found.len()),
+                format!(
+                    "{} people are named {seller} — merge them on Records → Person first.",
+                    found.len()
+                ),
             ),
             resolved,
         )),
@@ -229,7 +351,11 @@ pub(super) async fn property_by_catastro(
         .services()
         .property()
         .admin_page(
-            &domain::PropertyAdminPageRequest { search: catastro.to_owned(), page: 1, page_size: 20 },
+            &domain::PropertyAdminPageRequest {
+                search: catastro.to_owned(),
+                page: 1,
+                page_size: 20,
+            },
             &resolved.service,
         )
         .await
@@ -238,7 +364,11 @@ pub(super) async fn property_by_catastro(
     let properties = state.services().property();
     let mut matches = Vec::new();
     for row in page.rows.iter().filter(|row| !row.archived) {
-        if let Some(record) = properties.admin_get(&row.id, &resolved.service).await.map_err(failed(resolved))? {
+        if let Some(record) = properties
+            .admin_get(&row.id, &resolved.service)
+            .await
+            .map_err(failed(resolved))?
+        {
             let stored: String = to_json(&record)
                 .get("catastroNumber")
                 .and_then(Value::as_str)
@@ -266,11 +396,13 @@ pub(super) async fn mark_signing_step(
         return Ok(false);
     }
     let wbs = state.services().wbs();
-    let items = wbs.list_project_items(&resolved.service).await.map_err(failed(resolved))?;
-    let Some(step) = items
-        .into_iter()
-        .find(|item| item.project_id.as_deref() == Some(project_id) && item.title == "Listing Contract Signed")
-    else {
+    let items = wbs
+        .list_project_items(&resolved.service)
+        .await
+        .map_err(failed(resolved))?;
+    let Some(step) = items.into_iter().find(|item| {
+        item.project_id.as_deref() == Some(project_id) && item.title == "Listing Contract Signed"
+    }) else {
         return Ok(false);
     };
     let day = signed_day.to_string();
@@ -291,7 +423,9 @@ pub(super) async fn mark_signing_step(
         },
         status: Some(domain::WbsStatus::Done),
     };
-    wbs.save(&request, &resolved.service).await.map_err(failed(resolved))?;
+    wbs.save(&request, &resolved.service)
+        .await
+        .map_err(failed(resolved))?;
     Ok(true)
 }
 
@@ -305,17 +439,29 @@ pub(super) async fn project_document_signed_copy_to_come(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let resolved = resolve_portal_context(&state, &headers).await?;
-    let bad = |code: &str, message: &str| correlate(ApiError::bad_request(code, message), &resolved);
-    let Ok(signed_day) = chrono::NaiveDate::parse_from_str(str_at(&body, "signedAt").unwrap_or_default().trim(), "%Y-%m-%d") else {
+    let bad =
+        |code: &str, message: &str| correlate(ApiError::bad_request(code, message), &resolved);
+    let Ok(signed_day) = chrono::NaiveDate::parse_from_str(
+        str_at(&body, "signedAt").unwrap_or_default().trim(),
+        "%Y-%m-%d",
+    ) else {
         return Err(bad("SIGNED_DATE_REQUIRED", "Give the date it was signed."));
     };
-    let project_id = str_at(&body, "projectId").unwrap_or_default().trim().to_owned();
+    let project_id = str_at(&body, "projectId")
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
     let vault = state.services().vault();
     let document = vault
         .get_document(&id, &resolved.service)
         .await
         .map_err(failed(&resolved))?
-        .ok_or_else(|| correlate(ApiError::not_found("VAULT_DOCUMENT_NOT_FOUND", "That document was not found."), &resolved))?;
+        .ok_or_else(|| {
+            correlate(
+                ApiError::not_found("VAULT_DOCUMENT_NOT_FOUND", "That document was not found."),
+                &resolved,
+            )
+        })?;
     match document.state {
         domain::TransactionDocumentState::Ready => {
             vault
@@ -334,11 +480,19 @@ pub(super) async fn project_document_signed_copy_to_come(
         }
         domain::TransactionDocumentState::Sent => {}
         other => {
-            return Err(bad("SIGNED_COPY_STATE", &format!("This document is {} — only an issued one can be marked signed.", other.as_str())));
+            return Err(bad(
+                "SIGNED_COPY_STATE",
+                &format!(
+                    "This document is {} — only an issued one can be marked signed.",
+                    other.as_str()
+                ),
+            ));
         }
     }
     let step_done = mark_signing_step(&state, &resolved, &project_id, signed_day).await?;
-    Ok(Json(json!({ "ok": true, "signed": false, "copyToCome": true, "signedAt": signed_day.to_string(), "stepDone": step_done })))
+    Ok(Json(
+        json!({ "ok": true, "signed": false, "copyToCome": true, "signedAt": signed_day.to_string(), "stepDone": step_done }),
+    ))
 }
 
 /// FIND by catastro on the Records screen: the other record for that parcel is merged into the open one.
@@ -348,15 +502,28 @@ pub(super) async fn property_merge_parcel(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let resolved = resolve_portal_context(&state, &headers).await?;
-    let (Some(property_id), Some(catastro)) = (str_at(&body, "propertyId"), str_at(&body, "catastro")) else {
-        return Err(correlate(ApiError::bad_request("PROPERTY_MERGE_INVALID", "propertyId and catastro are required."), &resolved));
+    let (Some(property_id), Some(catastro)) =
+        (str_at(&body, "propertyId"), str_at(&body, "catastro"))
+    else {
+        return Err(correlate(
+            ApiError::bad_request(
+                "PROPERTY_MERGE_INVALID",
+                "propertyId and catastro are required.",
+            ),
+            &resolved,
+        ));
     };
     let service = state.services().property();
-    let merged = service.merge_parcel_record(property_id, catastro, &resolved.service).await.map_err(failed(&resolved))?;
+    let merged = service
+        .merge_parcel_record(property_id, catastro, &resolved.service)
+        .await
+        .map_err(failed(&resolved))?;
     if merged.is_some() {
         service.warm_read_cache().await.map_err(failed(&resolved))?;
     }
-    Ok(Json(json!({ "ok": true, "merged": merged.is_some(), "mergedName": merged })))
+    Ok(Json(
+        json!({ "ok": true, "merged": merged.is_some(), "mergedName": merged }),
+    ))
 }
 
 /// Takes a photograph off a property (and deletes it, with its copies, unless another property shows it).
@@ -366,10 +533,20 @@ pub(super) async fn property_media_remove(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let resolved = resolve_portal_context(&state, &headers).await?;
-    let (Some(property_id), Some(media_id)) = (str_at(&body, "propertyId"), str_at(&body, "mediaId")) else {
-        return Err(ApiError::bad_request("MEDIA_REMOVE_INVALID", "propertyId and mediaId are required."));
+    let (Some(property_id), Some(media_id)) =
+        (str_at(&body, "propertyId"), str_at(&body, "mediaId"))
+    else {
+        return Err(ApiError::bad_request(
+            "MEDIA_REMOVE_INVALID",
+            "propertyId and mediaId are required.",
+        ));
     };
-    state.services().media().remove_property_media(property_id, media_id, &resolved.service).await.map_err(failed(&resolved))?;
+    state
+        .services()
+        .media()
+        .remove_property_media(property_id, media_id, &resolved.service)
+        .await
+        .map_err(failed(&resolved))?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -379,9 +556,19 @@ pub(super) async fn property_media_hero(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let resolved = resolve_portal_context(&state, &headers).await?;
-    let (Some(property_id), Some(media_id)) = (str_at(&body, "propertyId"), str_at(&body, "mediaId")) else {
-        return Err(ApiError::bad_request("MEDIA_HERO_INVALID", "propertyId and mediaId are required."));
+    let (Some(property_id), Some(media_id)) =
+        (str_at(&body, "propertyId"), str_at(&body, "mediaId"))
+    else {
+        return Err(ApiError::bad_request(
+            "MEDIA_HERO_INVALID",
+            "propertyId and mediaId are required.",
+        ));
     };
-    state.services().media().set_property_hero(property_id, media_id, &resolved.service).await.map_err(failed(&resolved))?;
+    state
+        .services()
+        .media()
+        .set_property_hero(property_id, media_id, &resolved.service)
+        .await
+        .map_err(failed(&resolved))?;
     Ok(Json(json!({ "ok": true })))
 }

@@ -21,7 +21,12 @@ pub trait WbsRepository: Send {
     async fn list_dependencies_for(&self, project_ids: &[String]) -> DbResult<Vec<WbsDependency>>;
     async fn lock_dependency_project(&self, project_id: &str) -> DbResult<()>;
     async fn insert_dependency(&self, edge: &WbsDependency) -> DbResult<WbsDependency>;
-    async fn delete_dependency(&self, project_id: &str, source_id: &str, target_id: &str) -> DbResult<bool>;
+    async fn delete_dependency(
+        &self,
+        project_id: &str,
+        source_id: &str,
+        target_id: &str,
+    ) -> DbResult<bool>;
     async fn list_for_entity(&self, entity_type: WbsEntityType, id: &str)
         -> DbResult<Vec<WbsItem>>;
     async fn create(&self, request: &CreateWbsItemRequest) -> DbResult<WbsItem>;
@@ -64,7 +69,12 @@ impl WbsRepository for WbsDao {
     async fn insert_dependency(&self, edge: &WbsDependency) -> DbResult<WbsDependency> {
         WbsDao::insert_dependency(self, edge).await
     }
-    async fn delete_dependency(&self, project_id: &str, source_id: &str, target_id: &str) -> DbResult<bool> {
+    async fn delete_dependency(
+        &self,
+        project_id: &str,
+        source_id: &str,
+        target_id: &str,
+    ) -> DbResult<bool> {
         WbsDao::delete_dependency(self, project_id, source_id, target_id).await
     }
 
@@ -117,8 +127,20 @@ impl<R: WbsRepository> WbsService<R> {
         context: &ServiceContext,
     ) -> Result<Vec<WbsDependency>, CoreServiceError> {
         const OP: &str = "wbs.dependencies.list";
-        let decision = authorize(&self.runtime, "wbs", "wbs.read", OP, OperationKind::Query, context).await?;
-        let result = self.repository.list_dependencies(project_id).await.map_err(Into::into);
+        let decision = authorize(
+            &self.runtime,
+            "wbs",
+            "wbs.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+        let result = self
+            .repository
+            .list_dependencies(project_id)
+            .await
+            .map_err(Into::into);
         self.finish_query(OP, context, decision, result).await
     }
 
@@ -129,8 +151,20 @@ impl<R: WbsRepository> WbsService<R> {
         context: &ServiceContext,
     ) -> Result<Vec<WbsDependency>, CoreServiceError> {
         const OP: &str = "wbs.dependencies.list";
-        let decision = authorize(&self.runtime, "wbs", "wbs.read", OP, OperationKind::Query, context).await?;
-        let result = self.repository.list_dependencies_for(project_ids).await.map_err(Into::into);
+        let decision = authorize(
+            &self.runtime,
+            "wbs",
+            "wbs.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+        let result = self
+            .repository
+            .list_dependencies_for(project_ids)
+            .await
+            .map_err(Into::into);
         self.finish_query(OP, context, decision, result).await
     }
 
@@ -140,28 +174,58 @@ impl<R: WbsRepository> WbsService<R> {
         context: &ServiceContext,
     ) -> Result<WbsDependency, CoreServiceError> {
         const OP: &str = "wbs.dependencies.add";
-        let decision = authorize(&self.runtime, "wbs", "wbs.write", OP, OperationKind::Command, context).await?;
+        let decision = authorize(
+            &self.runtime,
+            "wbs",
+            "wbs.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
         let result = db::service_mutation(self.repository.database(), async {
             if edge.kind != "finish_to_start" || edge.source_id == edge.target_id {
-                return Err(CoreServiceError::business("WBS_DEPENDENCY_INVALID", "A finish-to-start link requires two distinct items."));
+                return Err(CoreServiceError::business(
+                    "WBS_DEPENDENCY_INVALID",
+                    "A finish-to-start link requires two distinct items.",
+                ));
             }
-            self.repository.lock_dependency_project(&edge.project_id).await?;
+            self.repository
+                .lock_dependency_project(&edge.project_id)
+                .await?;
             let source = self.repository.get(&edge.source_id).await?;
             let target = self.repository.get(&edge.target_id).await?;
-            if source.as_ref().and_then(|item| item.project_id.as_deref()) != Some(edge.project_id.as_str())
-                || target.as_ref().and_then(|item| item.project_id.as_deref()) != Some(edge.project_id.as_str())
+            if source.as_ref().and_then(|item| item.project_id.as_deref())
+                != Some(edge.project_id.as_str())
+                || target.as_ref().and_then(|item| item.project_id.as_deref())
+                    != Some(edge.project_id.as_str())
             {
-                return Err(CoreServiceError::business("WBS_DEPENDENCY_SCOPE", "Both items must belong to this project."));
+                return Err(CoreServiceError::business(
+                    "WBS_DEPENDENCY_SCOPE",
+                    "Both items must belong to this project.",
+                ));
             }
             let edges = self.repository.list_dependencies(&edge.project_id).await?;
-            if edges.iter().any(|existing| existing.source_id == edge.source_id && existing.target_id == edge.target_id) {
-                return Err(CoreServiceError::business("WBS_DEPENDENCY_EXISTS", "This dependency already exists."));
+            if edges.iter().any(|existing| {
+                existing.source_id == edge.source_id && existing.target_id == edge.target_id
+            }) {
+                return Err(CoreServiceError::business(
+                    "WBS_DEPENDENCY_EXISTS",
+                    "This dependency already exists.",
+                ));
             }
             if domain::dependency_creates_cycle(&edges, &edge.source_id, &edge.target_id) {
-                return Err(CoreServiceError::business("WBS_DEPENDENCY_CYCLE", "This dependency would create a cycle."));
+                return Err(CoreServiceError::business(
+                    "WBS_DEPENDENCY_CYCLE",
+                    "This dependency would create a cycle.",
+                ));
             }
-            self.repository.insert_dependency(edge).await.map_err(Into::into)
-        }).await;
+            self.repository
+                .insert_dependency(edge)
+                .await
+                .map_err(Into::into)
+        })
+        .await;
         audit_result(&self.runtime, "wbs", OP, context, decision, &result).await?;
         result
     }
@@ -174,13 +238,29 @@ impl<R: WbsRepository> WbsService<R> {
         context: &ServiceContext,
     ) -> Result<(), CoreServiceError> {
         const OP: &str = "wbs.dependencies.remove";
-        let decision = authorize(&self.runtime, "wbs", "wbs.write", OP, OperationKind::Command, context).await?;
+        let decision = authorize(
+            &self.runtime,
+            "wbs",
+            "wbs.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
         let result = db::service_mutation(self.repository.database(), async {
-            if !self.repository.delete_dependency(project_id, source_id, target_id).await? {
-                return Err(CoreServiceError::business("WBS_DEPENDENCY_NOT_FOUND", "The dependency no longer exists."));
+            if !self
+                .repository
+                .delete_dependency(project_id, source_id, target_id)
+                .await?
+            {
+                return Err(CoreServiceError::business(
+                    "WBS_DEPENDENCY_NOT_FOUND",
+                    "The dependency no longer exists.",
+                ));
             }
             Ok(())
-        }).await;
+        })
+        .await;
         audit_result(&self.runtime, "wbs", OP, context, decision, &result).await?;
         result
     }

@@ -21,7 +21,7 @@ pub use catch_up::CatchUpState;
 use yew::prelude::*;
 
 use crate::app::api::{
-    CatchUpAction, CalendarCommandReceipt, CalendarCommandState, ProjectsCalendarCommandState,
+    CalendarCommandReceipt, CalendarCommandState, CatchUpAction, ProjectsCalendarCommandState,
     ProjectsCalendarRead, ProjectsCalendarUpdate, ProjectsCalendarViewportResponse,
     ProjectsCommand, ProjectsRead,
 };
@@ -84,19 +84,31 @@ pub enum Msg {
     Saved(Result<PortalPage, ApiError>),
     QueryChanged(String),
     /// A navigator branch toggled; `open` is whether it was open when clicked.
-    NavToggled { id: String, open: bool },
+    NavToggled {
+        id: String,
+        open: bool,
+    },
     /// A work item picked in the navigator: its project, then the item.
-    NavWorkSelected { project_id: String, node_id: String },
+    NavWorkSelected {
+        project_id: String,
+        node_id: String,
+    },
     /// A pole (a property, a person, a contract, or a lens's collection) clicked: open it and show its first project,
     /// or keep the selected project when it is already one of the pole's.
-    PoleSelected { pole_id: String, project_id: String },
+    PoleSelected {
+        pole_id: String,
+        project_id: String,
+    },
     /// An arrow key in the navigator: "ArrowUp" / "ArrowDown" move, "ArrowLeft" / "ArrowRight" close and open.
     NavKey(String),
     /// The navigator's bell: show or hide the red overdue counts.
     QuietToggled,
     QuietLoaded(Option<String>),
     /// A "seen from" link in the project header: flip to that lens, with that record open, on the same project.
-    LensJump { domain: String, pole_id: String },
+    LensJump {
+        domain: String,
+        pole_id: String,
+    },
     ProjectDomainSelected(String),
     ProjectSelected(String),
     ProjectNodeSelected(Option<String>),
@@ -124,7 +136,10 @@ pub enum Msg {
         item_id: String,
         due_at: String,
     },
-    ProjectTimelinePlannedMoved { item_id: String, planned_start: String },
+    ProjectTimelinePlannedMoved {
+        item_id: String,
+        planned_start: String,
+    },
     ProjectTimelineLinkTargetSelected(String),
     ProjectTimelineLinkAddRequested,
     ProjectTimelineLinkRemoveRequested(String),
@@ -303,7 +318,10 @@ impl Screen for Projects {
             }
             Msg::QuietToggled => {
                 model.controls.quiet = !model.controls.quiet;
-                return Cmd::storage_write(QUIET_KEY, Some(if model.controls.quiet { "1" } else { "0" }.to_owned()));
+                return Cmd::storage_write(
+                    QUIET_KEY,
+                    Some(if model.controls.quiet { "1" } else { "0" }.to_owned()),
+                );
             }
             Msg::NavKey(key) => {
                 return nav_key(model, &key, _ctx);
@@ -314,7 +332,10 @@ impl Screen for Projects {
                 model.controls.query.clear();
                 return Self::update(model, Msg::ProjectDomainSelected(domain), _ctx);
             }
-            Msg::PoleSelected { pole_id, project_id } => {
+            Msg::PoleSelected {
+                pole_id,
+                project_id,
+            } => {
                 model.controls.nav_closed.remove(&pole_id);
                 model.controls.nav_open.insert(pole_id);
                 let already = matches!(&model.read, Remote::Loaded(projects)
@@ -324,7 +345,10 @@ impl Screen for Projects {
                 }
                 return Self::update(model, Msg::ProjectSelected(project_id), _ctx);
             }
-            Msg::NavWorkSelected { project_id, node_id } => {
+            Msg::NavWorkSelected {
+                project_id,
+                node_id,
+            } => {
                 Self::update(model, Msg::ProjectSelected(project_id), _ctx);
                 return Self::update(model, Msg::ProjectNodeSelected(Some(node_id)), _ctx);
             }
@@ -409,7 +433,10 @@ impl Screen for Projects {
             Msg::ProjectTimelineDueMoved { item_id, due_at } => {
                 return queue_timeline_move(model, item_id, due_at, false);
             }
-            Msg::ProjectTimelinePlannedMoved { item_id, planned_start } => {
+            Msg::ProjectTimelinePlannedMoved {
+                item_id,
+                planned_start,
+            } => {
                 return queue_timeline_move(model, item_id, planned_start, true);
             }
             Msg::ProjectCalendarEditRequested {

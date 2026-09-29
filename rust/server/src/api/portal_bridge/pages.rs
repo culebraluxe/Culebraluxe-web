@@ -19,10 +19,21 @@ pub(super) async fn page(
     Query(query): Query<PageQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let resolved = resolve_portal_context(&state, &headers).await?;
-    let scope = query.scope.as_deref().map(str::trim).filter(|value| !value.is_empty());
+    let scope = query
+        .scope
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
     match query.screen.as_str() {
         screen if ACCOUNTING_SCREENS.contains(&screen) => {
-            let payload = accounting_payload(&state, &resolved, screen, query.from.as_deref(), query.to.as_deref()).await?;
+            let payload = accounting_payload(
+                &state,
+                &resolved,
+                screen,
+                query.from.as_deref(),
+                query.to.as_deref(),
+            )
+            .await?;
             Ok(Json(payload))
         }
         "activity" => {
@@ -34,26 +45,40 @@ pub(super) async fn page(
                 .map_err(failed(&resolved))?;
             Ok(Json(json!({ "activity": entries })))
         }
-        screen if SUPPORT_SCREENS.contains(&screen) => {
-            Ok(Json(json!({ "support": support_payload(&state, &resolved, screen, scope).await? })))
-        }
+        screen if SUPPORT_SCREENS.contains(&screen) => Ok(Json(
+            json!({ "support": support_payload(&state, &resolved, screen, scope).await? }),
+        )),
         "storyboard" => {
-            let snapshot = state.services().tech().snapshot(None, &resolved.service).await.map_err(failed(&resolved))?;
-            Ok(Json(super::super::tech_page::storyboard(&to_json(snapshot))))
+            let snapshot = state
+                .services()
+                .tech()
+                .snapshot(None, &resolved.service)
+                .await
+                .map_err(failed(&resolved))?;
+            Ok(Json(super::super::tech_page::storyboard(&to_json(
+                snapshot,
+            ))))
         }
         "workflows" | "tech-flight-recorder" => {
             let service = state.services().workflow_portal();
             let context = resolved.service.clone();
-            let list = execute_registered(&state, "workflow-portal", "workflow.list", json!({}), async move {
-                service.list(&context).await
-            })
+            let list = execute_registered(
+                &state,
+                "workflow-portal",
+                "workflow.list",
+                json!({}),
+                async move { service.list(&context).await },
+            )
             .await
             .map_err(|error| correlate(error, &resolved))?;
             Ok(Json(json!({ "workflows": list })))
         }
         "workflow-record" => {
             let Some(id) = scope.map(str::to_owned) else {
-                return Err(ApiError::bad_request("WORKFLOW_SCOPE_REQUIRED", "workflow-record requires scope."));
+                return Err(ApiError::bad_request(
+                    "WORKFLOW_SCOPE_REQUIRED",
+                    "workflow-record requires scope.",
+                ));
             };
             let service = state.services().workflow_portal();
             let context = resolved.service.clone();
@@ -68,7 +93,13 @@ pub(super) async fn page(
             .await
             .map_err(|error| correlate(error, &resolved))?
             .ok_or_else(|| {
-                correlate(ApiError::not_found("WORKFLOW_NOT_FOUND", format!("Workflow instance not found: {id}")), &resolved)
+                correlate(
+                    ApiError::not_found(
+                        "WORKFLOW_NOT_FOUND",
+                        format!("Workflow instance not found: {id}"),
+                    ),
+                    &resolved,
+                )
             })?;
             Ok(Json(json!({ "workflow": detail })))
         }
@@ -85,7 +116,10 @@ pub(super) async fn page(
 }
 
 /// The Cabinet: every issued document the caller may see, as `{ cabinet: { documents } }`.
-pub(super) async fn cabinet(State(state): State<ApiState>, headers: HeaderMap) -> Result<Json<Value>, ApiError> {
+pub(super) async fn cabinet(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
     let resolved = resolve_portal_context(&state, &headers).await?;
     let scope = domain::VaultActorScope {
         account_type: resolved.acting_user.account_type.clone(),
@@ -97,7 +131,9 @@ pub(super) async fn cabinet(State(state): State<ApiState>, headers: HeaderMap) -
         .list_issued_documents(Some(&scope), &resolved.service)
         .await
         .map_err(failed(&resolved))?;
-    Ok(Json(json!({ "cabinet": { "documents": to_json(documents) } })))
+    Ok(Json(
+        json!({ "cabinet": { "documents": to_json(documents) } }),
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -110,7 +146,12 @@ pub(super) struct DealsQuery {
 
 impl DealsQuery {
     pub(super) fn deal_id(&self) -> Option<String> {
-        self.scope.as_deref().or(self.id.as_deref()).map(str::trim).filter(|id| !id.is_empty()).map(str::to_owned)
+        self.scope
+            .as_deref()
+            .or(self.id.as_deref())
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(str::to_owned)
     }
 }
 
@@ -126,8 +167,16 @@ pub(super) async fn deals(
         if search.chars().count() < 2 {
             return Ok(Json(json!({ "people": [] })));
         }
-        let request = domain::SearchPeopleRequest { query: search.to_owned(), limit: Some(20) };
-        let people = state.services().person().search(&request, &resolved.service).await.map_err(failed(&resolved))?;
+        let request = domain::SearchPeopleRequest {
+            query: search.to_owned(),
+            limit: Some(20),
+        };
+        let people = state
+            .services()
+            .person()
+            .search(&request, &resolved.service)
+            .await
+            .map_err(failed(&resolved))?;
         let people: Vec<Value> = people
             .into_iter()
             .map(|person| {
@@ -146,12 +195,18 @@ pub(super) async fn deals(
     }
     let service = state.services().deal_portal();
     if let Some(deal_id) = query.deal_id() {
-        let workspace = service.workspace(&deal_id, &resolved.service).await.map_err(failed(&resolved))?;
+        let workspace = service
+            .workspace(&deal_id, &resolved.service)
+            .await
+            .map_err(failed(&resolved))?;
         return Ok(Json(json!({ "deals": {
             "deals": [], "contracts": [], "properties": [], "users": [], "workspace": to_json(workspace),
         } })));
     }
-    let portfolio = service.portfolio(&resolved.service).await.map_err(failed(&resolved))?;
+    let portfolio = service
+        .portfolio(&resolved.service)
+        .await
+        .map_err(failed(&resolved))?;
     let mut deals = to_json(portfolio);
     if let Some(object) = deals.as_object_mut() {
         object.insert("workspace".into(), Value::Null);
@@ -169,16 +224,32 @@ pub(super) async fn deals_write(
     let resolved = resolve_portal_context(&state, &headers).await?;
     let service = state.services().deal_portal();
     if let Some(deal_id) = query.deal_id() {
-        let command: domain::DealWorkspaceCommand = serde_json::from_value(body)
-            .map_err(|error| ApiError::bad_request("DEAL_COMMAND_INVALID", format!("Invalid command body: {error}")))?;
-        let result = service.command(&deal_id, &command, &resolved.service).await.map_err(failed(&resolved))?;
+        let command: domain::DealWorkspaceCommand =
+            serde_json::from_value(body).map_err(|error| {
+                ApiError::bad_request(
+                    "DEAL_COMMAND_INVALID",
+                    format!("Invalid command body: {error}"),
+                )
+            })?;
+        let result = service
+            .command(&deal_id, &command, &resolved.service)
+            .await
+            .map_err(failed(&resolved))?;
         return Ok(Json(json!({ "id": result.id })));
     }
     let text = |key: &str| {
-        body.get(key).and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty()).map(str::to_owned)
+        body.get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
     };
-    let (Some(property_id), Some(client_person_id)) = (text("propertyId"), text("clientPersonId")) else {
-        return Err(ApiError::bad_request("DEAL_CREATE_INVALID", "propertyId and clientPersonId are required."));
+    let (Some(property_id), Some(client_person_id)) = (text("propertyId"), text("clientPersonId"))
+    else {
+        return Err(ApiError::bad_request(
+            "DEAL_CREATE_INVALID",
+            "propertyId and clientPersonId are required.",
+        ));
     };
     let request = domain::CreateDealRequest {
         property_id,
@@ -186,6 +257,9 @@ pub(super) async fn deals_write(
         owner_user_id: text("ownerUserId"),
         notes: text("notes"),
     };
-    let created = service.create(&request, &resolved.service).await.map_err(failed(&resolved))?;
+    let created = service
+        .create(&request, &resolved.service)
+        .await
+        .map_err(failed(&resolved))?;
     Ok(Json(json!({ "id": created.id })))
 }

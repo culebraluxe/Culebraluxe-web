@@ -3,7 +3,11 @@
 #[allow(unused_imports)]
 use super::*;
 
-pub(super) fn create_panel(model: &Vm<'_>, data: Option<&PortalDealsPage>, on_msg: &Callback<Msg>) -> Html {
+pub(super) fn create_panel(
+    model: &Vm<'_>,
+    data: Option<&PortalDealsPage>,
+    on_msg: &Callback<Msg>,
+) -> Html {
     let state = &model.deal_create;
     let toggle = {
         let on_msg = on_msg.clone();

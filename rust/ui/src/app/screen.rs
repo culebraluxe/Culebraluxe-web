@@ -158,28 +158,57 @@ mod tests {
                 account_type: domain::security::INTERNAL_ACCOUNT.into(),
                 security_level: level.into(),
                 is_root,
-                entitlement_codes: domain::security::ROOT_ONLY_ACTIONS.iter().map(|code| code.to_string()).collect(),
+                entitlement_codes: domain::security::ROOT_ONLY_ACTIONS
+                    .iter()
+                    .map(|code| code.to_string())
+                    .collect(),
             }),
             ..ScreenCtx::default()
         };
         for action in domain::security::ROOT_ONLY_ACTIONS {
-            assert!(!ctx(false, "BUSINESS_POWER_USER").can(action), "{action}: holding the grant is not enough");
+            assert!(
+                !ctx(false, "BUSINESS_POWER_USER").can(action),
+                "{action}: holding the grant is not enough"
+            );
             assert!(ctx(true, "ROOT").can(action), "{action}: root may");
         }
         let external = ScreenCtx {
-            grants: Some(crate::model::PortalEntitlements { account_type: "external".into(), is_root: true, ..Default::default() }),
+            grants: Some(crate::model::PortalEntitlements {
+                account_type: "external".into(),
+                is_root: true,
+                ..Default::default()
+            }),
             ..ScreenCtx::default()
         };
-        assert!(!external.can(domain::security::ROLE_MANAGE), "an external account is offered nothing");
+        assert!(
+            !external.can(domain::security::ROLE_MANAGE),
+            "an external account is offered nothing"
+        );
     }
 
     #[test]
     fn a_part_that_does_not_decode_is_kept_as_written() {
         let query = parse_query("?propertyId=villa%2&ref=50%&name=caf%C3%A9&bad=%FF");
-        assert_eq!(query.get("propertyId").map(String::as_str), Some("villa%2"), "a truncated escape");
-        assert_eq!(query.get("ref").map(String::as_str), Some("50%"), "a stray percent sign");
-        assert_eq!(query.get("name").map(String::as_str), Some("café"), "a good escape still decodes");
-        assert_eq!(query.get("bad").map(String::as_str), Some("%FF"), "bytes that are not UTF-8");
+        assert_eq!(
+            query.get("propertyId").map(String::as_str),
+            Some("villa%2"),
+            "a truncated escape"
+        );
+        assert_eq!(
+            query.get("ref").map(String::as_str),
+            Some("50%"),
+            "a stray percent sign"
+        );
+        assert_eq!(
+            query.get("name").map(String::as_str),
+            Some("café"),
+            "a good escape still decodes"
+        );
+        assert_eq!(
+            query.get("bad").map(String::as_str),
+            Some("%FF"),
+            "bytes that are not UTF-8"
+        );
     }
     use super::*;
 

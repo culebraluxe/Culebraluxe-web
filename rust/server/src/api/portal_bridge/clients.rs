@@ -270,6 +270,8 @@ pub(super) fn to_json<T: Serialize>(value: T) -> Value {
     serde_json::to_value(value).unwrap_or(Value::Null)
 }
 
-pub(super) fn failed(resolved: &ResolvedRequestContext) -> impl Fn(CoreServiceError) -> ApiError + '_ {
+pub(super) fn failed(
+    resolved: &ResolvedRequestContext,
+) -> impl Fn(CoreServiceError) -> ApiError + '_ {
     move |error| correlate(ApiError::from(error), resolved)
 }

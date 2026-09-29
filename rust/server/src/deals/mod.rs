@@ -210,8 +210,16 @@ impl<R: DealPortalRepository> DealPortalService<R> {
                         ));
                     }
                     for (value, code, label) in [
-                        (deposit_amount.as_deref(), "OFFER_DEPOSIT_INVALID", "Deposit"),
-                        (seller_credits.as_deref(), "OFFER_CREDITS_INVALID", "Seller credits"),
+                        (
+                            deposit_amount.as_deref(),
+                            "OFFER_DEPOSIT_INVALID",
+                            "Deposit",
+                        ),
+                        (
+                            seller_credits.as_deref(),
+                            "OFFER_CREDITS_INVALID",
+                            "Seller credits",
+                        ),
                     ] {
                         if let Some(value) = value.filter(|value| !value.trim().is_empty()) {
                             let number = value.trim().parse::<f64>().map_err(|_| {
@@ -249,12 +257,14 @@ impl<R: DealPortalRepository> DealPortalService<R> {
                         .as_deref()
                         .filter(|value| !value.trim().is_empty())
                     {
-                        chrono::NaiveDate::parse_from_str(date.trim(), "%Y-%m-%d").map_err(|_| {
-                            CoreServiceError::business(
-                                "OFFER_CLOSING_DATE_INVALID",
-                                "Proposed closing date must be a date.",
-                            )
-                        })?;
+                        chrono::NaiveDate::parse_from_str(date.trim(), "%Y-%m-%d").map_err(
+                            |_| {
+                                CoreServiceError::business(
+                                    "OFFER_CLOSING_DATE_INVALID",
+                                    "Proposed closing date must be a date.",
+                                )
+                            },
+                        )?;
                     }
                 }
                 DealWorkspaceCommand::AddOtherParticipant { role_label, .. }

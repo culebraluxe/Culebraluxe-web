@@ -89,7 +89,11 @@ impl MediaDao {
     }
 
     /// Photographs (originals, image type) that have no copy of this kind yet — the backfill's work list.
-    pub async fn images_missing_copy(&self, kind: &str, limit: i64) -> DbResult<Vec<(String, Option<String>)>> {
+    pub async fn images_missing_copy(
+        &self,
+        kind: &str,
+        limit: i64,
+    ) -> DbResult<Vec<(String, Option<String>)>> {
         sqlx::query_as::<_, (String, Option<String>)>(
             r#"
             select m.id::text, m.filename
@@ -109,15 +113,23 @@ impl MediaDao {
 
     /// An original photograph's own bytes.
     pub async fn original_bytes(&self, id: &str) -> DbResult<Option<Vec<u8>>> {
-        sqlx::query_scalar::<_, Vec<u8>>("select file_data from media where id = $1::uuid and derivative_of is null")
-            .bind(id)
-            .fetch_optional(self.db.pool())
-            .await
-            .map_err(|error| DbFailure::from_sqlx("media.original_bytes", &error))
+        sqlx::query_scalar::<_, Vec<u8>>(
+            "select file_data from media where id = $1::uuid and derivative_of is null",
+        )
+        .bind(id)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("media.original_bytes", &error))
     }
 
     /// Attaches one derived copy (a JPEG) to its original.
-    pub async fn insert_copy(&self, original_id: &str, kind: &str, filename: Option<&str>, bytes: &[u8]) -> DbResult<()> {
+    pub async fn insert_copy(
+        &self,
+        original_id: &str,
+        kind: &str,
+        filename: Option<&str>,
+        bytes: &[u8],
+    ) -> DbResult<()> {
         sqlx::query(
             r#"
             insert into media (file_data, filename, mime_type, file_size, media_type, derivative_of, derivative_kind)
@@ -372,13 +384,15 @@ impl MediaDao {
     /// too unless another property still shows it. `false` when the photograph was not on this property.
     pub async fn remove_property_media(&self, property_id: &str, media_id: &str) -> DbResult<bool> {
         let mut tx = self.db.begin("media.remove").await?;
-        let removed = sqlx::query("delete from property_media where property_id = $1::uuid and media_id = $2::uuid")
-            .bind(property_id)
-            .bind(media_id)
-            .execute(tx.connection())
-            .await
-            .map_err(|error| DbFailure::from_sqlx("media.remove.unlink", &error))?
-            .rows_affected();
+        let removed = sqlx::query(
+            "delete from property_media where property_id = $1::uuid and media_id = $2::uuid",
+        )
+        .bind(property_id)
+        .bind(media_id)
+        .execute(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("media.remove.unlink", &error))?
+        .rows_affected();
         if removed == 0 {
             return Ok(false);
         }
@@ -394,7 +408,12 @@ impl MediaDao {
     }
 
     /// Whether this property already shows this file (same name, same size): a folder chosen again skips it.
-    pub async fn property_has_photo(&self, property_id: &str, filename: &str, byte_size: i64) -> DbResult<bool> {
+    pub async fn property_has_photo(
+        &self,
+        property_id: &str,
+        filename: &str,
+        byte_size: i64,
+    ) -> DbResult<bool> {
         sqlx::query_scalar::<_, bool>(
             r#"
             select exists (
@@ -472,11 +491,13 @@ impl MediaDao {
 
     /// The upload's status, or `None` once it is gone (a finished upload's manifest is deleted with its chunks).
     pub async fn media_upload_state(&self, upload_id: &str) -> DbResult<Option<String>> {
-        sqlx::query_scalar::<_, String>("select status from media_upload where upload_id = $1::uuid")
-            .bind(upload_id)
-            .fetch_optional(self.db.pool())
-            .await
-            .map_err(|error| DbFailure::from_sqlx("media.upload.state", &error))
+        sqlx::query_scalar::<_, String>(
+            "select status from media_upload where upload_id = $1::uuid",
+        )
+        .bind(upload_id)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("media.upload.state", &error))
     }
 
     /// Where an upload stands: bytes and chunks received, against what was declared.
@@ -588,5 +609,4 @@ impl MediaDao {
         }
         Ok(progress)
     }
-
 }

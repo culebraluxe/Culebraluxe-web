@@ -145,15 +145,18 @@ impl LandingDao {
             .iter()
             .map(|input| input.occurred_at.clone())
             .collect();
-        let sender: Vec<Option<String>> =
-            inputs.iter().map(|input| input.sender.clone()).collect();
+        let sender: Vec<Option<String>> = inputs.iter().map(|input| input.sender.clone()).collect();
         let to: Vec<String> = inputs
             .iter()
-            .map(|input| serde_json::to_string(&input.to_recipients).unwrap_or_else(|_| "[]".into()))
+            .map(|input| {
+                serde_json::to_string(&input.to_recipients).unwrap_or_else(|_| "[]".into())
+            })
             .collect();
         let cc: Vec<String> = inputs
             .iter()
-            .map(|input| serde_json::to_string(&input.cc_recipients).unwrap_or_else(|_| "[]".into()))
+            .map(|input| {
+                serde_json::to_string(&input.cc_recipients).unwrap_or_else(|_| "[]".into())
+            })
             .collect();
         let bcc: Vec<String> = inputs
             .iter()
@@ -238,7 +241,8 @@ impl LandingDao {
             .collect();
         let subject: Vec<Option<String>> =
             inputs.iter().map(|input| input.subject.clone()).collect();
-        let sent_at: Vec<Option<String>> = inputs.iter().map(|input| input.sent_at.clone()).collect();
+        let sent_at: Vec<Option<String>> =
+            inputs.iter().map(|input| input.sent_at.clone()).collect();
         let raw: Vec<String> = inputs
             .iter()
             .map(|input| serde_json::to_string(&input.raw).unwrap_or_else(|_| "null".to_owned()))

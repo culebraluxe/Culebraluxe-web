@@ -14,13 +14,12 @@ use sha2::{Digest, Sha256};
 use sqlx::{FromRow, PgConnection};
 use std::collections::BTreeMap;
 use std::future::Future;
-mod listing_template_id;
-mod database;
 mod bind_form_to_contract;
+mod database;
+mod listing_template_id;
 #[allow(unused_imports)]
-pub use listing_template_id::*;
+pub use bind_form_to_contract::*;
 #[allow(unused_imports)]
 pub use database::*;
 #[allow(unused_imports)]
-pub use bind_form_to_contract::*;
-
+pub use listing_template_id::*;

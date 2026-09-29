@@ -188,7 +188,10 @@ pub(super) fn trend_point(row: TrendRow) -> PnlTrendPoint {
 
 /// The read helpers behind `dashboard` and `pnl`, returning `sqlx` errors so the caller can name the operation once for
 /// the whole projection rather than once per query.
-pub(super) async fn text_one(pool: &sqlx::PgPool, sql: &'static str) -> Result<TextValue, sqlx::Error> {
+pub(super) async fn text_one(
+    pool: &sqlx::PgPool,
+    sql: &'static str,
+) -> Result<TextValue, sqlx::Error> {
     sqlx::query_as::<_, TextValue>(sql).fetch_one(pool).await
 }
 
@@ -220,7 +223,10 @@ pub(super) async fn receivable_rows(
         .await
 }
 
-pub(super) async fn share_rows(pool: &sqlx::PgPool, sql: &'static str) -> Result<Vec<ShareRow>, sqlx::Error> {
+pub(super) async fn share_rows(
+    pool: &sqlx::PgPool,
+    sql: &'static str,
+) -> Result<Vec<ShareRow>, sqlx::Error> {
     sqlx::query_as::<_, ShareRow>(sql).fetch_all(pool).await
 }
 
@@ -237,7 +243,11 @@ pub(super) async fn line_total_rows(
         .await
 }
 
-pub(super) async fn range_net(pool: &sqlx::PgPool, from: &str, to: &str) -> Result<TextValue, sqlx::Error> {
+pub(super) async fn range_net(
+    pool: &sqlx::PgPool,
+    from: &str,
+    to: &str,
+) -> Result<TextValue, sqlx::Error> {
     sqlx::query_as::<_, TextValue>(RANGE_NET_SELECT)
         .bind(from)
         .bind(to)

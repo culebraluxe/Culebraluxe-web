@@ -76,7 +76,11 @@ impl<R: CatchUpRepository> CatchUpService<R> {
         .await?;
         let result = async {
             let person_id = required(person_id, "CATCH_UP_PERSON_REQUIRED", "Person is required.")?;
-            let reason_code = required(reason_code, "CATCH_UP_REASON_REQUIRED", "Catch-Up reason is required.")?;
+            let reason_code = required(
+                reason_code,
+                "CATCH_UP_REASON_REQUIRED",
+                "Catch-Up reason is required.",
+            )?;
             self.repository
                 .handle(person_id, reason_code)
                 .await
@@ -106,7 +110,11 @@ impl<R: CatchUpRepository> CatchUpService<R> {
         .await?;
         let result = async {
             let person_id = required(person_id, "CATCH_UP_PERSON_REQUIRED", "Person is required.")?;
-            let reason_code = required(reason_code, "CATCH_UP_REASON_REQUIRED", "Catch-Up reason is required.")?;
+            let reason_code = required(
+                reason_code,
+                "CATCH_UP_REASON_REQUIRED",
+                "Catch-Up reason is required.",
+            )?;
             if !(1..=30).contains(&days) {
                 return Err(CoreServiceError::business(
                     "CATCH_UP_SNOOZE_INVALID",
@@ -157,11 +165,17 @@ mod tests {
             Ok(CatchUpSnapshot::default())
         }
         async fn handle(&self, person_id: &str, reason_code: &str) -> DbResult<()> {
-            self.actions.lock().unwrap().push(format!("handle:{person_id}:{reason_code}"));
+            self.actions
+                .lock()
+                .unwrap()
+                .push(format!("handle:{person_id}:{reason_code}"));
             Ok(())
         }
         async fn snooze(&self, person_id: &str, reason_code: &str, days: i32) -> DbResult<()> {
-            self.actions.lock().unwrap().push(format!("snooze:{person_id}:{reason_code}:{days}"));
+            self.actions
+                .lock()
+                .unwrap()
+                .push(format!("snooze:{person_id}:{reason_code}:{days}"));
             Ok(())
         }
     }
@@ -170,7 +184,10 @@ mod tests {
     /// `OperationKind::Command`). The default authorization port reads a missing principal as GUEST
     /// and refuses commands (`default:guest.command-deny`), so a harness that commands must carry a
     /// principal — see `a_command_without_a_principal_is_forbidden_...` for the refusal pinned.
-    fn context(actor_kind: ServiceActorKind, principal: Option<ServicePrincipal>) -> ServiceContext {
+    fn context(
+        actor_kind: ServiceActorKind,
+        principal: Option<ServicePrincipal>,
+    ) -> ServiceContext {
         ServiceContext {
             actor: ServiceActor {
                 id: Some("tester".into()),
@@ -207,10 +224,7 @@ mod tests {
         (
             service,
             fake,
-            context(
-                ServiceActorKind::User,
-                Some(business_power_user()),
-            ),
+            context(ServiceActorKind::User, Some(business_power_user())),
         )
     }
 
@@ -223,7 +237,10 @@ mod tests {
             fake.actions.lock().unwrap().as_slice(),
             ["handle:p1:quiet", "snooze:p2:inbound:3"]
         );
-        let error = service.snooze("p2", "inbound", 31, &context).await.unwrap_err();
+        let error = service
+            .snooze("p2", "inbound", 31, &context)
+            .await
+            .unwrap_err();
         assert!(error.to_string().contains("Snooze"));
     }
 
@@ -239,7 +256,10 @@ mod tests {
         let error = service.handle("p1", "quiet", &context).await.unwrap_err();
         assert_eq!(error.code(), "FORBIDDEN");
 
-        let error = service.snooze("p1", "quiet", 3, &context).await.unwrap_err();
+        let error = service
+            .snooze("p1", "quiet", 3, &context)
+            .await
+            .unwrap_err();
         assert_eq!(error.code(), "FORBIDDEN");
 
         assert!(fake.actions.lock().unwrap().is_empty());

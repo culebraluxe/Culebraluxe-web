@@ -12,13 +12,12 @@ use crate::model::{
 };
 
 use super::{Msg, Vm};
-mod workbench;
 mod engine;
-#[allow(unused_imports)]
-pub(super) use workbench::*;
+mod workbench;
 #[allow(unused_imports)]
 pub(super) use engine::*;
-
+#[allow(unused_imports)]
+pub(super) use workbench::*;
 
 pub(super) fn cockpit(model: &Vm<'_>, tech: &PortalTechPage, on_msg: &Callback<Msg>) -> Html {
     if !tech.ready {

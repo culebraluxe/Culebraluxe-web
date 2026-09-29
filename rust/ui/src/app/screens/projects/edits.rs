@@ -3,7 +3,12 @@
 
 use super::*;
 
-pub(super) fn queue_timeline_move(model: &mut Model, item_id: String, date: String, planned: bool) -> Cmd<Msg> {
+pub(super) fn queue_timeline_move(
+    model: &mut Model,
+    item_id: String,
+    date: String,
+    planned: bool,
+) -> Cmd<Msg> {
     if model.pending_timeline.is_some() {
         return Cmd::none();
     }
@@ -14,8 +19,7 @@ pub(super) fn queue_timeline_move(model: &mut Model, item_id: String, date: Stri
         return Cmd::none();
     }
     let Some(index) = projects.items.iter().position(|item| {
-        item.id == item_id
-            && item.project_id.as_deref() == projects.selected_project_id.as_deref()
+        item.id == item_id && item.project_id.as_deref() == projects.selected_project_id.as_deref()
     }) else {
         model.error = Some("The timeline item no longer belongs to this project.".into());
         return Cmd::none();
@@ -26,9 +30,21 @@ pub(super) fn queue_timeline_move(model: &mut Model, item_id: String, date: Stri
     let old_planned_finish = projects.items[index].planned_finish.clone();
     let mut item = projects.items[index].clone();
     if planned {
-        let Some((start, finish)) = item.planned_start.as_deref().and_then(crate::timeline::date)
-            .zip(item.planned_finish.as_deref().and_then(crate::timeline::date)) else { return Cmd::none(); };
-        let Some(new_start) = crate::timeline::date(&date) else { return Cmd::none(); };
+        let Some((start, finish)) = item
+            .planned_start
+            .as_deref()
+            .and_then(crate::timeline::date)
+            .zip(
+                item.planned_finish
+                    .as_deref()
+                    .and_then(crate::timeline::date),
+            )
+        else {
+            return Cmd::none();
+        };
+        let Some(new_start) = crate::timeline::date(&date) else {
+            return Cmd::none();
+        };
         item.planned_start = Some(new_start.to_string());
         item.planned_finish = Some((new_start + (finish - start)).to_string());
     } else {
@@ -88,7 +104,11 @@ pub(super) fn timeline_saved(model: &mut Model, result: Result<PortalPage, ApiEr
                 projects.timeline_drag_kind.clear();
                 projects.timeline_drag_target_date = None;
                 if let Some(pending) = pending {
-                    if let Some(item) = projects.items.iter_mut().find(|item| item.id == pending.item_id) {
+                    if let Some(item) = projects
+                        .items
+                        .iter_mut()
+                        .find(|item| item.id == pending.item_id)
+                    {
                         item.due_at = pending.old_due_at;
                         item.planned_start = pending.old_planned_start;
                         item.planned_finish = pending.old_planned_finish;
@@ -116,14 +136,13 @@ pub(super) fn calendar_viewport(projects: &mut PortalProjectsPage) -> Cmd<Msg> {
     projects.calendar_loading = true;
     let response_start = start_at.clone();
     let response_end = end_at.clone();
-    Cmd::request(
-        ProjectsCalendarRead { start_at, end_at },
-        move |result| Msg::CalendarViewportLoaded {
+    Cmd::request(ProjectsCalendarRead { start_at, end_at }, move |result| {
+        Msg::CalendarViewportLoaded {
             start_at: response_start,
             end_at: response_end,
             result,
-        },
-    )
+        }
+    })
 }
 
 pub(super) fn apply_calendar_viewport(

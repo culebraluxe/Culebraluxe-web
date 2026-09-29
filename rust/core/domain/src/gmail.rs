@@ -10,7 +10,7 @@
 // decides who someone is: it decides only whether a message is really correspondence between the
 // owner and that one person, and refuses when it cannot tell.
 // ---------------------------------------------------------------------------
-use crate::applemail::{MailInteraction, bounded_email_subject, normalize_mailbox};
+use crate::applemail::{bounded_email_subject, normalize_mailbox, MailInteraction};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -79,8 +79,9 @@ pub fn header_emails(value: Option<&str>) -> Vec<String> {
     let Some(value) = value else {
         return Vec::new();
     };
-    let is_token =
-        |c: char| !c.is_whitespace() && !matches!(c, '<' | '>' | ',' | ';' | '"' | '(' | ')' | '[' | ']');
+    let is_token = |c: char| {
+        !c.is_whitespace() && !matches!(c, '<' | '>' | ',' | ';' | '"' | '(' | ')' | '[' | ']')
+    };
     let chars: Vec<char> = value.chars().collect();
     let mut out: Vec<String> = Vec::new();
     let mut index = 0usize;

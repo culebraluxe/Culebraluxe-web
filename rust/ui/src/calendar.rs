@@ -309,17 +309,10 @@ pub fn move_to_all_day(
     } else {
         1
     };
-    Some((
-        midnight(target)?,
-        midnight(target + Duration::days(days))?,
-    ))
+    Some((midnight(target)?, midnight(target + Duration::days(days))?))
 }
 
-pub fn resize_span(
-    start: &str,
-    target_slot: &str,
-    grid: GridSpec,
-) -> Option<(String, String)> {
+pub fn resize_span(start: &str, target_slot: &str, grid: GridSpec) -> Option<(String, String)> {
     let start = DateTime::parse_from_rfc3339(start).ok()?;
     let slot = DateTime::parse_from_rfc3339(target_slot).ok()?;
     let end = slot + Duration::minutes(grid.slot_minutes);
@@ -461,8 +454,12 @@ mod tests {
         assert_eq!(start, "2026-09-28T09:00:00+00:00");
         assert_eq!(end, "2026-09-28T10:30:00+00:00");
 
-        let (_, resized) =
-            resize_span(&start, &slot_timestamp("2026-09-28", 5, grid).unwrap(), grid).unwrap();
+        let (_, resized) = resize_span(
+            &start,
+            &slot_timestamp("2026-09-28", 5, grid).unwrap(),
+            grid,
+        )
+        .unwrap();
         assert_eq!(resized, "2026-09-28T11:00:00+00:00");
     }
 

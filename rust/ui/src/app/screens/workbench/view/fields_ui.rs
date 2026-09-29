@@ -29,7 +29,12 @@ pub(super) fn property_pane(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
     }
 }
 
-pub(super) fn field_panel(model: &Vm<'_>, on_msg: &Callback<Msg>, title: &str, fields: &[FieldSpec]) -> Html {
+pub(super) fn field_panel(
+    model: &Vm<'_>,
+    on_msg: &Callback<Msg>,
+    title: &str,
+    fields: &[FieldSpec],
+) -> Html {
     html! {
         <section class="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/30 p-4">
             <div class="mb-3 text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--portal-gold-muted)]">{title}</div>
@@ -47,11 +52,25 @@ pub(super) fn field_grid(model: &Vm<'_>, on_msg: &Callback<Msg>, fields: &[Field
 }
 
 pub(super) fn editor_field(model: &Vm<'_>, on_msg: &Callback<Msg>, field: &FieldSpec) -> Html {
-    sized_field(model, on_msg, field, if field.wide { "sm:col-span-2 xl:col-span-4" } else { "" })
+    sized_field(
+        model,
+        on_msg,
+        field,
+        if field.wide {
+            "sm:col-span-2 xl:col-span-4"
+        } else {
+            ""
+        },
+    )
 }
 
 /// A field whose box width the caller sets (the first pane sizes each box to what it holds).
-pub(super) fn sized_field(model: &Vm<'_>, on_msg: &Callback<Msg>, field: &FieldSpec, wrapper: &'static str) -> Html {
+pub(super) fn sized_field(
+    model: &Vm<'_>,
+    on_msg: &Callback<Msg>,
+    field: &FieldSpec,
+    wrapper: &'static str,
+) -> Html {
     let field_value = value(model, field.key);
     let disabled = model.ops.saving;
 

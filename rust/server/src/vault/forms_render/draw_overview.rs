@@ -5,7 +5,10 @@ use super::*;
 
 impl Composer {
     /// The overview: a two-column grid of the values that matter before the prose, on a tinted panel with a gold edge.
-    pub(super) fn draw_overview(&mut self, fields: &[(TemplateFieldDefinition, String)]) -> Result<(), PdfError> {
+    pub(super) fn draw_overview(
+        &mut self,
+        fields: &[(TemplateFieldDefinition, String)],
+    ) -> Result<(), PdfError> {
         if fields.is_empty() {
             return Ok(());
         }
@@ -35,8 +38,7 @@ impl Composer {
             let panel_y = self.cursor_y - row_height + 6.0;
             self.page()
                 .rect(MARGIN_X, panel_y, CONTENT_WIDTH, row_height, PAPER_TINT);
-            self.page()
-                .rect(MARGIN_X, panel_y, 2.0, row_height, GOLD);
+            self.page().rect(MARGIN_X, panel_y, 2.0, row_height, GOLD);
             self.draw_cell(left, MARGIN_X + 12.0, &left_lines);
             if let Some(right) = right {
                 let right_x = MARGIN_X + 12.0 + column_width + column_gap;
@@ -50,7 +52,12 @@ impl Composer {
     }
 
     /// One overview cell: the field's label, then its value wrapped into the column.
-    pub(super) fn draw_cell(&mut self, item: &(TemplateFieldDefinition, String), x: f64, lines: &[String]) {
+    pub(super) fn draw_cell(
+        &mut self,
+        item: &(TemplateFieldDefinition, String),
+        x: f64,
+        lines: &[String],
+    ) {
         let label_y = self.cursor_y - 9.0;
         self.upper_label(&item.0.label, x, label_y);
         for (line_index, line) in lines.iter().enumerate() {
@@ -75,18 +82,25 @@ impl Composer {
             } else {
                 heading
             };
-            let body_lines = wrap_text(&paragraph, StandardFont::TimesRoman, BODY_SIZE, CONTENT_WIDTH);
+            let body_lines = wrap_text(
+                &paragraph,
+                StandardFont::TimesRoman,
+                BODY_SIZE,
+                CONTENT_WIDTH,
+            );
             let keep_with = 14.0 + (body_lines.len().min(2) as f64) * BODY_LEADING;
             self.ensure_space(keep_with + SECTION_GAP)?;
             let heading_codes = codes(&heading.to_uppercase());
             let y = self.cursor_y;
-            self.page().text("FSansBold", 8.2, MARGIN_X, y, NAVY, &heading_codes);
+            self.page()
+                .text("FSansBold", 8.2, MARGIN_X, y, NAVY, &heading_codes);
             self.cursor_y -= 15.0;
             for line in &body_lines {
                 self.ensure_space(BODY_LEADING)?;
                 let text = codes(line);
                 let y = self.cursor_y;
-                self.page().text("FBody", BODY_SIZE, MARGIN_X, y, INK, &text);
+                self.page()
+                    .text("FBody", BODY_SIZE, MARGIN_X, y, INK, &text);
                 self.cursor_y -= BODY_LEADING;
             }
             self.cursor_y -= SECTION_GAP;
@@ -133,7 +147,8 @@ impl Composer {
         self.cursor_y -= 23.0;
         let heading = codes("SIGNATURES");
         let y = self.cursor_y;
-        self.page().text("FBodyBold", 12.0, MARGIN_X, y, NAVY, &heading);
+        self.page()
+            .text("FBodyBold", 12.0, MARGIN_X, y, NAVY, &heading);
         self.cursor_y -= 23.0;
 
         for group in &template.signature_groups {
@@ -174,14 +189,15 @@ impl Composer {
                     .iter()
                     .filter(|(signature, _)| signature.role == group.role)
                     .collect();
-                let exact: Vec<&(FormAppliedSignature, EmbeddedSignature)> = match slot_id.as_deref() {
-                    Some(slot) => role_applied
-                        .iter()
-                        .copied()
-                        .filter(|(signature, _)| signature.slot_id.as_deref() == Some(slot))
-                        .collect(),
-                    None => Vec::new(),
-                };
+                let exact: Vec<&(FormAppliedSignature, EmbeddedSignature)> =
+                    match slot_id.as_deref() {
+                        Some(slot) => role_applied
+                            .iter()
+                            .copied()
+                            .filter(|(signature, _)| signature.slot_id.as_deref() == Some(slot))
+                            .collect(),
+                        None => Vec::new(),
+                    };
                 let fallback: Vec<&(FormAppliedSignature, EmbeddedSignature)> =
                     if signer_count == 1 && role_applied.len() == 1 {
                         role_applied.clone()
@@ -330,8 +346,14 @@ impl Composer {
             .next()
             {
                 let text = codes(&date_line);
-                self.page()
-                    .text("FSans", 8.6, date_rect.x + 2.0, date_rect.y + 5.0, INK, &text);
+                self.page().text(
+                    "FSans",
+                    8.6,
+                    date_rect.x + 2.0,
+                    date_rect.y + 5.0,
+                    INK,
+                    &text,
+                );
             }
             let rendered_initials = initials_rect
                 .is_some()
@@ -427,7 +449,9 @@ impl SignatureImage {
         use domain::forms_applied_signature::AppliedSignatureImageMimeType;
         let decoded = image::ImageReader::new(std::io::Cursor::new(bytes))
             .with_guessed_format()
-            .map_err(|error| PdfError::new(format!("the signature image could not be read: {error}")))?
+            .map_err(|error| {
+                PdfError::new(format!("the signature image could not be read: {error}"))
+            })?
             .decode()
             .map_err(|error| {
                 PdfError::new(format!("the signature image could not be decoded: {error}"))
@@ -501,13 +525,9 @@ pub fn render_form(
     let page_tree = pdf.reserve();
 
     let logo_reference = match logo {
-        Some(logo) => Some(pdf.image(
-            logo.width,
-            logo.height,
-            3,
-            &logo.colour,
-            Some(&logo.alpha),
-        )?),
+        Some(logo) => {
+            Some(pdf.image(logo.width, logo.height, 3, &logo.colour, Some(&logo.alpha))?)
+        }
         None => None,
     };
     let fonts = [
@@ -519,8 +539,7 @@ pub fn render_form(
     let mut embedded: Vec<(FormAppliedSignature, EmbeddedSignature)> = Vec::new();
     let mut signature_refs: Vec<u32> = Vec::new();
     for (index, signature) in applied_signatures.iter().enumerate() {
-        let image =
-            SignatureImage::from_bytes(signature.image_mime_type, &signature.image_bytes)?;
+        let image = SignatureImage::from_bytes(signature.image_mime_type, &signature.image_bytes)?;
         let resource_name = format!("AppliedSignature{index}");
         signature_refs.push(pdf.image(
             image.width,

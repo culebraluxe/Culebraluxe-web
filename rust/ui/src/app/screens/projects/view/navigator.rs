@@ -4,13 +4,29 @@ use super::*;
 
 /// The navigator, as designed: the domain rail, the domain's header and search, and the tree — poles (property, client,
 /// contract, or the domain's collection) over projects over the work.
-pub(super) fn navigator(model: &Vm<'_>, projects: &PortalProjectsPage, on_msg: &Callback<Msg>) -> Html {
+pub(super) fn navigator(
+    model: &Vm<'_>,
+    projects: &PortalProjectsPage,
+    on_msg: &Callback<Msg>,
+) -> Html {
     let tree = super::super::nav::build(projects);
-    let selected = super::super::nav::selected_id(&tree, projects.selected_project_id.as_deref(), projects.selected_node_id.as_deref());
-    let opened: Vec<String> = selected.as_deref().map(|id| super::super::nav::ancestors(&tree, id)).unwrap_or_default();
+    let selected = super::super::nav::selected_id(
+        &tree,
+        projects.selected_project_id.as_deref(),
+        projects.selected_node_id.as_deref(),
+    );
+    let opened: Vec<String> = selected
+        .as_deref()
+        .map(|id| super::super::nav::ancestors(&tree, id))
+        .unwrap_or_default();
     let query = model.controls.query.trim().to_lowercase();
-    let search = on_msg.reform(|event: InputEvent| Msg::QueryChanged(crate::app::template::input_value(&event)));
-    let rail_button = |active: bool, icon: &'static str, label: &'static str, overdue: usize, msg: Msg| {
+    let search = on_msg
+        .reform(|event: InputEvent| Msg::QueryChanged(crate::app::template::input_value(&event)));
+    let rail_button = |active: bool,
+                       icon: &'static str,
+                       label: &'static str,
+                       overdue: usize,
+                       msg: Msg| {
         let on_msg = on_msg.clone();
         let msg = std::rc::Rc::new(std::cell::RefCell::new(Some(msg)));
         let click = Callback::from(move |_: MouseEvent| {
@@ -149,16 +165,25 @@ pub(super) fn project_summary(page: &PortalProjectsPage, project_id: &str) -> Ht
         .filter(|item| item.project_id.as_deref() == Some(project_id) && item.status != "dismissed")
         .collect();
     let done = items.iter().filter(|item| item.status == "done").count();
-    let mut open: Vec<&&PortalProjectWorkItem> = items.iter().filter(|item| item.status != "done").collect();
+    let mut open: Vec<&&PortalProjectWorkItem> =
+        items.iter().filter(|item| item.status != "done").collect();
     open.sort_by(|a, b| {
         super::super::catch_up::due_key(a)
             .unwrap_or_else(|| "9999".into())
             .cmp(&super::super::catch_up::due_key(b).unwrap_or_else(|| "9999".into()))
-            .then_with(|| a.order.unwrap_or(i32::MAX).cmp(&b.order.unwrap_or(i32::MAX)))
+            .then_with(|| {
+                a.order
+                    .unwrap_or(i32::MAX)
+                    .cmp(&b.order.unwrap_or(i32::MAX))
+            })
     });
     let next = open.first().map(|item| {
         let due = super::super::nav::due_label(item.due_at.as_deref());
-        if due.is_empty() { item.title.clone() } else { format!("{}, {due}", item.title) }
+        if due.is_empty() {
+            item.title.clone()
+        } else {
+            format!("{}, {due}", item.title)
+        }
     });
     html! {
         <p class="truncate pb-1.5 pl-[46px] pr-2 text-[12px] font-light text-white/55">
@@ -179,13 +204,25 @@ pub(super) fn nav_node(ctx: &NavCtx<'_>, node: &super::super::nav::NavNode, dept
     }
     match node.kind {
         NodeKind::Pole => {
-            let is_open = super::super::nav::is_open(node, !ctx.query.is_empty(), ctx.open, ctx.closed, ctx.opened);
-            let selected_here = node.children.iter().any(|child| child.project_id == ctx.page.selected_project_id);
+            let is_open = super::super::nav::is_open(
+                node,
+                !ctx.query.is_empty(),
+                ctx.open,
+                ctx.closed,
+                ctx.opened,
+            );
+            let selected_here = node
+                .children
+                .iter()
+                .any(|child| child.project_id == ctx.page.selected_project_id);
             let toggle = {
                 let (id, open) = (node.id.clone(), is_open);
                 ctx.on_msg.reform(move |event: MouseEvent| {
                     event.stop_propagation();
-                    Msg::NavToggled { id: id.clone(), open }
+                    Msg::NavToggled {
+                        id: id.clone(),
+                        open,
+                    }
                 })
             };
             // Clicking the pole opens it on its project: the one already selected here, or its first.
@@ -198,11 +235,19 @@ pub(super) fn nav_node(ctx: &NavCtx<'_>, node: &super::super::nav::NavNode, dept
             let pick = match target {
                 Some(project_id) => {
                     let pole_id = node.id.clone();
-                    ctx.on_msg.reform(move |_: MouseEvent| Msg::PoleSelected { pole_id: pole_id.clone(), project_id: project_id.clone() })
+                    ctx.on_msg.reform(move |_: MouseEvent| Msg::PoleSelected {
+                        pole_id: pole_id.clone(),
+                        project_id: project_id.clone(),
+                    })
                 }
                 None => toggle.clone(),
             };
-            let overdue: usize = node.children.iter().filter_map(|child| child.project_id.as_deref()).map(|id| project_overdue(ctx.page, id)).sum();
+            let overdue: usize = node
+                .children
+                .iter()
+                .filter_map(|child| child.project_id.as_deref())
+                .map(|id| project_overdue(ctx.page, id))
+                .sum();
             html! {
                 <>
                     <div onclick={pick} class={classes!("mt-1", "flex", "h-[52px]", "cursor-pointer", "items-center", "gap-2", "rounded-xl", "px-1",
@@ -238,14 +283,22 @@ pub(super) fn nav_node(ctx: &NavCtx<'_>, node: &super::super::nav::NavNode, dept
         }
         NodeKind::Project => {
             let project_id = node.project_id.clone().unwrap_or_default();
-            let selected = ctx.page.selected_project_id.as_deref() == Some(project_id.as_str()) && !ctx.page.catch_up;
+            let selected = ctx.page.selected_project_id.as_deref() == Some(project_id.as_str())
+                && !ctx.page.catch_up;
             let pick = {
                 let id = project_id.clone();
-                ctx.on_msg.reform(move |_: MouseEvent| Msg::ProjectSelected(id.clone()))
+                ctx.on_msg
+                    .reform(move |_: MouseEvent| Msg::ProjectSelected(id.clone()))
             };
             let kind = node.meta.split(" · ").next().unwrap_or("");
             let overdue = project_overdue(ctx.page, &project_id);
-            let is_open = super::super::nav::is_open(node, !ctx.query.is_empty(), ctx.open, ctx.closed, ctx.opened);
+            let is_open = super::super::nav::is_open(
+                node,
+                !ctx.query.is_empty(),
+                ctx.open,
+                ctx.closed,
+                ctx.opened,
+            );
             html! {
                 <>
                     <div onclick={pick} class={classes!("flex", "h-10", "cursor-pointer", "items-center", "gap-2", "rounded-lg", "pl-[10px]", "pr-1",
@@ -269,14 +322,30 @@ pub(super) fn nav_node(ctx: &NavCtx<'_>, node: &super::super::nav::NavNode, dept
             }
         }
         NodeKind::Work => {
-            let is_open = super::super::nav::is_open(node, !ctx.query.is_empty(), ctx.open, ctx.closed, ctx.opened);
+            let is_open = super::super::nav::is_open(
+                node,
+                !ctx.query.is_empty(),
+                ctx.open,
+                ctx.closed,
+                ctx.opened,
+            );
             let selected = ctx.selected == Some(node.id.as_str());
             let pick = {
-                let (project_id, node_id) = (node.project_id.clone().unwrap_or_default(), node.work_id.clone().unwrap_or_default());
-                ctx.on_msg.reform(move |_: MouseEvent| Msg::NavWorkSelected { project_id: project_id.clone(), node_id: node_id.clone() })
+                let (project_id, node_id) = (
+                    node.project_id.clone().unwrap_or_default(),
+                    node.work_id.clone().unwrap_or_default(),
+                );
+                ctx.on_msg
+                    .reform(move |_: MouseEvent| Msg::NavWorkSelected {
+                        project_id: project_id.clone(),
+                        node_id: node_id.clone(),
+                    })
             };
             let kind = node.meta.split(" · ").next().unwrap_or("");
-            let icon_class = format!("h-4 w-4 shrink-0 {}", super::super::nav::status_class(node.status.as_deref()));
+            let icon_class = format!(
+                "h-4 w-4 shrink-0 {}",
+                super::super::nav::status_class(node.status.as_deref())
+            );
             let indent = format!("padding-left: {}px", 12 + depth * 10);
             html! {
                 <>
@@ -306,7 +375,8 @@ pub(super) fn work_due(page: &PortalProjectsPage, work_id: Option<&str>) -> Html
     if due.is_empty() {
         return Html::default();
     }
-    let late = item.status != "dismissed" && super::super::catch_up::overdue(item, &page.calendar_today);
+    let late =
+        item.status != "dismissed" && super::super::catch_up::overdue(item, &page.calendar_today);
     html! {
         <span class={classes!("shrink-0", "pr-1", "text-[11px]", "font-light", "tabular-nums",
             if late { "text-red-300" } else if item.status == "done" { "text-white/35" } else { "text-white/55" })}>
@@ -324,7 +394,10 @@ pub(super) fn chevron(ctx: &NavCtx<'_>, node: &super::super::nav::NavNode, is_op
         let (id, open) = (node.id.clone(), is_open);
         ctx.on_msg.reform(move |event: MouseEvent| {
             event.stop_propagation();
-            Msg::NavToggled { id: id.clone(), open }
+            Msg::NavToggled {
+                id: id.clone(),
+                open,
+            }
         })
     };
     html! {

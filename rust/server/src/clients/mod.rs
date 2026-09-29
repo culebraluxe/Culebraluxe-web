@@ -324,8 +324,15 @@ impl ClientService<ClientDao> {
         self.repository.update_cached_person(person);
     }
 
-    pub fn update_cached_contact(&self, person_id: &str, location: Option<&str>, email: Option<&str>, phone: Option<&str>) {
-        self.repository.update_cached_contact(person_id, location, email, phone);
+    pub fn update_cached_contact(
+        &self,
+        person_id: &str,
+        location: Option<&str>,
+        email: Option<&str>,
+        phone: Option<&str>,
+    ) {
+        self.repository
+            .update_cached_contact(person_id, location, email, phone);
     }
 }
 

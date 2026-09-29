@@ -5,7 +5,10 @@ use super::*;
 
 /// The whole Projects workspace: projects, work items, documents, the properties' media, activity, calendar and the
 /// display names of everything the projects point at.
-pub(super) async fn projects_page(state: &ApiState, resolved: &ResolvedRequestContext) -> Result<Json<Value>, ApiError> {
+pub(super) async fn projects_page(
+    state: &ApiState,
+    resolved: &ResolvedRequestContext,
+) -> Result<Json<Value>, ApiError> {
     let services = state.services();
     let context = &resolved.service;
     let scope = domain::VaultActorScope {
@@ -20,13 +23,26 @@ pub(super) async fn projects_page(state: &ApiState, resolved: &ResolvedRequestCo
         vault.list_issued_documents(Some(&scope), context),
     );
     let projects = projects.map_err(|error| correlate(ApiError::from(error), resolved))?;
-    let (items, documents) = (items.map_err(failed(resolved))?, documents.map_err(failed(resolved))?);
+    let (items, documents) = (
+        items.map_err(failed(resolved))?,
+        documents.map_err(failed(resolved))?,
+    );
     let (projects, items, documents) = (to_json(projects), to_json(items), to_json(documents));
     let empty = Vec::new();
-    let (projects, items) = (projects.as_array().unwrap_or(&empty), items.as_array().unwrap_or(&empty));
+    let (projects, items) = (
+        projects.as_array().unwrap_or(&empty),
+        items.as_array().unwrap_or(&empty),
+    );
     // Every project's links in one query, not one round trip per project.
-    let project_ids: Vec<String> = projects.iter().filter_map(|project| str_at(project, "id")).map(str::to_owned).collect();
-    let dependencies = wbs.list_dependencies_for(&project_ids, context).await.map_err(failed(resolved))?;
+    let project_ids: Vec<String> = projects
+        .iter()
+        .filter_map(|project| str_at(project, "id"))
+        .map(str::to_owned)
+        .collect();
+    let dependencies = wbs
+        .list_dependencies_for(&project_ids, context)
+        .await
+        .map_err(failed(resolved))?;
 
     let mut people = std::collections::BTreeSet::new();
     let mut properties = std::collections::BTreeSet::new();
@@ -37,12 +53,22 @@ pub(super) async fn projects_page(state: &ApiState, resolved: &ResolvedRequestCo
         contracts.extend(str_at(project, "contract_id").map(str::to_owned));
     }
     for item in items {
-        let Some(entity) = item.get("entity") else { continue };
-        let Some(id) = str_at(entity, "id").map(str::to_owned) else { continue };
+        let Some(entity) = item.get("entity") else {
+            continue;
+        };
+        let Some(id) = str_at(entity, "id").map(str::to_owned) else {
+            continue;
+        };
         match str_at(entity, "entity_type") {
-            Some("person") => { people.insert(id); }
-            Some("property") => { properties.insert(id); }
-            Some("contract") => { contracts.insert(id); }
+            Some("person") => {
+                people.insert(id);
+            }
+            Some("property") => {
+                properties.insert(id);
+            }
+            Some("contract") => {
+                contracts.insert(id);
+            }
             _ => {}
         }
     }
@@ -50,7 +76,14 @@ pub(super) async fn projects_page(state: &ApiState, resolved: &ResolvedRequestCo
     // Names and media are supplemental: a record that cannot be read keeps its id on screen, as the relay did.
     let mut names = serde_json::Map::new();
     for id in &people {
-        if let Some(person) = services.person().get(id, context).await.ok().flatten().map(to_json) {
+        if let Some(person) = services
+            .person()
+            .get(id, context)
+            .await
+            .ok()
+            .flatten()
+            .map(to_json)
+        {
             if let Some(name) = str_at(&person, "display_name") {
                 names.insert(format!("person:{id}"), json!(name));
             }
@@ -58,7 +91,14 @@ pub(super) async fn projects_page(state: &ApiState, resolved: &ResolvedRequestCo
     }
     let mut media = Vec::new();
     for id in &properties {
-        if let Some(property) = services.property().get(id, context).await.ok().flatten().map(to_json) {
+        if let Some(property) = services
+            .property()
+            .get(id, context)
+            .await
+            .ok()
+            .flatten()
+            .map(to_json)
+        {
             if let Some(name) = str_at(&property, "display_name") {
                 names.insert(format!("property:{id}"), json!(name));
             }
@@ -68,7 +108,14 @@ pub(super) async fn projects_page(state: &ApiState, resolved: &ResolvedRequestCo
         }
     }
     for id in &contracts {
-        if let Some(contract) = services.contract().get(id, context).await.ok().flatten().map(to_json) {
+        if let Some(contract) = services
+            .contract()
+            .get(id, context)
+            .await
+            .ok()
+            .flatten()
+            .map(to_json)
+        {
             if let Some(kind) = str_at(&contract, "contract_type") {
                 names.insert(format!("contract:{id}"), json!(kind.replace('_', " ")));
             }
@@ -85,7 +132,9 @@ pub(super) async fn projects_page(state: &ApiState, resolved: &ResolvedRequestCo
         .unwrap_or(&empty)
         .iter()
         .map(|document| {
-            let title = str_at(document, "title").or_else(|| str_at(document, "documentTypeLabel")).unwrap_or("Document");
+            let title = str_at(document, "title")
+                .or_else(|| str_at(document, "documentTypeLabel"))
+                .unwrap_or("Document");
             json!({
                 "id": document.get("id"),
                 "propertyId": document.get("propertyId"),
@@ -119,7 +168,10 @@ pub(super) async fn projects_page(state: &ApiState, resolved: &ResolvedRequestCo
     } })))
 }
 
-pub(super) async fn projects(State(state): State<ApiState>, headers: HeaderMap) -> Result<Json<Value>, ApiError> {
+pub(super) async fn projects(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
     let resolved = resolve_portal_context(&state, &headers).await?;
     projects_page(&state, &resolved).await
 }
@@ -210,7 +262,6 @@ pub(super) async fn projects_calendar_command(
     Ok(Json(to_json(state_value)))
 }
 
-
 /// Projects' two writes — a project's status, a work item's save — each answering the refreshed workspace.
 pub(super) async fn projects_act(
     State(state): State<ApiState>,
@@ -218,19 +269,32 @@ pub(super) async fn projects_act(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let resolved = resolve_portal_context(&state, &headers).await?;
-    let id_of = |key: &str| str_at(&body, key).map(str::trim).filter(|id| !id.is_empty()).map(str::to_owned);
+    let id_of = |key: &str| {
+        str_at(&body, key)
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(str::to_owned)
+    };
     match str_at(&body, "action") {
         Some("projectStatus") => {
             let Some(id) = id_of("projectId") else {
-                return Err(ApiError::bad_request("PROJECT_ID_REQUIRED", "projectId is required."));
+                return Err(ApiError::bad_request(
+                    "PROJECT_ID_REQUIRED",
+                    "projectId is required.",
+                ));
             };
-            let update: UpdateProjectBody = serde_json::from_value(json!({ "status": body.get("status") }))
-                .map_err(|error| ApiError::bad_request("PROJECT_UPDATE_INVALID", error.to_string()))?;
+            let update: UpdateProjectBody = serde_json::from_value(
+                json!({ "status": body.get("status") }),
+            )
+            .map_err(|error| ApiError::bad_request("PROJECT_UPDATE_INVALID", error.to_string()))?;
             apply_project_update(&state, &resolved, id, update).await?;
         }
         Some("wbsSave") => {
             let Some(id) = id_of("itemId") else {
-                return Err(ApiError::bad_request("WBS_ID_REQUIRED", "itemId is required."));
+                return Err(ApiError::bad_request(
+                    "WBS_ID_REQUIRED",
+                    "itemId is required.",
+                ));
             };
             let mut update_body = json!({
                 "title": body.get("title"),
@@ -245,24 +309,48 @@ pub(super) async fn projects_act(
                 }
             }
             let update: UpdateWbsBody = serde_json::from_value(update_body)
-            .map_err(|error| ApiError::bad_request("WBS_UPDATE_INVALID", error.to_string()))?;
+                .map_err(|error| ApiError::bad_request("WBS_UPDATE_INVALID", error.to_string()))?;
             apply_wbs_update(&state, &resolved, id, update).await?;
         }
         Some("wbsDependencyAdd") | Some("wbsDependencyRemove") => {
             let (Some(project_id), Some(source_id), Some(target_id)) =
-                (id_of("projectId"), id_of("sourceId"), id_of("targetId")) else {
-                return Err(ApiError::bad_request("WBS_DEPENDENCY_INVALID", "projectId, sourceId and targetId are required."));
+                (id_of("projectId"), id_of("sourceId"), id_of("targetId"))
+            else {
+                return Err(ApiError::bad_request(
+                    "WBS_DEPENDENCY_INVALID",
+                    "projectId, sourceId and targetId are required.",
+                ));
             };
             if str_at(&body, "action") == Some("wbsDependencyAdd") {
-                state.services().wbs().add_dependency(&domain::WbsDependency {
-                    project_id, source_id, target_id, kind: "finish_to_start".into(),
-                }, &resolved.service).await.map_err(failed(&resolved))?;
+                state
+                    .services()
+                    .wbs()
+                    .add_dependency(
+                        &domain::WbsDependency {
+                            project_id,
+                            source_id,
+                            target_id,
+                            kind: "finish_to_start".into(),
+                        },
+                        &resolved.service,
+                    )
+                    .await
+                    .map_err(failed(&resolved))?;
             } else {
-                state.services().wbs().remove_dependency(&project_id, &source_id, &target_id, &resolved.service)
-                    .await.map_err(failed(&resolved))?;
+                state
+                    .services()
+                    .wbs()
+                    .remove_dependency(&project_id, &source_id, &target_id, &resolved.service)
+                    .await
+                    .map_err(failed(&resolved))?;
             }
         }
-        _ => return Err(ApiError::bad_request("PROJECT_ACTION_UNSUPPORTED", "Unsupported Projects action.")),
+        _ => {
+            return Err(ApiError::bad_request(
+                "PROJECT_ACTION_UNSUPPORTED",
+                "Unsupported Projects action.",
+            ))
+        }
     }
     projects_page(&state, &resolved).await
 }

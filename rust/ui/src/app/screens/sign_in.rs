@@ -54,8 +54,15 @@ mod tests {
     #[test]
     fn the_button_returns_to_the_page_that_sent_the_visitor() {
         let mut ctx = ScreenCtx::default();
-        assert_eq!(sign_in_href(&ctx), "/api/auth/signin/google?callbackUrl=/portal/dashboard");
-        ctx.query.insert("callbackUrl".into(), "/portal/clients?selected=a b".into());
-        assert_eq!(sign_in_href(&ctx), "/api/auth/signin/google?callbackUrl=/portal/clients%3Fselected%3Da%20b");
+        assert_eq!(
+            sign_in_href(&ctx),
+            "/api/auth/signin/google?callbackUrl=/portal/dashboard"
+        );
+        ctx.query
+            .insert("callbackUrl".into(), "/portal/clients?selected=a b".into());
+        assert_eq!(
+            sign_in_href(&ctx),
+            "/api/auth/signin/google?callbackUrl=/portal/clients%3Fselected%3Da%20b"
+        );
     }
 }

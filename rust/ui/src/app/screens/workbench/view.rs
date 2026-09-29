@@ -9,31 +9,30 @@ use crate::model::{
 };
 
 use super::{Msg, Vm};
-mod property_fields;
-mod listing_fields;
-mod selector;
 mod editor;
-mod property_people;
-mod media;
-mod records;
 mod fields_ui;
-#[allow(unused_imports)]
-pub(super) use property_fields::*;
-#[allow(unused_imports)]
-pub(super) use listing_fields::*;
-#[allow(unused_imports)]
-pub(super) use selector::*;
+mod listing_fields;
+mod media;
+mod property_fields;
+mod property_people;
+mod records;
+mod selector;
 #[allow(unused_imports)]
 pub(super) use editor::*;
 #[allow(unused_imports)]
-pub(super) use property_people::*;
+pub(super) use fields_ui::*;
+#[allow(unused_imports)]
+pub(super) use listing_fields::*;
 #[allow(unused_imports)]
 pub(super) use media::*;
 #[allow(unused_imports)]
+pub(super) use property_fields::*;
+#[allow(unused_imports)]
+pub(super) use property_people::*;
+#[allow(unused_imports)]
 pub(super) use records::*;
 #[allow(unused_imports)]
-pub(super) use fields_ui::*;
-
+pub(super) use selector::*;
 
 fn payload<'a>(model: &Vm<'a>) -> Option<&'a PortalOpsWorkbenchPage> {
     Some(model.data)

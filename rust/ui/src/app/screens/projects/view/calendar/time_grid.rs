@@ -88,7 +88,9 @@ pub(super) fn drag_target(
     let enter_key = key;
     let ondragenter = Callback::from(move |event: DragEvent| {
         event.prevent_default();
-        enter_msg.emit(Msg::ProjectCalendarDragTargetChanged(Some(enter_key.clone())));
+        enter_msg.emit(Msg::ProjectCalendarDragTargetChanged(Some(
+            enter_key.clone(),
+        )));
     });
     let ondragover = Callback::from(|event: DragEvent| event.prevent_default());
     (ondragenter, ondragover)
@@ -177,8 +179,9 @@ pub(super) fn timed_positions<'a>(
         .filter(|event| event.date == date && !event.all_day)
         .filter_map(|event| {
             let slot = crate::calendar::event_slot(&event.start_at, grid)?;
-            let span = crate::calendar::event_span_slots(&event.start_at, event.end_at.as_deref(), grid)
-                .min(grid.slot_count().saturating_sub(slot).max(1));
+            let span =
+                crate::calendar::event_span_slots(&event.start_at, event.end_at.as_deref(), grid)
+                    .min(grid.slot_count().saturating_sub(slot).max(1));
             Some((event, slot, span))
         })
         .collect::<Vec<_>>();

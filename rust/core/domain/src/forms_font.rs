@@ -7,8 +7,9 @@
 //! (`@pdf-lib/standard-fonts`, generated into `forms_font_metrics.rs`), and the summation below is the same one.
 
 use crate::forms_font_metrics::{
-    HELVETICA_BOLD_KERNS, HELVETICA_BOLD_WIDTHS, HELVETICA_KERNS, HELVETICA_WIDTHS, TIMES_BOLD_KERNS,
-    TIMES_BOLD_WIDTHS, TIMES_ROMAN_KERNS, TIMES_ROMAN_WIDTHS, WIN_ANSI_UNICODE_TO_CODE,
+    HELVETICA_BOLD_KERNS, HELVETICA_BOLD_WIDTHS, HELVETICA_KERNS, HELVETICA_WIDTHS,
+    TIMES_BOLD_KERNS, TIMES_BOLD_WIDTHS, TIMES_ROMAN_KERNS, TIMES_ROMAN_WIDTHS,
+    WIN_ANSI_UNICODE_TO_CODE,
 };
 
 /// The four standard fonts the form renderer uses. Standard-14 means no font is embedded in the document.
@@ -107,7 +108,6 @@ pub fn text_width(font: StandardFont, text: &str, size: f64) -> f64 {
     (thousandths as f64) * (size / 1000.0)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,7 +184,10 @@ mod tests {
     fn a_character_outside_win_ansi_is_refused_rather_than_substituted() {
         assert!(encode("café").is_ok(), "accented Latin-1 text is drawable");
         assert_eq!(win_ansi_code('\u{e9}'), Some(0xe9), "é is WinAnsi 0xE9");
-        assert!(win_ansi_code('\u{2014}').is_some(), "an em dash is drawable");
+        assert!(
+            win_ansi_code('\u{2014}').is_some(),
+            "an em dash is drawable"
+        );
         assert_eq!(encode("party \u{1f389}"), Err('\u{1f389}'));
         assert_eq!(text_width(StandardFont::TimesRoman, "\u{1f389}", 10.0), 0.0);
     }

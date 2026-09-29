@@ -10,13 +10,12 @@ use domain::{
 use integrations::mux::MuxClient;
 use serde::Serialize;
 use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
-mod media_repository;
-mod media_bytes;
 mod attach_property_video;
+mod media_bytes;
+mod media_repository;
 #[allow(unused_imports)]
-pub use media_repository::*;
+pub use attach_property_video::*;
 #[allow(unused_imports)]
 pub use media_bytes::*;
 #[allow(unused_imports)]
-pub use attach_property_video::*;
-
+pub use media_repository::*;

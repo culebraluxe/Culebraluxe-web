@@ -12,22 +12,21 @@ use serde::Deserialize;
 use std::collections::BTreeMap;
 
 use crate::app::cmd::{Endpoint, Method};
-mod guest;
+mod addresses;
 mod forms;
+mod guest;
 mod portal;
 mod projects_ops;
-mod addresses;
 #[allow(unused_imports)]
-pub use guest::*;
+pub use addresses::*;
 #[allow(unused_imports)]
 pub use forms::*;
+#[allow(unused_imports)]
+pub use guest::*;
 #[allow(unused_imports)]
 pub use portal::*;
 #[allow(unused_imports)]
 pub use projects_ops::*;
-#[allow(unused_imports)]
-pub use addresses::*;
-
 
 /// A portal screen's page payload (`/api/portal/rust-ui/page`). The answer is the portal page itself (`{ support, ... }`),
 /// not wrapped in the site's `PageContent`.

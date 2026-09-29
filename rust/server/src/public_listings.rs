@@ -123,7 +123,11 @@ impl<R: PublicListingRepository> PublicListingService<R> {
             context,
         )
         .await?;
-        let result = self.repository.media_bytes(id, size).await.map_err(Into::into);
+        let result = self
+            .repository
+            .media_bytes(id, size)
+            .await
+            .map_err(Into::into);
         audit_result(&self.runtime, "property", OP, context, decision, &result).await?;
         result
     }

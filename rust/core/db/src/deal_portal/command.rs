@@ -774,5 +774,4 @@ impl DealPortalDao {
             }
         }
     }
-
 }

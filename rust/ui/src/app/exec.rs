@@ -13,16 +13,15 @@ use yew_router::AnyRoute;
 use wasm_bindgen::JsCast;
 
 use crate::app::cmd::{ApiError, Cmd, Method, Request};
-mod uploads;
 mod browser;
 mod gesture;
-#[allow(unused_imports)]
-pub use uploads::*;
+mod uploads;
 #[allow(unused_imports)]
 pub use browser::*;
 #[allow(unused_imports)]
 pub use gesture::*;
-
+#[allow(unused_imports)]
+pub use uploads::*;
 
 /// Perform a command. Its messages go to `deliver`. Without a navigator (outside the router) navigation is a document
 /// load, which is always correct, only heavier.
@@ -69,22 +68,38 @@ pub fn run<Msg: 'static>(cmd: Cmd<Msg>, deliver: &Callback<Msg>, navigator: Opti
                     let (progress, deliver) = (upload.progress.clone(), deliver.clone());
                     move |step: crate::app::cmd::VideoProgress| deliver.emit(progress(step))
                 };
-                let result = upload_video(&upload.file, &upload.property_id, &upload.role, &upload.caption, &progress).await;
+                let result = upload_video(
+                    &upload.file,
+                    &upload.property_id,
+                    &upload.role,
+                    &upload.caption,
+                    &progress,
+                )
+                .await;
                 deliver.emit(reply(result));
             });
         }
-        Cmd::PostForm { path, fields, file, reply } => {
+        Cmd::PostForm {
+            path,
+            fields,
+            file,
+            reply,
+        } => {
             let deliver = deliver.clone();
             spawn_local(async move {
                 let result = async {
-                    let form = web_sys::FormData::new()
-                        .map_err(|_| ApiError::network("The browser could not create the upload form."))?;
+                    let form = web_sys::FormData::new().map_err(|_| {
+                        ApiError::network("The browser could not create the upload form.")
+                    })?;
                     for (key, value) in &fields {
-                        form.append_with_str(key, value)
-                            .map_err(|_| ApiError::network("The browser could not prepare the upload."))?;
+                        form.append_with_str(key, value).map_err(|_| {
+                            ApiError::network("The browser could not prepare the upload.")
+                        })?;
                     }
                     form.append_with_blob_and_filename("file", &file, &file.name())
-                        .map_err(|_| ApiError::network("The browser could not prepare the upload."))?;
+                        .map_err(|_| {
+                            ApiError::network("The browser could not prepare the upload.")
+                        })?;
                     post_once(&path, form).await
                 }
                 .await;

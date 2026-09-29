@@ -304,7 +304,8 @@ fn download_links(document: &PortalCabinetDocument, mobile: bool) -> Html {
         "Issued PDF"
     };
     // The Rust file route: the executed copy once signed, the issued PDF before; the audit trail on its own.
-    let pdf_href = crate::app::api::links::vault_document(&document.id, document.signed_artifact_available);
+    let pdf_href =
+        crate::app::api::links::vault_document(&document.id, document.signed_artifact_available);
     let audit_href = crate::app::api::links::vault_audit(&document.id);
 
     if mobile {

@@ -85,8 +85,14 @@ impl PublishingDao {
 
         let listings: Vec<PublishingListing> = rows.into_iter().map(project).collect();
         Ok(PublishingSnapshot {
-            ready_count: listings.iter().filter(|listing| listing.stellar_package_ready && listing.website_ready).count() as i64,
-            live_count: listings.iter().filter(|listing| listing.is_published).count() as i64,
+            ready_count: listings
+                .iter()
+                .filter(|listing| listing.stellar_package_ready && listing.website_ready)
+                .count() as i64,
+            live_count: listings
+                .iter()
+                .filter(|listing| listing.is_published)
+                .count() as i64,
             listings,
         })
     }
@@ -121,7 +127,10 @@ fn project(row: PublishingRow) -> PublishingListing {
         (present(row.catastro_number.as_deref()), "Catastro"),
         (present(row.legal_owner_name.as_deref()), "Legal owner"),
         (present(row.public_remarks.as_deref()), "Public remarks"),
-        (present(row.short_description.as_deref()), "Short description"),
+        (
+            present(row.short_description.as_deref()),
+            "Short description",
+        ),
         (present(row.seo_title.as_deref()), "SEO title"),
         (present(row.seo_description.as_deref()), "SEO description"),
         (row.hero_count > 0, "Hero image"),

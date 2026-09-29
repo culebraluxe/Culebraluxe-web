@@ -12,9 +12,9 @@
 // The exporter does not interpret Apple's enum values, so classification lives here: a call is
 // FaceTime when its provider or call type says so, and nothing is inferred from a missing column.
 // ---------------------------------------------------------------------------
-use crate::apple_messages::{AppleHandleEvidence, fingerprint, handle_to_identities};
+use crate::apple_messages::{fingerprint, handle_to_identities, AppleHandleEvidence};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 /// A call placed or received over the phone network.
@@ -106,7 +106,9 @@ pub fn call_unique_id(call: &AppleCallRecord) -> Option<String> {
 /// rounding happens only where a duration becomes a CRM fact (`call_duration_seconds`).
 pub fn call_duration_raw(call: &AppleCallRecord) -> Option<f64> {
     let raw = match call.duration.as_ref()? {
-        Value::Number(number) => number.as_f64().or_else(|| number.as_i64().map(|v| v as f64)),
+        Value::Number(number) => number
+            .as_f64()
+            .or_else(|| number.as_i64().map(|v| v as f64)),
         Value::String(raw) => raw.trim().parse::<f64>().ok(),
         _ => None,
     }?;
@@ -126,8 +128,14 @@ pub fn call_date_iso(call: &AppleCallRecord) -> Option<String> {
 /// FaceTime when either signal says so. This mirrors the deleted TypeScript exactly: the provider
 /// string (`com.apple.FaceTime`) and the call type are both consulted, case-insensitively.
 pub fn is_facetime_call(call: &AppleCallRecord) -> bool {
-    let provider = call.service_provider.as_deref().unwrap_or_default().to_lowercase();
-    let call_type = scalar_text(call.call_type.as_ref()).unwrap_or_default().to_lowercase();
+    let provider = call
+        .service_provider
+        .as_deref()
+        .unwrap_or_default()
+        .to_lowercase();
+    let call_type = scalar_text(call.call_type.as_ref())
+        .unwrap_or_default()
+        .to_lowercase();
     provider.contains("facetime") || call_type.contains("facetime")
 }
 
@@ -231,7 +239,8 @@ pub fn build_call_evidence(
         let mut handle_rowids: Vec<i64> = rows.iter().filter_map(|row| row.rowid).collect();
         handle_rowids.sort_unstable();
         handle_rowids.dedup();
-        let mut source_ids: Vec<String> = rows.iter().filter_map(|row| call_unique_id(row)).collect();
+        let mut source_ids: Vec<String> =
+            rows.iter().filter_map(|row| call_unique_id(row)).collect();
         source_ids.sort();
         source_ids.dedup();
 
@@ -298,7 +307,6 @@ pub fn build_call_evidence(
     out
 }
 
-
 // ---------------------------------------------------------------------------
 // The canonical interaction a call becomes.
 // ---------------------------------------------------------------------------
@@ -355,7 +363,6 @@ pub fn call_latest_interaction(
     })
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -411,7 +418,10 @@ mod tests {
         let call: AppleCallRecord = serde_json::from_str(line).expect("a real export line parses");
         assert_eq!(call.unique_id.as_deref(), Some("ABC-1"));
         assert_eq!(call.date_iso.as_deref(), Some("2026-01-03T10:00:00.000Z"));
-        assert_eq!(call_date_iso(&call).as_deref(), Some("2026-01-03T10:00:00.000Z"));
+        assert_eq!(
+            call_date_iso(&call).as_deref(),
+            Some("2026-01-03T10:00:00.000Z")
+        );
         assert_eq!(call.rowid, Some(42));
         assert_eq!(flag(call.originated.as_ref()), Some(true));
         assert_eq!(flag(call.answered.as_ref()), Some(true));
@@ -479,7 +489,11 @@ mod tests {
     #[test]
     fn evidence_aggregates_by_address_and_keeps_channels_apart() {
         let evidence = build_call_evidence(&calls(), APPLE_CALL_HISTORY_ACCOUNT);
-        assert_eq!(evidence.len(), 2, "one phone identity and one FaceTime identity");
+        assert_eq!(
+            evidence.len(),
+            2,
+            "one phone identity and one FaceTime identity"
+        );
 
         let phone = evidence
             .iter()
@@ -563,4 +577,3 @@ mod tests {
         );
     }
 }
-

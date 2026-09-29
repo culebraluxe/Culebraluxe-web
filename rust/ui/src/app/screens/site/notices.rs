@@ -7,13 +7,13 @@
 
 use yew::prelude::*;
 
+use super::content::{
+    LOGIN_RECOVERY_VIEW_CONTENT, LOGIN_UNAUTHORIZED_VIEW_CONTENT, PRIVACY_VIEW_CONTENT,
+};
 use crate::app::api::{AuthCsrf, CsrfToken};
 use crate::app::cmd::{ApiError, Cmd};
 use crate::app::screen::{Link, Screen, ScreenCtx};
 use crate::app::site::{StaticPage, StaticPageSpec};
-use super::content::{
-    LOGIN_RECOVERY_VIEW_CONTENT, LOGIN_UNAUTHORIZED_VIEW_CONTENT, PRIVACY_VIEW_CONTENT,
-};
 
 /// A page of headings, paragraphs and list items, in order.
 fn article(content: &[(&str, &str)], extra: Html) -> Html {

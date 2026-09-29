@@ -27,12 +27,30 @@ pub struct BrokerSignaturePolicy {
 /// ONLY these template-owned fields may receive it. A template absent from this table gets no pre-signature at all.
 pub fn policy_for_template(template_id: &str) -> Option<BrokerSignaturePolicy> {
     match template_id {
-        "OFFER-01" => Some(BrokerSignaturePolicy { role: "BUYER_BROKER", signer_field: "brokerName" }),
-        "LISTING-01" => Some(BrokerSignaturePolicy { role: "SELLER_BROKER", signer_field: "brokerName" }),
-        "PR-PNS" => Some(BrokerSignaturePolicy { role: "SELLER_BROKER", signer_field: "sellerBrokerName" }),
-        "PR-PNS-AMD" => Some(BrokerSignaturePolicy { role: "SELLER_BROKER", signer_field: "sellerBrokerName" }),
-        "SHOW-INFO" => Some(BrokerSignaturePolicy { role: "BUYER_BROKER", signer_field: "buyerBrokerName" }),
-        "SHOW-RPT" => Some(BrokerSignaturePolicy { role: "BUYER_BROKER", signer_field: "agentName" }),
+        "OFFER-01" => Some(BrokerSignaturePolicy {
+            role: "BUYER_BROKER",
+            signer_field: "brokerName",
+        }),
+        "LISTING-01" => Some(BrokerSignaturePolicy {
+            role: "SELLER_BROKER",
+            signer_field: "brokerName",
+        }),
+        "PR-PNS" => Some(BrokerSignaturePolicy {
+            role: "SELLER_BROKER",
+            signer_field: "sellerBrokerName",
+        }),
+        "PR-PNS-AMD" => Some(BrokerSignaturePolicy {
+            role: "SELLER_BROKER",
+            signer_field: "sellerBrokerName",
+        }),
+        "SHOW-INFO" => Some(BrokerSignaturePolicy {
+            role: "BUYER_BROKER",
+            signer_field: "buyerBrokerName",
+        }),
+        "SHOW-RPT" => Some(BrokerSignaturePolicy {
+            role: "BUYER_BROKER",
+            signer_field: "agentName",
+        }),
         _ => None,
     }
 }
@@ -91,7 +109,11 @@ impl BrokerSignatureConfig {
 
 /// The comparison every rule below makes: trimmed, single-spaced, case-insensitive.
 pub fn normalized(value: &str) -> String {
-    value.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+    value
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
 }
 
 /// Whether the document's own field says this is the configured signer's role.
@@ -109,7 +131,6 @@ pub fn declared_signer_matches(
         .unwrap_or_default();
     !declared.is_empty() && normalized(declared) == normalized(&config.signer_name)
 }
-
 
 /// The field a DRAFT's broker line is filled with before anyone signs: her name goes on the line because it is her
 /// document until a seller does. The PREVIEW only — issuance applies the real signature instead.
@@ -140,8 +161,14 @@ mod tests {
 
     #[test]
     fn the_allowlist_names_one_role_and_one_field_per_template() {
-        assert_eq!(policy_for_template("LISTING-01").unwrap().role, "SELLER_BROKER");
-        assert_eq!(policy_for_template("OFFER-01").unwrap().signer_field, "brokerName");
+        assert_eq!(
+            policy_for_template("LISTING-01").unwrap().role,
+            "SELLER_BROKER"
+        );
+        assert_eq!(
+            policy_for_template("OFFER-01").unwrap().signer_field,
+            "brokerName"
+        );
         assert!(policy_for_template("SOME-NEW-TEMPLATE").is_none());
     }
 
@@ -167,7 +194,10 @@ mod tests {
     fn the_configuration_defaults_to_the_brokerages_own_practice() {
         let config = BrokerSignatureConfig::from_lookup(|_| None);
         assert!(config.enabled && config.configured);
-        assert_eq!(config.credential_line(), "Real Estate Broker License #: C-9931");
+        assert_eq!(
+            config.credential_line(),
+            "Real Estate Broker License #: C-9931"
+        );
         let disabled = BrokerSignatureConfig::from_lookup(|key| match key {
             BROKER_SIGNATURE_ENABLED => Some("FALSE".to_string()),
             _ => None,

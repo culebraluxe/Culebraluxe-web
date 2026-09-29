@@ -13,34 +13,33 @@
 //! FROM THE NAV with the code left in place. Those are ported like everything else and simply not listed.
 
 use std::collections::{BTreeMap, BTreeSet};
-mod site;
-mod tech_ops;
-mod records;
-mod deals;
-mod workspaces;
-mod forms_projects;
-mod screen_state;
-mod support;
 mod accounting;
+mod deals;
+mod forms_projects;
+mod records;
+mod screen_state;
+mod site;
+mod support;
+mod tech_ops;
+mod workspaces;
 #[allow(unused_imports)]
-pub use site::*;
-#[allow(unused_imports)]
-pub use tech_ops::*;
-#[allow(unused_imports)]
-pub use records::*;
+pub use accounting::*;
 #[allow(unused_imports)]
 pub use deals::*;
 #[allow(unused_imports)]
-pub use workspaces::*;
-#[allow(unused_imports)]
 pub use forms_projects::*;
+#[allow(unused_imports)]
+pub use records::*;
 #[allow(unused_imports)]
 pub use screen_state::*;
 #[allow(unused_imports)]
+pub use site::*;
+#[allow(unused_imports)]
 pub use support::*;
 #[allow(unused_imports)]
-pub use accounting::*;
-
+pub use tech_ops::*;
+#[allow(unused_imports)]
+pub use workspaces::*;
 
 /// Which operating surface a screen belongs to. The first six mirror `lib/navigation/registry.ts`; `Site` is the
 /// public site, which the registry does not cover because it is not part of the portal.

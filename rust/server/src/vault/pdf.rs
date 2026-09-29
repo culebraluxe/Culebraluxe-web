@@ -242,11 +242,7 @@ impl Pdf {
             .collect();
         self.replace(
             page_tree,
-            format!(
-                "<< /Type /Pages /Kids [ {kids}] /Count {} >>",
-                pages.len()
-            )
-            .into_bytes(),
+            format!("<< /Type /Pages /Kids [ {kids}] /Count {} >>", pages.len()).into_bytes(),
         );
         let catalog = self.add(format!("<< /Type /Catalog /Pages {page_tree} 0 R >>").into_bytes());
 
@@ -257,7 +253,8 @@ impl Pdf {
         for (index, object) in self.objects.iter().enumerate() {
             offsets.push(out.len());
             let mut text = TextBuffer { buffer: &mut out };
-            write!(text, "{} 0 obj\n", index + 1).map_err(|error| PdfError::new(error.to_string()))?;
+            write!(text, "{} 0 obj\n", index + 1)
+                .map_err(|error| PdfError::new(error.to_string()))?;
             drop(text);
             out.extend_from_slice(object);
             out.extend_from_slice(b"\nendobj\n");
@@ -376,15 +373,7 @@ impl Content {
     }
 
     /// Text at a baseline position, already encoded to WinAnsi.
-    pub fn text(
-        &mut self,
-        font: &str,
-        size: f64,
-        x: f64,
-        y: f64,
-        colour: Rgb,
-        codes: &[u8],
-    ) {
+    pub fn text(&mut self, font: &str, size: f64, x: f64, y: f64, colour: Rgb, codes: &[u8]) {
         let _ = write!(
             self.operators,
             "BT /{font} {} Tf {} rg {} {} Td (",
@@ -446,8 +435,8 @@ mod tests {
 
     /// The real brand logo, decoded and split into colour and alpha — the same asset the TypeScript renderer embeds.
     fn logo() -> Option<(u32, u32, Vec<u8>, Vec<u8>)> {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../public/brand/CLLOGO.png");
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../public/brand/CLLOGO.png");
         let bytes = std::fs::read(path).ok()?;
         let reader = image::ImageReader::new(std::io::Cursor::new(&bytes))
             .with_guessed_format()
@@ -524,7 +513,13 @@ mod tests {
             content.image("Im1", 460.0, 712.0, 100.0, 33.0);
         }
         let page = pdf
-            .page(612.0, 792.0, page_tree, resources_ref, &content.into_bytes())
+            .page(
+                612.0,
+                792.0,
+                page_tree,
+                resources_ref,
+                &content.into_bytes(),
+            )
             .expect("the page writes");
         let info = pdf.info(
             "REAL ESTATE LISTING AGREEMENT",
@@ -550,7 +545,10 @@ mod tests {
         assert!(text.contains("/Type /Pages"));
         assert!(text.contains("/Type /Page "));
         assert!(text.contains("/Encoding /WinAnsiEncoding"));
-        assert!(text.trim_end().ends_with("%%EOF"), "and ends with its trailer");
+        assert!(
+            text.trim_end().ends_with("%%EOF"),
+            "and ends with its trailer"
+        );
 
         // Every cross-reference entry must point at the object it claims. A wrong offset opens as a damaged file.
         let start = text.find("xref").expect("an xref table");

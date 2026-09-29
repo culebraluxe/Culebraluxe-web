@@ -150,7 +150,10 @@ impl PropertyDao {
         self.fetch_person_context(person_id).await
     }
 
-    pub(super) async fn fetch_person_context(&self, person_id: &str) -> DbResult<PersonPropertyContext> {
+    pub(super) async fn fetch_person_context(
+        &self,
+        person_id: &str,
+    ) -> DbResult<PersonPropertyContext> {
         let canonical = sqlx::query_as::<_, PropertyRelationRow>(property_sql!(
             "select ",
             ", pp.relation_type, pp.relation_status
@@ -269,10 +272,7 @@ impl PropertyDao {
         Ok(row.map(map_property))
     }
 
-    pub async fn set_listing_type(
-        &self,
-        request: &SetPropertyListingTypeRequest,
-    ) -> DbResult<()> {
+    pub async fn set_listing_type(&self, request: &SetPropertyListingTypeRequest) -> DbResult<()> {
         sqlx::query(
             r#"
             insert into property_stellar_listing (property_id, listing_type)
@@ -524,5 +524,4 @@ impl PropertyDao {
 
         Ok(row.map(map_admin_record))
     }
-
 }

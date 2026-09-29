@@ -36,7 +36,10 @@ impl View {
     fn body(&self, model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
         let statement = model.book.and_then(|accounting| accounting.pnl.clone());
         let Some(statement) = statement else {
-            return crate::app::template::loading_toned(crate::app::template::Tone::Dark, "the period");
+            return crate::app::template::loading_toned(
+                crate::app::template::Tone::Dark,
+                "the period",
+            );
         };
         let lines = statement.income.len() + statement.expenses.len();
         let negative = statement.net_income.trim().starts_with('-');

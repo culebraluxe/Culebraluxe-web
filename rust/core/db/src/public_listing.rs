@@ -608,7 +608,11 @@ impl PublicListingDao {
     /// `size`: `card` or `thumb` serve that copy when the photograph has one; anything else, and a photograph without
     /// it, serves the web copy (then the original).
     pub async fn media_bytes(&self, id: &str, size: &str) -> DbResult<Option<(String, Vec<u8>)>> {
-        let size = if matches!(size, "card" | "thumb") { size } else { "web" };
+        let size = if matches!(size, "card" | "thumb") {
+            size
+        } else {
+            "web"
+        };
         let row = sqlx::query_as::<_, (String, Vec<u8>)>(
             r#"
             select

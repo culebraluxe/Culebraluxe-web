@@ -109,7 +109,10 @@ pub(super) fn exec_q<'q>(tx: &mut NeonTx<'_>, q: Query<'q, Postgres, PgArguments
         .map_err(|e| WorkflowError::generic(e.to_string()))
 }
 
-pub(super) fn fetch_all_q<'q>(tx: &mut NeonTx<'_>, q: Query<'q, Postgres, PgArguments>) -> Result<Vec<PgRow>> {
+pub(super) fn fetch_all_q<'q>(
+    tx: &mut NeonTx<'_>,
+    q: Query<'q, Postgres, PgArguments>,
+) -> Result<Vec<PgRow>> {
     let handle = tx.handle.clone();
     let conn = tx.conn();
     handle
@@ -117,7 +120,10 @@ pub(super) fn fetch_all_q<'q>(tx: &mut NeonTx<'_>, q: Query<'q, Postgres, PgArgu
         .map_err(|e| WorkflowError::generic(e.to_string()))
 }
 
-pub(super) fn fetch_one_q<'q>(tx: &mut NeonTx<'_>, q: Query<'q, Postgres, PgArguments>) -> Result<PgRow> {
+pub(super) fn fetch_one_q<'q>(
+    tx: &mut NeonTx<'_>,
+    q: Query<'q, Postgres, PgArguments>,
+) -> Result<PgRow> {
     let handle = tx.handle.clone();
     let conn = tx.conn();
     handle

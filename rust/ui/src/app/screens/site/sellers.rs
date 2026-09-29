@@ -11,13 +11,13 @@
 
 use yew::prelude::*;
 
-use crate::app::screen::ScreenCtx;
-use crate::app::site::{page_hero, StaticPage, StaticPageSpec};
-use crate::icons::icon_html;
 use super::content::{
     SELLER_DISTRIBUTION, SELLER_MARKET_LEFT, SELLER_MARKET_RIGHT, SELLER_PRESENTATION,
     SELLER_PROCESS, SELLER_REPRESENTATION, SELLER_WHY_US,
 };
+use crate::app::screen::ScreenCtx;
+use crate::app::site::{page_hero, StaticPage, StaticPageSpec};
+use crate::icons::icon_html;
 
 /// The label a section puts above its heading.
 fn section_number(number: &str) -> Html {

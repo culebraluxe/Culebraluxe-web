@@ -6,7 +6,9 @@
 use yew::prelude::*;
 
 use crate::app::cmd::Remote;
-use crate::model::{PortalCatchUpItem, PortalCatchUpPage, PortalProjectWorkItem, PortalProjectsPage};
+use crate::model::{
+    PortalCatchUpItem, PortalCatchUpPage, PortalProjectWorkItem, PortalProjectsPage,
+};
 
 use super::super::catch_up::{buckets, effective_tab, overdue, project_name, status_matches};
 use super::super::{Msg, Vm};
@@ -21,15 +23,36 @@ pub(super) fn view(model: &Vm<'_>, projects: &PortalProjectsPage, on_msg: &Callb
         _ => None,
     };
     let tabs = [
-        ("today", "Today", Some(buckets.today.iter().filter(|item| item.status != "done").count())),
-        ("unscheduled", "Unscheduled", Some(buckets.unscheduled.len())),
+        (
+            "today",
+            "Today",
+            Some(
+                buckets
+                    .today
+                    .iter()
+                    .filter(|item| item.status != "done")
+                    .count(),
+            ),
+        ),
+        (
+            "unscheduled",
+            "Unscheduled",
+            Some(buckets.unscheduled.len()),
+        ),
         ("people", "People", people_count),
     ];
-    let entries: &[&PortalProjectWorkItem] = if tab == "unscheduled" { &buckets.unscheduled } else { &buckets.today };
+    let entries: &[&PortalProjectWorkItem] = if tab == "unscheduled" {
+        &buckets.unscheduled
+    } else {
+        &buckets.today
+    };
     let summary = if tab == "people" {
         match &state.people {
             Remote::Loaded(page) if page.items.is_empty() => "Caught up".to_owned(),
-            Remote::Loaded(page) => format!("{} need you · {} high priority", page.total, page.high_priority_count),
+            Remote::Loaded(page) => format!(
+                "{} need you · {} high priority",
+                page.total, page.high_priority_count
+            ),
             _ => String::new(),
         }
     } else {
@@ -91,7 +114,11 @@ pub(super) fn view(model: &Vm<'_>, projects: &PortalProjectsPage, on_msg: &Callb
 
 fn work_summary(entries: &[&PortalProjectWorkItem], tab: &str) -> String {
     if entries.is_empty() {
-        return if tab == "today" { "Nothing due today".into() } else { "No unscheduled work".into() };
+        return if tab == "today" {
+            "Nothing due today".into()
+        } else {
+            "No unscheduled work".into()
+        };
     }
     let done = entries.iter().filter(|item| item.status == "done").count();
     format!("{} remaining · {done} complete", entries.len() - done)
@@ -111,7 +138,12 @@ fn schedule(projects: &PortalProjectsPage) -> Html {
         .iter()
         .filter(|event| crate::calendar::date_key(&event.start_at).as_deref() == Some(today))
         .collect();
-    events.sort_by(|a, b| b.all_day.cmp(&a.all_day).then_with(|| a.start_at.cmp(&b.start_at)).then_with(|| a.title.cmp(&b.title)));
+    events.sort_by(|a, b| {
+        b.all_day
+            .cmp(&a.all_day)
+            .then_with(|| a.start_at.cmp(&b.start_at))
+            .then_with(|| a.title.cmp(&b.title))
+    });
     html! {
         <section class="shrink-0 border-b border-[var(--portal-panel-border)]/70 px-3 py-2" aria-label="Today's schedule">
             <div class="flex items-center gap-2">
@@ -157,14 +189,26 @@ fn source_label(source: &str, kind: &str) -> &'static str {
     }
 }
 
-fn filters(state: &super::super::CatchUpState, entries: &[&PortalProjectWorkItem], on_msg: &Callback<Msg>) -> Html {
-    let counts = |key: &str| entries.iter().filter(|item| status_matches(item, key)).count();
-    let mut areas: Vec<&str> = entries.iter().map(|item| item.category.as_str()).filter(|area| !area.is_empty()).collect();
+fn filters(
+    state: &super::super::CatchUpState,
+    entries: &[&PortalProjectWorkItem],
+    on_msg: &Callback<Msg>,
+) -> Html {
+    let counts = |key: &str| {
+        entries
+            .iter()
+            .filter(|item| status_matches(item, key))
+            .count()
+    };
+    let mut areas: Vec<&str> = entries
+        .iter()
+        .map(|item| item.category.as_str())
+        .filter(|area| !area.is_empty())
+        .collect();
     areas.sort_unstable();
     areas.dedup();
-    let onchange = on_msg.reform(|event: Event| {
-        Msg::CatchUpAreaSelected(crate::app::exec::select_value(&event))
-    });
+    let onchange = on_msg
+        .reform(|event: Event| Msg::CatchUpAreaSelected(crate::app::exec::select_value(&event)));
     html! {
         <div class="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--portal-panel-border)]/70 px-3 py-2">
             <span class="mr-1 text-[10px] font-medium uppercase tracking-[0.12em] text-black/35">{"Status"}</span>
@@ -198,7 +242,8 @@ fn work_table(
     state: &super::super::CatchUpState,
     on_msg: &Callback<Msg>,
 ) -> Html {
-    const COLUMNS: &str = "grid-cols-[22px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,0.7fr)_88px_92px_28px]";
+    const COLUMNS: &str =
+        "grid-cols-[22px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,0.7fr)_88px_92px_28px]";
     let visible: Vec<&&PortalProjectWorkItem> = entries
         .iter()
         .filter(|item| status_matches(item, &state.status))
@@ -224,20 +269,36 @@ fn work_table(
     }
 }
 
-fn work_row(projects: &PortalProjectsPage, item: &PortalProjectWorkItem, columns: &'static str, on_msg: &Callback<Msg>) -> Html {
+fn work_row(
+    projects: &PortalProjectsPage,
+    item: &PortalProjectWorkItem,
+    columns: &'static str,
+    on_msg: &Callback<Msg>,
+) -> Html {
     let project_id = item.project_id.clone().unwrap_or_default();
     let ids = (project_id.clone(), item.id.clone());
     let select = {
         let (project_id, node_id) = ids.clone();
-        on_msg.reform(move |_: MouseEvent| Msg::ProjectCatchUpItemSelected { project_id: project_id.clone(), node_id: node_id.clone() })
+        on_msg.reform(move |_: MouseEvent| Msg::ProjectCatchUpItemSelected {
+            project_id: project_id.clone(),
+            node_id: node_id.clone(),
+        })
     };
     let complete = {
         let (project_id, node_id) = ids.clone();
-        on_msg.reform(move |_: MouseEvent| Msg::ProjectCatchUpItemCompleteRequested { project_id: project_id.clone(), node_id: node_id.clone() })
+        on_msg.reform(
+            move |_: MouseEvent| Msg::ProjectCatchUpItemCompleteRequested {
+                project_id: project_id.clone(),
+                node_id: node_id.clone(),
+            },
+        )
     };
     let open = {
         let (project_id, node_id) = ids;
-        on_msg.reform(move |_: MouseEvent| Msg::NavWorkSelected { project_id: project_id.clone(), node_id: node_id.clone() })
+        on_msg.reform(move |_: MouseEvent| Msg::NavWorkSelected {
+            project_id: project_id.clone(),
+            node_id: node_id.clone(),
+        })
     };
     let selected = projects.selected_node_id.as_deref() == Some(item.id.as_str());
     let done = item.status == "done";
@@ -297,7 +358,9 @@ fn title_case(value: &str) -> String {
 
 /// People: the relationship queue on the left, the chosen person on the right, in the panel's glass.
 fn people(state: &super::super::CatchUpState, on_msg: &Callback<Msg>) -> Html {
-    let body = crate::app::template::remote(&state.people, "who needs you", |page| people_workspace(page, state, on_msg));
+    let body = crate::app::template::remote(&state.people, "who needs you", |page| {
+        people_workspace(page, state, on_msg)
+    });
     html! {
         <div class="flex min-h-0 flex-1 flex-col px-3 py-2">
             if let Some(notice) = &state.notice {
@@ -308,7 +371,11 @@ fn people(state: &super::super::CatchUpState, on_msg: &Callback<Msg>) -> Html {
     }
 }
 
-fn people_workspace(page: &PortalCatchUpPage, state: &super::super::CatchUpState, on_msg: &Callback<Msg>) -> Html {
+fn people_workspace(
+    page: &PortalCatchUpPage,
+    state: &super::super::CatchUpState,
+    on_msg: &Callback<Msg>,
+) -> Html {
     if page.items.is_empty() {
         return html! {
             <p class="px-4 py-10 text-center text-sm font-light text-black/40">
@@ -356,7 +423,10 @@ fn person_row(item: &PortalCatchUpItem, chosen: Option<&str>, on_msg: &Callback<
 fn person_detail(item: &PortalCatchUpItem, busy: bool, on_msg: &Callback<Msg>) -> Html {
     let handle = {
         let (person_id, reason_code) = (item.person_id.clone(), item.reason_code.clone());
-        on_msg.reform(move |_: MouseEvent| Msg::PeopleHandleRequested { person_id: person_id.clone(), reason_code: reason_code.clone() })
+        on_msg.reform(move |_: MouseEvent| Msg::PeopleHandleRequested {
+            person_id: person_id.clone(),
+            reason_code: reason_code.clone(),
+        })
     };
     html! {
         <div class="space-y-4">
@@ -418,9 +488,23 @@ fn fact(label: &str, value: &str) -> Html {
 
 fn action_class(primary: bool) -> Classes {
     classes!(
-        "inline-flex", "min-h-9", "items-center", "gap-1.5", "rounded-full", "px-3", "text-[10px]", "font-medium", "uppercase",
-        "tracking-[0.1em]", "transition", "disabled:opacity-40",
-        if primary { "bg-[var(--portal-navy)] text-white hover:opacity-90" } else { "border border-[var(--portal-panel-border)] bg-white/35 text-[var(--portal-navy)] hover:bg-white/60" }
+        "inline-flex",
+        "min-h-9",
+        "items-center",
+        "gap-1.5",
+        "rounded-full",
+        "px-3",
+        "text-[10px]",
+        "font-medium",
+        "uppercase",
+        "tracking-[0.1em]",
+        "transition",
+        "disabled:opacity-40",
+        if primary {
+            "bg-[var(--portal-navy)] text-white hover:opacity-90"
+        } else {
+            "border border-[var(--portal-panel-border)] bg-white/35 text-[var(--portal-navy)] hover:bg-white/60"
+        }
     )
 }
 

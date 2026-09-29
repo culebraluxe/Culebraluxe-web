@@ -18,33 +18,33 @@ use domain::{
     ClientHistoryRequest, GetCommsPanelRequest, GetCommsTimelineRequest, SearchPeopleRequest,
     UploadPropertyMediaRequest, VaultActorScope, MAX_MEDIA_UPLOAD_BYTES,
 };
-mod bodies;
-mod webhooks_support;
-mod security_service;
-mod work;
-mod people_properties;
-mod media;
-mod deals_forms_comms;
 mod accounting_vault;
+mod bodies;
+mod deals_forms_comms;
+mod media;
+mod people_properties;
 mod public;
-#[allow(unused_imports)]
-pub(super) use bodies::*;
-#[allow(unused_imports)]
-pub(super) use webhooks_support::*;
-#[allow(unused_imports)]
-pub(super) use security_service::*;
-#[allow(unused_imports)]
-pub(super) use work::*;
-#[allow(unused_imports)]
-pub(super) use people_properties::*;
-#[allow(unused_imports)]
-pub(super) use media::*;
-#[allow(unused_imports)]
-pub(super) use deals_forms_comms::*;
+mod security_service;
+mod webhooks_support;
+mod work;
 #[allow(unused_imports)]
 pub(super) use accounting_vault::*;
 #[allow(unused_imports)]
+pub(super) use bodies::*;
+#[allow(unused_imports)]
+pub(super) use deals_forms_comms::*;
+#[allow(unused_imports)]
+pub(super) use media::*;
+#[allow(unused_imports)]
+pub(super) use people_properties::*;
+#[allow(unused_imports)]
 pub(super) use public::*;
+#[allow(unused_imports)]
+pub(super) use security_service::*;
+#[allow(unused_imports)]
+pub(super) use webhooks_support::*;
+#[allow(unused_imports)]
+pub(super) use work::*;
 
 #[cfg(test)]
 use domain::{VaultArtifactFailure, VaultCommandOutcome};
@@ -132,8 +132,14 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/projects/{id}", get(project).patch(update_project))
         .route("/v1/wbs", post(create_wbs_item))
         .route("/v1/wbs/project-items", get(wbs_project_items))
-        .route("/v1/wbs/dependencies/{project_id}", get(wbs_dependencies).post(add_wbs_dependency))
-        .route("/v1/wbs/dependencies/{project_id}/{source_id}/{target_id}", axum::routing::delete(remove_wbs_dependency))
+        .route(
+            "/v1/wbs/dependencies/{project_id}",
+            get(wbs_dependencies).post(add_wbs_dependency),
+        )
+        .route(
+            "/v1/wbs/dependencies/{project_id}/{source_id}/{target_id}",
+            axum::routing::delete(remove_wbs_dependency),
+        )
         .route("/v1/wbs/{id}", get(wbs_item).patch(update_wbs_item))
         .route("/v1/tasks/{id}/complete", post(complete_task))
         .route("/v1/wbs/{id}/apple-reminder", post(queue_apple_reminder))

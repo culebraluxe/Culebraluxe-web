@@ -29,7 +29,11 @@ pub(super) fn editor(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
     }
 }
 
-pub(super) fn editor_header(model: &Vm<'_>, data: &PortalOpsWorkbenchPage, on_msg: &Callback<Msg>) -> Html {
+pub(super) fn editor_header(
+    model: &Vm<'_>,
+    data: &PortalOpsWorkbenchPage,
+    on_msg: &Callback<Msg>,
+) -> Html {
     let (title, subtitle, status) = match data.entity.as_str() {
         "person" => data.person.as_ref().map(|record| {
             (

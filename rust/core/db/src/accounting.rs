@@ -10,9 +10,9 @@
 //! from being a possible state.
 
 use domain::{
-    AccountingDashboard, CategoryShare, CommissionForecast, CommissionForecastItem, CreateExpenseCommand,
-    CreateReceivableCommand, Expense, MarkReceivablePaidCommand, MarkReceivablePaidOutcome, Money, PnlLine,
-    PnlRequest, PnlStatement, PnlTrendPoint, Receivable,
+    AccountingDashboard, CategoryShare, CommissionForecast, CommissionForecastItem,
+    CreateExpenseCommand, CreateReceivableCommand, Expense, MarkReceivablePaidCommand,
+    MarkReceivablePaidOutcome, Money, PnlLine, PnlRequest, PnlStatement, PnlTrendPoint, Receivable,
 };
 use sqlx::FromRow;
 
@@ -23,7 +23,6 @@ mod recent_expenses_select;
 pub use receivable_row::*;
 #[allow(unused_imports)]
 pub use recent_expenses_select::*;
-
 
 #[cfg(test)]
 mod tests {

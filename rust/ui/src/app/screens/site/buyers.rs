@@ -14,8 +14,8 @@ use super::visitor::{Model, Msg};
 
 pub use crate::app::site::page_hero;
 
-use crate::model::Listing;
 use super::content::{buyers_visible, BUYER_SERVICES, BUYER_STEPS};
+use crate::model::Listing;
 
 pub struct Buyers;
 

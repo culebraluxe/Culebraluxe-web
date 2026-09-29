@@ -54,7 +54,8 @@ pub(super) fn field_control(
             let changed = link.callback(move |event: InputEvent| Msg::FieldChanged {
                 name: name.clone(),
                 value: crate::app::exec::input_value(&event)
-                    .replace('$', "").replace(',', ""),
+                    .replace('$', "")
+                    .replace(',', ""),
             });
             html! {
                 <input

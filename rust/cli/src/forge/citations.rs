@@ -110,10 +110,14 @@ pub fn cited_repo_paths(content: &str) -> Vec<String> {
         if token.starts_with('/') || token.starts_with("http:") || token.starts_with("https:") {
             continue; // a route, not a repo path
         }
-        if token.starts_with(".next/") || token.starts_with(".vercel/") || token.starts_with(".git/") {
+        if token.starts_with(".next/")
+            || token.starts_with(".vercel/")
+            || token.starts_with(".git/")
+        {
             continue;
         }
-        if token.contains('<') || token.contains('>') || token.contains('{') || token.contains('}') {
+        if token.contains('<') || token.contains('>') || token.contains('{') || token.contains('}')
+        {
             continue; // placeholder like services/<domain>/
         }
         let looks_like_file = [
@@ -279,7 +283,8 @@ mod tests {
 
     #[test]
     fn only_tokens_that_look_like_paths_are_cited() {
-        let cited = cited_repo_paths("`forge_decision` and `rust/cli/src/main.rs` and `services/<d>/`");
+        let cited =
+            cited_repo_paths("`forge_decision` and `rust/cli/src/main.rs` and `services/<d>/`");
         assert_eq!(cited, vec!["rust/cli/src/main.rs"]);
         assert_eq!(
             cited_repo_paths("`https://x.test/a.md` and `./rel/thing.md` and `docs/agent/`"),

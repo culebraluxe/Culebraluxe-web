@@ -391,32 +391,56 @@ pub(super) async fn wbs_project_items(
 }
 
 pub(super) async fn wbs_dependencies(
-    State(state): State<ApiState>, headers: HeaderMap, Path(project_id): Path<String>,
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(project_id): Path<String>,
 ) -> Result<Json<ApiSuccess<Vec<domain::WbsDependency>>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let value = state.services().wbs().list_dependencies(&project_id, &resolved.service)
-        .await.map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    let value = state
+        .services()
+        .wbs()
+        .list_dependencies(&project_id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(value, &resolved))
 }
 
 pub(super) async fn add_wbs_dependency(
-    State(state): State<ApiState>, headers: HeaderMap, Path(project_id): Path<String>,
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(project_id): Path<String>,
     Json(body): Json<AddWbsDependencyBody>,
 ) -> Result<Json<ApiSuccess<domain::WbsDependency>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let value = state.services().wbs().add_dependency(&domain::WbsDependency {
-        project_id, source_id: body.source_id, target_id: body.target_id, kind: body.kind,
-    }, &resolved.service).await.map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    let value = state
+        .services()
+        .wbs()
+        .add_dependency(
+            &domain::WbsDependency {
+                project_id,
+                source_id: body.source_id,
+                target_id: body.target_id,
+                kind: body.kind,
+            },
+            &resolved.service,
+        )
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(value, &resolved))
 }
 
 pub(super) async fn remove_wbs_dependency(
-    State(state): State<ApiState>, headers: HeaderMap,
+    State(state): State<ApiState>,
+    headers: HeaderMap,
     Path((project_id, source_id, target_id)): Path<(String, String, String)>,
 ) -> Result<Json<ApiSuccess<serde_json::Value>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    state.services().wbs().remove_dependency(&project_id, &source_id, &target_id, &resolved.service)
-        .await.map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    state
+        .services()
+        .wbs()
+        .remove_dependency(&project_id, &source_id, &target_id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     Ok(success(json!({"removed": true}), &resolved))
 }
 

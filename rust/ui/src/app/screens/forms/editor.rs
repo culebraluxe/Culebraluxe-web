@@ -33,10 +33,12 @@ pub(super) fn view(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
     let is_listing = template.id == "LISTING-01";
     let listing_is_active = template.version == template.active_version;
     let listing_locked = page.issued.is_some() || form.status == "issued";
-    let signature_active = page
-        .signature
-        .as_ref()
-        .is_some_and(|signature| matches!(signature.status.as_str(), "requested" | "sent" | "viewed" | "signed"));
+    let signature_active = page.signature.as_ref().is_some_and(|signature| {
+        matches!(
+            signature.status.as_str(),
+            "requested" | "sent" | "viewed" | "signed"
+        )
+    });
     let status_text = model
         .error
         .as_deref()
@@ -53,18 +55,14 @@ pub(super) fn view(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
     };
 
     let grok_changed = link.callback(|event: InputEvent| {
-        Msg::GrokPromptChanged(
-            crate::app::exec::input_value(&event),
-        )
+        Msg::GrokPromptChanged(crate::app::exec::input_value(&event))
     });
     let grok_key = link.callback(|event: KeyboardEvent| {
         if event.key() == "Enter" {
             event.prevent_default();
             Msg::GrokGo
         } else {
-            Msg::GrokPromptChanged(
-                crate::app::exec::input_value(&event),
-            )
+            Msg::GrokPromptChanged(crate::app::exec::input_value(&event))
         }
     });
     let grok_go = link.callback(|_: MouseEvent| Msg::GrokGo);

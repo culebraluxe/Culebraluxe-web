@@ -155,7 +155,9 @@ pub(super) async fn security_identity(
     Ok(success_with_correlation(value, &context.correlation_id))
 }
 
-pub(super) fn identity_response(resolution: domain::SecurityIdentityResolution) -> IdentityResolutionResponse {
+pub(super) fn identity_response(
+    resolution: domain::SecurityIdentityResolution,
+) -> IdentityResolutionResponse {
     match resolution {
         domain::SecurityIdentityResolution::Known(principal) => IdentityResolutionResponse {
             kind: "known",

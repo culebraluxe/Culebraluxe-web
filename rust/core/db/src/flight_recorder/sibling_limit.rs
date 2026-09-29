@@ -146,7 +146,10 @@ impl FlightRecorderDao {
         }))
     }
 
-    pub(super) async fn instance_bundle(&self, instance_id: &str) -> DbResult<Option<InstanceBundle>> {
+    pub(super) async fn instance_bundle(
+        &self,
+        instance_id: &str,
+    ) -> DbResult<Option<InstanceBundle>> {
         let Some(instance) = self.instance(instance_id).await? else {
             return Ok(None);
         };
@@ -289,7 +292,10 @@ impl FlightRecorderDao {
         })
     }
 
-    pub(super) async fn process_event_fallback(&self, instance_id: &str) -> DbResult<Vec<TraceRow>> {
+    pub(super) async fn process_event_fallback(
+        &self,
+        instance_id: &str,
+    ) -> DbResult<Vec<TraceRow>> {
         crate::retrying_read!(async {
             sqlx::query_as::<_, TraceRow>(
                 r#"

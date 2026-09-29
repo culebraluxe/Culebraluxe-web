@@ -68,7 +68,6 @@ pub(super) fn measured_width(font: StandardFont, value: &str, size: f64) -> f64 
 /// copies is not one rule. Re-exported here so the composer's own call sites read unchanged.
 pub use domain::forms_format::{format_date, format_field_value, format_money};
 
-
 // ---------------------------------------------------------------- the prose
 
 /// A section's prose: its literal segments with each `<value field="X"/>` substituted, whitespace collapsed.
@@ -122,7 +121,11 @@ pub fn document_body_text(
             } else {
                 String::new()
             };
-            let text = if edited.is_empty() { default_text } else { edited };
+            let text = if edited.is_empty() {
+                default_text
+            } else {
+                edited
+            };
             if text.is_empty() {
                 section.label.clone()
             } else {
@@ -213,7 +216,12 @@ pub fn overview_fields(
 // ---------------------------------------------------------------- wrapping
 
 /// A word that cannot fit on a line by itself, broken character by character.
-pub(super) fn split_long_word(word: &str, font: StandardFont, size: f64, max_width: f64) -> Vec<String> {
+pub(super) fn split_long_word(
+    word: &str,
+    font: StandardFont,
+    size: f64,
+    max_width: f64,
+) -> Vec<String> {
     if measured_width(font, word, size) <= max_width {
         return vec![word.to_string()];
     }
@@ -236,7 +244,10 @@ pub(super) fn split_long_word(word: &str, font: StandardFont, size: f64, max_wid
 
 /// Greedy, measured word wrap — the same wrap the TypeScript renderer performs, and therefore the same pagination.
 pub fn wrap_text(text: &str, font: StandardFont, size: f64, max_width: f64) -> Vec<String> {
-    let normalized = pdf_safe(text).split_whitespace().collect::<Vec<_>>().join(" ");
+    let normalized = pdf_safe(text)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
     if normalized.is_empty() {
         return Vec::new();
     }
@@ -568,10 +579,7 @@ pub(super) fn signature_block_display_name(
 ) -> String {
     let name = participant_name.trim();
     let bound = bound_field_value.trim();
-    let generic = matches!(
-        name.to_lowercase().as_str(),
-        "owner" | "seller" | "buyer"
-    );
+    let generic = matches!(name.to_lowercase().as_str(), "owner" | "seller" | "buyer");
     if participant_index == 0 && !bound.is_empty() && generic {
         bound.to_string()
     } else {

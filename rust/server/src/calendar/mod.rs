@@ -259,7 +259,10 @@ impl<R: CalendarRepository> CalendarService<R> {
                 "Calendar command id is required.",
             ))
         } else {
-            self.repository.command_state(command_id).await.map_err(Into::into)
+            self.repository
+                .command_state(command_id)
+                .await
+                .map_err(Into::into)
         };
         audit_result(&self.runtime, "calendar", OP, context, decision, &result).await?;
         result

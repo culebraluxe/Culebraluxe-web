@@ -43,11 +43,17 @@ pub const DOMAINS: [(&str, &str, &str); 6] = [
 ];
 
 pub fn domain_label(domain: &str) -> &'static str {
-    DOMAINS.iter().find(|(key, ..)| *key == domain).map_or("Projects", |(_, label, _)| label)
+    DOMAINS
+        .iter()
+        .find(|(key, ..)| *key == domain)
+        .map_or("Projects", |(_, label, _)| label)
 }
 
 pub fn domain_icon(domain: &str) -> &'static str {
-    DOMAINS.iter().find(|(key, ..)| *key == domain).map_or("home", |(.., icon)| icon)
+    DOMAINS
+        .iter()
+        .find(|(key, ..)| *key == domain)
+        .map_or("home", |(.., icon)| icon)
 }
 
 pub fn project_kind_icon(kind: &str) -> &'static str {
@@ -85,7 +91,10 @@ pub fn work_type_icon(kind: &str, label: &str) -> &'static str {
         "milestone" => "flag",
         "group" => {
             let lower = label.to_lowercase();
-            if ["client", "parties", "people", "person", "seller"].iter().any(|word| lower.contains(word)) {
+            if ["client", "parties", "people", "person", "seller"]
+                .iter()
+                .any(|word| lower.contains(word))
+            {
                 "users"
             } else {
                 "home"
@@ -134,12 +143,18 @@ pub fn entity_domain(entity_type: &str) -> Option<&'static str> {
     }
 }
 
-const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTHS: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
 
 /// A due date as the tree shows it: "Sep 28".
 pub fn due_label(value: Option<&str>) -> String {
-    let Some(value) = value else { return String::new() };
-    let (Some(month), Some(day)) = (value.get(5..7), value.get(8..10)) else { return String::new() };
+    let Some(value) = value else {
+        return String::new();
+    };
+    let (Some(month), Some(day)) = (value.get(5..7), value.get(8..10)) else {
+        return String::new();
+    };
     match (month.parse::<usize>(), day.parse::<u32>()) {
         (Ok(month @ 1..=12), Ok(day)) => format!("{} {day}", MONTHS[month - 1]),
         _ => String::new(),
@@ -161,7 +176,12 @@ fn work_children(
         a.order
             .unwrap_or(i32::MAX)
             .cmp(&b.order.unwrap_or(i32::MAX))
-            .then_with(|| a.due_at.as_deref().unwrap_or("9999").cmp(b.due_at.as_deref().unwrap_or("9999")))
+            .then_with(|| {
+                a.due_at
+                    .as_deref()
+                    .unwrap_or("9999")
+                    .cmp(b.due_at.as_deref().unwrap_or("9999"))
+            })
             .then_with(|| a.id.cmp(&b.id))
     });
     level
@@ -177,14 +197,21 @@ fn work_children(
                 .filter(|part| !part.is_empty())
                 .collect::<Vec<_>>()
                 .join(" · ");
-            let children = work_children(pole_id, project_id, Some(item.id.as_str()), items, &branch);
-            let search = [item.title.as_str(), kind, status, item.owner.as_deref().unwrap_or(""), due.as_str()]
-                .into_iter()
-                .chain(children.iter().map(|child| child.search.as_str()))
-                .filter(|part| !part.is_empty())
-                .collect::<Vec<_>>()
-                .join(" ")
-                .to_lowercase();
+            let children =
+                work_children(pole_id, project_id, Some(item.id.as_str()), items, &branch);
+            let search = [
+                item.title.as_str(),
+                kind,
+                status,
+                item.owner.as_deref().unwrap_or(""),
+                due.as_str(),
+            ]
+            .into_iter()
+            .chain(children.iter().map(|child| child.search.as_str()))
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase();
             NavNode {
                 id: format!("{pole_id}::{project_id}::{}", item.id),
                 kind: NodeKind::Work,
@@ -203,13 +230,24 @@ fn work_children(
         .collect()
 }
 
-fn add<'a>(buckets: &mut Vec<Bucket<'a>>, id: String, label: String, subtitle: String, project: &'a PortalProject) {
+fn add<'a>(
+    buckets: &mut Vec<Bucket<'a>>,
+    id: String,
+    label: String,
+    subtitle: String,
+    project: &'a PortalProject,
+) {
     if let Some(bucket) = buckets.iter_mut().find(|bucket| bucket.id == id) {
         if !bucket.projects.iter().any(|p| p.id == project.id) {
             bucket.projects.push(project);
         }
     } else {
-        buckets.push(Bucket { id, label, subtitle, projects: vec![project] });
+        buckets.push(Bucket {
+            id,
+            label,
+            subtitle,
+            projects: vec![project],
+        });
     }
 }
 
@@ -256,22 +294,39 @@ pub struct Lens {
 /// Every lens that shows `project`, in rail order: one entry per record it sits under in that lens (a property, a
 /// person, a contract), or the lens's collection when it has no record there.
 pub fn lenses(page: &PortalProjectsPage, project: &PortalProject) -> Vec<Lens> {
-    let items: Vec<&PortalProjectWorkItem> =
-        page.items.iter().filter(|item| item.project_id.as_deref() == Some(project.id.as_str())).collect();
+    let items: Vec<&PortalProjectWorkItem> = page
+        .items
+        .iter()
+        .filter(|item| item.project_id.as_deref() == Some(project.id.as_str()))
+        .collect();
     let anchors = anchors(project, &items);
     let mut out = Vec::new();
     for (domain, label, _) in DOMAINS {
         if !crate::projects::project_in_domain(project, &page.items, domain) {
             continue;
         }
-        let here: Vec<&(String, String)> =
-            anchors.iter().filter(|(kind, _)| entity_domain(kind) == Some(domain)).collect();
+        let here: Vec<&(String, String)> = anchors
+            .iter()
+            .filter(|(kind, _)| entity_domain(kind) == Some(domain))
+            .collect();
         if here.is_empty() {
-            out.push(Lens { domain, pole_id: format!("collection-{domain}"), label: label.to_owned() });
+            out.push(Lens {
+                domain,
+                pole_id: format!("collection-{domain}"),
+                label: label.to_owned(),
+            });
         }
         for (kind, id) in here {
-            let name = page.identity_names.get(&format!("{kind}:{id}")).cloned().unwrap_or_else(|| id.clone());
-            out.push(Lens { domain, pole_id: format!("entity-{kind}-{id}"), label: name });
+            let name = page
+                .identity_names
+                .get(&format!("{kind}:{id}"))
+                .cloned()
+                .unwrap_or_else(|| id.clone());
+            out.push(Lens {
+                domain,
+                pole_id: format!("entity-{kind}-{id}"),
+                label: name,
+            });
         }
     }
     out
@@ -287,7 +342,9 @@ pub fn is_open(
     opened: &[String],
 ) -> bool {
     !node.children.is_empty()
-        && (searching || (!closed.contains(&node.id) && (open.contains(&node.id) || opened.contains(&node.id))))
+        && (searching
+            || (!closed.contains(&node.id)
+                && (open.contains(&node.id) || opened.contains(&node.id))))
 }
 
 /// One drawn row, in screen order — what the arrow keys walk.
@@ -341,7 +398,15 @@ pub fn visible_rows(
                     .collect(),
             });
             if is_open {
-                walk(&node.children, Some(&node.id), query, open, closed, opened, out);
+                walk(
+                    &node.children,
+                    Some(&node.id),
+                    query,
+                    open,
+                    closed,
+                    opened,
+                    out,
+                );
             }
         }
     }
@@ -361,27 +426,48 @@ pub fn build(page: &PortalProjectsPage) -> Vec<NavNode> {
     }
     let mut buckets: Vec<Bucket> = Vec::new();
     for project in &page.projects {
-        let items = by_project.get(project.id.as_str()).cloned().unwrap_or_default();
+        let items = by_project
+            .get(project.id.as_str())
+            .cloned()
+            .unwrap_or_default();
         if !crate::projects::project_in_domain(project, &page.items, domain) {
             continue;
         }
         let anchors = anchors(project, &items);
-        let matching: Vec<&(String, String)> =
-            anchors.iter().filter(|(kind, _)| entity_domain(kind) == Some(domain)).collect();
+        let matching: Vec<&(String, String)> = anchors
+            .iter()
+            .filter(|(kind, _)| entity_domain(kind) == Some(domain))
+            .collect();
         if matching.is_empty() {
-            add(&mut buckets, format!("collection-{domain}"), domain_label(domain).to_owned(), String::new(), project);
+            add(
+                &mut buckets,
+                format!("collection-{domain}"),
+                domain_label(domain).to_owned(),
+                String::new(),
+                project,
+            );
             continue;
         }
         for (kind, id) in matching {
             let key = format!("{kind}:{id}");
-            let label = page.identity_names.get(&key).cloned().unwrap_or_else(|| id.clone());
+            let label = page
+                .identity_names
+                .get(&key)
+                .cloned()
+                .unwrap_or_else(|| id.clone());
             let subtitle = match kind.as_str() {
                 "person" => "Client",
                 "property" => "Property",
                 "contract" => "Contract",
                 _ => "Workspace",
             };
-            add(&mut buckets, format!("entity-{kind}-{id}"), label, subtitle.to_owned(), project);
+            add(
+                &mut buckets,
+                format!("entity-{kind}-{id}"),
+                label,
+                subtitle.to_owned(),
+                project,
+            );
         }
     }
 
@@ -398,10 +484,20 @@ pub fn build(page: &PortalProjectsPage) -> Vec<NavNode> {
                 .projects
                 .iter()
                 .map(|project| {
-                    let items = by_project.get(project.id.as_str()).cloned().unwrap_or_default();
-                    let planned = items.iter().filter(|item| item.status != "dismissed").count();
+                    let items = by_project
+                        .get(project.id.as_str())
+                        .cloned()
+                        .unwrap_or_default();
+                    let planned = items
+                        .iter()
+                        .filter(|item| item.status != "dismissed")
+                        .count();
                     let done = items.iter().filter(|item| item.status == "done").count();
-                    let progress = if planned == 0 { 0 } else { ((done as f64 / planned as f64) * 100.0).round() as i64 };
+                    let progress = if planned == 0 {
+                        0
+                    } else {
+                        ((done as f64 / planned as f64) * 100.0).round() as i64
+                    };
                     let kind = project
                         .project_type
                         .clone()
@@ -415,7 +511,8 @@ pub fn build(page: &PortalProjectsPage) -> Vec<NavNode> {
                         _ => "Open",
                     };
                     let meta = format!("{kind} · {state}");
-                    let work = work_children(&bucket.id, &project.id, None, &items, &HashSet::new());
+                    let work =
+                        work_children(&bucket.id, &project.id, None, &items, &HashSet::new());
                     let search = [project.name.as_str(), kind.as_str(), meta.as_str()]
                         .into_iter()
                         .map(str::to_owned)
@@ -442,7 +539,12 @@ pub fn build(page: &PortalProjectsPage) -> Vec<NavNode> {
             let progress = if projects.is_empty() {
                 0
             } else {
-                (projects.iter().map(|p| p.progress.unwrap_or(0)).sum::<i64>() as f64 / projects.len() as f64).round() as i64
+                (projects
+                    .iter()
+                    .map(|p| p.progress.unwrap_or(0))
+                    .sum::<i64>() as f64
+                    / projects.len() as f64)
+                    .round() as i64
             };
             let search = [bucket.label.as_str(), subtitle.as_str()]
                 .into_iter()
@@ -473,7 +575,10 @@ pub fn build(page: &PortalProjectsPage) -> Vec<NavNode> {
 pub fn selected_id(nodes: &[NavNode], project: Option<&str>, work: Option<&str>) -> Option<String> {
     let project = project?;
     fn visit(node: &NavNode, project: &str, work: Option<&str>) -> Option<String> {
-        if work.is_some() && node.work_id.as_deref() == work && node.project_id.as_deref() == Some(project) {
+        if work.is_some()
+            && node.work_id.as_deref() == work
+            && node.project_id.as_deref() == Some(project)
+        {
             return Some(node.id.clone());
         }
         for child in &node.children {
@@ -481,8 +586,10 @@ pub fn selected_id(nodes: &[NavNode], project: Option<&str>, work: Option<&str>)
                 return Some(found);
             }
         }
-        (work.is_none() && node.kind == NodeKind::Project && node.project_id.as_deref() == Some(project))
-            .then(|| node.id.clone())
+        (work.is_none()
+            && node.kind == NodeKind::Project
+            && node.project_id.as_deref() == Some(project))
+        .then(|| node.id.clone())
     }
     nodes
         .iter()
@@ -491,7 +598,10 @@ pub fn selected_id(nodes: &[NavNode], project: Option<&str>, work: Option<&str>)
             nodes.iter().find_map(|node| {
                 node.children
                     .iter()
-                    .find(|child| child.kind == NodeKind::Project && child.project_id.as_deref() == Some(project))
+                    .find(|child| {
+                        child.kind == NodeKind::Project
+                            && child.project_id.as_deref() == Some(project)
+                    })
                     .map(|child| child.id.clone())
             })
         })
@@ -519,7 +629,13 @@ mod tests {
     use super::*;
     use crate::model::PortalProjectEntity;
 
-    fn item(id: &str, parent: Option<&str>, order: i32, status: &str, category: &str) -> PortalProjectWorkItem {
+    fn item(
+        id: &str,
+        parent: Option<&str>,
+        order: i32,
+        status: &str,
+        category: &str,
+    ) -> PortalProjectWorkItem {
         PortalProjectWorkItem {
             id: id.into(),
             title: id.into(),
@@ -555,31 +671,58 @@ mod tests {
         let tree = build(&page);
         assert_eq!(tree.len(), 1);
         let pole = &tree[0];
-        assert_eq!((pole.label.as_str(), pole.subtitle.as_deref(), pole.kind), ("Casa Luar", Some("Property"), NodeKind::Pole));
+        assert_eq!(
+            (pole.label.as_str(), pole.subtitle.as_deref(), pole.kind),
+            ("Casa Luar", Some("Property"), NodeKind::Pole)
+        );
         let project = &pole.children[0];
-        assert_eq!((project.label.as_str(), project.meta.as_str()), ("Casa Luar Listing", "LISTING · In progress"));
-        assert_eq!(project.progress, Some(50), "one of two planned items done (dismissed excluded)");
+        assert_eq!(
+            (project.label.as_str(), project.meta.as_str()),
+            ("Casa Luar Listing", "LISTING · In progress")
+        );
+        assert_eq!(
+            project.progress,
+            Some(50),
+            "one of two planned items done (dismissed excluded)"
+        );
         let work: Vec<&str> = project.children.iter().map(|n| n.label.as_str()).collect();
         assert_eq!(work, ["a", "b"], "in order");
-        assert_eq!(project.children[0].children[0].label, "a1", "nested under its parent");
+        assert_eq!(
+            project.children[0].children[0].label, "a1",
+            "nested under its parent"
+        );
     }
 
     #[test]
     fn a_project_without_an_anchor_in_the_domain_joins_the_collection() {
         let page = PortalProjectsPage {
             active_domain: "firm".into(),
-            projects: vec![PortalProject { id: "p1".into(), name: "Office".into(), areas: vec!["firm".into()], ..Default::default() }],
+            projects: vec![PortalProject {
+                id: "p1".into(),
+                name: "Office".into(),
+                areas: vec!["firm".into()],
+                ..Default::default()
+            }],
             items: vec![PortalProjectWorkItem {
                 id: "w".into(),
                 project_id: Some("p1".into()),
-                entity: Some(PortalProjectEntity { entity_type: "person".into(), id: "x".into() }),
+                entity: Some(PortalProjectEntity {
+                    entity_type: "person".into(),
+                    id: "x".into(),
+                }),
                 ..Default::default()
             }],
             ..Default::default()
         };
         let tree = build(&page);
-        assert_eq!((tree[0].label.as_str(), tree[0].subtitle.as_deref()), ("Firm", Some("1 project")));
+        assert_eq!(
+            (tree[0].label.as_str(), tree[0].subtitle.as_deref()),
+            ("Firm", Some("1 project"))
+        );
         let selected = selected_id(&tree, Some("p1"), Some("w")).unwrap();
-        assert_eq!(ancestors(&tree, &selected), vec![tree[0].id.clone(), tree[0].children[0].id.clone()]);
+        assert_eq!(
+            ancestors(&tree, &selected),
+            vec![tree[0].id.clone(), tree[0].children[0].id.clone()]
+        );
     }
 }

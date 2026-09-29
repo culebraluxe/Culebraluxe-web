@@ -55,7 +55,11 @@ pub(super) fn engine_queue(tech: &PortalTechPage) -> Html {
     }
 }
 
-pub(super) fn engine_runs_panel(title: &'static str, runs: &[&PortalTechEngineRun], results: bool) -> Html {
+pub(super) fn engine_runs_panel(
+    title: &'static str,
+    runs: &[&PortalTechEngineRun],
+    results: bool,
+) -> Html {
     html! {
         <article class="min-h-44 p-3">
             <div class="mb-2 flex items-center justify-between">

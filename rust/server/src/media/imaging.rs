@@ -85,7 +85,12 @@ pub fn derive_card(original: &[u8]) -> Result<Derivative, String> {
 fn card_of(decoded: &image::DynamicImage) -> Result<Derivative, String> {
     let card = fit(decoded, CARD_EDGE);
     let bytes = encode_jpeg(&card, CARD_QUALITY)?;
-    Ok(Derivative { kind: "card", width: card.width(), height: card.height(), bytes })
+    Ok(Derivative {
+        kind: "card",
+        width: card.width(),
+        height: card.height(),
+        bytes,
+    })
 }
 
 /// The original, checked and decoded, turned the way it was shot.
@@ -158,13 +163,33 @@ mod tests {
         let tiff: Vec<u8> = [
             b"MM\x00\x2a\x00\x00\x00\x08".as_slice(),
             &[0x00, 0x01],
-            &[0x01, 0x12, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, 0x00, orientation, 0x00, 0x00],
+            &[
+                0x01,
+                0x12,
+                0x00,
+                0x03,
+                0x00,
+                0x00,
+                0x00,
+                0x01,
+                0x00,
+                orientation,
+                0x00,
+                0x00,
+            ],
             &[0x00, 0x00, 0x00, 0x00],
         ]
         .concat();
         let payload = [b"Exif\x00\x00".as_slice(), &tiff].concat();
         let length = (payload.len() + 2) as u16;
-        [&jpeg[..2], &[0xff, 0xe1], &length.to_be_bytes(), &payload, &jpeg[2..]].concat()
+        [
+            &jpeg[..2],
+            &[0xff, 0xe1],
+            &length.to_be_bytes(),
+            &payload,
+            &jpeg[2..],
+        ]
+        .concat()
     }
 
     #[test]
@@ -172,7 +197,12 @@ mod tests {
         let shot = with_orientation(jpeg(60, 40), 6);
         let copies = derive_web_and_thumb(&shot).expect("the photograph derives");
         for copy in &copies {
-            assert_eq!((copy.width, copy.height), (40, 60), "the {} copy is on its side", copy.kind);
+            assert_eq!(
+                (copy.width, copy.height),
+                (40, 60),
+                "the {} copy is on its side",
+                copy.kind
+            );
             let decoded = image::load_from_memory(&copy.bytes).expect("the copy decodes");
             assert_eq!((decoded.width(), decoded.height()), (40, 60));
         }

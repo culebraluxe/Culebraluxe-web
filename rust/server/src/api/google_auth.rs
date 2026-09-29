@@ -17,7 +17,9 @@ use axum::Router;
 use serde::Deserialize;
 
 use super::context::resolve_identity_context;
-use super::ui_auth::{cookie, now_seconds, production, session_value, SESSION_COOKIE, SESSION_SECONDS};
+use super::ui_auth::{
+    cookie, now_seconds, production, session_value, SESSION_COOKIE, SESSION_SECONDS,
+};
 use super::ApiState;
 
 const STATE_COOKIE: &str = "culebra_oauth_state";
@@ -34,7 +36,9 @@ pub fn router() -> Router<ApiState> {
 pub fn encode(text: &str) -> String {
     text.bytes()
         .map(|byte| match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (byte as char).to_string(),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (byte as char).to_string()
+            }
             _ => format!("%{byte:02X}"),
         })
         .collect()
@@ -42,10 +46,23 @@ pub fn encode(text: &str) -> String {
 
 /// This site's own address, as the browser reached it (the redirect URI must match what Google has registered).
 fn origin(headers: &HeaderMap) -> String {
-    let text = |name: &str| headers.get(name).and_then(|value| value.to_str().ok()).map(str::to_owned);
-    let host = text("x-forwarded-host").or_else(|| text("host")).unwrap_or_else(|| "localhost:3000".into());
+    let text = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned)
+    };
+    let host = text("x-forwarded-host")
+        .or_else(|| text("host"))
+        .unwrap_or_else(|| "localhost:3000".into());
     let local = host.starts_with("localhost") || host.starts_with("127.0.0.1");
-    let proto = text("x-forwarded-proto").unwrap_or_else(|| if local { "http".into() } else { "https".into() });
+    let proto = text("x-forwarded-proto").unwrap_or_else(|| {
+        if local {
+            "http".into()
+        } else {
+            "https".into()
+        }
+    });
     format!("{proto}://{host}")
 }
 
@@ -62,7 +79,8 @@ fn safe_next(next: Option<&str>) -> String {
 
 fn set_cookie(response: &mut Response, name: &str, value: &str, max_age: i64) {
     let secure = if production() { "; Secure" } else { "" };
-    let cookie = format!("{name}={value}; Path=/; Max-Age={max_age}; HttpOnly; SameSite=Lax{secure}");
+    let cookie =
+        format!("{name}={value}; Path=/; Max-Age={max_age}; HttpOnly; SameSite=Lax{secure}");
     if let Ok(value) = HeaderValue::from_str(&cookie) {
         response.headers_mut().append(header::SET_COOKIE, value);
     }
@@ -73,7 +91,12 @@ fn failed(reason: &str) -> Response {
 }
 
 fn credentials() -> Option<(String, String)> {
-    let get = |key: &str| std::env::var(key).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
+    let get = |key: &str| {
+        std::env::var(key)
+            .ok()
+            .map(|v| v.trim().to_owned())
+            .filter(|v| !v.is_empty())
+    };
     Some((get("AUTH_GOOGLE_ID")?, get("AUTH_GOOGLE_SECRET")?))
 }
 
@@ -97,7 +120,12 @@ async fn sign_in(headers: HeaderMap, Query(query): Query<SignInQuery>) -> Respon
     );
     let mut response = Redirect::to(&url).into_response();
     set_cookie(&mut response, STATE_COOKIE, &state, 600);
-    set_cookie(&mut response, NEXT_COOKIE, &encode(&safe_next(query.callback_url.as_deref())), 600);
+    set_cookie(
+        &mut response,
+        NEXT_COOKIE,
+        &encode(&safe_next(query.callback_url.as_deref())),
+        600,
+    );
     response
 }
 
@@ -118,7 +146,11 @@ struct UserInfo {
     sub: String,
 }
 
-async fn callback(State(state): State<ApiState>, headers: HeaderMap, Query(query): Query<CallbackQuery>) -> Response {
+async fn callback(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Query(query): Query<CallbackQuery>,
+) -> Response {
     if query.error.is_some() {
         return failed("AccessDenied");
     }
@@ -144,7 +176,12 @@ async fn callback(State(state): State<ApiState>, headers: HeaderMap, Query(query
         ("redirect_uri", redirect.as_str()),
         ("grant_type", "authorization_code"),
     ];
-    let token = match client.post("https://oauth2.googleapis.com/token").form(&form).send().await {
+    let token = match client
+        .post("https://oauth2.googleapis.com/token")
+        .form(&form)
+        .send()
+        .await
+    {
         Ok(response) if response.status().is_success() => response.json::<TokenAnswer>().await.ok(),
         _ => None,
     };
@@ -166,7 +203,10 @@ async fn callback(State(state): State<ApiState>, headers: HeaderMap, Query(query
 
     // Who that Google account is, here: the same mapping Auth.js used. An unknown or inactive account is refused.
     let correlation = uuid::Uuid::new_v4().to_string();
-    if resolve_identity_context(&state, "google", &user.sub, correlation, None).await.is_err() {
+    if resolve_identity_context(&state, "google", &user.sub, correlation, None)
+        .await
+        .is_err()
+    {
         return failed("AccessDenied");
     }
     let Some(session) = session_value("google", &user.sub, now_seconds()) else {
@@ -213,7 +253,10 @@ mod tests {
 
     #[test]
     fn only_a_path_on_this_site_is_a_return_address() {
-        assert_eq!(safe_next(Some("/portal/clients?x=1")), "/portal/clients?x=1");
+        assert_eq!(
+            safe_next(Some("/portal/clients?x=1")),
+            "/portal/clients?x=1"
+        );
         assert_eq!(safe_next(Some("//evil.example")), "/portal/dashboard");
         assert_eq!(safe_next(Some("https://evil.example")), "/portal/dashboard");
         assert_eq!(safe_next(None), "/portal/dashboard");

@@ -149,7 +149,11 @@ fn project_header(
 
 /// Every place this project can be seen from, as links: its property, its people, its contract, or a lens's collection.
 /// A link flips the rail to that lens with that record open — the lens flip, from the project itself.
-fn seen_from(projects: &PortalProjectsPage, project: &PortalProject, on_msg: &Callback<Msg>) -> Html {
+fn seen_from(
+    projects: &PortalProjectsPage,
+    project: &PortalProject,
+    on_msg: &Callback<Msg>,
+) -> Html {
     let lenses = super::nav::lenses(projects, project);
     if lenses.is_empty() {
         return Html::default();
@@ -324,7 +328,8 @@ fn selected_calendar_event_panel(model: &Vm<'_>, projects: &PortalProjectsPage) 
         match event.end_at.as_deref() {
             Some(end) => format!(
                 "{} – {}",
-                crate::calendar::time_label(&event.start_at).unwrap_or_else(|| event.start_at.clone()),
+                crate::calendar::time_label(&event.start_at)
+                    .unwrap_or_else(|| event.start_at.clone()),
                 crate::calendar::time_label(end).unwrap_or_else(|| end.to_owned())
             ),
             None => crate::calendar::time_label(&event.start_at)

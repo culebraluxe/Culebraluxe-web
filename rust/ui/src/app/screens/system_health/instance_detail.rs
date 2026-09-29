@@ -8,7 +8,10 @@ use super::*;
 /// This is the part of the screen that answers "what actually happened in this run" — the tokens the engine is holding, the
 /// tasks it created, the correlations to the canonical tasks, the timers, the facts, the commands and their receipts, and the
 /// engine's own event log. Nothing here is aggregated: it is the run, as the engine recorded it.
-pub(super) fn instance_detail(detail: &PortalWorkflowInstanceDetail, definition_name: Option<&str>) -> Html {
+pub(super) fn instance_detail(
+    detail: &PortalWorkflowInstanceDetail,
+    definition_name: Option<&str>,
+) -> Html {
     html! {
         <div class="mt-4 space-y-6">
             <section class={PANEL}>

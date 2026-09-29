@@ -9,28 +9,27 @@ use yew::prelude::*;
 use crate::model::{PortalDeal, PortalDealContract, PortalDealPersonCandidate, PortalDealsPage};
 
 use super::{Msg, Vm};
-mod portfolio;
 mod cards;
-mod participants;
-mod tasks_activity;
-mod offers;
-mod showings;
 mod format;
-#[allow(unused_imports)]
-pub(super) use portfolio::*;
+mod offers;
+mod participants;
+mod portfolio;
+mod showings;
+mod tasks_activity;
 #[allow(unused_imports)]
 pub(super) use cards::*;
 #[allow(unused_imports)]
-pub(super) use participants::*;
-#[allow(unused_imports)]
-pub(super) use tasks_activity::*;
+pub(super) use format::*;
 #[allow(unused_imports)]
 pub(super) use offers::*;
 #[allow(unused_imports)]
+pub(super) use participants::*;
+#[allow(unused_imports)]
+pub(super) use portfolio::*;
+#[allow(unused_imports)]
 pub(super) use showings::*;
 #[allow(unused_imports)]
-pub(super) use format::*;
-
+pub(super) use tasks_activity::*;
 
 pub(super) fn portfolio(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
     let data = Some(model.data);

@@ -25,7 +25,9 @@ pub(super) fn share_pdf(data_uri: &str, filename: &str) -> Result<wasm_bindgen::
         .ok_or_else(|| ApiError::decode("The PDF preview is not a data URI."))?;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(encoded)
-        .map_err(|error| ApiError::decode(format!("The PDF preview could not be decoded: {error}")))?;
+        .map_err(|error| {
+            ApiError::decode(format!("The PDF preview could not be decoded: {error}"))
+        })?;
     if !bytes.starts_with(b"%PDF-") {
         return Err(ApiError::decode("The generated file was not a PDF."));
     }
@@ -36,13 +38,10 @@ pub(super) fn share_pdf(data_uri: &str, filename: &str) -> Result<wasm_bindgen::
 
     // Construct File([Uint8Array(bytes)], filename, { type: "application/pdf" }) in Rust/WASM.
     // There is deliberately no JavaScript bridge: the executor owns this browser capability just like navigation.
-    let file_ctor = js_sys::Reflect::get(
-        window_value,
-        &wasm_bindgen::JsValue::from_str("File"),
-    )
-    .map_err(|_| ApiError::network("This browser cannot create a PDF attachment."))?
-    .dyn_into::<js_sys::Function>()
-    .map_err(|_| ApiError::network("This browser cannot create a PDF attachment."))?;
+    let file_ctor = js_sys::Reflect::get(window_value, &wasm_bindgen::JsValue::from_str("File"))
+        .map_err(|_| ApiError::network("This browser cannot create a PDF attachment."))?
+        .dyn_into::<js_sys::Function>()
+        .map_err(|_| ApiError::network("This browser cannot create a PDF attachment."))?;
     let parts = js_sys::Array::new();
     parts.push(&js_sys::Uint8Array::from(bytes.as_slice()));
     let options = js_sys::Object::new();
@@ -59,11 +58,9 @@ pub(super) fn share_pdf(data_uri: &str, filename: &str) -> Result<wasm_bindgen::
     let file = js_sys::Reflect::construct(&file_ctor, &args)
         .map_err(|_| ApiError::network("The PDF attachment could not be prepared."))?;
 
-    let navigator = js_sys::Reflect::get(
-        window_value,
-        &wasm_bindgen::JsValue::from_str("navigator"),
-    )
-    .map_err(|_| ApiError::network("Native sharing is unavailable in this browser."))?;
+    let navigator =
+        js_sys::Reflect::get(window_value, &wasm_bindgen::JsValue::from_str("navigator"))
+            .map_err(|_| ApiError::network("Native sharing is unavailable in this browser."))?;
     let share_data = js_sys::Object::new();
     let files = js_sys::Array::new();
     files.push(&file);
@@ -86,11 +83,9 @@ pub(super) fn share_pdf(data_uri: &str, filename: &str) -> Result<wasm_bindgen::
     )
     .map_err(|_| ApiError::network("The share sheet could not be prepared."))?;
 
-    if let Ok(can_share) = js_sys::Reflect::get(
-        &navigator,
-        &wasm_bindgen::JsValue::from_str("canShare"),
-    )
-    .and_then(|value| value.dyn_into::<js_sys::Function>())
+    if let Ok(can_share) =
+        js_sys::Reflect::get(&navigator, &wasm_bindgen::JsValue::from_str("canShare"))
+            .and_then(|value| value.dyn_into::<js_sys::Function>())
     {
         let supported = can_share
             .call1(&navigator, &share_data)
@@ -104,13 +99,10 @@ pub(super) fn share_pdf(data_uri: &str, filename: &str) -> Result<wasm_bindgen::
         }
     }
 
-    let share = js_sys::Reflect::get(
-        &navigator,
-        &wasm_bindgen::JsValue::from_str("share"),
-    )
-    .map_err(|_| ApiError::network("Native sharing is unavailable in this browser."))?
-    .dyn_into::<js_sys::Function>()
-    .map_err(|_| ApiError::network("Native sharing is unavailable in this browser."))?;
+    let share = js_sys::Reflect::get(&navigator, &wasm_bindgen::JsValue::from_str("share"))
+        .map_err(|_| ApiError::network("Native sharing is unavailable in this browser."))?
+        .dyn_into::<js_sys::Function>()
+        .map_err(|_| ApiError::network("Native sharing is unavailable in this browser."))?;
 
     // Call synchronously while the click still owns transient user activation. Waiting for another HTTP request first
     // is what made Safari refuse the legacy Share button. The returned Promise represents the user's share-sheet
@@ -144,8 +136,14 @@ pub(super) fn settle_share<Msg: 'static>(
             .and_then(|name| name.as_string())
             .unwrap_or_default();
         let error = match name.as_str() {
-            "AbortError" => ApiError { status: 0, code: "CANCELLED".into(), message: "Share was cancelled.".into() },
-            "NotAllowedError" => ApiError::network("Safari did not allow the share sheet. Tap Share again."),
+            "AbortError" => ApiError {
+                status: 0,
+                code: "CANCELLED".into(),
+                message: "Share was cancelled.".into(),
+            },
+            "NotAllowedError" => {
+                ApiError::network("Safari did not allow the share sheet. Tap Share again.")
+            }
             other => ApiError::network(format!("The share did not complete ({other}).")),
         };
         if let Some(reply) = reply.borrow_mut().take() {
@@ -159,7 +157,10 @@ pub(super) fn settle_share<Msg: 'static>(
 
 /// One utterance through the browser's speech recognition (`SpeechRecognition`, or Safari's
 /// `webkitSpeechRecognition`), answered exactly once: the words heard, or why nothing was.
-pub(super) fn listen<Msg: 'static>(reply: Box<dyn FnOnce(Result<String, ApiError>) -> Msg>, deliver: Callback<Msg>) {
+pub(super) fn listen<Msg: 'static>(
+    reply: Box<dyn FnOnce(Result<String, ApiError>) -> Msg>,
+    deliver: Callback<Msg>,
+) {
     use std::cell::RefCell;
     use std::rc::Rc;
     use wasm_bindgen::closure::Closure;
@@ -173,13 +174,18 @@ pub(super) fn listen<Msg: 'static>(reply: Box<dyn FnOnce(Result<String, ApiError
     });
     let key = |name: &str| JsValue::from_str(name);
     let started = (|| -> Result<(), ApiError> {
-        let window = web_sys::window().ok_or_else(|| ApiError::network("The browser window is unavailable."))?;
+        let window = web_sys::window()
+            .ok_or_else(|| ApiError::network("The browser window is unavailable."))?;
         let window: &JsValue = window.as_ref();
         let recognizer = ["SpeechRecognition", "webkitSpeechRecognition"]
             .iter()
             .filter_map(|name| js_sys::Reflect::get(window, &key(name)).ok())
             .find_map(|value| value.dyn_into::<js_sys::Function>().ok())
-            .ok_or_else(|| ApiError::network("This browser has no speech recognition. Type what happened instead."))?;
+            .ok_or_else(|| {
+                ApiError::network(
+                    "This browser has no speech recognition. Type what happened instead.",
+                )
+            })?;
         let recognition = js_sys::Reflect::construct(&recognizer, &js_sys::Array::new())
             .map_err(|_| ApiError::network("Speech recognition could not start."))?;
         let set = |name: &str, value: &JsValue| {
@@ -193,13 +199,21 @@ pub(super) fn listen<Msg: 'static>(reply: Box<dyn FnOnce(Result<String, ApiError
         let on_result = {
             let heard = heard.clone();
             Closure::<dyn FnMut(JsValue)>::new(move |event: JsValue| {
-                let results = js_sys::Reflect::get(&event, &key("results")).unwrap_or(JsValue::UNDEFINED);
-                let count = js_sys::Reflect::get(&results, &key("length")).ok().and_then(|n| n.as_f64()).unwrap_or(0.0);
+                let results =
+                    js_sys::Reflect::get(&event, &key("results")).unwrap_or(JsValue::UNDEFINED);
+                let count = js_sys::Reflect::get(&results, &key("length"))
+                    .ok()
+                    .and_then(|n| n.as_f64())
+                    .unwrap_or(0.0);
                 let mut text = String::new();
                 for index in 0..count as u32 {
-                    let result = js_sys::Reflect::get_u32(&results, index).unwrap_or(JsValue::UNDEFINED);
+                    let result =
+                        js_sys::Reflect::get_u32(&results, index).unwrap_or(JsValue::UNDEFINED);
                     let best = js_sys::Reflect::get_u32(&result, 0).unwrap_or(JsValue::UNDEFINED);
-                    if let Some(words) = js_sys::Reflect::get(&best, &key("transcript")).ok().and_then(|w| w.as_string()) {
+                    if let Some(words) = js_sys::Reflect::get(&best, &key("transcript"))
+                        .ok()
+                        .and_then(|w| w.as_string())
+                    {
                         text.push_str(&words);
                     }
                 }
@@ -209,7 +223,10 @@ pub(super) fn listen<Msg: 'static>(reply: Box<dyn FnOnce(Result<String, ApiError
         let on_error = {
             let finish = finish.clone();
             Closure::<dyn FnMut(JsValue)>::new(move |event: JsValue| {
-                let code = js_sys::Reflect::get(&event, &key("error")).ok().and_then(|c| c.as_string()).unwrap_or_default();
+                let code = js_sys::Reflect::get(&event, &key("error"))
+                    .ok()
+                    .and_then(|c| c.as_string())
+                    .unwrap_or_default();
                 let message = match code.as_str() {
                     "not-allowed" | "service-not-allowed" => {
                         "Microphone access was not allowed. Allow it for this site in Safari, then tap the mic again.".to_owned()
@@ -226,7 +243,9 @@ pub(super) fn listen<Msg: 'static>(reply: Box<dyn FnOnce(Result<String, ApiError
             Closure::<dyn FnMut(JsValue)>::new(move |_: JsValue| {
                 let text = heard.borrow().clone();
                 finish(if text.is_empty() {
-                    Err(ApiError::network("No speech was heard. Tap the mic and speak."))
+                    Err(ApiError::network(
+                        "No speech was heard. Tap the mic and speak.",
+                    ))
                 } else {
                     Ok(text)
                 });

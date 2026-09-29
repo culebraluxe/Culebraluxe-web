@@ -19,7 +19,10 @@ fn number(value: &Value, key: &str) -> f64 {
 
 /// A count as a whole number (the screen reads integers).
 fn count(value: &Value, key: &str) -> i64 {
-    value.get(key).and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|f| f as i64))).unwrap_or(0)
+    value
+        .get(key)
+        .and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|f| f as i64)))
+        .unwrap_or(0)
 }
 
 fn round1(value: f64) -> f64 {
@@ -47,7 +50,9 @@ fn prefix(id: &str) -> String {
 pub fn story_domain(story: &Value) -> &'static str {
     let prefix = prefix(text(story, "id"));
     let workstream = text(story, "workstream");
-    if ["PX-", "POLISH-", "PLAT-"].contains(&prefix.as_str()) || ["PUBLIC", "CONTENT"].contains(&workstream) {
+    if ["PX-", "POLISH-", "PLAT-"].contains(&prefix.as_str())
+        || ["PUBLIC", "CONTENT"].contains(&workstream)
+    {
         return "MAIN";
     }
     if prefix == "AUTH-" {
@@ -122,7 +127,12 @@ fn scope_completion(stories: &[&Value]) -> f64 {
 pub fn completion_percent(stories: &[Value]) -> f64 {
     let per_domain: Vec<f64> = ["NEXUS", "MAIN", "OPPS", "SUPPORT", "TECH"]
         .iter()
-        .map(|domain| stories.iter().filter(|story| story_domain(story) == *domain).collect::<Vec<_>>())
+        .map(|domain| {
+            stories
+                .iter()
+                .filter(|story| story_domain(story) == *domain)
+                .collect::<Vec<_>>()
+        })
         .filter(|group| !group.is_empty())
         .map(|group| scope_completion(&group))
         .collect();
@@ -148,8 +158,14 @@ pub fn panels(stories: &[Value]) -> BTreeMap<&'static str, Value> {
     for bin in ["open", "backlog", "closed", "next-version"] {
         let mut grouped: BTreeMap<&str, Vec<&Value>> = BTreeMap::new();
         let mut count = 0;
-        for story in stories.iter().filter(|story| lifecycle(text(story, "status")) == bin) {
-            grouped.entry(story_subgroup(story)).or_default().push(story);
+        for story in stories
+            .iter()
+            .filter(|story| lifecycle(text(story, "status")) == bin)
+        {
+            grouped
+                .entry(story_subgroup(story))
+                .or_default()
+                .push(story);
             count += 1;
         }
         let groups: Vec<Value> = grouped
@@ -159,14 +175,22 @@ pub fn panels(stories: &[Value]) -> BTreeMap<&'static str, Value> {
                 json!({ "group": group, "stories": list.into_iter().map(story_card).collect::<Vec<_>>() })
             })
             .collect();
-        out.insert(bin, json!({ "bucket": bin, "count": count, "groups": groups }));
+        out.insert(
+            bin,
+            json!({ "bucket": bin, "count": count, "groups": groups }),
+        );
     }
     out
 }
 
 /// The KPIs over the bins.
 pub fn kpis(stories: &[Value]) -> Value {
-    let in_bin = |bin: &str| stories.iter().filter(|story| lifecycle(text(story, "status")) == bin).count();
+    let in_bin = |bin: &str| {
+        stories
+            .iter()
+            .filter(|story| lifecycle(text(story, "status")) == bin)
+            .count()
+    };
     json!({
         "total": stories.len(),
         "open": in_bin("open"),
@@ -191,21 +215,28 @@ pub const SORTER_COLUMNS: [(&str, &str); 6] = [
 pub fn sorter_cards(snapshot: &Value, stories: &[Value]) -> Vec<Value> {
     let mut claimed = HashSet::new();
     let mut cards = Vec::new();
-    let mut take = |column: &str, story: &Value, card_id: String, claim: String, kind: Option<&str>| {
-        if !claimed.insert(claim) {
-            return;
-        }
-        cards.push(json!({
-            "id": card_id,
-            "column": column,
-            "title": text(story, "title"),
-            "status": text(story, "status"),
-            "priority": text(story, "priority"),
-            "completion": number(story, "completion"),
-            "kind": kind,
-        }));
+    let mut take =
+        |column: &str, story: &Value, card_id: String, claim: String, kind: Option<&str>| {
+            if !claimed.insert(claim) {
+                return;
+            }
+            cards.push(json!({
+                "id": card_id,
+                "column": column,
+                "title": text(story, "title"),
+                "status": text(story, "status"),
+                "priority": text(story, "priority"),
+                "completion": number(story, "completion"),
+                "kind": kind,
+            }));
+        };
+    let list = |key: &str| {
+        snapshot
+            .get(key)
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
     };
-    let list = |key: &str| snapshot.get(key).and_then(Value::as_array).cloned().unwrap_or_default();
 
     for run in list("engineRuns") {
         let status = text(&run, "status");
@@ -214,35 +245,75 @@ pub fn sorter_cards(snapshot: &Value, stories: &[Value]) -> Vec<Value> {
             continue;
         }
         let story_id = text(&run, "storyId").to_owned();
-        let attempts = run.get("attempts").map(|a| a.to_string()).unwrap_or_default();
+        let attempts = run
+            .get("attempts")
+            .map(|a| a.to_string())
+            .unwrap_or_default();
         let card = json!({ "title": text(&run, "title"), "status": status, "priority": "MEDIUM", "completion": 0 });
-        take("engine", &card, format!("{story_id}#{attempts}"), story_id, None);
+        take(
+            "engine",
+            &card,
+            format!("{story_id}#{attempts}"),
+            story_id,
+            None,
+        );
     }
     for item in list("queuedCards") {
         let story_id = text(&item, "storyId").to_owned();
         let card = json!({ "title": text(&item, "title"), "status": text(&item, "state"), "priority": "MEDIUM", "completion": 0 });
-        take("engine", &card, format!("{story_id}#queued"), story_id, None);
+        take(
+            "engine",
+            &card,
+            format!("{story_id}#queued"),
+            story_id,
+            None,
+        );
     }
-    for story in stories.iter().filter(|story| text(story, "status") == "Ready") {
+    for story in stories
+        .iter()
+        .filter(|story| text(story, "status") == "Ready")
+    {
         let id = text(story, "id").to_owned();
         take("engine", story, format!("{id}#handoff"), id, None);
     }
     let kinds: HashMap<String, String> = list("stagingItems")
         .iter()
-        .map(|item| (text(item, "storyId").to_owned(), text(item, "kind").to_owned()))
+        .map(|item| {
+            (
+                text(item, "storyId").to_owned(),
+                text(item, "kind").to_owned(),
+            )
+        })
         .collect();
-    for story in stories.iter().filter(|story| text(story, "status") == "Batched") {
+    for story in stories
+        .iter()
+        .filter(|story| text(story, "status") == "Batched")
+    {
         let id = text(story, "id").to_owned();
-        let kind = kinds.get(&id).map(String::as_str).filter(|kind| !kind.is_empty());
+        let kind = kinds
+            .get(&id)
+            .map(String::as_str)
+            .filter(|kind| !kind.is_empty());
         take("batch", story, id.clone(), id, kind);
     }
     for story in list("activeWork") {
         let id = text(&story, "id").to_owned();
         take("bench", &story, id.clone(), id, None);
     }
-    for (bin, column) in [("next-version", "next-version"), ("backlog", "backlog"), ("open", "open")] {
-        let mut in_bin: Vec<&Value> = stories.iter().filter(|story| lifecycle(text(story, "status")) == bin).collect();
-        in_bin.sort_by(|a, b| story_subgroup(a).cmp(story_subgroup(b)).then(text(a, "id").cmp(text(b, "id"))));
+    for (bin, column) in [
+        ("next-version", "next-version"),
+        ("backlog", "backlog"),
+        ("open", "open"),
+    ] {
+        let mut in_bin: Vec<&Value> = stories
+            .iter()
+            .filter(|story| lifecycle(text(story, "status")) == bin)
+            .collect();
+        in_bin.sort_by(|a, b| {
+            story_subgroup(a)
+                .cmp(story_subgroup(b))
+                .then(text(a, "id").cmp(text(b, "id")))
+        });
         for story in in_bin {
             let id = text(story, "id").to_owned();
             take(column, story, id.clone(), id, None);
@@ -253,15 +324,37 @@ pub fn sorter_cards(snapshot: &Value, stories: &[Value]) -> Vec<Value> {
 
 fn story_payload(story: &Value) -> Value {
     let keep = [
-        "id", "workstream", "operatingSurface", "title", "priority", "status", "notes", "batch", "goal", "scope",
-        "dependencies", "preconditions", "architectBrief", "contextRefs", "acceptanceCriteria", "postconditions",
-        "completion", "updatedAt",
+        "id",
+        "workstream",
+        "operatingSurface",
+        "title",
+        "priority",
+        "status",
+        "notes",
+        "batch",
+        "goal",
+        "scope",
+        "dependencies",
+        "preconditions",
+        "architectBrief",
+        "contextRefs",
+        "acceptanceCriteria",
+        "postconditions",
+        "completion",
+        "updatedAt",
     ];
     let mut out = Map::new();
     for key in keep {
         out.insert(key.into(), story.get(key).cloned().unwrap_or(Value::Null));
     }
-    for key in ["id", "workstream", "title", "priority", "status", "updatedAt"] {
+    for key in [
+        "id",
+        "workstream",
+        "title",
+        "priority",
+        "status",
+        "updatedAt",
+    ] {
         if out[key].is_null() {
             out.insert(key.into(), json!(""));
         }
@@ -272,13 +365,24 @@ fn story_payload(story: &Value) -> Value {
 
 /// The Cockpit's whole payload, `{ tech: ... }`, from the tech service's snapshot.
 pub fn cockpit(snapshot: &Value, selected: Option<&str>, now: &str) -> Value {
-    let list = |key: &str| snapshot.get(key).and_then(Value::as_array).cloned().unwrap_or_default();
-    let executions: HashMap<String, Value> =
-        list("executions").into_iter().map(|e| (text(&e, "storyId").to_owned(), e)).collect();
+    let list = |key: &str| {
+        snapshot
+            .get(key)
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+    };
+    let executions: HashMap<String, Value> = list("executions")
+        .into_iter()
+        .map(|e| (text(&e, "storyId").to_owned(), e))
+        .collect();
     let stories: Vec<Value> = list("stories")
         .into_iter()
         .map(|mut story| {
-            let execution = executions.get(text(&story, "id")).cloned().unwrap_or(Value::Null);
+            let execution = executions
+                .get(text(&story, "id"))
+                .cloned()
+                .unwrap_or(Value::Null);
             if let Some(object) = story.as_object_mut() {
                 object.insert("execution".into(), execution);
             }
@@ -298,10 +402,20 @@ pub fn cockpit(snapshot: &Value, selected: Option<&str>, now: &str) -> Value {
         .map(story_payload);
     let mut history: Vec<&Value> = stories
         .iter()
-        .filter(|story| story.pointer("/execution/latestRunAt").and_then(Value::as_str).is_some())
+        .filter(|story| {
+            story
+                .pointer("/execution/latestRunAt")
+                .and_then(Value::as_str)
+                .is_some()
+        })
         .collect();
     history.sort_by(|a, b| {
-        let at = |s: &Value| s.pointer("/execution/latestRunAt").and_then(Value::as_str).unwrap_or("").to_owned();
+        let at = |s: &Value| {
+            s.pointer("/execution/latestRunAt")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned()
+        };
         at(b).cmp(&at(a))
     });
     let recent_history: Vec<Value> = history
@@ -323,18 +437,21 @@ pub fn cockpit(snapshot: &Value, selected: Option<&str>, now: &str) -> Value {
         .filter(|at| !at.is_empty())
         .unwrap_or(now)
         .to_owned();
-    let ledger = snapshot.get("ledger").filter(|v| !v.is_null()).map(|ledger| {
-        json!({
-            "totalAttempts": count(ledger, "totalAttempts"),
-            "stories": count(ledger, "stories"),
-            "completed": count(ledger, "completed"),
-            "failed": count(ledger, "failed"),
-            "interrupted": count(ledger, "interrupted"),
-            "worstStoryId": ledger.get("worstStoryId"),
-            "worstAttempts": ledger.get("worstAttempts"),
-            "asOf": ledger.get("asOf"),
-        })
-    });
+    let ledger = snapshot
+        .get("ledger")
+        .filter(|v| !v.is_null())
+        .map(|ledger| {
+            json!({
+                "totalAttempts": count(ledger, "totalAttempts"),
+                "stories": count(ledger, "stories"),
+                "completed": count(ledger, "completed"),
+                "failed": count(ledger, "failed"),
+                "interrupted": count(ledger, "interrupted"),
+                "worstStoryId": ledger.get("worstStoryId"),
+                "worstAttempts": ledger.get("worstAttempts"),
+                "asOf": ledger.get("asOf"),
+            })
+        });
     json!({ "tech": {
         "ready": true,
         "totalStories": kpis["total"],
@@ -363,7 +480,11 @@ pub fn cockpit(snapshot: &Value, selected: Option<&str>, now: &str) -> Value {
 
 /// The Storyboard's payload: KPIs and the four bins.
 pub fn storyboard(snapshot: &Value) -> Value {
-    let stories = snapshot.get("stories").and_then(Value::as_array).cloned().unwrap_or_default();
+    let stories = snapshot
+        .get("stories")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     let panels = panels(&stories);
     json!({ "storyboard": {
         "kpis": kpis(&stories),
@@ -395,8 +516,22 @@ mod tests {
             story("OPS-1", "Hold", 20.0, "OPS"),
         ];
         let k = kpis(&stories);
-        assert_eq!((k["total"].as_u64(), k["open"].as_u64(), k["backlog"].as_u64()), (Some(5), Some(2), Some(1)));
-        assert_eq!((k["complete"].as_u64(), k["nextVersion"].as_u64(), k["blockedHold"].as_u64()), (Some(1), Some(1), Some(1)));
+        assert_eq!(
+            (
+                k["total"].as_u64(),
+                k["open"].as_u64(),
+                k["backlog"].as_u64()
+            ),
+            (Some(5), Some(2), Some(1))
+        );
+        assert_eq!(
+            (
+                k["complete"].as_u64(),
+                k["nextVersion"].as_u64(),
+                k["blockedHold"].as_u64()
+            ),
+            (Some(1), Some(1), Some(1))
+        );
         // TECH current scope: (50 + 100) / 2 = 75; OPPS: 20; mean of the two domains = 47.5
         assert_eq!(k["completionPercent"].as_f64(), Some(47.5));
     }
@@ -411,11 +546,24 @@ mod tests {
         ];
         let snapshot = json!({ "activeWork": [story("A-4", "In Progress", 10.0, "TECH")], "stagingItems": [{"storyId": "A-2", "kind": "fix"}] });
         let cards = sorter_cards(&snapshot, &stories);
-        let column = |id: &str| cards.iter().find(|c| text(c, "id").starts_with(id)).map(|c| text(c, "column").to_owned());
-        assert_eq!(column("A-1").as_deref(), Some("engine"), "Ready is handed to the engine");
+        let column = |id: &str| {
+            cards
+                .iter()
+                .find(|c| text(c, "id").starts_with(id))
+                .map(|c| text(c, "column").to_owned())
+        };
+        assert_eq!(
+            column("A-1").as_deref(),
+            Some("engine"),
+            "Ready is handed to the engine"
+        );
         assert_eq!(column("A-2").as_deref(), Some("batch"));
         assert_eq!(column("A-3").as_deref(), Some("backlog"));
-        assert_eq!(column("A-4").as_deref(), Some("bench"), "the workbench claims before open");
+        assert_eq!(
+            column("A-4").as_deref(),
+            Some("bench"),
+            "the workbench claims before open"
+        );
         assert_eq!(cards.len(), 4, "no story twice");
     }
 }

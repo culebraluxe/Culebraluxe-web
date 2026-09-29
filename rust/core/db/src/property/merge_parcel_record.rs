@@ -11,7 +11,11 @@ impl PropertyDao {
     /// other record is deleted. Runs inside the caller's transaction: all of it happens, or none.
     ///
     /// `Ok(None)` when no other live record carries that catastro number; otherwise the merged record's name.
-    pub async fn merge_parcel_record(&self, target_id: &str, catastro: &str) -> DbResult<Option<String>> {
+    pub async fn merge_parcel_record(
+        &self,
+        target_id: &str,
+        catastro: &str,
+    ) -> DbResult<Option<String>> {
         let digits: String = catastro.chars().filter(char::is_ascii_digit).collect();
         if digits.is_empty() {
             return Ok(None);
@@ -36,7 +40,10 @@ impl PropertyDao {
             _ => {
                 return Err(DbFailure::configuration(
                     "property.merge.find",
-                    format!("{} records carry catastro {catastro}; merge them one at a time", sources.len()),
+                    format!(
+                        "{} records carry catastro {catastro}; merge them one at a time",
+                        sources.len()
+                    ),
                 ))
             }
         };
@@ -64,15 +71,21 @@ impl PropertyDao {
         .map_err(|error| DbFailure::from_sqlx("property.merge.references", &error))?;
         let quote = |name: &str| format!("\"{}\"", name.replace('"', "\"\""));
         for (table, column) in &references {
-            let table = table.split('.').map(|part| quote(part.trim_matches('"'))).collect::<Vec<_>>().join(".");
+            let table = table
+                .split('.')
+                .map(|part| quote(part.trim_matches('"')))
+                .collect::<Vec<_>>()
+                .join(".");
             let column = quote(column);
             // Identifiers from the catalog, quoted — no value from a request reaches this text.
-            sqlx::query(sqlx::AssertSqlSafe(format!("update {table} set {column} = $1::uuid where {column} = $2::uuid")))
-                .bind(target_id)
-                .bind(&source_id)
-                .execute(&mut *connection)
-                .await
-                .map_err(|error| DbFailure::from_sqlx("property.merge.move", &error))?;
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "update {table} set {column} = $1::uuid where {column} = $2::uuid"
+            )))
+            .bind(target_id)
+            .bind(&source_id)
+            .execute(&mut *connection)
+            .await
+            .map_err(|error| DbFailure::from_sqlx("property.merge.move", &error))?;
         }
 
         sqlx::query("delete from property where id = $1::uuid")

@@ -11,10 +11,10 @@ mod apple_ods;
 mod broker_signature;
 mod calendar;
 mod capture;
+mod catch_up;
 mod client;
 mod client_room;
 mod cockpit;
-mod catch_up;
 mod command_receipt;
 mod comms;
 mod contract;
@@ -43,9 +43,9 @@ mod outbox;
 mod person;
 mod pool;
 mod project;
-mod publishing;
 mod property;
 mod public_listing;
+mod publishing;
 mod relationship_evidence;
 mod website_lead;
 mod whatsapp;
@@ -77,12 +77,15 @@ mod workflow_portal;
 pub use accounting::AccountingDao;
 pub use agreement_execution::{AgreementExecutionDao, IssuedAgreementDocumentRow};
 pub use app_error::AppErrorDao;
+pub use apple_ods::{
+    AppleMailLanding, EmailLanding, IntakeCheckpoint, IntakeCheckpointUpdate, InteractionDraft,
+};
 pub use calendar::CalendarDao;
 pub use capture::{has_sink, on_failure};
+pub use catch_up::CatchUpDao;
 pub use client::ClientDao;
 pub use client_room::ClientRoomDao;
 pub use cockpit::CockpitDao;
-pub use catch_up::CatchUpDao;
 pub use command_receipt::{CommandReceiptDao, CommandReceiptRow};
 pub use comms::CommsDao;
 pub use contract::{ContractDao, ContractTxDao};
@@ -115,9 +118,6 @@ pub use intake::IntakeDao;
 pub use issue::IssueDao;
 pub use landing::{
     CallLanding, ImessageLanding, LandingDao, LatestInteraction, LatestInteractionOutcome,
-};
-pub use apple_ods::{
-    AppleMailLanding, EmailLanding, IntakeCheckpoint, IntakeCheckpointUpdate, InteractionDraft,
 };
 pub use marketing::MarketingDao;
 pub use media::{

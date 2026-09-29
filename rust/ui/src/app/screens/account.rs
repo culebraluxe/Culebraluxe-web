@@ -7,7 +7,10 @@
 
 use yew::prelude::*;
 
-use crate::app::api::{AuthCsrf, ClientRoomRead, ClientRoomResponse, CodeSent, CsrfToken, GuestRequestCode, GuestSession, GuestWhoAmI};
+use crate::app::api::{
+    AuthCsrf, ClientRoomRead, ClientRoomResponse, CodeSent, CsrfToken, GuestRequestCode,
+    GuestSession, GuestWhoAmI,
+};
 use crate::app::cmd::{ApiError, Cmd, Remote};
 use crate::app::screen::{Link, Screen, ScreenCtx};
 use crate::app::template;
@@ -65,7 +68,11 @@ impl Screen for Account {
         match msg {
             Msg::SessionLoaded(answer) => {
                 // A failed "who is signed in" is read as signed out: the sign-in forms are the remedy.
-                let session = answer.unwrap_or(GuestSession { signed_in: false, display_name: String::new(), email: None });
+                let session = answer.unwrap_or(GuestSession {
+                    signed_in: false,
+                    display_name: String::new(),
+                    email: None,
+                });
                 let signed_in = session.signed_in;
                 model.session = Remote::Loaded(session);
                 if signed_in {
@@ -117,13 +124,18 @@ impl Screen for Account {
 
     fn view(model: &Model, _ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
         let signed_in = model.session.loaded().filter(|session| session.signed_in);
-        let body = template::remote_toned(&model.session, template::Tone::Site, "your account", |session| {
-            if session.signed_in {
-                signed_in_view(model, session)
-            } else {
-                sign_in_view(model, link)
-            }
-        });
+        let body = template::remote_toned(
+            &model.session,
+            template::Tone::Site,
+            "your account",
+            |session| {
+                if session.signed_in {
+                    signed_in_view(model, session)
+                } else {
+                    sign_in_view(model, link)
+                }
+            },
+        );
         html! {
             <section class="px-6 py-24 md:px-12 md:py-32">
                 <div class={classes!("mx-auto", if signed_in.is_some() { "max-w-5xl" } else { "max-w-md" })}>
@@ -176,7 +188,12 @@ fn signed_in_view(model: &Model, session: &GuestSession) -> Html {
 }
 
 fn client_room(room: &Remote<ClientRoomResponse>) -> Html {
-    template::remote_toned(room, template::Tone::Site, "your transaction room", client_room_loaded)
+    template::remote_toned(
+        room,
+        template::Tone::Site,
+        "your transaction room",
+        client_room_loaded,
+    )
 }
 
 fn client_room_loaded(response: &ClientRoomResponse) -> Html {

@@ -119,7 +119,6 @@ fn calendar_source_message_id(raw: &Value) -> Option<String> {
         })
 }
 
-
 async fn intake_calendar(path: &Path) -> Result<(), Box<dyn Error>> {
     let parsed: Value = serde_json::from_slice(&fs::read(path)?)?;
     let items = parsed
@@ -131,11 +130,9 @@ async fn intake_calendar(path: &Path) -> Result<(), Box<dyn Error>> {
 
     for raw in items {
         let source_message_id = calendar_source_message_id(raw);
-        let (Some(source_message_id), Some(start_at), Some(end_at)) = (
-            source_message_id,
-            text(raw, "startAt"),
-            text(raw, "endAt"),
-        ) else {
+        let (Some(source_message_id), Some(start_at), Some(end_at)) =
+            (source_message_id, text(raw, "startAt"), text(raw, "endAt"))
+        else {
             rejected += 1;
             continue;
         };
@@ -352,7 +349,6 @@ fn command_payload(delivery: &OutboxDelivery) -> Result<Value, Box<dyn Error>> {
         }
     })
 }
-
 
 #[cfg(test)]
 mod tests {

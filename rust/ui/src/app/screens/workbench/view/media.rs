@@ -2,7 +2,12 @@
 
 use super::*;
 
-pub(super) fn video_editor(model: &Vm<'_>, property: &PortalOpsProperty, media: &[PortalOpsMediaAsset], on_msg: &Callback<Msg>) -> Html {
+pub(super) fn video_editor(
+    model: &Vm<'_>,
+    property: &PortalOpsProperty,
+    media: &[PortalOpsMediaAsset],
+    on_msg: &Callback<Msg>,
+) -> Html {
     let videos = media
         .iter()
         .filter(|item| item.media_type == "video" && item.mux_playback_id.is_some())
@@ -63,13 +68,17 @@ pub(super) fn video_uploader(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
     let role_change = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: Event| {
-            on_msg.emit(Msg::VideoRoleChanged(crate::app::exec::select_value(&event)))
+            on_msg.emit(Msg::VideoRoleChanged(crate::app::exec::select_value(
+                &event,
+            )))
         })
     };
     let caption_change = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
-            on_msg.emit(Msg::VideoCaptionChanged(crate::app::exec::input_value(&event)))
+            on_msg.emit(Msg::VideoCaptionChanged(crate::app::exec::input_value(
+                &event,
+            )))
         })
     };
     let busy = model.ops.video_file_name.is_some();
@@ -80,17 +89,28 @@ pub(super) fn video_uploader(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
         }
         Some((sent, total, _)) => format!(
             "Uploading {:.0}% ({:.0} of {:.0} MB)",
-            if *total > 0.0 { sent / total * 100.0 } else { 0.0 },
+            if *total > 0.0 {
+                sent / total * 100.0
+            } else {
+                0.0
+            },
             sent / 1_048_576.0,
             total / 1_048_576.0
         ),
-        None => "Choose a video — it uploads straight to Mux, and resumes if it is interrupted".to_owned(),
+        None => "Choose a video — it uploads straight to Mux, and resumes if it is interrupted"
+            .to_owned(),
     };
     let percent = model
         .ops
         .video_progress
         .as_ref()
-        .map(|(sent, total, stage)| if stage == "preparing" || *total <= 0.0 { 100.0 } else { sent / total * 100.0 })
+        .map(|(sent, total, stage)| {
+            if stage == "preparing" || *total <= 0.0 {
+                100.0
+            } else {
+                sent / total * 100.0
+            }
+        })
         .unwrap_or(0.0);
     html! {
         <div class="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/45 p-3">
@@ -381,7 +401,9 @@ pub(super) fn media_file_change(on_msg: &Callback<Msg>) -> Callback<Event> {
     let on_msg = on_msg.clone();
     Callback::from(move |event: Event| {
         // Cleared by `take_files`, so choosing the same files again (after a failure) is a new choice.
-        on_msg.emit(Msg::OpsMediaFilesChosen(crate::app::exec::take_files(&event)));
+        on_msg.emit(Msg::OpsMediaFilesChosen(crate::app::exec::take_files(
+            &event,
+        )));
     })
 }
 
@@ -403,7 +425,8 @@ pub(super) fn ops_media_uploader(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html
     let choose_again = Callback::from(move |_: MouseEvent| open_file_picker());
     let choose_folder = Callback::from(move |_: MouseEvent| open_folder_picker());
     let batch = (model.ops.media_batch_total > 1).then(|| {
-        let at = (model.ops.media_batch_done + model.ops.media_batch_failed.len() + 1).min(model.ops.media_batch_total);
+        let at = (model.ops.media_batch_done + model.ops.media_batch_failed.len() + 1)
+            .min(model.ops.media_batch_total);
         format!("Uploading {at} of {}…", model.ops.media_batch_total)
     });
 

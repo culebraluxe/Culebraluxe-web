@@ -144,7 +144,11 @@ impl<R: AccountingRepository> AccountingService<R> {
             context,
         )
         .await?;
-        let result = self.repository.commission_forecast().await.map_err(Into::into);
+        let result = self
+            .repository
+            .commission_forecast()
+            .await
+            .map_err(Into::into);
         audit_result(&self.runtime, RESOURCE, OP, context, decision, &result).await?;
         result
     }

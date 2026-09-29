@@ -205,9 +205,9 @@ impl Security {
         let select_role = {
             let on_msg = on_msg.clone();
             Callback::from(move |event: Event| {
-                on_msg.emit(Msg::SecurityRoleSelected(
-                    crate::app::exec::select_value(&event),
-                ));
+                on_msg.emit(Msg::SecurityRoleSelected(crate::app::exec::select_value(
+                    &event,
+                )));
             })
         };
         html! {

@@ -12,14 +12,15 @@
 // named in the tally, so a run can never be silent about which database it wrote to.
 // ---------------------------------------------------------------------------
 use db::{
-    CallLanding, DbTarget, EvidenceUpsert, LandingDao, LatestInteraction,
-    LatestInteractionOutcome, RelationshipEvidenceDao,
+    CallLanding, DbTarget, EvidenceUpsert, LandingDao, LatestInteraction, LatestInteractionOutcome,
+    RelationshipEvidenceDao,
 };
 use domain::apple_calls::flag;
 use domain::{
-    APPLE_CALLS_SOURCE, APPLE_CALL_HISTORY_ACCOUNT, APPLE_FACETIME_SOURCE, AppleCallInteraction,
-    AppleCallRecord, build_call_evidence, call_date_iso, call_duration_raw, call_landing_direction,
+    build_call_evidence, call_date_iso, call_duration_raw, call_landing_direction,
     call_latest_interaction, call_source, call_unique_id, decide_apple_handle, is_facetime_call,
+    AppleCallInteraction, AppleCallRecord, APPLE_CALLS_SOURCE, APPLE_CALL_HISTORY_ACCOUNT,
+    APPLE_FACETIME_SOURCE,
 };
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap};
@@ -220,7 +221,6 @@ pub async fn calls_intake(args: &[String]) -> Result<(), Box<dyn Error>> {
         }
     }
 
-
     // --- 3. The canonical interaction: one row per Person x call channel -------
     let mut latest: HashMap<String, AppleCallInteraction> = HashMap::new();
     for call in &calls {
@@ -299,4 +299,3 @@ pub async fn calls_intake(args: &[String]) -> Result<(), Box<dyn Error>> {
     );
     Ok(())
 }
-

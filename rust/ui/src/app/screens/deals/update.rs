@@ -286,13 +286,31 @@ pub(super) fn update(model: &mut Model, msg: Msg, ctx: &ScreenCtx) -> Cmd<Msg> {
             // READ THE TERMS WHILE `ws` IS BORROWED, THEN LET IT GO. `command` takes `&mut model` whole, so a live
             // `&mut model.deal_workspace` at the call site is a borrow error (E0502/E0499); the locals below own
             // their strings and end the borrow before it.
-            let financing_type = ws.offer_financing.get(&key).and_then(|value| trimmed(value));
+            let financing_type = ws
+                .offer_financing
+                .get(&key)
+                .and_then(|value| trimmed(value));
             let deposit_amount = ws.offer_deposits.get(&key).and_then(|value| trimmed(value));
-            let inspection_days = ws.offer_inspection_days.get(&key).and_then(|value| trimmed(value));
-            let seller_credits = ws.offer_seller_credits.get(&key).and_then(|value| trimmed(value));
-            let proposed_closing_date = ws.offer_closing_dates.get(&key).and_then(|value| trimmed(value));
-            let contingencies = ws.offer_contingencies.get(&key).and_then(|value| trimmed(value));
-            let expires_at = ws.offer_expirations.get(&key).and_then(|value| trimmed(value));
+            let inspection_days = ws
+                .offer_inspection_days
+                .get(&key)
+                .and_then(|value| trimmed(value));
+            let seller_credits = ws
+                .offer_seller_credits
+                .get(&key)
+                .and_then(|value| trimmed(value));
+            let proposed_closing_date = ws
+                .offer_closing_dates
+                .get(&key)
+                .and_then(|value| trimmed(value));
+            let contingencies = ws
+                .offer_contingencies
+                .get(&key)
+                .and_then(|value| trimmed(value));
+            let expires_at = ws
+                .offer_expirations
+                .get(&key)
+                .and_then(|value| trimmed(value));
             let client_id = workspace(model)
                 .and_then(|workspace| workspace.client.as_ref())
                 .map(|client| client.id.clone());

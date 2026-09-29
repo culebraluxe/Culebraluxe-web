@@ -21,16 +21,16 @@
 // `latest:<person>:<channel>`.
 // ---------------------------------------------------------------------------
 use db::{
-    Database, EvidenceUpsert, ImessageLanding, LandingDao, LatestInteraction,
-    LatestInteractionOutcome, RelationshipEvidenceDao, resolve_declared_target,
+    resolve_declared_target, Database, EvidenceUpsert, ImessageLanding, LandingDao,
+    LatestInteraction, LatestInteractionOutcome, RelationshipEvidenceDao,
 };
 use domain::{
-    APPLE_MESSAGES_SOURCE, AppleHandleLookup, AppleMessagesExport, AppleMessagesHandle,
-    AppleMessagesMessage, build_handle_evidence, bounded_preview, decide_apple_handle,
-    derive_source_account, effective_date_iso, is_group_chat_guid,
+    bounded_preview, build_handle_evidence, decide_apple_handle, derive_source_account,
+    effective_date_iso, is_group_chat_guid, AppleHandleLookup, AppleMessagesExport,
+    AppleMessagesHandle, AppleMessagesMessage, APPLE_MESSAGES_SOURCE,
 };
 use serde::de::DeserializeOwned;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
 use std::fs;
@@ -75,7 +75,10 @@ impl Tally {
 
 fn read_jsonl<T: DeserializeOwned>(path: &Path) -> Result<Vec<T>, Box<dyn Error>> {
     let raw = fs::read_to_string(path).map_err(|error| {
-        io::Error::other(format!("export package unreadable at {}: {error}", path.display()))
+        io::Error::other(format!(
+            "export package unreadable at {}: {error}",
+            path.display()
+        ))
     })?;
     let mut out = Vec::new();
     for (index, line) in raw.lines().enumerate() {
@@ -307,7 +310,9 @@ pub async fn intake_messages(dir: &Path, options: IntakeOptions) -> Result<(), B
         let decision = decide_apple_handle(row, &lookup);
         tally.count_decision(&decision.review_state);
 
-        let id = evidence_dao.upsert_evidence(&EvidenceUpsert::from(row)).await?;
+        let id = evidence_dao
+            .upsert_evidence(&EvidenceUpsert::from(row))
+            .await?;
         evidence_dao.record_decision(&id, &decision).await?;
 
         let linked =
@@ -459,5 +464,3 @@ pub async fn intake_messages(dir: &Path, options: IntakeOptions) -> Result<(), B
     );
     Ok(())
 }
-
-

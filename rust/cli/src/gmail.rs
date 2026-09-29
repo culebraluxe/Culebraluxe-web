@@ -19,10 +19,10 @@
 use crate::apple_mail;
 use db::{EmailLanding, InteractionDraft, LandingDao, RelationshipEvidenceDao};
 use domain::gmail::{
-    GMAIL_CONTEXT_SOURCE, GmailContextResult, GmailMetadataMessage, gmail_metadata_to_context,
+    gmail_metadata_to_context, GmailContextResult, GmailMetadataMessage, GMAIL_CONTEXT_SOURCE,
 };
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::error::Error;
 use std::io;
 use std::time::Duration;
@@ -239,7 +239,6 @@ async fn newest_context(
                 sent_at,
                 raw: serde_json::to_value(&message).unwrap_or(Value::Null),
             }])
-
             .await?;
 
         if let GmailContextResult::Ok(interaction) =
@@ -261,8 +260,6 @@ async fn newest_context(
     Ok(None)
 }
 
-
-
 /// `gmail-sync [dev|prod] [--window=N] [--verify]`
 ///
 /// For every exact-linked Gmail identity, land the metadata window into `l_email` and write the
@@ -272,8 +269,8 @@ pub async fn gmail_sync(args: &[String]) -> Result<(), Box<dyn Error>> {
     crate::apple_sync::load_env();
     let target = apple_mail::target_arg(args)?;
     let verify_only = args.iter().any(|arg| arg == "--verify");
-    let window = apple_mail::positive_int(args, "--window", DEFAULT_WINDOW as i64)?.clamp(1, 100)
-        as usize;
+    let window =
+        apple_mail::positive_int(args, "--window", DEFAULT_WINDOW as i64)?.clamp(1, 100) as usize;
 
     let database = apple_mail::connect(target).await?;
     let client = reqwest::Client::builder()
@@ -284,14 +281,13 @@ pub async fn gmail_sync(args: &[String]) -> Result<(), Box<dyn Error>> {
     // empty run reported as success.
     let token = access_token(&client).await?;
     let profile: GmailProfile = gmail_get(&client, &token, "profile").await?;
-    let internal_email = domain::applemail::normalize_mailbox(&profile.email_address).ok_or_else(
-        || {
+    let internal_email =
+        domain::applemail::normalize_mailbox(&profile.email_address).ok_or_else(|| {
             io::Error::other(format!(
                 "Gmail profile returned no usable address ({:?})",
                 profile.email_address
             ))
-        },
-    )?;
+        })?;
     println!("source account: {internal_email}");
 
     let evidence_dao = RelationshipEvidenceDao::new(database.clone());

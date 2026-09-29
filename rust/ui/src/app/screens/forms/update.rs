@@ -60,15 +60,13 @@ pub(super) fn update(model: &mut Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> 
                 .find(|item| item.template_id == template_id)
             {
                 if model.dirty || model.draft_saving {
-                    model.error =
-                        Some("Save is still settling. Wait a moment before changing form type.".into());
+                    model.error = Some(
+                        "Save is still settling. Wait a moment before changing form type.".into(),
+                    );
                     return Cmd::none();
                 }
                 model.error = None;
-                return Cmd::request(
-                    FormsRead::record(existing.id.clone()),
-                    Msg::RecordLoaded,
-                );
+                return Cmd::request(FormsRead::record(existing.id.clone()), Msg::RecordLoaded);
             }
             create_form(model, &template_id)
         }
@@ -118,18 +116,30 @@ pub(super) fn update(model: &mut Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> 
             model.busy = false;
             match result {
                 Ok(answer) => {
-                    let (seller, catastro) = (model.new_seller.trim().to_owned(), model.new_catastro.trim().to_owned());
+                    let (seller, catastro) = (
+                        model.new_seller.trim().to_owned(),
+                        model.new_catastro.trim().to_owned(),
+                    );
                     model.new_form_template = None;
                     let installed = install_record(model, answer.forms, Some("New form".into()));
                     // What was typed to find the seller and the property belongs on the contract too.
                     let mut typed = false;
                     for (field, value) in [("sellerName", seller), ("catastroNumber", catastro)] {
-                        if !value.is_empty() && model.values.get(field).map_or(true, |current| current.trim().is_empty()) {
+                        if !value.is_empty()
+                            && model
+                                .values
+                                .get(field)
+                                .map_or(true, |current| current.trim().is_empty())
+                        {
                             model.values.insert(field.to_owned(), value);
                             typed = true;
                         }
                     }
-                    if typed { Cmd::batch([installed, local_edit(model)]) } else { installed }
+                    if typed {
+                        Cmd::batch([installed, local_edit(model)])
+                    } else {
+                        installed
+                    }
                 }
                 Err(error) => {
                     model.error = Some(error.message);
@@ -140,8 +150,10 @@ pub(super) fn update(model: &mut Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> 
         Msg::FieldChanged { name, value } => {
             model.values.insert(name, value);
             if !model.body_edited {
-                if let Some(template) = model.page.as_ref().and_then(|page| page.template.as_ref()) {
-                    model.details_text = document_body_text(template, &model.values, &model.sections);
+                if let Some(template) = model.page.as_ref().and_then(|page| page.template.as_ref())
+                {
+                    model.details_text =
+                        document_body_text(template, &model.values, &model.sections);
                 }
             }
             local_edit(model)
@@ -245,11 +257,7 @@ pub(super) fn update(model: &mut Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> 
             let Some(form_id) = current_form_id(model) else {
                 return Cmd::none();
             };
-            let seller_name = model
-                .values
-                .get("sellerName")
-                .cloned()
-                .unwrap_or_default();
+            let seller_name = model.values.get("sellerName").cloned().unwrap_or_default();
             if seller_name.trim().is_empty() {
                 model.error = Some("Enter the seller name first.".into());
                 return Cmd::none();
@@ -372,9 +380,10 @@ pub(super) fn update(model: &mut Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> 
                 model.message = Some("Tell Grok what happened on the deal, then tap Go.".into());
                 return Cmd::none();
             }
-            let (Some(form_id), Some(template)) =
-                (current_form_id(model), model.page.as_ref().and_then(|page| page.template.clone()))
-            else {
+            let (Some(form_id), Some(template)) = (
+                current_form_id(model),
+                model.page.as_ref().and_then(|page| page.template.clone()),
+            ) else {
                 model.error = Some("Open a form first.".into());
                 return Cmd::none();
             };
@@ -433,7 +442,11 @@ pub(super) fn update(model: &mut Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> 
             match result {
                 Ok(words) => {
                     let prompt = model.grok_prompt.trim();
-                    model.grok_prompt = if prompt.is_empty() { words } else { format!("{prompt} {words}") };
+                    model.grok_prompt = if prompt.is_empty() {
+                        words
+                    } else {
+                        format!("{prompt} {words}")
+                    };
                 }
                 Err(error) => model.error = Some(error.message),
             }
@@ -454,7 +467,11 @@ pub(super) fn local_edit(model: &mut Model) -> Cmd<Msg> {
     ])
 }
 
-pub(super) fn install_record(model: &mut Model, page: FormsPage, message: Option<String>) -> Cmd<Msg> {
+pub(super) fn install_record(
+    model: &mut Model,
+    page: FormsPage,
+    message: Option<String>,
+) -> Cmd<Msg> {
     let Some(form) = page.selected.as_ref() else {
         model.page = Some(page);
         model.error = Some("The Forms response did not include the selected form.".into());

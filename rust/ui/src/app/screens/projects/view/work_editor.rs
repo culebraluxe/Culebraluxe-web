@@ -159,7 +159,6 @@ pub(super) fn selected_work_editor(
     }
 }
 
-
 #[derive(Clone, Copy)]
 pub(super) enum MsgKind {
     Title,

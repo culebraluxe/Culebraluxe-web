@@ -18,19 +18,18 @@ use crate::model::{
     PortalWorkflowInstanceDetail, PortalWorkflowJob, PortalWorkflowTask, PortalWorkflowToken,
     WorkflowDiagnosticsState,
 };
+mod instance_detail;
 mod snapshot;
 mod workflow;
 mod workflow_parts;
-mod instance_detail;
+#[allow(unused_imports)]
+pub(super) use instance_detail::*;
 #[allow(unused_imports)]
 pub(super) use snapshot::*;
 #[allow(unused_imports)]
 pub(super) use workflow::*;
 #[allow(unused_imports)]
 pub(super) use workflow_parts::*;
-#[allow(unused_imports)]
-pub(super) use instance_detail::*;
-
 
 pub struct SystemHealth;
 

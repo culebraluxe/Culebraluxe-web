@@ -99,8 +99,10 @@ pub(super) struct PropertyAdminSummaryRow {
 #[derive(Debug, FromRow)]
 pub(super) struct PropertyAdminRecordRow {
     pub(super) id: String,
-    pub(super) source_metadata: sqlx::types::Json<std::collections::BTreeMap<String, serde_json::Value>>,
-    pub(super) regrid_fields: sqlx::types::Json<std::collections::BTreeMap<String, serde_json::Value>>,
+    pub(super) source_metadata:
+        sqlx::types::Json<std::collections::BTreeMap<String, serde_json::Value>>,
+    pub(super) regrid_fields:
+        sqlx::types::Json<std::collections::BTreeMap<String, serde_json::Value>>,
     pub(super) stellar_property_id: Option<String>,
     pub(super) stellar_updated_at: Option<String>,
     pub(super) name: String,

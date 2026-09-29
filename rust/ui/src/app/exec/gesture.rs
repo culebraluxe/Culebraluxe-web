@@ -16,22 +16,30 @@ use yew::TargetCast as _;
 
 /// The text of the `<input>` an event came from.
 pub fn input_value(event: &yew::Event) -> String {
-    event.target_unchecked_into::<web_sys::HtmlInputElement>().value()
+    event
+        .target_unchecked_into::<web_sys::HtmlInputElement>()
+        .value()
 }
 
 /// The chosen option of the `<select>` an event came from.
 pub fn select_value(event: &yew::Event) -> String {
-    event.target_unchecked_into::<web_sys::HtmlSelectElement>().value()
+    event
+        .target_unchecked_into::<web_sys::HtmlSelectElement>()
+        .value()
 }
 
 /// The text of the `<textarea>` an event came from.
 pub fn textarea_value(event: &yew::Event) -> String {
-    event.target_unchecked_into::<web_sys::HtmlTextAreaElement>().value()
+    event
+        .target_unchecked_into::<web_sys::HtmlTextAreaElement>()
+        .value()
 }
 
 /// Whether the checkbox an event came from is ticked.
 pub fn checked(event: &yew::Event) -> bool {
-    event.target_unchecked_into::<web_sys::HtmlInputElement>().checked()
+    event
+        .target_unchecked_into::<web_sys::HtmlInputElement>()
+        .checked()
 }
 
 /// The files chosen in the `<input type=file>` an event came from, in order. The input is then cleared, so choosing the
@@ -40,7 +48,11 @@ pub fn take_files(event: &yew::Event) -> Vec<File> {
     let input = event.target_unchecked_into::<web_sys::HtmlInputElement>();
     let files = input
         .files()
-        .map(|list| (0..list.length()).filter_map(|index| list.get(index)).collect())
+        .map(|list| {
+            (0..list.length())
+                .filter_map(|index| list.get(index))
+                .collect()
+        })
         .unwrap_or_default();
     input.set_value("");
     files

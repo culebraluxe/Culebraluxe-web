@@ -8,16 +8,15 @@ use crate::seller_strategy::{
     compact_money, evaluate, money, number, pct, rank_strategies, recommendation_rationale,
     takeaways, Inputs, ModelResult, OptionId, OptionScore, SellerStrategyState, TakeawayTone,
 };
-mod definitions;
 mod cockpit;
+mod definitions;
 mod strategies;
-#[allow(unused_imports)]
-pub(super) use definitions::*;
 #[allow(unused_imports)]
 pub(super) use cockpit::*;
 #[allow(unused_imports)]
+pub(super) use definitions::*;
+#[allow(unused_imports)]
 pub(super) use strategies::*;
-
 
 /// Every intent on the calculator. Nothing here reads or writes the server: the model is the assumptions, and the
 /// evaluation is a pure function of them (`crate::seller_strategy`).

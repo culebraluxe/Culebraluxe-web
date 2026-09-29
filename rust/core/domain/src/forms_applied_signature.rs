@@ -101,7 +101,10 @@ pub fn format_broker_signature_date(instant: &str) -> Result<String, String> {
         .map_err(|_| "Broker signature appliedAt must be a valid ISO instant.".to_string())?;
     let offset = chrono::FixedOffset::east_opt(BROKER_SIGNATURE_UTC_OFFSET_HOURS * 3600)
         .ok_or_else(|| "the brokerage's UTC offset is not a valid offset".to_string())?;
-    Ok(parsed.with_timezone(&offset).format("%B %-d, %Y").to_string())
+    Ok(parsed
+        .with_timezone(&offset)
+        .format("%B %-d, %Y")
+        .to_string())
 }
 
 const BROKER_ROLES: [&str; 2] = ["BUYER_BROKER", "SELLER_BROKER"];
@@ -119,7 +122,11 @@ pub fn parse_applied_signature_slot_ids(value: &serde_json::Value) -> Vec<String
         let Some(raw) = entry.as_object() else {
             continue;
         };
-        let text = |key: &str| raw.get(key).and_then(|value| value.as_str()).unwrap_or_default();
+        let text = |key: &str| {
+            raw.get(key)
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+        };
         let role = text("role");
         let slot_id = text("slotId");
         let checksum = text("assetChecksumSha256");
@@ -130,7 +137,9 @@ pub fn parse_applied_signature_slot_ids(value: &serde_json::Value) -> Vec<String
             && !text("signerAppUserId").trim().is_empty()
             && !text("assetMediaId").trim().is_empty()
             && checksum.len() == 64
-            && checksum.chars().all(|character| character.is_ascii_hexdigit())
+            && checksum
+                .chars()
+                .all(|character| character.is_ascii_hexdigit())
             && chrono::DateTime::parse_from_rfc3339(text("appliedAt").trim()).is_ok()
             && text("consentBasis") == BROKER_SIGNATURE_CONSENT_BASIS
             && text("dateSemantic") == BROKER_SIGNATURE_DATE_SEMANTIC
@@ -227,7 +236,12 @@ mod tests {
 
     #[test]
     fn an_image_is_fitted_inside_a_slot_without_being_stretched() {
-        let slot = Rect { x: 0.0, y: 0.0, width: 100.0, height: 40.0 };
+        let slot = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 40.0,
+        };
         // A wide image fits by width; a tall one fits by height.
         assert_eq!(slot.scale_to_fit(100.0, 40.0, 200.0, 50.0), (100.0, 25.0));
         assert_eq!(slot.scale_to_fit(100.0, 40.0, 50.0, 200.0), (10.0, 40.0));

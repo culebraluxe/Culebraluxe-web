@@ -30,14 +30,21 @@ pub(super) fn asset_date(value: Option<&str>) -> String {
 /// Vault documents and the property's media stay where they live. What belongs here is what is linked to the
 /// project's property or person. A contract still to be signed can have its signed copy recorded here — the PDF
 /// signed by email, until BoldSign is on.
-pub(super) fn documents_view(projects: &PortalProjectsPage, project: &PortalProject, on_msg: &Callback<Msg>) -> Html {
+pub(super) fn documents_view(
+    projects: &PortalProjectsPage,
+    project: &PortalProject,
+    on_msg: &Callback<Msg>,
+) -> Html {
     let property_id = project.property_id.as_deref();
     let person_id = project.person_id.as_deref();
     // Signed with the copy still to come: the document is sent and the project's signing step is done.
     let signing_step_done = projects
         .items
         .iter()
-        .find(|item| item.project_id.as_deref() == Some(project.id.as_str()) && item.title == "Listing Contract Signed")
+        .find(|item| {
+            item.project_id.as_deref() == Some(project.id.as_str())
+                && item.title == "Listing Contract Signed"
+        })
         .filter(|item| item.status == "done")
         .map(|item| asset_date(item.planned_start.as_deref()));
     let mut assets: Vec<ProjectAsset> = projects
@@ -53,13 +60,18 @@ pub(super) fn documents_view(projects: &PortalProjectsPage, project: &PortalProj
             if matches!(document.state.as_str(), "ready" | "sent" | "signed") {
                 return true;
             }
-            let Some(form) = document.form_instance_id.as_deref() else { return false };
+            let Some(form) = document.form_instance_id.as_deref() else {
+                return false;
+            };
             document.state == "superseded"
                 && !projects.documents.iter().any(|other| {
-                    other.form_instance_id.as_deref() == Some(form) && matches!(other.state.as_str(), "ready" | "sent" | "signed")
+                    other.form_instance_id.as_deref() == Some(form)
+                        && matches!(other.state.as_str(), "ready" | "sent" | "signed")
                 })
                 && !projects.documents.iter().any(|other| {
-                    other.form_instance_id.as_deref() == Some(form) && other.state == "superseded" && other.created_at > document.created_at
+                    other.form_instance_id.as_deref() == Some(form)
+                        && other.state == "superseded"
+                        && other.created_at > document.created_at
                 })
         })
         .map(|document| {
@@ -68,14 +80,21 @@ pub(super) fn documents_view(projects: &PortalProjectsPage, project: &PortalProj
                 key: format!("document:{}", document.id),
                 kind: "document",
                 name: document.title.clone(),
-                caption: Some(match (signed, document.state.as_str(), &signing_step_done) {
-                    (true, _, _) => format!("Signed {}", asset_date(document.signed_at.as_deref())),
-                    (false, "superseded", _) => "Latest issued copy".to_owned(),
-                    (false, "sent", Some(day)) => format!("Signed {day} · copy to come"),
-                    _ => "Issued — awaiting signature".to_owned(),
-                }),
+                caption: Some(
+                    match (signed, document.state.as_str(), &signing_step_done) {
+                        (true, _, _) => {
+                            format!("Signed {}", asset_date(document.signed_at.as_deref()))
+                        }
+                        (false, "superseded", _) => "Latest issued copy".to_owned(),
+                        (false, "sent", Some(day)) => format!("Signed {day} · copy to come"),
+                        _ => "Issued — awaiting signature".to_owned(),
+                    },
+                ),
                 thumbnail: None,
-                href: crate::app::api::links::vault_document(&document.id, signed && document.signed_artifact_available),
+                href: crate::app::api::links::vault_document(
+                    &document.id,
+                    signed && document.signed_artifact_available,
+                ),
                 type_label: "PDF",
                 source: "Vault",
                 date: Some(document.created_at.clone()),
@@ -93,7 +112,11 @@ pub(super) fn documents_view(projects: &PortalProjectsPage, project: &PortalProj
                 "image" => Some(ProjectAsset {
                     key: format!("photo:{}", media.id),
                     kind: "photo",
-                    name: media.filename.clone().or_else(|| media.alt_text.clone()).unwrap_or_else(|| "Photo".into()),
+                    name: media
+                        .filename
+                        .clone()
+                        .or_else(|| media.alt_text.clone())
+                        .unwrap_or_else(|| "Photo".into()),
                     caption: media.caption.clone().or_else(|| media.alt_text.clone()),
                     thumbnail: Some(media.url.clone()),
                     href: media.url.clone(),
@@ -105,9 +128,17 @@ pub(super) fn documents_view(projects: &PortalProjectsPage, project: &PortalProj
                 "video" => media.mux_playback_id.clone().map(|playback| ProjectAsset {
                     key: format!("video:{}", media.id),
                     kind: "video",
-                    name: media.caption.clone().unwrap_or_else(|| if media.role == "short" { "Short film".into() } else { "Property film".into() }),
+                    name: media.caption.clone().unwrap_or_else(|| {
+                        if media.role == "short" {
+                            "Short film".into()
+                        } else {
+                            "Property film".into()
+                        }
+                    }),
                     caption: None,
-                    thumbnail: Some(format!("https://image.mux.com/{playback}/thumbnail.jpg?width=160")),
+                    thumbnail: Some(format!(
+                        "https://image.mux.com/{playback}/thumbnail.jpg?width=160"
+                    )),
                     href: format!("https://player.mux.com/{playback}"),
                     type_label: "Video",
                     source: "Mux",
@@ -125,7 +156,10 @@ pub(super) fn documents_view(projects: &PortalProjectsPage, project: &PortalProj
     };
     let count = |kind: &str| assets.iter().filter(|asset| asset.kind == kind).count();
     let (documents, photos, videos) = (count("document"), count("photo"), count("video"));
-    let visible: Vec<&ProjectAsset> = assets.iter().filter(|asset| filter == "all" || asset.kind == filter).collect();
+    let visible: Vec<&ProjectAsset> = assets
+        .iter()
+        .filter(|asset| filter == "all" || asset.kind == filter)
+        .collect();
     let chip = |key: &'static str, label: &'static str, count: usize| {
         let active = filter == key;
         html! {

@@ -535,5 +535,4 @@ impl<S: TxStore> WorkflowEngine<S> {
         }
         self.execute_node_leave(tx, token, instance, graph, actor, preferred, variables)
     }
-
 }

@@ -227,7 +227,11 @@ pub async fn contacts_load(args: &[String]) -> Result<(), Box<dyn Error>> {
         contacts,
         target.as_str(),
         payload["exportId"].as_str().unwrap_or_default(),
-        if account.is_empty() { "<resolved from the database>" } else { &account }
+        if account.is_empty() {
+            "<resolved from the database>"
+        } else {
+            &account
+        }
     );
 
     let database = crate::apple_mail::connect(target).await?;
@@ -238,9 +242,7 @@ pub async fn contacts_load(args: &[String]) -> Result<(), Box<dyn Error>> {
     if tally["exitCode"].as_i64().unwrap_or(0) != 0 {
         return Err(io::Error::other(format!(
             "contacts load refused: {}",
-            tally["message"]
-                .as_str()
-                .unwrap_or("see the tally above")
+            tally["message"].as_str().unwrap_or("see the tally above")
         ))
         .into());
     }
@@ -308,7 +310,9 @@ fn export_payload(export: &Value, file_sha256: &str) -> Result<Value, Box<dyn Er
         .into());
     }
     if schema_version != 1 {
-        return Err(io::Error::other(format!("export schemaVersion is {schema_version}, not 1")).into());
+        return Err(
+            io::Error::other(format!("export schemaVersion is {schema_version}, not 1")).into(),
+        );
     }
     let contacts = export
         .get("contacts")
@@ -374,7 +378,10 @@ mod tests {
     #[test]
     fn the_payload_carries_the_export_and_the_files_own_hash() {
         let payload = export_payload(&export(json!({})), "abc123").unwrap();
-        assert_eq!(payload["exportId"], json!("C14F508F-FCC1-4238-B06E-B97DD2E85E15"));
+        assert_eq!(
+            payload["exportId"],
+            json!("C14F508F-FCC1-4238-B06E-B97DD2E85E15")
+        );
         assert_eq!(payload["fileSha256"], json!("abc123"));
         assert_eq!(payload["schemaVersion"], json!(1));
         // The contacts travel exactly as exported: they are the input to the normalization the
@@ -386,14 +393,19 @@ mod tests {
     fn a_malformed_export_is_refused_before_a_database_is_opened() {
         for (label, bad) in [
             ("no source system", export(json!({"sourceSystem": ""}))),
-            ("wrong source system", export(json!({"sourceSystem": "apple_messages"}))),
+            (
+                "wrong source system",
+                export(json!({"sourceSystem": "apple_messages"})),
+            ),
             ("wrong schema", export(json!({"schemaVersion": 2}))),
             ("no export id", export(json!({"exportId": "  "}))),
             ("no exported at", export(json!({"exportedAt": ""}))),
             ("no contacts", export(json!({"contacts": []}))),
         ] {
-            assert!(export_payload(&bad, "abc").is_err(), "{label} must fail closed");
+            assert!(
+                export_payload(&bad, "abc").is_err(),
+                "{label} must fail closed"
+            );
         }
     }
 }
-

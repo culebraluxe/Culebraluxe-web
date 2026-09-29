@@ -7,7 +7,10 @@ pub(super) fn run_exec<'q>(tx: &mut NeonTx<'_>, q: Query<'q, Postgres, PgArgumen
     exec_q(tx, q).map(|_| ())
 }
 
-pub(super) fn run_exec_n<'q>(tx: &mut NeonTx<'_>, q: Query<'q, Postgres, PgArguments>) -> Result<u64> {
+pub(super) fn run_exec_n<'q>(
+    tx: &mut NeonTx<'_>,
+    q: Query<'q, Postgres, PgArguments>,
+) -> Result<u64> {
     exec_q(tx, q)
 }
 

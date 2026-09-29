@@ -9,16 +9,15 @@ use sqlx::FromRow;
 use uuid::Uuid;
 
 use crate::{Database, DbFailure, DbResult};
-mod deal_row;
 mod command;
-mod workspace;
+mod deal_row;
 mod deals;
-#[allow(unused_imports)]
-pub use deal_row::*;
+mod workspace;
 #[allow(unused_imports)]
 pub use command::*;
 #[allow(unused_imports)]
-pub use workspace::*;
+pub use deal_row::*;
 #[allow(unused_imports)]
 pub use deals::*;
-
+#[allow(unused_imports)]
+pub use workspace::*;

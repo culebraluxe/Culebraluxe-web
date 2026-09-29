@@ -232,9 +232,22 @@ impl PersonDao {
     /// Sets the email or phone a person's record shows, as typed: the one shown now is replaced, and so is any copy
     /// of the same address or number on this person written another way (`787-555-1234` and `(787) 555 1234` are
     /// one phone). Answers the other person's name, and changes nothing, when someone else already has it.
-    pub async fn set_contact(&self, person_id: &str, kind: &str, value: &str) -> DbResult<Option<String>> {
-        let value = if kind == "email" { value.trim().to_lowercase() } else { value.trim().to_owned() };
-        let normalized = if kind == "phone" { semantic_phone(&value) } else { value.clone() };
+    pub async fn set_contact(
+        &self,
+        person_id: &str,
+        kind: &str,
+        value: &str,
+    ) -> DbResult<Option<String>> {
+        let value = if kind == "email" {
+            value.trim().to_lowercase()
+        } else {
+            value.trim().to_owned()
+        };
+        let normalized = if kind == "phone" {
+            semantic_phone(&value)
+        } else {
+            value.clone()
+        };
         let matches = sqlx::query_as::<_, (String, String, String)>(
             r#"
             select pi.id::text, pi.person_id::text, p.display_name
@@ -258,7 +271,10 @@ impl PersonDao {
         .fetch_all(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("person.set_contact.lookup", &error))?;
-        if let Some((_, _, owner)) = matches.iter().find(|(_, owner_id, _)| owner_id != person_id) {
+        if let Some((_, _, owner)) = matches
+            .iter()
+            .find(|(_, owner_id, _)| owner_id != person_id)
+        {
             return Ok(Some(owner.clone()));
         }
         let mut replaced: Vec<String> = matches.into_iter().map(|(id, _, _)| id).collect();

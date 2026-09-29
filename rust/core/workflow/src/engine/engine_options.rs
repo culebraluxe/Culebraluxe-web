@@ -495,5 +495,4 @@ impl<S: TxStore> WorkflowEngine<S> {
             tx.claim_due_jobs(worker_id, now, lease, limit)
         })
     }
-
 }

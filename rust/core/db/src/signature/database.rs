@@ -507,5 +507,4 @@ impl SignatureDao {
                 && matches!(row.state.as_str(), "draft" | "ready" | "sent")
         }))
     }
-
 }

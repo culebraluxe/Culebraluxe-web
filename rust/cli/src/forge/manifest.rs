@@ -82,7 +82,9 @@ pub fn parse_args(argv: &[String]) -> Options {
 fn git(root: &Path, args: &[&str]) -> String {
     let output = Command::new("git").args(args).current_dir(root).output();
     match output {
-        Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout).to_string(),
+        Ok(output) if output.status.success() => {
+            String::from_utf8_lossy(&output.stdout).to_string()
+        }
         _ => String::new(),
     }
 }
@@ -299,8 +301,9 @@ pub fn build_manifest(root: &Path, scope: &str, lexical_limit: Option<usize>) ->
         if !matches!(resolver.resolve(path), Resolution::None) {
             return true;
         }
-        path.split_whitespace()
-            .any(|token| token.contains('/') && !matches!(resolver.resolve(token), Resolution::None))
+        path.split_whitespace().any(|token| {
+            token.contains('/') && !matches!(resolver.resolve(token), Resolution::None)
+        })
     };
 
     let entries = if has_packet || scope.contains('/') {
@@ -357,17 +360,26 @@ pub fn build_manifest(root: &Path, scope: &str, lexical_limit: Option<usize>) ->
         entries
     };
 
-    let commit = git(root, &["rev-parse", "--short", "HEAD"]).trim().to_string();
-    let branch = git(root, &["rev-parse", "--abbrev-ref", "HEAD"]).trim().to_string();
+    let commit = git(root, &["rev-parse", "--short", "HEAD"])
+        .trim()
+        .to_string();
+    let branch = git(root, &["rev-parse", "--abbrev-ref", "HEAD"])
+        .trim()
+        .to_string();
     let dirty = !git(root, &["status", "--porcelain"]).trim().is_empty();
     let meta = Meta {
         scope: scope.to_string(),
-        generated_at: format!(
-            "{}Z",
-            chrono::Utc::now().format("%Y-%m-%d %H:%M:%S")
-        ),
-        commit: if commit.is_empty() { "unknown".to_string() } else { commit },
-        branch: if branch.is_empty() { "unknown".to_string() } else { branch },
+        generated_at: format!("{}Z", chrono::Utc::now().format("%Y-%m-%d %H:%M:%S")),
+        commit: if commit.is_empty() {
+            "unknown".to_string()
+        } else {
+            commit
+        },
+        branch: if branch.is_empty() {
+            "unknown".to_string()
+        } else {
+            branch
+        },
         dirty,
         command: format!("pnpm forge:manifest {scope}"),
     };
@@ -413,7 +425,9 @@ fn check_one(root: &Path, built: &Built, json_output: bool) -> bool {
             built.file,
             built.entries.len(),
             if lexical > 0 {
-                format!("\n      lexical tail: {lexical} row(s) behind a fresh render (informational)")
+                format!(
+                    "\n      lexical tail: {lexical} row(s) behind a fresh render (informational)"
+                )
             } else {
                 String::new()
             }
@@ -474,11 +488,7 @@ fn check_all(root: &Path, options: &Options) -> Result<u8, Failure> {
         match write_if_changed(&root.join(file), &built.markdown) {
             Ok(true) => rewritten += 1,
             Ok(false) => {}
-            Err(error) => {
-                return Err(Failure::failed(format!(
-                    "cannot write {file}: {error}"
-                )))
-            }
+            Err(error) => return Err(Failure::failed(format!("cannot write {file}: {error}"))),
         }
         let stale = missing_paths(&built.entries);
         missing += stale.len();
@@ -554,12 +564,14 @@ pub fn run(args: &[String]) -> Result<u8, Failure> {
     if let Some(code) = refusal_for(&root, &built.file) {
         return Ok(code);
     }
-    let changed = write_if_changed(&root.join(&built.file), &built.markdown).map_err(|error| {
-        Failure::failed(format!("cannot write {}: {error}", built.file))
-    })?;
+    let changed = write_if_changed(&root.join(&built.file), &built.markdown)
+        .map_err(|error| Failure::failed(format!("cannot write {}: {error}", built.file)))?;
     let mut by_lane: Vec<(&'static str, usize)> = Vec::new();
     for entry in &built.entries {
-        match by_lane.iter_mut().find(|(lane, _)| *lane == entry.lane.as_str()) {
+        match by_lane
+            .iter_mut()
+            .find(|(lane, _)| *lane == entry.lane.as_str())
+        {
             Some((_, count)) => *count += 1,
             None => by_lane.push((entry.lane.as_str(), 1)),
         }
@@ -611,7 +623,13 @@ mod tests {
         let options = parse_args(&args(&["PIRATE-01", "--check", "--format", "json"]));
         assert_eq!(options.scope, "PIRATE-01");
         assert!(options.check && options.json);
-        let options = parse_args(&args(&["--format", "json", "--lexical", "3", "FORGE-GATES-01"]));
+        let options = parse_args(&args(&[
+            "--format",
+            "json",
+            "--lexical",
+            "3",
+            "FORGE-GATES-01",
+        ]));
         assert_eq!(options.lexical_limit, Some(3));
         assert_eq!(options.scope, "FORGE-GATES-01");
         assert!(!options.check);
@@ -631,13 +649,17 @@ mod tests {
 
     #[test]
     fn a_manifest_file_name_round_trips_back_to_its_scope() {
-        assert_eq!(scope_from_manifest_file("docs/agent/manifest/PIRATE-01.md"), "PIRATE-01");
+        assert_eq!(
+            scope_from_manifest_file("docs/agent/manifest/PIRATE-01.md"),
+            "PIRATE-01"
+        );
         assert_eq!(scope_from_manifest_file("all.md"), "all");
     }
 
     #[test]
     fn a_re_run_does_not_rewrite_a_file_that_did_not_change() {
-        let root = std::env::temp_dir().join(format!("forge-manifest-write-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("forge-manifest-write-{}", std::process::id()));
         let path = root.join("docs/agent/manifest/TEST-01.md");
         assert!(write_if_changed(&path, "# Scope manifest — TEST-01\n").expect("write"));
         assert!(!write_if_changed(&path, "# Scope manifest — TEST-01\n").expect("no write"));
@@ -649,7 +671,8 @@ mod tests {
     fn a_re_run_that_moved_only_the_run_stamp_leaves_the_file_alone() {
         // `forge:manifest --check-all` is in the harness chain, so a rewrite per run dirtied eight committed
         // files every time it ran. Only a real change may touch them.
-        let root = std::env::temp_dir().join(format!("forge-manifest-clock-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("forge-manifest-clock-{}", std::process::id()));
         let path = root.join("docs/agent/manifest/TEST-01.md");
         let first =
             "# Scope manifest — TEST-01\n\n- generated: 2026-09-28 08:00:00Z\n- commit: `abc` (working tree dirty) on `main`\n- rows: 1\n";
@@ -686,13 +709,17 @@ mod tests {
             return; // no git in this sandbox
         }
         assert!(history.scope_commits > 0, "the word is in the log");
-        assert!(!history.scope_paths.is_empty(), "those commits changed files");
+        assert!(
+            !history.scope_paths.is_empty(),
+            "those commits changed files"
+        );
         assert!(history.last_touched.values().all(|date| date.len() == 10));
     }
 
     #[test]
     fn the_generator_never_indexes_a_conflict_copy() {
-        let root = std::env::temp_dir().join(format!("forge-manifest-debris-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("forge-manifest-debris-{}", std::process::id()));
         let docs = root.join("docs/agent");
         fs::create_dir_all(&docs).expect("fixture tree");
         fs::write(docs.join("RUNLOG.md"), "# runlog\n").expect("fixture");

@@ -308,11 +308,8 @@ fn selected(
             </section>
         };
     };
-    let on_role = link.callback(|event: Event| {
-        Msg::RoleChanged(
-            crate::app::exec::select_value(&event),
-        )
-    });
+    let on_role =
+        link.callback(|event: Event| Msg::RoleChanged(crate::app::exec::select_value(&event)));
     let on_alt = link.callback(|event: InputEvent| Msg::AltChanged(template::input_value(&event)));
     let on_file = link.callback(|event: Event| {
         Msg::FileChosen(crate::app::exec::take_files(&event).into_iter().next())

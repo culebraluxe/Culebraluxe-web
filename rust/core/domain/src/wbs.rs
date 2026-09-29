@@ -131,17 +131,16 @@ pub struct WbsDependency {
 }
 
 /// An edge source -> target is invalid when target can already reach source.
-pub fn dependency_creates_cycle(
-    edges: &[WbsDependency],
-    source: &str,
-    target: &str,
-) -> bool {
+pub fn dependency_creates_cycle(edges: &[WbsDependency], source: &str, target: &str) -> bool {
     if source == target {
         return true;
     }
     let mut outgoing: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
     for edge in edges {
-        outgoing.entry(&edge.source_id).or_default().push(&edge.target_id);
+        outgoing
+            .entry(&edge.source_id)
+            .or_default()
+            .push(&edge.target_id);
     }
     let mut visited = BTreeSet::new();
     let mut stack = vec![target];

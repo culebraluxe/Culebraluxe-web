@@ -48,7 +48,10 @@ async fn shell_now(
         match crate::api::ui_auth::resolve_portal_context(&state, &headers).await {
             Ok(resolved) => crate::api::ui_auth::actor_projection(&resolved),
             Err(_) => {
-                let back = uri.path_and_query().map(|p| p.as_str()).unwrap_or("/portal/dashboard");
+                let back = uri
+                    .path_and_query()
+                    .map(|p| p.as_str())
+                    .unwrap_or("/portal/dashboard");
                 return axum::response::Redirect::to(&format!(
                     "/login?callbackUrl={}",
                     crate::api::google_auth::encode(back)
@@ -148,7 +151,11 @@ mod tests {
     #[tokio::test]
     async fn an_unknown_api_address_is_a_404_not_the_page() {
         for path in ["/v1/nothing", "/api/portal/rust-ui/nothing"] {
-            assert_eq!(early_answer(path).unwrap().status(), StatusCode::NOT_FOUND, "{path}");
+            assert_eq!(
+                early_answer(path).unwrap().status(),
+                StatusCode::NOT_FOUND,
+                "{path}"
+            );
         }
         assert!(early_answer("/buyers").is_none(), "a page is the shell");
         let portal = early_answer("/portal").unwrap();

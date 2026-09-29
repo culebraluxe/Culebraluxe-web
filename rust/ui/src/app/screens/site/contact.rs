@@ -12,7 +12,6 @@ use yew::prelude::*;
 
 use super::visitor::{Model, Msg};
 
-
 use crate::app::site::{form_field, page_hero};
 use crate::model::{BlockItem, ContactStatus, ContactSubmission, PageContent};
 

@@ -247,11 +247,18 @@ impl<Msg: 'static> Cmd<Msg> {
         file: web_sys::File,
         to_msg: impl FnOnce(Result<serde_json::Value, ApiError>) -> Msg + 'static,
     ) -> Self {
-        Cmd::PostForm { path: endpoint.path(), fields, file, reply: Box::new(to_msg) }
+        Cmd::PostForm {
+            path: endpoint.path(),
+            fields,
+            file,
+            reply: Box::new(to_msg),
+        }
     }
 
     pub fn listen(to_msg: impl FnOnce(Result<String, ApiError>) -> Msg + 'static) -> Self {
-        Cmd::Listen { reply: Box::new(to_msg) }
+        Cmd::Listen {
+            reply: Box::new(to_msg),
+        }
     }
 
     pub fn storage_read(
@@ -322,7 +329,12 @@ impl<Msg: 'static> Cmd<Msg> {
                 filename,
                 reply: Box::new(move |answer| f(reply(answer))),
             },
-            Cmd::PostForm { path, fields, file, reply } => Cmd::PostForm {
+            Cmd::PostForm {
+                path,
+                fields,
+                file,
+                reply,
+            } => Cmd::PostForm {
                 path,
                 fields,
                 file,

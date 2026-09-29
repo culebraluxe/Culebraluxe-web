@@ -5,10 +5,9 @@ use domain::{
     UploadPropertyMediaResult,
 };
 use sqlx::FromRow;
-mod media_row;
 mod assemble_media_upload;
-#[allow(unused_imports)]
-pub use media_row::*;
+mod media_row;
 #[allow(unused_imports)]
 pub use assemble_media_upload::*;
-
+#[allow(unused_imports)]
+pub use media_row::*;

@@ -22,7 +22,8 @@
 use super::{connect, Failure};
 use db::{ForgeDoctorDao, RoiAttemptRow};
 use forge::roi::{
-    describe_roi_row, parse_window_days, render_roi_report, summarize_roi, RoiAttempt, RoiPlane, RoiRow,
+    describe_roi_row, parse_window_days, render_roi_report, summarize_roi, RoiAttempt, RoiPlane,
+    RoiRow,
 };
 use serde_json::{json, Value};
 

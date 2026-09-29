@@ -1,10 +1,10 @@
 use crate::{
     accounting::AccountingService,
     calendar::CalendarService,
-    clients::ClientService,
-    client_room::ClientRoomService,
-    cockpit::CockpitService,
     catch_up::CatchUpService,
+    client_room::ClientRoomService,
+    clients::ClientService,
+    cockpit::CockpitService,
     communications::CommsService,
     contracts::ContractService,
     deals::DealPortalService,
@@ -19,9 +19,9 @@ use crate::{
     media::MediaService,
     people::PersonService,
     projects::ProjectService,
-    publishing::PublishingService,
     properties::PropertyService,
     public_listings::PublicListingService,
+    publishing::PublishingService,
     relationship_evidence::RelationshipEvidenceService,
     security::{GuestSignInService, SecurityService},
     showings::ShowingService,
@@ -37,11 +37,12 @@ use crate::{
 };
 use async_trait::async_trait;
 use db::{
-    AccountingDao, CalendarDao, CatchUpDao, ClientDao, ClientRoomDao, CockpitDao, CommsDao, ContractDao, Database,
-    DealPortalDao, FirmDao, FlightRecorderDao, FormDao, GuestDao, GuideDao, IntakeDao, IssueDao,
-    MarketingDao, MediaDao, PersonDao, ProjectDao, PublishingDao, PropertyDao, PublicListingDao,
-    RelationshipEvidenceDao, SecurityDao, ShowingDao, SignatureDao, SupportDiagnosticsDao, TaskDao,
-    TechCockpitDao, VaultDao, WbsDao, WebsiteLeadDao, WhatsAppDao, WorkflowPortalDao,
+    AccountingDao, CalendarDao, CatchUpDao, ClientDao, ClientRoomDao, CockpitDao, CommsDao,
+    ContractDao, Database, DealPortalDao, FirmDao, FlightRecorderDao, FormDao, GuestDao, GuideDao,
+    IntakeDao, IssueDao, MarketingDao, MediaDao, PersonDao, ProjectDao, PropertyDao,
+    PublicListingDao, PublishingDao, RelationshipEvidenceDao, SecurityDao, ShowingDao,
+    SignatureDao, SupportDiagnosticsDao, TaskDao, TechCockpitDao, VaultDao, WbsDao, WebsiteLeadDao,
+    WhatsAppDao, WorkflowPortalDao,
 };
 use integrations::boldsign::{BoldSignConfig, BoldSignSignatureProvider};
 use service::{
@@ -88,8 +89,16 @@ macro_rules! abstract_service {
 }
 
 abstract_service!(CockpitService<CockpitDao>, "cockpit", "Cockpit service");
-abstract_service!(CatchUpService<CatchUpDao>, "catch-up", "Relationship Catch-Up service");
-abstract_service!(ClientRoomService<ClientRoomDao>, "client-room", "External client transaction room");
+abstract_service!(
+    CatchUpService<CatchUpDao>,
+    "catch-up",
+    "Relationship Catch-Up service"
+);
+abstract_service!(
+    ClientRoomService<ClientRoomDao>,
+    "client-room",
+    "External client transaction room"
+);
 abstract_service!(GuideService<GuideDao>, "guide", "Island guide service");
 abstract_service!(IntakeService<IntakeDao>, "intake", "Website intake service");
 abstract_service!(IssueService<IssueDao>, "issue", "Issue service");

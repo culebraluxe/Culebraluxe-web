@@ -15,7 +15,10 @@ mod view;
 
 use yew::prelude::*;
 
-use crate::app::api::{DealPeopleSearch, OpsCommand, OpsRead, PropertyHero, PropertyMediaRemove, PropertyMergeParcel, PropertyMediaChunked};
+use crate::app::api::{
+    DealPeopleSearch, OpsCommand, OpsRead, PropertyHero, PropertyMediaChunked, PropertyMediaRemove,
+    PropertyMergeParcel,
+};
 use crate::app::cmd::{ApiError, Cmd, Remote};
 use crate::app::screen::{Link, Screen, ScreenCtx};
 use crate::app::template;
@@ -24,7 +27,6 @@ use crate::ops::{ops_default_section, ops_form};
 mod update;
 #[allow(unused_imports)]
 pub(super) use update::*;
-
 
 /// How long typing must pause before the list is searched.
 const SEARCH_PAUSE_MS: u32 = 300;
@@ -309,10 +311,15 @@ mod tests {
         let mut model = opened(&ctx);
         Workbench::update(
             &mut model,
-            Msg::OpsFieldChanged { key: "catastroNumber".into(), value: " 476-000-005-19-000 ".into() },
+            Msg::OpsFieldChanged {
+                key: "catastroNumber".into(),
+                value: " 476-000-005-19-000 ".into(),
+            },
             &ctx,
         );
-        let request = Workbench::update(&mut model, Msg::FindByCatastro, &ctx).into_requests().remove(0);
+        let request = Workbench::update(&mut model, Msg::FindByCatastro, &ctx)
+            .into_requests()
+            .remove(0);
         assert_eq!(request.path, "/api/portal/property/merge-parcel");
         let body = request.body.expect("a body");
         assert_eq!(body["catastro"], "476-000-005-19-000");

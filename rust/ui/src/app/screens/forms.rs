@@ -10,26 +10,26 @@ use yew::prelude::*;
 
 use crate::app::api::{
     FormItem, FormPreview, FormPreviewResponse, FormTemplate, FormTemplateField, FormWhen,
-    FormsAction, FormsBridgeResponse, FormsGrok, FormsGrokAnswer, FormsPage, FormsRead, FormsWrite, FormsWriteResponse,
+    FormsAction, FormsBridgeResponse, FormsGrok, FormsGrokAnswer, FormsPage, FormsRead, FormsWrite,
+    FormsWriteResponse,
 };
 use crate::app::cmd::{ApiError, Cmd};
 use crate::app::screen::{Link, Screen, ScreenCtx};
-mod update;
-mod editor;
-mod rail;
-mod fields;
 mod document;
+mod editor;
+mod fields;
+mod rail;
+mod update;
 #[allow(unused_imports)]
-pub(super) use update::*;
+pub(super) use document::*;
 #[allow(unused_imports)]
 pub(super) use editor::*;
 #[allow(unused_imports)]
-pub(super) use rail::*;
-#[allow(unused_imports)]
 pub(super) use fields::*;
 #[allow(unused_imports)]
-pub(super) use document::*;
-
+pub(super) use rail::*;
+#[allow(unused_imports)]
+pub(super) use update::*;
 
 const PRIMARY_BUTTON: &str =
     "inline-flex min-h-8 items-center justify-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-3 text-[10px] font-medium uppercase tracking-[0.14em] text-white transition hover:bg-[var(--portal-navy-soft)] disabled:cursor-not-allowed disabled:opacity-40";
@@ -37,8 +37,7 @@ const GHOST_BUTTON: &str =
     "inline-flex min-h-8 items-center justify-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] px-3 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] transition hover:border-[var(--portal-navy)] hover:text-[var(--portal-navy)] disabled:cursor-not-allowed disabled:opacity-40";
 const INPUT_CLASS: &str =
     "mt-1 block h-9 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white px-2.5 text-[13px] font-light leading-9 text-black/70 outline-none focus:border-[var(--portal-navy-soft)]";
-const LABEL_CLASS: &str =
-    "text-[9px] font-light uppercase tracking-[0.14em] text-black/40";
+const LABEL_CLASS: &str = "text-[9px] font-light uppercase tracking-[0.14em] text-black/40";
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Model {
@@ -82,7 +81,10 @@ pub enum Msg {
     TemplateSelected(String),
     NewForm,
     Created(Result<FormsWriteResponse, ApiError>),
-    FieldChanged { name: String, value: String },
+    FieldChanged {
+        name: String,
+        value: String,
+    },
     DetailsChanged(String),
     AutosaveDue(u32),
     DraftSaved {
@@ -176,13 +178,32 @@ mod tests {
     #[test]
     fn a_listing_agreement_is_named_by_its_seller_not_the_deals_client() {
         let item = |values: &[(&str, &str)], client: Option<&str>| FormItem {
-            field_values: values.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect(),
+            field_values: values
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                .collect(),
             client_name: client.map(str::to_owned),
             ..FormItem::default()
         };
-        assert_eq!(party_name(&item(&[("sellerName", "Juan A. Santa Cruz")], Some("James Lee"))), "Juan A. Santa Cruz");
-        assert_eq!(party_name(&item(&[("buyerName", "Ana"), ("sellerName", "Luis")], Some("James Lee"))), "Ana / Luis");
-        assert_eq!(party_name(&item(&[], Some("James Lee"))), "James Lee", "no names on the form: the linked client");
+        assert_eq!(
+            party_name(&item(
+                &[("sellerName", "Juan A. Santa Cruz")],
+                Some("James Lee")
+            )),
+            "Juan A. Santa Cruz"
+        );
+        assert_eq!(
+            party_name(&item(
+                &[("buyerName", "Ana"), ("sellerName", "Luis")],
+                Some("James Lee")
+            )),
+            "Ana / Luis"
+        );
+        assert_eq!(
+            party_name(&item(&[], Some("James Lee"))),
+            "James Lee",
+            "no names on the form: the linked client"
+        );
         assert_eq!(party_name(&item(&[], None)), "Untitled");
     }
 
@@ -197,14 +218,33 @@ mod tests {
             person_id: Some("someone-else".into()),
             ..FormItem::default()
         });
-        let mut model = Model { page: Some(page), ..Model::default() };
+        let mut model = Model {
+            page: Some(page),
+            ..Model::default()
+        };
         let ctx = ScreenCtx::default();
 
-        assert!(Forms::update(&mut model, Msg::NewForm, &ctx).into_requests().is_empty(), "New asks first");
-        assert!(Forms::update(&mut model, Msg::NewFormCreate, &ctx).into_requests().is_empty(), "nobody named yet");
+        assert!(
+            Forms::update(&mut model, Msg::NewForm, &ctx)
+                .into_requests()
+                .is_empty(),
+            "New asks first"
+        );
+        assert!(
+            Forms::update(&mut model, Msg::NewFormCreate, &ctx)
+                .into_requests()
+                .is_empty(),
+            "nobody named yet"
+        );
 
-        Forms::update(&mut model, Msg::NewSellerChanged(" Julio Pimentel Ortiz ".into()), &ctx);
-        let request = Forms::update(&mut model, Msg::NewFormCreate, &ctx).into_requests().remove(0);
+        Forms::update(
+            &mut model,
+            Msg::NewSellerChanged(" Julio Pimentel Ortiz ".into()),
+            &ctx,
+        );
+        let request = Forms::update(&mut model, Msg::NewFormCreate, &ctx)
+            .into_requests()
+            .remove(0);
         let body = request.body.expect("a create body");
         assert_eq!(body["action"], "create");
         assert_eq!(body["sellerName"], "Julio Pimentel Ortiz");

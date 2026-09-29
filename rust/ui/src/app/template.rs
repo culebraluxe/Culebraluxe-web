@@ -44,7 +44,12 @@ pub enum Tone {
 }
 
 /// `remote`, on a given ground. The failure panel is the same everywhere; only the loading line takes the tone.
-pub fn remote_toned<T>(remote: &Remote<T>, tone: Tone, loading: &str, loaded: impl FnOnce(&T) -> Html) -> Html {
+pub fn remote_toned<T>(
+    remote: &Remote<T>,
+    tone: Tone,
+    loading: &str,
+    loaded: impl FnOnce(&T) -> Html,
+) -> Html {
     match (remote, tone) {
         (Remote::Loading, Tone::Portal) => loading_panel(loading),
         (Remote::Loading, tone) => loading_toned(tone, loading),
@@ -103,7 +108,9 @@ pub fn empty_panel(message: &str) -> Html {
 /// of the TypeScript (owner decision, 2026-09-26): a feature that needs one comes back only as a Rust port, never as a
 /// JavaScript island.
 pub fn widget_removed(what: &str) -> Html {
-    empty_panel(&format!("{what} is not available yet — it is being rebuilt in Rust."))
+    empty_panel(&format!(
+        "{what} is not available yet — it is being rebuilt in Rust."
+    ))
 }
 
 pub fn metric(label: &str, value: &str, hint: &str) -> Html {

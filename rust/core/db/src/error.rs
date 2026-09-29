@@ -44,7 +44,6 @@ impl std::fmt::Display for DbFailure {
 
 impl std::error::Error for DbFailure {}
 
-
 pub type DbResult<T> = Result<T, DbFailure>;
 
 impl DbFailure {

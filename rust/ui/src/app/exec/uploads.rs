@@ -16,7 +16,10 @@ pub(super) const REQUEST_SECONDS: u64 = 50;
 pub(super) const ATTEMPTS: u32 = 5;
 
 /// One request, with the way out: it answers, fails, or is aborted at `REQUEST_SECONDS` — never hangs.
-pub(super) async fn post_once(path: &str, form: web_sys::FormData) -> Result<serde_json::Value, ApiError> {
+pub(super) async fn post_once(
+    path: &str,
+    form: web_sys::FormData,
+) -> Result<serde_json::Value, ApiError> {
     let controller = web_sys::AbortController::new()
         .map_err(|_| ApiError::network("The browser could not start the upload."))?;
     let signal = controller.signal();
@@ -49,7 +52,9 @@ pub(super) async fn post_form(
     let mut attempt = 1;
     loop {
         match post_once(path, build()?).await {
-            Err(error) if attempt < ATTEMPTS && (error.code == "NETWORK" || error.status >= 500) => {
+            Err(error)
+                if attempt < ATTEMPTS && (error.code == "NETWORK" || error.status >= 500) =>
+            {
                 yew::platform::time::sleep(std::time::Duration::from_secs(2u64 << attempt)).await;
                 attempt += 1;
             }
@@ -101,7 +106,10 @@ pub(super) async fn upload_chunked(
             .map(|(key, value)| (key.as_str(), value.clone())),
     );
     let opened = post_form(path, || form("init", &declared)).await?;
-    let state = opened.get("state").and_then(|state| state.as_str()).unwrap_or("uploading");
+    let state = opened
+        .get("state")
+        .and_then(|state| state.as_str())
+        .unwrap_or("uploading");
     if state == "done" {
         return Ok(());
     }
@@ -115,7 +123,12 @@ pub(super) async fn upload_chunked(
         let received: std::collections::HashSet<i64> = opened
             .get("received")
             .and_then(|received| received.as_array())
-            .map(|indexes| indexes.iter().filter_map(serde_json::Value::as_i64).collect())
+            .map(|indexes| {
+                indexes
+                    .iter()
+                    .filter_map(serde_json::Value::as_i64)
+                    .collect()
+            })
             .unwrap_or_default();
 
         // Two: the pieces the server lacks, in order — the receiver refuses an index beyond the declared count.
@@ -129,8 +142,19 @@ pub(super) async fn upload_chunked(
                 let piece = file
                     .unchecked_ref::<web_sys::Blob>()
                     .slice_with_f64_and_f64(start, end)
-                    .map_err(|_| ApiError::network(format!("Part {} of {chunk_count} could not be read.", index + 1)))?;
-                let chunk = form("chunk", &[("uploadId", upload_id.clone()), ("chunkIndex", index.to_string())])?;
+                    .map_err(|_| {
+                        ApiError::network(format!(
+                            "Part {} of {chunk_count} could not be read.",
+                            index + 1
+                        ))
+                    })?;
+                let chunk = form(
+                    "chunk",
+                    &[
+                        ("uploadId", upload_id.clone()),
+                        ("chunkIndex", index.to_string()),
+                    ],
+                )?;
                 chunk
                     .append_with_blob_and_filename("chunk", &piece, &file.name())
                     .map_err(|_| ApiError::network("The browser could not prepare the upload."))?;
@@ -144,7 +168,10 @@ pub(super) async fn upload_chunked(
 
         // Three: finish. The server claims the upload and finishes it in the background (the image is re-encoded,
         // which takes a while); this answers at once.
-        post_form(path, || form("complete", &[("uploadId", upload_id.clone())])).await?;
+        post_form(path, || {
+            form("complete", &[("uploadId", upload_id.clone())])
+        })
+        .await?;
     }
 
     // Four: ask, in short requests, until the photograph is stored — or has failed, and says why.
@@ -155,12 +182,18 @@ pub(super) async fn upload_chunked(
         match answer.get("state").and_then(|state| state.as_str()) {
             Some("done") => return Ok(()),
             Some("failed") => {
-                let message = answer.get("message").and_then(|m| m.as_str()).unwrap_or("The photo could not be saved.");
+                let message = answer
+                    .get("message")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("The photo could not be saved.");
                 return Err(ApiError::network(message.to_owned()));
             }
             // Pieces all there but nobody finishing it (the server restarted mid-way): finish it again.
             Some("uploading") => {
-                post_form(path, || form("complete", &[("uploadId", upload_id.clone())])).await?;
+                post_form(path, || {
+                    form("complete", &[("uploadId", upload_id.clone())])
+                })
+                .await?;
             }
             _ => {}
         }
@@ -187,7 +220,10 @@ pub(super) fn way_out(seconds: u64) -> Result<web_sys::AbortSignal, ApiError> {
 }
 
 /// A JSON POST to this server, with the way out and retries.
-pub(super) async fn post_json(path: &str, body: &serde_json::Value) -> Result<serde_json::Value, ApiError> {
+pub(super) async fn post_json(
+    path: &str,
+    body: &serde_json::Value,
+) -> Result<serde_json::Value, ApiError> {
     let mut attempt = 1;
     loop {
         let answer = async {
@@ -198,17 +234,20 @@ pub(super) async fn post_json(path: &str, body: &serde_json::Value) -> Result<se
                 .map_err(|error| ApiError::network(error.to_string()))?
                 .send()
                 .await
-                .map_err(|error| ApiError::network(format!("the request did not complete ({error})")))?;
+                .map_err(|error| {
+                    ApiError::network(format!("the request did not complete ({error})"))
+                })?;
             let status = response.status();
-            let text = response
-                .text()
-                .await
-                .map_err(|error| ApiError::network(format!("the answer did not arrive ({error})")))?;
+            let text = response.text().await.map_err(|error| {
+                ApiError::network(format!("the answer did not arrive ({error})"))
+            })?;
             interpret(status, response.ok(), &text)
         }
         .await;
         match answer {
-            Err(error) if attempt < ATTEMPTS && (error.code == "NETWORK" || error.status >= 500) => {
+            Err(error)
+                if attempt < ATTEMPTS && (error.code == "NETWORK" || error.status >= 500) =>
+            {
                 yew::platform::time::sleep(std::time::Duration::from_secs(2u64 << attempt)).await;
                 attempt += 1;
             }
@@ -233,7 +272,12 @@ pub(super) async fn video_offset(url: &str, total: f64) -> Result<Option<f64>, A
             response
                 .headers()
                 .get("range")
-                .and_then(|range| range.rsplit('-').next().and_then(|end| end.trim().parse::<f64>().ok()))
+                .and_then(|range| {
+                    range
+                        .rsplit('-')
+                        .next()
+                        .and_then(|end| end.trim().parse::<f64>().ok())
+                })
                 .map(|end| end + 1.0)
                 .unwrap_or(0.0),
         )),
@@ -265,9 +309,17 @@ pub(super) async fn upload_video(
     let saved: Option<(String, String)> = storage()
         .and_then(|storage| storage.get_item(&resume_key).ok().flatten())
         .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-        .filter(|saved| saved.get("at").and_then(serde_json::Value::as_f64).is_some_and(|at| now - at < 55.0 * 60_000.0))
+        .filter(|saved| {
+            saved
+                .get("at")
+                .and_then(serde_json::Value::as_f64)
+                .is_some_and(|at| now - at < 55.0 * 60_000.0)
+        })
         .and_then(|saved| {
-            Some((saved.get("uploadId")?.as_str()?.to_owned(), saved.get("uploadUrl")?.as_str()?.to_owned()))
+            Some((
+                saved.get("uploadId")?.as_str()?.to_owned(),
+                saved.get("uploadUrl")?.as_str()?.to_owned(),
+            ))
         });
     let mut resumed: Option<(String, String, Option<f64>)> = None;
     if let Some((upload_id, url)) = saved {
@@ -278,13 +330,20 @@ pub(super) async fn upload_video(
     let (upload_id, url, mut offset) = match resumed {
         Some((upload_id, url, offset)) => (upload_id, url, offset),
         None => {
-            let session = post_json("/api/portal/property-video/upload", &serde_json::json!({})).await?;
-            let text = |key: &str| session.get(key).and_then(serde_json::Value::as_str).map(str::to_owned);
+            let session =
+                post_json("/api/portal/property-video/upload", &serde_json::json!({})).await?;
+            let text = |key: &str| {
+                session
+                    .get(key)
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned)
+            };
             let (Some(upload_id), Some(url)) = (text("uploadId"), text("uploadUrl")) else {
                 return Err(ApiError::decode("Mux did not give an upload address."));
             };
             if let Some(storage) = storage() {
-                let saved = serde_json::json!({ "uploadId": upload_id, "uploadUrl": url, "at": now });
+                let saved =
+                    serde_json::json!({ "uploadId": upload_id, "uploadUrl": url, "at": now });
                 let _ = storage.set_item(&resume_key, &saved.to_string());
             }
             (upload_id, url, Some(0.0))
@@ -304,30 +363,45 @@ pub(super) async fn upload_video(
                 let signal = way_out(VIDEO_REQUEST_SECONDS)?;
                 let response = HttpRequest::put(&url)
                     .abort_signal(Some(&signal))
-                    .header("Content-Range", &format!("bytes {start}-{}/{total}", end - 1.0))
+                    .header(
+                        "Content-Range",
+                        &format!("bytes {start}-{}/{total}", end - 1.0),
+                    )
                     .body(piece)
                     .map_err(|error| ApiError::network(error.to_string()))?
                     .send()
                     .await
-                    .map_err(|error| ApiError::network(format!("the piece did not arrive ({error})")))?;
+                    .map_err(|error| {
+                        ApiError::network(format!("the piece did not arrive ({error})"))
+                    })?;
                 match response.status() {
                     200 | 201 => Ok(None),
                     308 => Ok(Some(
                         response
                             .headers()
                             .get("range")
-                            .and_then(|range| range.rsplit('-').next().and_then(|e| e.trim().parse::<f64>().ok()))
+                            .and_then(|range| {
+                                range
+                                    .rsplit('-')
+                                    .next()
+                                    .and_then(|e| e.trim().parse::<f64>().ok())
+                            })
                             .map(|last| last + 1.0)
                             .unwrap_or(end),
                     )),
-                    status => Err(ApiError { status, code: "NETWORK".into(), message: format!("Mux answered {status}.") }),
+                    status => Err(ApiError {
+                        status,
+                        code: "NETWORK".into(),
+                        message: format!("Mux answered {status}."),
+                    }),
                 }
             }
             .await;
             match sent {
                 Ok(next) => break next,
                 Err(error) if attempt < ATTEMPTS => {
-                    yew::platform::time::sleep(std::time::Duration::from_secs(2u64 << attempt)).await;
+                    yew::platform::time::sleep(std::time::Duration::from_secs(2u64 << attempt))
+                        .await;
                     attempt += 1;
                     // Mux may hold part of the failed piece: continue from what it has, if it says.
                     if let Ok(position) = video_offset(&url, total).await {
@@ -337,7 +411,12 @@ pub(super) async fn upload_video(
                     }
                     let _ = error;
                 }
-                Err(error) => return Err(ApiError { message: format!("The video stopped uploading: {}", error.message), ..error }),
+                Err(error) => {
+                    return Err(ApiError {
+                        message: format!("The video stopped uploading: {}", error.message),
+                        ..error
+                    })
+                }
             }
         };
         offset = next;
@@ -359,5 +438,7 @@ pub(super) async fn upload_video(
         }
         yew::platform::time::sleep(std::time::Duration::from_secs(5)).await;
     }
-    Err(ApiError::network("Mux is taking too long to prepare the video. Look again on the Video tab later."))
+    Err(ApiError::network(
+        "Mux is taking too long to prepare the video. Look again on the Video tab later.",
+    ))
 }

@@ -214,21 +214,46 @@ impl ClientDao {
 
     /// A person's contact details as the Records screen just saved them: `None` leaves a field as it is, and an
     /// empty location clears it (an empty email or phone is not a change — the save leaves those alone).
-    pub fn update_cached_contact(&self, person_id: &str, location: Option<&str>, email: Option<&str>, phone: Option<&str>) {
-        let Ok(mut cache) = self.read_cache.write() else { return };
+    pub fn update_cached_contact(
+        &self,
+        person_id: &str,
+        location: Option<&str>,
+        email: Option<&str>,
+        phone: Option<&str>,
+    ) {
+        let Ok(mut cache) = self.read_cache.write() else {
+            return;
+        };
         let Some(cache) = cache.as_mut() else { return };
-        let location = location.map(|value| Some(value.trim().to_owned()).filter(|value| !value.is_empty()));
-        let email = email.map(|value| value.trim().to_lowercase()).filter(|value| !value.is_empty());
-        let phone = phone.map(|value| value.trim().to_owned()).filter(|value| !value.is_empty());
+        let location =
+            location.map(|value| Some(value.trim().to_owned()).filter(|value| !value.is_empty()));
+        let email = email
+            .map(|value| value.trim().to_lowercase())
+            .filter(|value| !value.is_empty());
+        let phone = phone
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty());
         if let Some(row) = cache.directory.iter_mut().find(|row| row.id == person_id) {
-            if let Some(location) = &location { row.location.clone_from(location); }
-            if let Some(email) = &email { row.primary_email = Some(email.clone()); }
-            if let Some(phone) = &phone { row.primary_phone = Some(phone.clone()); }
+            if let Some(location) = &location {
+                row.location.clone_from(location);
+            }
+            if let Some(email) = &email {
+                row.primary_email = Some(email.clone());
+            }
+            if let Some(phone) = &phone {
+                row.primary_phone = Some(phone.clone());
+            }
         }
         if let Some(detail) = cache.details.get_mut(person_id) {
-            if let Some(location) = &location { detail.location.clone_from(location); }
-            if let Some(email) = &email { detail.email = Some(email.clone()); }
-            if let Some(phone) = &phone { detail.phone = Some(phone.clone()); }
+            if let Some(location) = &location {
+                detail.location.clone_from(location);
+            }
+            if let Some(email) = &email {
+                detail.email = Some(email.clone());
+            }
+            if let Some(phone) = &phone {
+                detail.phone = Some(phone.clone());
+            }
         }
     }
 
@@ -461,5 +486,4 @@ impl ClientDao {
             total,
         ))
     }
-
 }

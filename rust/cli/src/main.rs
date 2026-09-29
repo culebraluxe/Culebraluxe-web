@@ -97,14 +97,24 @@ async fn media_cards(args: &[String]) -> Result<(), Box<dyn Error>> {
         }
         let mut progressed = false;
         for (id, filename) in batch {
-            let Some(original) = media.original_bytes(&id).await? else { continue };
+            let Some(original) = media.original_bytes(&id).await? else {
+                continue;
+            };
             match server::media::imaging::derive_card(&original) {
                 Ok(card) => {
-                    media.insert_copy(&id, "card", filename.as_deref(), &card.bytes).await?;
+                    media
+                        .insert_copy(&id, "card", filename.as_deref(), &card.bytes)
+                        .await?;
                     made += 1;
                     saved_bytes += card.bytes.len() as i64;
                     progressed = true;
-                    println!("card {made}: {} ({}x{}, {} KB)", filename.as_deref().unwrap_or(&id), card.width, card.height, card.bytes.len() / 1024);
+                    println!(
+                        "card {made}: {} ({}x{}, {} KB)",
+                        filename.as_deref().unwrap_or(&id),
+                        card.width,
+                        card.height,
+                        card.bytes.len() / 1024
+                    );
                 }
                 Err(reason) => {
                     failed += 1;
@@ -117,7 +127,10 @@ async fn media_cards(args: &[String]) -> Result<(), Box<dyn Error>> {
             break;
         }
     }
-    println!("done: {made} card copies ({} MB), {failed} skipped", saved_bytes / 1_048_576);
+    println!(
+        "done: {made} card copies ({} MB), {failed} skipped",
+        saved_bytes / 1_048_576
+    );
     Ok(())
 }
 

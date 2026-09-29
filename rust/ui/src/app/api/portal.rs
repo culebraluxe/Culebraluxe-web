@@ -162,20 +162,24 @@ pub struct CatchUpAction {
 
 impl CatchUpAction {
     pub fn handle(person_id: String, reason_code: String) -> Self {
-        Self { body: serde_json::json!({
-            "action": "handle",
-            "personId": person_id,
-            "reasonCode": reason_code
-        }) }
+        Self {
+            body: serde_json::json!({
+                "action": "handle",
+                "personId": person_id,
+                "reasonCode": reason_code
+            }),
+        }
     }
 
     pub fn snooze(person_id: String, reason_code: String, days: i32) -> Self {
-        Self { body: serde_json::json!({
-            "action": "snooze",
-            "personId": person_id,
-            "reasonCode": reason_code,
-            "days": days
-        }) }
+        Self {
+            body: serde_json::json!({
+                "action": "snooze",
+                "personId": person_id,
+                "reasonCode": reason_code,
+                "days": days
+            }),
+        }
     }
 }
 

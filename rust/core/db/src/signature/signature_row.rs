@@ -156,7 +156,10 @@ pub(super) async fn claim_receipt(
     Ok(claimed.is_some())
 }
 
-pub(super) async fn read_receipt(tx: &mut DbTransaction, command_id: &str) -> DbResult<Option<ReceiptRow>> {
+pub(super) async fn read_receipt(
+    tx: &mut DbTransaction,
+    command_id: &str,
+) -> DbResult<Option<ReceiptRow>> {
     sqlx::query_as::<_, ReceiptRow>(
         r#"
         select outcome, aggregate_id::text as aggregate_id, message
@@ -200,7 +203,10 @@ pub(super) async fn finalize_receipt(
     Ok(())
 }
 
-pub(super) fn replay_result(command_id: &str, receipt: Option<ReceiptRow>) -> SignatureCommandResult {
+pub(super) fn replay_result(
+    command_id: &str,
+    receipt: Option<ReceiptRow>,
+) -> SignatureCommandResult {
     let Some(receipt) = receipt else {
         return SignatureCommandResult {
             command_id: command_id.into(),

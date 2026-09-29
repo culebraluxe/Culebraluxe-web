@@ -359,9 +359,21 @@ impl<R: MediaRepository> MediaService<R> {
     /// A failure here leaves the staged bytes in place on purpose: the upload is unfinished rather than broken, the
     /// browser can retry `complete`, and the sweep collects it if nobody does.
     /// Claims an upload for finishing (fast): after this, `finish_media_upload` is the only thing that may finish it.
-    pub async fn claim_media_upload(&self, upload_id: &str, context: &ServiceContext) -> Result<(), CoreServiceError> {
+    pub async fn claim_media_upload(
+        &self,
+        upload_id: &str,
+        context: &ServiceContext,
+    ) -> Result<(), CoreServiceError> {
         const OP: &str = "media.claimMediaUpload";
-        let decision = authorize(&self.runtime, "media", "property.write", OP, OperationKind::Command, context).await?;
+        let decision = authorize(
+            &self.runtime,
+            "media",
+            "property.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
         let result = match self.repository.claim_media_upload(upload_id).await {
             Ok(true) => Ok(()),
             Ok(false) => Err(CoreServiceError::business(
@@ -382,10 +394,25 @@ impl<R: MediaRepository> MediaService<R> {
         context: &ServiceContext,
     ) -> Result<(), CoreServiceError> {
         const OP: &str = "media.removePropertyMedia";
-        let decision = authorize(&self.runtime, "media", "property.write", OP, OperationKind::Command, context).await?;
-        let result = match self.repository.remove_property_media(property_id.trim(), media_id.trim()).await {
+        let decision = authorize(
+            &self.runtime,
+            "media",
+            "property.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+        let result = match self
+            .repository
+            .remove_property_media(property_id.trim(), media_id.trim())
+            .await
+        {
             Ok(true) => Ok(()),
-            Ok(false) => Err(CoreServiceError::business("MEDIA_NOT_ON_PROPERTY", "That photo is not on this property.")),
+            Ok(false) => Err(CoreServiceError::business(
+                "MEDIA_NOT_ON_PROPERTY",
+                "That photo is not on this property.",
+            )),
             Err(error) => Err(error.into()),
         };
         audit_result(&self.runtime, "media", OP, context, decision, &result).await?;
@@ -402,15 +429,37 @@ impl<R: MediaRepository> MediaService<R> {
         context: &ServiceContext,
     ) -> Result<UploadLookup, CoreServiceError> {
         const OP: &str = "media.findMediaUpload";
-        let decision = authorize(&self.runtime, "media", "property.write", OP, OperationKind::Query, context).await?;
+        let decision = authorize(
+            &self.runtime,
+            "media",
+            "property.write",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
         let result = async {
-            if self.repository.property_has_photo(property_id, filename, byte_size).await? {
+            if self
+                .repository
+                .property_has_photo(property_id, filename, byte_size)
+                .await?
+            {
                 return Ok(UploadLookup::AlreadyStored);
             }
-            Ok(match self.repository.resumable_media_upload(property_id, filename, byte_size, chunk_size).await? {
-                Some((upload_id, status, received)) => UploadLookup::Unfinished { upload_id, status, received },
-                None => UploadLookup::New,
-            })
+            Ok(
+                match self
+                    .repository
+                    .resumable_media_upload(property_id, filename, byte_size, chunk_size)
+                    .await?
+                {
+                    Some((upload_id, status, received)) => UploadLookup::Unfinished {
+                        upload_id,
+                        status,
+                        received,
+                    },
+                    None => UploadLookup::New,
+                },
+            )
         }
         .await
         .map_err(|error: db::DbFailure| CoreServiceError::from(error));
@@ -419,9 +468,21 @@ impl<R: MediaRepository> MediaService<R> {
     }
 
     /// Where a chunked upload stands: `done` (stored and attached), `processing`, `failed`, or `uploading`.
-    pub async fn media_upload_state(&self, upload_id: &str, context: &ServiceContext) -> Result<&'static str, CoreServiceError> {
+    pub async fn media_upload_state(
+        &self,
+        upload_id: &str,
+        context: &ServiceContext,
+    ) -> Result<&'static str, CoreServiceError> {
         const OP: &str = "media.uploadState";
-        let decision = authorize(&self.runtime, "media", "property.read", OP, OperationKind::Query, context).await?;
+        let decision = authorize(
+            &self.runtime,
+            "media",
+            "property.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
         let result = match self.repository.media_upload_state(upload_id).await {
             Ok(None) => Ok("done"),
             Ok(Some(status)) => Ok(match status.as_str() {
@@ -518,10 +579,25 @@ impl<R: MediaRepository> MediaService<R> {
         context: &ServiceContext,
     ) -> Result<(), CoreServiceError> {
         const OP: &str = "media.setPropertyHero";
-        let decision = authorize(&self.runtime, "media", "property.write", OP, OperationKind::Command, context).await?;
-        let result = match self.repository.set_property_hero(property_id.trim(), media_id.trim()).await {
+        let decision = authorize(
+            &self.runtime,
+            "media",
+            "property.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+        let result = match self
+            .repository
+            .set_property_hero(property_id.trim(), media_id.trim())
+            .await
+        {
             Ok(true) => Ok(()),
-            Ok(false) => Err(CoreServiceError::business("MEDIA_NOT_ON_PROPERTY", "That photo is not on this property.")),
+            Ok(false) => Err(CoreServiceError::business(
+                "MEDIA_NOT_ON_PROPERTY",
+                "That photo is not on this property.",
+            )),
             Err(error) => Err(error.into()),
         };
         audit_result(&self.runtime, "media", OP, context, decision, &result).await?;
@@ -551,5 +627,4 @@ impl<R: MediaRepository> MediaService<R> {
         audit_result(&self.runtime, "media", OP, context, decision, &result).await?;
         result
     }
-
 }

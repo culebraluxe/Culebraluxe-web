@@ -42,12 +42,18 @@ pub(super) async fn forms_write(
             // inherited deal — new forms used to take the open form's deal, and every contract ended up filed under
             // one demo deal ("Sunset Point").
             if person_id.is_none() {
-                if let Some(seller) = str_at(&body, "sellerName").map(str::trim).filter(|name| !name.is_empty()) {
+                if let Some(seller) = str_at(&body, "sellerName")
+                    .map(str::trim)
+                    .filter(|name| !name.is_empty())
+                {
                     person_id = Some(seller_person(&state, &resolved, seller).await?);
                 }
             }
             if property_id.is_none() {
-                if let Some(catastro) = str_at(&body, "catastro").map(str::trim).filter(|value| !value.is_empty()) {
+                if let Some(catastro) = str_at(&body, "catastro")
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                {
                     property_id = property_by_catastro(&state, &resolved, catastro).await?;
                 }
             }
@@ -529,9 +535,7 @@ pub(super) async fn forms_write(
                     continue;
                 }
                 let execution_slot_id = signer.slot_id.clone();
-                let execution_role = execution_slot_id
-                    .as_ref()
-                    .map(|_| signer.role.clone());
+                let execution_role = execution_slot_id.as_ref().map(|_| signer.role.clone());
                 recipients.push(domain::SignatureRecipient {
                     role: domain::SignatureRecipientRole::Signer,
                     name: signer.name.clone(),
@@ -709,5 +713,8 @@ pub(super) fn camel_keys(value: Value) -> Value {
 }
 
 pub(super) fn str_at<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
-    value.get(key).and_then(Value::as_str).filter(|text| !text.is_empty())
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|text| !text.is_empty())
 }

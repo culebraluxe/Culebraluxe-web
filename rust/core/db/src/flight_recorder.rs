@@ -12,13 +12,12 @@ use sqlx::FromRow;
 use uuid::Uuid;
 
 use crate::{Database, DbFailure, DbResult};
-mod sibling_limit;
 mod node_states;
-#[allow(unused_imports)]
-pub use sibling_limit::*;
+mod sibling_limit;
 #[allow(unused_imports)]
 pub use node_states::*;
-
+#[allow(unused_imports)]
+pub use sibling_limit::*;
 
 #[cfg(test)]
 mod tests {

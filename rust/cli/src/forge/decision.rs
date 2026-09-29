@@ -158,13 +158,19 @@ mod tests {
         );
         assert_eq!(parsed.key, "intent-is-not-status");
         assert_eq!(parsed.status, "active");
-        assert_eq!(parsed.statement, "Intent is recorded in its own column or table.");
+        assert_eq!(
+            parsed.statement,
+            "Intent is recorded in its own column or table."
+        );
         assert!(validate_statement(&parsed.statement).is_empty());
     }
 
     #[test]
     fn the_statement_is_the_line_after_the_last_field() {
-        let parsed = parse_decision_file("# x\n\n- status: active\n- domain: forge\n\nOne thing.\n", "");
+        let parsed = parse_decision_file(
+            "# x\n\n- status: active\n- domain: forge\n\nOne thing.\n",
+            "",
+        );
         assert_eq!(parsed.statement, "One thing.");
     }
 
@@ -173,7 +179,9 @@ mod tests {
         let problems = validate_statement("First thing is true. Second thing is also true.");
         assert_eq!(problems.len(), 1);
         assert!(problems[0].contains("more than one sentence"));
-        assert!(validate_statement("").iter().any(|p| p.contains("needs a statement")));
+        assert!(validate_statement("")
+            .iter()
+            .any(|p| p.contains("needs a statement")));
         assert!(!validate_statement(&"x".repeat(241)).is_empty());
         assert!(validate_statement("One sentence is true.").is_empty());
     }

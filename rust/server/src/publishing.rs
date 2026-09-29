@@ -23,10 +23,16 @@ pub struct PublishingService<R> {
 
 impl<R: PublishingRepository> PublishingService<R> {
     pub fn new(repository: R, infrastructure: ServiceInfrastructure) -> Self {
-        Self { repository, runtime: ServiceRuntime::new(infrastructure) }
+        Self {
+            repository,
+            runtime: ServiceRuntime::new(infrastructure),
+        }
     }
 
-    pub async fn snapshot(&self, context: &ServiceContext) -> Result<PublishingSnapshot, CoreServiceError> {
+    pub async fn snapshot(
+        &self,
+        context: &ServiceContext,
+    ) -> Result<PublishingSnapshot, CoreServiceError> {
         const OP: &str = "publishing.snapshot";
         let decision = authorize(
             &self.runtime,
@@ -35,7 +41,8 @@ impl<R: PublishingRepository> PublishingService<R> {
             OP,
             OperationKind::Query,
             context,
-        ).await?;
+        )
+        .await?;
         let result = self.repository.snapshot().await.map_err(Into::into);
         audit_result(&self.runtime, "publishing", OP, context, decision, &result).await?;
         result

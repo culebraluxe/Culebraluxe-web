@@ -9,13 +9,12 @@ use domain::{
 use serde_json::Value;
 use sqlx::FromRow;
 use std::collections::BTreeMap;
-mod listing_template_id;
 mod database;
 mod list_signer_people;
-#[allow(unused_imports)]
-pub use listing_template_id::*;
+mod listing_template_id;
 #[allow(unused_imports)]
 pub use database::*;
 #[allow(unused_imports)]
 pub use list_signer_people::*;
-
+#[allow(unused_imports)]
+pub use listing_template_id::*;

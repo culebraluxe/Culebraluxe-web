@@ -83,15 +83,13 @@ pub(super) const PROPERTY_IDENTITY: &[FieldSpec] = &[
 ];
 
 /// How the property is described on its page (the property card and page show this one description).
-pub(super) const PROPERTY_DESCRIPTIONS: &[FieldSpec] = &[
-    FieldSpec {
-        key: "editorialDescription",
-        label: "Description",
-        kind: FieldKind::Textarea(6),
-        wide: true,
-        hint: Some("The property page's main description."),
-    },
-];
+pub(super) const PROPERTY_DESCRIPTIONS: &[FieldSpec] = &[FieldSpec {
+    key: "editorialDescription",
+    label: "Description",
+    kind: FieldKind::Textarea(6),
+    wide: true,
+    hint: Some("The property page's main description."),
+}];
 
 pub(super) const PROPERTY_CORE: &[FieldSpec] = &[
     FieldSpec {

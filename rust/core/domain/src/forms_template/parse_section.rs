@@ -54,7 +54,9 @@ pub(super) fn parse_section(
     })
 }
 
-pub(super) fn parse_participants(element: &Element) -> Result<Vec<TemplateParticipantRole>, TemplateXmlError> {
+pub(super) fn parse_participants(
+    element: &Element,
+) -> Result<Vec<TemplateParticipantRole>, TemplateXmlError> {
     let mut roles: Vec<TemplateParticipantRole> = Vec::new();
     for child in element.elements() {
         if child.name != "participant" {

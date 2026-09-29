@@ -178,7 +178,13 @@ pub(super) async fn cockpit_act(
     cockpit_page(&state, &resolved).await
 }
 
-pub(super) const SUPPORT_SCREENS: &[&str] = &["system-health", "db-test", "whatsapp-meta", "security", "settings-users"];
+pub(super) const SUPPORT_SCREENS: &[&str] = &[
+    "system-health",
+    "db-test",
+    "whatsapp-meta",
+    "security",
+    "settings-users",
+];
 
 /// One SUPPORT screen's payload. Diagnostics carry posture and counts only: never a token, secret, hash or URL.
 pub(super) async fn support_payload(
@@ -198,10 +204,24 @@ pub(super) async fn support_payload(
             let mut page = 1;
             let total = loop {
                 let request = ClientDirectoryPageRequest {
-                    search: String::new(), status: None, role: None, sort: "name".into(), page, page_size: 100,
+                    search: String::new(),
+                    status: None,
+                    role: None,
+                    sort: "name".into(),
+                    page,
+                    page_size: 100,
                 };
-                let answer = to_json(clients.directory(&request, context).await.map_err(failed(resolved))?);
-                let batch = answer.get("rows").and_then(Value::as_array).cloned().unwrap_or_default();
+                let answer = to_json(
+                    clients
+                        .directory(&request, context)
+                        .await
+                        .map_err(failed(resolved))?,
+                );
+                let batch = answer
+                    .get("rows")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
                 let total = at(&answer, "total").as_i64().unwrap_or(0);
                 let size = at(&answer, "pageSize").as_i64().unwrap_or(100).max(1);
                 let done = batch.is_empty() || page * size >= total;
@@ -217,12 +237,19 @@ pub(super) async fn support_payload(
             json!({ "dbTest": { "connected": true, "clientCount": total, "clients": rows } })
         }
         "settings-users" => {
-            let users = services.security().list_security_users(context).await.map_err(failed(resolved))?;
+            let users = services
+                .security()
+                .list_security_users(context)
+                .await
+                .map_err(failed(resolved))?;
             json!({ "securityUsers": to_json(users) })
         }
         "security" => {
             let security = services.security();
-            let (status, grants) = tokio::join!(support.security_status(context), security.list_role_entitlements(context));
+            let (status, grants) = tokio::join!(
+                support.security_status(context),
+                security.list_role_entitlements(context)
+            );
             let break_glass = break_glass_readiness(state, resolved).await?;
             json!({ "security": {
                 "status": to_json(status.map_err(failed(resolved))?),
@@ -232,10 +259,18 @@ pub(super) async fn support_payload(
         }
         "whatsapp-meta" => json!({ "whatsAppMeta": meta_phones().await }),
         _ => {
-            let (health, diagnostics) = tokio::join!(support.system_health(context), support.workflow_diagnostics(context));
+            let (health, diagnostics) = tokio::join!(
+                support.system_health(context),
+                support.workflow_diagnostics(context)
+            );
             let mut diagnostics = to_json(diagnostics.map_err(failed(resolved))?);
             let detail = match scope {
-                Some(id) => to_json(support.workflow_detail(id, context).await.map_err(failed(resolved))?),
+                Some(id) => to_json(
+                    support
+                        .workflow_detail(id, context)
+                        .await
+                        .map_err(failed(resolved))?,
+                ),
                 None => Value::Null,
             };
             if let Some(object) = diagnostics.as_object_mut() {
@@ -253,26 +288,58 @@ pub(super) async fn support_payload(
 /// Which settings this deployment has — booleans only, never a value.
 pub(super) fn environment_readiness() -> Value {
     let set = |key: &str| std::env::var(key).is_ok_and(|value| !value.trim().is_empty());
-    let value = |key: &str| std::env::var(key).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
-    let production = ["APP_ENV", "VERCEL_ENV"].iter().any(|key| value(key).is_some_and(|v| v.eq_ignore_ascii_case("production")));
+    let value = |key: &str| {
+        std::env::var(key)
+            .ok()
+            .map(|v| v.trim().to_owned())
+            .filter(|v| !v.is_empty())
+    };
+    let production = ["APP_ENV", "VERCEL_ENV"]
+        .iter()
+        .any(|key| value(key).is_some_and(|v| v.eq_ignore_ascii_case("production")));
     let (prod_db, dev_db) = (value("DATABASE_URL_PROD"), value("DATABASE_URL_DEV"));
-    let database = if production { prod_db.is_some() } else { dev_db.is_some() };
+    let database = if production {
+        prod_db.is_some()
+    } else {
+        dev_db.is_some()
+    };
     let separated = matches!((&prod_db, &dev_db), (Some(prod), Some(dev)) if prod != dev);
     let auth_secret = set("AUTH_SECRET");
     let auth_provider = set("AUTH_GOOGLE_ID") && set("AUTH_GOOGLE_SECRET");
-    let maps = if production { set("GOOGLE_MAPS_API_KEY") } else { set("GOOGLE_MAPS_DEMO_KEY") || set("GOOGLE_MAPS_API_KEY") };
+    let maps = if production {
+        set("GOOGLE_MAPS_API_KEY")
+    } else {
+        set("GOOGLE_MAPS_DEMO_KEY") || set("GOOGLE_MAPS_API_KEY")
+    };
     let maps_demo_absent = !production || !set("GOOGLE_MAPS_DEMO_KEY");
     let mux = if production {
         set("MUX_TOKEN_ID_PROD") && set("MUX_TOKEN_SECRET_PROD")
     } else {
         set("MUX_TOKEN_ID_DEV") && set("MUX_TOKEN_SECRET_DEV")
     };
-    let signature_enabled = value("BROKER_SIGNATURE_ENABLED").is_some_and(|v| v.eq_ignore_ascii_case("true"));
-    let signature = ["BROKER_SIGNATURE_APP_USER_ID", "BROKER_SIGNATURE_MEDIA_ID", "BROKER_SIGNATURE_SIGNER_NAME", "BROKER_SIGNATURE_LICENSE_NUMBER"]
-        .iter()
-        .all(|key| set(key));
+    let signature_enabled =
+        value("BROKER_SIGNATURE_ENABLED").is_some_and(|v| v.eq_ignore_ascii_case("true"));
+    let signature = [
+        "BROKER_SIGNATURE_APP_USER_ID",
+        "BROKER_SIGNATURE_MEDIA_ID",
+        "BROKER_SIGNATURE_SIGNER_NAME",
+        "BROKER_SIGNATURE_LICENSE_NUMBER",
+    ]
+    .iter()
+    .all(|key| set(key));
     let all_required = if production {
-        [database, auth_secret, auth_provider, maps, maps_demo_absent, mux, signature_enabled, signature].iter().all(|ok| *ok)
+        [
+            database,
+            auth_secret,
+            auth_provider,
+            maps,
+            maps_demo_absent,
+            mux,
+            signature_enabled,
+            signature,
+        ]
+        .iter()
+        .all(|ok| *ok)
     } else {
         database
     };
@@ -299,32 +366,63 @@ pub(super) fn environment_readiness() -> Value {
 pub(super) async fn meta_phones() -> Value {
     const DEFAULT_WABA_ID: &str = "1605543247626812";
     const GRAPH_VERSION: &str = "v23.0";
-    let waba_id = std::env::var("WHATSAPP_WABA_ID").ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
+    let waba_id = std::env::var("WHATSAPP_WABA_ID")
+        .ok()
+        .map(|v| v.trim().to_owned())
+        .filter(|v| !v.is_empty())
         .unwrap_or_else(|| DEFAULT_WABA_ID.to_owned());
-    let answer = |phones: Vec<Value>, error: Option<String>, token: bool| {
-        json!({ "wabaId": waba_id, "phones": phones, "error": error, "tokenConfigured": token })
+    let answer = |phones: Vec<Value>, error: Option<String>, token: bool| json!({ "wabaId": waba_id, "phones": phones, "error": error, "tokenConfigured": token });
+    let Some(token) = std::env::var("WHATSAPP_ACCESS_TOKEN")
+        .ok()
+        .map(|v| v.trim().to_owned())
+        .filter(|v| !v.is_empty())
+    else {
+        return answer(
+            Vec::new(),
+            Some("WHATSAPP_ACCESS_TOKEN is not configured.".into()),
+            false,
+        );
     };
-    let Some(token) = std::env::var("WHATSAPP_ACCESS_TOKEN").ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty()) else {
-        return answer(Vec::new(), Some("WHATSAPP_ACCESS_TOKEN is not configured.".into()), false);
-    };
-    let url = format!("https://graph.facebook.com/{GRAPH_VERSION}/{}/phone_numbers", waba_id.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>());
-    let response = match reqwest::Client::new().get(url).bearer_auth(token).send().await {
+    let url = format!(
+        "https://graph.facebook.com/{GRAPH_VERSION}/{}/phone_numbers",
+        waba_id
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .collect::<String>()
+    );
+    let response = match reqwest::Client::new()
+        .get(url)
+        .bearer_auth(token)
+        .send()
+        .await
+    {
         Ok(response) => response,
         Err(error) => return answer(Vec::new(), Some(error.to_string()), true),
     };
     let status = response.status();
     let payload: Value = response.json().await.unwrap_or(Value::Null);
     if !status.is_success() {
-        let message = payload.pointer("/error/message").and_then(Value::as_str).map(str::to_owned)
+        let message = payload
+            .pointer("/error/message")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
             .unwrap_or_else(|| format!("Meta returned HTTP {}.", status.as_u16()));
         return answer(Vec::new(), Some(message), true);
     }
-    let phones = payload.get("data").and_then(Value::as_array).into_iter().flatten().map(|phone| json!({
-        "id": at(phone, "id"),
-        "displayPhoneNumber": at(phone, "display_phone_number"),
-        "verifiedName": at(phone, "verified_name"),
-        "qualityRating": at(phone, "quality_rating"),
-        "codeVerificationStatus": at(phone, "code_verification_status"),
-    })).collect();
+    let phones = payload
+        .get("data")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|phone| {
+            json!({
+                "id": at(phone, "id"),
+                "displayPhoneNumber": at(phone, "display_phone_number"),
+                "verifiedName": at(phone, "verified_name"),
+                "qualityRating": at(phone, "quality_rating"),
+                "codeVerificationStatus": at(phone, "code_verification_status"),
+            })
+        })
+        .collect();
     answer(phones, None, true)
 }

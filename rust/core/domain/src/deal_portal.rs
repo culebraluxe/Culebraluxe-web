@@ -144,7 +144,10 @@ pub fn derive_deal_health(
         signals.push(DealHealthSignal {
             code: "overdue_tasks".into(),
             severity: "attention".into(),
-            label: format!("{overdue} overdue task{}", if overdue == 1 { "" } else { "s" }),
+            label: format!(
+                "{overdue} overdue task{}",
+                if overdue == 1 { "" } else { "s" }
+            ),
             detail: "Resolve overdue deal work before it becomes a closing blocker.".into(),
             ready: false,
         });
@@ -172,7 +175,10 @@ pub fn derive_deal_health(
 
         let executed = contracts.iter().any(|contract| {
             contract.executed_at.is_some()
-                || matches!(contract.status.as_str(), "executed" | "completed" | "signed")
+                || matches!(
+                    contract.status.as_str(),
+                    "executed" | "completed" | "signed"
+                )
         });
         if executed {
             signals.push(DealHealthSignal {
@@ -202,13 +208,19 @@ pub fn derive_deal_health(
         });
     }
 
-    let submitted_offers = offers.iter().filter(|offer| offer.status == "submitted").count();
+    let submitted_offers = offers
+        .iter()
+        .filter(|offer| offer.status == "submitted")
+        .count();
     if submitted_offers > 0 {
         score -= 10;
         signals.push(DealHealthSignal {
             code: "offers_awaiting_response".into(),
             severity: "watch".into(),
-            label: format!("{submitted_offers} offer{} awaiting response", if submitted_offers == 1 { "" } else { "s" }),
+            label: format!(
+                "{submitted_offers} offer{} awaiting response",
+                if submitted_offers == 1 { "" } else { "s" }
+            ),
             detail: "A submitted offer still needs a recorded response.".into(),
             ready: false,
         });
@@ -457,8 +469,14 @@ mod health_tests {
         let health = derive_deal_health("under_contract", None, &[task(true)], &[], &[]);
         assert_eq!(health.score, 45);
         assert_eq!(health.band, "attention");
-        assert!(health.signals.iter().any(|signal| signal.code == "closing_date_missing"));
-        assert!(health.signals.iter().any(|signal| signal.code == "executed_contract_missing"));
+        assert!(health
+            .signals
+            .iter()
+            .any(|signal| signal.code == "closing_date_missing"));
+        assert!(health
+            .signals
+            .iter()
+            .any(|signal| signal.code == "executed_contract_missing"));
     }
 
     #[test]
@@ -480,7 +498,10 @@ mod health_tests {
         );
         assert_eq!(health.score, 90);
         assert_eq!(health.band, "ready");
-        assert!(health.signals.iter().any(|signal| signal.code == "offers_awaiting_response"));
+        assert!(health
+            .signals
+            .iter()
+            .any(|signal| signal.code == "offers_awaiting_response"));
     }
 
     #[test]

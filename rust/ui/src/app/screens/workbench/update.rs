@@ -73,12 +73,19 @@ pub(super) fn media_title_at(page: Option<&PortalOpsWorkbenchPage>, offset: usiz
 
 /// `VillaDelMar_7` -> 7.
 pub(super) fn first_number(title: &str) -> usize {
-    title.rsplit('_').next().and_then(|n| n.parse().ok()).unwrap_or(1)
+    title
+        .rsplit('_')
+        .next()
+        .and_then(|n| n.parse().ok())
+        .unwrap_or(1)
 }
 
 /// `VillaDelMar_7`, 9 -> `VillaDelMar_9`.
 pub(super) fn numbered(title: &str, number: usize) -> String {
-    let stem = title.rsplit_once('_').map(|(stem, _)| stem).unwrap_or(title);
+    let stem = title
+        .rsplit_once('_')
+        .map(|(stem, _)| stem)
+        .unwrap_or(title);
     format!("{stem}_{number}")
 }
 
@@ -99,14 +106,28 @@ pub(super) fn next_upload(model: &mut Model) -> Cmd<Msg> {
     let offset = model.ops.media_batch_done + model.ops.media_batch_failed.len();
     model.ops.media_file_name = Some(file.name());
     model.ops.media_role = "gallery".into();
-    model.ops.media_alt = model.ops.media_batch_first.as_ref().map(|first| numbered(first, first_number(first) + offset)).unwrap_or_default();
+    model.ops.media_alt = model
+        .ops
+        .media_batch_first
+        .as_ref()
+        .map(|first| numbered(first, first_number(first) + offset))
+        .unwrap_or_default();
     model.ops.media_uploading = true;
     model.error = None;
     let mut init = vec![("role".to_string(), "gallery".to_string())];
     if !model.ops.media_alt.trim().is_empty() {
-        init.push(("altText".to_string(), model.ops.media_alt.trim().to_string()));
+        init.push((
+            "altText".to_string(),
+            model.ops.media_alt.trim().to_string(),
+        ));
     }
-    Cmd::upload(file, PropertyMediaChunked, vec![("propertyId".to_string(), property_id)], init, Msg::Uploaded)
+    Cmd::upload(
+        file,
+        PropertyMediaChunked,
+        vec![("propertyId".to_string(), property_id)],
+        init,
+        Msg::Uploaded,
+    )
 }
 
 /// Refuse a list change while the draft is unsaved, and say which action was refused.
@@ -173,7 +194,12 @@ pub(super) fn update(model: &mut Model, msg: Msg) -> Cmd<Msg> {
         // FIND: the other record for this parcel (the Regrid load gave every parcel one) is merged into this one —
         // every field this record lacks is filled from it, and it is deleted. Then this record is read again.
         Msg::FindByCatastro => {
-            let catastro = model.ops.form.get("catastroNumber").map(|value| value.trim().to_owned()).unwrap_or_default();
+            let catastro = model
+                .ops
+                .form
+                .get("catastroNumber")
+                .map(|value| value.trim().to_owned())
+                .unwrap_or_default();
             let Some(property_id) = model.selected.clone() else {
                 return Cmd::none();
             };
@@ -183,13 +209,21 @@ pub(super) fn update(model: &mut Model, msg: Msg) -> Cmd<Msg> {
             }
             model.error = None;
             model.ops.saving = true;
-            Cmd::request(PropertyMergeParcel { property_id, catastro }, Msg::ParcelMerged)
+            Cmd::request(
+                PropertyMergeParcel {
+                    property_id,
+                    catastro,
+                },
+                Msg::ParcelMerged,
+            )
         }
         Msg::ParcelMerged(result) => {
             model.ops.saving = false;
             match result {
                 // The fields it filled show on the record as it is read again; the merged record leaves the list.
-                Ok(answer) if answer.get("merged").and_then(serde_json::Value::as_bool) == Some(true) => {
+                Ok(answer)
+                    if answer.get("merged").and_then(serde_json::Value::as_bool) == Some(true) =>
+                {
                     model.ops.dirty = false;
                     read(model)
                 }
@@ -503,7 +537,10 @@ pub(super) fn update(model: &mut Model, msg: Msg) -> Cmd<Msg> {
                 return Cmd::none();
             }
             // Photos only, in name order (a folder uploads in the order it is sorted on disk).
-            let mut files: Vec<crate::app::exec::File> = files.into_iter().filter(|file| file.type_().starts_with("image/")).collect();
+            let mut files: Vec<crate::app::exec::File> = files
+                .into_iter()
+                .filter(|file| file.type_().starts_with("image/"))
+                .collect();
             files.sort_by_key(|file| file.name().to_lowercase());
             if files.is_empty() {
                 model.error = Some("No photos were chosen.".into());
@@ -514,7 +551,8 @@ pub(super) fn update(model: &mut Model, msg: Msg) -> Cmd<Msg> {
             model.ops.media_batch_failed.clear();
             model.upload_retried.clear();
             model.ops.media_batch_property = model.selected.clone();
-            model.ops.media_batch_first = Some(media_title(model.read.loaded())).filter(|title| !title.is_empty());
+            model.ops.media_batch_first =
+                Some(media_title(model.read.loaded())).filter(|title| !title.is_empty());
             model.upload_queue = files;
             next_upload(model)
         }
@@ -523,7 +561,13 @@ pub(super) fn update(model: &mut Model, msg: Msg) -> Cmd<Msg> {
                 return Cmd::none();
             };
             model.error = None;
-            Cmd::request(PropertyHero { property_id, media_id }, Msg::HeroSet)
+            Cmd::request(
+                PropertyHero {
+                    property_id,
+                    media_id,
+                },
+                Msg::HeroSet,
+            )
         }
         Msg::DeletePhoto(media_id) => {
             if model.ops.media_confirm_delete.as_deref() != Some(media_id.as_str()) {
@@ -535,7 +579,13 @@ pub(super) fn update(model: &mut Model, msg: Msg) -> Cmd<Msg> {
                 return Cmd::none();
             };
             model.error = None;
-            Cmd::request(PropertyMediaRemove { property_id, media_id }, Msg::PhotoDeleted)
+            Cmd::request(
+                PropertyMediaRemove {
+                    property_id,
+                    media_id,
+                },
+                Msg::PhotoDeleted,
+            )
         }
         Msg::PhotoDeleted(result) => match result {
             Ok(_) => {
@@ -569,7 +619,10 @@ pub(super) fn update(model: &mut Model, msg: Msg) -> Cmd<Msg> {
                             model.upload_retried.push(name);
                             model.upload_queue.push(file);
                         }
-                        _ => model.ops.media_batch_failed.push(format!("{name} ({})", error.message)),
+                        _ => model
+                            .ops
+                            .media_batch_failed
+                            .push(format!("{name} ({})", error.message)),
                     }
                 }
             }

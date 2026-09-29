@@ -24,13 +24,11 @@ macro_rules! property_sql {
         )
     };
 }
-mod property_row;
 mod compact;
 mod database;
 mod merge_parcel_record;
+mod property_row;
 mod upsert_for_person_tx;
-#[allow(unused_imports)]
-pub use property_row::*;
 #[allow(unused_imports)]
 pub use compact::*;
 #[allow(unused_imports)]
@@ -38,5 +36,6 @@ pub use database::*;
 #[allow(unused_imports)]
 pub use merge_parcel_record::*;
 #[allow(unused_imports)]
+pub use property_row::*;
+#[allow(unused_imports)]
 pub use upsert_for_person_tx::*;
-

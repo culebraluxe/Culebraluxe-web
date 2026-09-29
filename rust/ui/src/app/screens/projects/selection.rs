@@ -12,10 +12,23 @@ pub(super) fn nav_key(model: &mut Model, key: &str, ctx: &ScreenCtx) -> Cmd<Msg>
         return Cmd::none();
     };
     let tree = nav::build(projects);
-    let selected = nav::selected_id(&tree, projects.selected_project_id.as_deref(), projects.selected_node_id.as_deref());
-    let opened = selected.as_deref().map(|id| nav::ancestors(&tree, id)).unwrap_or_default();
+    let selected = nav::selected_id(
+        &tree,
+        projects.selected_project_id.as_deref(),
+        projects.selected_node_id.as_deref(),
+    );
+    let opened = selected
+        .as_deref()
+        .map(|id| nav::ancestors(&tree, id))
+        .unwrap_or_default();
     let query = model.controls.query.trim().to_lowercase();
-    let rows = nav::visible_rows(&tree, &query, &model.controls.nav_open, &model.controls.nav_closed, &opened);
+    let rows = nav::visible_rows(
+        &tree,
+        &query,
+        &model.controls.nav_open,
+        &model.controls.nav_closed,
+        &opened,
+    );
     // The selection's row, or — when a closed branch hides it — the nearest ancestor that is drawn.
     let current = selected
         .iter()
@@ -28,31 +41,52 @@ pub(super) fn nav_key(model: &mut Model, key: &str, ctx: &ScreenCtx) -> Cmd<Msg>
             (Some(at), false) => Box::new((0..at).rev()),
             (None, _) => Box::new(0..rows.len()),
         };
-        indices.map(|index| &rows[index]).find_map(|row| match row.kind {
-            // An open pole is a heading (its projects follow); a closed one is entered at its nearest project.
-            nav::NodeKind::Pole if row.open => None,
-            nav::NodeKind::Pole => {
-                let entry = if down { row.projects.first() } else { row.projects.last() };
-                entry.filter(|id| Some(*id) != current_project.as_ref()).cloned().map(Msg::ProjectSelected)
-            }
-            nav::NodeKind::Project if !down && row.project_id == current_project => None,
-            nav::NodeKind::Project => row.project_id.clone().map(Msg::ProjectSelected),
-            nav::NodeKind::Work => Some(Msg::NavWorkSelected {
-                project_id: row.project_id.clone().unwrap_or_default(),
-                node_id: row.work_id.clone().unwrap_or_default(),
-            }),
-        })
+        indices
+            .map(|index| &rows[index])
+            .find_map(|row| match row.kind {
+                // An open pole is a heading (its projects follow); a closed one is entered at its nearest project.
+                nav::NodeKind::Pole if row.open => None,
+                nav::NodeKind::Pole => {
+                    let entry = if down {
+                        row.projects.first()
+                    } else {
+                        row.projects.last()
+                    };
+                    entry
+                        .filter(|id| Some(*id) != current_project.as_ref())
+                        .cloned()
+                        .map(Msg::ProjectSelected)
+                }
+                nav::NodeKind::Project if !down && row.project_id == current_project => None,
+                nav::NodeKind::Project => row.project_id.clone().map(Msg::ProjectSelected),
+                nav::NodeKind::Work => Some(Msg::NavWorkSelected {
+                    project_id: row.project_id.clone().unwrap_or_default(),
+                    node_id: row.work_id.clone().unwrap_or_default(),
+                }),
+            })
     };
     let row = current.map(|at| rows[at].clone());
     let msg = match key {
         "ArrowDown" => step(true),
         "ArrowUp" => step(false),
-        "ArrowRight" => row.filter(|row| row.has_children && !row.open).map(|row| Msg::NavToggled { id: row.id, open: false }),
+        "ArrowRight" => {
+            row.filter(|row| row.has_children && !row.open)
+                .map(|row| Msg::NavToggled {
+                    id: row.id,
+                    open: false,
+                })
+        }
         "ArrowLeft" => row.and_then(|row| {
             if row.has_children && row.open {
-                Some(Msg::NavToggled { id: row.id, open: true })
+                Some(Msg::NavToggled {
+                    id: row.id,
+                    open: true,
+                })
             } else {
-                row.parent.map(|parent| Msg::NavToggled { id: parent, open: true })
+                row.parent.map(|parent| Msg::NavToggled {
+                    id: parent,
+                    open: true,
+                })
             }
         }),
         _ => None,
@@ -64,7 +98,11 @@ pub(super) fn nav_key(model: &mut Model, key: &str, ctx: &ScreenCtx) -> Cmd<Msg>
 }
 
 /// Selection, views, catch-up and the two writes, on a loaded page.
-pub(super) fn selection(projects: &mut PortalProjectsPage, error: &mut Option<String>, msg: Msg) -> Cmd<Msg> {
+pub(super) fn selection(
+    projects: &mut PortalProjectsPage,
+    error: &mut Option<String>,
+    msg: Msg,
+) -> Cmd<Msg> {
     match msg {
         Msg::ProjectDomainSelected(domain) => {
             if matches!(
@@ -148,12 +186,20 @@ pub(super) fn selection(projects: &mut PortalProjectsPage, error: &mut Option<St
             projects.timeline_focus_date = Some(projects.calendar_today.clone());
         }
         Msg::ProjectTimelineFocusShifted(direction) => {
-            let anchor = projects.timeline_focus_date.as_deref()
+            let anchor = projects
+                .timeline_focus_date
+                .as_deref()
                 .and_then(crate::timeline::date)
                 .or_else(|| crate::timeline::date(&projects.calendar_today));
             if let Some(anchor) = anchor {
-                let step = match projects.timeline_mode.as_str() { "day" => 7, "month" => 60, _ => 28 };
-                projects.timeline_focus_date = Some((anchor + chrono::Duration::days(i64::from(direction) * step)).to_string());
+                let step = match projects.timeline_mode.as_str() {
+                    "day" => 7,
+                    "month" => 60,
+                    _ => 28,
+                };
+                projects.timeline_focus_date = Some(
+                    (anchor + chrono::Duration::days(i64::from(direction) * step)).to_string(),
+                );
             }
         }
         Msg::ProjectTimelineGroupToggled(item_id) => {
@@ -175,9 +221,12 @@ pub(super) fn selection(projects: &mut PortalProjectsPage, error: &mut Option<St
             }
         }
         Msg::ProjectTimelinePlannedDragStarted(item_id) => {
-            if projects.items.iter().any(|item| item.id == item_id
-                && item.project_id.as_deref() == projects.selected_project_id.as_deref()
-                && item.planned_start.is_some() && item.planned_finish.is_some()) {
+            if projects.items.iter().any(|item| {
+                item.id == item_id
+                    && item.project_id.as_deref() == projects.selected_project_id.as_deref()
+                    && item.planned_start.is_some()
+                    && item.planned_finish.is_some()
+            }) {
                 projects.timeline_dragging_item_id = Some(item_id);
                 projects.timeline_drag_kind = "planned".into();
                 projects.timeline_drag_target_date = None;
@@ -195,35 +244,68 @@ pub(super) fn selection(projects: &mut PortalProjectsPage, error: &mut Option<St
             projects.timeline_link_target_id = Some(id).filter(|id| !id.is_empty());
         }
         Msg::ProjectTimelineLinkAddRequested => {
-            if projects.saving { return Cmd::none(); }
+            if projects.saving {
+                return Cmd::none();
+            }
             let (Some(project_id), Some(target_id), Some(source_id)) = (
-                projects.selected_project_id.as_deref(), projects.selected_node_id.as_deref(),
+                projects.selected_project_id.as_deref(),
+                projects.selected_node_id.as_deref(),
                 projects.timeline_link_target_id.as_deref(),
-            ) else { return Cmd::none(); };
-            if source_id == target_id || projects.dependencies.iter().any(|edge|
-                edge.project_id == project_id && edge.source_id == source_id && edge.target_id == target_id)
-                || !projects.items.iter().any(|item| item.id == source_id
-                && item.project_id.as_deref() == Some(project_id)) { return Cmd::none(); }
+            ) else {
+                return Cmd::none();
+            };
+            if source_id == target_id
+                || projects.dependencies.iter().any(|edge| {
+                    edge.project_id == project_id
+                        && edge.source_id == source_id
+                        && edge.target_id == target_id
+                })
+                || !projects.items.iter().any(|item| {
+                    item.id == source_id && item.project_id.as_deref() == Some(project_id)
+                })
+            {
+                return Cmd::none();
+            }
             projects.saving = true;
             *error = None;
-            return Cmd::request(ProjectsCommand { body: serde_json::json!({
-                "action": "wbsDependencyAdd", "projectId": project_id,
-                "sourceId": source_id, "targetId": target_id,
-            }) }, Msg::Saved);
+            return Cmd::request(
+                ProjectsCommand {
+                    body: serde_json::json!({
+                        "action": "wbsDependencyAdd", "projectId": project_id,
+                        "sourceId": source_id, "targetId": target_id,
+                    }),
+                },
+                Msg::Saved,
+            );
         }
         Msg::ProjectTimelineLinkRemoveRequested(source_id) => {
-            if projects.saving { return Cmd::none(); }
+            if projects.saving {
+                return Cmd::none();
+            }
             let (Some(project_id), Some(target_id)) = (
-                projects.selected_project_id.as_deref(), projects.selected_node_id.as_deref(),
-            ) else { return Cmd::none(); };
-            if !projects.dependencies.iter().any(|edge| edge.project_id == project_id
-                && edge.source_id == source_id && edge.target_id == target_id) { return Cmd::none(); }
+                projects.selected_project_id.as_deref(),
+                projects.selected_node_id.as_deref(),
+            ) else {
+                return Cmd::none();
+            };
+            if !projects.dependencies.iter().any(|edge| {
+                edge.project_id == project_id
+                    && edge.source_id == source_id
+                    && edge.target_id == target_id
+            }) {
+                return Cmd::none();
+            }
             projects.saving = true;
             *error = None;
-            return Cmd::request(ProjectsCommand { body: serde_json::json!({
-                "action": "wbsDependencyRemove", "projectId": project_id,
-                "sourceId": source_id, "targetId": target_id,
-            }) }, Msg::Saved);
+            return Cmd::request(
+                ProjectsCommand {
+                    body: serde_json::json!({
+                        "action": "wbsDependencyRemove", "projectId": project_id,
+                        "sourceId": source_id, "targetId": target_id,
+                    }),
+                },
+                Msg::Saved,
+            );
         }
         Msg::ProjectViewSelected(view) => {
             if matches!(
@@ -269,7 +351,10 @@ pub(super) fn selection(projects: &mut PortalProjectsPage, error: &mut Option<St
             *error = None;
             let fields = vec![
                 ("signedAt".to_string(), projects.signing_date.clone()),
-                ("projectId".to_string(), projects.selected_project_id.clone().unwrap_or_default()),
+                (
+                    "projectId".to_string(),
+                    projects.selected_project_id.clone().unwrap_or_default(),
+                ),
             ];
             return Cmd::post_form(
                 crate::app::api::ProjectSignedCopy { document_id },
@@ -305,7 +390,12 @@ pub(super) fn selection(projects: &mut PortalProjectsPage, error: &mut Option<St
                     *error = None;
                     return Cmd::request(ProjectsRead, Msg::Loaded);
                 }
-                Err(failure) => *error = Some(format!("The signed copy was not recorded: {}", failure.message)),
+                Err(failure) => {
+                    *error = Some(format!(
+                        "The signed copy was not recorded: {}",
+                        failure.message
+                    ))
+                }
             }
         }
         Msg::ProjectCalendarPrevious => {
@@ -451,9 +541,14 @@ pub(super) fn selection(projects: &mut PortalProjectsPage, error: &mut Option<St
             else {
                 return Cmd::none();
             };
-            if let (Some(start), Some(finish)) = (item.planned_start.as_deref(), item.planned_finish.as_deref()) {
-                if crate::timeline::date(start).zip(crate::timeline::date(finish))
-                    .is_none_or(|(start, finish)| start > finish) {
+            if let (Some(start), Some(finish)) = (
+                item.planned_start.as_deref(),
+                item.planned_finish.as_deref(),
+            ) {
+                if crate::timeline::date(start)
+                    .zip(crate::timeline::date(finish))
+                    .is_none_or(|(start, finish)| start > finish)
+                {
                     *error = Some("Planned finish must be on or after planned start.".into());
                     return Cmd::none();
                 }

@@ -20,13 +20,12 @@ use domain::forms_template::{
     TemplateSectionDefinition, TemplateSectionSegment, TemplateSignatureGroup, TemplateWhen,
 };
 use std::collections::BTreeMap;
-mod page_width;
 mod draw_overview;
-#[allow(unused_imports)]
-pub use page_width::*;
+mod page_width;
 #[allow(unused_imports)]
 pub use draw_overview::*;
-
+#[allow(unused_imports)]
+pub use page_width::*;
 
 // ---------------------------------------------------------------- the layout, as the TypeScript composer declares it
 
@@ -93,9 +92,15 @@ mod tests {
         let library = library();
         let template = library.version("LISTING-01", 4).expect("LISTING-01 v4");
         let body = document_body_text(template, &values(), &BTreeMap::new());
-        assert!(body.contains("Lisa Penfield"), "the seller's name is interpolated");
+        assert!(
+            body.contains("Lisa Penfield"),
+            "the seller's name is interpolated"
+        );
         assert!(body.contains("Casa Luar"), "the property is interpolated");
-        assert!(body.contains("January 15, 2026"), "a date is formatted, not raw ISO");
+        assert!(
+            body.contains("January 15, 2026"),
+            "a date is formatted, not raw ISO"
+        );
         assert!(body.contains("$1,250,000"), "money is formatted");
         assert!(
             body.contains("Parties, Appointment and Partnership"),
@@ -508,8 +513,5 @@ mod tests {
         let _ = std::fs::remove_dir_all(&directory);
     }
 }
-
-
-
 
 use unicode_normalization::UnicodeNormalization;

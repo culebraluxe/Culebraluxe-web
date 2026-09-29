@@ -43,7 +43,11 @@ pub trait PropertyRepository: Send + Sync {
         &self,
         request: &SavePropertyAdminRequest,
     ) -> DbResult<Option<PropertyAdminRecord>>;
-    async fn merge_parcel_record(&self, target_id: &str, catastro: &str) -> DbResult<Option<String>>;
+    async fn merge_parcel_record(
+        &self,
+        target_id: &str,
+        catastro: &str,
+    ) -> DbResult<Option<String>>;
 }
 
 #[async_trait]
@@ -106,7 +110,11 @@ impl PropertyRepository for PropertyDao {
         PropertyDao::admin_create(self, request).await
     }
 
-    async fn merge_parcel_record(&self, target_id: &str, catastro: &str) -> DbResult<Option<String>> {
+    async fn merge_parcel_record(
+        &self,
+        target_id: &str,
+        catastro: &str,
+    ) -> DbResult<Option<String>> {
         PropertyDao::merge_parcel_record(self, target_id, catastro).await
     }
 
@@ -343,9 +351,20 @@ impl<R: PropertyRepository> PropertyService<R> {
         context: &ServiceContext,
     ) -> Result<Option<String>, CoreServiceError> {
         const OP: &str = "property.mergeParcelRecord";
-        let decision = authorize(&self.runtime, "property", "property.write", OP, OperationKind::Command, context).await?;
+        let decision = authorize(
+            &self.runtime,
+            "property",
+            "property.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
         let result = db::service_mutation(self.repository.database(), async {
-            let merged = self.repository.merge_parcel_record(target_id.trim(), catastro.trim()).await?;
+            let merged = self
+                .repository
+                .merge_parcel_record(target_id.trim(), catastro.trim())
+                .await?;
             if let Some(name) = &merged {
                 self.runtime
                     .emit(

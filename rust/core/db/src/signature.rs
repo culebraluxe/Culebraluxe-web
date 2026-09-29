@@ -8,16 +8,15 @@ use domain::{
 use serde_json::{json, Value};
 use sqlx::FromRow;
 use std::collections::BTreeSet;
-mod signature_row;
 mod database;
 mod reconcile_completed;
-#[allow(unused_imports)]
-pub use signature_row::*;
+mod signature_row;
 #[allow(unused_imports)]
 pub use database::*;
 #[allow(unused_imports)]
 pub use reconcile_completed::*;
-
+#[allow(unused_imports)]
+pub use signature_row::*;
 
 #[cfg(test)]
 mod tests {

@@ -3,7 +3,11 @@
 #[allow(unused_imports)]
 use super::*;
 
-pub(super) fn detail_sections(record: &PropertyRecord, model: &Model, on_msg: &Callback<Msg>) -> Html {
+pub(super) fn detail_sections(
+    record: &PropertyRecord,
+    model: &Model,
+    on_msg: &Callback<Msg>,
+) -> Html {
     let mut tabs = vec![
         (PropertyTab::Overview, "Overview"),
         (PropertyTab::Details, "Details"),

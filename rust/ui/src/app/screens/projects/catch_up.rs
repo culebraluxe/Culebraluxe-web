@@ -106,7 +106,11 @@ pub(crate) fn buckets(projects: &PortalProjectsPage) -> Buckets<'_> {
     let today = projects.calendar_today.as_str();
     let mut today_items = Vec::new();
     let mut unscheduled = Vec::new();
-    for item in projects.items.iter().filter(|item| item.project_id.is_some()) {
+    for item in projects
+        .items
+        .iter()
+        .filter(|item| item.project_id.is_some())
+    {
         if item.status == "dismissed" {
             continue;
         }
@@ -152,7 +156,8 @@ pub(crate) fn due_key(item: &PortalProjectWorkItem) -> Option<String> {
 }
 
 pub(crate) fn overdue(item: &PortalProjectWorkItem, today: &str) -> bool {
-    item.status != "done" && due_key(item).is_some_and(|due| !today.is_empty() && due.as_str() < today)
+    item.status != "done"
+        && due_key(item).is_some_and(|due| !today.is_empty() && due.as_str() < today)
 }
 
 pub(crate) fn status_matches(item: &PortalProjectWorkItem, status: &str) -> bool {
@@ -164,7 +169,10 @@ pub(crate) fn status_matches(item: &PortalProjectWorkItem, status: &str) -> bool
     }
 }
 
-pub(crate) fn project_name<'a>(projects: &'a PortalProjectsPage, item: &PortalProjectWorkItem) -> &'a str {
+pub(crate) fn project_name<'a>(
+    projects: &'a PortalProjectsPage,
+    item: &PortalProjectWorkItem,
+) -> &'a str {
     item.project_id
         .as_deref()
         .and_then(|id| projects.projects.iter().find(|project| project.id == id))
@@ -212,14 +220,22 @@ mod tests {
     #[test]
     fn today_holds_due_today_and_overdue_work_in_working_order() {
         let page = page();
-        let ids: Vec<&str> = buckets(&page).today.iter().map(|item| item.id.as_str()).collect();
+        let ids: Vec<&str> = buckets(&page)
+            .today
+            .iter()
+            .map(|item| item.id.as_str())
+            .collect();
         assert_eq!(ids, ["doing-today", "overdue", "due-today", "done-today"]);
     }
 
     #[test]
     fn unscheduled_holds_only_unfinished_undated_work() {
         let page = page();
-        let ids: Vec<&str> = buckets(&page).unscheduled.iter().map(|item| item.id.as_str()).collect();
+        let ids: Vec<&str> = buckets(&page)
+            .unscheduled
+            .iter()
+            .map(|item| item.id.as_str())
+            .collect();
         assert_eq!(ids, ["undated"]);
     }
 
@@ -237,7 +253,10 @@ mod tests {
         let mut state = CatchUpState::default();
         let request = load_people(&mut state).into_requests().remove(0);
         assert_eq!(request.path, "/api/portal/rust-ui/catch-up");
-        assert!(load_people(&mut state).into_requests().is_empty(), "asked once");
+        assert!(
+            load_people(&mut state).into_requests().is_empty(),
+            "asked once"
+        );
 
         let answer: PortalPage = serde_json::from_value(json!({ "catchUp": {
             "generatedAt": "2026-09-28T12:00:00Z", "total": 1, "highPriorityCount": 1,
@@ -249,12 +268,18 @@ mod tests {
         apply_people(&mut state, Ok(answer), false);
         assert_eq!(state.person.as_deref(), Some("p1"));
 
-        let request = act(&mut state, CatchUpAction::snooze("p1".into(), "unanswered_inbound".into(), 3))
-            .into_requests()
-            .remove(0);
+        let request = act(
+            &mut state,
+            CatchUpAction::snooze("p1".into(), "unanswered_inbound".into(), 3),
+        )
+        .into_requests()
+        .remove(0);
         assert_eq!(request.body.unwrap()["days"], 3);
         apply_people(&mut state, Err(ApiError::decode("refused")), true);
-        assert!(matches!(state.people, Remote::Loaded(_)), "the queue stays on screen");
+        assert!(
+            matches!(state.people, Remote::Loaded(_)),
+            "the queue stays on screen"
+        );
         assert!(state.notice.is_some());
     }
 }
