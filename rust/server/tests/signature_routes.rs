@@ -25,6 +25,36 @@ fn routes_source() -> String {
         .expect("routes.rs must be readable")
 }
 
+/// Every `.rs` file of the `api` module — the router and the handlers it mounts — as one string.
+///
+/// This fence used to read `src/api/routes.rs` alone, which made it a test about a FILE rather than about the
+/// HTTP surface. When the signature handlers moved out of `routes.rs` into `routes/webhooks_support.rs` (a
+/// move-only split under the 800-line rule), the routes stayed mounted and the handlers stayed defined — and
+/// the fence failed anyway, because the text it searched had travelled. What is worth asserting is that the
+/// handlers exist in the module the router lives in, which is what this reads.
+fn api_sources() -> String {
+    fn walk(dir: &std::path::Path, out: &mut String) {
+        let entries = fs::read_dir(dir).expect("the api module must be readable");
+        for entry in entries {
+            let path = entry.expect("a readable directory entry").path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else if path.extension().and_then(|extension| extension.to_str()) == Some("rs") {
+                out.push_str(
+                    &fs::read_to_string(&path).expect("an api source file must be readable"),
+                );
+                out.push('\n');
+            }
+        }
+    }
+    let mut out = String::new();
+    walk(
+        &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/api"),
+        &mut out,
+    );
+    out
+}
+
 fn composition_source() -> String {
     fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/composition.rs"))
         .expect("composition.rs must be readable")
@@ -78,7 +108,7 @@ fn signature_routes_are_declared_and_mounted() {
 
 #[test]
 fn every_signature_handler_exists_and_uses_the_provider() {
-    let source = routes_source();
+    let source = api_sources();
     for handler in ["signature_send", "signature_request", "signature_refresh"] {
         assert!(
             source.contains(&format!("async fn {handler}(")),
