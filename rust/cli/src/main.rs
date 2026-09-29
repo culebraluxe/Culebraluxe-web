@@ -6,6 +6,7 @@ mod apple_sync;
 mod db_tool;
 mod forge;
 mod gmail;
+mod smoke;
 
 use db::{Database, DbTarget, ProjectDao, ProjectTxDao};
 use domain::{CreateProjectRequest, ProjectStatus, UpdateProjectRequest, WbsCategory};
@@ -74,6 +75,9 @@ async fn dispatch_cli(args: &[String]) -> Result<(), Box<dyn Error>> {
         "apple-sync" => apple_sync::dispatch(&args[1..]).await,
         // Google mail: metadata-only latest-context. Not an Apple source, so it is its own command.
         "gmail-sync" => gmail::gmail_sync(&args[1..]).await,
+        // The post-deploy smoke, ported from `scripts/prod-smoke.ts` on 2026-09-28 (the last live TypeScript in
+        // the release path). It exits non-zero when a check fails, which is how `pnpm release` notices.
+        "smoke" => smoke::dispatch(&args[1..]).await,
         "media-cards" => media_cards(&args[1..]).await,
         _ => {
             print_usage();

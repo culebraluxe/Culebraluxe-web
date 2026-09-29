@@ -54,7 +54,8 @@ Fixed facts, quoted from the scripts (do not retype them elsewhere):
    **The Forge chain never builds and never deploys.** It asks `pnpm release --verify <sha>` and
    reads the answer. DEV_OPS owns the receipt.
 
-5. **`pnpm smoke:prod`** — `scripts/prod-smoke.ts`. Asks production whether it *works*, not whether
+5. **`pnpm smoke:prod`** — the `smoke prod` subcommand of `rust/cli` (ported from `scripts/prod-smoke.ts`
+   on 2026-09-28; the TypeScript file is deleted). Asks production whether it *works*, not whether
    it deployed: two checks, because a test suite answers "does the code work" and only the deployed
    artefact answers "does the thing people load work". Deliberate choices: the **canonical domain
    only** (a `*.vercel.app` URL answers 302 to Vercel Authentication — measured 2026-09-14 — so a
@@ -62,6 +63,12 @@ Fixed facts, quoted from the scripts (do not retype them elsewhere):
    "Selected Properties") rather than byte counts, so a copy edit is not a false alarm.
    `--expect-head` also asserts the live SHA equals HEAD; `--format json` for machines;
    `SMOKE_TIMEOUT_MS` for the clock.
+   **Two of its six checks cannot pass today, and the port did not change that:** `/api/build-info`
+   and `/api/rust-ready` answer **404** on production (verified by plain `curl` on 2026-09-28 — they
+   are Next-app routes that went with the port, and their only surviving caller is this smoke). The
+   other four checks pass. Either the Rust server grows those two routes (a build stamp and a
+   readiness answer naming the database it resolved) or the smoke points at the routes that exist —
+   the owner's call, because it is a production surface.
 
 ## Kept for build-only and deploy-only work
 
