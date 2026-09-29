@@ -35,6 +35,39 @@ pub fn default_cli_bin() -> String {
         .unwrap_or_else(|| "opencode".into())
 }
 
+/// The two policies an `agent_work_item` may carry (migration 179: `cheap` | `judgment`, NULL reads as `cheap`).
+pub const FORGE_MODEL_POLICIES: [&str; 2] = ["cheap", "judgment"];
+
+/// The model each policy names.
+///
+/// Ported from the legacy `lib/forge-kind.ts` table (`MODEL_FOR_POLICY`), whose assertions survive the deletion of
+/// `lib/` in `legacy/workflow_app/tests/forge-kind-routing.test.ts:104-125`: there are exactly two policies and every
+/// one names a model the price table can price.
+///
+/// BOTH name the flash tier, and the `judgment` row is deliberate (captain, 2026-09-16, quoted in that test): the
+/// pro/chat tier is interactive-only and cannot be billed per token, so a seat sent there could not answer and every
+/// "dear" run was silently a flash run anyway. The point of the table is unchanged — every policy names a priceable
+/// model, which is what keeps the cost lens honest and stops a third provider creeping in.
+pub const MODEL_FOR_CHEAP: &str = OPENCODE_PINNED_MODEL;
+pub const MODEL_FOR_JUDGMENT: &str = OPENCODE_PINNED_MODEL;
+
+/// An unrecognised or absent policy reads as `cheap` rather than throwing (legacy `asModelPolicy`, same test file:
+/// "an unknown kind or policy reads as the default"). The default is the cheaper one because it bills least.
+pub fn as_model_policy(raw: Option<&str>) -> &'static str {
+    match raw.map(str::trim) {
+        Some("judgment") => "judgment",
+        _ => "cheap",
+    }
+}
+
+/// The model the row's `model_policy` names.
+pub fn model_for_policy(raw: Option<&str>) -> &'static str {
+    match as_model_policy(raw) {
+        "judgment" => MODEL_FOR_JUDGMENT,
+        _ => MODEL_FOR_CHEAP,
+    }
+}
+
 pub fn resolve_opencode_model(model: Option<&str>) -> Result<String> {
     match model {
         None => Ok(std::env::var("OPENCODE_MODEL")
@@ -99,6 +132,26 @@ pub struct OpenCodeHarness {
 }
 
 impl OpenCodeHarness {
+    /// The lane's harness, with the model the **row** names (migration 179 `model_policy`).
+    ///
+    /// `OPENCODE_MODEL` wins when it is set: that is an explicit, attended configuration, and an empty one is
+    /// refused by `resolve_opencode_model` rather than silently replaced by the policy's model. Everything else is
+    /// decided by the policy the dispatch carried — until 2026-09-29 the column existed and the model was always the
+    /// pin, so the policy the Cockpit showed had no effect on what billed.
+    pub fn from_env_for_policy(model_policy: Option<&str>) -> Result<Self> {
+        let mut harness = Self::from_env()?;
+        let override_model = std::env::var("OPENCODE_MODEL").ok();
+        harness.model = match override_model
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            Some(model) => resolve_opencode_model(Some(model))?,
+            None => model_for_policy(model_policy).to_string(),
+        };
+        Ok(harness)
+    }
+
     pub fn from_env() -> Result<Self> {
         Ok(Self {
             cli_bin: default_cli_bin(),
@@ -306,5 +359,35 @@ impl RoleHarness for OpenCodeHarness {
                 output: String::new(),
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_policy_names_a_priceable_model_and_an_unknown_policy_reads_as_cheap() {
+        // Exactly two policies, and every one names a model the price table can price — the assertions that survive
+        // `lib/forge-kind.ts` in `legacy/workflow_app/tests/forge-kind-routing.test.ts:104-125`.
+        assert_eq!(FORGE_MODEL_POLICIES, ["cheap", "judgment"]);
+        assert_eq!(model_for_policy(Some("cheap")), "deepseek/deepseek-flash");
+        assert_eq!(model_for_policy(Some("judgment")), "deepseek/deepseek-flash");
+        // The live pin IS the flash tier after the upstream rename, so both policies name what bills today.
+        assert_eq!(MODEL_FOR_CHEAP, OPENCODE_PINNED_MODEL);
+        assert_eq!(MODEL_FOR_JUDGMENT, OPENCODE_PINNED_MODEL);
+        // An unknown or absent policy reads as the default rather than throwing (`asModelPolicy`).
+        assert_eq!(as_model_policy(Some("premium")), "cheap");
+        assert_eq!(as_model_policy(Some(" judgment ")), "judgment");
+        assert_eq!(as_model_policy(None), "cheap");
+    }
+
+    #[test]
+    fn the_row_decides_the_model_and_an_explicit_override_still_wins() {
+        // The row's policy is what the harness would run on when no explicit model is set.
+        let policy_model = model_for_policy(Some("cheap")).to_string();
+        assert_eq!(policy_model, resolve_opencode_model(Some(&policy_model)).unwrap());
+        // An explicit empty override is refused rather than silently replaced (the harness's own rule).
+        assert!(resolve_opencode_model(Some("")).is_err());
     }
 }

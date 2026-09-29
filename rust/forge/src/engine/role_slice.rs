@@ -14,6 +14,36 @@ pub struct VerifyExistingArrangement {
     pub proofs: Vec<String>,
 }
 
+/// The bench intents a dispatch may carry (migration 167 `launch_intent`; the CHECK that admits them lives on the
+/// column). The Cockpit sets one when the operator caps the Lead; NULL means "the Lead decides".
+pub const BENCH_INTENTS: [&str; 4] = ["SOLO", "SMITH", "SPLIT", "HOLD"];
+
+/// Does the Lead's decision honour the bench intent the dispatch carried? Empty = it does, or there was no cap.
+///
+/// Ported from `benchIntentErrors` (`legacy/workflow_app/forge/forge-lead-routing.ts`, deleted with `legacy/`). The
+/// assertions that outlive it are the contract:
+/// `legacy/workflow_app/forge/agents/handoff.test.ts:29-33` — `benchIntentErrors('SMITH','HOLD')` errors,
+/// `('HOLD','HOLD')` is clean, `('SPLIT','SOLO')` errors — and
+/// `legacy/workflow_app/tests/forge-lead-routing-bench.test.ts:88-140` — a `HOLD` bench refuses any decision that is
+/// not `HOLD` ("Bench intent is HOLD"), and a `SOLO` bench refuses `SPLIT` ("Bench intent is SOLO").
+///
+/// The rule is equality in both directions: the intent is a CAP, so a decision broader than the cap (SPLIT under a
+/// SOLO bench) and a decision narrower than it (SOLO under a SMITH bench) are both the Lead substituting its own
+/// judgement for the operator's. A null or blank intent is not a cap and decides nothing here, and a lane with no
+/// decision yet is left to the missing-decision rail rather than refused twice.
+pub fn bench_intent_errors(intent: Option<&str>, decision: Option<&str>) -> Vec<String> {
+    let Some(intent) = intent.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Vec::new();
+    };
+    let decision = decision.map(str::trim).unwrap_or("");
+    if decision.is_empty() || decision.eq_ignore_ascii_case(intent) {
+        return Vec::new();
+    }
+    vec![format!(
+        "Bench intent is {intent}: the Lead decided {decision}"
+    )]
+}
+
 #[derive(Debug, Clone)]
 pub struct LeadProposal {
     pub decision: String,
@@ -138,6 +168,25 @@ pub fn derive_release_evidence(
 mod tests {
     use super::*;
     use workflow::Value;
+
+    #[test]
+    fn bench_intent_caps_the_lead_decision() {
+        // The legacy matrix, verbatim (`agents/handoff.test.ts:29-33`).
+        assert!(!bench_intent_errors(Some("SMITH"), Some("HOLD")).is_empty());
+        assert!(bench_intent_errors(Some("HOLD"), Some("HOLD")).is_empty());
+        assert!(!bench_intent_errors(Some("SPLIT"), Some("SOLO")).is_empty());
+        // The phrasing the bench test asserts on, and the cap in both directions.
+        assert_eq!(
+            bench_intent_errors(Some("HOLD"), Some("SOLO")),
+            vec!["Bench intent is HOLD: the Lead decided SOLO".to_string()]
+        );
+        assert!(!bench_intent_errors(Some("SOLO"), Some("SPLIT")).is_empty());
+        assert!(bench_intent_errors(Some("SOLO"), Some("SOLO")).is_empty());
+        // No cap, a blank cap, and no decision yet all decide nothing here.
+        assert!(bench_intent_errors(None, Some("SPLIT")).is_empty());
+        assert!(bench_intent_errors(Some("  "), Some("SPLIT")).is_empty());
+        assert!(bench_intent_errors(Some("SMITH"), None).is_empty());
+    }
 
     #[test]
     fn assay_only_when_sha_is_full() {

@@ -69,6 +69,69 @@ pub struct BeginAgentWorkRun {
     pub execution_policy: String,
     /// The `storyboard_story_run` row this claim opened.
     pub story_run_id: String,
+    /// The model policy the dispatch envelope carries (migration 179: `cheap` | `judgment` | NULL). Read off the
+    /// row at begin, like the execution policy, so the model a lane bills is decided by the row and not by argv.
+    pub model_policy: Option<String>,
+    /// The Lead cap the Cockpit set on the dispatch (migration 167). Carried to the Lead as its bench intent.
+    pub launch_intent: Option<String>,
+}
+
+/// The specification a run is opened with (migrations 024 §2, 104, 106).
+///
+/// Migration 025 states the contract in as many words: `agent_work_item` "stores NO story specification; the
+/// authoritative spec lives on `storyboard_story` and is snapshotted into `storyboard_story_run` when execution
+/// begins". Every field here has one authoritative source on `storyboard_story` — nothing is derived, and a
+/// column with no source stays NULL rather than being filled with a guess.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AgentWorkRunSnapshot {
+    /// `storyboard_story.goal` — what the story is for.
+    pub goal: Option<String>,
+    /// `storyboard_story.test_mode` — how the run is meant to be verified.
+    pub test_mode: Option<String>,
+    /// `storyboard_story.assay_commands` — the verification contract the run executes, snapshotted as text.
+    pub assay_commands: Option<String>,
+    /// `storyboard_story.packet_sha` — the packet the story was admitted with, so a later reader can tell
+    /// whether the run acted on the packet that is on disk today.
+    pub packet_sha: Option<String>,
+    /// The commit the run branched from. Not known when the run row is opened (the worktree does not exist
+    /// yet), so it is stamped by `stamp_run_base_commit` the moment provisioning answers with it.
+    pub base_commit_hash: Option<String>,
+}
+
+impl AgentWorkRunSnapshot {
+    /// Nothing to snapshot: an empty snapshot writes NULLs rather than empty strings pretending to be facts.
+    pub fn is_empty(&self) -> bool {
+        self.goal.is_none()
+            && self.test_mode.is_none()
+            && self.assay_commands.is_none()
+            && self.packet_sha.is_none()
+            && self.base_commit_hash.is_none()
+    }
+
+    /// The columns written by `begin_agent_work_run`, in bind order. Public so the one bind site can use it
+    /// (and so a second bind site cannot silently spell the trim differently).
+    pub fn columns(&self) -> (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) {
+        (
+            trim_opt(self.goal.clone()),
+            trim_opt(self.test_mode.clone()),
+            trim_opt(self.assay_commands.clone()),
+            trim_opt(self.packet_sha.clone()),
+            trim_opt(self.base_commit_hash.clone()),
+        )
+    }
+}
+
+/// A blank string is not a snapshot: it is the absence of one, spelled the way a form field spells it.
+fn trim_opt(value: Option<String>) -> Option<String> {
+    value
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
 }
 
 /// The ruling an item's terminal state gives its Story Run.
@@ -759,6 +822,7 @@ impl ForgeEngineDao {
     pub async fn begin_agent_work_run(
         &self,
         work_item_id: &str,
+        snapshot: Option<&AgentWorkRunSnapshot>,
     ) -> DbResult<Option<BeginAgentWorkRun>> {
         let mut tx = self.db.begin("forge_engine.begin_agent_work_run").await?;
         let result = async {
@@ -784,27 +848,43 @@ impl ForgeEngineDao {
             // `execution_environment` is the run's **actual** target (migration 030 §14-15: the item carries the
             // intended one), and `run_type` is the item's own role/kind — read from the row, not from a caller's
             // argument, so the run says what it was dispatched as.
+            // Bind the snapshot ONCE, trimmed, so a blank field is the absence of a fact rather than an empty
+            // string that reads like one. `columns()` is that one place.
+            let (goal, test_mode, assay_commands, packet_sha, base_commit_hash) = snapshot
+                .map(AgentWorkRunSnapshot::columns)
+                .unwrap_or((None, None, None, None, None));
             let story_run_id: String = sqlx::query_scalar(
                 "insert into storyboard_story_run
-                     (story_id, started_at, execution_environment, run_type)
+                     (story_id, started_at, execution_environment, run_type,
+                      goal_snapshot, test_mode_snapshot, assay_commands_snapshot, packet_sha_snapshot,
+                      base_commit_hash)
                  select i.story_id, now(), $2,
-                        coalesce(nullif(trim(i.role), ''), nullif(trim(i.kind), ''), 'dispatch')
+                        coalesce(nullif(trim(i.role), ''), nullif(trim(i.kind), ''), 'dispatch'),
+                        $3, $4, $5, $6, $7
                    from agent_work_item i
                   where i.id=$1::uuid
                  returning id::text",
             )
             .bind(work_item_id)
             .bind(run_execution_environment(self.db.declared_target()))
+            .bind(goal)
+            .bind(test_mode)
+            .bind(assay_commands)
+            .bind(packet_sha)
+            .bind(base_commit_hash)
             .fetch_one(tx.connection())
             .await
             .map_err(|error| DbFailure::from_sqlx("forge_engine.begin_agent_work_run.run", &error))?;
 
-            let policy: Option<String> = sqlx::query_scalar(
+            // The envelope travels back with the run: the model policy decides which model bills, and the launch
+            // intent is the Cockpit's cap on the Lead. Both are read from the row in the same statement that opens
+            // the run, so a launcher cannot substitute its own.
+            let envelope: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
                 "update agent_work_item
                  set state='Running', started_at=coalesce(started_at,now()),
                      story_run_id=$2::uuid, updated_at=now()
                  where id=$1::uuid and state='Claimed'
-                 returning execution_policy",
+                 returning execution_policy, model_policy, launch_intent",
             )
             .bind(work_item_id)
             .bind(&story_run_id)
@@ -813,12 +893,14 @@ impl ForgeEngineDao {
             .map_err(|error| {
                 DbFailure::from_sqlx("forge_engine.begin_agent_work_run.update", &error)
             })?;
-            let Some(execution_policy) = policy else {
+            let Some((execution_policy, model_policy, launch_intent)) = envelope else {
                 return Ok::<Option<BeginAgentWorkRun>, DbFailure>(None);
             };
             Ok::<Option<BeginAgentWorkRun>, DbFailure>(Some(BeginAgentWorkRun {
                 execution_policy,
                 story_run_id,
+                model_policy,
+                launch_intent,
             }))
         }
         .await;
@@ -1223,6 +1305,62 @@ impl ForgeEngineDao {
     /// `reconcile_dispatch_queue`. See `dispatch_story_in` for why the row is never written here.
     pub async fn ensure_story_dispatched(&self, story_id: &str) -> DbResult<EnsureDispatch> {
         ensure_story_dispatched_on(&self.db, story_id).await
+    }
+
+    /// The specification a run is opened with, read from its one authoritative source: the story row.
+    ///
+    /// Migration 024 §2 snapshots the spec into `storyboard_story_run` **when execution begins**, and migration 025
+    /// says why: `agent_work_item` stores no specification, so this is the only moment the engine still holds it.
+    /// Read here, before the claim, so the row that opens and the row it snapshots are the same story.
+    ///
+    /// A story that does not exist answers an empty snapshot rather than an error — the claim itself is the thing
+    /// that must refuse a story that is not there, and it does.
+    pub async fn story_run_snapshot(&self, story_id: &str) -> DbResult<AgentWorkRunSnapshot> {
+        let row: Option<(
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        )> = sqlx::query_as(
+            "select goal, test_mode, assay_commands, packet_sha
+               from storyboard_story where id=$1 limit 1",
+        )
+        .bind(story_id)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.story_run_snapshot", &error))?;
+        Ok(row
+            .map(|(goal, test_mode, assay_commands, packet_sha)| AgentWorkRunSnapshot {
+                goal,
+                test_mode,
+                assay_commands,
+                packet_sha,
+                base_commit_hash: None,
+            })
+            .unwrap_or_default())
+    }
+
+    /// Stamp the commit the run branched from, once provisioning knows it (migration 106 `base_commit_hash`).
+    ///
+    /// Written only if it is still NULL: the first base a run was provisioned from is the base it ran on, and a
+    /// second stamp would overwrite a fact with a later one. `where id=$1::uuid` is intentionally unguarded
+    /// against re-stamping a *different* commit — the caller is the provisioning path of that same run.
+    pub async fn stamp_run_base_commit(&self, run_id: &str, base_commit: &str) -> DbResult<bool> {
+        let base = base_commit.trim();
+        if base.is_empty() {
+            return Ok(false);
+        }
+        let changed = sqlx::query(
+            "update storyboard_story_run
+                set base_commit_hash=$2, updated_at=now()
+              where id=$1::uuid and base_commit_hash is null",
+        )
+        .bind(run_id)
+        .bind(base)
+        .execute(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.stamp_run_base_commit", &error))?;
+        Ok(changed.rows_affected() > 0)
     }
 
     pub async fn mark_story_in_progress(&self, story_id: &str) -> DbResult<()> {

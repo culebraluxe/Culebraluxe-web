@@ -58,6 +58,9 @@ pub struct ProductionRoleRunner<'a> {
     /// The Story Run this lane is executing (the row a claim opened). Every artifact the lane produces is keyed to
     /// it, so a later reader can see which execution a reading came out of instead of re-deriving it.
     pub story_run_id: Option<String>,
+    /// The bench intent the dispatch carried (migration 167 `launch_intent`) — the Cockpit's cap on the Lead,
+    /// travelling with the run it caps.
+    pub bench_intent: Option<String>,
     pub require_prod: bool,
 }
 
@@ -68,6 +71,7 @@ impl<'a> ProductionRoleRunner<'a> {
             current,
             writer: None,
             story_run_id: None,
+            bench_intent: None,
             require_prod: false,
         }
     }
@@ -77,6 +81,43 @@ impl<'a> ProductionRoleRunner<'a> {
     pub fn with_story_run(mut self, story_run_id: Option<String>) -> Self {
         self.story_run_id = story_run_id;
         self
+    }
+
+    /// Carry the dispatch's bench intent into the lane. `None` means the Lead decides, which is the row's own
+    /// answer — never a default this code invents.
+    pub fn with_bench_intent(mut self, bench_intent: Option<String>) -> Self {
+        self.bench_intent = bench_intent;
+        self
+    }
+
+    /// The envelope this lane runs under. Built in one place because the ports are read at two points in the turn
+    /// and a field wired at only one of them is a half-wired rail (2026-09-29).
+    fn effect_ports(&self) -> RoleEffectPorts {
+        RoleEffectPorts {
+            bench_intent: self.bench_intent.clone(),
+            ..RoleEffectPorts::default()
+        }
+    }
+
+    /// Apply the dispatch's bench intent to what a lane read. The cap bites on the Lead's decision and nowhere
+    /// else: that is the one deliverable the Cockpit sets a bench intent to constrain.
+    ///
+    /// A decision outside the cap is a **rejected deliverable**, not a note — it travels the existing rail, so the
+    /// lane self-heals once with the intent named in the directive and, if it repeats, the story holds where a
+    /// human sees it. The rejection is never overwritten if the lane already has one: one refusal per turn keeps a
+    /// single reason readable.
+    fn apply_bench_intent(&self, evidence: &mut ForgeGateEvidence) {
+        if evidence.lead_decision.is_none() {
+            return;
+        }
+        let errors = crate::engine::role_slice::bench_intent_errors(
+            self.bench_intent.as_deref(),
+            evidence.lead_decision.as_deref(),
+        );
+        if errors.is_empty() || evidence.deliverable_rejection.is_some() {
+            return;
+        }
+        evidence.deliverable_rejection = Some(errors.join("; "));
     }
 }
 
@@ -144,9 +185,12 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
             last_out_sha = out.candidate_sha.clone();
             last_assay = out.assay_commands.clone();
             last_mapped = out.acceptance_mapped;
-            let ports = RoleEffectPorts::default();
+            let ports = self.effect_ports();
             evidence = forge_agent_collect(node_id, self.current.clone(), &out.raw, &ports)
                 .map_err(WorkflowError::generic)?;
+            // The bench intent the dispatch carried, applied the moment the proposal is read, so a decision outside
+            // the Cap is a rejected deliverable on the same attempt rather than a surprise at settle time.
+            self.apply_bench_intent(&mut evidence);
             if attempt + 1 < budget {
                 let agent = ForgePhaseAgent::new(node_id).map_err(WorkflowError::generic)?;
                 let missing = agent.missing_deliverables(
@@ -183,7 +227,10 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
             assay_commands: last_assay,
             acceptance_mapped: last_mapped,
         };
-        let ports = RoleEffectPorts::default();
+        // The same envelope the attempts ran under, and the same cap: this is the evidence the writes below act on,
+        // so a decision outside the bench intent must be refused here even if the last attempt broke out early.
+        let ports = self.effect_ports();
+        self.apply_bench_intent(&mut evidence);
 
         // ONE identity, taken from the task this lane was listed with. It is read here, before any write this turn
         // makes, because the writes below are identity-bearing: `forge_hold_record.story_id` and

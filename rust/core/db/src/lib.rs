@@ -112,7 +112,7 @@ pub use forge_doctor::{
     RoiAttemptRow,
 };
 pub use forge_engine::{
-    settlement_pair, AgentWorkOutcome, AgentWorkSettlement, BeginAgentWorkRun,
+    settlement_pair, AgentWorkOutcome, AgentWorkRunSnapshot, AgentWorkSettlement, BeginAgentWorkRun,
     run_result_status_for, artifact_verdict_for_run, verdict_polarity, NewToolArtifact,
     ToolArtifactRow, VerdictPolarity, DealWorkflowFactRow, DispatchReconcile,
     EnsureDispatch,

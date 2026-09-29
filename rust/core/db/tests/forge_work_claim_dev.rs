@@ -142,7 +142,7 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
     //    The transition also reports the claimed row's `execution_policy`, because that policy decides whether the
     //    run may be unattended at all (migration 029).
     let begin = engine
-        .begin_agent_work_run(&claimed.id)
+        .begin_agent_work_run(&claimed.id, None)
         .await
         .unwrap()
         .expect("Claimed -> Running must settle exactly one row and report the item's policy");
@@ -181,7 +181,7 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
     assert!(run_ended.is_none(), "a run that just started has not ended");
     assert!(
         engine
-            .begin_agent_work_run(&claimed.id)
+            .begin_agent_work_run(&claimed.id, None)
             .await
             .unwrap()
             .is_none(),
@@ -482,7 +482,7 @@ async fn engine_faults_clear_the_pair_and_the_plane_is_swept_before_each_run() {
         .expect("claim the proof item");
     assert!(
         engine
-            .begin_agent_work_run(&stranded_item)
+            .begin_agent_work_run(&stranded_item, None)
             .await
             .unwrap()
             .is_some(),

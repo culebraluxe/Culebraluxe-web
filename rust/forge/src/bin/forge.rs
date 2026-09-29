@@ -156,15 +156,80 @@ fn main() {
     //
     // The run this claim opens is carried on: every artifact a lane produces is keyed to it (migration 130), so the
     // id has to reach the runner that writes them.
+    // THE STORY PACKET IS READ BEFORE THE CLAIM, NOT AFTER IT. Migration 024 §2 has the specification snapshotted
+    // into `storyboard_story_run` **when execution begins**, and execution begins at the claim — so the packet has
+    // to be in hand by then. Loading it after the claim (which is what this did until 2026-09-29) meant every run
+    // opened with a NULL snapshot: the run row existed and what it was executing was not in it.
+    //
+    // An unreadable packet is the engine's plumbing failing, not a story verdict: no run is opened, no model turn
+    // happens, and the claim goes back to the queue. The environment packet stays reachable for an attended,
+    // deliberate run only, behind FORGE_PACKET_FROM_ENV=1 — and a run on that fallback snapshots NO specification,
+    // because there is no authoritative packet behind it to snapshot.
+    let packet_from_env = env::var("FORGE_PACKET_FROM_ENV").ok().as_deref() == Some("1");
+    let packet = match StoryPacket::load_from_neon(&story) {
+        Ok(packet) => {
+            eprintln!("packet from storyboard_story {}", packet.id);
+            Some(packet)
+        }
+        Err(e) if packet_from_env => {
+            eprintln!("story packet: {e} (FORGE_PACKET_FROM_ENV=1: running on the environment packet)");
+            None
+        }
+        Err(e) => {
+            eprintln!("story packet: {e}; refusing to run {story} without its authoritative packet");
+            if settle_work_item(
+                work_item.as_deref(),
+                AgentWorkOutcome::Abandoned,
+                Some(&format!("story packet: {e}")),
+            )
+            .is_err()
+            {
+                eprintln!("work_item could not be settled; the claim is left to recovery");
+            }
+            std::process::exit(2);
+        }
+    };
+    // The specification the run opens with, read from the story row before the claim takes it — the one moment
+    // the engine still holds it (migration 025: `agent_work_item` stores no specification).
+    let snapshot = if packet.is_some() {
+        match agent_work::story_run_snapshot(&story) {
+            Ok(snapshot) => Some(snapshot),
+            Err(e) => {
+                eprintln!("story specification: {e}; refusing to open a run with no snapshot");
+                if settle_work_item(
+                    work_item.as_deref(),
+                    AgentWorkOutcome::Abandoned,
+                    Some(&format!("story specification: {e}")),
+                )
+                .is_err()
+                {
+                    eprintln!("work_item could not be settled; the claim is left to recovery");
+                }
+                std::process::exit(2);
+            }
+        }
+    } else {
+        None
+    };
     let mut story_run_id: Option<String> = None;
+    // The row's dispatch envelope, carried on from the claim to the lane it configures.
+    let mut run_model_policy: Option<String> = None;
+    let mut run_launch_intent: Option<String> = None;
     if let Some(item) = work_item.as_deref() {
-        match agent_work::begin_agent_work_run(item) {
+        match agent_work::begin_agent_work_run(item, snapshot.as_ref()) {
             Ok(Some(begin)) => {
                 let policy = begin.execution_policy.clone();
                 story_run_id = Some(begin.story_run_id.clone());
-                // The Story Run this claim opened. It is named here, once, because every durable artifact the lane
-                // produces is keyed to it and a run whose id is never printed cannot be followed.
-                eprintln!("story_run={} policy={policy}", begin.story_run_id);
+                run_model_policy = begin.model_policy.clone();
+                run_launch_intent = begin.launch_intent.clone();
+                // The Story Run this claim opened, with the envelope it was started under. Every durable artifact
+                // the lane produces is keyed to the run, so a run whose id is never printed cannot be followed.
+                eprintln!(
+                    "story_run={} policy={policy} model_policy={} launch_intent={}",
+                    begin.story_run_id,
+                    run_model_policy.as_deref().unwrap_or("(default cheap)"),
+                    run_launch_intent.as_deref().unwrap_or("(lead decides)")
+                );
                 // The durable envelope is read at the moment the run starts (migration 029: "only 'Unattended OK'
                 // work may be claimed by the unattended poller"). A policy that names a human is a rail, not a
                 // note: no model turn happens and the claim goes back to the queue.
@@ -207,7 +272,10 @@ fn main() {
         env::var("FORGE_ROUTING_BRAIN").ok().as_deref(),
     );
     eprintln!("routing-brain={brain:?}");
-    let mut harness = match OpenCodeHarness::from_env() {
+    // The model the lane bills is decided by the ROW (migration 179 `model_policy`), read at the claim together with
+    // the execution policy. `OPENCODE_MODEL` still wins: that is an explicit, attended configuration. Before this,
+    // the model was whatever the pin said and the policy column was decoration.
+    let mut harness = match OpenCodeHarness::from_env_for_policy(run_model_policy.as_deref()) {
         Ok(h) => h,
         Err(e) => {
             eprintln!("{e}");
@@ -225,34 +293,16 @@ fn main() {
             std::process::exit(2);
         }
     };
-    // The Story Packet is the authoritative context this run acts on, and it is the only thing standing between
-    // an unattended agent and its own judgement. An unreadable packet is not a reason to fall back to whatever
-    // the environment happens to hold: the engine's own plumbing failed, the story never ran, so the claim goes
-    // back to the queue and NO model turn happens (legacy contract; captain, 2026-09-29). The environment packet
-    // stays reachable for an attended, deliberate run only, behind FORGE_PACKET_FROM_ENV=1.
-    let packet_from_env = env::var("FORGE_PACKET_FROM_ENV").ok().as_deref() == Some("1");
-    match StoryPacket::load_from_neon(&story) {
-        Ok(packet) => {
-            eprintln!("packet from storyboard_story {}", packet.id);
-            harness.packet = packet;
-            harness.story_id = Some(story.clone());
-        }
-        Err(e) if packet_from_env => {
-            eprintln!("story packet: {e} (FORGE_PACKET_FROM_ENV=1: running on the environment packet)");
-        }
-        Err(e) => {
-            eprintln!("story packet: {e}; refusing to run {story} without its authoritative packet");
-            if settle_work_item(
-                work_item.as_deref(),
-                AgentWorkOutcome::Abandoned,
-                Some(&format!("story packet: {e}")),
-            )
-            .is_err()
-            {
-                eprintln!("work_item could not be settled; the claim is left to recovery");
-            }
-            std::process::exit(2);
-        }
+    eprintln!(
+        "model={} model_policy={}",
+        harness.model,
+        run_model_policy.as_deref().unwrap_or("(default cheap)")
+    );
+    // The packet read before the claim becomes the packet the lane acts on. On the FORGE_PACKET_FROM_ENV fallback
+    // there is no packet row, so the environment packet is what stands — an attended, deliberate act.
+    if let Some(packet) = packet {
+        harness.packet = packet;
+        harness.story_id = Some(story.clone());
     }
     if env::var("FORGE_PROVISION").ok().as_deref() == Some("1") {
         match provision_worker_workspace(
@@ -274,8 +324,35 @@ fn main() {
                     worktree_path: ws.worktree_path.display().to_string(),
                     branch_name: ws.branch_name,
                     base_ref: ws.base_ref,
-                    base_commit: ws.base_commit,
+                    base_commit: ws.base_commit.clone(),
                 });
+                // The base the run branched from is known only now, so it is stamped on to the run it belongs to the
+                // moment provisioning answers (migration 106 `base_commit_hash`). A run whose base is unknown cannot
+                // be read against the commit it produced, so a failure here is the engine's own plumbing failing:
+                // the claim goes back rather than running on with a hole in the receipt.
+                if let Some(run_id) = story_run_id.as_deref() {
+                    match agent_work::stamp_run_base_commit(run_id, &ws.base_commit) {
+                        Ok(true) => eprintln!("run base_commit_hash={}", ws.base_commit),
+                        Ok(false) => {
+                            eprintln!("run base_commit_hash left unset (provision reported no base commit)")
+                        }
+                        Err(e) => {
+                            eprintln!("base_commit_hash: {e}");
+                            if settle_work_item(
+                                work_item.as_deref(),
+                                AgentWorkOutcome::Abandoned,
+                                Some(&format!("base_commit_hash: {e}")),
+                            )
+                            .is_err()
+                            {
+                                eprintln!(
+                                    "work_item could not be settled; the claim is left to recovery"
+                                );
+                            }
+                            std::process::exit(2);
+                        }
+                    }
+                }
             }
             Err(e) => {
                 eprintln!("provision: {e}");
@@ -342,6 +419,7 @@ fn main() {
             &work_type,
             stop_after.clone(),
             story_run_id.clone(),
+            run_launch_intent.clone(),
         )
     } else {
         match NeonStore::connect_from_env() {
@@ -356,6 +434,7 @@ fn main() {
                     &work_type,
                     stop_after.clone(),
                     story_run_id.clone(),
+                    run_launch_intent.clone(),
                 )
             }
             Err(e) => Err(format!("neon store: {e}")),
@@ -417,6 +496,7 @@ fn drive<S: TxStore>(
     work_type: &str,
     stop_after: Option<ForgeStopTarget>,
     story_run_id: Option<String>,
+    bench_intent: Option<String>,
 ) -> Result<String, String> {
     let mut rt = match ForgeRuntime::from_store(
         store,
@@ -440,7 +520,9 @@ fn drive<S: TxStore>(
         scout_required: Some(false),
         ..Default::default()
     };
-    let runner = ProductionRoleRunner::new(harness, evidence.clone()).with_story_run(story_run_id);
+    let runner = ProductionRoleRunner::new(harness, evidence.clone())
+        .with_story_run(story_run_id)
+        .with_bench_intent(bench_intent);
     match drive_forge_story(
         &mut rt,
         story,

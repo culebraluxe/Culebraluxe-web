@@ -45,6 +45,10 @@ pub struct RoleEffectPorts {
     pub production_verification_receipt: Option<String>,
     pub deployed_sha: Option<String>,
     pub production_verified_sha: Option<String>,
+    /// The bench intent the dispatch carried (migration 167 `launch_intent`): the Cockpit's cap on what the Lead
+    /// may decide. `None` means the Lead decides. It lives here beside the other effects because it is an envelope
+    /// the run was started under, not something a lane may infer from the story.
+    pub bench_intent: Option<String>,
 }
 
 impl Default for RoleEffectPorts {
@@ -55,6 +59,7 @@ impl Default for RoleEffectPorts {
             production_verification_receipt: None,
             deployed_sha: None,
             production_verified_sha: None,
+            bench_intent: None,
         }
     }
 }
