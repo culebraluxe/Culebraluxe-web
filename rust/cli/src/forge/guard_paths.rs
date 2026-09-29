@@ -150,17 +150,17 @@ pub fn rules_without_guard(agents_md: &str) -> Vec<(usize, String)> {
 /// `tests/` is a Cargo integration-test target that runs zero tests, and a `*.test.ts` with no `it`/`test`/
 /// `describe` body asserts nothing — neither guards a rule (the acceptance criterion is explicit: an empty
 /// file is not a guard). So the body is read, whatever the path calls itself.
+///
+/// The Rust test must be an ATTRIBUTE, not merely a test module: `#[cfg(test)] mod tests {}` with no `#[test]`
+/// inside compiles and runs zero assertions, so it is an empty file wearing a name. `::test]` covers the
+/// async/DB wrappers (`#[tokio::test]`, `#[sqlx::test]`), `test_case` the parameterised form.
 fn holds_a_test(path: &str, content: &str) -> bool {
     if content.trim().is_empty() {
         return false;
     }
     let normalized = path.replace('\\', "/");
     if normalized.ends_with(".rs") {
-        // `#[test]` and `#[cfg(test)]` are the plain markers; `::test]` covers the async/DB wrappers
-        // (`#[tokio::test]`, `#[sqlx::test]`), `test_case` the parameterised form.
         return content.contains("#[test]")
-            || content.contains("#[cfg(test)]")
-            || content.contains("mod tests")
             || content.contains("::test]")
             || content.contains("test_case");
     }
@@ -392,6 +392,30 @@ mod tests {
                 .iter()
                 .any(|finding| finding.rule == "guard-path-not-a-test"),
             "an empty file under tests/ is still not a guard: {findings:?}"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_test_module_with_no_test_attribute_is_not_a_guard() {
+        // A `mod tests` or `#[cfg(test)]` marker is not by itself a test: an empty module compiles and runs
+        // zero assertions. The file is not empty, so the empty-body check does not catch it — the test
+        // attribute is what makes it a guard.
+        let root = fixture_root("empty-test-module");
+        write_file(
+            &root,
+            "rust/empty_module_guard.rs",
+            "#[cfg(test)]\nmod tests {\n    // nothing runs here\n}\n",
+        );
+        let findings = check(
+            &root,
+            &handbook("- A rule. guard: rust/empty_module_guard.rs\n"),
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|finding| finding.rule == "guard-path-not-a-test"),
+            "an empty `mod tests` is not a guard: {findings:?}"
         );
         let _ = fs::remove_dir_all(&root);
     }
