@@ -158,8 +158,8 @@ Never
   the route identifies") and the fix had to be removed the same day, after it had already written back the
   QA-held sha that `ENG-FORGE-QA-NO-GIT-GUARD-01` deleted for refusing every release. When a review or an
   order asks for a policy the code explicitly refuses, name the conflict and stop. See `docs/agent/MEMORY.md`.
-  guard: NONE — no Rust test yet; the guard is ENG-GUARD-FORGE-RUST-01 (not landed 2026-09-29).
-- Push, merge, or rebase from a worker. guard: NONE — no Rust test yet; the guard is ENG-GUARD-FORGE-RUST-01 (not landed 2026-09-29).
+  guard: rust/forge/tests/handbook_engine_guards.rs
+- Push, merge, or rebase from a worker. guard: rust/forge/tests/handbook_engine_guards.rs
 - Run Forge against DEV. Forge runs (engine lanes, dogfoods, splits, role attempts) execute against PROD only — the environment is not something a run may flip (see `docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md` §0). guard: rust/core/db/src/pool.rs
 - Reset PROD, copy DEV over PROD, or truncate canonical history. guard: NONE — no automated check; a destructive database action is a human decision the operator makes himself, and no test can stand between him and his own console.
 - Keep a git commit as Scout, Assay, or Inspector. guard: rust/cli/src/forge/lint.rs
