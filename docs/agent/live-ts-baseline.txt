@@ -1,0 +1,84 @@
+# Live TypeScript outside legacy/ — the ratchet. This list may only FALL.
+#
+# Read by scripts/live-ts-gate.sh; enforced by `pnpm ts:count` (CI job `static gates`).
+# Removed from this list because the file was ported, retired, or marked `⚠ BROKEN ON PURPOSE`.
+# A file listed here that is gone is a FAILURE until this line is deleted: that is what makes
+# the count monotone. Never add a line to make a red gate green — port the file instead.
+#
+# 69 files at 2026-09-29. Two counting rules differ by four, and both are named here:
+#   * the four build configuration files (eslint.config.mjs, postcss.config.mjs, .dependency-cruiser.js,
+#     .dependency-cruiser.runtime.js) are excluded BY NAME in the gate — they are not product code and
+#     they configure the tools that check what is left. A count that includes them reads 73.
+#   * a file counts as MARKED only when the banner is in its first 12 lines (the repository convention,
+#     scripts/test-harness.mjs). scripts/broken-ts-sweep.mjs and scripts/dead-command-sweep.mjs QUOTE
+#     the banner in prose further down, so a scan that accepts a mention anywhere reads 71 — and would
+#     forgive a NEW file that quotes it.
+agent-runtime/assay-arithmetic.ts
+agent-runtime/assay-evidence.ts
+agent-runtime/assay-plan.ts
+agent-runtime/candidate-assay-handoff.ts
+agent-runtime/capabilities.ts
+agent-runtime/deepseek/dsh-client.ts
+agent-runtime/forge-failure.ts
+agent-runtime/forge-transition.ts
+agent-runtime/gateway/openclaw-provider.ts
+agent-runtime/gateway/provider.ts
+agent-runtime/gateway/warp-provider.ts
+agent-runtime/git-packet.ts
+agent-runtime/harness-usage.ts
+agent-runtime/lane-policy.ts
+agent-runtime/lanes.ts
+agent-runtime/lead-decision.ts
+agent-runtime/loop.ts
+agent-runtime/model-prices.ts
+agent-runtime/opencode/opencode-client.ts
+agent-runtime/readiness.ts
+agent-runtime/recovery-policy.ts
+agent-runtime/run-machine-evidence.ts
+agent-runtime/silent-failure-patterns.ts
+agent-runtime/skills.ts
+agent-runtime/slack-notifier.ts
+agent-runtime/story-session.ts
+agent-runtime/team.ts
+agent-runtime/test-mode.ts
+agent-runtime/types.ts
+scripts/agent-scheduler.mjs
+scripts/agent-scheduler.test.mjs
+scripts/app-runtime-boundary.mjs
+scripts/apple-local-listener.mjs
+scripts/apple-sync-agent.mjs
+scripts/broken-ts-sweep.mjs
+scripts/calendar-sync-agent.mjs
+scripts/check-trailing-whitespace.ts
+scripts/dead-command-sweep.mjs
+scripts/forge-engine-worker.ts
+scripts/forge-silent-failure-gate.ts
+scripts/generate-break-glass-hash.mjs
+scripts/harness-authorization.ts
+scripts/merge-contacts-notes.ts
+scripts/oc-probe3.ts
+scripts/portal-nav-smoke.mjs
+scripts/protected-files.test.ts
+scripts/protected-files.ts
+scripts/route-authority-manifest.ts
+scripts/rust-live-check/_env.mjs
+scripts/rust-live-check/apple-mail.mjs
+scripts/rust-live-check/apple-messages-intake.mjs
+scripts/rust-live-check/engine-routes.mjs
+scripts/rust-live-check/pool-counters.mjs
+scripts/rust-parity-ledger.test.ts
+scripts/rust-parity-ledger.ts
+scripts/static-page-body.mjs
+scripts/test-section.ts
+scripts/test-sections.test.ts
+scripts/test-sections.ts
+scripts/ui-capture-fixtures.mjs
+scripts/ui-flip-readiness.mjs
+scripts/verify-break-glass-secret.mjs
+scripts/workflow-cli.test.ts
+testv2/engine_tests/fake-sql.ts
+testv2/engine_tests/fixtures.ts
+workflow_engine/lib/workflow/engine.ts
+workflow_engine/lib/workflow/errors.ts
+workflow_engine/lib/workflow/expressions.ts
+workflow_engine/lib/workflow/types.ts

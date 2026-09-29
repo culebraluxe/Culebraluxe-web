@@ -103,6 +103,22 @@ jobs:
       - name: harness tests (no database)
         run: pnpm test:harness
 
+      # THE TWO HALVES OF THE TYPESCRIPT COUNT, and why the second one is here.
+      #
+      # `broken:ts:sweep` demands a banner from files that CANNOT load; it says nothing about a file
+      # that WORKS. So the port could leave 69 loadable TypeScript files in the tree, a 70th could
+      # arrive, and the sweep would still be green — on 2026-09-28 that green was read as "the
+      # TypeScript is retired", and it was not. `ts:count` counts the other half against
+      # `docs/agent/live-ts-baseline.txt`, and the baseline MAY ONLY FALL: a new live file fails the
+      # build, and a baseline line whose file is gone fails until it is lowered with
+      # `pnpm ts:count:write` (`--write` refuses to ADD a line, so the count cannot be laundered).
+      # When the baseline reaches empty this reads exactly as the work order wrote it: 0, or red.
+      - name: dead-TS ledger
+        run: pnpm broken:ts:sweep
+
+      - name: live-TS count (may only fall)
+        run: pnpm ts:count
+
       # THE APP SUITE, AND THE REASON IT IS NEW HERE (Astra review, 2026-09-18).
       #
       # This step did not exist, and its absence is why four High defects — a secret scan that read only
