@@ -11,6 +11,27 @@ pub struct ForgeAgentWorkRow {
     pub state: String,
     pub claimed_by: Option<String>,
     pub role: Option<String>,
+    /// `fix` / `qa` / `learn` / `normal`, copied onto the item at dispatch (migration 179). The claim carries it
+    /// forward so the worker can still choose the engine work type it used to read off `next_ready_work` — losing it
+    /// would silently downgrade every `fix` item to a FEATURE lane.
+    pub kind: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentWorkOutcome {
+    Done,
+    Error,
+    Cancelled,
+}
+
+impl AgentWorkOutcome {
+    pub fn as_state(self) -> &'static str {
+        match self {
+            AgentWorkOutcome::Done => "Done",
+            AgentWorkOutcome::Error => "Error",
+            AgentWorkOutcome::Cancelled => "Cancelled",
+        }
+    }
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -113,7 +134,7 @@ impl ForgeEngineDao {
              set state='Claimed', claimed_at=now(), claimed_by=$2,
                  attempts=attempts+1, updated_at=now()
              where id=$1::uuid and state='Ready'
-             returning id::text as id, story_id, state, claimed_by, role",
+             returning id::text as id, story_id, state, claimed_by, role, kind",
         )
         .bind(work_item_id)
         .bind(worker_id)
@@ -146,15 +167,21 @@ impl ForgeEngineDao {
             return Ok(None);
         }
 
+        // Eligibility, restored with the claim (2026-09-29): the item must still be `Ready` **and** its story must
+        // still be on the board as `Ready`. Selecting on the queue alone will dispatch a story the board says is
+        // already being worked — the rerun of a live story — and that is the same one-fact-two-writers hole that
+        // left a `Ready` story undispatchable after `forge:clean`. One selection consults both authorities.
         let row = sqlx::query_as::<_, ForgeAgentWorkRow>(
             "update agent_work_item
              set state='Claimed', claimed_at=now(), claimed_by=$1,
                  attempts=attempts+1, updated_at=now()
              where id=(
-               select id from agent_work_item where state='Ready'
-               order by priority desc, queued_at asc, id limit 1
+               select w.id from agent_work_item w
+               join storyboard_story s on s.id = w.story_id
+               where w.state='Ready' and s.status='Ready'
+               order by w.priority desc, w.queued_at asc, w.id limit 1
              )
-             returning id::text as id, story_id, state, claimed_by, role",
+             returning id::text as id, story_id, state, claimed_by, role, kind",
         )
         .bind(worker_id)
         .fetch_optional(tx.connection())
@@ -177,6 +204,14 @@ impl ForgeEngineDao {
         Ok(())
     }
 
+    /// Terminalize a claim that never became a run, because the configuration it was launched with is unusable.
+    ///
+    /// The state is `Error`, not the `Failed` this wrote when it was ported: the live CHECK
+    /// (`agent_work_item_state_check`) allows only `Ready, Claimed, Running, Paused, Done, Error, Cancelled`, so the
+    /// ported statement threw `violates check constraint` the first time any caller reached it — proven on DEV
+    /// inside a rolled-back transaction on 2026-09-29. `Error` is also the vocabulary the one coherent path the port
+    /// kept already uses (`hold_stale_work`, `forge_control.rs`). Illegal states are unrepresentable here now: the
+    /// state comes from `AgentWorkOutcome`, not from a string a caller passes.
     pub async fn reject_agent_work_configuration(
         &self,
         work_item_id: &str,
@@ -184,7 +219,7 @@ impl ForgeEngineDao {
     ) -> DbResult<()> {
         sqlx::query(
             "update agent_work_item
-             set state='Failed', error_text=$2, finished_at=now(), updated_at=now()
+             set state='Error', error_text=$2, finished_at=now(), updated_at=now()
              where id=$1::uuid and state in ('Claimed','Ready')",
         )
         .bind(work_item_id)
@@ -195,6 +230,51 @@ impl ForgeEngineDao {
             DbFailure::from_sqlx("forge_engine.reject_agent_work_configuration", &error)
         })?;
         Ok(())
+    }
+
+    /// Keep a live claim out of `stale_agent_work`'s reach while its run is in flight.
+    ///
+    /// `stale_agent_work` decides staleness on `updated_at` alone, and nothing else touches an item's `updated_at`
+    /// during a role turn — so without this a run longer than the stale window would be requeued **while it was
+    /// still running**, and the next tick would launch a second engine over the same story. That is the
+    /// double-dispatch this whole slice exists to prevent, so the heartbeat is not optional: the worker holds it for
+    /// the life of the child. Returns false when the row is no longer claimable (already settled or reassigned),
+    /// which the worker treats as "stop heartbeating", never as an error.
+    pub async fn heartbeat_agent_work(&self, work_item_id: &str) -> DbResult<bool> {
+        let result = sqlx::query(
+            "update agent_work_item set updated_at=now()
+             where id=$1::uuid and state in ('Claimed','Running')",
+        )
+        .bind(work_item_id)
+        .execute(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.heartbeat_agent_work", &error))?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// The one terminal write: a run that was claimed ends exactly once, as `Done`, `Error` or `Cancelled`.
+    ///
+    /// `state in ('Claimed','Running')` is the guard, not a courtesy: it makes a second settle a no-op instead of
+    /// overwriting a terminal row, so the child settling its own run and the worker settling a failed launch cannot
+    /// race each other into a wrong verdict. Returns false when this call did not settle anything.
+    pub async fn finish_agent_work_run(
+        &self,
+        work_item_id: &str,
+        outcome: AgentWorkOutcome,
+        error_text: Option<&str>,
+    ) -> DbResult<bool> {
+        let result = sqlx::query(
+            "update agent_work_item
+             set state=$2, error_text=$3, finished_at=now(), updated_at=now()
+             where id=$1::uuid and state in ('Claimed','Running')",
+        )
+        .bind(work_item_id)
+        .bind(outcome.as_state())
+        .bind(error_text)
+        .execute(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.finish_agent_work_run", &error))?;
+        Ok(result.rows_affected() > 0)
     }
 
     pub async fn mark_story_in_progress(&self, story_id: &str) -> DbResult<()> {

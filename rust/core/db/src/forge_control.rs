@@ -13,12 +13,6 @@ pub struct StaleAgentWorkRow {
 }
 
 #[derive(Debug, Clone, FromRow)]
-pub struct ReadyAgentWorkRow {
-    pub story_id: String,
-    pub kind: Option<String>,
-}
-
-#[derive(Debug, Clone, FromRow)]
 pub struct LearnStaleClaimRow {
     pub id: String,
     pub updated_at: String,
@@ -261,17 +255,10 @@ impl ForgeControlDao {
         })
     }
 
-    pub async fn next_ready_work(&self) -> DbResult<Option<ReadyAgentWorkRow>> {
-        sqlx::query_as::<_, ReadyAgentWorkRow>(
-            "select story_id, kind from agent_work_item
-             where state='Ready'
-             order by queued_at asc nulls last, story_id asc
-             limit 1",
-        )
-        .fetch_optional(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("forge_control.next_ready_work", &error))
-    }
+    // `next_ready_work` used to live here: a bare `select … where state='Ready' limit 1` that the worker dispatched
+    // from without ever claiming. It is deleted rather than deprecated (2026-09-29) because the shape is the defect —
+    // any caller of "find the next Ready row" is a caller that dispatches unowned work, and a second copy of that
+    // selector is a second way back into the seam. Dispatch claims first: `ForgeEngineDao::claim_next_agent_work`.
 
     pub async fn stale_learn_claims(
         &self,

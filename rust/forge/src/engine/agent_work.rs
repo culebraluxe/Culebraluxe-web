@@ -12,6 +12,7 @@ pub struct AgentWorkItem {
     pub state: String,
     pub claimed_by: Option<String>,
     pub role: Option<String>,
+    pub kind: Option<String>,
 }
 
 fn map(row: db::ForgeAgentWorkRow) -> AgentWorkItem {
@@ -21,6 +22,7 @@ fn map(row: db::ForgeAgentWorkRow) -> AgentWorkItem {
         state: row.state,
         claimed_by: row.claimed_by,
         role: row.role,
+        kind: row.kind,
     }
 }
 
@@ -67,6 +69,35 @@ pub fn reject_agent_work_configuration(work_item_id: &str, evidence: &str) -> Re
         let dao = ForgeEngineDao::new(db.clone());
         rt.block_on(async {
             dao.reject_agent_work_configuration(work_item_id, evidence)
+                .await
+                .map_err(|error| error.to_string())
+        })
+    })?
+}
+
+/// The run's own terminal write. `Ok(false)` means the row was no longer claimable — a settle that raced another
+/// settle and lost, which is reported, not retried.
+pub fn finish_agent_work_run(
+    work_item_id: &str,
+    outcome: db::AgentWorkOutcome,
+    error_text: Option<&str>,
+) -> Result<bool, String> {
+    with_shared(|db, rt| {
+        let dao = ForgeEngineDao::new(db.clone());
+        rt.block_on(async {
+            dao.finish_agent_work_run(work_item_id, outcome, error_text)
+                .await
+                .map_err(|error| error.to_string())
+        })
+    })?
+}
+
+/// Touch the claim so `stale_agent_work` does not requeue a run that is still alive. False = no longer claimable.
+pub fn heartbeat_agent_work(work_item_id: &str) -> Result<bool, String> {
+    with_shared(|db, rt| {
+        let dao = ForgeEngineDao::new(db.clone());
+        rt.block_on(async {
+            dao.heartbeat_agent_work(work_item_id)
                 .await
                 .map_err(|error| error.to_string())
         })

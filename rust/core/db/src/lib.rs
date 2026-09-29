@@ -105,15 +105,16 @@ pub use error::{DbFailure, DbFailureKind, DbResult};
 pub use firm::FirmDao;
 pub use flight_recorder::FlightRecorderDao;
 pub use forge_control::{
-    FlightFireResult, ForgeControlDao, LearnStaleClaimRow, ReadyAgentWorkRow, StaleAgentWorkRow,
+    FlightFireResult, ForgeControlDao, LearnStaleClaimRow, StaleAgentWorkRow,
 };
 pub use forge_doctor::{
     ClaimRow, ControlPlaneCounts, EngineQueuedCardRow, EngineRunCardRow, ForgeDoctorDao, QaRunRow,
     RoiAttemptRow,
 };
 pub use forge_engine::{
-    DealWorkflowFactRow, ForgeAgentWorkRow, ForgeDecisionRow, ForgeEngineDao, ForgeEvidencePatch,
-    ForgeHoldRow, ProcessDefinitionRow, StoryPacketRow, WorkflowCommandReceiptRow,
+    AgentWorkOutcome, DealWorkflowFactRow, ForgeAgentWorkRow, ForgeDecisionRow, ForgeEngineDao,
+    ForgeEvidencePatch, ForgeHoldRow, ProcessDefinitionRow, StoryPacketRow,
+    WorkflowCommandReceiptRow,
 };
 pub use forge_read::{
     ForgeBatchRow, ForgeBenchRow, ForgeQueueWorkRow, ForgeReadDao, ForgeStoryBoardRow,

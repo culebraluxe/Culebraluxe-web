@@ -361,4 +361,29 @@ Short facts that are expensive to rediscover.
   a wrong diagnosis in this very session (a stale claim read where nothing was held). The count now comes from
   `held_claims(open_tasks, claimed_work_items)` (state `in ('Claimed','Running')`), with the queue left as the
   queue. Rule: a number an operator acts on must not conflate "waiting" with "held".**
+- **2026-09-29 (the queue had no owner — the port kept the claim and dropped the act of claiming, so nothing ever
+  claimed twice: it never claimed once).** The Rust worker found work and launched against it in one act —
+  `select … where state='Ready' limit 1`, then a child with `--story/--work-type` — while every guard the queue has
+  (single-active index, priority ordering, `attempts`, stale recovery, and `Claimed`/`Running`/`Done` themselves)
+  only ever applies to a **claim**. Zero rows in DEV or PROD had entered `Claimed` or `Running` since cutover
+  (`Done` newest 2026-09-19, `Error` newest 2026-09-18), so an item could be dispatched any number of times and its
+  story rerun while live. Landing: `claim_next_agent_work` is now the *only* dispatch selector (and it requires the
+  story to still be `Ready` on the board, so a live story cannot be twin-dispatched), the child gets
+  `--work-item`, opens the claim as `Running` before its first role turn and settles it `Done`/`Error` on the way
+  out, `finish_agent_work_run` refuses to overwrite a terminal row, and `next_ready_work` was **deleted** rather
+  than deprecated — the shape is the defect, and a second copy of it is a second way back in. Proven on DEV by
+  `rust/core/db/tests/forge_work_claim_dev.rs` (an item walked `Ready→Claimed→Running→Done`; a `Ready` item over an
+  `In Progress` story was not dispatched). **Two rules for whoever wires a queue next:** a claim is not a state you
+  set, it is ownership a *named* process holds; and any selector that returns work without claiming it is the
+  defect, not a shortcut.**
+- **2026-09-29 (the second hole, inside the fix: a claim that is never touched is a claim that gets requeued while
+  it is still running).** `stale_agent_work` decides staleness on `updated_at` alone and nothing writes an item's
+  `updated_at` during a role turn, so the first run longer than the 10-minute window would have been requeued
+  **mid-flight** and the next tick would have launched a twin — the very double-dispatch the claim was added to
+  prevent. The worker now holds a heartbeat thread for the child's life (`AGENT_WORKER_HEARTBEAT_SECONDS`,
+  default a quarter of the window, asserted strictly inside it by a unit test), and `reject_agent_work_configuration`
+  was fixed to write `Error`: it wrote `state='Failed'`, which the live CHECK does not allow, so the ported DAO
+  would have thrown on its first caller — proven on DEV in a rolled-back transaction before it was on any path.
+  Rule: when you introduce a lease, add its beat in the same commit, and let the state come from an enum so an
+  illegal state cannot be passed.**
 

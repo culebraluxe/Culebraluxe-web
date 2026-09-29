@@ -208,3 +208,82 @@ an engine rewrite.
   live run is possible but the next tick would pick it up mid-story.
 - **Is `Error` the right terminal state** for a launch failure (S18), given `Done`/`Error`/`Cancelled` are
   the only legal ones — or should the CHECK gain `Failed` so the dead DAO's vocabulary survives?
+
+
+## 10. THE SEAM — LANDED 2026-09-29 (this round; supersedes §8's repair order)
+
+Authorized by the Captain together with the terminal-state question. Two answers taken from the code, not from
+preference: **terminal state is `Error`** (the CHECK's own vocabulary, shared with `hold_stale_work`; `Failed` would
+be a migration to resurrect a word nobody uses), and **the slice lands while the live run is live** — safe because of
+the guard in 10.2.
+
+### 10.1 What landed
+
+| Where | What changed |
+| --- | --- |
+| `rust/core/db/src/forge_engine.rs` | `claim_next_agent_work` selects `w.state='Ready' **and** s.status='Ready'` (join `storyboard_story`); `reject_agent_work_configuration` writes `Error` not `Failed` (10.4); new `heartbeat_agent_work`; new `finish_agent_work_run(id, AgentWorkOutcome{Done,Error,Cancelled}, error_text)` guarded by `state in ('Claimed','Running')`; `ForgeAgentWorkRow` carries `kind` so the claim keeps the lane the old selector read off `next_ready_work` |
+| `rust/core/db/src/forge_control.rs` | `next_ready_work` + `ReadyAgentWorkRow` **deleted** (only the worker used them; the shape *is* the defect, so no selector is left to re-enter the seam through) |
+| `rust/forge/src/engine/agent_work.rs` | `heartbeat_agent_work`, `finish_agent_work_run` wrappers; `AgentWorkItem.kind` |
+| `rust/forge/src/engine/worker.rs` | `next_ready_story` → `claim_next_dispatch(worker_id)` (`AGENT_WORKER_ID`, else `forge-worker-<pid>`); launches the child with `--work-item <id>`; holds a **heartbeat thread** for the child's life; settles `Error` if the launch fails or the child exits non-zero without a verdict |
+| `rust/forge/src/bin/forge.rs` | `--work-item`/`FORGE_WORK_ITEM_ID`; `begin_agent_work_run` (Claimed→Running) **before** the first role turn and only if the claim opened; `reject_agent_work_configuration` on the pre-claim configuration exits; one terminal write on the way out (`Done` on `Ok`, `Error` on `Err`); `drive` returns `Result<String,String>` so the verdict carries the reason |
+| `rust/core/db/tests/forge_work_claim_dev.rs` | the DEV proof (10.3); `worker.rs` unit tests for the heartbeat window and worker identity |
+
+
+### 10.2 The heartbeat — a second hole in the same seam, found while wiring it
+
+`stale_agent_work` (`forge_control.rs`) decides staleness on **`updated_at` alone**, and nothing touches an item's
+`updated_at` during a role turn. So the first run longer than the 10-minute stale window would have been requeued
+**while it was still running**, and the following tick would have launched a second engine over the same story —
+the same double-dispatch the seam fix exists to prevent, reintroduced by the fix itself. Hence `spawn_heartbeat`:
+the worker beats every `AGENT_WORKER_HEARTBEAT_SECONDS` (default a quarter of the window; the interval is asserted
+strictly inside the window in a unit test). A beat that returns `Ok(false)` means the claim is no longer ours and
+the thread stops and says so; a failed beat is captured through `db::capture` and retried.
+
+**The guard that makes landing mid-run safe:** an item whose story the board says is `In Progress` is not
+claimable, so the live `TECH-FLIGHT-RECORDER-01` run cannot be twin-dispatched by the next tick even though its
+`Ready` item is sitting in the queue — its DEV twin was observed, and restored, in 10.3.
+
+### 10.3 Proof — the DB write (AC #5's mechanism)
+
+```
+DATABASE_URL_DEV=… cargo test --manifest-path rust/Cargo.toml -p db --test forge_work_claim_dev -- --ignored --nocapture
+running 1 test
+proof: claim fell to pre-existing DEV item cb05111f-a073-41f0-9658-7797b8c5f239 (story TECH-FLIGHT-RECORDER-01); restored to Ready
+proof: item cb05111f-a073-41f0-9658-7797b8c5f239 walked Ready->Claimed->Running->Done; a `Ready` item over an `In Progress` story was not dispatched
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.82s
+```
+
+`cargo test -p db -p forge --lib` → **42 + 83 passed, 0 failed** (including the two new worker tests).
+
+The test asserts, against DEV: the trigger creates one item for a `Ready` story; a `Ready` item whose story is
+`In Progress` (deliberately priority 999, the top of the queue) is **never** dispatched; the claim is exclusive
+(single-active backstop and a second claim of the same item both return `None`); `attempts` counts;
+`Claimed→Running` stamps `started_at`; a heartbeat moves `updated_at` forward and the item is **not** returned by
+`stale_agent_work(10)`; the first settle lands with `finished_at` and a second settle returns `false` and overwrites
+nothing; `reject_agent_work_configuration` writes `Error` (the CHECK accepts it); the run ends with an empty
+single-active slot. It deletes both proof stories and restores any borrowed DEV item.
+
+**DEV housekeeping this round (one row, named):** the single-active slot was held by
+`c2b25096-b225-4804-a67d-a381ac94c2e4` / `FORGE-PUBLISH-SCAN-COVERAGE-01`, `claimed_by=forge-engine-19455`,
+`updated_at 2026-09-19 03:25` — the last claim DEV ever saw, from before the port dropped the seam, nine days dead
+and holding a unique index `on ((true))` that no claim can pass. Settled `Error` with that reason in `error_text`
+(the statement carried `and updated_at < now() - interval '10 minutes'`, so it could only ever match a stale row).
+No other row was touched; PROD was not touched.
+
+### 10.4 The landmine, fixed where it lived
+
+`reject_agent_work_configuration` wrote `state='Failed'`, which the live CHECK
+(`agent_work_item_state_check`: `Ready, Claimed, Running, Paused, Done, Error, Cancelled`) rejects — it would have
+thrown on its first caller. Now `Error`, with the state chosen by an enum (`AgentWorkOutcome`) instead of a string a
+caller passes. The DEV proof exercises the path live.
+
+### 10.5 Still open
+
+1. **AC #5's live-run half is not verified by this agent**: it needs a row in
+   `storyboard_story_run` / `forge_engine_task_execution` / `forge_tool_artifact` for `TECH-FLIGHT-RECORDER-01`
+   written after the run that is still in flight, and reading PROD is not this agent's to do. The live run was
+   still executing when this landed (`opencode run … TECH-FLIGHT-RECORDER-01`, 45+ minutes in).
+2. The `ENG-AUTH-GOOGLE-01` `25P03` reproducer: still the Captain's call (§9).
+3. A test that fails when dispatch selects without claiming now exists in its strongest form — the selector
+   itself is deleted, so a regression would have to be a *new* selector; the DEV proof covers the rest.
+4. The `25P03` mechanism itself: unchanged, unexplained, still last (S9, §5).
