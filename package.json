@@ -122,8 +122,6 @@
     "agent:scheduler:stop": "node scripts/agent-scheduler.mjs stop",
     "agent:scheduler:uninstall": "node scripts/agent-scheduler.mjs uninstall",
     "agent:workspace": "node node_modules/tsx/dist/cli.mjs scripts/workspace-cli.ts",
-    "mq:worker": "node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/mq-worker.ts",
-    "mq:worker:prod": "APP_ENV=production node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/mq-worker.ts",
     "workflow": "cargo run --manifest-path rust/Cargo.toml -p forge --bin re-workflow --",
     "db:parity": "cargo run --manifest-path rust/Cargo.toml -p cli -- db-tool parity",
     "db:migrate": "cargo run --manifest-path rust/Cargo.toml -p cli -- db-tool apply",
