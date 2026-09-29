@@ -672,6 +672,9 @@ async fn website_intake(
     headers: HeaderMap,
     body: Option<axum::Json<Value>>,
 ) -> Result<Response, ApiError> {
+    // A form post writes a lead and sends two emails; without this, nothing limited how fast one address could
+    // ask for that (see `rate_limit.rs` for why this is in-process and what is limited in the database instead).
+    super::rate_limit::guard_intake(&headers)?;
     let invalid = |status: StatusCode| {
         (
             status,

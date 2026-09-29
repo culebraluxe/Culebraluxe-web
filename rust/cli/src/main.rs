@@ -29,6 +29,11 @@ async fn main() -> ExitCode {
     // The database gates speak in exit codes (0 ok, 1 refused or drift, 2 configuration), and CI plus the
     // DEV_OPS playbook read them, so they own their exit path instead of the generic mapping below.
     if args.first().map(String::as_str) == Some("db-tool") {
+        // THE OPERATOR'S LONG WORK IS NOT A REQUEST. Applying a migration that builds an index, or running a bulk
+        // load, may legitimately take minutes; the per-statement ceiling the pool sets by default exists to stop a
+        // stuck *request* from holding a connection, and cancelling a migration halfway is worse than waiting. So
+        // `db-tool` — which is precisely the "apply this and wait" path — turns it off for its own process.
+        db::disable_statement_timeout();
         return match db_tool::dispatch(&args[1..]).await {
             Ok(code) => ExitCode::from(code),
             Err(error) => {

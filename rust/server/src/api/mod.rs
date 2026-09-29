@@ -13,6 +13,7 @@ mod forms_grok;
 pub mod google_auth;
 mod portal_bridge;
 mod public_ui;
+mod rate_limit;
 mod routes;
 mod tech_page;
 pub mod ui_auth;

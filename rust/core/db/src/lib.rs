@@ -8,6 +8,16 @@
 mod agreement_execution;
 mod app_error;
 mod apple_ods;
+// LISA'S PRE-SIGNATURE IS PORTED AND NOT YET WIRED, AND THAT IS WHY THIS MODULE IS ALLOWED TO BE UNUSED.
+//
+// `broker_signature.rs` holds the rows, the authority and the drawing its port produced, and nothing calls it: the
+// vault issuance path still works without it. Its ten dead-code warnings were the loudest thing in
+// `cargo check --workspace`, and deleting the file to quieten them would delete the port.
+//
+// So the allowance is here, ON THE MODULE DECLARATION, with the reason, and it is one line to remove: wiring the
+// issuance path in `server/src/vault` deletes this attribute and the warnings come back if the wiring is partial.
+// (Found 2026-09-28 while making the workspace warning-free for `RUSTFLAGS=-D warnings`.)
+#[allow(dead_code)]
 mod broker_signature;
 mod calendar;
 mod capture;
@@ -125,7 +135,7 @@ pub use media::{
 };
 pub use outbox::{DomainEventOutboxDao, OutboxDelivery, OutboxEventInput};
 pub use person::PersonDao;
-pub use pool::{resolve_declared_target, Database, DbTarget};
+pub use pool::{disable_statement_timeout, resolve_declared_target, Database, DbTarget};
 pub use project::{ProjectDao, ProjectTxDao};
 pub use property::PropertyDao;
 pub use public_listing::PublicListingDao;

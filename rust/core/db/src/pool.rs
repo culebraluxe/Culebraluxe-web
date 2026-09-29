@@ -6,8 +6,16 @@ use sqlx::Connection;
 use sqlx::PgPool;
 use std::env;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
+
+/// Every statement on the pool is cancelled after this, unless the environment overrides it. See the comment in
+/// `connect_target`: it is a ceiling against a stuck query, not a performance budget.
+const DEFAULT_STATEMENT_TIMEOUT_MS: u64 = 30_000;
+
+/// The ceiling, resolved once per process and settable to 0 by `disable_statement_timeout`.
+static STATEMENT_TIMEOUT_MS: OnceLock<AtomicU64> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DbTarget {
@@ -61,7 +69,20 @@ impl Database {
         let normalized = normalize_ssl_mode(&url);
         let options = PgConnectOptions::from_str(&normalized)
             .map_err(|_| DbFailure::configuration("db.connect", "invalid database connection URL"))?
-            .application_name(&format!("culebraluxe-rust-{}", target.as_str()));
+            .application_name(&format!("culebraluxe-rust-{}", target.as_str()))
+            // A CEILING ON EVERY STATEMENT.
+            //
+            // Without one, a query that goes wrong holds its connection until Postgres or the network gives up.
+            // There are twelve connections in production, so a handful of stuck statements is the whole portal
+            // waiting, and the symptom reads as "the site is slow" rather than "this statement never returned".
+            // Thirty seconds is far above the slowest page (the worst statement measured here is 872ms) and far
+            // below the patience of a person.
+            //
+            // This is a session setting, so it is applied on connect and covers every statement on the pool.
+            // `FORGE_DB_STATEMENT_TIMEOUT_MS=0` disables it; work that is deliberately long — a migration that
+            // builds an index, a bulk load — calls `db::disable_statement_timeout()` instead, because waiting
+            // there is the operator's own decision and not a request a browser is holding open.
+            .options([("statement_timeout", statement_timeout_ms().to_string())]);
 
         // PREPARED STATEMENTS STAY ON. This was briefly disabled, on the reasoning that Neon's `-pooler` endpoint is
         // PgBouncer in transaction mode and transaction mode does not honour named prepared statements - so a
@@ -359,6 +380,34 @@ fn non_negative_u64(name: &str, fallback: u64) -> u64 {
     match env::var(name) {
         Ok(value) => value.trim().parse::<u64>().unwrap_or(fallback),
         Err(_) => fallback,
+    }
+}
+
+/// The per-statement ceiling, resolved once per process.
+///
+/// Once, not per connection: `non_negative_u64` reads the environment, and a process that resolved it per connect
+/// could give two connections in the same pool different ceilings — exactly the kind of difference nobody would
+/// ever find.
+fn statement_timeout_ms() -> u64 {
+    STATEMENT_TIMEOUT_MS
+        .get_or_init(|| {
+            AtomicU64::new(non_negative_u64(
+                "FORGE_DB_STATEMENT_TIMEOUT_MS",
+                DEFAULT_STATEMENT_TIMEOUT_MS,
+            ))
+        })
+        .load(Ordering::Relaxed)
+}
+
+/// Turn the per-statement ceiling OFF for this process.
+///
+/// For the operators' own long work: applying a migration that builds an index, or a bulk load, may legitimately
+/// take minutes, and cancelling it halfway is worse than waiting. The request path holds no such statement, which
+/// is why the default protects it and this exists for the tools that do.
+pub fn disable_statement_timeout() {
+    statement_timeout_ms();
+    if let Some(ceiling) = STATEMENT_TIMEOUT_MS.get() {
+        ceiling.store(0, Ordering::Relaxed);
     }
 }
 

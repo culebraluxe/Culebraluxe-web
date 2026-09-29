@@ -241,14 +241,33 @@ pub fn asserted_identity_context(
 }
 
 fn validate_internal_key(state: &ApiState, headers: &HeaderMap) -> Result<(), ApiError> {
-    let supplied = header(headers, HEADER_INTERNAL_KEY);
-    if supplied != Some(state.internal_api_key()) {
-        return Err(ApiError::unauthorized(
-            "INTERNAL_AUTH_REQUIRED",
-            "Rust API request is not from the trusted application edge.",
-        ));
+    if internal_key_matches(
+        state.internal_api_key(),
+        header(headers, HEADER_INTERNAL_KEY),
+    ) {
+        return Ok(());
     }
-    Ok(())
+    Err(ApiError::unauthorized(
+        "INTERNAL_AUTH_REQUIRED",
+        "Rust API request is not from the trusted application edge.",
+    ))
+}
+
+/// Whether a supplied header is the internal key.
+///
+/// CONSTANT TIME, and that is the whole point of this being a function rather than `supplied == Some(expected)`.
+/// A string comparison returns at the first byte that differs, so the time the answer takes tells a caller how
+/// much of the key it guessed correctly — enough to recover a key one byte at a time, which for a shared secret
+/// fronting the whole API is the difference between "unguessable" and "guessable with patience".
+///
+/// A missing header is refused without comparing, which leaks only what the caller already knows (it sent none).
+fn internal_key_matches(expected: &str, supplied: Option<&str>) -> bool {
+    use subtle::ConstantTimeEq;
+
+    match supplied {
+        Some(supplied) => bool::from(supplied.as_bytes().ct_eq(expected.as_bytes())),
+        None => false,
+    }
 }
 
 fn required_identity_header<'a>(
@@ -319,5 +338,26 @@ mod tests {
         blank.insert(HEADER_PROVIDER, "  ".parse().unwrap());
         blank.insert(HEADER_PROVIDER_SUBJECT, "user-1".parse().unwrap());
         assert_eq!(identity_header_presence(&blank), (false, true));
+    }
+
+    #[test]
+    fn the_internal_key_is_matched_exactly_and_a_missing_one_is_refused() {
+        let key = "b3f1c0a9d4e5f60718293a4b5c6d7e8f";
+        assert!(internal_key_matches(key, Some(key)));
+        // One byte wrong anywhere — including in the last byte, where a short-circuiting compare would be
+        // fastest to answer — is a refusal.
+        assert!(!internal_key_matches(
+            key,
+            Some("b3f1c0a9d4e5f60718293a4b5c6d7e8e")
+        ));
+        assert!(!internal_key_matches(
+            key,
+            Some("a3f1c0a9d4e5f60718293a4b5c6d7e8f")
+        ));
+        // A prefix of the right key is not the key.
+        assert!(!internal_key_matches(key, Some("b3f1c0a9")));
+        // An empty value is not "no value" and is not the key.
+        assert!(!internal_key_matches(key, Some("")));
+        assert!(!internal_key_matches(key, None));
     }
 }

@@ -176,12 +176,16 @@ jobs:
               for (const vuln of pkg.vulnerabilities ?? []) reported.add(`${name}@${version}|${vuln.id}`)
             }
           }
-          const ledger = new Set()
+          const ledger = new Map()
           for (const line of readFileSync('docs/agent/DEPENDENCY-TRIAGE.md', 'utf8').split('\n')) {
             if (!line.trim().startsWith('|')) continue
             const cells = line.split('|').map((cell) => cell.trim())
             if (!/^GHSA-[a-z0-9-]+$/i.test(cells[3] ?? '')) continue
-            ledger.add(`${cells[1]}@${cells[2]}|${cells[3]}`)
+            ledger.set(`${cells[1]}@${cells[2]}|${cells[3]}`, {
+              severity: cells[4] ?? '',
+              classification: cells[5] ?? '',
+              reason: cells[6] ?? '',
+            })
           }
           const untriaged = [...reported].filter((key) => !ledger.has(key))
           console.log(`osv-scanner reported ${reported.size} advisories; ${reported.size - untriaged.length} triaged`)
@@ -190,6 +194,32 @@ jobs:
             for (const key of untriaged) console.error(`  ${key}`)
             process.exit(1)
           }
+
+          // A CRITICAL THAT WE BELIEVE IS REACHABLE FAILS THE BUILD.
+          //
+          // The ledger's own vocabulary distinguishes "can execute while serving a production request" from
+          // "cannot run here". A row that says the first thing about a CRITICAL advisory is a statement that the
+          // product is exposed, and a green pipeline must not be able to make that statement quietly — it has to
+          // be fixed (upgrade or remove the dependency) or re-triaged with a reason. Added 2026-09-28, when the two
+          // Next.js criticals were found recorded as "reachable-in-production" long after that stopped being true.
+          const KNOWN = new Set(['reachable-in-production', 'dev-only', 'not-reachable', 'retired-unused'])
+          const bad = []
+          for (const [key, row] of ledger) {
+            if (!reported.has(key)) continue
+            if (!KNOWN.has(row.classification)) {
+              bad.push(`${key}: unknown classification "${row.classification}"`)
+              continue
+            }
+            if (/^critical$/i.test(row.severity) && row.classification === 'reachable-in-production') {
+              bad.push(`${key}: CRITICAL and reachable in production — fix it or re-triage with a reason`)
+            }
+          }
+          if (bad.length > 0) {
+            console.error('CRITICAL REACHABLE ADVISORIES:')
+            for (const line of bad) console.error(`  ${line}`)
+            process.exit(1)
+          }
+          console.log('no critical advisory is recorded as reachable in production')
           NODE
           node /tmp/triage-gate.mjs
 
@@ -286,7 +316,27 @@ jobs:
         working-directory: rust
         run: cargo check -p ui --features wasm --target wasm32-unknown-unknown --all-targets
 
-      # THE 800-LINE RULE, CHECKED RATHER THAN REMEMBERED. Four oversized files were split by hand on
+      # WARNINGS ARE ERRORS, FOR EVERY CRATE THAT DOES NOT DEPEND ON THE ENGINE.
+      #
+      # `forge` is excluded because its eight warnings belong to the agent working in it, and so are `server` and
+      # `cli`, which link `forge` and would therefore fail on its warnings rather than their own — `RUSTFLAGS`
+      # applies to every crate being compiled, dependencies included. The six named here are the ones this
+      # repository can hold to zero today: they are, verified locally, warning-free.
+      - name: rust warnings are errors (every crate except the engine)
+        working-directory: rust
+        run: RUSTFLAGS="-D warnings" cargo check -p ui -p db -p integrations -p domain -p service -p workflow --all-targets
+
+      # THE RUST DEPENDENCY SCAN. osv-scanner reads `pnpm-lock.yaml` and says nothing about the 364 crates in
+      # `rust/Cargo.lock`, which are the ones that actually run in production. `cargo audit` closes that: at the
+      # commit this was added it reported ZERO vulnerabilities and three unmaintained-crate warnings (bincode,
+      # proc-macro-error, smartstring — all transitive, none reachable from our code), and an unmaintained
+      # warning is exactly the kind of thing worth seeing on a schedule rather than never.
+      - name: rust dependency audit
+        working-directory: rust
+        run: |
+          cargo install --locked cargo-audit --version 0.22.2
+          cargo audit --file Cargo.lock
+
       # 2026-09-28 (applemail, apple_messages, apple_mail, forge/lint) and two more — the timeline header and
       # accounting_opps — were trimmed the same day when this step first ran and listed them at 811 and 809.
       # Nothing else stopped the next file from growing; this is the thing that stops it.

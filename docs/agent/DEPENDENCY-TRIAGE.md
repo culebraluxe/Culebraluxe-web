@@ -20,14 +20,26 @@ osv-scanner scan source -L pnpm-lock.yaml --all-packages --format json
   in the deployed request path.
 - `not-reachable` — the package is present in the production dependency closure but the
   vulnerable code path is not invoked by our usage.
+- `retired-unused` — the package belonged to the retired TypeScript stack (Next.js, React and
+  their companions). Nothing in this repository or in the deploy loads it: there is no
+  `next build`, no Node runtime in production, and no script that imports it. It remains in
+  `pnpm-lock.yaml` only because nobody has removed the dependency, so an advisory against it
+  describes code that cannot run here. Added 2026-09-28, when the ledger was found describing
+  `next` as "the production application runtime" a full port after that stopped being true.
+
+**A CRITICAL THAT WE BELIEVE IS REACHABLE FAILS THE BUILD.** `gates.yml` refuses a run in which a
+reported advisory has a ledger row classifying it `reachable-in-production` at CRITICAL severity:
+that is the ledger saying "yes, this one can hurt us", and a green pipeline must not be able to say
+that. Everything else — including a critical recorded as `retired-unused`, `dev-only` or
+`not-reachable`, with its reason — passes. That is the difference between triage and silence.
 
 When a new advisory appears, add one row. When the lockfile changes, re-run the scan and update
 the rows for the changed packages.
 
 | Package | Version | Advisory | Severity | Classification | Reason |
 |---|---|---|---|---|---|
-| next | 16.3.0 | GHSA-2xp9-vwfh-vxw4 | CRITICAL | reachable-in-production | Next.js is the production application runtime on Vercel; the advisory affects code reachable from incoming requests. |
-| next | 16.3.0 | GHSA-p293-qw3h-jr36 | CRITICAL | reachable-in-production | Next.js is the production application runtime on Vercel; the advisory affects code reachable from incoming requests. |
+| next | 16.3.0 | GHSA-2xp9-vwfh-vxw4 | CRITICAL | retired-unused | The Next.js application was retired: there is no `next build`, no Node runtime in the deploy (the site is Yew/wasm served by the Rust server), and no live script that imports it. Corrected 2026-09-28 — the row said "reachable-in-production" for a full port after that stopped being true. |
+| next | 16.3.0 | GHSA-p293-qw3h-jr36 | CRITICAL | retired-unused | Same as above: the advisory sits in the retired TypeScript runtime's dependency, not in anything this repository builds or serves. |
 | brace-expansion | 5.0.6 | GHSA-3jxr-9vmj-r5cp | HIGH | dev-only | Glob expansion used by build and lint tooling; not invoked while serving a request. |
 | brace-expansion | 5.0.6 | GHSA-mh99-v99m-4gvg | HIGH | dev-only | Glob expansion used by build and lint tooling; not invoked while serving a request. |
 | brace-expansion | 5.0.6 | GHSA-rgw5-rvv9-x895 | HIGH | dev-only | Glob expansion used by build and lint tooling; not invoked while serving a request. |
@@ -37,6 +49,10 @@ the rows for the changed packages.
 | fast-uri | 3.1.2 | GHSA-7p8r-x3mc-p8w7 | HIGH | not-reachable | URI parsing reached through build and validation tooling, not by production request handling. |
 | fast-uri | 3.1.2 | GHSA-f65p-4m7j-42xc | HIGH | not-reachable | URI parsing reached through build and validation tooling, not by production request handling. |
 | fast-uri | 3.1.2 | GHSA-fph4-wmhf-6fwf | HIGH | not-reachable | URI parsing reached through build and validation tooling, not by production request handling. |
+| fast-uri | 3.1.2 | GHSA-qw65-cvwx-89v3 | HIGH | retired-unused | Reached only as `ajv@8.20.0 -> fast-uri`. Nothing under `scripts/`, `agent-runtime/` or `workflow_app/` imports ajv or fast-uri, and the deployed request path is Rust — no JavaScript runs in production. Added 2026-09-28, when the strengthened gate reached this step for the first time (CI had been failing at `lint` before it). |
+| ip-address | 10.2.0 | GHSA-2vr4-cq9g-pvrc | MODERATE | retired-unused | Reached only as `express-rate-limit@8.5.2 -> ip-address` and `socks@2.8.9 -> ip-address`. Neither express nor socks is imported anywhere in this repository, and no Node runtime is deployed. |
+| ip-address | 10.2.0 | GHSA-rpw4-54j3-4h4q | MODERATE | retired-unused | Same chain as the row above. |
+
 | fast-uri | 3.1.2 | GHSA-jqff-g426-hqxp | HIGH | not-reachable | URI parsing reached through build and validation tooling, not by production request handling. |
 | fast-uri | 3.1.2 | GHSA-v2hh-gcrm-f6hx | HIGH | not-reachable | URI parsing reached through build and validation tooling, not by production request handling. |
 | ip-address | 10.2.0 | GHSA-mwp4-54f8-5fhr | HIGH | not-reachable | IP parsing reached only through transitive tooling; not on a production request path. |

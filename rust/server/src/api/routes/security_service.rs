@@ -183,6 +183,9 @@ pub(super) async fn request_guest_code(
     headers: HeaderMap,
     Json(body): Json<GuestCodeRequestBody>,
 ) -> Result<Json<ApiSuccess<GuestCodeSent>>, ApiError> {
+    // The edge holds the internal key, so this is not an open door — it is a ceiling for a looping or
+    // compromised edge. The limit that matters for a guesser is in the database (`security/guest.rs`).
+    crate::api::rate_limit::guard_guest_code(&headers)?;
     let context = resolve_public_guest_context(&state, &headers)?;
     state
         .services()
@@ -203,6 +206,8 @@ pub(super) async fn verify_guest_code(
     headers: HeaderMap,
     Json(body): Json<GuestCodeVerifyBody>,
 ) -> Result<Json<ApiSuccess<GuestCodeVerified>>, ApiError> {
+    // The verify route is where a six-digit code is guessed, so it gets the same ceiling as the request route.
+    crate::api::rate_limit::guard_guest_code(&headers)?;
     let context = resolve_public_guest_context(&state, &headers)?;
     let email = state
         .services()

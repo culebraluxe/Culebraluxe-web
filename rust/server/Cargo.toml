@@ -30,6 +30,9 @@ serde_json.workspace = true
 sqlx.workspace = true
 sha2.workspace = true
 hmac.workspace = true
+# The internal key is compared in constant time (`api/context.rs`), so the class of timing leak that turns a
+# shared secret into a byte-by-byte guess is closed at the comparison itself.
+subtle.workspace = true
 service = { path = "../core/service" }
 thiserror.workspace = true
 tokio.workspace = true
