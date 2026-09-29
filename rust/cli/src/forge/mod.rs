@@ -24,6 +24,8 @@ pub mod lint;
 pub mod manifest;
 pub mod protected_files;
 pub mod read_tools;
+#[cfg(test)]
+pub mod repo_guards;
 pub mod reset;
 pub mod roi;
 pub mod secret_shapes;
