@@ -56,3 +56,18 @@ Read `AGENTS.md`, `docs/agent/ORIENTATION.md`, `docs/agent/MEMORY.md` (top entri
 ## 7. ASK THE OWNER
 
 Nothing blocking. Deploy when ready (`pnpm deploy:prod`) to ship today's UI work.
+
+## 8. EVENING — Grok's 100-list, done (proof: `docs/agent/PROOF-2026-09-28-grok-100.md`)
+
+| Bar | What landed | Commit |
+| --- | --- | --- |
+| MVI contract | no URL literal and no `web_sys` in `app/screens` (links in `api::links`/`api::auth`, browser reads in `app/exec`); every load state from `template::remote`/`remote_toned`/`loading_line` | `ae2f3b93` |
+| Service doors | no HTTP handler touches a DAO (diagnostics via `SupportDiagnosticsService::db_counts` + one explicit System grant; app events via the capture seam); `clients`/`client` audit name recorded as decided | `0886b229` |
+| Docs match HEAD | `AGENTS.md` Rust First and `rust/README.md` describe the one Rust app | `1aa4170f` |
+| Shared policy | the root-only codes have one source (`domain::security`), bound into the SQL guard; one test per reader | `a2c4c9bb` |
+| Boundedness | every `.rs` file under `rust/` is at most 800 lines except DeepSeek's four live files (`cli/src/forge/lint.rs`, `core/domain/src/apple_messages.rs`, `applemail.rs`, `cli/src/apple_mail.rs`) — split them on their next edit | `360daa13` … `41ca7658` |
+
+How the splits were made (move only): contiguous top-level ranges moved to child modules with `use super::*`; moved items
+widened to `pub(super)` (or kept `pub` with `pub use` re-exports where the old path is public); an oversized inherent `impl`
+continued as several `impl` blocks; trait impls never split; `macro_rules!` left in the parent ahead of the modules.
+
