@@ -15,8 +15,9 @@
 //!     database workflow. **NO TREES. EVER.**" The estate grew to 83 worktrees under
 //!     `Documents/Culebraluxe-worktrees/` plus `.assay-workspaces/`, and on 2026-09-16 a lane
 //!     produced verdicts about a tree instead of about the code. The scan freezes the set of files
-//!     that can CREATE a worktree — matched by the estate name in the file's PATH or its CONTENT,
-//!     and by the `git worktree add` command in either form; a new file joining it fails.
+//!     that can CREATE a worktree (the `git worktree add` command in either form), and fails any
+//!     tracked file that names the estate in its PATH or a tree-era field in its CONTENT; a new file
+//!     joining the set fails.
 //!   * `AGENTS.md:172` — "Let two sources answer one fact. One fact has ONE writer; if two ever
 //!     disagree, that is a REFUSAL (HOLD) naming both...". A source-only scan cannot decide whether
 //!     two files write the SAME COLUMN, so the decidable thing is pinned instead: the set of files
@@ -41,11 +42,20 @@ use super::repo_root;
 // ---------------------------------------------------------------------------
 
 /// Directory names that ARE the deleted per-lane worktree estate. A tracked source file naming one
-/// is re-introducing the tree the rule exists to keep at zero.
-const TREE_PATH_TOKENS: [&str; 3] = [
-    "Culebraluxe-worktrees",
+/// is re-introducing the tree the rule exists to keep at zero. Matched in a file's PATH and in its
+/// CONTENT: the path half catches a file checked in under the estate, the content half catches a
+/// writer that names it.
+const TREE_ESTATE_TOKENS: [&str; 2] = ["Culebraluxe-worktrees", ".assay-workspaces"];
+
+/// The tree-era FIELD and CONSTANT names a writer emits when it records a per-lane worktree. These
+/// are content-only — a field name is not a directory, so a path never carries one. Ported from the
+/// deleted guard's `RECORD_WRITERS` token set (`/worktrees/`, `worktreePath`, `worktree=`), which
+/// acceptance #1 names as "a writer that emits it".
+const TREE_FIELD_TOKENS: [&str; 4] = [
     "DEFAULT_WORKTREES_DIRNAME",
-    ".assay-workspaces",
+    "/worktrees/",
+    "worktreePath",
+    "worktree=",
 ];
 
 /// The files allowed to carry a worktree-CREATION capability, frozen. Growth fails the test: remove
@@ -86,7 +96,7 @@ fn worktree_add_split() -> &'static Regex {
 /// spelled differently on a case-folding filesystem and it is still the same tree.
 fn worktree_tokens_in_path(path: &str) -> Vec<String> {
     let lowered = path.to_ascii_lowercase();
-    let mut found: Vec<String> = TREE_PATH_TOKENS
+    let mut found: Vec<String> = TREE_ESTATE_TOKENS
         .iter()
         .filter(|token| lowered.contains(&token.to_ascii_lowercase()))
         .map(|token| token.to_string())
@@ -100,7 +110,7 @@ fn worktree_tokens_in_path(path: &str) -> Vec<String> {
 /// same tree prints the same findings on two machines.
 fn worktree_tokens_in(text: &str) -> Vec<String> {
     let mut found = Vec::new();
-    for token in TREE_PATH_TOKENS {
+    for token in TREE_ESTATE_TOKENS.iter().chain(TREE_FIELD_TOKENS.iter()) {
         if text.contains(token) {
             found.push(token.to_string());
         }
@@ -380,15 +390,40 @@ mod tests {
     /// the database workflow. **NO TREES. EVER.**" Proves the matcher can actually see a violation.
     #[test]
     fn the_worktree_matcher_sees_the_phrase_the_split_invocation_and_the_estate_name() {
-        assert!(worktree_tokens_in("git worktree add -b x /tmp/t")
-            .iter()
-            .any(|token| token == "worktree add"));
-        assert!(worktree_tokens_in("[\n  \"worktree\",\n  \"add\",\n]")
-            .iter()
-            .any(|token| token == "\"worktree\",\"add\""));
-        assert!(worktree_tokens_in("const DIR: &str = \"Culebraluxe-worktrees\";")
-            .contains(&"Culebraluxe-worktrees".to_string()));
-        assert!(worktree_tokens_in("let x = 1; // harmless\n").is_empty());
+        let phrase = worktree_tokens_in("git worktree add -b x /tmp/t");
+        println!("worktree matcher (phrase): {phrase:?}");
+        assert!(phrase.iter().any(|token| token == "worktree add"));
+        let split = worktree_tokens_in("[\n  \"worktree\",\n  \"add\",\n]");
+        println!("worktree matcher (split): {split:?}");
+        assert!(split.iter().any(|token| token == "\"worktree\",\"add\""));
+        let estate = worktree_tokens_in("const DIR: &str = \"Culebraluxe-worktrees\";");
+        println!("worktree matcher (estate): {estate:?}");
+        assert!(estate.contains(&"Culebraluxe-worktrees".to_string()));
+        let clean = worktree_tokens_in("let x = 1; // harmless\n");
+        println!("worktree matcher (clean): {clean:?}");
+        assert!(clean.is_empty());
+    }
+
+    /// `.guard: AGENTS.md:151` — "Create a worktree, a per-lane tree, or any file-based parallel to
+    /// the database workflow. **NO TREES. EVER.**" Proves a WRITER that emits a tree-era field or the
+    /// `.../worktrees/` estate path is caught in a file's bytes, not only a creator invoking the
+    /// command. Ported from the deleted guard's `RECORD_WRITERS` token set.
+    #[test]
+    fn the_worktree_matcher_sees_the_tree_era_field_tokens_a_writer_emits() {
+        for token in TREE_FIELD_TOKENS {
+            let sample = match token {
+                "/worktrees/" => "let dir = format!(\"{}\", \"/worktrees/eng-qa-01\");",
+                "worktreePath" => "struct RunDetail { worktreePath: String }",
+                "worktree=" => "let note = format!(\"worktree={cwd}\");",
+                _ => "let dir = DEFAULT_WORKTREES_DIRNAME;",
+            };
+            let found = worktree_tokens_in(sample);
+            println!("worktree matcher (field {token:?}): {found:?}");
+            assert!(
+                found.contains(&token.to_string()),
+                "the matcher did not see {token:?} in {sample:?}"
+            );
+        }
     }
 
     /// `.guard: AGENTS.md:151` — "Create a worktree, a per-lane tree, or any file-based parallel to
@@ -396,13 +431,17 @@ mod tests {
     /// only in a file's bytes.
     #[test]
     fn the_worktree_matcher_sees_the_estate_name_in_a_tracked_path() {
-        assert!(worktree_tokens_in_path("rust/.assay-workspaces/case.rs")
-            .contains(&".assay-workspaces".to_string()));
-        assert!(worktree_tokens_in_path("scripts/Culebraluxe-worktrees/run.sh")
-            .contains(&"Culebraluxe-worktrees".to_string()));
+        let assay = worktree_tokens_in_path("rust/.assay-workspaces/case.rs");
+        println!("worktree path matcher (assay): {assay:?}");
+        assert!(assay.contains(&".assay-workspaces".to_string()));
+        let legacy = worktree_tokens_in_path("scripts/Culebraluxe-worktrees/run.sh");
+        println!("worktree path matcher (legacy): {legacy:?}");
+        assert!(legacy.contains(&"Culebraluxe-worktrees".to_string()));
         // The sole legitimate creator lives in a file NAMED worktree.rs; the bare word is not the
         // estate, so its path must not trip the guard.
-        assert!(worktree_tokens_in_path("rust/forge/src/engine/worktree.rs").is_empty());
+        let creator = worktree_tokens_in_path("rust/forge/src/engine/worktree.rs");
+        println!("worktree path matcher (creator): {creator:?}");
+        assert!(creator.is_empty());
     }
 
     /// `.guard: AGENTS.md:172` — "Let two sources answer one fact. One fact has ONE writer; if two
@@ -410,6 +449,11 @@ mod tests {
     #[test]
     fn the_writer_matcher_does_not_confuse_the_run_table_with_the_story_table() {
         let text = "UPDATE storyboard_story_run SET result_status='x'";
+        println!(
+            "writer matcher: run={} story={}",
+            writes_table(text, "storyboard_story_run"),
+            writes_table(text, "storyboard_story")
+        );
         assert!(!writes_table(text, "storyboard_story"));
         assert!(writes_table(text, "storyboard_story_run"));
         assert!(writes_table("insert into storyboard_story(id) values ($1)", "storyboard_story"));
@@ -420,9 +464,11 @@ mod tests {
     #[test]
     fn the_identity_parser_reads_the_variants_and_notices_a_new_one() {
         let known = "pub enum PersonIdentityKind {\n    Phone,\n    Email,\n    External,\n}\n";
+        println!("identity parser (known): {:?}", identity_kinds(known));
         assert_eq!(identity_kinds(known), vec!["Phone", "Email", "External"]);
         let injected =
             "pub enum PersonIdentityKind {\n    Phone,\n    Email,\n    External,\n    WhatsApp,\n}\n";
+        println!("identity parser (injected): {:?}", identity_kinds(injected));
         assert!(identity_kinds(injected)
             .iter()
             .any(|kind| kind.eq_ignore_ascii_case("whatsapp")));
