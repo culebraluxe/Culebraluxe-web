@@ -29,6 +29,7 @@ pub mod repo_guards;
 pub mod reset;
 pub mod roi;
 pub mod secret_shapes;
+pub mod sql;
 pub mod sync_agents;
 pub mod test_section;
 pub mod ts_sweep;
@@ -112,8 +113,11 @@ pub async fn dispatch(args: &[String]) -> Result<u8, Failure> {
         // The writer. Its guard rails (PROD only, --force, a positive stale window) are checked before
         // anything touches the database.
         "reset" | "recover" | "clean" => reset::run(args).await,
+        // The read path for a question nobody has a tool for yet: one read-only query, against a database the
+        // caller must name. It exists so an audit is a command instead of a throwaway script.
+        "sql" => sql::run(&args[1..]).await,
         other => Err(Failure::usage(format!(
-            "unknown forge command `{other}`; usage: forge <harness-lint|sync-agents|manifest|protected-files|test-section|board|story-show|batch-status|doctor|roi|reset|recover|clean> [options]"
+            "unknown forge command `{other}`; usage: forge <harness-lint|sync-agents|manifest|protected-files|test-section|board|story-show|batch-status|doctor|roi|sql|reset|recover|clean> [options]"
         ))),
     }
 }

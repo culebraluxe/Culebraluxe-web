@@ -305,6 +305,24 @@ impl Database {
         }
     }
 
+    /// Begin a transaction the *server* will not let write: `SET TRANSACTION READ ONLY` as its first statement.
+    ///
+    /// The difference matters. A read tool that merely promises not to write relies on its own guard being right;
+    /// a read tool on a read-only transaction relies on Postgres, which refuses the write whatever the caller
+    /// intended. `SET TRANSACTION` must be the transaction's first statement (Postgres rejects it once the
+    /// transaction has done work), which is why it lives in the same place `BEGIN` does rather than at the call site.
+    ///
+    /// Used by `ForgeReadDao::read_only_rows` — the `forge sql` verb — so that an ad-hoc question about the
+    /// control plane can be asked from a terminal without a throwaway script and without any way to write.
+    pub async fn begin_read_only(&self, operation: &'static str) -> DbResult<DbTransaction> {
+        let mut transaction = self.begin(operation).await?;
+        sqlx::query("set transaction read only")
+            .execute(transaction.connection())
+            .await
+            .map_err(|error| DbFailure::from_sqlx(operation, &error))?;
+        Ok(transaction)
+    }
+
     async fn begin_single_attempt(&self, operation: &'static str) -> DbResult<DbTransaction> {
         if let Some(scope) = crate::unit_of_work::current(&self.identity) {
             let guard = scope.transaction.clone().lock_owned().await;

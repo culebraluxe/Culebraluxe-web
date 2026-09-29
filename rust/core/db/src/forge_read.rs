@@ -25,6 +25,7 @@
 //! got for free from `Date.toISOString()`.
 
 use crate::{Database, DbFailure, DbResult};
+use serde_json::Value;
 use sqlx::FromRow;
 
 /// The one timestamp shape every field in this module leaves in.
@@ -371,6 +372,41 @@ impl ForgeReadDao {
         .fetch_all(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("forge_read.story_statuses", &error))
+    }
+
+    /// One ad-hoc read-only query, answered as JSON objects: the query a tool does not exist for yet.
+    ///
+    /// This is the home of `forge sql` (rust/cli). It is here rather than in the CLI because a query outside
+    /// `rust/core/db` is not a thing this repository allows, and it is built the way a read tool should be:
+    ///
+    ///   * the statement is wrapped — `select row_to_json(t)::text from (<sql>) t limit $1` — so the answer comes
+    ///     back as JSON with no per-query `FromRow` struct and no cast the caller has to guess at;
+    ///   * it runs inside `begin read only`, so Postgres itself refuses a write even if the caller's own guard was
+    ///     wrong; the transaction is rolled back and never committed, whatever the statement did;
+    ///   * `limit` bounds what can be pulled into a terminal.
+    ///
+    /// The caller owns the *shape* guard (which statements are acceptable to name); this method owns the
+    /// read-only guarantee. Both are needed: the guard gives a sentence, the transaction gives the ceiling.
+    pub async fn read_only_rows(&self, sql: &str, limit: i64) -> DbResult<Vec<Value>> {
+        let wrapped = format!("select row_to_json(t)::text as row from ({sql}) t limit $1");
+        // A read-only transaction, not merely a read-shaped statement: the database enforces the promise, so a
+        // guard that was wrong on the caller's side is refused here rather than obeyed.
+        let mut tx = self.db.begin_read_only("forge_read.read_only_rows").await?;
+        let outcome = async {
+            sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(wrapped))
+                .bind(limit)
+                .fetch_all(tx.connection())
+                .await
+                .map_err(|error| DbFailure::from_sqlx("forge_read.read_only_rows", &error))
+        }
+        .await;
+        // Rolled back either way: a read must never leave a transaction holding a pooled connection.
+        let _ = tx.rollback().await;
+        let raw = outcome?;
+        Ok(raw
+            .into_iter()
+            .map(|text| serde_json::from_str::<Value>(&text).unwrap_or(Value::String(text)))
+            .collect())
     }
 }
 
