@@ -259,8 +259,7 @@ fn walk_tests(root: &Path, dir: &Path, found: &mut Vec<String>) {
             if matches!(
                 name.as_str(),
                 "target" | "node_modules" | "dist"
-            ) || name.starts_with('.')
-            {
+            ) || name.starts_with('.') {
                 continue;
             }
             walk_tests(root, &path, found);
@@ -569,10 +568,7 @@ mod tests {
             section_for_file("rust/core/workflow/src/types.rs"),
             Some("forge-engine")
         );
-        assert_eq!(
-            section_for_file("rust/server/src/api/engine.rs"),
-            Some("app-core")
-        );
+        assert_eq!(section_for_file("rust/server/src/api/engine.rs"), Some("app-core"));
         assert_eq!(section_for_file("rust/ui/src/update.rs"), Some("app-portal"));
         assert_eq!(section_for_file("rust/cli/src/main.rs"), Some("harness"));
     }
