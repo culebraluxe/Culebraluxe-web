@@ -71,8 +71,11 @@ fn redirect_uri(headers: &HeaderMap) -> String {
 }
 
 /// Only a path on this site: never another site, never `//host`.
+///
+/// `\` is refused as well as `//`: every browser reads `/\evil.example` as `//evil.example` when it follows
+/// the `Location` header, so a backslash after the leading `/` is an off-site redirect.
 fn safe_next(next: Option<&str>) -> String {
-    next.filter(|path| path.starts_with('/') && !path.starts_with("//"))
+    next.filter(|path| path.starts_with('/') && !path.starts_with("//") && !path.starts_with("/\\"))
         .unwrap_or("/portal/dashboard")
         .to_owned()
 }
@@ -251,6 +254,26 @@ async fn sign_out() -> Response {
 mod tests {
     use super::*;
 
+    fn headers(pairs: &[(&'static str, &'static str)]) -> HeaderMap {
+        let mut map = HeaderMap::new();
+        for (name, value) in pairs {
+            map.append(
+                axum::http::HeaderName::from_static(name),
+                HeaderValue::from_static(value),
+            );
+        }
+        map
+    }
+
+    fn one_set_cookie(response: &Response) -> String {
+        response
+            .headers()
+            .get(header::SET_COOKIE)
+            .and_then(|value| value.to_str().ok())
+            .expect("a Set-Cookie header")
+            .to_owned()
+    }
+
     #[test]
     fn only_a_path_on_this_site_is_a_return_address() {
         assert_eq!(
@@ -259,12 +282,116 @@ mod tests {
         );
         assert_eq!(safe_next(Some("//evil.example")), "/portal/dashboard");
         assert_eq!(safe_next(Some("https://evil.example")), "/portal/dashboard");
+        // A backslash is read as a slash by every browser, so `/\host` is `//host`.
+        assert_eq!(safe_next(Some("/\\evil.example")), "/portal/dashboard");
+        assert_eq!(safe_next(Some("/\\")), "/portal/dashboard");
         assert_eq!(safe_next(None), "/portal/dashboard");
     }
 
     #[test]
+    fn the_return_address_is_decoded_before_it_is_filtered() {
+        // The callback percent_decodes the next cookie before safe_next sees it
+        // (`google_auth.rs:215-218`). The order is load-bearing: the raw encoded
+        // form slips past the filter, and only the decoded value is refused.
+        assert_eq!(safe_next(Some("/%5Cevil.example")), "/%5Cevil.example");
+        assert_eq!(
+            safe_next(Some(&percent_decode("/%5Cevil.example"))),
+            "/portal/dashboard"
+        );
+    }
+
+    #[test]
     fn a_return_address_survives_the_cookie() {
-        let path = "/portal/clients?selected=a b&x=1";
-        assert_eq!(percent_decode(&encode(path)), path);
+        for path in [
+            "/portal/clients?selected=a b&x=1",
+            "/portal/clients?a=1&b=2",
+            "/portal/100%",
+            "/portal/Casa-Luar-áé",
+            "/portal/a%",
+        ] {
+            assert_eq!(percent_decode(&encode(path)), path, "path: {path}");
+        }
+    }
+
+    #[test]
+    fn percent_decode_leaves_an_invalid_escape_alone() {
+        assert_eq!(percent_decode("%zz"), "%zz");
+        assert_eq!(percent_decode("/a%"), "/a%");
+    }
+
+    #[test]
+    fn percent_decode_keeps_a_malformed_byte_lossy() {
+        // Intended: `String::from_utf8_lossy` replaces the invalid byte; this is not a bug to fix here.
+        assert_eq!(percent_decode("%FF"), "\u{FFFD}");
+    }
+
+    #[test]
+    fn origin_prefers_the_forwarded_host_then_the_host() {
+        assert_eq!(
+            origin(&headers(&[
+                ("x-forwarded-host", "portal.example"),
+                ("host", "internal:8080"),
+            ])),
+            "https://portal.example"
+        );
+        assert_eq!(
+            origin(&headers(&[("host", "portal.example")])),
+            "https://portal.example"
+        );
+    }
+
+    #[test]
+    fn origin_defaults_to_http_only_for_a_local_host() {
+        assert_eq!(
+            origin(&headers(&[("host", "localhost:3000")])),
+            "http://localhost:3000"
+        );
+        assert_eq!(
+            origin(&headers(&[("host", "127.0.0.1:3000")])),
+            "http://127.0.0.1:3000"
+        );
+    }
+
+    #[test]
+    fn origin_lets_the_forwarded_proto_win() {
+        assert_eq!(
+            origin(&headers(&[
+                ("host", "localhost:3000"),
+                ("x-forwarded-proto", "https"),
+            ])),
+            "https://localhost:3000"
+        );
+        assert_eq!(
+            origin(&headers(&[
+                ("host", "portal.example"),
+                ("x-forwarded-proto", "http"),
+            ])),
+            "http://portal.example"
+        );
+    }
+
+    #[test]
+    fn redirect_uri_is_the_registered_callback_on_the_origin() {
+        assert_eq!(
+            redirect_uri(&headers(&[("host", "portal.example")])),
+            "https://portal.example/api/auth/callback/google"
+        );
+        assert_eq!(
+            redirect_uri(&headers(&[("host", "localhost:3000")])),
+            "http://localhost:3000/api/auth/callback/google"
+        );
+    }
+
+    #[test]
+    fn set_cookie_pins_its_flags_by_relationship() {
+        let mut response = Response::new(axum::body::Body::empty());
+        set_cookie(&mut response, "culebra_test", "abc", 600);
+        let value = one_set_cookie(&response);
+        assert!(value.starts_with("culebra_test=abc;"), "value: {value}");
+        assert!(value.contains("Path=/"), "value: {value}");
+        assert!(value.contains("Max-Age=600"), "value: {value}");
+        assert!(value.contains("HttpOnly"), "value: {value}");
+        assert!(value.contains("SameSite=Lax"), "value: {value}");
+        assert_eq!(value.contains("; Secure"), production(), "value: {value}");
     }
 }
