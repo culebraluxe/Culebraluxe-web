@@ -136,6 +136,30 @@ terminated session costs a round trip, not a run.
 4. `ENG-GUARD-AGENTS-LINT-01`, then Finding C in `docs/agent/TEST-SAFETY-SWEEP-2026-09-29.md`
    (`db/migrations/025_agent_work_queue.sql:104`) — unchanged from the previous handoff.
 
+## 7. ASK THE OWNER — previous round, still open
+
+- **Answered Yes on 2026-09-29** — with two corrections to the commands as written, both worth keeping. (1)
+  `pnpm forge:clean` **cancels every `Ready` work item and strands the queue**: it does not move the story off
+  `Ready`, and nothing re-queues it (§1 S10). It is not hygiene while stories are queued, and it needs
+  `db/migrations/258_reopen_stranded_ready_work_items.sql` (or an equivalent re-open) behind it. (2) The reset's
+  argument order is wrong: `pnpm forge:story:reset` already carries the word `reset`, so the answer's form produces
+  `forge: unknown mode "eng-auth-google-01"`; the working form is
+  `pnpm forge:story:reset ENG-AUTH-GOOGLE-01 --force`. It was not needed in the end: the story is already off
+  `Ready` (§1 S11).
+- **Should `ENG-AUTH-GOOGLE-01` be put back in the queue on purpose?** It is the only known `25P03` reproducer and it
+  is now at neither `Ready` nor running. Bringing it back is one write — `update storyboard_story set status='Ready'
+  where id='ENG-AUTH-GOOGLE-01'`, which fires the dispatch trigger — and running it is the cheapest way to test
+  whether `d3f7552b`'s retry carries *that* failure, which a fresh story may never reproduce.
+- **Is a second fence wanted** — a store-side test asserting `with_tx` stays synchronous and closure-scoped (H1)?
+  Yes → one small commit in `rust/core/workflow`. No → §1 is the fence.
+- **Was the packet's `file:line` for the old span ever written down by the lane that rewrote the brief?** If it was,
+  it names a site this search says does not exist, and that is worth knowing before the next agent re-derives it.
+- **Should the `Story Board` show a story as `Ready` when it has no work item?** `forge doctor` and
+  `forge batch-status` both reported `Ready`/`agree` for eight stories that had **no open work item** and could not
+  be dispatched. If the board is meant to mean "dispatchable", that is the same one-fact-two-writers question as
+  `docs/agent/MEMORY.md`'s "a story left at `Ready` can never be dispatched again".
+
+
 ## 8. THE SEAM — verified 2026-09-29, after the AC #5 tick (the larger cause, above this file's subject)
 
 The held-transaction question is a side quest. This is the one that explains the board/queue/engine
@@ -184,26 +208,3 @@ an engine rewrite.
   live run is possible but the next tick would pick it up mid-story.
 - **Is `Error` the right terminal state** for a launch failure (S18), given `Done`/`Error`/`Cancelled` are
   the only legal ones — or should the CHECK gain `Failed` so the dead DAO's vocabulary survives?
-
-## 10. ASK THE OWNER — previous round, still open
-
-- **Answered Yes on 2026-09-29** — with two corrections to the commands as written, both worth keeping. (1)
-  `pnpm forge:clean` **cancels every `Ready` work item and strands the queue**: it does not move the story off
-  `Ready`, and nothing re-queues it (§1 S10). It is not hygiene while stories are queued, and it needs
-  `db/migrations/258_reopen_stranded_ready_work_items.sql` (or an equivalent re-open) behind it. (2) The reset's
-  argument order is wrong: `pnpm forge:story:reset` already carries the word `reset`, so the answer's form produces
-  `forge: unknown mode "eng-auth-google-01"`; the working form is
-  `pnpm forge:story:reset ENG-AUTH-GOOGLE-01 --force`. It was not needed in the end: the story is already off
-  `Ready` (§1 S11).
-- **Should `ENG-AUTH-GOOGLE-01` be put back in the queue on purpose?** It is the only known `25P03` reproducer and it
-  is now at neither `Ready` nor running. Bringing it back is one write — `update storyboard_story set status='Ready'
-  where id='ENG-AUTH-GOOGLE-01'`, which fires the dispatch trigger — and running it is the cheapest way to test
-  whether `d3f7552b`'s retry carries *that* failure, which a fresh story may never reproduce.
-- **Is a second fence wanted** — a store-side test asserting `with_tx` stays synchronous and closure-scoped (H1)?
-  Yes → one small commit in `rust/core/workflow`. No → §1 is the fence.
-- **Was the packet's `file:line` for the old span ever written down by the lane that rewrote the brief?** If it was,
-  it names a site this search says does not exist, and that is worth knowing before the next agent re-derives it.
-- **Should the `Story Board` show a story as `Ready` when it has no work item?** `forge doctor` and
-  `forge batch-status` both reported `Ready`/`agree` for eight stories that had **no open work item** and could not
-  be dispatched. If the board is meant to mean "dispatchable", that is the same one-fact-two-writers question as
-  `docs/agent/MEMORY.md`'s "a story left at `Ready` can never be dispatched again".
