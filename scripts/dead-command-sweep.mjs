@@ -37,7 +37,7 @@ const packageJson = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 
 /// Every `scripts/…` or `agent-runtime/…` file a command names, with its banner state.
 function referencedFiles(command) {
   const matches = [
-    ...command.matchAll(/((?:scripts|agent-runtime)\/[A-Za-z0-9_.\/-]+\.(?:ts|mts|mjs|js))/g),
+    ...command.matchAll(/((?:scripts|agent-runtime)\/[A-Za-z0-9_./-]+\.(?:ts|mts|mjs|js))/g),
   ].map((match) => match[1])
   return matches.map((file) => {
     const absolute = path.join(ROOT, file)
