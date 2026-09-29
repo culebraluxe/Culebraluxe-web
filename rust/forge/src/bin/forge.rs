@@ -155,7 +155,11 @@ fn main() {
     // start at all: a story driven without a claim is exactly the unowned dispatch this seam exists to remove.
     if let Some(item) = work_item.as_deref() {
         match agent_work::begin_agent_work_run(item) {
-            Ok(Some(policy)) => {
+            Ok(Some(begin)) => {
+                let policy = begin.execution_policy.clone();
+                // The Story Run this claim opened. It is named here, once, because every durable artifact the lane
+                // produces is keyed to it and a run whose id is never printed cannot be followed.
+                eprintln!("story_run={} policy={policy}", begin.story_run_id);
                 // The durable envelope is read at the moment the run starts (migration 029: "only 'Unattended OK'
                 // work may be claimed by the unattended poller"). A policy that names a human is a rail, not a
                 // note: no model turn happens and the claim goes back to the queue.

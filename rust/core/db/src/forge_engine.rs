@@ -1,6 +1,6 @@
-use crate::{Database, DbFailure, DbResult};
+use crate::{Database, DbFailure, DbResult, DbTarget};
 use serde_json::Value;
-use sqlx::FromRow;
+use sqlx::{FromRow, PgConnection};
 
 pub const AGENT_CLAIM_LOCK: i64 = 9_000_212;
 
@@ -54,6 +54,79 @@ impl AgentWorkOutcome {
             AgentWorkOutcome::Abandoned => "Ready",
         }
     }
+}
+
+/// The run a claim opens when execution begins, and the envelope it was started under.
+///
+/// Migration 025 states the contract in as many words: `agent_work_item` "stores NO story specification; the
+/// authoritative spec lives on `storyboard_story` and is snapshotted into `storyboard_story_run` when execution
+/// begins". The port never opened that row — `agent_work_item.story_run_id` stayed null on every claim, so a lane
+/// executed with nothing durable behind it and `forge_tool_artifact` had no parent to hang on. The id comes back
+/// with the fence answer so the caller can name the run it is executing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BeginAgentWorkRun {
+    /// The claimed row's durable envelope, read at the moment the run starts.
+    pub execution_policy: String,
+    /// The `storyboard_story_run` row this claim opened.
+    pub story_run_id: String,
+}
+
+/// The ruling an item's terminal state gives its Story Run.
+///
+/// `Ready` is a **cleared** claim — the engine's plumbing failed and nothing about the story was decided — so it
+/// rules nothing and the run's `result_status` stays NULL. That is the one value the column's CHECK is happy to
+/// hold and the one an artifact guard can read as "certifies nothing"; inventing a verdict for an engine fault is
+/// how a broken engine becomes a story verdict.
+pub fn run_result_status_for(item_state: &str) -> Option<&'static str> {
+    match item_state {
+        "Done" => Some("Complete"),
+        "Error" => Some("Failed"),
+        "Cancelled" => Some("Cancelled"),
+        _ => None,
+    }
+}
+
+/// The `storyboard_story_run.execution_environment` value for the database this process is actually on
+/// (migration 030: the column records the run's **actual** target, and its CHECK allows only these four words).
+fn run_execution_environment(target: DbTarget) -> &'static str {
+    match target {
+        DbTarget::Dev => "DEV",
+        DbTarget::Prod => "PROD",
+    }
+}
+
+/// Close the Story Run a claim opened, in the caller's transaction.
+///
+/// One statement, guarded by `ended_at is null`, so a second settle cannot rewrite a run's ruling and a claim that
+/// opened no run is a no-op rather than an error. `ruling` is `None` for a claim that was **cleared** rather than
+/// lost (see [`run_result_status_for`]): the run ends with no verdict, which is what "nothing was decided" looks
+/// like in this schema.
+async fn close_story_run_in(
+    connection: &mut PgConnection,
+    work_item_id: &str,
+    ruling: Option<&str>,
+    reason: Option<&str>,
+    operation: &'static str,
+) -> Result<(), DbFailure> {
+    sqlx::query(
+        "update storyboard_story_run
+            set ended_at=now(), result_status=$2,
+                notes=case
+                  when nullif(trim(coalesce($3,'')),'') is null then notes
+                  when notes is null or notes='' then $3
+                  else notes || E'\\n' || $3
+                end,
+                updated_at=now()
+          where id=(select story_run_id from agent_work_item where id=$1::uuid)
+            and ended_at is null",
+    )
+    .bind(work_item_id)
+    .bind(ruling)
+    .bind(reason)
+    .execute(connection)
+    .await
+    .map_err(|error| DbFailure::from_sqlx(operation, &error))?;
+    Ok(())
 }
 
 /// The pair a settled claim must leave behind: the item's terminal state, the story's status when the board has to
@@ -132,7 +205,46 @@ pub fn settlement_pair(outcome: AgentWorkOutcome, board_status: &str) -> AgentWo
 
 #[cfg(test)]
 mod settlement_pair_tests {
-    use super::{settlement_pair, AgentWorkOutcome, AgentWorkSettlement};
+    use super::{run_result_status_for, settlement_pair, AgentWorkOutcome, AgentWorkSettlement};
+
+    /// The Story Run's ruling, taken straight off the item's terminal state. The case that matters is the one
+    /// that is absent: a **cleared** claim (`Ready`) rules nothing, so the run keeps a NULL verdict, and an
+    /// engine fault never becomes a story verdict.
+    #[test]
+    fn a_cleared_run_keeps_no_ruling() {
+        assert_eq!(run_result_status_for("Done"), Some("Complete"));
+        assert_eq!(run_result_status_for("Error"), Some("Failed"));
+        assert_eq!(run_result_status_for("Cancelled"), Some("Cancelled"));
+        assert_eq!(
+            run_result_status_for("Ready"),
+            None,
+            "a claim cleared back into the queue decided nothing, so its run certifies nothing"
+        );
+        assert_eq!(run_result_status_for("Claimed"), None);
+        assert_eq!(run_result_status_for(""), None);
+    }
+
+    /// The mapping agrees with the pair that is actually written, for every outcome the engine can settle with:
+    /// a run whose ruling and whose item disagree is two answers to one fact.
+    #[test]
+    fn the_run_ruling_follows_the_pair_that_settles_it() {
+        let cases = [
+            (AgentWorkOutcome::Done, "Complete", Some("Complete")),
+            (AgentWorkOutcome::Error, "In Progress", Some("Failed")),
+            (AgentWorkOutcome::Cancelled, "In Progress", Some("Cancelled")),
+            // The engine's own fault: the item goes back to the queue and the run is left unruled.
+            (AgentWorkOutcome::Abandoned, "In Progress", None),
+        ];
+        for (outcome, board, ruling) in cases {
+            let pair = settlement_pair(outcome, board);
+            assert_eq!(
+                run_result_status_for(pair.item_state),
+                ruling,
+                "{outcome:?} over a board at {board} settled {}",
+                pair.item_state
+            );
+        }
+    }
 
     fn pair(outcome: AgentWorkOutcome, board: &str) -> AgentWorkSettlement {
         settlement_pair(outcome, board)
@@ -504,18 +616,82 @@ impl ForgeEngineDao {
     /// `Ok(Some(policy))` is the claimed row's `execution_policy`, returned with the transition that gates the run:
     /// the engine reads the durable envelope **at the moment it starts executing**, not from a flag a caller may
     /// have set, so an item whose policy names a human can never be executed unattended by any launcher.
-    pub async fn begin_agent_work_run(&self, work_item_id: &str) -> DbResult<Option<String>> {
-        let result = sqlx::query_scalar::<_, String>(
-            "update agent_work_item
-             set state='Running', started_at=coalesce(started_at,now()), updated_at=now()
-             where id=$1::uuid and state='Claimed'
-             returning execution_policy",
-        )
-        .bind(work_item_id)
-        .fetch_optional(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("forge_engine.begin_agent_work_run", &error))?;
-        Ok(result)
+    pub async fn begin_agent_work_run(
+        &self,
+        work_item_id: &str,
+    ) -> DbResult<Option<BeginAgentWorkRun>> {
+        let mut tx = self.db.begin("forge_engine.begin_agent_work_run").await?;
+        let result = async {
+            // The item is locked before it is moved, so the story it belongs to cannot change under the run this
+            // opens, and a second begin on the same row is a no-op rather than a second run.
+            let claimed: Option<String> = sqlx::query_scalar(
+                "select story_id from agent_work_item
+                  where id=$1::uuid and state='Claimed'
+                  for update",
+            )
+            .bind(work_item_id)
+            .fetch_optional(tx.connection())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_engine.begin_agent_work_run.read", &error))?;
+            let Some(_story_id) = claimed else {
+                return Ok::<Option<BeginAgentWorkRun>, DbFailure>(None);
+            };
+
+            // THE STORY RUN IS OPENED HERE, WHERE EXECUTION BEGINS (migration 025 §2), and the claim is stamped
+            // with it in the same transaction: an item `Running` beside a run row that does not exist is the pair
+            // half-moved again, which is the defect every repair in this area has been undoing.
+            //
+            // `execution_environment` is the run's **actual** target (migration 030 §14-15: the item carries the
+            // intended one), and `run_type` is the item's own role/kind — read from the row, not from a caller's
+            // argument, so the run says what it was dispatched as.
+            let story_run_id: String = sqlx::query_scalar(
+                "insert into storyboard_story_run
+                     (story_id, started_at, execution_environment, run_type)
+                 select i.story_id, now(), $2,
+                        coalesce(nullif(trim(i.role), ''), nullif(trim(i.kind), ''), 'dispatch')
+                   from agent_work_item i
+                  where i.id=$1::uuid
+                 returning id::text",
+            )
+            .bind(work_item_id)
+            .bind(run_execution_environment(self.db.declared_target()))
+            .fetch_one(tx.connection())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_engine.begin_agent_work_run.run", &error))?;
+
+            let policy: Option<String> = sqlx::query_scalar(
+                "update agent_work_item
+                 set state='Running', started_at=coalesce(started_at,now()),
+                     story_run_id=$2::uuid, updated_at=now()
+                 where id=$1::uuid and state='Claimed'
+                 returning execution_policy",
+            )
+            .bind(work_item_id)
+            .bind(&story_run_id)
+            .fetch_optional(tx.connection())
+            .await
+            .map_err(|error| {
+                DbFailure::from_sqlx("forge_engine.begin_agent_work_run.update", &error)
+            })?;
+            let Some(execution_policy) = policy else {
+                return Ok::<Option<BeginAgentWorkRun>, DbFailure>(None);
+            };
+            Ok::<Option<BeginAgentWorkRun>, DbFailure>(Some(BeginAgentWorkRun {
+                execution_policy,
+                story_run_id,
+            }))
+        }
+        .await;
+        match result {
+            Ok(answer) => {
+                tx.commit().await?;
+                Ok(answer)
+            }
+            Err(error) => {
+                let _ = tx.rollback().await;
+                Err(error)
+            }
+        }
     }
 
     /// Terminalize a claim that never became a run, because the configuration it was launched with is unusable.
@@ -594,6 +770,17 @@ impl ForgeEngineDao {
                     )
                 })?;
             }
+            // A claim refused for an unusable configuration ends its run unruled, with the refusal as the run's
+            // note: nothing about the story was decided, so the run must not carry a verdict a reader could mistake
+            // for one.
+            close_story_run_in(
+                tx.connection(),
+                work_item_id,
+                None,
+                Some(evidence),
+                "forge_engine.reject_agent_work_configuration.run",
+            )
+            .await?;
             Ok::<(), DbFailure>(())
         }
         .await;
@@ -685,7 +872,7 @@ impl ForgeEngineDao {
                      where id=$1::uuid and state in ('Claimed','Running')",
                 )
                 .bind(work_item_id)
-                .bind(reason)
+                .bind(reason.as_deref())
                 .execute(tx.connection())
                 .await
                 .map_err(|error| {
@@ -699,7 +886,7 @@ impl ForgeEngineDao {
                 )
                 .bind(work_item_id)
                 .bind(settlement.item_state)
-                .bind(reason)
+                .bind(reason.as_deref())
                 .execute(tx.connection())
                 .await
                 .map_err(|error| DbFailure::from_sqlx("forge_engine.finish_agent_work_run", &error))?
@@ -722,6 +909,18 @@ impl ForgeEngineDao {
                     DbFailure::from_sqlx("forge_engine.finish_agent_work_run.story", &error)
                 })?;
             }
+            // The run this claim opened ends with the claim, in the same transaction: a Story Run left `ended_at`
+            // null beside a settled item is the pair half-moved, and it is exactly what a reader of
+            // `forge_story_run_receipt` (migration 191) would report as a lane that never finished. A cleared claim
+            // rules nothing — `None` leaves `result_status` NULL — because an engine fault is not a story verdict.
+            close_story_run_in(
+                tx.connection(),
+                work_item_id,
+                run_result_status_for(settlement.item_state),
+                reason.as_deref(),
+                "forge_engine.finish_agent_work_run.run",
+            )
+            .await?;
             Ok(Some(settlement))
         }
         .await;
@@ -737,7 +936,7 @@ impl ForgeEngineDao {
         }
     }
 
-/// **Clean the control plane before every run.**
+    /// **Clean the control plane before every run.**
     ///
     /// The queue and the board are one fact with two rows, and every defect in this area has been one half of that
     /// pair moving without the other. The captain's rule (2026-09-29) is that this junk is not a state a human should

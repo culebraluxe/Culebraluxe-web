@@ -141,15 +141,44 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
     //    run survivable: without it, `stale_agent_work` requeues a live run and the next tick launches a twin.
     //    The transition also reports the claimed row's `execution_policy`, because that policy decides whether the
     //    run may be unattended at all (migration 029).
-    let policy = engine
+    let begin = engine
         .begin_agent_work_run(&claimed.id)
         .await
         .unwrap()
         .expect("Claimed -> Running must settle exactly one row and report the item's policy");
     assert!(
-        !policy.trim().is_empty(),
+        !begin.execution_policy.trim().is_empty(),
         "the durable execution policy rides the claim"
     );
+    // 5b. Execution beginning IS the Story Run row (migration 025 §2), and the claim is stamped with it in the same
+    //     write. The port shipped for a week with `story_run_id` null on every claim: the lane ran, and nothing
+    //     durable was created for it to be read against.
+    let (stamped, run_story, run_status, run_ended): (
+        Option<String>,
+        String,
+        Option<String>,
+        Option<String>,
+    ) = sqlx::query_as(
+        "select i.story_run_id::text, r.story_id, r.result_status, r.ended_at::text
+           from agent_work_item i
+           join storyboard_story_run r on r.id = i.story_run_id
+          where i.id = $1::uuid",
+    )
+    .bind(&claimed.id)
+    .fetch_one(pool)
+    .await
+    .expect("beginning execution must open a storyboard_story_run row for the claim");
+    assert_eq!(
+        stamped.as_deref(),
+        Some(begin.story_run_id.as_str()),
+        "the claim must carry the run it opened"
+    );
+    assert_eq!(run_story, claimed.story_id, "the run belongs to the claim's story");
+    assert!(
+        run_status.is_none(),
+        "a run that just started has no ruling yet — an unruled run is not a verdict"
+    );
+    assert!(run_ended.is_none(), "a run that just started has not ended");
     assert!(
         engine
             .begin_agent_work_run(&claimed.id)
@@ -219,6 +248,23 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
             .unwrap();
     assert_eq!(state, "Done");
     assert!(finished.is_some(), "a terminal write must stamp finished_at");
+    // 6a. The run the claim opened ends with the claim, in the same write, and it ends with the item's ruling.
+    let (closed_status, closed_at): (Option<String>, Option<String>) = sqlx::query_as(
+        "select r.result_status, r.ended_at::text
+           from agent_work_item i
+           join storyboard_story_run r on r.id = i.story_run_id
+          where i.id = $1::uuid",
+    )
+    .bind(&claimed.id)
+    .fetch_one(pool)
+    .await
+    .expect("the settled claim still names its run");
+    assert_eq!(
+        closed_status.as_deref(),
+        Some("Complete"),
+        "a `Done` claim rules its run Complete"
+    );
+    assert!(closed_at.is_some(), "a settled claim closes its run");
     assert!(
         engine
             .finish_agent_work_run(&claimed.id, AgentWorkOutcome::Error, Some("late second verdict"))

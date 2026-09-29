@@ -76,13 +76,15 @@ pub fn claim_next_agent_work(worker_id: &str) -> Result<Option<AgentWorkItem>, S
     })?
 }
 
-/// `Claimed → Running`, returning the claimed row's `execution_policy`. `Ok(None)` means the row was not `Claimed`,
-/// so this process does not own the run it is about to start and must not drive the story. It is a fence, not a
-/// formality: the update is a CAS, and the engine is only ever launched behind it.
+/// `Claimed → Running`, returning the row's durable envelope **and the Story Run it opened**. `Ok(None)` means the
+/// row was not `Claimed`, so this process does not own the run it is about to start and must not drive the story.
+/// It is a fence, not a formality: the update is a CAS, and the engine is only ever launched behind it.
 ///
 /// The policy rides the fence because it decides whether the run may happen at all — see
-/// `execution_policy_allows_unattended`.
-pub fn begin_agent_work_run(work_item_id: &str) -> Result<Option<String>, String> {
+/// `execution_policy_allows_unattended`. The run id rides it because every durable artifact the lane produces hangs
+/// off `storyboard_story_run` (migration 025 §2: the spec is "snapshotted into `storyboard_story_run` when execution
+/// begins"), so a caller that cannot name its run cannot record what it did.
+pub fn begin_agent_work_run(work_item_id: &str) -> Result<Option<db::BeginAgentWorkRun>, String> {
     with_shared(|db, rt| {
         let dao = ForgeEngineDao::new(db.clone());
         rt.block_on(async {
