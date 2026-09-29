@@ -545,6 +545,45 @@ mod tests {
         assert_ne!(drifted.repo_sha, drifted.deployed_sha);
     }
 
+    /// The wrapper must be able to start the worker it names in a launchd environment — and every way it
+    /// could not has happened, each one silently, because a tick that dies leaves one line in a log nobody
+    /// reads: the invocation was the retired `pnpm agent:work` shim (2026-09-25), it then declared no
+    /// `APP_ENV` while `rust/forge/src/bin/forge_worker.rs:3` refuses anything but `production` (exit 2,
+    /// every tick, four days), and it never supplied `DATABASE_URL_PROD`, the one value `forge-worker`
+    /// cannot load for itself because it is not the CLI (2026-09-29, `DatabaseUnavailable` before a single
+    /// work item was claimed). Read from the real file rather than a fixture: a fixture would have passed
+    /// through all three of those changes.
+    #[test]
+    fn the_scheduled_wrapper_can_start_the_worker_it_names() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("rust/cli sits two levels below the repository root");
+        let wrapper = root.join("scripts/agent-worker-once.sh");
+        let text = fs::read_to_string(&wrapper)
+            .unwrap_or_else(|error| panic!("cannot read {}: {error}", wrapper.display()));
+
+        assert!(
+            text.contains(r#"APP_ENV="${APP_ENV:-production}""#),
+            "forge-worker exits 2 without a production target, so the wrapper must declare one"
+        );
+        assert!(
+            text.contains("DATABASE_URL_PROD"),
+            "the worker's own pool has no connection string without DATABASE_URL_PROD"
+        );
+        assert!(
+            text.contains("-p forge --bin forge-worker"),
+            "the scheduled command must be the Rust worker"
+        );
+        let executes_retired_shim = text
+            .lines()
+            .any(|line| line.trim_start().starts_with("pnpm agent:work"));
+        assert!(
+            !executes_retired_shim,
+            "the retired TypeScript shim must not be the scheduled command"
+        );
+    }
+
     #[test]
     fn the_invocation_tail_is_the_last_four_lines_or_the_reason_there_are_none() {
         let scratch = Scratch::new("tail");
