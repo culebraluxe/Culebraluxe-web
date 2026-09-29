@@ -47,7 +47,7 @@ pub struct ControlPlane {
     pub open_tasks: i64,
     /// `agent_work_item` rows not in a terminal state.
     pub open_work_items: i64,
-    /// Claims currently held, across BOTH ledgers.
+    /// Claims currently HELD, across BOTH ledgers — see `held_claims`. Queued work is not a claim.
     pub active_claims: i64,
     /// The oldest held claim, with its ledger named; `None` when nothing is held.
     pub oldest_claim: Option<OldestClaim>,
@@ -127,6 +127,16 @@ pub fn format_age_ms(age_ms: i64) -> String {
     } else {
         format!("{minutes}m")
     }
+}
+
+/// Claims ACTUALLY HELD, across both ledgers: engine role turns in flight plus work items in a held state.
+///
+/// The queue is deliberately not an input. `open_work_items` counts every non-terminal `agent_work_item`, and
+/// `Ready` is non-terminal — a story waiting for the scheduler to claim it is not holding anything. The two
+/// were summed until 2026-09-29, when `forge doctor` printed `active claims: 8` beside its own
+/// `oldest claim: none`; the caller now passes the claimed subset, not the queue.
+pub fn held_claims(open_tasks: i64, claimed_work_items: i64) -> i64 {
+    open_tasks + claimed_work_items
 }
 
 /// A control plane is clear when nothing is held and nothing is waiting.
@@ -257,6 +267,34 @@ mod tests {
         assert!(report.starts_with("CONTROL PLANE: CLEAR"));
         assert!(report.contains("  oldest claim: none"));
         assert!(is_control_plane_clear(&ControlPlane::default()));
+    }
+
+    #[test]
+    fn a_queued_story_is_busy_but_is_not_a_held_claim() {
+        // Measured 2026-09-29: seven queued stories plus one stale item made the doctor print
+        // "active claims: 8" on a plane holding nothing, one line above "oldest claim: none". The queue
+        // still makes the plane BUSY (the scheduler will act), but it is not a claim.
+        let plane = ControlPlane {
+            instances: 79,
+            open_tasks: 0,
+            open_work_items: 8,
+            active_claims: held_claims(0, 0),
+            oldest_claim: None,
+        };
+        assert!(!is_control_plane_clear(&plane));
+        let report = render_control_plane_report(&plane);
+        assert!(report.starts_with("CONTROL PLANE: BUSY"));
+        assert!(report.contains("  open work items: 8"));
+        assert!(report.contains("  active claims: 0"));
+        assert!(report.contains("  oldest claim: none"));
+    }
+
+    #[test]
+    fn held_claims_counts_only_what_is_held_across_both_ledgers() {
+        assert_eq!(held_claims(0, 0), 0);
+        assert_eq!(held_claims(1, 0), 1);
+        assert_eq!(held_claims(0, 2), 2);
+        assert_eq!(held_claims(1, 2), 3);
     }
 
     #[test]

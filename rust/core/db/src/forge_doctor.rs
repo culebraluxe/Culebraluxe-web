@@ -194,7 +194,11 @@ impl ForgeDoctorDao {
                 where latest.status not in ('completed', 'failed', 'interrupted')
                   and latest.updated_at >= now() - interval '15 minutes') as open_tasks,
                (select count(*) from agent_work_item
-                where state not in ('Done', 'Error', 'Cancelled')) as open_work_items",
+                where state not in ('Done', 'Error', 'Cancelled')) as open_work_items,
+               -- NOT the same question as the line above: a `Ready` item is queued, not held. Summing the two
+               -- is what made the doctor report held claims it did not have (see ControlPlaneCounts).
+               (select count(*) from agent_work_item
+                where state in ('Claimed', 'Running')) as claimed_work_items",
         )
         .fetch_one(self.db.pool())
         .await
@@ -241,12 +245,20 @@ impl ForgeDoctorDao {
     }
 }
 
-/// The control plane's three counts.
+/// The control plane's counts.
+///
+/// `open_work_items` is the QUEUE — every `agent_work_item` that is not terminal, which includes `Ready` — and
+/// `claimed_work_items` is the subset actually HELD. They are separate fields because the doctor's
+/// "active claims" line must not add the queue to the claims: a queued story is waiting for a claim, it is not
+/// holding one. Measured 2026-09-29: the two were summed, so `forge doctor` printed `active claims: 8` on a
+/// plane whose own next line said `oldest claim: none` (seven queued stories plus one stale item), and
+/// AGENTS.md's "check nothing is in flight" gate reads that number.
 #[derive(Debug, Clone, Copy, FromRow)]
 pub struct ControlPlaneCounts {
     pub instances: i64,
     pub open_tasks: i64,
     pub open_work_items: i64,
+    pub claimed_work_items: i64,
 }
 
 /// The oldest held claim: which ledger, which row, how old.

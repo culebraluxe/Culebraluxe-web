@@ -65,8 +65,11 @@ async fn doctor() -> Result<u8, Failure> {
         instances: counts.instances,
         open_tasks: counts.open_tasks,
         open_work_items: counts.open_work_items,
-        // Both ledgers hold claims, and the doctor has always counted them together.
-        active_claims: counts.open_tasks + counts.open_work_items,
+        // Both ledgers hold claims, and the doctor has always counted them together — but only work that is
+        // actually HELD. The queue is not a claim: `open_work_items` counts every non-terminal work item,
+        // including `Ready`, and adding it here is what printed eight claims on a plane holding none
+        // (2026-09-29 — the row's own next line said `oldest claim: none`).
+        active_claims: forge::doctor_report::held_claims(counts.open_tasks, counts.claimed_work_items),
         oldest_claim: claim.and_then(|row| {
             let ledger = match row.ledger.as_str() {
                 "agent_work_item" => ClaimLedger::AgentWorkItem,
