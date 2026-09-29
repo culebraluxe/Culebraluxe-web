@@ -314,6 +314,9 @@ pub struct PortalOpsPerson {
     pub location: Option<String>,
     pub email: Option<String>,
     pub phone: Option<String>,
+    /// A human fixed this record by hand: the Apple Contacts promotion may add what is missing, but it
+    /// does not overwrite these fields (`person.manual_override`, migration 256).
+    pub manual_override: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]

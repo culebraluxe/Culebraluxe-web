@@ -14,6 +14,8 @@ struct PersonRow {
     status: String,
     archived_at: Option<DateTime<Utc>>,
     company: Option<String>,
+    manual_override: bool,
+    manual_override_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, FromRow)]
@@ -43,6 +45,8 @@ fn map_person(row: PersonRow) -> Person {
         status: row.status,
         archived_at: row.archived_at.map(|value| value.to_rfc3339()),
         company: row.company,
+        manual_override: row.manual_override,
+        manual_override_at: row.manual_override_at.map(|value| value.to_rfc3339()),
     }
 }
 
@@ -83,7 +87,8 @@ impl PersonDao {
     pub async fn get(&self, person_id: &str) -> DbResult<Option<Person>> {
         let row = sqlx::query_as::<_, PersonRow>(
             r#"
-            select id::text as id, display_name, civil_status, status, archived_at, company
+            select id::text as id, display_name, civil_status, status, archived_at, company,
+                   manual_override, manual_override_at
             from person
             where id = $1::uuid and archived_at is null
             limit 1
@@ -107,7 +112,8 @@ impl PersonDao {
 
         let rows = sqlx::query_as::<_, PersonRow>(
             r#"
-            select p.id::text as id, p.display_name, p.civil_status, p.status, p.archived_at, p.company
+            select p.id::text as id, p.display_name, p.civil_status, p.status, p.archived_at, p.company,
+                   p.manual_override, p.manual_override_at
             from person_identity pi
             join person p on p.id = pi.person_id
             where p.archived_at is null
@@ -154,7 +160,8 @@ impl PersonDao {
             update person
             set display_name = $2, updated_at = now()
             where id = $1::uuid and archived_at is null
-            returning id::text as id, display_name, civil_status, status, archived_at, company
+            returning id::text as id, display_name, civil_status, status, archived_at, company,
+                      manual_override, manual_override_at
             "#,
         )
         .bind(&request.person_id)
@@ -179,9 +186,15 @@ impl PersonDao {
                 status = $4,
                 company = nullif($5::text, ''),
                 location = case when $6::boolean then nullif(trim($7::text), '') else location end,
+                -- The hand-fix hold (migration 256): what a human decided, the feed may not overwrite.
+                -- `None` leaves the hold as it is; setting it stamps when, clearing it forgets it.
+                manual_override = coalesce($8::boolean, manual_override),
+                manual_override_at = case when $8::boolean is null then manual_override_at
+                                          when $8::boolean then now() else null end,
                 updated_at = now()
             where id = $1::uuid and archived_at is null
-            returning id::text as id, display_name, civil_status, status, archived_at, company
+            returning id::text as id, display_name, civil_status, status, archived_at, company,
+                      manual_override, manual_override_at
             "#,
         )
         .bind(&request.person_id)
@@ -191,6 +204,7 @@ impl PersonDao {
         .bind(request.company.as_deref())
         .bind(request.location.is_some())
         .bind(request.location.as_deref())
+        .bind(request.manual_override)
         .fetch_optional(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("person.update_admin", &error))?;
@@ -204,7 +218,8 @@ impl PersonDao {
             r#"
             insert into person (display_name, role, status)
             values ($1, 'seller', 'new')
-            returning id::text as id, display_name, civil_status, status, archived_at, company
+            returning id::text as id, display_name, civil_status, status, archived_at, company,
+                      manual_override, manual_override_at
             "#,
         )
         .bind(display_name.trim())

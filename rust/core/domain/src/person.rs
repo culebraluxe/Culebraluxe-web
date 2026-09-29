@@ -26,6 +26,13 @@ pub struct Person {
     pub status: String,
     pub archived_at: Option<String>,
     pub company: Option<String>,
+    /// A human fixed this record by hand (`person.manual_override`, migration 256): a feed may add what is
+    /// missing, but it does not overwrite these fields.
+    #[serde(default)]
+    pub manual_override: bool,
+    /// When the hold was set; `None` while the record is not held.
+    #[serde(default)]
+    pub manual_override_at: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -66,6 +73,8 @@ pub struct UpdatePersonAdminRequest {
     pub email: Option<String>,
     /// Replaces the phone the record shows (and any copy of it typed another way). Empty leaves it as it is.
     pub phone: Option<String>,
+    /// Sets or clears the hand-fix hold. `None` leaves it as it is (the Records screen always sends it).
+    pub manual_override: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,9 +102,13 @@ mod tests {
             status: "active".into(),
             archived_at: None,
             company: None,
+            manual_override: true,
+            manual_override_at: None,
         })
         .unwrap();
 
         assert_eq!(payload["civil_status"], "Married");
+        // The hold travels with the record, so a screen can show it and a feed answers to it.
+        assert_eq!(payload["manual_override"], true);
     }
 }

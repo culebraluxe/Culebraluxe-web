@@ -448,6 +448,10 @@ pub(in super::super) struct UpdatePersonAdminBody {
     pub(super) email: Option<String>,
     #[serde(default)]
     pub(super) phone: Option<String>,
+    /// The hand-fix hold: `Some(true)` fixes the record against the feeds, `Some(false)` releases it,
+    /// absent leaves it as it is.
+    #[serde(default)]
+    pub(super) manual_override: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -505,6 +509,27 @@ mod wbs_schedule_body_tests {
         assert_eq!(omitted.planned_start, None);
         assert_eq!(cleared.planned_start, Some(None));
         assert_eq!(changed.planned_start, Some(Some("2026-09-10".into())));
+    }
+}
+
+#[cfg(test)]
+mod person_hold_body_tests {
+    use super::super::UpdatePersonAdminBody;
+
+    /// The hand-fix hold is tri-state on the wire: absent (a caller that knows nothing about it) leaves it as it is,
+    /// `true` fixes the record against the feeds, `false` releases it again.
+    #[test]
+    fn the_hand_fix_hold_is_optional_in_the_patch_body() {
+        let read = |extra: &str| -> UpdatePersonAdminBody {
+            serde_json::from_str(&format!(
+                r#"{{"displayName":"Juan","status":"new","company":null,"civilStatus":null{extra}}}"#
+            ))
+            .unwrap()
+        };
+
+        assert_eq!(read("").manual_override, None);
+        assert_eq!(read(r#","manualOverride":true"#).manual_override, Some(true));
+        assert_eq!(read(r#","manualOverride":false"#).manual_override, Some(false));
     }
 }
 

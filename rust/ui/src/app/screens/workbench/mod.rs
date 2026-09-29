@@ -325,4 +325,49 @@ mod tests {
         let model = opened(&ctx);
         assert_eq!(media_title(model.read.loaded()), "VilladelMar_3");
     }
+
+    /// The hand-fix hold is part of the person record: seeded from what is stored, editable, and it travels in the
+    /// save body the bridge turns into `manualOverride` (migration 256, `person.manual_override`).
+    #[test]
+    fn the_person_hand_fix_hold_is_seeded_edited_and_saved() {
+        let ctx = ScreenCtx::default();
+        let mut model = opened(&ctx);
+        let read = Workbench::update(&mut model, Msg::OpsEntitySelected("person".into()), &ctx)
+            .into_requests()
+            .remove(0);
+        Workbench::update(
+            &mut model,
+            read.respond(Ok(json!({ "ops": {
+                "entity": "person", "total": 1, "page": 1, "pageSize": 50,
+                "rows": [{ "id": "u1", "title": "Juan" }],
+                "selectedId": "u1",
+                "person": { "id": "u1", "displayName": "Juan", "role": "unclassified",
+                            "status": "new", "manualOverride": true },
+            } }))),
+            &ctx,
+        );
+        assert_eq!(
+            model.ops.form.get("manualOverride").map(String::as_str),
+            Some("true"),
+            "the record says it is fixed, so the toggle starts ticked"
+        );
+
+        Workbench::update(
+            &mut model,
+            Msg::OpsFieldChanged {
+                key: "manualOverride".into(),
+                value: "false".into(),
+            },
+            &ctx,
+        );
+        let save = Workbench::update(&mut model, Msg::OpsSaveRequested, &ctx)
+            .into_requests()
+            .remove(0);
+        let body = save.body.expect("a body");
+        assert_eq!(body["entity"], "person");
+        assert_eq!(
+            body["fields"]["manualOverride"], "false",
+            "releasing the hold is what the save says"
+        );
+    }
 }

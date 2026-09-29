@@ -193,6 +193,7 @@ pub(super) async fn opps_workbench(
                     "location": at(&client, "location"),
                     "email": at(&client, "email"),
                     "phone": at(&client, "phone"),
+                    "manualOverride": at(&canonical, "manual_override"),
                 });
             }
             payload["rows"] = rows
@@ -408,6 +409,8 @@ pub(super) async fn opps_act(
                 "location": field("location"),
                 "email": field("email"),
                 "phone": field("phone"),
+                // The workbench's person form always carries the toggle, so saving always states the hold.
+                "manualOverride": field("manualOverride") == "true",
             }))
             .map_err(invalid)?;
             apply_person_admin_update(&state, &resolved, id.clone(), body).await?;

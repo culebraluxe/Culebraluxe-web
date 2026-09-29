@@ -249,6 +249,16 @@ pub(super) const PERSON_FIELDS: &[FieldSpec] = &[
         wide: true,
         hint: None,
     },
+    FieldSpec {
+        key: "manualOverride",
+        label: "Fixed by hand",
+        kind: FieldKind::Toggle,
+        wide: true,
+        hint: Some(
+            "Tick when you fix this person yourself: the Apple Contacts sync may still add what is \
+             missing, but it never overwrites these fields, and the record keeps what you typed.",
+        ),
+    },
 ];
 
 pub(super) const PROJECT_FIELDS: &[FieldSpec] = &[

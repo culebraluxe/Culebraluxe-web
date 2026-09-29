@@ -23,6 +23,7 @@ pub fn ops_form(page: &PortalOpsWorkbenchPage) -> std::collections::BTreeMap<Str
                 put(&mut form, "location", person.location.as_deref());
                 put(&mut form, "email", person.email.as_deref());
                 put(&mut form, "phone", person.phone.as_deref());
+                form.insert("manualOverride".into(), person.manual_override.to_string());
             }
         }
         "project" => {

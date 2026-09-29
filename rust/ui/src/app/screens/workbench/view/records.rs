@@ -31,6 +31,11 @@ pub(super) fn person_editor(model: &Vm<'_>, person: Option<&PortalOpsPerson>, on
         _ => html! {
             <div class="space-y-4">
                 {section_intro("Person identity", "The same workbench shell, backed by the canonical Person service.")}
+                if person.manual_override {
+                    <p class="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--portal-gold-muted)]">
+                        {"Fixed by hand — the Apple Contacts sync will not overwrite this record"}
+                    </p>
+                }
                 {field_panel(model, on_msg, "Canonical person", PERSON_FIELDS)}
                 <div class="grid gap-3 lg:grid-cols-2">
                     {readonly_card("Role", &person.role)}

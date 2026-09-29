@@ -148,6 +148,8 @@ pub(super) async fn save_form_values(
                                 location: None,
                                 email: None,
                                 phone: None,
+                                // A civil-status edit is not the hold: leave it as it is.
+                                manual_override: None,
                             },
                             &resolved.service,
                         )

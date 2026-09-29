@@ -182,6 +182,7 @@ pub(in super::super) async fn apply_person_admin_update(
                 location: body.location,
                 email: body.email,
                 phone: body.phone,
+                manual_override: body.manual_override,
             },
             &resolved.service,
         )
