@@ -420,3 +420,50 @@ cancelled and their boards held), and a live run is only protected from twin dis
 and an active instance, because pre-fix unowned runs hold nothing at all.
 
 
+
+## 13. Forge is PROD, the fail-retry loop was half-bounded, and the sweep may not manufacture authorization (2026-09-29, after `0afa8a93`)
+
+**Asked:** "why is the workflow engine running against dev? All runs for Forge must run against prod." It is not, and
+now it provably cannot be. Live evidence, taken from the running processes rather than from code: `ps eww` on the
+worker (23237) and its engine child (23265) shows `APP_ENV=production`, `EXECUTION_ENV=PROD` and
+`DATABASE_URL_PROD=…ep-flat-art-ax92tn7a-pooler…` (the PROD branch). The child refuses anything else at boot
+(`rust/forge/src/bin/forge.rs:122` → exit 2), every control-plane script in `package.json` declares
+`APP_ENV=production`, and `resolve_declared_target` refuses silence instead of defaulting. What read as "against dev"
+was the **targeted DEV tests** (`rust/core/db/tests/*_dev.rs`, DEV by construction) and §12's DEV proof walk — DAO
+walks, never an engine lane. Closed anyway, so the read cannot happen again: `db::resolve_forge_target`
+(`rust/core/db/src/pool.rs`) is the one authority (PROD or refuse; a declared `dev` is refused *in the resolver*), the
+worker's private `APP_ENV` check is gone, `vendor_session::database_url()` no longer falls back to DEV, and the memory
+store is reachable only by name (`FORGE_STORE=memory`) instead of by `APP_ENV` being unset.
+
+**The legacy retry logic was never lost — it was half-bounded.** `rust/forge/definitions/FORGE_SDLC-v6.xml` is
+byte-identical to `legacy/workflow_app/definitions/FORGE_SDLC-v6.xml` (648 lines each, `diff` empty). The QA-fail
+loop is in production and has run for real: `ENG-FORGE-SPLIT-SHAPE-01` (1 repair), `ENG-FORGE-MIGRATION-LINT-01` (2),
+`ENG-FORGE-DEPENDENCY-AUDIT-01` (2), `ENG-FORGE-TWO-UNIT-DOGFOOD-02` (1 → `Hold`). The split case is
+`split_dispatch` → parallel `smith` branches → `split_join` → `lead_post`, and it is likewise live. The budget,
+though, only guarded the **disposition** door (`qa_repair::route_qa_result`, 3 repairs / 2 replans). The **class**
+door — `failure_classifier` → `failure_route`, reachable from a failed QA review, publish, migration, deploy and smoke
+test — had no ceiling, and PROD shows the cost: `ENG-FORGE-V13` **15** repairs, `ENG-FORGE-OPENCODE-DOGFOOD-01`
+**9**, `ENG-FORGE-TURN-VISIBILITY-01` **11** and left `In Progress`, all with `forge_last_qa_disposition` null.
+`failure.rs` held the ported budgeted router and had no caller. Now `budgeted_failure_class` runs where the class
+becomes a decision (`facts::project_forge_gate_facts`): a class whose route has spent its budget is **demoted to
+`HOLD`**, the arm the XML already has. Bounded, never silent.
+
+**The sweep's P0 (GPT, correct):** restating every `In Progress` story to `Ready` treats the board's OPEN card as a
+stranded run, and restating it fires the dispatch trigger — i.e. it manufactures the explicit handoff. It now requires
+positive evidence Forge owned the story (an open `Ready`/`Paused` item, or a `storyboard_story_run` row with
+`ended_at is null`). A story with neither is OPEN and stays as the human left it. Twelve `In Progress` stories are
+live in PROD; under the old predicate every one of them was one tick away from being auto-dispatched.
+
+**Files:** `rust/core/db/src/{pool.rs,lib.rs,forge_engine.rs}`, `rust/forge/src/engine/{failure.rs,facts.rs,vendor_session.rs,db_writer.rs}`,
+`rust/forge/src/bin/{forge.rs,forge_worker.rs}`, `rust/core/db/tests/forge_work_claim_dev.rs`, `docs/agent/MEMORY.md`.
+
+**Verified:** `cargo check --manifest-path rust/Cargo.toml --workspace --all-targets` clean;
+`cargo test -p db -p forge --lib` → 50 + 88 passed (four new tests);
+DEV walk `forge_work_claim_dev -- --ignored --test-threads=1` → 2 passed, including the new case 6.
+
+**Still open, in order:** (1) the class-door demotion has no live PROD run behind it yet — the next story that reaches
+`failure_route` with a spent budget is what proves it end to end; (2) 12 `In Progress` stories in PROD are now *not*
+auto-dispatched, so whichever of them were genuinely stranded needs a human `forge:story:reset` or a `Hold`
+decision — the sweep no longer guesses for them; (3) `ENG-FORGE-TURN-VISIBILITY-01` (11 repairs, stale since
+2026-09-14) is the test case for (2).
+

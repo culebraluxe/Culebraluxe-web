@@ -626,6 +626,21 @@ impl ForgeEngineDao {
             .begin("forge_engine.reconcile_dispatch_queue")
             .await?;
         let result = async {
+            // A STORY GOES BACK ON THE BOARD ONLY WHEN FORGE ALREADY OWNED IT.
+            //
+            // `In Progress` is not one state, it is two: the board's OPEN card (human work, no engine run — the
+            // deliberate meaning of the state, proven on 2026-09-14 by `31714992`/`391dfcacab`) and the board's
+            // half of a Forge run that is happening. They are indistinguishable by status alone, and a sweep that
+            // treats them as one does something much worse than repairing junk: it *manufactures authorization*.
+            // A human's sticky note becomes `Ready`, the dispatch trigger fires on that change, an item appears and
+            // the engine claims work nobody asked it to do. That is the one move this control plane promises never
+            // happens — moving something to ENGINE RUN Q is the explicit handoff.
+            //
+            // So the repair needs positive evidence that Forge owned this story before the sweep may touch it: an
+            // open work item for it (`Ready`/`Paused` — a `Claimed`/`Running` one and any live process instance are
+            // excluded below, because that is a run in progress and not junk), or a run row Forge opened and never
+            // closed. A story with neither is OPEN, and OPEN is left exactly as a human left it. Reconciliation may
+            // repair Forge state; it must never invent it.
             let restated = sqlx::query(
                 "update storyboard_story s
                     set status='Ready', completed_at=null, updated_at=now()
@@ -636,7 +651,14 @@ impl ForgeEngineDao {
                     and not exists (
                       select 1 from process_instances p
                        where p.subject_type='story' and p.subject_id=s.id
-                         and p.status in ('active','running','reserved','suspended'))",
+                         and p.status in ('active','running','reserved','suspended'))
+                    and (
+                      exists (
+                        select 1 from agent_work_item w
+                         where w.story_id=s.id and w.state in ('Ready','Paused'))
+                      or exists (
+                        select 1 from storyboard_story_run r
+                         where r.story_id=s.id and r.ended_at is null))",
             )
             .execute(tx.connection())
             .await

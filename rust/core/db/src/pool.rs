@@ -55,6 +55,21 @@ impl Database {
         Self::connect_target(target).await
     }
 
+    /// Connect the pool Forge is allowed to use: production, or nothing.
+    ///
+    /// The stories, the cockpit and the flight recorder live in the production database. It is the golden source,
+    /// so a Forge process on any other target reads and writes a control plane nobody is working in and its
+    /// verdicts are about rows nobody makes decisions from. `resolve_declared_target` still owns the declaration
+    /// (`APP_ENV` / `VERCEL_ENV`) and still refuses silence; this adds Forge's ceiling on top of it, so a caller
+    /// cannot flip the environment by exporting one variable.
+    pub async fn connect_forge_from_env() -> DbResult<Self> {
+        let target = resolve_forge_target(
+            env::var("VERCEL_ENV").ok().as_deref(),
+            env::var("APP_ENV").ok().as_deref(),
+        )?;
+        Self::connect_target(target).await
+    }
+
     pub async fn connect_target(target: DbTarget) -> DbResult<Self> {
         let url = env::var(target.env_name()).map_err(|_| {
             DbFailure::configuration(
@@ -409,6 +424,32 @@ pub fn resolve_declared_target(
     }
 }
 
+/// The database Forge is allowed to run against: PROD, and nothing else.
+///
+/// THE RULE (captain, 2026-09-29): **Forge runs against production only.** The stories, the cockpit and the flight
+/// recorder are the golden source, and this is not ceremony — a Forge process on DEV reports on rows nobody is
+/// working in, and the report is trusted because it is the only number on the screen (2026-09-16: a department
+/// reading the wrong database produced verdicts nobody could trust).
+///
+/// `resolve_declared_target` owns the declaration: it reads `APP_ENV` / `VERCEL_ENV` and refuses silence.
+/// This function owns Forge's ceiling on top of that declaration, so no caller — a wrapper script, a stale
+/// `.env`, a hand-typed `cargo run` — can flip a Forge process to another environment by exporting one variable.
+/// A refusal is a `DbFailure::configuration`, which is captured like every other database failure.
+pub fn resolve_forge_target(vercel_env: Option<&str>, app_env: Option<&str>) -> DbResult<DbTarget> {
+    let declared = resolve_declared_target(vercel_env, app_env)?;
+    if declared != DbTarget::Prod {
+        return Err(DbFailure::configuration(
+            "db.resolve_forge_target",
+            format!(
+                "Forge runs against PRODUCTION only; the declared environment resolved to '{}'. \
+                 Debug workflow and Forge in production",
+                declared.as_str()
+            ),
+        ));
+    }
+    Ok(DbTarget::Prod)
+}
+
 fn normalize_ssl_mode(url: &str) -> String {
     url.replace("sslmode=prefer", "sslmode=verify-full")
         .replace("sslmode=require", "sslmode=verify-full")
@@ -516,6 +557,37 @@ mod tests {
     #[test]
     fn silence_is_refused() {
         assert!(resolve_declared_target(None, None).is_err());
+    }
+
+    /// The rule this guards (AGENTS.md, "Never run Forge against DEV"): Forge's database is production, and a
+    /// declared development environment is refused rather than honoured. Silence is refused too — by the
+    /// declaration it builds on — so a Forge process cannot reach any target by saying nothing.
+    #[test]
+    fn forge_refuses_everything_but_production() {
+        assert_eq!(
+            resolve_forge_target(None, Some("production")).unwrap(),
+            DbTarget::Prod
+        );
+        assert_eq!(
+            resolve_forge_target(Some("production"), None).unwrap(),
+            DbTarget::Prod
+        );
+        assert_eq!(
+            resolve_forge_target(Some("production"), Some("prod")).unwrap(),
+            DbTarget::Prod
+        );
+        assert!(resolve_forge_target(None, Some("development")).is_err());
+        assert!(resolve_forge_target(None, Some("dev")).is_err());
+        assert!(resolve_forge_target(Some("preview"), Some("prod")).is_err());
+        assert!(resolve_forge_target(None, None).is_err());
+
+        let message = resolve_forge_target(None, Some("dev"))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            message.contains("PRODUCTION only"),
+            "the refusal must name the rule it enforces: {message}"
+        );
     }
 
     #[test]

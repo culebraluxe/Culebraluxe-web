@@ -532,11 +532,12 @@ async fn engine_faults_clear_the_pair_and_the_plane_is_swept_before_each_run() {
 
     let swept = engine.reconcile_dispatch_queue().await.unwrap();
     assert!(swept.cleared >= 1, "an item over a settled story is junk");
-    let junk_state: String = sqlx::query_scalar("select state from agent_work_item where id = $1::uuid")
-        .bind(&junk_item)
-        .fetch_one(pool)
-        .await
-        .unwrap();
+    let junk_state: String =
+        sqlx::query_scalar("select state from agent_work_item where id = $1::uuid")
+            .bind(&junk_item)
+            .fetch_one(pool)
+            .await
+            .unwrap();
     assert_eq!(junk_state, "Cancelled");
     assert!(
         swept.queued >= 1,
@@ -551,8 +552,42 @@ async fn engine_faults_clear_the_pair_and_the_plane_is_swept_before_each_run() {
     .unwrap();
     assert_eq!(requeued_items, 1, "and exactly one, never a duplicate");
 
+    // 6. GPT's P0 (2026-09-29), and the reason the sweep is allowed near the board at all: an `In Progress` story
+    //    with no Forge trace is OPEN — human work, deliberately off the engine. It must be left exactly as it is,
+    //    because restating it would fire the dispatch trigger and run a story nobody handed over.
+    let open_story = format!("ENG-PROOF-OPEN-{tag}");
+    sqlx::query(
+        "insert into storyboard_story (id, workstream, title, priority, status, notes)
+         values ($1, 'PROOF', 'Sweep proof (open human card)', 'High', 'In Progress', '')",
+    )
+    .bind(&open_story)
+    .execute(pool)
+    .await
+    .expect("insert the open proof story");
+
+    engine.reconcile_dispatch_queue().await.unwrap();
+    let open_board: String = sqlx::query_scalar("select status from storyboard_story where id = $1")
+        .bind(&open_story)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        open_board, "In Progress",
+        "an OPEN card must stay off the engine run queue"
+    );
+    let open_items: i64 =
+        sqlx::query_scalar("select count(*) from agent_work_item where story_id = $1")
+            .bind(&open_story)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        open_items, 0,
+        "and the sweep must not manufacture a work item for it"
+    );
+
     // DEV is left as it was found: the proof stories go, and their items cascade.
-    for story in [&stranded, &settled_story, &requeued_story] {
+    for story in [&stranded, &settled_story, &requeued_story, &open_story] {
         cleanup_story(pool, story).await;
     }
 }

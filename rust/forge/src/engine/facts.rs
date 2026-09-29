@@ -255,6 +255,29 @@ pub fn forge_fast_eligibility(evidence: &ForgeGateEvidence) -> bool {
 
 pub fn project_forge_gate_facts(evidence: &ForgeGateEvidence) -> Value {
     let mut facts = evidence.extra.clone();
+
+    // THE CLASS THE DECISION SEES, NOT THE CLASS THE ROLE SAID. `failureClass` drives `failure_route`, whose arms
+    // re-enter `repair_smith` / `repair_architect` / `repair_scout` / `repair_devops`, so an unbounded class is an
+    // unbounded repair loop (production: 15 repairs on one story, `ENG-FORGE-V13`). The budget is applied here, at
+    // the single point where the class becomes a decision, so every classifier arm — QA review, publish, migration,
+    // deploy, smoke, diagnose — is bounded by the one rule, and the XML's own `HOLD` arm does the routing.
+    let failure_budget = crate::engine::qa_repair::RepairBudget::default();
+    let effective_failure_class: Option<&str> = evidence
+        .failure_class
+        .as_deref()
+        .and_then(crate::engine::failure::ForgeFailureClass::parse)
+        .map(|class| {
+            crate::engine::failure::budgeted_failure_class(
+                class,
+                evidence.repair_attempts.unwrap_or(0),
+                evidence.replan_attempts.unwrap_or(0),
+                failure_budget.max_repair_attempts,
+                failure_budget.max_replan_attempts,
+            )
+            .unwrap_or_else(|| class.as_str())
+        })
+        .or(evidence.failure_class.as_deref());
+
     let enums = [
         ("workType", evidence.work_type.as_deref()),
         (
@@ -263,7 +286,7 @@ pub fn project_forge_gate_facts(evidence: &ForgeGateEvidence) -> Value {
         ),
         ("leadDecision", evidence.lead_decision.as_deref()),
         ("disposition", evidence.disposition.as_deref()),
-        ("failureClass", evidence.failure_class.as_deref()),
+        ("failureClass", effective_failure_class),
         (
             "failedReleaseStage",
             evidence.failed_release_stage.as_deref(),

@@ -119,12 +119,15 @@ fn main() {
         eprintln!("invalid --work-type {work_type}");
         std::process::exit(2);
     }
-    if let Err(e) = forge::engine::execution_target::assert_forge_lane_may_start(
+    match forge::engine::execution_target::assert_forge_lane_may_start(
         &forge::engine::execution_target::env_pairs_from_process(),
     ) {
-        reject_configuration(work_item.as_deref(), &format!("{e}"));
-        eprintln!("{e}");
-        std::process::exit(2);
+        Ok(target) => eprintln!("execution_target={target}"),
+        Err(e) => {
+            reject_configuration(work_item.as_deref(), &format!("{e}"));
+            eprintln!("{e}");
+            std::process::exit(2);
+        }
     }
     // Only now is this run real, so only now does it go `Running`. If the claim cannot be opened the run must not
     // start at all: a story driven without a claim is exactly the unowned dispatch this seam exists to remove.
@@ -244,17 +247,17 @@ fn main() {
             Arc::new(NullWriter)
         }
     };
-    let use_neon = env::var("APP_ENV").is_ok() || env::var("VERCEL_ENV").is_ok();
-    let result = if use_neon {
-        match NeonStore::connect_from_env() {
-            Ok(store) => {
-                eprintln!("workflow store=neon");
-                drive(store, release, writer.clone(), &harness, &story, &work_type)
-            }
-            Err(e) => Err(format!("neon store: {e}")),
-        }
-    } else {
-        eprintln!("workflow store=memory (APP_ENV unset)");
+    // THE STORE IS NEON UNLESS ASKED FOR BY NAME. The guard above has already refused anything that is not a
+    // production run, so the store was never really optional — and keying it off `APP_ENV` being *set* was its own
+    // hazard: an environment that declared `EXECUTION_ENV=PROD` while leaving `APP_ENV` unset would read a memory
+    // store while the story writer below wrote the production row. Two stores, one run, and the one that answered
+    // the engine's questions was not the one holding the record. `FORGE_STORE=memory` keeps the local dry run
+    // reachable, deliberately, by name.
+    let use_memory = env::var("FORGE_STORE")
+        .map(|value| value.trim().eq_ignore_ascii_case("memory"))
+        .unwrap_or(false);
+    let result = if use_memory {
+        eprintln!("workflow store=memory (FORGE_STORE=memory; local dry run only)");
         drive(
             MemoryStore::new(),
             release,
@@ -263,6 +266,14 @@ fn main() {
             &story,
             &work_type,
         )
+    } else {
+        match NeonStore::connect_from_env() {
+            Ok(store) => {
+                eprintln!("workflow store=neon");
+                drive(store, release, writer.clone(), &harness, &story, &work_type)
+            }
+            Err(e) => Err(format!("neon store: {e}")),
+        }
     };
     // One exit, one verdict. `Ok` means the story was driven through its turn (a story that stopped for a human comes
     // back `Ok` and the board's Hold says so); `Err` means the run failed. Either way the claim is settled here, not

@@ -35,9 +35,16 @@ pub fn with_shared<R>(f: impl FnOnce(&Database, &Runtime) -> R) -> Result<R, Str
     Ok(f(&shared.db, &shared.rt))
 }
 
-/// Target URL presence for operator diagnostics only. No connection is opened here.
+/// The production database URL, or nothing. Target URL presence for operator diagnostics only; no connection is
+/// opened here.
+///
+/// PROD ONLY, AND DELIBERATELY NARROWER THAN IT WAS (2026-09-29). This used to answer with the first of
+/// `DATABASE_URL_PROD`, `DATABASE_URL_DEV`, `DATABASE_URL` that happened to be set — so a machine holding only
+/// `DATABASE_URL_DEV` (every development checkout) made a Forge process report `story writer=neon` about a
+/// database Forge is not allowed to use. The probe decides whether this run has a state writer at all, and for
+/// Forge that question has one answer: the production URL is present, or the run has no writer and says so.
 pub fn database_url() -> Option<String> {
-    ["DATABASE_URL_PROD", "DATABASE_URL_DEV", "DATABASE_URL"]
+    ["DATABASE_URL_PROD"]
         .iter()
         .find_map(|key| {
             std::env::var(key)

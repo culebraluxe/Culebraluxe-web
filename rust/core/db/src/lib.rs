@@ -136,7 +136,7 @@ pub use media::{
 };
 pub use outbox::{DomainEventOutboxDao, OutboxDelivery, OutboxEventInput};
 pub use person::PersonDao;
-pub use pool::{disable_statement_timeout, resolve_declared_target, Database, DbTarget};
+pub use pool::{disable_statement_timeout, resolve_declared_target, resolve_forge_target, Database, DbTarget};
 pub use project::{ProjectDao, ProjectTxDao};
 pub use property::PropertyDao;
 pub use public_listing::PublicListingDao;

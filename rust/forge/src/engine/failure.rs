@@ -130,3 +130,108 @@ pub fn route_failure(
         },
     }
 }
+
+/// The class router's ceiling: the class to run with, once the durable budget has had its say.
+///
+/// WHY THIS EXISTS (captain, 2026-09-29). Forge has two ways to send a failure back for repair, and only one of
+/// them was bounded. `qa_result` → `qa_failure_route` routes by the QA disposition through `route_qa_result`, which
+/// is budgeted (3 repairs, 2 replans — see `qa_repair.rs`). `failure_classifier` → `failure_route` routes by
+/// `failureClass` and had **no ceiling at all** — it is reached from a failed QA review, a failed publish, a failed
+/// migration, a failed deploy and a failed smoke test, and each of those can fail again into the same classifier.
+/// Production shows what that costs: `ENG-FORGE-V13` reached **15** repairs and `ENG-FORGE-OPENCODE-DOGFOOD-01`
+/// **9**, both with `forge_last_qa_disposition` null — neither ever went through the budgeted door — and
+/// `ENG-FORGE-TURN-VISIBILITY-01` sits at 11 in `In Progress`, a story the engine stopped holding.
+///
+/// The legacy engine held a failure class to a retry budget and escalated to a human at the ceiling; that is the
+/// rule restored here. A class whose route has spent its budget is *demoted to `HOLD`* — demotion rather than
+/// refusal, because the XML already owns the arm (`failure_route` routes `failureClass == 'HOLD'` to `hold`), so
+/// the engine stops asking the same worker to try again and leaves the story where a person will see it. Never a
+/// silent success and never another silent lap.
+///
+/// The counters are the durable ones on `storyboard_story`, written only by the completion ledger on entry to
+/// `repair_smith` / `repair_architect` — one writer, one fact. `route_failure` makes the decision, so the two
+/// routers cannot disagree about when a budget is spent.
+pub fn budgeted_failure_class(
+    class: ForgeFailureClass,
+    repair_attempts: u32,
+    replan_attempts: u32,
+    max_repair: u32,
+    max_replan: u32,
+) -> Option<&'static str> {
+    let (attempts, max) = match class {
+        ForgeFailureClass::BadImplementation | ForgeFailureClass::WeakTest => {
+            (repair_attempts, max_repair)
+        }
+        ForgeFailureClass::BadArchitecture => (replan_attempts, max_replan),
+        // Everything else — an unknown cause, an environment, a migration, a publish, a deployment, a smoke test —
+        // has no counter of its own, so it is charged against the whole repair cycle: what a reader would call
+        // "how many times have we been round this loop already".
+        _ => (repair_attempts.saturating_add(replan_attempts), max_repair),
+    };
+    match route_failure(class, attempts, max) {
+        ForgeFailureRouting::Hold { .. } => Some("HOLD"),
+        ForgeFailureRouting::Repair { .. } => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The rule: at the ceiling the class is demoted to HOLD, below it the class is left alone. Both halves
+    /// matter — a router that demoted early would refuse good repairs, which is the failure mode this fix could
+    /// itself introduce.
+    #[test]
+    fn a_class_over_its_budget_is_demoted_to_hold() {
+        assert_eq!(
+            budgeted_failure_class(ForgeFailureClass::BadImplementation, 3, 0, 3, 2),
+            Some("HOLD")
+        );
+        assert_eq!(
+            budgeted_failure_class(ForgeFailureClass::BadImplementation, 2, 0, 3, 2),
+            None
+        );
+        assert_eq!(
+            budgeted_failure_class(ForgeFailureClass::BadArchitecture, 0, 2, 3, 2),
+            Some("HOLD")
+        );
+        assert_eq!(
+            budgeted_failure_class(ForgeFailureClass::BadArchitecture, 0, 1, 3, 2),
+            None
+        );
+    }
+
+    /// The unbounded case this exists for: classes with no counter of their own still stop. `UNKNOWN_CAUSE`
+    /// self-loops through `repair_scout` while `rootCauseKnown == false`, and the devops classes re-enter the
+    /// classifier from six different nodes — none of which counted anything before this.
+    #[test]
+    fn classes_without_a_counter_of_their_own_are_charged_to_the_cycle() {
+        assert_eq!(
+            budgeted_failure_class(ForgeFailureClass::Unknown, 4, 1, 3, 2),
+            Some("HOLD")
+        );
+        assert_eq!(
+            budgeted_failure_class(ForgeFailureClass::EnvironmentFailure, 2, 1, 3, 2),
+            Some("HOLD")
+        );
+        assert_eq!(
+            budgeted_failure_class(ForgeFailureClass::EnvironmentFailure, 1, 0, 3, 2),
+            None
+        );
+    }
+
+    /// One authority: this and `route_failure` cannot answer differently about the ceiling.
+    #[test]
+    fn the_ceiling_agrees_with_route_failure() {
+        for attempts in 0..5u32 {
+            let routing = route_failure(ForgeFailureClass::BadImplementation, attempts, 3);
+            let demoted =
+                budgeted_failure_class(ForgeFailureClass::BadImplementation, attempts, 0, 3, 2);
+            assert_eq!(
+                demoted.is_some(),
+                matches!(routing, ForgeFailureRouting::Hold { .. }),
+                "attempts={attempts}"
+            );
+        }
+    }
+}
