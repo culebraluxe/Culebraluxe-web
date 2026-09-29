@@ -156,15 +156,15 @@ fn main() {
     //
     // The run this claim opens is carried on: every artifact a lane produces is keyed to it (migration 130), so the
     // id has to reach the runner that writes them.
-    // THE STORY PACKET IS READ BEFORE THE CLAIM, NOT AFTER IT. Migration 024 §2 has the specification snapshotted
-    // into `storyboard_story_run` **when execution begins**, and execution begins at the claim — so the packet has
-    // to be in hand by then. Loading it after the claim (which is what this did until 2026-09-29) meant every run
-    // opened with a NULL snapshot: the run row existed and what it was executing was not in it.
+    // THE STORY PACKET IS READ BEFORE THE CLAIM, NOT AFTER IT. Migration 024 §2 snapshots the specification into
+    // `storyboard_story_run` **when execution begins**, and execution begins at the claim — so by the time the run
+    // row exists, the packet has to be in hand. The run's specification is copied from `storyboard_story` by
+    // `begin_agent_work_run` itself (nothing is passed in), but the packet is what the *model* reads, and a lane
+    // that takes a queue row and only then learns it cannot read its packet has burned a claim to find out.
     //
     // An unreadable packet is the engine's plumbing failing, not a story verdict: no run is opened, no model turn
     // happens, and the claim goes back to the queue. The environment packet stays reachable for an attended,
-    // deliberate run only, behind FORGE_PACKET_FROM_ENV=1 — and a run on that fallback snapshots NO specification,
-    // because there is no authoritative packet behind it to snapshot.
+    // deliberate run only, behind FORGE_PACKET_FROM_ENV=1.
     let packet_from_env = env::var("FORGE_PACKET_FROM_ENV").ok().as_deref() == Some("1");
     let packet = match StoryPacket::load_from_neon(&story) {
         Ok(packet) => {
@@ -189,34 +189,12 @@ fn main() {
             std::process::exit(2);
         }
     };
-    // The specification the run opens with, read from the story row before the claim takes it — the one moment
-    // the engine still holds it (migration 025: `agent_work_item` stores no specification).
-    let snapshot = if packet.is_some() {
-        match agent_work::story_run_snapshot(&story) {
-            Ok(snapshot) => Some(snapshot),
-            Err(e) => {
-                eprintln!("story specification: {e}; refusing to open a run with no snapshot");
-                if settle_work_item(
-                    work_item.as_deref(),
-                    AgentWorkOutcome::Abandoned,
-                    Some(&format!("story specification: {e}")),
-                )
-                .is_err()
-                {
-                    eprintln!("work_item could not be settled; the claim is left to recovery");
-                }
-                std::process::exit(2);
-            }
-        }
-    } else {
-        None
-    };
     let mut story_run_id: Option<String> = None;
     // The row's dispatch envelope, carried on from the claim to the lane it configures.
     let mut run_model_policy: Option<String> = None;
     let mut run_launch_intent: Option<String> = None;
     if let Some(item) = work_item.as_deref() {
-        match agent_work::begin_agent_work_run(item, snapshot.as_ref()) {
+        match agent_work::begin_agent_work_run(item) {
             Ok(Some(begin)) => {
                 let policy = begin.execution_policy.clone();
                 story_run_id = Some(begin.story_run_id.clone());

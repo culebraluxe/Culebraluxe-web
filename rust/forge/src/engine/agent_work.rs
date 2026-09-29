@@ -84,28 +84,14 @@ pub fn claim_next_agent_work(worker_id: &str) -> Result<Option<AgentWorkItem>, S
 /// `execution_policy_allows_unattended`. The run id rides it because every durable artifact the lane produces hangs
 /// off `storyboard_story_run` (migration 025 §2: the spec is "snapshotted into `storyboard_story_run` when execution
 /// begins"), so a caller that cannot name its run cannot record what it did.
-/// `Claimed → Running`, opening the run this claim executes — with the specification snapshotted into it
-/// (migration 024 §2: "snapshotted into `storyboard_story_run` when execution begins").
-pub fn begin_agent_work_run(
-    work_item_id: &str,
-    snapshot: Option<&db::AgentWorkRunSnapshot>,
-) -> Result<Option<db::BeginAgentWorkRun>, String> {
+/// `Claimed → Running`, opening the run this claim executes, with the specification snapshotted into it by the
+/// insert itself (`begin_agent_work_run` copies `storyboard_story`'s twelve specification columns — migration 024
+/// §2: "snapshotted into `storyboard_story_run` when execution begins").
+pub fn begin_agent_work_run(work_item_id: &str) -> Result<Option<db::BeginAgentWorkRun>, String> {
     with_shared(|db, rt| {
         let dao = ForgeEngineDao::new(db.clone());
         rt.block_on(async {
-            dao.begin_agent_work_run(work_item_id, snapshot)
-                .await
-                .map_err(|error| error.to_string())
-        })
-    })?
-}
-
-/// The specification to open a run with, read from the story row before the claim is taken.
-pub fn story_run_snapshot(story_id: &str) -> Result<db::AgentWorkRunSnapshot, String> {
-    with_shared(|db, rt| {
-        let dao = ForgeEngineDao::new(db.clone());
-        rt.block_on(async {
-            dao.story_run_snapshot(story_id)
+            dao.begin_agent_work_run(work_item_id)
                 .await
                 .map_err(|error| error.to_string())
         })

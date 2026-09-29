@@ -52,10 +52,19 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
         "DEV already has an active claim; this proof needs the single-active slot free"
     );
 
-    // 1. The board is the authority for dispatch: authorizing a story creates exactly one item, by trigger.
+    // 1. The board is the authority for dispatch: authorizing a story creates exactly one item, by trigger. The
+    //    story carries a real specification, because the run is meant to snapshot it and a proof story with no
+    //    specification could not tell a copy from a NULL.
     sqlx::query(
-        "insert into storyboard_story (id, workstream, title, priority, status, notes)
-         values ($1, 'PROOF', 'Queue claim proof', 'High', 'Ready', '')",
+        "insert into storyboard_story
+             (id, workstream, title, priority, status, notes, goal, test_mode, assay_commands,
+              acceptance_criteria, preconditions, postconditions, architect_brief, context_refs,
+              dependencies, scope, operating_surface, packet_sha)
+         values ($1, 'PROOF', 'Queue claim proof', 'High', 'Ready', '',
+                 '  prove the queue claim  ', 'SCOPED', 'cargo test -p db',
+                 'the run records what it executed', 'a free single-active slot', 'the claim is settled',
+                 'brief for the run', 'docs/agent/packets/ENG-PROOF.md', 'none', 'rust/core/db',
+                 'NEXUS', 'sha256:proof')",
     )
     .bind(&ready_story)
     .execute(pool)
@@ -142,7 +151,7 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
     //    The transition also reports the claimed row's `execution_policy`, because that policy decides whether the
     //    run may be unattended at all (migration 029).
     let begin = engine
-        .begin_agent_work_run(&claimed.id, None)
+        .begin_agent_work_run(&claimed.id)
         .await
         .unwrap()
         .expect("Claimed -> Running must settle exactly one row and report the item's policy");
@@ -179,9 +188,56 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
         "a run that just started has no ruling yet — an unruled run is not a verdict"
     );
     assert!(run_ended.is_none(), "a run that just started has not ended");
+    // 5c. The run carries the story's specification, and it was copied by the insert rather than passed in: every
+    //     specification column the run holds must equal the story row's, by the same `nullif(trim(…), '')` rule the
+    //     insert uses. Measured as one comparison against the row, so a borrowed DEV claim (a story with no
+    //     specification) proves the NULL case while the proof story proves the copy.
+    let spec_matches_row: bool = sqlx::query_scalar(
+        "select (r.goal_snapshot              is not distinct from nullif(trim(s.goal), ''))
+            and (r.preconditions_snapshot      is not distinct from nullif(trim(s.preconditions), ''))
+            and (r.architect_brief_snapshot    is not distinct from nullif(trim(s.architect_brief), ''))
+            and (r.context_refs_snapshot       is not distinct from nullif(trim(s.context_refs), ''))
+            and (r.acceptance_criteria_snapshot is not distinct from nullif(trim(s.acceptance_criteria), ''))
+            and (r.postconditions_snapshot     is not distinct from nullif(trim(s.postconditions), ''))
+            and (r.dependencies_snapshot       is not distinct from nullif(trim(s.dependencies), ''))
+            and (r.scope_snapshot              is not distinct from nullif(trim(s.scope), ''))
+            and (r.operating_surface_snapshot  is not distinct from nullif(trim(s.operating_surface), ''))
+            and (r.test_mode_snapshot          is not distinct from nullif(trim(s.test_mode), ''))
+            and (r.assay_commands_snapshot     is not distinct from nullif(trim(s.assay_commands), ''))
+            and (r.packet_sha_snapshot         is not distinct from nullif(trim(s.packet_sha), ''))
+           from storyboard_story_run r
+           join storyboard_story s on s.id = r.story_id
+          where r.id = $1::uuid",
+    )
+    .bind(&begin.story_run_id)
+    .fetch_one(pool)
+    .await
+    .expect("the run's specification must be readable beside the story it came from");
+    assert!(
+        spec_matches_row,
+        "every specification column on the run must be the story row's, trimmed the same way the insert trims it"
+    );
+    if !borrowed {
+        let (run_goal, run_assay, run_sha): (Option<String>, Option<String>, Option<String>) =
+            sqlx::query_as(
+                "select goal_snapshot, assay_commands_snapshot, packet_sha_snapshot
+                   from storyboard_story_run where id = $1::uuid",
+            )
+            .bind(&begin.story_run_id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            run_goal.as_deref(),
+            Some("prove the queue claim"),
+            "the run must snapshot the goal of the story it is executing, trimmed"
+        );
+        assert_eq!(run_assay.as_deref(), Some("cargo test -p db"));
+        assert_eq!(run_sha.as_deref(), Some("sha256:proof"));
+    }
     assert!(
         engine
-            .begin_agent_work_run(&claimed.id, None)
+            .begin_agent_work_run(&claimed.id)
             .await
             .unwrap()
             .is_none(),
@@ -482,7 +538,7 @@ async fn engine_faults_clear_the_pair_and_the_plane_is_swept_before_each_run() {
         .expect("claim the proof item");
     assert!(
         engine
-            .begin_agent_work_run(&stranded_item, None)
+            .begin_agent_work_run(&stranded_item)
             .await
             .unwrap()
             .is_some(),
