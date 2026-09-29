@@ -113,7 +113,8 @@ pub use forge_doctor::{
 };
 pub use forge_engine::{
     settlement_pair, AgentWorkOutcome, AgentWorkSettlement, BeginAgentWorkRun,
-    run_result_status_for, DealWorkflowFactRow, DispatchReconcile,
+    run_result_status_for, artifact_verdict_for_run, verdict_polarity, NewToolArtifact,
+    ToolArtifactRow, VerdictPolarity, DealWorkflowFactRow, DispatchReconcile,
     EnsureDispatch,
     ForgeAgentWorkRow, ForgeDecisionRow, ForgeEngineDao, ForgeEvidencePatch, ForgeHoldRow,
     ProcessDefinitionRow, StoryPacketRow, WorkflowCommandReceiptRow, WorkflowReceiptClaim,
