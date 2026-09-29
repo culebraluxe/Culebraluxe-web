@@ -81,6 +81,13 @@ impl AuthorizationPort for CasbinAuthorizationPort {
             && request.operation == "website.notifyLead"
             && request.action == "website.lead.notify"
             && request.kind == OperationKind::Command;
+        // POOL DIAGNOSTICS: the internal key's System actor reads two row counts beside the pool metrics
+        // (`/v1/diagnostics/db`). One query operation, nothing else.
+        let db_diagnostics = system
+            && request.actor.id.as_deref() == Some("workflow-engine")
+            && request.operation == "support.dbDiagnostics"
+            && request.action == "support.diagnostics.read"
+            && request.kind == OperationKind::Query;
         let website_intake = system
             && request.actor.id.as_deref() == Some("public-website")
             && request.operation == "website.submitIntake"
@@ -144,6 +151,7 @@ impl AuthorizationPort for CasbinAuthorizationPort {
         let explicit = bootstrap
             || public
             || lead_notice
+            || db_diagnostics
             || website_intake
             || agreement_execution
             || guest_code

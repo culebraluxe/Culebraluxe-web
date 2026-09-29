@@ -38,6 +38,10 @@ that bound matters — today `cockpit.snapshot`, `workflow.list`, `workflow.deta
 `task.complete` — not as a ritual on every read. A service whose descriptor lists capabilities but does not implement
 `dispatch` (clients, for one) is reachable only through its routes: its envelope door refuses, which is correct.
 
+**No handler touches a DAO.** A handler resolves its context and calls a service method; the only DAO use under
+`server/src/api/` is `error_capture.rs`, the failure-capture seam itself. The Client service's audit domain is `clients`
+while its descriptor is `client` — deliberately, so the audit history keeps one name (`MEMORY.md`, 2026-09-28).
+
 ## Invariants
 
 1. **Every route resolves a context first.** No handler is anonymous. The internal key is required on all of them.

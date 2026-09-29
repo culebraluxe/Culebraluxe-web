@@ -93,6 +93,28 @@ pub fn record(
     });
 }
 
+/// Record an event a page reported about itself (`POST /v1/diagnostics/app-event`): the same seam and the same rules as
+/// `record` — best effort on its own thread, so a reporter can never take the request down — with the page's route and
+/// code kept in their own columns.
+pub fn record_application(kind: &str, operation: &str, message: &str, route: &str, level: &str, code: Option<&str>, meta: serde_json::Value) {
+    let Some(database) = POOL.get() else { return };
+    let dao = AppErrorDao::new(database.clone());
+    let (kind, operation, message, route, level) =
+        (kind.to_owned(), operation.to_owned(), message.to_owned(), route.to_owned(), level.to_owned());
+    let code = code.map(str::to_owned);
+    let meta = meta.to_string();
+    std::thread::spawn(move || {
+        let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+            return;
+        };
+        // Best effort by design: the seam cannot report its own failure without recursing.
+        let _ = runtime.block_on(async move {
+            dao.record_application_event(&kind, &operation, &message, &route, &level, code.as_deref(), &meta)
+                .await
+        });
+    });
+}
+
 /// Capture panics.
 ///
 /// A panic is the case this repository most needs recorded, because a panic is what "impossible" looks like at runtime:

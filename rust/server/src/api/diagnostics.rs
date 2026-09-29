@@ -21,10 +21,12 @@ pub async fn db_metrics(
     let snapshot = state.db().metrics();
     let target = state.db().target().as_str();
 
-    let (directory_count, person_count) = db::SupportDiagnosticsDao::new(state.db().clone())
-        .db_diagnostic_counts()
+    let (directory_count, person_count) = state
+        .services()
+        .support()
+        .db_counts(&service)
         .await
-        .map_err(ApiError::from_db)?;
+        .map_err(ApiError::from)?;
 
     let declared_by = if std::env::var("VERCEL_ENV").ok().as_deref().is_some() {
         Some("VERCEL_ENV")

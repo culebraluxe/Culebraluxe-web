@@ -603,19 +603,15 @@ async fn record_app_diagnostic(
     Json(body): Json<AppDiagnosticEventBody>,
 ) -> Result<StatusCode, ApiError> {
     let _context = super::context::resolve_engine_context(&state, &headers).await?;
-    let dao = db::AppErrorDao::new(state.db().clone());
-    let meta = body.meta.to_string();
-    let _ = dao
-        .record_application_event(
-            &body.kind,
-            &body.operation,
-            &body.message,
-            &body.route,
-            &body.level,
-            body.code.as_deref(),
-            &meta,
-        )
-        .await;
+    super::error_capture::record_application(
+        &body.kind,
+        &body.operation,
+        &body.message,
+        &body.route,
+        &body.level,
+        body.code.as_deref(),
+        body.meta,
+    );
     Ok(StatusCode::NO_CONTENT)
 }
 

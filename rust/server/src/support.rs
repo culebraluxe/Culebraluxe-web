@@ -20,6 +20,8 @@ pub trait SupportDiagnosticsRepository: Send {
         &self,
         instance_id: &str,
     ) -> DbResult<Option<WorkflowDiagnosticsDetail>>;
+    /// Rows in the client directory view and in `person` — the pool diagnostics' sanity counts.
+    async fn db_diagnostic_counts(&self) -> DbResult<(i64, i64)>;
 }
 
 #[async_trait]
@@ -48,6 +50,9 @@ impl SupportDiagnosticsRepository for SupportDiagnosticsDao {
         instance_id: &str,
     ) -> DbResult<Option<WorkflowDiagnosticsDetail>> {
         SupportDiagnosticsDao::workflow_detail(self, instance_id).await
+    }
+    async fn db_diagnostic_counts(&self) -> DbResult<(i64, i64)> {
+        SupportDiagnosticsDao::db_diagnostic_counts(self).await
     }
 }
 
@@ -117,6 +122,24 @@ impl<R: SupportDiagnosticsRepository> SupportDiagnosticsService<R> {
         )
         .await?;
         let result = self.repository.security_status().await.map_err(Into::into);
+        audit_result(&self.runtime, "support", OP, context, decision, &result).await?;
+        result
+    }
+
+    /// The two sanity counts `/v1/diagnostics/db` reports beside the pool metrics. Read by the internal key's System
+    /// actor (`workflow-engine`), which the authorization port grants this one operation explicitly.
+    pub async fn db_counts(&self, context: &ServiceContext) -> Result<(i64, i64), CoreServiceError> {
+        const OP: &str = "support.dbDiagnostics";
+        let decision = authorize(
+            &self.runtime,
+            "support",
+            "support.diagnostics.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+        let result = self.repository.db_diagnostic_counts().await.map_err(Into::into);
         audit_result(&self.runtime, "support", OP, context, decision, &result).await?;
         result
     }
