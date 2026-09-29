@@ -441,6 +441,39 @@ jobs:
         working-directory: rust
         run: cargo test -p server --test mq_runtime_dev -- --ignored --test-threads=1
 
+  rust_dev_server:
+    name: rust DEV server boot + query
+    # THE GATE THAT WOULD HAVE CAUGHT THE 2-HOUR OUTAGE (2026-09-28). Production went down in the
+    # pool's CONNECT path, so every request failed while `cargo test`, `cargo check` and even the CLI's
+    # `db-smoke` — which builds its own pool and never boots the server — all stayed green. The thing
+    # that serves production is `server --bin http`, so `scripts/rust-dev-boot-smoke.sh` boots exactly
+    # that against DEV, waits for `/readyz` (`state.db().ping()`, one real query on the process's own
+    # shared pool), REFUSES anything that did not resolve `database_target=dev`, and then makes one
+    # domain read (`/api/rust-ui/public-page?screen=site-buyers`, the published listings).
+    # READ-ONLY and ONE secret (DATABASE_URL_DEV).
+    #
+    # PARKED, VISIBLY: it needs DATABASE_URL_DEV as a repository secret and RUST_DB_CI set to 'true' —
+    # the same two knobs the two jobs below it wait on. A skipped gate is honest; a job that runs with
+    # no credentials and quietly passes is the failure this repository already recorded. To arm it:
+    #   gh secret set DATABASE_URL_DEV --body "<the DEV Neon URL>"   (or paste in the UI)
+    #   gh variable set RUST_DB_CI --body true
+    if: ${{ vars.RUST_DB_CI == 'true' && github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      APP_ENV: dev
+      DATABASE_URL_DEV: ${{ secrets.DATABASE_URL_DEV }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: rust toolchain
+        run: |
+          rustc --version
+          cargo --version
+
+      - name: boot the server against DEV and query through it
+        run: bash scripts/rust-dev-boot-smoke.sh
+
   database:
     name: database-backed gates
     # Parked until dev credentials exist as secrets. A skipped gate is visibly skipped; a gate that
