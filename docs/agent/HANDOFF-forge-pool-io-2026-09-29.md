@@ -22,7 +22,7 @@ it is §4. The live-run gate (AC #5) is still open — §5 and §6.
 | S10 | `pnpm forge:clean` **empties the queue and strands it**: it cancels open work items (`forge_reset.rs:164-174`) without moving `storyboard_story.status` off `Ready`, and nothing re-queues a `Ready` story (`025_agent_work_queue.sql:104`). Measured, not inferred: `cancelled stale open work items: 8` → `open work items: 0` → the next tick `idle: no work`. | `pnpm forge:clean` output; `forge doctor`; invocations `08:17:39 idle: no work` |
 | S11 | `reset` does **not** strand (it returns the story to `Planned`, `forge_reset.rs:108-116`) — and it was not needed: `ENG-AUTH-GOOGLE-01` was already off `Ready`, because the 08:10 run took it. | `forge batch-status` → `Ready on the board` names the same 8 stories as the queue, without `ENG-AUTH-GOOGLE-01` |
 | S12 | The queue was restored by `db/migrations/258_reopen_stranded_ready_work_items.sql` (DEV then PROD, ledger-recorded), which re-opens the newest `Cancelled` item of every `Ready` story and keeps `queued_at` so FIFO order survives. Tick after it: `open work items: 11`, `08:20:40 pass=1 start`. | `cli db-tool apply … dev` / `… prod --force`; `forge doctor` |
-| S13 | **The first live run on `d3f7552b` got past the point where every earlier run died, and it is in a real role turn with the database untouched.** 10m44s alive against the auth story's 2m40s; the turn is a live `opencode run … --model deepseek/deepseek-flash --auto Execute SDLC story TECH-FLIGHT-RECORDER-…` at 9m24s; and `pg_stat_activity` shows **no forge session at all** during it, `IDLE-IN-TRANSACTION: 0`. | `ps -eo pid,etime,command`; `pg_stat_activity` samples §5 |
+| S13 | **The first live run on `d3f7552b` got past the point where every earlier run died, and it is in a real role turn with the database untouched.** 19m55s alive (turn 18m35s) against the auth story's 2m40s; the turn is a live `opencode run … --model deepseek/deepseek-flash --auto Execute SDLC story TECH-FLIGHT-RECORDER-…`; it is **demonstrably working** — it wrote `rust/ui/src/flight_recorder.rs` at `08:34:34` and `rust/server/src/api/portal_bridge/flight_recorder.rs` at `08:31:41`; and `pg_stat_activity` shows **no forge session at all** during it, `IDLE-IN-TRANSACTION: 0`. The pass's log carries **no failure line**; the only `sqlstate` in it is the 08:10 death above (S9). | `ps -eo pid,etime,command`; file mtimes; `pg_stat_activity` samples §5 |
 
 **Read S5 with S4.** The earlier reading of this failure ("the engine holds a transaction across the role turn") was
 built on three things that each mislead: the operation label `workflow.step` (S5 — it is the constant on every kernel
@@ -108,6 +108,12 @@ terminated session costs a round trip, not a run.
 - `pnpm forge:clean` **was** run (H2 answered Yes — §7) and it emptied the queue (§1 S10); the story reset was not
   run and is not needed (§1 S11). `db/migrations/258_reopen_stranded_ready_work_items.sql` was applied to DEV and to
   PROD — that is the only write this session made to either control plane. Nothing was deployed.
+- **This checkout's working tree is dirty with the running agent's own work, and that is not litter:**
+  `rust/server/src/api/portal_bridge.rs`, `rust/ui/src/app/api/portal.rs`, `rust/ui/src/lib.rs` modified and
+  `rust/server/src/api/portal_bridge/flight_recorder.rs`, `rust/ui/src/flight_recorder.rs` untracked, as of
+  `08:31`–`08:34`. That is the `TECH-FLIGHT-RECORDER-01` role turn implementing its story. **Do not clean, stash,
+  commit or revert it**, and expect `git pull --rebase` to refuse here while a run is live — push the handoff doc
+  alone and leave those files to the engine.
 
 ## 6. OPEN — the next actions, in order
 
