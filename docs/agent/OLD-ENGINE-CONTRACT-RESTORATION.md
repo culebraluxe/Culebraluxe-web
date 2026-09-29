@@ -463,3 +463,27 @@ Scan result on the day it was built: 465 files against 745 Rust tests — **18 f
 more where a Rust test exists for the subject but no case matched (kept), 440 with no evidence found. The queue is
 442. `gap` rows are the cheapest next work, because part of the file is already pinned and the note names which part.
 
+
+### 7.7 The queue is sorted by what each file is about, not only by whether it is covered (2026-09-29)
+
+`docs/agent/LEGACY-TEST-PARITY.md` says how far along a file is; it does not say what the file is *about*, so
+"442 unassessed" was one undifferentiated pile. `scripts/legacy-test-domain-map.py` labels each of the 465 files with
+its area and writes two artifacts: `docs/agent/legacy-test-parity/domains.tsv` (per file) and
+`docs/agent/LEGACY-TEST-DOMAINS.md` (the map, plus the queue counted per area). `bash scripts/legacy-test-parity.sh`
+now joins the area into the ledger, so the queue can be read a piece at a time: `forge` 153 files, `agent-runtime` 54,
+`workflow-engine` 50, `core/clients` 26, `platform` 23, and 21 smaller areas behind them.
+
+The area is derived, never hand-written, and three rules make it honest:
+
+- **Imports vote, weighted by rarity** (`1 / files that import the module`). A file that pulls three forge modules and
+  one client module is a forge file even when the client module is rarer. `db/query-executor` alone appears in 75 files
+  as the fake transaction runner, so a flat "most imports wins" would have labelled a third of the tree as core/db.
+- **The harness never votes.** `db/query-executor`, `db/tx`, `lib/portal-write-error`, `fake-sql`, `harness`,
+  `test-support/`, `scripts/` and fixtures are how a test is wired, not what it is about.
+- **A weak vote loses to the file's own name**, because `forge-story-batch-deploy.test.ts` imports `sql` from
+  `db/client` only to run SQL — and it is the name that says it is a forge test.
+
+The script is the single writer of both artifacts: a wrong area is fixed in `AREA_RULES` and re-rendered, never by
+editing the TSV (a hand-edited row would be overwritten and would give one fact two authors). Every Rust path the map
+cites was checked to exist.
+
