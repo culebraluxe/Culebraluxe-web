@@ -8,7 +8,7 @@ use std::env;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Every statement on the pool is cancelled after this, unless the environment overrides it. See the comment in
 /// `connect_target`: it is a ceiling against a stuck query, not a performance budget.
@@ -16,6 +16,14 @@ const DEFAULT_STATEMENT_TIMEOUT_MS: u64 = 30_000;
 
 /// The ceiling, resolved once per process and settable to 0 by `disable_statement_timeout`.
 static STATEMENT_TIMEOUT_MS: OnceLock<AtomicU64> = OnceLock::new();
+
+/// The moment the pool stops trusting connections it has not just verified, as millis since process start. 0 means
+/// "nothing has failed"; see `note_connection_failure`.
+static SUSPECT_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
+
+/// The process's clock for the suspect window. Monotonic, so a wall-clock adjustment cannot close the window early
+/// or hold it open past its end.
+static PROCESS_START: OnceLock<Instant> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DbTarget {
@@ -89,7 +97,7 @@ impl Database {
         // A CEILING ON EVERY STATEMENT — APPLIED AS A STATEMENT, NOT AS A STARTUP PARAMETER.
         //
         // Without a ceiling, a query that goes wrong holds its connection until Postgres or the network gives up.
-        // There are twelve connections in production, so a handful of stuck statements is the whole portal
+        // There are thirty-two connections in production, so a handful of stuck statements is the whole portal
         // waiting, and the symptom reads as "the site is slow" rather than "this statement never returned".
         // Thirty seconds is far above the slowest page (the worst statement measured here is 872ms) and far
         // below the patience of a person.
@@ -131,7 +139,17 @@ impl Database {
         // independent reads in parallel (Cockpit alone has ten projections), so the old max=5 caused real
         // requests to queue behind connection creation while readiness still looked healthy on its single
         // warm connection. Keep DEV conservative, but size PROD for the concurrency the service actually has.
-        let default_max_connections = if target == DbTarget::Prod { 12 } else { 5 };
+        //
+        // RAISED TO THIRTY-TWO (2026-09-29), and the honest scope of what that does. One Rust process now holds a
+        // pool for the portal AND one for the engine's own steps, and the engine's steps queue behind each other
+        // while a role runs: at twelve, a burst of Cockpit projections plus an engine step waits for a handshake
+        // (~498ms each) rather than for work. Thirty-two removes that queueing.
+        //
+        // It does NOT fix a dead socket. The run that died at 19:25 on 2026-09-29 was killed by a connection that
+        // broke while it was checked out, and no ceiling size can repair that - a bigger pool would only have had
+        // more good connections to hand out around the broken one. The repairs for that are `max_lifetime`, the
+        // post-failure verification window below, and the step retry in the workflow store; this line is headroom.
+        let default_max_connections = if target == DbTarget::Prod { 32 } else { 5 };
         let max_connections = positive_u32("FORGE_DB_POOL_MAX", default_max_connections);
         // KEEP ONE CONNECTION WARM. Without a floor the pool holds nothing when idle, so the next request pays a full
         // connect: measured at 498ms for the handshake plus authentication, against ~72ms for a round trip on a
@@ -147,6 +165,19 @@ impl Database {
         let idle_ms = positive_u64("FORGE_DB_POOL_IDLE_MS", 60_000);
         let connect_ms = positive_u64("FORGE_DB_POOL_CONNECT_MS", 10_000);
 
+        // RETIRE A CONNECTION BY AGE. `FORGE_DB_POOL_MAX_LIFETIME_MS=0` keeps connections forever, which is what this
+        // did until 2026-09-29.
+        //
+        // Both endpoints are Neon `-pooler` (PgBouncer) connections, and the pooler retires server connections on its
+        // own schedule - for reasons that include idle time and its own rebalancing. A client socket that has been
+        // around for a long time has survived many of those windows and is the most likely thing in the pool to be a
+        // half-dead socket that has not been noticed yet. sqlx closes a connection past its lifetime when it is
+        // RETURNED to the pool (`pool/connection.rs`) and the maintenance task closes the ones that are sitting idle
+        // (`pool/inner.rs`), re-establishing the floor immediately, so the next checkout gets a fresh connection
+        // instead of an old one. Thirty minutes is far longer than any single engine step and far shorter than a
+        // Neon suspend window.
+        let lifetime_ms = non_negative_u64("FORGE_DB_POOL_MAX_LIFETIME_MS", 1_800_000);
+
         // PROBE ON IDLE, NOT ON EVERY CHECKOUT.
         //
         // sqlx pings a connection before handing it out whenever `test_before_acquire` is set, and it is set by
@@ -160,11 +191,27 @@ impl Database {
         // the old behaviour, and is how this was measured.
         let idle_probe = Duration::from_millis(non_negative_u64("FORGE_DB_IDLE_PROBE_MS", 30_000));
 
+        // AND VERIFY EVERYTHING FOR A WHILE AFTER SOMETHING BROKE.
+        //
+        // The idle threshold is a guess about when the pooler drops a connection, and a wrong guess is handed straight
+        // to a caller: a connection that broke while it was CHECKED OUT - mid-transaction, which is exactly what killed
+        // the engine run at 19:25 on 2026-09-29 with `Broken pipe (os error 32)` - comes back to the pool looking
+        // exactly like a good one and can be reissued before it has been idle long enough to be probed. Age does not
+        // distinguish them either; both are seconds old.
+        //
+        // So the pool stops trusting its own contents when there is evidence: any connection-class `DbFailure` calls
+        // `note_connection_failure`, and for `FORGE_DB_RECHECK_MS` (60s, 0 to disable) every checkout is verified
+        // before it is used. A bad connection is then caught at the ping instead of by the caller's first statement,
+        // and sqlx replaces it rather than handing it out. One extra round trip per checkout for a minute after a
+        // failure is nothing next to losing a three-hour run, and the window closes by itself.
+        let recheck_ms = recheck_window_ms();
+
         let pool = PgPoolOptions::new()
             .max_connections(max_connections)
             .min_connections(min_connections)
             .idle_timeout(Some(Duration::from_millis(idle_ms)))
             .acquire_timeout(Duration::from_millis(connect_ms))
+            .max_lifetime((lifetime_ms > 0).then(|| Duration::from_millis(lifetime_ms)))
             .test_before_acquire(false)
             // THE CEILING GOES ON HERE, NOT IN THE STARTUP PACKET (see the comment above `options`).
             // `set_config(..., false)` is the session-scoped form, and it takes the value as a BIND: sqlx 0.9's
@@ -189,9 +236,20 @@ impl Database {
                 if meta.age < Duration::from_millis(250) {
                     crate::metrics::record_connection_opened();
                 }
+                let idle_due = meta.idle_for >= idle_probe;
+                // The pool distrusts itself for a window after a connection-class failure. `FORGE_DB_RECHECK_MS=0`
+                // turns the repair off, which is how the old one-probe behaviour is measured.
+                let suspect = recheck_ms > 0 && suspect_window_open();
+                let probe = probe_needed(meta.idle_for, idle_probe, suspect);
+                // Which reason fired only matters for the counters: the ping is the same round trip either way.
+                let recheck = probe && !idle_due;
                 Box::pin(async move {
-                    if meta.idle_for >= idle_probe {
-                        crate::metrics::record_idle_probe();
+                    if probe {
+                        if recheck {
+                            crate::metrics::record_recheck_probe();
+                        } else {
+                            crate::metrics::record_idle_probe();
+                        }
                         if let Err(error) = conn.ping().await {
                             crate::metrics::record_probe_failed();
                             return Err(error);
@@ -224,6 +282,7 @@ impl Database {
             connections_opened: counters.connections_opened.load(Ordering::Relaxed),
             idle_probes: counters.idle_probes.load(Ordering::Relaxed),
             probes_failed: counters.probes_failed.load(Ordering::Relaxed),
+            recheck_probes: counters.recheck_probes.load(Ordering::Relaxed),
             pool_size: self.pool.size(),
             pool_idle: self.pool.num_idle() as u32,
         }
@@ -540,6 +599,62 @@ pub fn disable_statement_timeout() {
     }
 }
 
+/// Whether the pool must verify a connection before it is handed to a caller.
+///
+/// Two independent reasons. The first is the age of an idle connection: the pooler may have dropped it, and 72ms of
+/// round trip is cheaper than a caller discovering it. The second is what this grew on 2026-09-29: while the pool is
+/// suspect after a connection-class failure, EVERY connection is verified, because it cannot tell which socket broke -
+/// a connection that died while it was checked out comes back into the pool looking exactly like a good one.
+///
+/// This is the single decision point, and it is the function the unit tests below exercise: the rule in force and the
+/// rule under test cannot drift apart.
+fn probe_needed(idle_for: Duration, idle_probe: Duration, suspect: bool) -> bool {
+    idle_for >= idle_probe || suspect
+}
+
+/// Millis since this process started, from a monotonic clock.
+fn now_ms() -> u64 {
+    let elapsed = PROCESS_START.get_or_init(Instant::now).elapsed();
+    elapsed.as_millis().min(u64::MAX as u128) as u64
+}
+
+/// How long the pool verifies every connection it hands out after a connection-class failure. 0 disables it.
+///
+/// Resolved once: this is a deployment setting, not a per-checkout value, and it is read on the hot path.
+fn recheck_window_ms() -> u64 {
+    static WINDOW: OnceLock<u64> = OnceLock::new();
+    *WINDOW.get_or_init(|| non_negative_u64("FORGE_DB_RECHECK_MS", 60_000))
+}
+
+/// The end of the verification window opened at `now_ms`, saturating rather than wrapping.
+fn suspect_until_ms(now_ms: u64, window_ms: u64) -> u64 {
+    now_ms.saturating_add(window_ms)
+}
+
+/// Whether a connection-class failure has happened recently enough that the pool should not trust what it holds.
+fn suspect_window_open() -> bool {
+    SUSPECT_UNTIL_MS.load(Ordering::Relaxed) > now_ms()
+}
+
+/// Record that a failure belonged to the CONNECTION, not to the statement, so the pool verifies what it hands out.
+///
+/// Called from `DbFailure::from_sqlx` for every failure classified `DatabaseUnavailable`: a broken pipe, a socket
+/// error, a session the server terminated (`25P03`), a pooler that closed the backend. Nothing else calls it. A
+/// constraint violation or a schema mismatch says nothing about the health of the pool, and marking the pool suspect
+/// for those would put a round trip on every checkout for no reason.
+///
+/// The window EXTENDS while failures keep arriving and closes by itself once they stop, so a database that is genuinely
+/// flapping pays one ping per checkout and a database that hiccuped once pays it for a minute.
+pub(crate) fn note_connection_failure() {
+    let window_ms = recheck_window_ms();
+    if window_ms == 0 {
+        return;
+    }
+    // `fetch_max`: two failures a moment apart hold the window open to the later end, and a failure can never pull it
+    // earlier than the one before it left it.
+    SUSPECT_UNTIL_MS.fetch_max(suspect_until_ms(now_ms(), window_ms), Ordering::Relaxed);
+}
+
 fn positive_u32(name: &str, fallback: u32) -> u32 {
     env::var(name)
         .ok()
@@ -559,6 +674,11 @@ fn positive_u64(name: &str, fallback: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The two window tests below poke PROCESS-GLOBAL state, so they must not run at the same time: the harness runs
+    /// tests on threads, and one test restoring the window would otherwise clear the window another test just opened.
+    /// (Found by these tests failing, 2026-09-29.)
+    static WINDOW_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
     fn vercel_environment_wins() {
@@ -614,5 +734,95 @@ mod tests {
             normalize_ssl_mode("postgres://x/db?sslmode=require"),
             "postgres://x/db?sslmode=verify-full"
         );
+    }
+
+    /// THE POOL REPAIR (2026-09-29). A connection is verified when it has been idle past the threshold, and for a
+    /// window after any connection-class failure — and NOT otherwise, because a round trip on every checkout is the
+    /// cost this design exists to avoid.
+    #[test]
+    fn a_connection_is_probed_when_it_is_idle_or_when_the_pool_is_suspect() {
+        let idle_probe = Duration::from_millis(30_000);
+        let warm = Duration::from_millis(5);
+        let stale = Duration::from_millis(31_000);
+
+        // Nothing has failed and this connection was just used: hand it over without a round trip.
+        assert!(!probe_needed(warm, idle_probe, false));
+        // Nothing has failed, but it has been sitting long enough for the pooler to have dropped it.
+        assert!(probe_needed(stale, idle_probe, false));
+        // A failure happened a moment ago: even a connection returned milliseconds ago is verified, because the pool
+        // cannot tell which socket broke. When that window closes this goes back to false — see
+        // `a_connection_failure_opens_the_verification_window`, which is where the window's end is asserted.
+        assert!(probe_needed(warm, idle_probe, true));
+    }
+
+    /// The window arithmetic must not wrap. A saturating add on a monotonic clock is what stops a long-running
+    /// process from computing an end time in the past and quietly turning the verification off.
+    #[test]
+    fn the_suspect_window_saturates_instead_of_wrapping() {
+        assert_eq!(suspect_until_ms(1_000, 60_000), 61_000);
+        assert_eq!(suspect_until_ms(u64::MAX, 60_000), u64::MAX);
+    }
+
+    /// A connection-class failure opens the window. This test pokes the static deliberately — a unit test has no pool
+    /// to break — and restores it, so the two tests above stay pure.
+    #[test]
+    fn a_connection_failure_opens_the_verification_window() {
+        if recheck_window_ms() == 0 {
+            // `FORGE_DB_RECHECK_MS=0` disables the repair on purpose: there is nothing to assert.
+            return;
+        }
+        let _guard = WINDOW_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let previous = SUSPECT_UNTIL_MS.swap(0, Ordering::Relaxed);
+        assert!(!suspect_window_open(), "the test needs the window closed");
+
+        note_connection_failure();
+        assert!(
+            suspect_window_open(),
+            "a broken socket must make the pool verify what it hands out next"
+        );
+        assert!(
+            SUSPECT_UNTIL_MS.load(Ordering::Relaxed) <= now_ms().saturating_add(recheck_window_ms()),
+            "the window must end when the configured interval passes, not later"
+        );
+
+        SUSPECT_UNTIL_MS.store(previous, Ordering::Relaxed);
+    }
+
+    /// THE WIRING, NOT JUST THE RULE. A driver failure the taxonomy calls a connection failure has to open the window,
+    /// because that call is the only thing connecting "a socket broke" to "the pool verifies what it hands out". The
+    /// error constructed here is the one that killed the run on 2026-09-29 — `sqlx::Error::Io` with `BrokenPipe`, whose
+    /// Display is exactly `error communicating with database: Broken pipe (os error 32)`.
+    #[test]
+    fn a_broken_pipe_from_the_driver_opens_the_verification_window() {
+        if recheck_window_ms() == 0 {
+            return;
+        }
+        let _guard = WINDOW_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let previous = SUSPECT_UNTIL_MS.swap(0, Ordering::Relaxed);
+
+        let error = sqlx::Error::Io(std::io::Error::new(
+            std::io::ErrorKind::BrokenPipe,
+            "Broken pipe (os error 32)",
+        ));
+        let failure = crate::DbFailure::from_sqlx("workflow.step", &error);
+        assert_eq!(
+            failure.kind,
+            crate::DbFailureKind::DatabaseUnavailable,
+            "a broken pipe is the connection's failure, not the statement's"
+        );
+        assert!(
+            failure.retryable,
+            "and it is retryable, which is what lets a step be repeated"
+        );
+        assert!(
+            suspect_window_open(),
+            "a real driver failure must make the pool verify the connections it hands out"
+        );
+
+        SUSPECT_UNTIL_MS.store(previous, Ordering::Relaxed);
     }
 }

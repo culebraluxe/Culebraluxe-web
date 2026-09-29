@@ -8,6 +8,11 @@ pub struct NeonStore {
     pub(super) rt: &'static tokio::runtime::Runtime,
 }
 
+/// The operation name every statement of an engine step is reported under. It is the name an operator sees in
+/// `app_error` and in the flight recorder, so the transaction, the body's statements and the rollback all carry the
+/// same one: "workflow.step" is the thing that failed, not whichever query happened to send first after the socket died.
+const WORKFLOW_STEP: &str = "workflow.step";
+
 /// The runtime every store shares.
 ///
 /// This used to be built PER STORE with `worker_threads(1)`, which is why the engine could not overlap database work:
@@ -59,13 +64,55 @@ impl NeonStore {
 }
 
 impl TxStore for NeonStore {
+    /// One step = one transaction, and a broken CONNECTION is repeated instead of ending the run.
+    ///
+    /// WHY THIS EXISTS (2026-09-29, 19:25Z). A run that had been going for two hours and fifty-three minutes died
+    /// with `error communicating with database: Broken pipe (os error 32); and rolling this step's transaction back
+    /// failed too: DatabaseUnavailable during workflow.step`. The step body failed on a socket that was already gone,
+    /// and a failed body was the end of the run: the flight recorder row carries no verdict at all (`result_status`,
+    /// `failure_code`, `tests_*` and even `cost_usd` are NULL), the work item went back to `Ready`, and the queue
+    /// stopped advancing until a human restarted it. A database hiccup cost three hours of work and the progress
+    /// report that would have explained it.
+    ///
+    /// ONLY THE BODY of a step is repeated, and that is safe for a reason rather than by hope: `step_once` reaches the
+    /// repeat path only when no `COMMIT` was sent, so the server holds nothing of the attempt and the second attempt
+    /// cannot double-apply the step. Two neighbours are deliberately excluded:
+    ///   * a failed `BEGIN` is already retried inside `Database::begin`, against the same classification;
+    ///   * a failed `COMMIT` is NOT repeated, because the work may have been applied and only the acknowledgement
+    ///     lost, and repeating it could apply the step twice. That ambiguity is the caller's to resolve, so the commit
+    ///     failure stays `Generic` and stops here.
+    ///
+    /// The attempts and the wait come from the db crate's own policy (`FORGE_DB_RETRY_ATTEMPTS`, default 3, with
+    /// backoff), so there is one retry policy in the workspace rather than two. The DECISION to repeat is
+    /// `store::repeat_connection_failures`, which is unit-tested without a database — this function supplies the step
+    /// and the real wait, and nothing else. Each failed attempt has already been announced as an `app_error` by the
+    /// `DbFailure` that classified it, so a database that is genuinely down is visible rather than silently retried.
     fn with_tx<R, F>(&self, f: F) -> Result<R>
     where
-        F: FnOnce(&mut dyn Store) -> Result<R>,
+        F: FnMut(&mut dyn Store) -> Result<R>,
+    {
+        let policy = db::retry::policy();
+        let mut f = f;
+        crate::store::repeat_connection_failures(
+            || self.step_once(&mut f),
+            policy.attempts,
+            |attempt| {
+                self.rt
+                    .block_on(db::retry::sleep_before_retry(policy, attempt));
+            },
+        )
+    }
+}
+
+impl NeonStore {
+    /// One attempt at a step: begin, run the body, commit — or roll back and say so.
+    fn step_once<R, F>(&self, f: &mut F) -> Result<R>
+    where
+        F: FnMut(&mut dyn Store) -> Result<R>,
     {
         let mut tx = self
             .rt
-            .block_on(self.db.begin("workflow.step"))
+            .block_on(self.db.begin(WORKFLOW_STEP))
             .map_err(|e| WorkflowError::generic(e.to_string()))?;
         let result = {
             let mut store = NeonTx {
@@ -76,6 +123,12 @@ impl TxStore for NeonStore {
         };
         match result {
             Ok(v) => {
+                // A FAILED COMMIT IS NOT CLASSIFIED AS TRANSIENT, so `with_tx` does not repeat it.
+                //
+                // The commit may have been applied by the server with only the acknowledgement lost, and repeating the
+                // step in that case would apply it twice. `driver_failure` below therefore classifies the body's
+                // failures (which provably never committed) and this one stays `Generic` — the difference between "this
+                // step never ran" and "this step may have run" is carried in the error type rather than guessed at.
                 self.rt
                     .block_on(tx.commit())
                     .map_err(|e| WorkflowError::generic(e.to_string()))?;
@@ -116,13 +169,32 @@ impl NeonTx<'_> {
     }
 }
 
+/// Map a driver failure the way the db crate classifies it, so a broken CONNECTION is distinguishable from a refusal
+/// by the database.
+///
+/// EVERY DRIVER ERROR USED TO BECOME `WorkflowError::generic` (2026-09-29). That threw away the difference between
+/// "the socket died and this step never ran" and "the database said no", which is exactly the difference `with_tx`
+/// needs in order to know whether repeating the step is safe. The classification comes from `DbFailure`, where the
+/// sqlstate taxonomy already lives (`08*`, `25P03`, `53300`), instead of being re-derived from message text here.
+///
+/// `Timeout` is deliberately NOT transient. A statement cancelled by our own 30s ceiling (`57014`) has already run, and
+/// repeating the step around it would repeat the work it was cancelled for.
+fn driver_failure(e: sqlx::Error) -> WorkflowError {
+    let failure = db::DbFailure::from_sqlx(WORKFLOW_STEP, &e);
+    if failure.kind == db::DbFailureKind::DatabaseUnavailable {
+        WorkflowError::unavailable(failure.to_string())
+    } else {
+        WorkflowError::generic(failure.to_string())
+    }
+}
+
 pub(super) fn exec_q<'q>(tx: &mut NeonTx<'_>, q: Query<'q, Postgres, PgArguments>) -> Result<u64> {
     let handle = tx.handle.clone();
     let conn = tx.conn();
     handle
         .block_on(q.execute(conn))
         .map(|r| r.rows_affected())
-        .map_err(|e| WorkflowError::generic(e.to_string()))
+        .map_err(driver_failure)
 }
 
 pub(super) fn fetch_all_q<'q>(
@@ -133,7 +205,7 @@ pub(super) fn fetch_all_q<'q>(
     let conn = tx.conn();
     handle
         .block_on(q.fetch_all(conn))
-        .map_err(|e| WorkflowError::generic(e.to_string()))
+        .map_err(driver_failure)
 }
 
 pub(super) fn fetch_one_q<'q>(
@@ -144,7 +216,7 @@ pub(super) fn fetch_one_q<'q>(
     let conn = tx.conn();
     handle
         .block_on(q.fetch_one(conn))
-        .map_err(|e| WorkflowError::generic(e.to_string()))
+        .map_err(driver_failure)
 }
 
 pub(super) fn fetch_optional_q<'q>(
@@ -155,5 +227,5 @@ pub(super) fn fetch_optional_q<'q>(
     let conn = tx.conn();
     handle
         .block_on(q.fetch_optional(conn))
-        .map_err(|e| WorkflowError::generic(e.to_string()))
+        .map_err(driver_failure)
 }

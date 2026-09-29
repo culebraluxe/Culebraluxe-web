@@ -417,7 +417,11 @@ impl<S: TxStore> WorkflowEngine<S> {
                 locked_until: None,
                 attempts: 0,
                 max_attempts: max_attempts.unwrap_or(5),
-                payload,
+                // CLONED, NOT MOVED (2026-09-29). A step whose connection failed is repeated, so this closure runs
+                // more than once and cannot consume the payload it captures: `payload` would work for the first
+                // attempt and silently insert an empty job on the second. The `FnMut` bound on `with_tx` is what
+                // forced this to be stated instead of discovered in production.
+                payload: payload.clone(),
                 last_error: None,
                 created_at: now,
                 updated_at: now,

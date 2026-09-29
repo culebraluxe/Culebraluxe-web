@@ -32,13 +32,17 @@ impl MemoryStore {
         Self::default()
     }
 
+    /// `FnMut` for the same reason as the trait (`store::TxStore::with_tx`): the in-memory store restores its snapshot
+    /// when the body fails, so a repeated step sees exactly the state the first attempt saw, and a caller is free to
+    /// call it again.
     pub fn with_tx<T, F>(&self, f: F) -> Result<T>
     where
-        F: FnOnce(&mut dyn Store) -> Result<T>,
+        F: FnMut(&mut dyn Store) -> Result<T>,
     {
         let mut guard = self.inner.lock().expect("store lock");
         let snapshot = guard.clone();
         let mut tx = MemoryTx { inner: &mut guard };
+        let mut f = f;
         match f(&mut tx) {
             Ok(v) => Ok(v),
             Err(e) => {
@@ -63,7 +67,7 @@ impl MemoryTx<'_> {
 impl crate::store::TxStore for MemoryStore {
     fn with_tx<R, F>(&self, f: F) -> Result<R>
     where
-        F: FnOnce(&mut dyn Store) -> Result<R>,
+        F: FnMut(&mut dyn Store) -> Result<R>,
     {
         MemoryStore::with_tx(self, f)
     }

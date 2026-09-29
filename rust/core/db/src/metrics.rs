@@ -5,7 +5,9 @@
 //! has to *open a connection* rather than reuse one - that is the 498ms case, and it is invisible from the outside
 //! because it looks like "the database is slow".
 //!
-//! WHAT IS COUNTED. Checkouts, connections opened, idle probes, and the pool's current size. Not query duration: the
+//! WHAT IS COUNTED. Checkouts, connections opened, idle probes, recheck probes (checkouts verified because a
+//! connection-class failure had just happened, not because the connection looked old), and the pool's current size.
+//! Not query duration: the
 //! DAOs hold `&PgPool` directly, so there is no single place to wrap a query, and inventing one would mean touching
 //! every call site. The counters here come from hooks sqlx already gives the pool, so they cost nothing on the hot path.
 
@@ -21,6 +23,10 @@ pub struct Counters {
     pub idle_probes: AtomicU64,
     /// Probes that found a dead connection, which is what the probe exists to catch.
     pub probes_failed: AtomicU64,
+    /// Checkouts probed because a connection-class failure had just happened, rather than because the connection
+    /// looked old. See `pool::note_connection_failure`: after a broken socket the pool verifies every connection
+    /// it hands out for a short window, and this counts how often that happened.
+    pub recheck_probes: AtomicU64,
 }
 
 pub static COUNTERS: Counters = Counters {
@@ -28,6 +34,7 @@ pub static COUNTERS: Counters = Counters {
     connections_opened: AtomicU64::new(0),
     idle_probes: AtomicU64::new(0),
     probes_failed: AtomicU64::new(0),
+    recheck_probes: AtomicU64::new(0),
 };
 
 pub fn record_checkout() {
@@ -46,12 +53,17 @@ pub fn record_probe_failed() {
     COUNTERS.probes_failed.fetch_add(1, Ordering::Relaxed);
 }
 
+pub fn record_recheck_probe() {
+    COUNTERS.recheck_probes.fetch_add(1, Ordering::Relaxed);
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct Snapshot {
     pub checkouts: u64,
     pub connections_opened: u64,
     pub idle_probes: u64,
     pub probes_failed: u64,
+    pub recheck_probes: u64,
     pub pool_size: u32,
     pub pool_idle: u32,
 }

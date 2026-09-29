@@ -115,8 +115,130 @@ pub trait Store {
 }
 
 /// One engine step = one transaction (ENG-09).
+///
+/// `FnMut`, NOT `FnOnce` (2026-09-29): a step whose connection failed has to be repeatable, because nothing committed
+/// and the alternative is losing the whole run (`NeonStore::with_tx`). A closure that moves a captured value out of
+/// itself cannot be called twice, so this bound is the compiler refusing a step that could not be retried — which is
+/// the right place for that refusal to happen, at the call site that built the step.
 pub trait TxStore {
     fn with_tx<R, F>(&self, f: F) -> Result<R>
     where
-        F: FnOnce(&mut dyn Store) -> Result<R>;
+        F: FnMut(&mut dyn Store) -> Result<R>;
+}
+
+/// Repeat a step while — and only while — its failure belonged to the connection.
+///
+/// THE RULE LIVES HERE, ONCE (2026-09-29). `NeonStore::with_tx` is the only production store, and its step is what dies
+/// when a socket breaks mid-transaction; but the decision — repeat, or hand the failure back — belongs next to the
+/// trait that defines what a step IS, and here it can be tested without a database. That matters more than the tidiness:
+/// this decision is the difference between a database hiccup costing one step and costing a three-hour run, so it is
+/// the part of the repair that must not be taken on faith.
+///
+/// Everything that is not a connection failure goes back to the caller on the first attempt, because repeating it
+/// either wastes a round trip or changes the meaning of the answer: a step the database refused has been refused.
+pub(crate) fn repeat_connection_failures<R, S, W>(mut step: S, attempts: u32, mut wait: W) -> Result<R>
+where
+    S: FnMut() -> Result<R>,
+    W: FnMut(u32),
+{
+    let attempts = attempts.max(1);
+    let mut attempt = 0;
+    loop {
+        attempt += 1;
+        match step() {
+            Ok(value) => return Ok(value),
+            Err(error) => {
+                if !error.is_connection_failure() || attempt >= attempts {
+                    return Err(error);
+                }
+                wait(attempt);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::WorkflowError;
+
+    /// The engine is strictly serial and the run this repairs was two hours fifty-three minutes long, so the repeat has
+    /// to be visible: this asserts the step is repeated, that the wait is told which attempt failed (so backoff can
+    /// grow), and that the caller gets the SECOND attempt's result rather than the first attempt's failure.
+    #[test]
+    fn a_connection_failure_is_repeated_and_the_success_is_returned() {
+        let mut calls = 0;
+        let mut waits = Vec::new();
+        let result = repeat_connection_failures(
+            || {
+                calls += 1;
+                if calls < 3 {
+                    Err(WorkflowError::unavailable(
+                        "error communicating with database: Broken pipe (os error 32)",
+                    ))
+                } else {
+                    Ok("committed")
+                }
+            },
+            3,
+            |attempt| waits.push(attempt),
+        );
+        assert_eq!(result.unwrap(), "committed");
+        assert_eq!(calls, 3, "two broken sockets were survived, not one");
+        assert_eq!(waits, vec![1, 2], "the wait must know which attempt failed");
+    }
+
+    /// A refusal is an answer, not a hiccup. Repeating it wastes a round trip and hides what the database said — this
+    /// is the assertion that keeps the retry from becoming a blanket "try three times".
+    #[test]
+    fn a_refusal_is_not_repeated() {
+        let mut calls = 0;
+        let result: Result<()> = repeat_connection_failures(
+            || {
+                calls += 1;
+                Err(WorkflowError::conflict(
+                    "PROCESS_NOT_ACTIVE",
+                    "process is not active",
+                ))
+            },
+            3,
+            |_| panic!("a refusal must not be waited on"),
+        );
+        assert_eq!(result.unwrap_err().code(), "PROCESS_NOT_ACTIVE");
+        assert_eq!(calls, 1, "repeating a refusal only repeats the refusal");
+    }
+
+    /// Bounded, so a database that is genuinely down fails the step instead of holding the engine forever: the caller
+    /// gets the connection failure and the run records a verdict instead of hanging.
+    #[test]
+    fn a_connection_that_never_recovers_gives_up_after_the_policy_runs_out() {
+        let mut calls = 0;
+        let result: Result<()> = repeat_connection_failures(
+            || {
+                calls += 1;
+                Err(WorkflowError::unavailable("broken pipe"))
+            },
+            3,
+            |_| {},
+        );
+        assert!(result.unwrap_err().is_connection_failure());
+        assert_eq!(calls, 3, "attempts come from the policy and are finite");
+    }
+
+    /// `attempts: 0` must not mean "no attempts": a misconfigured policy still has to run the step once, or the engine
+    /// would silently do nothing at all.
+    #[test]
+    fn a_zero_attempt_policy_still_runs_the_step_once() {
+        let mut calls = 0;
+        let result = repeat_connection_failures(
+            || {
+                calls += 1;
+                Ok("ran")
+            },
+            0,
+            |_| {},
+        );
+        assert_eq!(result.unwrap(), "ran");
+        assert_eq!(calls, 1);
+    }
 }

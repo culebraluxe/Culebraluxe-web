@@ -93,6 +93,14 @@ impl DbFailure {
             if let Some(constraint) = database_error.constraint() {
                 detail = format!("{detail} (constraint {constraint})");
             }
+            // A CONNECTION-CLASS FAILURE IS EVIDENCE ABOUT THE POOL, NOT ONLY ABOUT THIS CALL (2026-09-29).
+            //
+            // The pool learns here that something in it is not healthy, so it verifies every connection it hands out
+            // for the next `FORGE_DB_RECHECK_MS` instead of trusting a socket it never inspected. This is called from
+            // the constructor so no call site can forget it.
+            if kind == DbFailureKind::DatabaseUnavailable {
+                crate::pool::note_connection_failure();
+            }
             return Self {
                 retryable: matches!(
                     kind,
@@ -121,6 +129,12 @@ impl DbFailure {
         } else {
             DbFailureKind::Unknown
         };
+
+        // The socket-level half of the same rule: this is the branch a bare `Broken pipe (os error 32)` arrives on,
+        // because the driver reports it as an I/O error with no sqlstate at all. Same evidence, same response.
+        if kind == DbFailureKind::DatabaseUnavailable {
+            crate::pool::note_connection_failure();
+        }
 
         Self {
             retryable: matches!(

@@ -51,7 +51,11 @@ impl<S: TxStore> WorkflowEngine<S> {
     /// `FORGE_SDLC-v6` out of a uuid column.
     pub fn seed_definition(&self, def: ProcessDefinition) -> Result<()> {
         self.store.with_tx(|tx| {
-            tx.ensure_definition(def)?;
+            // `def.clone()` RATHER THAN `def` (2026-09-29). A step must be repeatable, so a step may not consume what it
+            // captures: `tx.ensure_definition(def)` moves the definition into the store, which would leave nothing for
+            // a second attempt after a broken socket — and the compiler refuses that rather than letting the retry run
+            // on an empty value. The clone is paid once per definition registration, which is not a hot path.
+            tx.ensure_definition(def.clone())?;
             Ok(())
         })
     }

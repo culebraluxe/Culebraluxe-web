@@ -55,6 +55,10 @@ pub async fn db_metrics(
         "connectionsOpened": snapshot.connections_opened,
         "idleProbes": snapshot.idle_probes,
         "probesFailed": snapshot.probes_failed,
+        // Checkouts that were verified because a connection-class failure had just happened, rather than because the
+        // connection looked old. Non-zero after any broken socket, and the number that says the pool is repairing
+        // itself instead of handing a dead connection to a caller.
+        "recheckProbes": snapshot.recheck_probes,
         "poolSize": snapshot.pool_size,
         "poolIdle": snapshot.pool_idle,
         // The headline: the share of checkouts served by a connection that was already open. Anything well below 1
