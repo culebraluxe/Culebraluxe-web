@@ -1,12 +1,4 @@
 {
-  "agent-runtime/deepseek/dsh-client.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    },
-    "no-useless-assignment": {
-      "count": 1
-    }
-  },
   "scripts/agent-scheduler.mjs": {
     "no-useless-assignment": {
       "count": 2
@@ -27,11 +19,6 @@
   },
   "scripts/check-svar-widgets.mts": {
     "no-useless-assignment": {
-      "count": 1
-    }
-  },
-  "scripts/oc-probe3.ts": {
-    "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
@@ -63,29 +50,6 @@
   "scripts/verify-needs-review-resolution.mjs": {
     "@typescript-eslint/no-unused-vars": {
       "count": 3
-    }
-  },
-  "testv2/engine_tests/fake-sql.ts": {
-    "@typescript-eslint/no-this-alias": {
-      "count": 3
-    }
-  },
-  "workflow_engine/lib/workflow/engine.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 27
-    },
-    "prefer-const": {
-      "count": 2
-    }
-  },
-  "workflow_engine/lib/workflow/expressions.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    }
-  },
-  "workflow_engine/lib/workflow/types.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 12
     }
   }
 }

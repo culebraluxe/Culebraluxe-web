@@ -1,6 +1,6 @@
 # Dead commands — the `pnpm` menu, keep-or-delete
 
-Measured **2026-09-28** by `node scripts/dead-command-sweep.mjs` (`pnpm broken:ts:commands --check`).
+Measured **2026-09-29** by `node scripts/dead-command-sweep.mjs` (`pnpm broken:ts:commands --check`).
 
 `docs/agent/BROKEN-TS-INVENTORY.md` is the file-by-file ledger: which FILES cannot load, and what each
 capability's Rust home is. This page asks the same question from the operator's side: **which COMMANDS
@@ -10,22 +10,31 @@ three of them are named in runbooks as if they worked.
 
 ## The honest number
 
-145 `package.json` scripts. **53 name a banner file.** Zero name a file that is missing from disk: every
+121 `package.json` scripts. **25 name a banner file.** Zero name a file that is missing from disk: every
 reference resolves to a file that exists and is marked dead.
 
 | Block | Commands | What it is |
 | --- | --- | --- |
-| Forge / story operator surface | 17 | the Forge harness and the board feeders: one Rust `forge` subcommand each |
-| agent runtime | 3 | the retired Node agent loop (`rust/forge/src/bin/forge_worker.rs` is its replacement) |
-| retired server stack | 33 | the old TypeScript services, their probes (`verify:*`), loaders and sync jobs |
+| Forge / story operator surface | 7 | the Forge harness and the board feeders: one Rust `forge` subcommand each |
+| agent runtime | 1 | the retired Node agent loop (`rust/forge/src/bin/forge_worker.rs` is its replacement) |
+| retired server stack | 17 | the old TypeScript services, their probes (`verify:*`), loaders and sync jobs |
 
-Three corrections, recorded so the number stays honest:
+Four corrections, recorded so the number stays honest:
 
-1. The earlier figure of 56 (21 + 3 + 32) was a hand count. The sweep says **17 + 3 + 33 = 53**, and the
-   sweep is the authority: it reads `package.json` and the banner itself, nothing else.
+1. The earlier figure of 56 (21 + 3 + 32) was a hand count. The sweep said **17 + 3 + 33 = 53** on
+   2026-09-28, and the sweep is the authority: it reads `package.json` and the banner itself, nothing else.
 2. `check:widgets` → `scripts/check-svar-widgets.mts` was absent from every earlier count because the
    pattern did not include `.mts`. It does now, so it cannot hide again.
 3. `forge:roi` was ported on 2026-09-28 (`be6df89d`) and has left this list.
+4. **53 → 25 on 2026-09-29** (`08648e86` and the commits after it): the dead-TS sweep deleted the files
+   this lane owned, and 21 commands went with their files. A command was removed only when every file it
+   named was one of the deletions — `agent:runtime:dogfood`, `agent:runtime:deepseek`, `bank:dry-run`,
+   `bank:load:dev`, `bank:load:prod`, `cleanse:dev`, `db:export:projects`, `forge:board-sync`,
+   `forge:decision`, `forge:ladder`, `forge:learn`, `forge:record-stories`, `forge:scorecard`,
+   `forge:silent-failure-gate`, `forge:story:run`, `forge:test-stories`, `forge:tools`, `forge:triage`,
+   `identity:phone:audit:prod`, `mailbox:intake`, `mailbox:verify`, and `test:agent-runtime` (whose glob
+   `agent-runtime/*.test.ts` matched no file). `` `pnpm forge:engine` `` is the Rust replacement for what
+   `agent:runtime:*` used to drive.
 
 The count may only fall. `--check` fails when it rises **and** when it falls without the baseline being
 lowered, so this page and the tree cannot drift apart silently.
