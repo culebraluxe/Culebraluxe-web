@@ -342,20 +342,23 @@ mod tests {
 
     #[test]
     fn the_internal_key_is_matched_exactly_and_a_missing_one_is_refused() {
-        let key = "b3f1c0a9d4e5f60718293a4b5c6d7e8f";
+        // Deliberately NOT a secret-shaped value: a run of hex would be caught by the secret scan as a generic
+        // API key, and a fixture that has to be allow-listed teaches the scanner to look away from a key shape —
+        // which is the opposite of what a secret scan is for.
+        let key = "internal-key-under-test-not-a-secret";
         assert!(internal_key_matches(key, Some(key)));
         // One byte wrong anywhere — including in the last byte, where a short-circuiting compare would be
         // fastest to answer — is a refusal.
         assert!(!internal_key_matches(
             key,
-            Some("b3f1c0a9d4e5f60718293a4b5c6d7e8e")
+            Some("internal-key-under-test-not-a-secreu")
         ));
         assert!(!internal_key_matches(
             key,
-            Some("a3f1c0a9d4e5f60718293a4b5c6d7e8f")
+            Some("xnternal-key-under-test-not-a-secret")
         ));
         // A prefix of the right key is not the key.
-        assert!(!internal_key_matches(key, Some("b3f1c0a9")));
+        assert!(!internal_key_matches(key, Some("internal-key")));
         // An empty value is not "no value" and is not the key.
         assert!(!internal_key_matches(key, Some("")));
         assert!(!internal_key_matches(key, None));

@@ -16,7 +16,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      # FULL HISTORY: `cargo test --workspace` below includes the manifest history reader, which reads the real
+      # `git log` and asserts it found commits touching its scope word. A shallow clone fails it (2026-09-28).
+      - name: checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       # THE WORKSPACE, NOT JUST `server`. Until 2026-09-20 this job compiled `domain`, `db` and `server` only, so
       # `workflow`, `integrations` and `forge` — the crates that produce the Forge engine and the `re-workflow`
       # binary — were never compiled by any gate. The workspace held 39 compile errors behind a green check,

@@ -261,7 +261,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      # FULL HISTORY, for the same reason the static job has it — and this one is not about the secret scan.
+      # `cli/src/forge/manifest.rs`'s `the_history_reader_answers_three_questions_in_one_pass` reads the real
+      # `git log` for commits that touched a scope word and asserts it found at least one. On a shallow clone
+      # (the default, one commit) that assertion fails, which is exactly what happened the first time this job
+      # reached `cargo test` on 2026-09-28 — the step had been unreachable since the job was written. The reader
+      # degrades to "no history" only when git is ABSENT, not when it is shallow, and loosening the test to pass
+      # on a shallow clone would make it silent in CI forever.
+      - name: checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: rust toolchain
         run: |

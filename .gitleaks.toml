@@ -36,8 +36,14 @@ tags = ["database", "credentials"]
   regexTarget = "match"
   regexes = [
     '''(?:localhost|127\.0\.0\.1|0\.0\.0\.0)''',
-    '''://[^:]+:(?:postgres|password|pass|changeme|example|dummy|fake|secret|test|hunter2)@''',
+    '''://[^:]+:(?:postgres|password|pass|pw|changeme|example|dummy|fake|secret|test|hunter2)@''',
     '''\.(?:invalid|example|test)\b''',
+    # A Neon URL written the way Neon's own documentation writes one: `npg_SECRET` in the username and
+    # `ep-cool-db-12345` as the host. Recognised by the placeholder words themselves, added 2026-09-28 when the
+    # scan reached this step for the first time (CI had been failing at `lint` before it, so nothing had ever
+    # reported it).
+    '''npg_[A-Za-z_]*SECRET[A-Za-z_]*''',
+    '''ep-cool-db-\d+''',
   ]
 
   # Test files carry example connection strings by design. This allowlist is scoped to THIS rule
@@ -63,6 +69,24 @@ id = "culebraluxe-icloud-app-password"
 description = "Apple app-specific password (four groups of four lowercase letters)"
 regex = '''\b[a-z]{4}-[a-z]{4}-[a-z]{4}-[a-z]{4}\b'''
 tags = ["apple", "icloud", "credentials"]
+
+  # FOUR LETTERS IS ALSO THE SHAPE OF AN ENGLISH WORD, so this rule fires on prose. Every entry below was read
+  # by hand on 2026-09-28 and is a word or an obvious placeholder, not a credential: `half-away-from-zero` is a
+  # rounding mode in `ui/src/format.rs`, and the other three are test values that say what they are. Scoped to
+  # THIS rule, so it cannot blind the database, BoldSign or Vercel rules.
+  #
+  # The rule stays as it is rather than gaining an entropy floor because a real app-specific password IS
+  # random four-groups-of-four (`half` and `abcd` are not), and an entropy floor here would be a guess about
+  # what Apple generates. If a fifth false positive appears, the honest fix is this list plus a comment.
+  [[rules.allowlists]]
+  description = "English words and self-describing placeholders that share the four-group shape"
+  regexTarget = "match"
+  regexes = [
+    '''half-away-from-zero''',
+    '''nope-nope-nope-nope''',
+    '''xxxx-xxxx-xxxx-xxxx''',
+    '''abcd-efgh-ijkl-mnop''',
+  ]
 
 [[rules]]
 id = "culebraluxe-xai-key"
@@ -93,6 +117,10 @@ description = "Example env, documentation and build output are not live credenti
 # literal and narrow because gitleaks scans immutable git history.
 regexes = [
   '''1234567890abcdef''',
+  # A unit-test value that says what it is, in `server/src/api/ui_auth.rs`: the portal-key test writes
+  # `k3y-that-is-long-enough` to prove a key of sufficient length is accepted. Read by hand 2026-09-28; it is not
+  # a credential and never was.
+  '''k3y-that-is-long-enough''',
 ]
 paths = [
   '''\.env\.example$''',

@@ -20,3 +20,16 @@
 05798924a3cf0e8ee452235779470671f08e908f:app/api/internal/signature-provision-reset/route.ts:generic-api-key:7
 14298904e4b7718747b42da3276c15689e7c5ab7:app/api/internal/signature-provision/route.ts:generic-api-key:8
 847b7a27d87a5ba2b3e42ed24449a3f4bc0796d7:app/api/internal/jessica-listing-v4/route.ts:generic-api-key:5
+# ---------------------------------------------------------------------------
+# 2026-09-28 — a fixture I wrote, and then removed rather than excused.
+#
+# `rust/server/src/api/context.rs` gained a constant-time key test whose fixture was a run of hex. gitleaks
+# reads a 32-character run of hex as a generic API key, and it was right to: the value looked exactly like a
+# secret. It was never one — it was invented for the test and has never been any credential.
+#
+# The test now uses `internal-key-under-test-not-a-secret`, which says what it is, so the CURRENT tree has no
+# finding. History cannot be rewritten, so this fingerprint records the one commit that carried the old literal,
+# with a reason. It is not a precedent: the fix for a fixture that looks like a secret is to rename the fixture,
+# not to add a line here.
+# ---------------------------------------------------------------------------
+77c2bb714248f763500cbf35073e6ae327335d13:rust/server/src/api/context.rs:generic-api-key:345
