@@ -34,10 +34,12 @@ questions on purpose: a port can be complete and still cut over to nothing.
 
 ## The live Rust surface
 
-111 routes mounted (read from the router, not from this file):
+113 routes mounted (read from the router, not from this file):
 
 - `/healthz` _(infrastructure)_
 - `/readyz` _(infrastructure)_
+- `/api/build-info` _(infrastructure)_
+- `/api/rust-ready` _(infrastructure)_
 - `/v1/whoami` _(infrastructure)_
 - `/v1/services` _(native: services)_
 - `/v1/services/health` _(native: services)_

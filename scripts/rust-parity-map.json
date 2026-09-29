@@ -205,6 +205,8 @@
   "knownUnmappedRoutes": [
     "/healthz",
     "/readyz",
-    "/v1/whoami"
+    "/v1/whoami",
+    "/api/build-info",
+    "/api/rust-ready"
   ]
 }
