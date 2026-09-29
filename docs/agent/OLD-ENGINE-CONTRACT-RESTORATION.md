@@ -134,7 +134,73 @@ Smallest risk is not the order here; **what decides whether an unattended agent 
 6. **Contract 2 — story identity.** Fixed and awaiting the Captain's keep-or-drop decision on the uncommitted patch.
 7. **Contract 7 — the audit's findings**, in the order the audit ranks them.
 
-## 5. Blocking decisions (Captain)
+## 5. Phase 0 inventory (evidence, no code)
+
+Root cause and scope agreed by the Captain 2026-09-29. Everything below is read from the tree as it stands.
+
+### 6.1 The seams
+
+Seven, not six, and each one is a place where an agent's output must either conform to the interface or the run
+stops: (1) Story Packet in; (2) dispatch envelope in, on claim; (3) story identity into every role task; (4) artifact
+out of a role into a row; (5) completion receipt out, durable across the per-dispatch process; (6) hold and verdict
+out; (7) canonical Story Board state writes.
+
+### 6.2 Rails that no execution code reads
+
+Searched `rust/forge/src`, `rust/server/src`, `rust/core/db/src` for each column:
+
+| column | rail in the schema | readers found | what the readers are |
+| --- | --- | --- | --- |
+| `execution_policy` | **NOT NULL**, CHECK `Unattended OK / Daytime Only / Human Gate / Manual Only` | **none** | — the Human Gate rail has no reader anywhere |
+| `model_profile` | legacy envelope field | **none** | — |
+| `model_policy` | CHECK `cheap / judgment` | 2 files | `core/db/forge_doctor.rs`, `core/db/forge_read.rs` — reporting only, never execution |
+| `launch_intent` | CHECK `SOLO / SMITH / SPLIT / HOLD`, DB comment "Carried to the Lead as benchIntent" | 1 file | `server/src/tech.rs` — the **writer** (Cockpit `set_dispatch_options`); no engine reader |
+| `stop_after` | CHECK `scout / architect / lead`, DB comment "read by the engine worker when it claims the item" | type only | `engine/executor.rs:250`, defaulted `None` at `:266`; no read of the column |
+| `execution_environment` | CHECK `DEV / PROD / TEST / LOCAL` | 1 file | `core/db/tech.rs` — inside a `json_build_object` for the cockpit, reporting |
+| `special_instructions` | legacy envelope field | 1 file | `engine/packet.rs:9` type, `:40` hardcoded `None`, `:106` read — from the environment packet, not the work item |
+
+The pattern is exact: **the rails are read for display and not for execution.** The doctor can report a dispatch's
+model policy while the engine ignores it; the Cockpit writes `launch_intent` and nothing carries it to the Lead.
+
+### 6.3 Mask sites on write or decision paths (the sweep)
+
+Distinction the guard must encode: `let _ = f()?;` propagates the error and discards an uninteresting value — allowed.
+`let _ = f();` discards the **failure** — that is the violation. On that rule:
+
+1. `engine/runtime.rs:145` — `ledger: Arc::new(MemoryLedger::new())` as the production default. `with_ledger()`
+   exists at `:91` as an injection point and has **no production caller**; every dispatch therefore starts blank.
+2. `engine/process.rs:24`, `engine/process.rs:47`, `engine/executor.rs:289` — `let _ = self.reconcile_completions(..)?;`
+   the reconcile result (how many completions were reconciled) is discarded at all three call sites.
+3. `bin/forge.rs:156` — `OpenCodeHarness::from_env()`: the model is chosen from the process environment while the
+   rail-selected policy sits unread in the claimed row.
+4. `engine/packet.rs:40` — `special_instructions: None`.
+5. `engine/architect.rs:78`, `:84` — `capture_string(slice, "baseRef")` / `"summary"` `.unwrap_or_default()`: a
+   provider response missing a required field becomes an empty string instead of a refusal. This is the
+   "output was not well formed and it wandered" case, unguarded.
+6. `engine/decisions.rs:46`, `:60` — `String::new()` / `unwrap_or_default()` on the role-decision path.
+7. `engine/hold.rs:42` — `originating_node.unwrap_or_default()` inside hold handling.
+8. `bin/forge_task.rs:46`, `:48` — `let _ = eng.seed_definition(def)` twice: a failed canonical definition write is
+   discarded.
+9. `server/src/api/engine.rs:116` — `let _ = reply_tx.send(..)`: a lost engine reply is silent. `:350`
+   `.unwrap_or_default()` needs its rail named.
+10. Benign and to be left alone (buffer accumulators and test-shaped values, not rails): `engine/xml.rs:114,161,204`,
+    `engine/architect.rs:123`, `engine/workspace_id.rs:4`, `core/workflow/src/json_codec.rs:10,126`, `roi.rs`,
+    `sync_conflict.rs:77`, `doctor_report.rs:240-244`, `opencode_client.rs:79-89`.
+
+### 6.4 Also swept, lower urgency (workflow engine proper)
+
+`core/workflow/src/json_codec.rs:386-387` (`id`, `node_type` via `unwrap_or_default()` while parsing a workflow
+definition), `handle_join.rs:40,63`, `execute_node_leave.rs:210`, `fire_timer_job.rs:162,231,264`. These are the
+workflow crate's own seams and belong in the inventory, but they are not the Forge handoff path.
+
+### 6.5 What Phase 0 does not claim
+
+The count is now **seven seams, ten mask sites on execution paths, seven rails with no execution reader**. This is a
+floor and it is bounded by the two sweeps in 6.2 and 6.3, run over three crates. It is not yet a claim that the
+count is complete: the authoritative completion is a per-contract row (contract, rail, legacy test, Rust refusal
+test, status), which is Phase 1 work, and the audit of the 465 legacy tests adds rows the sweeps cannot see.
+
+## 6. Blocking decisions (Captain)
 
 1. **Keep or drop** the uncommitted contract 2 patch: five Rust files, `rust/forge/src/engine/runtime.rs`,
    `rust/forge/src/engine/runner.rs`, `rust/forge/src/engine/writer.rs`, `rust/forge/src/engine/db_writer.rs` and
