@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use chrono::{Datelike, Duration, NaiveDate, Weekday};
+use chrono::{Duration, NaiveDate};
 use yew::prelude::*;
 
 use crate::model::{PortalProject, PortalProjectWorkItem, PortalProjectsPage};
@@ -8,16 +8,14 @@ use crate::timeline::{self, ProjectedSchedule, ProjectedTask, TimelineRange, Tim
 
 use super::super::{Msg, Vm};
 
+mod segments;
+
+use self::segments::{header_segments, HeaderSegment};
+
 struct TimelineRow<'a> {
     item: &'a PortalProjectWorkItem,
     depth: usize,
     has_children: bool,
-}
-
-struct HeaderSegment {
-    left: i64,
-    width: i64,
-    label: String,
 }
 
 const GRID_WIDTH: i64 = 534;
@@ -35,7 +33,11 @@ pub(super) fn view(
     let rows = visible_rows(projects, project);
     let schedule = timeline::project_schedule(projects, &project.id);
     let timeline_spec = timeline::spec(&projects.timeline_mode);
-    let range = if let Some(focus) = projects.timeline_focus_date.as_deref().and_then(timeline::date) {
+    let range = if let Some(focus) = projects
+        .timeline_focus_date
+        .as_deref()
+        .and_then(timeline::date)
+    {
         TimelineRange {
             start: focus - Duration::days(timeline_spec.margin_before),
             end: focus + Duration::days(timeline_spec.margin_after),
@@ -43,12 +45,22 @@ pub(super) fn view(
     } else {
         let mut range_values = project_items(projects, &project.id)
             .into_iter()
-            .flat_map(|item| [item.due_at.as_deref(), item.planned_start.as_deref(), item.planned_finish.as_deref()])
+            .flat_map(|item| {
+                [
+                    item.due_at.as_deref(),
+                    item.planned_start.as_deref(),
+                    item.planned_finish.as_deref(),
+                ]
+            })
             .flatten()
             .collect::<Vec<_>>();
         range_values.extend(project.starts_at.as_deref());
         range_values.extend(project.ends_at.as_deref());
-        timeline::range(range_values, &projects.calendar_today, &projects.timeline_mode)
+        timeline::range(
+            range_values,
+            &projects.calendar_today,
+            &projects.timeline_mode,
+        )
     };
     let timeline_width = range.width(timeline_spec).max(640);
     let days = timeline::days(range);
@@ -195,9 +207,22 @@ fn header(
     }
 }
 
-fn sort_heading(projects: &PortalProjectsPage, key: &'static str, label: &'static str, on_msg: &Callback<Msg>) -> Html {
+fn sort_heading(
+    projects: &PortalProjectsPage,
+    key: &'static str,
+    label: &'static str,
+    on_msg: &Callback<Msg>,
+) -> Html {
     let active = projects.timeline_sort_key == key;
-    let arrow = if active { if projects.timeline_sort_desc { " ↓" } else { " ↑" } } else { "" };
+    let arrow = if active {
+        if projects.timeline_sort_desc {
+            " ↓"
+        } else {
+            " ↑"
+        }
+    } else {
+        ""
+    };
     html! { <button type="button" aria-label={format!("Sort by {label}")}
         onclick={on_msg.reform(move |_: MouseEvent| Msg::ProjectTimelineSortSelected(key.into()))}
         class="rounded px-1 py-1 text-left text-xs font-semibold uppercase tracking-[0.06em] hover:text-[var(--portal-gold-muted)]">
@@ -380,8 +405,14 @@ fn task_row(
     }
 }
 
-fn planned_bar(item: &PortalProjectWorkItem, start: NaiveDate, finish: NaiveDate,
-    range: TimelineRange, spec: TimelineSpec, on_msg: &Callback<Msg>) -> Html {
+fn planned_bar(
+    item: &PortalProjectWorkItem,
+    start: NaiveDate,
+    finish: NaiveDate,
+    range: TimelineRange,
+    spec: TimelineSpec,
+    on_msg: &Callback<Msg>,
+) -> Html {
     let left = timeline::x(start, range, spec) + 2;
     let width = timeline::planned_bar_width(start, finish, spec).max(10) - 4;
     let id = item.id.clone();
@@ -393,7 +424,10 @@ fn planned_bar(item: &PortalProjectWorkItem, start: NaiveDate, finish: NaiveDate
         }
         Msg::ProjectTimelinePlannedDragStarted(drag_id.clone())
     });
-    let label = format!("{} planned {start} through {finish}; status {}; select or drag to reschedule", item.title, item.status);
+    let label = format!(
+        "{} planned {start} through {finish}; status {}; select or drag to reschedule",
+        item.title, item.status
+    );
     html! {
         <button type="button" draggable="true" ondragstart={drag_start}
             ondragend={on_msg.reform(|_: DragEvent| Msg::ProjectTimelineDragEnded)}
@@ -411,8 +445,13 @@ fn planned_bar(item: &PortalProjectWorkItem, start: NaiveDate, finish: NaiveDate
     }
 }
 
-fn link_overlay(schedule: &ProjectedSchedule, rows: &[TimelineRow<'_>], range: TimelineRange,
-    spec: TimelineSpec, width: i64) -> Html {
+fn link_overlay(
+    schedule: &ProjectedSchedule,
+    rows: &[TimelineRow<'_>],
+    range: TimelineRange,
+    spec: TimelineSpec,
+    width: i64,
+) -> Html {
     let height = rows.len() as i64 * 42;
     html! {
         <svg class="pointer-events-none absolute z-20 overflow-visible" aria-label="Project dependencies"
@@ -637,7 +676,11 @@ fn visible_rows<'a>(
     let mut out = Vec::new();
     let mut visited = BTreeSet::new();
     let mut roots = super::root_items(projects, &project.id);
-    timeline::sort_siblings(&mut roots, &projects.timeline_sort_key, projects.timeline_sort_desc);
+    timeline::sort_siblings(
+        &mut roots,
+        &projects.timeline_sort_key,
+        projects.timeline_sort_desc,
+    );
     for root in roots {
         append_row(projects, root, 0, &mut visited, &mut out);
     }
@@ -655,7 +698,11 @@ fn append_row<'a>(
         return;
     }
     let mut children = super::child_items(projects, &item.id);
-    timeline::sort_siblings(&mut children, &projects.timeline_sort_key, projects.timeline_sort_desc);
+    timeline::sort_siblings(
+        &mut children,
+        &projects.timeline_sort_key,
+        projects.timeline_sort_desc,
+    );
     out.push(TimelineRow {
         item,
         depth,
@@ -703,60 +750,4 @@ fn project_items<'a>(
         .iter()
         .filter(|item| item.project_id.as_deref() == Some(project_id))
         .collect()
-}
-
-fn header_segments(range: TimelineRange, spec: TimelineSpec, mode: &str) -> Vec<HeaderSegment> {
-    match mode {
-        "month" => month_segments(range, spec),
-        "day" => timeline::days(range)
-            .into_iter()
-            .map(|date| HeaderSegment {
-                left: timeline::x(date, range, spec),
-                width: spec.pixels_per_day,
-                label: date.format("%a %-d").to_string(),
-            })
-            .collect(),
-        _ => week_segments(range, spec),
-    }
-}
-
-fn week_segments(range: TimelineRange, spec: TimelineSpec) -> Vec<HeaderSegment> {
-    let mut out = Vec::new();
-    let mut start = range.start;
-    while start < range.end {
-        let end = (start + Duration::days(7)).min(range.end);
-        out.push(HeaderSegment {
-            left: timeline::x(start, range, spec),
-            width: (end - start).num_days() * spec.pixels_per_day,
-            label: format!("{} {}", start.format("%b"), start.day()),
-        });
-        start = end;
-    }
-    out
-}
-
-fn month_segments(range: TimelineRange, spec: TimelineSpec) -> Vec<HeaderSegment> {
-    let mut out = Vec::new();
-    let mut start = range.start;
-    while start < range.end {
-        let next_month = if start.month() == 12 {
-            NaiveDate::from_ymd_opt(start.year() + 1, 1, 1)
-        } else {
-            NaiveDate::from_ymd_opt(start.year(), start.month() + 1, 1)
-        }
-        .expect("next month is valid");
-        let end = next_month.min(range.end);
-        out.push(HeaderSegment {
-            left: timeline::x(start, range, spec),
-            width: (end - start).num_days() * spec.pixels_per_day,
-            label: start.format("%b %Y").to_string(),
-        });
-        start = end;
-    }
-    out
-}
-
-#[allow(dead_code)]
-fn _is_weekend(date: NaiveDate) -> bool {
-    matches!(date.weekday(), Weekday::Sat | Weekday::Sun)
 }

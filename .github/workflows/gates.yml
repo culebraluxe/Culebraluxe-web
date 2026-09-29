@@ -229,7 +229,7 @@ jobs:
   rust:
     name: rust core
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -238,18 +238,89 @@ jobs:
           rustc --version
           cargo --version
           rustfmt --version
+          rustup target add wasm32-unknown-unknown
+
+      # Cache ~/.cargo (registry + git) and rust/target. The toolchain comes from the runner image, the
+      # dependency build is the expensive part, and that is what this keeps warm.
+      - name: cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+          shared-key: gates-rust
 
       - name: rust compile
         working-directory: rust
         run: cargo check --workspace --all-targets
 
+      # THE TREE WAS NOT FORMATTED, AND THAT IS WHY THIS JOB PROVED NOTHING (fixed 2026-09-28).
+      #
+      # `cargo fmt --check` had been failing on every push for as long as the job existed — the tree held 915
+      # rustfmt hunks across 214 files — and because a failed step ends the job, the two steps BELOW it, `cargo
+      # test` above all, had never executed once. The job looked like "CI compiles and tests the Rust" and was
+      # really "CI reports that rustfmt would change something". A red step early in a job hides every step
+      # after it; that is the whole failure mode, and it is worth remembering when adding a step here.
+      #
+      # `cargo fmt --all` brought 202 files to canonical form. Four module trees are DEFERRED, not forgotten:
+      # they belong to the engine agent working in them right now, and formatting them would collide with live
+      # edits for no behavioural gain. The exemption is a named, dated list and everything else is enforced.
       - name: rust format
         working-directory: rust
-        run: cargo fmt --all -- --check
+        run: |
+          set -euo pipefail
+          deferred='^Diff in .*/(cli/src/(apple_mail|forge/lint)|core/domain/src/(applemail|apple_messages))(\.rs|/)'
+          unformatted="$(cargo fmt --all -- --check 2>&1 | grep '^Diff in' | grep -Ev "$deferred" || true)"
+          if [ -n "$unformatted" ]; then
+            printf '%s\n' "$unformatted"
+            echo "rustfmt: the files above are not formatted. Fix with: cd rust && cargo fmt --all"
+            exit 1
+          fi
+          echo "rustfmt clean — four module trees deferred to their owner (cli/src/apple_mail, cli/src/forge/lint, core/domain/src/applemail, core/domain/src/apple_messages)"
 
       - name: rust tests
         working-directory: rust
         run: cargo test --workspace --all-targets
+
+      # The browser surface is feature-gated, so the host check above never compiles it. This is the crate the
+      # deploy actually ships; a green workspace check does not imply it builds (2026-09-28, commit 305026d7).
+      - name: rust browser compile (what the deploy ships)
+        working-directory: rust
+        run: cargo check -p ui --features wasm --target wasm32-unknown-unknown --all-targets
+
+      # THE 800-LINE RULE, CHECKED RATHER THAN REMEMBERED. Four oversized files were split by hand on
+      # 2026-09-28 (applemail, apple_messages, apple_mail, forge/lint) and two more — the timeline header and
+      # accounting_opps — were trimmed the same day when this step first ran and listed them at 811 and 809.
+      # Nothing else stopped the next file from growing; this is the thing that stops it.
+      #
+      # TWO EXEMPTIONS, BOTH EXPLICIT:
+      #  * the four engine-owned module trees, deferred with the format step above;
+      #  * a file whose header says GENERATED, because a generated data table's length is its content's, not its
+      #    author's — `core/domain/src/forms_font_metrics.rs` is 4568 lines of AFM numbers generated from
+      #    `@pdf-lib/standard-fonts` so that Rust wraps text where pdf-lib wrapped it. Splitting it by hand would
+      #    change pagination, which is what the signature anchors are computed from. A marker, not a file list:
+      #    the next generated table is covered without anyone remembering to add it here.
+      - name: rust file boundedness (800-line rule)
+        run: |
+          set -euo pipefail
+          deferred='rust/cli/src/apple_mail(\.rs|/)|rust/cli/src/forge/lint(\.rs|/)|rust/core/domain/src/applemail(\.rs|/)|rust/core/domain/src/apple_messages(\.rs|/)'
+          listed="$(find rust -path rust/target -prune -o -name '*.rs' -print \
+            | xargs wc -l \
+            | awk '$1 > 800 && $2 != "total"' \
+            | grep -Ev "$deferred" || true)"
+          over=""
+          while read -r lines file; do
+            [ -n "$file" ] || continue
+            if head -n 12 "$file" | grep -q 'GENERATED'; then
+              echo "(generated, not counted) $lines $file"
+              continue
+            fi
+            over="${over}${lines} ${file}"$'\n'
+          done <<< "$listed"
+          if [ -n "$over" ]; then
+            printf '%s' "$over"
+            echo "the files above are over 800 lines: split them (move-only) or say why in the pull request"
+            exit 1
+          fi
+          echo "no .rs file over 800 lines outside the four deferred module trees and generated tables"
 
 
   rust_database:
