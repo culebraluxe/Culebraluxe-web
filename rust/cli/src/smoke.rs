@@ -498,11 +498,7 @@ mod tests {
                 && !version.is_empty()
         };
         assert!(shaped("40c7d99", "2026-09-28", 200));
-        assert!(shaped(
-            "40c7d99c1a2b3c4d5e6f708192a3b4c5d6e7f80",
-            "v",
-            200
-        ));
+        assert!(shaped("40c7d99c1a2b3c4d5e6f708192a3b4c5d6e7f80", "v", 200));
         assert!(!shaped("40c7d99", "2026-09-28", 500), "not a 200");
         assert!(!shaped("40c7d9", "2026-09-28", 200), "too short");
         assert!(!shaped("not-hex-at-all", "2026-09-28", 200), "not a sha");
