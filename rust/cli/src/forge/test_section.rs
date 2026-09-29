@@ -256,8 +256,10 @@ fn walk_tests(root: &Path, dir: &Path, found: &mut Vec<String>) {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
         if path.is_dir() {
-            if matches!(name.as_str(), "target" | "node_modules" | "dist")
-                || name.starts_with('.')
+            if matches!(
+                name.as_str(),
+                "target" | "node_modules" | "dist"
+            ) || name.starts_with('.')
             {
                 continue;
             }
