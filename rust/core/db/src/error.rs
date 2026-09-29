@@ -144,7 +144,17 @@ fn classify_sqlstate(code: &str) -> DbFailureKind {
     if code == "57014" || code == "55P03" {
         return DbFailureKind::Timeout;
     }
-    if code.starts_with("08") || matches!(code, "57P01" | "57P03" | "53300") {
+    // `25P03` IS A CONNECTION FAILURE, NOT A STATEMENT FAILURE (2026-09-29).
+    //
+    // `idle_in_transaction_session_timeout` does not cancel a statement - it TERMINATES THE SESSION. The server is
+    // saying "this connection is gone", and the client is told so at whatever statement it happens to send next,
+    // which for the engine is the `BEGIN` of the following workflow step. Classified as `Unknown` this was a dead
+    // end: `Unknown` is not `retryable`, so nothing retried it and an eight-minute story was lost 2m45s in at a step
+    // boundary, on a session that had nothing to do with the work. The same is true of `57P02` (crash shutdown) and
+    // of `53300` (no free connections): the work is fine, the session is not.
+    if code.starts_with("08")
+        || matches!(code, "25P03" | "57P01" | "57P02" | "57P03" | "53300")
+    {
         return DbFailureKind::DatabaseUnavailable;
     }
     if code.starts_with("23") {
@@ -168,6 +178,27 @@ mod tests {
         );
         assert_eq!(classify_sqlstate("23505"), DbFailureKind::Constraint);
         assert_eq!(classify_sqlstate("XX000"), DbFailureKind::Unknown);
+    }
+
+    /// The failure that killed a real engine run at a step boundary (2026-09-29) must be retryable, because the
+    /// work was never in question — the session was. `25P03` reaching `Unknown` is what made it terminal.
+    #[test]
+    fn a_session_the_server_terminated_is_retryable() {
+        assert_eq!(
+            classify_sqlstate("25P03"),
+            DbFailureKind::DatabaseUnavailable
+        );
+        assert_eq!(
+            classify_sqlstate("57P02"),
+            DbFailureKind::DatabaseUnavailable
+        );
+        // And the decision that follows from the kind: `retry` and `Database::begin` both read this flag.
+        assert!(matches!(
+            classify_sqlstate("25P03"),
+            DbFailureKind::DatabaseUnavailable
+        ));
+        // A real statement-level fault stays where it was: 57014 is a cancelled statement, not a lost session.
+        assert_eq!(classify_sqlstate("57014"), DbFailureKind::Timeout);
     }
 
     /// A failure that prints only its kind is a failure an operator cannot act on: the migration tool

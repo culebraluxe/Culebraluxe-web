@@ -304,17 +304,32 @@ Short facts that are expensive to rediscover.
   are Rust (`rust/cli/src/forge/`) and green — and the ODS chain is down at more places than the mail promotion:
   `contacts-sync.sh` (3 dead calls), `apple-calls-sync.sh`, `email-sync.sh` (both steps) and `gmail-sync.sh`, so
   **every scheduled feed except iMessage is broken**, which is one story and not five.
-- **2026-09-29 (the engine holds a transaction open across a multi-minute role turn, and the server kills the
-  session — one cause behind two different error strings):** scheduled runs died at the step boundary with
-  `Unknown during workflow.step (incident d42d33c2-…, sqlstate 25P03): terminating connection due to
-  idle-in-transaction timeout`, and earlier, at the end of a 50-minute run, with
-  `error communicating with database: Broken pipe (os error 32)`. A session idle *between statements* is never
-  killed by `idle_in_transaction_session_timeout`; only one *inside an open transaction* is — so the engine is
-  holding a transaction while the role runner drives `opencode` for minutes, and the server takes the session
-  away. A dead socket written to by the next statement is exactly EPIPE, so **assume one cause until someone
-  proves two**. Do not "fix" this by lengthening the timeout: that buys hours and still loses the work, and it
-  weakens the only guard against a leaked transaction holding locks across the control plane. Story
-  `ENG-POOL-IO-01` owns it and its acceptance criteria now include "no transaction is open across a role turn".**
+- **2026-09-29 (CORRECTED the same day: the engine does NOT hold a transaction across a role turn — it is handed a
+  session the server has already terminated, and the error is classified as `Unknown`):** scheduled runs died at
+  the step boundary with `Unknown during workflow.step (incident d42d33c2-…, sqlstate 25P03): terminating
+  connection due to idle-in-transaction timeout`, and earlier, at the end of a 50-minute run, with
+  `error communicating with database: Broken pipe (os error 32)`. The first reading of that was "the engine holds
+  a transaction while `opencode` runs for minutes"; **the code does not support it and the evidence contradicts
+  it** — every transaction in the workspace is opened by `Database::begin` and closed inside the same function
+  (`grep -rn '\.begin(' rust/core rust/forge` — 20 call sites, none spanning a role turn; every `with_tx` closure
+  in `rust/core/workflow` calls only store methods), the run prints its banner and dies **with no role-turn output
+  at all**, and `forge story-show` reports **no story run has ever been recorded** for the story being dispatched.
+  The shape is instead: a run is killed mid-transaction (each pass ends at `stop: Forge returned non-zero exit=1`)
+  → with the Neon `-pooler` endpoint (PgBouncer, transaction mode) that leaves a **server-side** session inside a
+  transaction → ~3 minutes later the server terminates it with 25P03 → the next client handed that server
+  connection receives the error **on its first statement**, which for the engine is the `BEGIN` of the next step.
+  EPIPE is the same leftover seen from the other end (a socket already closed). So **one cause, two error strings**
+  is still the right guess — the leftover session, not a long transaction of ours. Fixed by (a) classifying
+  `25P03` (and `57P02`, `53300`) as `DatabaseUnavailable` in `classify_sqlstate`, because it was `Unknown` and
+  `Unknown` is not `retryable`, (b) `Database::begin` retrying the acquire once on a retryable failure — safe
+  because `BEGIN` carries no work and sqlx discards the connection that read a FATAL error, so the retry is a
+  different session — and (c) `NeonStore::with_tx` no longer swallowing a failed rollback (`let _ =` was the only
+  notice that a returned connection is now poison). Do not "fix" this by lengthening
+  `idle_in_transaction_session_timeout`: that buys hours and still loses the work, and it weakens the only guard
+  against a leaked transaction holding locks across the control plane. **UNVERIFIED until a tick runs on the new
+  binary: whether a run now gets past its first step and reaches a receipt.** Nothing yet stops a pass from
+  *producing* a poison session — the retry makes it survivable, it does not remove it. `ENG-POOL-IO-01` owns the
+  rest.**
 - **2026-09-29 (the engine's cold-start budgets were the request path's — two failures, one lesson): the pool
   ships a 30-second statement ceiling and a 10-second connect budget with a floor of five connections, sized for a
   page load. The engine's first statement is the one that may wake a suspended Neon branch, so the scheduler died

@@ -82,7 +82,23 @@ impl TxStore for NeonStore {
                 Ok(v)
             }
             Err(e) => {
-                let _ = self.rt.block_on(tx.rollback());
+                // A FAILED ROLLBACK IS NOT SILENT (2026-09-29).
+                //
+                // This used to be `let _ = tx.rollback();`, and the connection goes back to the pool either way. A
+                // connection returned INSIDE a transaction is the one the server later terminates with
+                // `idle_in_transaction_session_timeout`, and the client that receives the 25P03 is whoever sends the
+                // next statement on it — which for the engine is the `BEGIN` of the following step. Swallowing this
+                // threw away the only evidence that the session which just failed is now poison, while the step's own
+                // error (a validation refusal, "no work", a conflict) looked like the whole story.
+                //
+                // The rollback failure has already announced itself as an `app_error` row — every `DbFailure`
+                // announces from its constructor — so it is not announced again here; it is carried, so that a
+                // reader of the step failure is told both things at once.
+                if let Err(failure) = self.rt.block_on(tx.rollback()) {
+                    return Err(WorkflowError::generic(format!(
+                        "{e}; and rolling this step's transaction back failed too: {failure}"
+                    )));
+                }
                 Err(e)
             }
         }

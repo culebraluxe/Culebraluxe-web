@@ -252,7 +252,45 @@ impl Database {
         ping_pool(&self.pool).await
     }
 
+    /// Begin a transaction, retrying when the failure is a SESSION the server took away.
+    ///
+    /// WHY THE RETRY BELONGS HERE AND NOT AROUND THE STEP. `BEGIN` carries no work: if it fails, no transaction
+    /// existed and no statement ran, so repeating it cannot double anything. That is not true of the statements
+    /// *inside* the transaction, which is why the step itself is not retried here — whoever knows whether a step is
+    /// idempotent owns that decision (`crate::retry` says the same thing at more length).
+    ///
+    /// Measured 2026-09-29 against PROD: a Forge run died 2m45s in, at a workflow-step boundary, on
+    /// `sqlstate 25P03 — terminating connection due to idle-in-transaction timeout`. Nothing was wrong with the work.
+    /// The engine had been handed a session the server had already terminated, the failure classified as `Unknown`
+    /// (so nothing retried it), and an eight-minute story was lost at second three. The retry is what makes a lost
+    /// session cost one round trip instead of a run.
+    ///
+    /// The retry does NOT reuse the connection: `PgPool::begin` acquires, and a connection that read a FATAL error is
+    /// discarded by sqlx, so the second attempt is a different session. Both failures are announced (each
+    /// `DbFailure` announces itself from its constructor), so a retry is visible in `app_error` rather than silent.
     pub async fn begin(&self, operation: &'static str) -> DbResult<DbTransaction> {
+        let policy = crate::retry::policy();
+        let attempts = policy.attempts.max(1);
+        let mut attempt = 1;
+        loop {
+            match self.begin_single_attempt(operation).await {
+                Ok(transaction) => return Ok(transaction),
+                Err(failure) => {
+                    // Only a failure the taxonomy calls retryable is repeated - a constraint violation or a schema
+                    // mismatch is retried zero times, because waiting does not fix either.
+                    if !failure.retryable || attempt >= attempts {
+                        return Err(failure);
+                    }
+                    attempt += 1;
+                    // A short pause, because the replacement connection has to be made: the pool is acquiring one
+                    // while this sleeps, and a cold Neon branch's handshake is the cost being waited out.
+                    tokio::time::sleep(policy.base_delay).await;
+                }
+            }
+        }
+    }
+
+    async fn begin_single_attempt(&self, operation: &'static str) -> DbResult<DbTransaction> {
         if let Some(scope) = crate::unit_of_work::current(&self.identity) {
             let guard = scope.transaction.clone().lock_owned().await;
             if guard.is_none()
