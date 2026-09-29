@@ -63,12 +63,16 @@ Fixed facts, quoted from the scripts (do not retype them elsewhere):
    "Selected Properties") rather than byte counts, so a copy edit is not a false alarm.
    `--expect-head` also asserts the live SHA equals HEAD; `--format json` for machines;
    `SMOKE_TIMEOUT_MS` for the clock.
-   **Two of its six checks cannot pass today, and the port did not change that:** `/api/build-info`
-   and `/api/rust-ready` answer **404** on production (verified by plain `curl` on 2026-09-28 — they
-   are Next-app routes that went with the port, and their only surviving caller is this smoke). The
-   other four checks pass. Either the Rust server grows those two routes (a build stamp and a
-   readiness answer naming the database it resolved) or the smoke points at the routes that exist —
-   the owner's call, because it is a production surface.
+   **Two of its six checks used to be impossible, and the Rust server now serves both** (2026-09-28,
+   `bcc6e52e`): `/api/build-info` and `/api/rust-ready` were Next-app routes that went with the port,
+   answering **404** on production (verified by plain `curl` on 2026-09-28), and the smoke was their only
+   surviving caller. They are now routes of the Rust server: `/api/rust-ready` mounts the **same handler**
+   as `/readyz`, so the container's own HEALTHCHECK and the release gate can never disagree, and
+   `/api/build-info` serves the deployed commit from `CULEBRALUXE_BUILD_SHA`, which `deploy:prod` writes
+   into the runtime image beside the build time. **`--expect-head` still fails until the next deploy** —
+   the checks read the *live* build, so the stamp becomes real only once an image carries one. An
+   unstamped or mis-stamped build answers with no sha and a note naming what to set, so the gate fails
+   loudly rather than comparing against nothing. Readiness is `/api/rust-ready` (`ok` + `databaseTarget`)
 
 ## Kept for build-only and deploy-only work
 

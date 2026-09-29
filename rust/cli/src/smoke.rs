@@ -365,10 +365,11 @@ async fn ready_check_and_report(
         expected_sha.to_owned()
     };
     if !wanted.is_empty() {
-        // THE TWO SIDES ARE NOT THE SAME WIDTH, BY DESIGN. `/api/build-info` serves `cockpitBuildLabel()`, the
-        // first SEVEN characters of the stamped commit, while `--expect-head` supplies `git rev-parse --short`,
-        // which lengthens as the repository grows (it returned 8 on 2026-09-16). Comparing the strings whole asked
-        // "did git's abbreviation grow", not "is the live build HEAD". Compare the length they SHARE.
+        // THE TWO SIDES ARE NOT THE SAME WIDTH, BY DESIGN. `/api/build-info` serves the stamped commit — the whole
+        // sha since 2026-09-28 (`bcc6e52e`; before that it was the retired site's `cockpitBuildLabel()`, seven
+        // characters) — while `--expect-head` supplies `git rev-parse --short`, which lengthens as the repository
+        // grows (it returned 8 on 2026-09-16). Comparing the strings whole asked "did git's abbreviation grow",
+        // not "is the live build HEAD". Compare the length they SHARE.
         let shared = report.live_sha.len().min(wanted.len());
         let agrees = shared > 0 && report.live_sha[..shared] == wanted[..shared];
         let detail = if agrees {

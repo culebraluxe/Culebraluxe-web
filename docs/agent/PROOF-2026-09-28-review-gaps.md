@@ -78,13 +78,29 @@ Production smoke — https://www.culebraluxe.com
 smoke:prod — 4/6 checks passed, live sha unknown
 ```
 
-**Two release-gate checks cannot pass, and the port did not cause it.** `/api/build-info` and
-`/api/rust-ready` are Next-app routes that went with the port; the only surviving caller anywhere in
-the repo is this smoke (the sole other references are a stale local `.vercel/output`). Confirmed with
-plain `curl` so the verdict does not depend on code I wrote. It also means `--expect-head`, which
-compares the live sha against HEAD, can never pass — the sha it reads comes from `/api/build-info`.
-Fixing it is a production surface decision: give the Rust server a build stamp and a readiness
-answer, or point the smoke at routes that exist. Recorded in `docs/agent/DEV-OPS-RELEASE.md` §5.
+**The two release-gate checks that could not pass are fixed, and the fix outranks the rest of the pass.**
+`/api/build-info` and `/api/rust-ready` were Next-app routes that went with the port; the only surviving
+caller anywhere in the repo was this smoke (the sole other references were a stale local `.vercel/output`).
+Confirmed with plain `curl` so the verdict did not depend on code I wrote, and it also meant `--expect-head`,
+which compares the live sha against HEAD, could never pass.
+
+Both are now served by the Rust server (`bcc6e52e`): readiness is the **same handler** as `/readyz`, and the
+build stamp is read from `CULEBRALUXE_BUILD_SHA`, which `deploy:prod` writes into the runtime image with the
+build time — so the stamp is the commit serving it rather than a compile-time guess. Verified against the
+real router on DEV: `/api/build-info` → 200
+`{"ok":true,"sha":"1ea9f02ba2050fa71d2198e8177afda2066d48c4","version":"0.1.0 (1ea9f02)","builtAt":"2026-09-29T03:54:23Z","databaseTarget":"dev"}`,
+`/api/rust-ready` → 200 `{"ok":true,"databaseTarget":"dev"}`. **`--expect-head` still needs one deploy to
+pass**, because both checks read the live build.
+
+**Booting the server to prove that found a worse bug, which is the real headline of this pass.** The server
+would not connect to the database at all: the per-statement ceiling added in `77c2bb71` travelled in the
+libpq **startup packet** (`PgConnectOptions::options`), and both DEV and PROD are Neon `-pooler` endpoints,
+where PgBouncer refuses it — `unsupported startup parameter in options: statement_timeout`, SQLSTATE
+08P01. Every connection died before a single query. No unit test opens a socket, so a green `cargo test`
+said nothing about it. Fixed in `7a187251` by applying the ceiling with `after_connect` (a static statement,
+the value as a bind), with `rust/core/db/tests/pool_connect_dev.rs` as the live DEV test that fails at
+connect for the old mistake: it reads the ceiling back from the server, proves it survives a later
+checkout, and proves a `pg_sleep(40)` is cancelled at the 30s ceiling (1 passed, 34.55s).
 
 ## What is NOT done in this pass
 
