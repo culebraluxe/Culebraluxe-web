@@ -85,14 +85,14 @@ build it again; the file stays as reference).
 
 | commands | script | Rust home, and who owns it |
 | --- | --- | --- |
-| `promote:warehouse:prod`, `:apply` | `promote-warehouse.ts` | the captain's 2026-09-27 decision: the warehouse stays alive with Apple sync, so this is DEV_OPS P0 and ports **together with the Apple mail promotion**, so the two share one promotion path. `scripts/contacts-sync.sh:135,143,149` calls it and the hop is down today |
+| `promote:warehouse:prod`, `:apply` | ~~`promote-warehouse.ts`~~ | **DONE 2026-09-28**: the file is deleted and the hop is a database function (`warehouse_promote_apple_contacts`, migration 253) called by `apple-sync warehouse-promote prod [--apply]`, which `scripts/contacts-sync.sh` now uses. These two npm names were removed with the file |
 | `mailbox:promote` | `promote-applemail.ts` | the same story — and the intake above it is dead too: `scripts/email-sync.sh:41` calls the banner-marked `apple-mail-envelope-intake.ts`, so the Apple Mail path is down at **both** steps (corrected 2026-09-28; the findings at the foot of this page already said so, this row did not) |
 | `bank:load:dev`, `bank:load:prod`, `bank:dry-run` | `bank-transaction-load.ts` | accounting exists in `rust/core/domain/src/accounting.rs`; the statement loader is the missing half — a `rust/cli` loader, DEV/PROD explicit, `--dry-run` kept |
 | `flight-recorder:qa-seed`, `:qa-reset` | `seed-flight-recorder-qa.ts` | DEV-only golden transaction; `rust/server/src/flight_recorder/` exists and the seed does not. Must fail closed on a PROD target |
 | `db:export:projects` | `export-dev-projects-workspace.mjs` | its twin `db:seed:projects` is already Rust, so this is half-ported; the playbook says a Neon branch reset is the normal DEV refresh, and without this the reset is lossy. **PORT** (`db-tool export-projects`) |
 | `whatsapp:coexistence:test` | `whatsapp-coexistence-completion.test.ts` | **PORT as a Rust test.** The implementation is not lost (integrations + `db/src/whatsapp.rs` + screens all exist); only its coexistence proof is stranded |
 | `mq:worker`, `mq:worker:prod` | `mq-worker.ts` | **VERIFY then repoint or retire**: delivery is already Rust (`rust/server/src/mq_runtime.rs`), so either these names invoke the Rust runtime or they go, with a line in `docs/agent/MEMORY.md`. Do not re-implement the broker in TypeScript |
-| `contacts:load:*`, `contacts:project:*` | `load-apple-contacts.ts`, `project-apple-contacts.ts` | **VERIFY** against `rust/cli/src/apple_sync.rs` (the `apple:sync` commands already target Rust). Likely RETIRE, or fold the batch behaviour into `apple_sync` — decide before porting |
+| `contacts:load:*`, `contacts:project:*` | ~~`load-apple-contacts.ts`, `project-apple-contacts.ts`~~ | **DONE 2026-09-28**: both steps are database functions (`apple_contacts_load`, `apple_contacts_project`, migration 254) called by `apple-sync contacts-load` / `contacts-project`; the four npm names were repointed to those commands. The two files stay bannered as reference only |
 
 
 ### RETIRE — the subject is gone, or the playbook supersedes it
@@ -113,9 +113,10 @@ build it again; the file stays as reference).
    `mailbox:intake` commands. `BROKEN-TS-INVENTORY.md` §APP 1 says that file "is not in the dead list and
    still runs"; it is, and it does not. The follow-on claim it supports ("inbound mail is not stranded")
    rests on a false premise, so the mail chain needs one read before the promotion port is scoped.
-2. **`scripts/contacts-sync.sh` names three dead files** (`load-apple-contacts.ts`,
-   `project-apple-contacts.ts`, `promote-warehouse.ts`) — the inventory already records this as "the
-   warehouse promotion is down", and it is the same class of finding: live shell, dead TypeScript.
+2. ~~**`scripts/contacts-sync.sh` names three dead files** (`load-apple-contacts.ts`,
+   `project-apple-contacts.ts`, `promote-warehouse.ts`)~~ — **closed 2026-09-28**: the wrapper's four
+   steps are Rust commands now (`contacts-notes`, `contacts-load`, `contacts-project`,
+   `warehouse-promote`), `promote-warehouse.ts` is deleted, and the other two are reference only.
 3. The three count corrections at the top of this page (56 → 53; `check:widgets` previously invisible).
 
 ## How to re-check this page

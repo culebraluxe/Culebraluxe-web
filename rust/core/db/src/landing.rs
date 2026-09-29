@@ -294,6 +294,42 @@ impl LandingDao {
             .map_err(|error| DbFailure::from_sqlx("landing.promote.apple_contacts", &error))
     }
 
+    /// `apple_contacts_load` — the landing intake for one Apple Contacts export.
+    ///
+    /// The transformation is a database function (`db/migrations/254_apple_contacts_load_project.sql`):
+    /// the batch receipt, one inbox receipt per contact, the immutable staged revisions, the snapshot
+    /// membership and the batch totals are all set-based in Neon. This call hands over the export as
+    /// the caller read it from disk (raw contacts, untouched) plus the three facts only the caller
+    /// knows — the export id/timestamp from the file and its sha256 — and prints the tally back.
+    ///
+    /// The payload travels as text and is cast to jsonb in the statement, so the parameter type is
+    /// never left to inference.
+    pub async fn load_apple_contacts(
+        &self,
+        payload: &Value,
+        source_account: &str,
+    ) -> DbResult<Value> {
+        sqlx::query_scalar("select apple_contacts_load($1::text::jsonb, $2)")
+            .bind(payload.to_string())
+            .bind(source_account)
+            .fetch_one(self.db.pool())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("landing.load.apple_contacts", &error))
+    }
+
+    /// `apple_contacts_project` — rebuild `l_person` / `l_property` as the current snapshot projection
+    /// of the Apple Contacts ODS.
+    ///
+    /// The function resolves the account and the latest LOADED batch itself when it is given neither,
+    /// and does the whole rebuild in one transaction (the retired script had to open one by hand).
+    pub async fn project_apple_contacts(&self, source_account: Option<&str>) -> DbResult<Value> {
+        sqlx::query_scalar("select apple_contacts_project($1, null::uuid)")
+            .bind(source_account)
+            .fetch_one(self.db.pool())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("landing.project.apple_contacts", &error))
+    }
+
     pub async fn refresh_client_read_models(&self) -> DbResult<()> {
         for (operation, sql) in [
             (

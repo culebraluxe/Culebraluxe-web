@@ -1,8 +1,9 @@
 # Broken TypeScript inventory — translate to Rust, never revive
 
-> **Short version first: `DEAD-TS-DOWNSIZE.md` (same directory) is the decision.** 187 files are broken;
-> 8 of them describe work that still has to happen (all Apple) plus 2 Forge gates; the other 179 are
-> killed — not translated, not maintained. This page is the file-by-file reference behind that page.
+> **Short version first: `DEAD-TS-DOWNSIZE.md` (same directory) is the decision.** 186 files are broken.
+> The Apple chain that still owed work is ported (Contacts closed 2026-09-28; see §"Live callers"), so
+> what is left is 2 Forge gates plus files that are killed outright — not translated, not maintained.
+> This page is the file-by-file reference behind that page.
 
 ## The rule (read this before touching any file in `scripts/`)
 
@@ -41,11 +42,11 @@ whole tree, and it marked 9 files that load fine. Measured by the resolver:
 
 | class | count | meaning |
 | --- | --- | --- |
-| **CANNOT LOAD** | **173** | a *value* import resolves to nothing, directly or through another broken file. `import type` does not count: tsx erases it, so it cannot break loading. |
+| **CANNOT LOAD** | **172** | a *value* import resolves to nothing, directly or through another broken file. `import type` does not count: tsx erases it, so it cannot break loading. |
 | **CANNOT WORK** | **14** | the file loads, but a *lazily imported* module it needs is gone — it parses and cannot do its job. |
-| marked | 187 | every file in both classes carries a banner, and nothing else does. |
+| marked | 186 | every file in both classes carries a banner, and nothing else does. |
 
-That is **173 of the 248** TypeScript files under `scripts/` (198) + `agent-runtime/` (49). `legacy/db/`
+That is **172 of the 247** TypeScript files under `scripts/` (197) + `agent-runtime/` (49). `legacy/db/`
 is gone entirely; `agent-runtime/` still exists but 20 of its 49 files cannot load, and all of them are
 now marked.
 
@@ -61,7 +62,7 @@ capabilities are not "dead weight", they are **broken in production** (checked 2
 | --- | --- | --- |
 | `scripts/apple-sync.sh` — launchd `com.culebraluxe.apple-sync`, twice daily | **`rust/cli` apple-sync messages-intake** (was `scripts/apple-messages-intake.ts`) | **fixed 2026-09-27**: the launchd job's exit status 1 was the deleted intake script; the step is Rust now and the job needs re-arming (see §"Apple intake — ported") |
 | `scripts/apple-message-repair.sh` (`apple:repair:prod`) | **`rust/cli` apple-sync messages-intake --evidence-only --refresh** (was the same deleted file) | **fixed 2026-09-27**: repairs ODS evidence for the existing export and refreshes the Client read models, without replaying interactions |
-| `scripts/contacts-sync.sh:145,154` | `load-apple-contacts.ts`, `project-apple-contacts.ts` | **the load and the projection are still down**: the Contacts chain fails between the export and `l_person`/`l_property`. The notes merge (`:137`) and **the promotion (`:158`) are Rust now** — the promotion is a database function called from `apple-sync warehouse-promote` (`db/migrations/253_apple_contacts_promote.sql`, applied+run on DEV and PROD 2026-09-28: 2855 landing rows → 2814 matched, 11 places created, 11 linked). The two remaining steps are specified command-by-command in `docs/agent/HANDOFF-contacts-port-2026-09-28.md` §5 and must land as SQL functions, not as row-by-row scripts |
+| `scripts/contacts-sync.sh` | **`rust/cli` apple-sync contacts-load / contacts-project / warehouse-promote** (was `load-apple-contacts.ts`, `project-apple-contacts.ts`, `promote-warehouse.ts`) | **fixed 2026-09-28: the whole Contacts chain is Rust.** All three steps are database functions in `db/migrations/254_apple_contacts_load_project.sql` (load, projection) and `253_apple_contacts_promote.sql` (promotion), called from `rust/cli/src/apple_contacts.rs` and repointed at `contacts-sync.sh:148,156,163`. DEV-verified: load replay 2855/2855 with 0 changed, projection before=after=2855, and `apple_contacts_fingerprint_audit()` re-derives **4794/4794** historical fingerprints — the ODS does not churn. `scripts/promote-warehouse.ts` is **deleted**; `load-apple-contacts.ts` / `project-apple-contacts.ts` stay bannered as reference and must never be revived |
 | `scripts/apple-calls-sync.sh:41` | **`rust/cli` apple-sync calls-intake** (was `scripts/apple-calls-intake.ts`) | **fixed 2026-09-28**: the wrapper is repointed; chain ported to Rust (`rust/cli/src/apple_calls.rs` + `domain::apple_calls`), DEV-verified (5236 calls replayed, 864 evidence rows, 4 interactions written / 403 already current) |
 | `scripts/email-sync.sh` | **`rust/cli` apple-sync mail-intake + mail-promote** (was `apple-mail-envelope-intake.ts` + `promote-applemail.ts`) | **fixed 2026-09-28**: the wrapper is repointed; intake needs macOS Full Disk Access (see `DEAD-TS-DOWNSIZE.md` §1) |
 | `scripts/gmail-sync.sh` | **`rust/cli` gmail-sync** (was `scripts/gmail-metadata-sync.ts`) | **fixed 2026-09-28**: repointed; needs GOOGLE_CLIENT_ID / SECRET / REFRESH_TOKEN in `.env.local`, which this machine does not have |
@@ -69,9 +70,11 @@ capabilities are not "dead weight", they are **broken in production** (checked 2
 **The promotion hop exists now, and it is not a script.** `warehouse_promote_apple_contacts(p_apply)`
 (`db/migrations/253_apple_contacts_promote.sql`) does the whole landing → warehouse transformation
 set-based inside Neon, called by `apple-sync warehouse-promote` (`rust/cli/src/apple_contacts.rs`) and
-repointed in `contacts-sync.sh:158`. `scripts/promote-warehouse.ts` is therefore **dead and stays dead**:
-do not re-instate it. Its sibling for the load and the projection is the same shape of work and gets the
-same treatment — a database function with a thin caller, never a script that pulls rows out to mutate them.
+repointed in `contacts-sync.sh:163`. `scripts/promote-warehouse.ts` is **deleted** (2026-09-28) — do not
+re-instate it. Its siblings for the load and the projection got the same treatment the same day:
+`apple_contacts_load(jsonb, text)` and `apple_contacts_project(text, uuid)` in
+`db/migrations/254_apple_contacts_load_project.sql`, called by `apple-sync contacts-load` /
+`contacts-project`. A database function with a thin caller, never a script that pulls rows out to mutate them.
 
 **Operator commands that cannot run and are named in AGENTS.md or used daily** — corrected 2026-09-28, because
 the Forge half of this list was stale: `forge:doctor`, `forge:clean`, `forge:story:reset`, `forge:packet-lint`,
@@ -143,14 +146,12 @@ before writing anything) · **RETIRE** (do not build it again; the file stays as
 
 ## P0 — highest consequence first
 
-1. `scripts/promote-warehouse.ts` — `promote:warehouse:prod`, `promote:warehouse:prod:apply` —
-   the L-tables → Warehouse promotion; the only reader of the L tables. Nothing in Rust mentions
-   `warehouse`, so the promote hop is simply gone in production. **PORT — DECIDED 2026-09-27
-   (captain): "we should do this, keep warehouse alive with Apple sync."** Into `rust/cli` as a
-   `db-tool` subcommand: `--apply` explicit (a bare run reports what would move), bound parameters,
-   and an `APP_ENV` guard that refuses a PROD target unless `--apply` was named. This is not a
-   resurrection of the TS file — it is the hop rebuilt in the language the rest of the database now
-   lives in.
+1. ~~`scripts/promote-warehouse.ts`~~ — **DONE 2026-09-28: the file is deleted** and the hop is
+   `warehouse_promote_apple_contacts(p_apply)` (`db/migrations/253_apple_contacts_promote.sql`) called by
+   `apple-sync warehouse-promote prod [--apply]`; run on PROD (2855 landing rows → 2814 matched, 11 places
+   created, 11 linked). The captain's decision (2026-09-27) was to rebuild the hop, not the script, and
+   that is what landed. The load and the projection followed the same day
+   (`db/migrations/254_apple_contacts_load_project.sql`).
 2. `scripts/promote-applemail.ts` — `mailbox:promote` — `l_applemail` → Warehouse. Same shape,
    same gap, same decision: **PORT**, sharing the promotion code from 1 (one promotion path, two
    sources). Inbound mail exists (`integrations/mail`, `service/mailbox.rs`); promotion does not.
@@ -333,9 +334,10 @@ The product is largely Rust already. What is stranded here is intake and proof t
    interactions written, 403 already current, 568 calls staged as evidence only). **The live check
    found the same bug as the Messages port** — the deleted TypeScript's `dateISO` key read as
    `dateIso` meant every call lost its date; fixed and pinned by a unit test.
-4. `scripts/load-apple-contacts.ts` — `contacts:load:dev`, `contacts:load:prod`. **VERIFY** against
-   `rust/cli/src/apple_sync.rs` (the `apple:sync` npm commands already target Rust). Likely
-   **RETIRE**, or fold the batch behaviour into `apple_sync`.
+4. ~~`scripts/load-apple-contacts.ts`~~ — **DONE 2026-09-28**: `apple_contacts_load(jsonb, text)`
+   (`db/migrations/254_apple_contacts_load_project.sql`) called by `apple-sync contacts-load`; the file
+   stays bannered as reference. The projection (`project-apple-contacts.ts`) landed the same way as
+   `apple_contacts_project`.
 5. `scripts/bank-transaction-load.ts` — statement load. Accounting exists in
    `rust/core/domain/src/accounting.rs`; the loader may not. **PORT P1.**
 6. `scripts/gmail-metadata-sync.ts`, `scripts/rel-intel-load-gmail.ts` — bounded Gmail census and
@@ -421,7 +423,7 @@ carries the files this sweep missed.
 
 DEV_OPS (21 files)
 
-    1  scripts/promote-warehouse.ts                 DEV_OPS P0  → PORT (or decide to RETIRE, in MEMORY.md)
+    1  scripts/promote-warehouse.ts                 DEV_OPS P0  → DELETED 2026-09-28 (hop rebuilt in Rust + SQL)
     2  scripts/promote-applemail.ts                 DEV_OPS P0  → PORT (shares 1)
     3  scripts/export-dev-projects-workspace.mjs    DEV_OPS P0  → PORT
     4  scripts/pull-prod-to-dev.mjs                 DEV_OPS P0  → RETIRE (branch reset is the path)
@@ -490,7 +492,7 @@ APP (29 files)
     51 scripts/apple-messages-intake-proof.ts        APP P1      → fold into 50
     52 scripts/apple-messages-real-load.ts           APP P1      → fold into 50
     53 scripts/apple-calls-intake.ts                 APP P1      → PORT
-    54 scripts/load-apple-contacts.ts                APP P1      → VERIFY → RETIRE / fold into apple_sync
+    54 scripts/load-apple-contacts.ts                APP P1      → DONE 2026-09-28 (apple_contacts_load, SQL function)
     55 scripts/bank-transaction-load.ts              APP P1      → PORT
     56 scripts/gmail-metadata-sync.ts                APP P1      → VERIFY → PORT
     57 scripts/rel-intel-load-gmail.ts               APP P1      → VERIFY → PORT
@@ -597,7 +599,7 @@ scheduled jobs (see "Live callers" above) and cannot be classified by a sweep.
      69 scripts/probe-learn-dedupe.ts                            CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/db/agent-work' (line 12))
      70 scripts/probe-move-write.ts                              CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/legacy/db/storyboard' (line 10))
      71 scripts/probe-sorter-moves.ts                            CANNOT LOAD FORGE                      → PENDING (captain classifies; reason: missing module '@/lib/story-moves' (line 10))
-     72 scripts/project-apple-contacts.ts                        CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/forge-db' (line 33))
+     72 scripts/project-apple-contacts.ts                        CANNOT LOAD APP P1                     → DONE 2026-09-28 (apple_contacts_project, SQL function)
      73 scripts/promote-relationship-evidence.ts                 CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/client' (line 24))
      74 scripts/provision-catchup-task-fixtures.ts               CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/client' (line 21))
      75 scripts/provision-dev-google-identity.ts                 CANNOT LOAD UNCLASSIFIED               → PENDING (captain classifies; reason: missing module '@/legacy/db/client' (line 13))

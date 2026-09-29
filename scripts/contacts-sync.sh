@@ -142,16 +142,18 @@ if ! run_cli apple-sync contacts-notes --file "$EXPORT_FILE" --quiet; then
 fi
 
 log "loading fresh export into historical PROD ODS"
-if ! node --env-file=.env.local --import tsx scripts/load-apple-contacts.ts \
-  --env prod \
-  --file "$EXPORT_FILE" \
-  --source-account "$SOURCE_ACCOUNT"; then
+# The load is a database function (`db/migrations/254_apple_contacts_load_project.sql`): the batch
+# receipt, one inbox receipt per contact, the immutable staged revisions and the snapshot membership
+# are set-based in Neon. This reads the export, adds its sha256 and prints the tally.
+if ! run_cli apple-sync contacts-load --file "$EXPORT_FILE" --source-account "$SOURCE_ACCOUNT" prod; then
   fail "Contacts ODS load did not fully succeed (see loader output); no SUCCESS reported"
 fi
 log "ODS complete"
 
 log "rebuilding current Contacts projection (l_person)"
-if ! node --env-file=.env.local --import tsx scripts/project-apple-contacts.ts --env prod; then
+# Same function file: the projection is one function call, and the transaction the old script opened
+# by hand is the function's own — a failed projection cannot leave a half-current population.
+if ! run_cli apple-sync contacts-project prod; then
   fail "Contacts current projection failed; no SUCCESS reported"
 fi
 

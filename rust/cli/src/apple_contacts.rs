@@ -18,6 +18,7 @@
 // ---------------------------------------------------------------------------
 use base64::Engine;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fs;
@@ -186,6 +187,145 @@ pub async fn warehouse_promote(args: &[String]) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// `apple-sync contacts-load --file <export.json> --source-account <account> [dev|prod]`
+///
+/// The ODS load step of the Contacts chain (`scripts/contacts-sync.sh`), which used to be
+/// `scripts/load-apple-contacts.ts`: read the export, then pull every contact out to Node, normalize it
+/// there and push it back. The rules are a database function now
+/// (`db/migrations/254_apple_contacts_load_project.sql`); this reads the file, keeps the raw contacts
+/// exactly as exported, adds the file's own sha256, and prints the tally the function returns.
+///
+/// A refusal (a batch id whose bytes changed) exits non-zero so the wrapper stops the chain.
+pub async fn contacts_load(args: &[String]) -> Result<(), Box<dyn Error>> {
+    crate::apple_sync::load_env();
+    let target = crate::apple_mail::target_arg(args)?;
+    let Some(file) = crate::apple_mail::option(args, "--file")
+        .map(PathBuf::from)
+        .or_else(default_export_file)
+    else {
+        return Err(io::Error::other(
+            "--file <contacts-export.json> is required (and the default export is not in this checkout)",
+        )
+        .into());
+    };
+    // Optional here and required in the wrapper: batch identity is `source + source_account +
+    // exportId`, so a run that knows the account must say it. An empty value asks the database to
+    // resolve the one account it already holds, and it refuses when there is not exactly one.
+    let account = crate::apple_mail::option(args, "--source-account")
+        .map(str::to_owned)
+        .unwrap_or_default();
+
+    let raw = fs::read(&file)
+        .map_err(|error| io::Error::other(format!("cannot read {}: {error}", file.display())))?;
+    let export: Value = serde_json::from_slice(&raw).map_err(|error| {
+        io::Error::other(format!("{} is not valid JSON: {error}", file.display()))
+    })?;
+    let payload = export_payload(&export, &file_sha256(&raw))?;
+    let contacts = payload["contacts"].as_array().map(Vec::len).unwrap_or(0);
+    println!(
+        "[load] {} contacts -> ODS (target={}, exportId={}, source account={})",
+        contacts,
+        target.as_str(),
+        payload["exportId"].as_str().unwrap_or_default(),
+        if account.is_empty() { "<resolved from the database>" } else { &account }
+    );
+
+    let database = crate::apple_mail::connect(target).await?;
+    let landing = db::LandingDao::new(database);
+    let tally = landing.load_apple_contacts(&payload, &account).await?;
+    println!("{tally}");
+
+    if tally["exitCode"].as_i64().unwrap_or(0) != 0 {
+        return Err(io::Error::other(format!(
+            "contacts load refused: {}",
+            tally["message"]
+                .as_str()
+                .unwrap_or("see the tally above")
+        ))
+        .into());
+    }
+    Ok(())
+}
+
+/// `apple-sync contacts-project [dev|prod] [--source-account <account>]`
+///
+/// The current-state projection step of the Contacts chain, which used to be
+/// `scripts/project-apple-contacts.ts`: the three statements it ran are one database function now, and
+/// the transaction the script had to open by hand is the function's own.
+pub async fn contacts_project(args: &[String]) -> Result<(), Box<dyn Error>> {
+    crate::apple_sync::load_env();
+    let target = crate::apple_mail::target_arg(args)?;
+    let account = crate::apple_mail::option(args, "--source-account").map(str::to_owned);
+    println!(
+        "[project] current snapshot -> l_person / l_property (target={})",
+        target.as_str()
+    );
+
+    let database = crate::apple_mail::connect(target).await?;
+    let landing = db::LandingDao::new(database);
+    let tally = landing.project_apple_contacts(account.as_deref()).await?;
+    println!("{tally}");
+    Ok(())
+}
+
+/// The export the wrapper writes (`scripts/contacts-sync.sh:25`), used when `--file` is not given so
+/// `pnpm contacts:load:dev` works against the checkout's own export.
+fn default_export_file() -> Option<PathBuf> {
+    let path = crate::apple_sync::repo_root().join("contact-export/contacts-export.json");
+    path.is_file().then_some(path)
+}
+
+/// sha256 of the export file's bytes, lowercase hex — the batch's `file_sha256`.
+fn file_sha256(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+/// The payload `apple_contacts_load` expects: the export's own envelope facts plus its contacts,
+/// untouched. Anything the export does not carry is a refusal here, before a database is opened — a
+/// malformed export must not reach the ODS as a half-batch.
+fn export_payload(export: &Value, file_sha256: &str) -> Result<Value, Box<dyn Error>> {
+    let text = |key: &str| -> Result<String, Box<dyn Error>> {
+        export
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| io::Error::other(format!("export has no {key}")).into())
+    };
+
+    let schema_version = export
+        .get("schemaVersion")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| io::Error::other("export has no numeric schemaVersion"))?;
+    let source_system = text("sourceSystem")?;
+    if source_system != "apple_contacts" {
+        return Err(io::Error::other(format!(
+            "export sourceSystem is {source_system}, not apple_contacts"
+        ))
+        .into());
+    }
+    if schema_version != 1 {
+        return Err(io::Error::other(format!("export schemaVersion is {schema_version}, not 1")).into());
+    }
+    let contacts = export
+        .get("contacts")
+        .and_then(Value::as_array)
+        .filter(|contacts| !contacts.is_empty())
+        .ok_or_else(|| io::Error::other("export contains no contacts"))?;
+
+    Ok(serde_json::json!({
+        "exportId": text("exportId")?,
+        "schemaVersion": schema_version,
+        "sourceSystem": source_system,
+        "exportedAt": text("exportedAt")?,
+        "fileSha256": file_sha256,
+        "contacts": contacts,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -215,6 +355,45 @@ mod tests {
         assert!(APPLESCRIPT.contains("set ids to id of people"));
         assert!(APPLESCRIPT.contains("set ns to note of people"));
         assert!(!APPLESCRIPT.contains("repeat with p in people"));
+    }
+
+    fn export(overrides: Value) -> Value {
+        let mut base = json!({
+            "schemaVersion": 1,
+            "sourceSystem": "apple_contacts",
+            "exportId": "C14F508F-FCC1-4238-B06E-B97DD2E85E15",
+            "exportedAt": "2026-09-22T19:33:12.308Z",
+            "contacts": [{"sourceId": "A:ABPerson", "givenName": "Dana"}],
+        });
+        for (key, value) in overrides.as_object().unwrap() {
+            base[key] = value.clone();
+        }
+        base
+    }
+
+    #[test]
+    fn the_payload_carries_the_export_and_the_files_own_hash() {
+        let payload = export_payload(&export(json!({})), "abc123").unwrap();
+        assert_eq!(payload["exportId"], json!("C14F508F-FCC1-4238-B06E-B97DD2E85E15"));
+        assert_eq!(payload["fileSha256"], json!("abc123"));
+        assert_eq!(payload["schemaVersion"], json!(1));
+        // The contacts travel exactly as exported: they are the input to the normalization the
+        // database function performs, and trimming them here would move the rules back into Rust.
+        assert_eq!(payload["contacts"], export(json!({}))["contacts"]);
+    }
+
+    #[test]
+    fn a_malformed_export_is_refused_before_a_database_is_opened() {
+        for (label, bad) in [
+            ("no source system", export(json!({"sourceSystem": ""}))),
+            ("wrong source system", export(json!({"sourceSystem": "apple_messages"}))),
+            ("wrong schema", export(json!({"schemaVersion": 2}))),
+            ("no export id", export(json!({"exportId": "  "}))),
+            ("no exported at", export(json!({"exportedAt": ""}))),
+            ("no contacts", export(json!({"contacts": []}))),
+        ] {
+            assert!(export_payload(&bad, "abc").is_err(), "{label} must fail closed");
+        }
     }
 }
 

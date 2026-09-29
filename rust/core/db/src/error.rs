@@ -9,16 +9,41 @@ pub enum DbFailureKind {
     Unknown,
 }
 
-#[derive(Debug, Clone, thiserror::Error)]
-#[error("{kind:?} during {operation} (incident {incident_id})")]
+#[derive(Debug, Clone)]
 pub struct DbFailure {
     pub kind: DbFailureKind,
     pub operation: &'static str,
     pub incident_id: Uuid,
     pub code: Option<String>,
+    /// The driver's own message, verbatim, plus the constraint name when the failure was a constraint.
+    /// This is the only text that says WHAT failed ("column p.foo does not exist"), so it is carried and
+    /// printed rather than dropped — an operator-facing tool that answers "Unknown during db.run_text"
+    /// has told them nothing. See `docs/agent/HANDOFF-contacts-port-2026-09-28.md`.
     pub detail: Option<String>,
     pub retryable: bool,
 }
+
+/// `Display` is written by hand, not by `#[error(...)]`, so the detail can be appended when it exists.
+impl std::fmt::Display for DbFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "{:?} during {} (incident {}",
+            self.kind, self.operation, self.incident_id
+        )?;
+        if let Some(code) = &self.code {
+            write!(formatter, ", sqlstate {code}")?;
+        }
+        write!(formatter, ")")?;
+        if let Some(detail) = &self.detail {
+            write!(formatter, ": {detail}")?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for DbFailure {}
+
 
 pub type DbResult<T> = Result<T, DbFailure>;
 
@@ -57,27 +82,30 @@ impl DbFailure {
     }
 
     pub fn from_sqlx(operation: &'static str, error: &sqlx::Error) -> Self {
-        let code = error
-            .as_database_error()
-            .and_then(|database_error| database_error.code())
-            .map(|value| value.to_string());
-
-        if let Some(code) = code {
-            let kind = classify_sqlstate(&code);
+        if let Some(database_error) = error.as_database_error() {
+            let code = database_error.code().map(|value| value.to_string());
+            let kind = code
+                .as_deref()
+                .map(classify_sqlstate)
+                .unwrap_or(DbFailureKind::Unknown);
+            // The driver's message is kept for EVERY sqlstate, not only the schema ones: it is the
+            // difference between "Unknown during db.run_text" and "relation l_person does not exist".
+            let mut detail = database_error.message().to_string();
+            if let Some(constraint) = database_error.constraint() {
+                detail = format!("{detail} (constraint {constraint})");
+            }
             return Self {
                 retryable: matches!(
                     kind,
                     DbFailureKind::DatabaseUnavailable | DbFailureKind::Timeout
                 ),
-                detail: match code.as_str() {
-                    "42703" | "42P01" => Some("schema mismatch (column/table missing)".into()),
-                    _ => None,
-                },
+                detail: Some(detail),
                 kind,
                 operation,
                 incident_id: Uuid::new_v4(),
-                code: Some(code),
-            };
+                code,
+            }
+            .announced();
         }
 
         let message = error.to_string().to_lowercase();
@@ -104,7 +132,7 @@ impl DbFailure {
             operation,
             incident_id: Uuid::new_v4(),
             code: None,
-            detail: None,
+            detail: Some(error.to_string()),
         }
         .announced()
     }
@@ -141,5 +169,24 @@ mod tests {
         );
         assert_eq!(classify_sqlstate("23505"), DbFailureKind::Constraint);
         assert_eq!(classify_sqlstate("XX000"), DbFailureKind::Unknown);
+    }
+
+    /// A failure that prints only its kind is a failure an operator cannot act on: the migration tool
+    /// used to answer "Unknown during db.run_text (incident …)" while Postgres had said exactly what was
+    /// wrong. The detail and the sqlstate must reach the text.
+    #[test]
+    fn the_driver_message_survives_into_the_error_text() {
+        let failure = DbFailure {
+            kind: DbFailureKind::Unknown,
+            operation: "db.run_text",
+            incident_id: Uuid::new_v4(),
+            code: Some("42601".into()),
+            detail: Some("syntax error at or near \"creat\"".into()),
+            retryable: false,
+        };
+        let text = failure.to_string();
+        assert!(text.contains("syntax error at or near"), "{text}");
+        assert!(text.contains("sqlstate 42601"), "{text}");
+        assert!(text.contains("db.run_text"), "{text}");
     }
 }

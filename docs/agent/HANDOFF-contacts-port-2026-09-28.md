@@ -1,3 +1,28 @@
+> **UPDATE 2026-09-28 (evening) — the chain is CLOSED. The load and the projection are database functions too.**
+>
+>   * `db/migrations/254_apple_contacts_load_project.sql` —
+>     `apple_uri_component` (encodeURIComponent), `apple_timestamp` (the Apple date normalizer),
+>     `apple_contacts_profile_text` / `apple_contacts_fingerprint` (the canonical profile text the
+>     retired loader hashed — key order, trimming and array sort reproduced byte for byte, because the
+>     fingerprint is the ODS's revision identity), `apple_contacts_fingerprint_audit`,
+>     `apple_contacts_load(p_payload, p_source_account)` (batch receipt + one inbox receipt per contact
+>     + immutable staged revisions + snapshot membership + batch totals, one transaction) and
+>     `apple_contacts_project(p_source_account, p_batch_id)` (the three projection statements + tally).
+>   * `rust/cli/src/apple_contacts.rs` `contacts_load` / `contacts_project`; `apple_sync.rs` dispatch
+>     `"contacts-load"` / `"contacts-project"`; wrapper `scripts/contacts-sync.sh:148,156`.
+>   * `scripts/promote-warehouse.ts` **deleted** (and its two `package.json` names); the two remaining TS
+>     files stay bannered as reference only.
+>   * `DbFailure` now carries and prints the driver's message + sqlstate, so `db-tool apply` reports the
+>     real Postgres error instead of "Unknown during db.run_text".
+>   * Verified: DEV load replay **2855/2855, 0 changed**; projection `before=after=2855, pruned 0`;
+>     `apple_contacts_fingerprint_audit()` **4794/4794 matched** on DEV *and* PROD (no ODS churn);
+>     migration applied and ledger-recorded on DEV + PROD, function bodies byte-identical
+>     (`md5 60842522…`); `db-tool parity` OK; PROD load **2854 replay / 1 changed / 0 new / 0 errors**,
+>     PROD projection `before=after=2855, pruned 0`, `person` 2685 and `property` 2155 untouched.
+>   * Behaviour change to confirm: inbox `occurred_at`/`observed_at` now come from the export's own
+>     `exportedAt` (normalized in SQL), not from the run clock.
+>
+
 > **UPDATE 2026-09-28 (afternoon) — step 3 of §5 is DONE, and the architecture changed.**
 > The captain refused the shape of the port, not just its absence: *"you have to pull all the data out to
 > RUST mutate then push back to DB — not the correct architecture"*. The landing → warehouse hop is a

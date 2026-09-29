@@ -97,12 +97,9 @@ impl std::error::Error for Failure {}
 impl From<db::DbFailure> for Failure {
     fn from(failure: db::DbFailure) -> Self {
         // Configuration is checked before any connection is attempted (`require_env`), so anything that
-        // reaches here is work that started and failed. The driver detail is the useful half of the
-        // message, so it is kept rather than replaced by the kind and incident id alone.
-        match failure.detail.clone() {
-            Some(detail) if !detail.is_empty() => Failure::Other(format!("{failure} — {detail}")),
-            _ => Failure::Other(failure.to_string()),
-        }
+        // reaches here is work that started and failed. `DbFailure`'s own text already carries the
+        // driver's message and the sqlstate, which is the half an operator can act on.
+        Failure::Other(failure.to_string())
     }
 }
 

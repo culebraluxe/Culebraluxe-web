@@ -36,6 +36,11 @@ pub async fn dispatch(args: &[String]) -> Result<(), Box<dyn Error>> {
         "mail-intake" => crate::apple_mail::mail_intake(&args[1..]).await,
         "calls-intake" => crate::apple_calls::calls_intake(&args[1..]).await,
         "contacts-notes" => crate::apple_contacts::contacts_notes(&args[1..]).await,
+        // The two halves of the Contacts chain that were the last dead TypeScript in it: the ODS load
+        // and the current-state projection. Both are database functions
+        // (`db/migrations/254_apple_contacts_load_project.sql`) with a shell here.
+        "contacts-load" => crate::apple_contacts::contacts_load(&args[1..]).await,
+        "contacts-project" => crate::apple_contacts::contacts_project(&args[1..]).await,
         // Landing -> warehouse for Contacts: a database function called from here, not a port of the
         // row-by-row TypeScript it replaces. See `db/migrations/253_apple_contacts_promote.sql`.
         "warehouse-promote" => crate::apple_contacts::warehouse_promote(&args[1..]).await,

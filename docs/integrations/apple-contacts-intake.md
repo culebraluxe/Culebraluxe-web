@@ -24,8 +24,10 @@ Apple Contacts (Swift exporter)
 - The **exporter** (`contact-export/`, Swift) dumps a CNContact export to JSON.
 - The **generic intake layer** (`lib/intake/*`, `legacy/db/integration-inbox.ts`) owns
   source payload, batch accounting, immutable revisions, fingerprints, and replay
-  history.
-- The **relational load** (`l_person*`, `scripts/project-apple-contacts.ts`) is a
+  history. *(Historical: that TypeScript is deleted; the rules live in
+  `db/migrations/254_apple_contacts_load_project.sql` now.)*
+- The **relational load** (`l_person*`, **`apple-sync contacts-project`** /
+  `apple_contacts_project` — was `scripts/project-apple-contacts.ts`) is a
   current-state projection of the latest staged revision — visible and usable,
   but NOT canonical.
 - **Canonical promotion** (merging into `person` / `person_identity` / Clients) is
@@ -55,9 +57,9 @@ No `l_client` table exists. Canonical Clients are `person` + `person_identity`.
 
 1. Build/run the Swift exporter under `contact-export/` to produce
    `contact-export/contacts-export.json`.
-2. The loader (`scripts/load-apple-contacts.ts`) validates the export, lowers each
-   contact through the canonical intake lane, and writes immutable staged
-   revisions.
+2. The loader (**`apple-sync contacts-load`** / `apple_contacts_load`) validates the
+   export, lowers each contact through the canonical intake lane, and writes
+   immutable staged revisions — set-based, inside Neon.
 
 ---
 
@@ -90,13 +92,13 @@ closed on empty `--source-account` and on DEV/PROD URL ambiguity.
 ## 6. Projection command
 
 ```sh
-pnpm contacts:project:dev     # DATABASE_URL_DEV
-pnpm contacts:project:prod    # DATABASE_URL_PROD
+cargo run --manifest-path rust/Cargo.toml -p cli -- apple-sync contacts-project dev
+cargo run --manifest-path rust/Cargo.toml -p cli -- apple-sync contacts-project prod
 ```
 
-`scripts/project-apple-contacts.ts` reads the **latest staged revision** per
-identity, upserts one `l_person` current-state row, and deterministically
-replaces its `l_person_identity` + `l_person_address` children. It never mutates
+`apple_contacts_project` (migration 254) reads the **latest staged revision** per
+identity, upserts one `l_person` current-state row, and replaces its phones/emails
+plus the `l_property` addresses in one transaction. It never mutates
 canonical `person` / `person_identity`, and it does not require re-exporting.
 
 ---
