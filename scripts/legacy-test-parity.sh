@@ -15,11 +15,38 @@ set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
 STATUS="docs/agent/legacy-test-parity/status.tsv"
+COVERED="docs/agent/legacy-test-parity/already-covered.tsv"
 OUT="docs/agent/LEGACY-TEST-PARITY.md"
 
 if [ ! -f "$STATUS" ]; then
   echo "missing $STATUS" >&2
   exit 1
+fi
+
+# The queue shrinks by machine evidence, not by hand: `scripts/legacy-test-merge-scan.py` writes the
+# legacy files that already have an equivalent Rust test. A hand-written status row always wins over
+# the scan (a judgement is better than a heuristic), so the scan only fills `unassessed` rows.
+#   bash scripts/legacy-test-parity.sh --scan   # refresh the scan, then render
+if [ "${1:-}" = "--scan" ]; then
+  python3 scripts/legacy-test-merge-scan.py || exit 1
+fi
+
+EFFECTIVE=/tmp/legacy-parity-effective.tsv
+if [ -f "$COVERED" ]; then
+  awk -F'\t' '
+    FILENAME==ARGV[1] { if ($0 !~ /^#/ && $1 != "") { c_status[$1]=$3; c_tier[$1]=$2; c_ev[$1]=$4; c_note[$1]=$5 } ; next }
+    /^#/ { next }
+    {
+      s=$2; home=$3; note=$4
+      if (s=="unassessed" && ($1 in c_status)) {
+        s=c_status[$1]
+        home=c_ev[$1]
+        note=c_note[$1] " [" c_tier[$1] "]"
+      }
+      print $1 "\t" s "\t" home "\t" note
+    }' "$COVERED" "$STATUS" > "$EFFECTIVE"
+else
+  awk -F'\t' '/^#/ {next} {print $1 "\t" $2 "\t" $3 "\t" $4}' "$STATUS" > "$EFFECTIVE"
 fi
 
 find legacy -name '*.test.ts' -o -name '*.test.tsx' | LC_ALL=C sort > /tmp/legacy-parity-files.txt
@@ -53,13 +80,15 @@ fi
   echo "| \`diverged\` | Rust does something *else* here — the legacy assertion would fail |"
   echo "| \`retired\` | intentionally not wanted in the Rust product (reason recorded) |"
   echo "| \`held_back\` | Captain's carve-out (WhatsApp, Marketing) |"
-  echo "| \`unassessed\` | not read yet |"
+  echo "| \`already_covered\` | an equivalent Rust test already exists (machine scan; Rust tests >= legacy cases) |"
+  echo "| \`gap\` | an equivalent Rust test exists for part of the file; the delta is in the note |"
+  echo "| \`unassessed\` | not read yet — this is the conversion queue |"
   echo
   echo "## Counts"
   echo
   printf -- '- legacy test files: **%s**\n' "$total"
-  for s in ported in_force_unported missing_capability diverged retired held_back unassessed; do
-    n=$(awk -F'\t' -v s="$s" '$2==s' "$STATUS" | wc -l | tr -d ' ')
+  for s in ported in_force_unported missing_capability diverged retired held_back already_covered gap unassessed; do
+    n=$(awk -F'\t' -v s="$s" '$2==s' "$EFFECTIVE" | wc -l | tr -d ' ')
     printf -- '- %s: **%s**\n' "$s" "$n"
   done
   printf -- '- rows not matching a legacy file: **%s**\n' "$stale_status"
@@ -68,7 +97,8 @@ fi
   echo
   echo "| # | legacy test file | status | Rust home | note |"
   echo "| --- | --- | --- | --- | --- |"
-  awk -F'\t' 'BEGIN{n=0} /^#/ {next} {n++; printf "| %d | `%s` | %s | %s | %s |\n", n, $1, $2, ($3==""?"-":$3), ($4==""?"-":$4)}' "$STATUS"
+  awk -F'\t' 'BEGIN{n=0} {n++; printf "| %d | `%s` | %s | %s | %s |\n", n, $1, $2, ($3==""?"-":$3), ($4==""?"-":$4)}' "$EFFECTIVE"
 } > "$OUT"
 
-echo "wrote $OUT — $total files, $missing_status without a status row, $stale_status stale rows"
+queue=$(awk -F'\t' '$2=="unassessed"' "$EFFECTIVE" | wc -l | tr -d ' ')
+echo "wrote $OUT — $total files, $queue still in the conversion queue, $missing_status without a status row, $stale_status stale rows"

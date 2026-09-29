@@ -435,6 +435,31 @@ Gates for §7.4–7.5: `cargo test -p db` (54) `-p forge` (93 + 37) `-p server` 
 Still open, named rather than implied: the run's packet snapshot columns (`goal_snapshot`, `packet_sha_snapshot`,
 `base_commit_hash`, … — migrations 024/106) are unwritten, because the binary loads the packet after the claim has
 already opened the run; the receipt-out seam (`forge_story_run_receipt`) now has rows to read but no Rust reader that
-uses them; hold/verdict out; canonical Story Board writes; a read-only SQL verb in `cli`; the Phase 1 parity audit of
-the 465 legacy tests.
+uses them; hold/verdict out; canonical Story Board writes; a read-only SQL verb in `cli`; the conversion of the
+remaining legacy tests (the queue count below).
+
+### 7.6 The 465 legacy tests are countable, and the ones already covered leave the queue (2026-09-29, `0675cb69`)
+
+The old engine's TypeScript tests survive as 465 files (81,620 lines, 3,795 `test()` cases) and their assertions are
+the contract, because the sources they imported were deleted with the application. `bash scripts/legacy-test-parity.sh`
+renders `docs/agent/LEGACY-TEST-PARITY.md` from `docs/agent/legacy-test-parity/status.tsv` (one row per legacy file,
+`--check` refuses a file with no row), so "how many are left" is a number instead of a feeling.
+
+`scripts/legacy-test-merge-scan.py` answers the other half — which of those files an existing Rust test already covers —
+and its output is folded into the ledger by `bash scripts/legacy-test-parity.sh --scan`. It removes a file from the queue
+only on evidence, and two traps found while building it are why it is as narrow as it is:
+
+- **A citation is not coverage.** `rust/cli/src/forge/test_section.rs` names legacy test files as arguments to
+  `section_for_file(...)` — it is a routing table. Citing a file to classify it says nothing about its assertions, so a
+  citation counts only from a comment (`//!`/`///`), which is where provenance actually gets written.
+- **A test count is not coverage.** `legacy/workflow_app/tests/accounting.test.ts` tests receivables and expenses;
+  `rust/core/db/src/accounting.rs` tests chart trend months. Same name, different subject. So a row must clear a
+  per-case test: for each `test()` in the legacy file, is there a Rust test in the evidence files that talks about the
+  same thing (≥2 significant words)? `already_covered` means every case cleared it; `gap` means some did and the delta
+  is in the note; nothing cleared it and the file stays queued no matter how many Rust tests sit next to it.
+
+Scan result on the day it was built: 465 files against 745 Rust tests — **18 files out of the queue** (2
+`already_covered`: `smith-candidate.parse.test.ts`, `forge-hold.test.ts`; 16 `gap`, 115 legacy cases between them), 7
+more where a Rust test exists for the subject but no case matched (kept), 440 with no evidence found. The queue is
+442. `gap` rows are the cheapest next work, because part of the file is already pinned and the note names which part.
 

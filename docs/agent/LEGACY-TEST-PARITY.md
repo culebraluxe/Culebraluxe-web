@@ -13,7 +13,9 @@ that runs against the Rust engine asserts the same behaviour and fails if the se
 | `diverged` | Rust does something *else* here — the legacy assertion would fail |
 | `retired` | intentionally not wanted in the Rust product (reason recorded) |
 | `held_back` | Captain's carve-out (WhatsApp, Marketing) |
-| `unassessed` | not read yet |
+| `already_covered` | an equivalent Rust test already exists (machine scan; Rust tests >= legacy cases) |
+| `gap` | an equivalent Rust test exists for part of the file; the delta is in the note |
+| `unassessed` | not read yet — this is the conversion queue |
 
 ## Counts
 
@@ -24,7 +26,9 @@ that runs against the Rust engine asserts the same behaviour and fails if the se
 - diverged: **1**
 - retired: **1**
 - held_back: **3**
-- unassessed: **456**
+- already_covered: **0**
+- gap: **14**
+- unassessed: **442**
 - rows not matching a legacy file: **0**
 
 ## Ledger
@@ -50,7 +54,7 @@ that runs against the Rust engine asserts the same behaviour and fails if the se
 | 17 | `legacy/agent-runtime/git-packet.test.ts` | unassessed | - | - |
 | 18 | `legacy/agent-runtime/harness-owned-commit.test.ts` | unassessed | - | - |
 | 19 | `legacy/agent-runtime/harness-usage.test.ts` | unassessed | - | - |
-| 20 | `legacy/agent-runtime/invoker-workspace.test.ts` | unassessed | - | - |
+| 20 | `legacy/agent-runtime/invoker-workspace.test.ts` | gap | rust/forge/src/engine/workspace_id.rs | 1 file(s); rust_tests=3 legacy_cases=7 case_overlap=3 [symbol] |
 | 21 | `legacy/agent-runtime/lane-policy.test.ts` | unassessed | - | - |
 | 22 | `legacy/agent-runtime/lead-decision.test.ts` | unassessed | - | - |
 | 23 | `legacy/agent-runtime/loop.test.ts` | unassessed | - | - |
@@ -147,7 +151,7 @@ that runs against the Rust engine asserts the same behaviour and fails if the se
 | 114 | `legacy/workflow_app/tests/appraisal.test.ts` | unassessed | - | - |
 | 115 | `legacy/workflow_app/tests/ara-catch-up.test.ts` | unassessed | - | - |
 | 116 | `legacy/workflow_app/tests/ara-voice.test.ts` | unassessed | - | - |
-| 117 | `legacy/workflow_app/tests/artifact-verdict.test.ts` | unassessed | - | - |
+| 117 | `legacy/workflow_app/tests/artifact-verdict.test.ts` | gap | rust/core/db/src/forge_engine.rs | rust_tests=11 legacy_cases=7 case_overlap=2 [citation] |
 | 118 | `legacy/workflow_app/tests/assay-engine-transition.test.ts` | unassessed | - | - |
 | 119 | `legacy/workflow_app/tests/assertion-executed.test.ts` | unassessed | - | - |
 | 120 | `legacy/workflow_app/tests/auth-08g-mapping.test.ts` | unassessed | - | - |
@@ -177,7 +181,7 @@ that runs against the Rust engine asserts the same behaviour and fails if the se
 | 144 | `legacy/workflow_app/tests/closing-document-readiness.test.ts` | unassessed | - | - |
 | 145 | `legacy/workflow_app/tests/closing-timer.test.ts` | unassessed | - | - |
 | 146 | `legacy/workflow_app/tests/column-writer-audit.test.ts` | unassessed | - | - |
-| 147 | `legacy/workflow_app/tests/command-inventory.test.ts` | unassessed | - | - |
+| 147 | `legacy/workflow_app/tests/command-inventory.test.ts` | gap | rust/forge/src/engine/re_commands.rs, rust/forge/src/engine/xml.rs | 2 file(s); rust_tests=2 legacy_cases=10 case_overlap=6 [symbol] |
 | 148 | `legacy/workflow_app/tests/command-layer.test.ts` | unassessed | - | - |
 | 149 | `legacy/workflow_app/tests/command-receipt.test.ts` | unassessed | - | - |
 | 150 | `legacy/workflow_app/tests/command-status-band.test.ts` | unassessed | - | - |
@@ -233,7 +237,7 @@ that runs against the Rust engine asserts the same behaviour and fails if the se
 | 200 | `legacy/workflow_app/tests/flight-recorder-qa-reset.test.ts` | unassessed | - | - |
 | 201 | `legacy/workflow_app/tests/flight-recorder-read.test.ts` | unassessed | - | - |
 | 202 | `legacy/workflow_app/tests/flight-recorder-seed-contract.test.ts` | unassessed | - | - |
-| 203 | `legacy/workflow_app/tests/flight-recorder-views.test.ts` | unassessed | - | - |
+| 203 | `legacy/workflow_app/tests/flight-recorder-views.test.ts` | gap | rust/forge/src/engine/alerts.rs, rust/ui/src/flight_recorder.rs | 2 file(s); rust_tests=14 legacy_cases=9 case_overlap=2 [symbol] |
 | 204 | `legacy/workflow_app/tests/forge-agent-gates.test.ts` | unassessed | - | - |
 | 205 | `legacy/workflow_app/tests/forge-architect-contract.test.ts` | unassessed | - | - |
 | 206 | `legacy/workflow_app/tests/forge-architect-role.test.ts` | unassessed | - | - |
@@ -258,14 +262,14 @@ that runs against the Rust engine asserts the same behaviour and fails if the se
 | 225 | `legacy/workflow_app/tests/forge-dispatch-ledger.test.ts` | unassessed | - | - |
 | 226 | `legacy/workflow_app/tests/forge-dispatch-seam.test.ts` | unassessed | - | - |
 | 227 | `legacy/workflow_app/tests/forge-dispatchability.test.ts` | unassessed | - | - |
-| 228 | `legacy/workflow_app/tests/forge-doctor-report.test.ts` | unassessed | - | - |
+| 228 | `legacy/workflow_app/tests/forge-doctor-report.test.ts` | gap | rust/forge/src/doctor_report.rs | 1 file(s); rust_tests=9 legacy_cases=7 case_overlap=6 [symbol] |
 | 229 | `legacy/workflow_app/tests/forge-engine-model.test.ts` | unassessed | - | - |
 | 230 | `legacy/workflow_app/tests/forge-estimator.test.ts` | unassessed | - | - |
 | 231 | `legacy/workflow_app/tests/forge-evidence-db-gap.test.ts` | unassessed | - | - |
 | 232 | `legacy/workflow_app/tests/forge-evidence-roundtrip.test.ts` | unassessed | - | - |
 | 233 | `legacy/workflow_app/tests/forge-evidence.test.ts` | unassessed | - | - |
 | 234 | `legacy/workflow_app/tests/forge-execution-shaping.test.ts` | unassessed | - | - |
-| 235 | `legacy/workflow_app/tests/forge-execution-target.test.ts` | unassessed | - | - |
+| 235 | `legacy/workflow_app/tests/forge-execution-target.test.ts` | gap | rust/core/db/src/forge_engine.rs, rust/forge/src/engine/execution_target.rs, rust/ui/src/search.rs | 3 file(s); rust_tests=20 legacy_cases=12 case_overlap=4 [symbol] |
 | 236 | `legacy/workflow_app/tests/forge-executor-contract.test.ts` | unassessed | - | - |
 | 237 | `legacy/workflow_app/tests/forge-facts.test.ts` | unassessed | - | - |
 | 238 | `legacy/workflow_app/tests/forge-failure-label.test.ts` | unassessed | - | - |
@@ -294,9 +298,9 @@ that runs against the Rust engine asserts the same behaviour and fails if the se
 | 261 | `legacy/workflow_app/tests/forge-parallel-shape-guard.test.ts` | unassessed | - | - |
 | 262 | `legacy/workflow_app/tests/forge-phase-agent.test.ts` | unassessed | - | - |
 | 263 | `legacy/workflow_app/tests/forge-plan-difficulty.test.ts` | unassessed | - | - |
-| 264 | `legacy/workflow_app/tests/forge-qa-consistency.test.ts` | unassessed | - | - |
+| 264 | `legacy/workflow_app/tests/forge-qa-consistency.test.ts` | gap | rust/forge/src/qa_consistency.rs | 1 file(s); rust_tests=5 legacy_cases=9 case_overlap=6 [symbol] |
 | 265 | `legacy/workflow_app/tests/forge-qa-doc-rule.test.ts` | unassessed | - | - |
-| 266 | `legacy/workflow_app/tests/forge-qa-no-git.test.ts` | unassessed | - | - |
+| 266 | `legacy/workflow_app/tests/forge-qa-no-git.test.ts` | gap | rust/forge/tests/handbook_engine_guards.rs | rust_tests=2 legacy_cases=7 case_overlap=2 [citation] |
 | 267 | `legacy/workflow_app/tests/forge-qa-routing.test.ts` | unassessed | - | - |
 | 268 | `legacy/workflow_app/tests/forge-qa-seam.test.ts` | unassessed | - | - |
 | 269 | `legacy/workflow_app/tests/forge-qa-verdict-visible.test.ts` | unassessed | - | - |
@@ -313,7 +317,7 @@ that runs against the Rust engine asserts the same behaviour and fails if the se
 | 280 | `legacy/workflow_app/tests/forge-role-mapping.test.ts` | unassessed | - | - |
 | 281 | `legacy/workflow_app/tests/forge-role-readers.test.ts` | unassessed | - | - |
 | 282 | `legacy/workflow_app/tests/forge-run-spend.test.ts` | unassessed | - | - |
-| 283 | `legacy/workflow_app/tests/forge-schema-parity-checks.test.ts` | unassessed | - | - |
+| 283 | `legacy/workflow_app/tests/forge-schema-parity-checks.test.ts` | gap | rust/core/db/src/forge_engine.rs, rust/core/db/src/schema_parity.rs, rust/ui/src/search.rs | 3 file(s); rust_tests=25 legacy_cases=7 case_overlap=5 [symbol] |
 | 284 | `legacy/workflow_app/tests/forge-scout-findings.test.ts` | missing_capability | rust/forge/src/engine/role_mapping.rs | ForgeRoleNodePlan has no evidence_instruction so nothing tells research_scout to emit FORGE_FINDINGS_JSON; findingsFromArchitectEvidence has no Rust equivalent |
 | 285 | `legacy/workflow_app/tests/forge-sdlc-v4.test.ts` | unassessed | - | - |
 | 286 | `legacy/workflow_app/tests/forge-sdlc.test.ts` | unassessed | - | - |
@@ -359,7 +363,7 @@ that runs against the Rust engine asserts the same behaviour and fails if the se
 | 326 | `legacy/workflow_app/tests/materialization.test.ts` | unassessed | - | - |
 | 327 | `legacy/workflow_app/tests/media-content-length.test.ts` | unassessed | - | - |
 | 328 | `legacy/workflow_app/tests/middleware-capabilities.test.ts` | unassessed | - | - |
-| 329 | `legacy/workflow_app/tests/migration-applied-guard.test.ts` | unassessed | - | - |
+| 329 | `legacy/workflow_app/tests/migration-applied-guard.test.ts` | gap | rust/core/db/src/forge_engine.rs, rust/forge/src/engine/migration_guard.rs, rust/ui/src/search.rs | 3 file(s); rust_tests=18 legacy_cases=5 case_overlap=1 [symbol] |
 | 330 | `legacy/workflow_app/tests/migration-lint.test.ts` | unassessed | - | - |
 | 331 | `legacy/workflow_app/tests/migration-preflight.test.ts` | unassessed | - | - |
 | 332 | `legacy/workflow_app/tests/migration-replay.test.ts` | unassessed | - | - |
@@ -455,11 +459,11 @@ that runs against the Rust engine asserts the same behaviour and fails if the se
 | 422 | `legacy/workflow_app/tests/sorter-board.test.ts` | unassessed | - | - |
 | 423 | `legacy/workflow_app/tests/split-child-shape.test.ts` | unassessed | - | - |
 | 424 | `legacy/workflow_app/tests/split-join.test.ts` | unassessed | - | - |
-| 425 | `legacy/workflow_app/tests/split-lifecycle-receipt.test.ts` | unassessed | - | - |
+| 425 | `legacy/workflow_app/tests/split-lifecycle-receipt.test.ts` | gap | rust/forge/src/engine/split_join.rs | 1 file(s); rust_tests=2 legacy_cases=5 case_overlap=1 [symbol] |
 | 426 | `legacy/workflow_app/tests/sprint-release-shape.test.ts` | unassessed | - | - |
 | 427 | `legacy/workflow_app/tests/sprint.test.ts` | unassessed | - | - |
 | 428 | `legacy/workflow_app/tests/stellar-listing-draft.test.ts` | unassessed | - | - |
-| 429 | `legacy/workflow_app/tests/story-scope-base.test.ts` | unassessed | - | - |
+| 429 | `legacy/workflow_app/tests/story-scope-base.test.ts` | gap | rust/forge/src/engine/scope.rs | 1 file(s); rust_tests=2 legacy_cases=4 case_overlap=1 [symbol] |
 | 430 | `legacy/workflow_app/tests/storyboard-cockpit.test.ts` | unassessed | - | - |
 | 431 | `legacy/workflow_app/tests/storyboard-execution-normalization.test.ts` | unassessed | - | - |
 | 432 | `legacy/workflow_app/tests/storyboard-filter.test.ts` | unassessed | - | - |
@@ -467,7 +471,7 @@ that runs against the Rust engine asserts the same behaviour and fails if the se
 | 434 | `legacy/workflow_app/tests/storyboard-runs.test.ts` | unassessed | - | - |
 | 435 | `legacy/workflow_app/tests/storyboard-yew-port.test.ts` | unassessed | - | - |
 | 436 | `legacy/workflow_app/tests/storyboard.test.ts` | unassessed | - | - |
-| 437 | `legacy/workflow_app/tests/sync-conflict.test.ts` | unassessed | - | - |
+| 437 | `legacy/workflow_app/tests/sync-conflict.test.ts` | gap | rust/forge/src/sync_conflict.rs | 1 file(s); rust_tests=4 legacy_cases=6 case_overlap=3 [symbol] |
 | 438 | `legacy/workflow_app/tests/syndication-adapters.test.ts` | unassessed | - | - |
 | 439 | `legacy/workflow_app/tests/task-completion.test.ts` | unassessed | - | - |
 | 440 | `legacy/workflow_app/tests/task-update.test.ts` | unassessed | - | - |
@@ -490,7 +494,7 @@ that runs against the Rust engine asserts the same behaviour and fails if the se
 | 457 | `legacy/workflow_app/tests/whatsapp-attribution.test.ts` | held_back | - | Captain carve-out 2026-09-29: WhatsApp |
 | 458 | `legacy/workflow_app/tests/whatsapp-cloud-webhook.test.ts` | held_back | - | Captain carve-out 2026-09-29: WhatsApp |
 | 459 | `legacy/workflow_app/tests/worker-commit-identity.test.ts` | unassessed | - | - |
-| 460 | `legacy/workflow_app/tests/worker-workspace-branch-naming.test.ts` | unassessed | - | - |
+| 460 | `legacy/workflow_app/tests/worker-workspace-branch-naming.test.ts` | gap | rust/forge/src/engine/worktree.rs | 1 file(s); rust_tests=1 legacy_cases=4 case_overlap=1 [symbol] |
 | 461 | `legacy/workflow_app/tests/worker-workspace.test.ts` | unassessed | - | - |
 | 462 | `legacy/workflow_app/tests/workflow-trace.test.ts` | unassessed | - | - |
 | 463 | `legacy/workflow_app/tests/workshop-tools.test.ts` | unassessed | - | - |
