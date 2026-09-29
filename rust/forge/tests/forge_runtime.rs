@@ -538,6 +538,7 @@ impl runner::RoleHarness for ScriptedHarness {
         &self,
         _n: &str,
         _t: &runtime::ActiveForgeRoleTask,
+        _d: Option<&str>,
     ) -> workflow::Result<runner::HarnessOutput> {
         Ok(runner::HarnessOutput {
             raw: self.raw.clone(),

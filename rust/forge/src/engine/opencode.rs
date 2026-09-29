@@ -8,7 +8,7 @@ use std::process::Command;
 
 use crate::engine::assay::CommandResult;
 use crate::engine::opencode_client::{start_opencode_run, OpenCodeRunResult, OpenCodeStartOptions};
-use crate::engine::packet::{build_task_text, ExecutionWorkspace, StoryPacket};
+use crate::engine::packet::{build_task_text_with_context, ExecutionWorkspace, StoryPacket};
 use crate::engine::runner::{HarnessOutput, RoleHarness};
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::engine::vendor_session;
@@ -165,25 +165,38 @@ impl OpenCodeHarness {
         Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
     }
 
-    fn task_text(&self, node_id: &str, task: &ActiveForgeRoleTask) -> String {
-        build_task_text(
+    /// `self_heal` is the runner's corrective directive for this attempt (see `RoleHarness::run_role`). It is
+    /// appended to the task text as extra context — the legacy harness carried it the same way.
+    fn task_text(
+        &self,
+        node_id: &str,
+        task: &ActiveForgeRoleTask,
+        self_heal: Option<&str>,
+    ) -> String {
+        build_task_text_with_context(
             node_id,
             &task.task_id,
             &self.packet,
             self.execution_workspace.as_ref(),
+            self_heal,
         )
     }
 }
 
 impl RoleHarness for OpenCodeHarness {
-    fn run_role(&self, node_id: &str, task: &ActiveForgeRoleTask) -> Result<HarnessOutput> {
+    fn run_role(
+        &self,
+        node_id: &str,
+        task: &ActiveForgeRoleTask,
+        self_heal: Option<&str>,
+    ) -> Result<HarnessOutput> {
         let cwd = self.workspace.to_string_lossy().to_string();
         if !self.workspace.exists() {
             return Err(WorkflowError::generic(format!(
                 "OpenCode harness workspace does not exist: {cwd}"
             )));
         }
-        let task_text = self.task_text(node_id, task);
+        let task_text = self.task_text(node_id, task, self_heal);
         let lane = "opencode";
         let session = if session_continuity_enabled() {
             if let Some(story) = self.story_id.as_deref() {

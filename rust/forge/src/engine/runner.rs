@@ -27,7 +27,18 @@ pub struct HarnessOutput {
 }
 
 pub trait RoleHarness: Send + Sync {
-    fn run_role(&self, node_id: &str, task: &ActiveForgeRoleTask) -> Result<HarnessOutput>;
+    /// `self_heal` is this attempt's corrective directive: `None` on the first attempt, and — when the runner
+    /// retries a role that missed a required deliverable — the directive naming exactly what was missed.
+    ///
+    /// It is part of the prompt contract, not decoration. The legacy runner built this text and handed it to the
+    /// next attempt; the port built it and threw it away (`let _directive = …`), so a "bounded corrective retry"
+    /// re-sent the same prompt and could only produce the same omission (2026-09-29).
+    fn run_role(
+        &self,
+        node_id: &str,
+        task: &ActiveForgeRoleTask,
+        self_heal: Option<&str>,
+    ) -> Result<HarnessOutput>;
     fn exists_on_base_ref(&self, base_ref: &str, path: &str) -> bool;
     /// Where this harness runs commands from — the assay workspace.
     ///
@@ -79,13 +90,16 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
             ),
         );
         let mut prior_reply: Option<String> = None;
+        // The corrective directive for the next attempt. Set below when this attempt missed something, and handed
+        // to `run_role` so the retry names the omission instead of repeating the prompt (2026-09-29).
+        let mut self_heal: Option<String> = None;
         let mut evidence = self.current.clone();
         let mut last_raw = String::new();
         let mut last_out_sha = None;
         let mut last_assay = vec![];
         let mut last_mapped = false;
         for attempt in 0..budget {
-            let out = self.harness.run_role(node_id, task)?;
+            let out = self.harness.run_role(node_id, task, self_heal.as_deref())?;
             last_raw = out.raw.clone();
             last_out_sha = out.candidate_sha.clone();
             last_assay = out.assay_commands.clone();
@@ -104,7 +118,7 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
                 if missing.is_empty() {
                     break;
                 }
-                let _directive = build_self_heal_directive(
+                let directive = build_self_heal_directive(
                     node_id,
                     &missing.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
                     None,
@@ -117,6 +131,7 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
                     prior_reply.as_deref(),
                 );
                 prior_reply = Some(out.raw);
+                self_heal = Some(directive);
                 continue;
             }
             break;
