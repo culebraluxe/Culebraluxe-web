@@ -103,21 +103,16 @@ jobs:
       - name: harness tests (no database)
         run: pnpm test:harness
 
-      # THE TWO HALVES OF THE TYPESCRIPT COUNT, and why the second one is here.
+      # THE TYPESCRIPT COUNT — ONE WRITER (owner's order, 2026-09-29).
       #
-      # `broken:ts:sweep` demands a banner from files that CANNOT load; it says nothing about a file
-      # that WORKS. So the port could leave 69 loadable TypeScript files in the tree, a 70th could
-      # arrive, and the sweep would still be green — on 2026-09-28 that green was read as "the
-      # TypeScript is retired", and it was not. `ts:count` counts the other half against
-      # `docs/agent/live-ts-baseline.txt`, and the baseline MAY ONLY FALL: a new live file fails the
-      # build, and a baseline line whose file is gone fails until it is lowered with
-      # `pnpm ts:count:write` (`--write` refuses to ADD a line, so the count cannot be laundered).
-      # When the baseline reaches empty this reads exactly as the work order wrote it: 0, or red.
+      # Two gates used to sit here: `ts:count` against `docs/agent/live-ts-baseline.txt` (69 loadable
+      # files) and `ts-ratchet` against `docs/agent/ts-allowlist.txt` (all 259 tracked TS/JS outside
+      # `legacy/`). Both were green and both had to be edited to retire one file, which is one fact
+      # with two writers. The owner kept the ratchet: it is the wider set, its allowlist MAY ONLY
+      # SHRINK, and `broken:ts:sweep` (the step above) still demands the retirement banner from
+      # anything that cannot load. The live-TS gate and its baseline were deleted on this order.
       - name: dead-TS ledger
         run: pnpm broken:ts:sweep
-
-      - name: live-TS count (may only fall)
-        run: pnpm ts:count
 
       - name: TS/JS ratchet (allowlist may only shrink)
         run: bash scripts/ts-ratchet.sh

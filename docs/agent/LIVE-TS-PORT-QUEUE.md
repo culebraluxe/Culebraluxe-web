@@ -1,6 +1,14 @@
 # Live TypeScript — the port queue, and who to ask before touching it
 
-The gate is `pnpm ts:count` (`scripts/live-ts-gate.sh`, baseline `docs/agent/live-ts-baseline.txt`, CI step
+> **2026-09-29, later the same day — the gate named below was removed on the owner's order.** Two ratchets had landed
+> for one fact (`pnpm ts:count` here, and `scripts/ts-ratchet.sh` + `docs/agent/ts-allowlist.txt` for the whole
+> non-legacy estate). The owner kept the wider one: **`docs/agent/ts-allowlist.txt` is the single writer — 259 tracked
+> TS/JS files at the handover, and it may only shrink.** `scripts/live-ts-gate.sh` and `docs/agent/live-ts-baseline.txt`
+> were deleted in the same commit, together with the `ts:count` commands and the CI step that ran them. This file is
+> kept because the classification below is still the map of *what each remaining file needs*; the count it names (69)
+> is the live subset of the allowlist's 259.
+
+The gate was `pnpm ts:count` (`scripts/live-ts-gate.sh`, baseline `docs/agent/live-ts-baseline.txt`, CI step
 `live-TS count (may only fall)` in the `static gates` job). **69 files at 2026-09-29. The baseline may only fall.**
 
 This file is the other half of `docs/agent/BROKEN-TS-INVENTORY.md`, and the split is the whole point: that
@@ -56,9 +64,10 @@ searched across the tree (`git grep -l --fixed-strings <stem>`) and none has a c
 `docs/RUST-UI-PORT.md`; `oc-probe3.ts` in a packet and `eslint-suppressions.json`. Two of them (break-glass) touch a
 security control, so they are ported deliberately or not at all — never deleted on a sweep.
 
-## What the count means when it hits 0
+## What the count means when the allowlist hits the config floor
 
-`ts:count` at 0 is the work order's sentence: any single new `.ts/.tsx/.mts/.cts/.js/.mjs/.cjs` outside `legacy/`
-fails the build. The four excluded names (`eslint.config.mjs`, `postcss.config.mjs`, `.dependency-cruiser.js`,
-`.dependency-cruiser.runtime.js`) are settings for the tools that check what is left, and they are excluded in one
-named line in `scripts/live-ts-gate.sh` rather than by a pattern a new file could hide behind.
+The ratification is now `docs/agent/ts-allowlist.txt` (may only shrink). At its floor every remaining entry must be a
+tool configuration file — `eslint.config.mjs`, `postcss.config.mjs`, `.dependency-cruiser.js`,
+`.dependency-cruiser.runtime.js` — because those are settings for the tools that check what is left, not product
+code; the owner decides whether they are exempted by name or replaced. Every other entry in the allowlist is a
+retirement, and a single new `.ts/.tsx/.mts/.cts/.js/.mjs/.cjs` outside `legacy/` fails CI (the owner's rule).
