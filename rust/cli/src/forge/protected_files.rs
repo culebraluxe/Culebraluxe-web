@@ -55,10 +55,7 @@ fn protection_refusals(root: &Path) -> Vec<String> {
         let full = root.join(file.path);
         let content = fs::read_to_string(&full).ok();
         if let Some(refusal) = marker_refusal(file.path, content.as_deref(), file.marker) {
-            refusals.push(format!(
-                "{refusal}\n  why it is protected: {}",
-                file.why
-            ));
+            refusals.push(format!("{refusal}\n  why it is protected: {}", file.why));
         }
     }
     for dir in PROTECTED_DIRECTORIES {
@@ -137,7 +134,7 @@ mod tests {
                 Some("# Column writer audit\n\n| table |\n"),
                 "# Column writer audit",
             ),
-            None
+            None,
         );
         assert_eq!(marker_refusal("x.md", Some("stray no newline"), "stray"), None);
     }
