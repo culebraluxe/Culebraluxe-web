@@ -89,10 +89,7 @@ async fn capture_fixtures(args: &[String]) -> Result<(), Box<dyn Error>> {
     if failed == 0 {
         Ok(())
     } else {
-        Err(io::Error::other(format!(
-            "{failed} UI fixture capture(s) failed"
-        ))
-        .into())
+        Err(io::Error::other(format!("{failed} UI fixture capture(s) failed")).into())
     }
 }
 
@@ -145,11 +142,9 @@ fn keep_string(value: &str) -> bool {
     }
 
     value.len() <= 32
-        && value.chars().all(|ch| {
-            ch.is_ascii_lowercase()
-                || ch.is_ascii_digit()
-                || matches!(ch, '_' | '.' | '-')
-        })
+        && value
+            .chars()
+            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '_' | '.' | '-'))
 }
 
 fn looks_like_phone(value: &str) -> bool {

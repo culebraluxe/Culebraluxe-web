@@ -256,7 +256,9 @@ fn walk_tests(root: &Path, dir: &Path, found: &mut Vec<String>) {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
         if path.is_dir() {
-            if matches!(name.as_str(), "target" | "node_modules" | "dist") || name.starts_with('.') {
+            if matches!(name.as_str(), "target" | "node_modules" | "dist")
+                || name.starts_with('.')
+            {
                 continue;
             }
             walk_tests(root, &path, found);
@@ -569,14 +571,8 @@ mod tests {
             section_for_file("rust/server/src/api/engine.rs"),
             Some("app-core")
         );
-        assert_eq!(
-            section_for_file("rust/ui/src/update.rs"),
-            Some("app-portal")
-        );
-        assert_eq!(
-            section_for_file("rust/cli/src/main.rs"),
-            Some("harness")
-        );
+        assert_eq!(section_for_file("rust/ui/src/update.rs"), Some("app-portal"));
+        assert_eq!(section_for_file("rust/cli/src/main.rs"), Some("harness"));
     }
 
     #[test]
@@ -610,10 +606,8 @@ mod tests {
 
     #[test]
     fn every_section_has_a_rust_execution_target() {
-        assert!(
-            SECTIONS
-                .iter()
-                .all(|section| !section.crates.is_empty() && section.about.len() > 20)
-        );
+        assert!(SECTIONS
+            .iter()
+            .all(|section| !section.crates.is_empty() && section.about.len() > 20));
     }
 }
