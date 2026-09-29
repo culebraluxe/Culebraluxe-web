@@ -160,18 +160,15 @@ impl ForgeResetDao {
         let stale_minutes = stale_minutes.max(1);
         let mut steps = Vec::new();
 
-        // a. Open work items that have not moved since the cutoff.
-        let items = self
-            .execute_with_stale_minutes(
-                "update agent_work_item
-                    set state='Cancelled', claimed_by=null, started_at=null,
-                        finished_at=now(), updated_at=now()
-                  where state in ('Ready','Claimed','Running','Paused')
-                    and coalesce(updated_at, created_at) <= now() - ($1::text || ' minutes')::interval",
-                stale_minutes,
-            )
-            .await?;
+        // a. Open work items that have not moved since the cutoff — **and the stories that were still expecting
+        //    them**. Cancelling the item alone leaves `Ready` beside `Cancelled`, and nothing dispatches that again:
+        //    the claim consults both authorities, and the Ready trigger fires only on a *change* of board status.
+        //    This is the writer whose output migration 258 had to repair, so it now moves the pair or neither half.
+        let (items, held) = self.cancel_stale_open_items(stale_minutes).await?;
         steps.push(("cancelled stale open work items", items));
+        if held > 0 {
+            steps.push(("held stories whose stale work was cancelled", held));
+        }
 
         // b. Stale engine claims, through the SAME recovery the engine itself uses — one implementation of
         //    "recovered", so the sweep cannot drift from what recovery means.
@@ -407,6 +404,62 @@ impl ForgeResetDao {
     }
 
     /// One update whose only parameter is the stale window.
+    /// Cancel the stale open work items and hold the stories that were still waiting on them, in one transaction.
+    ///
+    /// Two statements, one transaction, deliberately: this is the write that stranded eight stories on 2026-09-29.
+    /// The story ids come from the rows this transaction just cancelled — not from a re-derived time window — so the
+    /// two halves cannot drift apart between them, and `Hold` is the honest board state: the run was swept away, so
+    /// a human decides what happens next (`forge:story:reset` returns it to `Planned`).
+    async fn cancel_stale_open_items(&self, stale_minutes: i64) -> DbResult<(u64, u64)> {
+        let mut tx = self.db.begin("forge_reset.clean.open_work_items").await?;
+        let result = async {
+            let story_ids = sqlx::query_scalar::<_, String>(
+                "update agent_work_item
+                    set state='Cancelled', claimed_by=null, started_at=null,
+                        finished_at=now(), updated_at=now()
+                  where state in ('Ready','Claimed','Running','Paused')
+                    and coalesce(updated_at, created_at) <= now() - ($1::text || ' minutes')::interval
+                  returning story_id",
+            )
+            .bind(stale_minutes.max(1).to_string())
+            .fetch_all(tx.connection())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_reset.clean.open_work_items", &error))?;
+            let cancelled = story_ids.len() as u64;
+            let mut targets = story_ids;
+            targets.sort();
+            targets.dedup();
+            let held = if targets.is_empty() {
+                0
+            } else {
+                sqlx::query(
+                    "update storyboard_story
+                        set status='Hold', completed_at=null, updated_at=now()
+                      where id = any($1::text[]) and status in ('Ready','In Progress')",
+                )
+                .bind(&targets)
+                .execute(tx.connection())
+                .await
+                .map_err(|error| {
+                    DbFailure::from_sqlx("forge_reset.clean.hold_stories", &error)
+                })?
+                .rows_affected()
+            };
+            Ok::<(u64, u64), DbFailure>((cancelled, held))
+        }
+        .await;
+        match result {
+            Ok(counts) => {
+                tx.commit().await?;
+                Ok(counts)
+            }
+            Err(error) => {
+                let _ = tx.rollback().await;
+                Err(error)
+            }
+        }
+    }
+
     async fn execute_with_stale_minutes(&self, sql: &'static str, minutes: i64) -> DbResult<u64> {
         sqlx::query(sql)
             .bind(minutes.max(1).to_string())

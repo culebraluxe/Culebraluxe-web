@@ -53,7 +53,10 @@ pub fn claim_next_agent_work(worker_id: &str) -> Result<Option<AgentWorkItem>, S
     })?
 }
 
-pub fn begin_agent_work_run(work_item_id: &str) -> Result<(), String> {
+/// `Claimed → Running`. `Ok(false)` means the row was not `Claimed`, so this process does not own the run it is
+/// about to start and must not drive the story. It is a fence, not a formality: the update is a CAS, and the engine
+/// is only ever launched behind it.
+pub fn begin_agent_work_run(work_item_id: &str) -> Result<bool, String> {
     with_shared(|db, rt| {
         let dao = ForgeEngineDao::new(db.clone());
         rt.block_on(async {
@@ -75,13 +78,17 @@ pub fn reject_agent_work_configuration(work_item_id: &str, evidence: &str) -> Re
     })?
 }
 
-/// The run's own terminal write. `Ok(false)` means the row was no longer claimable — a settle that raced another
-/// settle and lost, which is reported, not retried.
+/// The run's own terminal write — the item **and its story**, decided together inside one transaction.
+///
+/// `Ok(None)` means the row was no longer claimable: a settle that raced another settle and lost, which is reported,
+/// not retried. `Ok(Some(settled))` carries the pair that was actually written, including the case where a `Done`
+/// was refused in favour of `Error` because the board never confirmed completion — the caller must not report a
+/// `Done` the database did not accept.
 pub fn finish_agent_work_run(
     work_item_id: &str,
     outcome: db::AgentWorkOutcome,
     error_text: Option<&str>,
-) -> Result<bool, String> {
+) -> Result<Option<db::AgentWorkSettlement>, String> {
     with_shared(|db, rt| {
         let dao = ForgeEngineDao::new(db.clone());
         rt.block_on(async {

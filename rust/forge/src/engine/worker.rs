@@ -51,9 +51,15 @@ fn heartbeat_seconds(stale_after_minutes: i64) -> u64 {
 /// Pure core of `heartbeat_seconds`, so the invariant it must keep — a beat strictly inside the stale window, never
 /// zero — is a test and not a comment.
 fn heartbeat_seconds_from(raw: Option<&str>, stale_after_minutes: i64) -> u64 {
+    let window = stale_after_minutes.max(1) as u64 * 60;
+    let default = (window / 4).max(15);
+    // A configured interval is a request, not a licence. An override at or beyond the window it is racing would let
+    // recovery requeue a run that is still alive — the double dispatch the heartbeat exists to prevent — so it is
+    // clamped, not trusted: `AGENT_WORKER_HEARTBEAT_SECONDS=3600` against a 600s window was accepted until
+    // 2026-09-29. The clamp only ever makes the beat more frequent.
     raw.and_then(|value| value.parse::<u64>().ok())
-        .filter(|seconds| *seconds > 0)
-        .unwrap_or_else(|| ((stale_after_minutes.max(1) as u64 * 60) / 4).max(15))
+        .filter(|seconds| *seconds > 0 && *seconds < window)
+        .unwrap_or(default)
 }
 
 /// Hold the claim open while the child runs.
@@ -267,15 +273,25 @@ pub fn run_worker_pass() -> Result<i32, String> {
             // legal terminal state) rather than leaving a `Claimed` row for stale recovery to requeue ten minutes
             // later — the queue should say a launch failed, at the moment it failed.
             let reason = format!("launch Rust Forge engine: {error}");
-            if let Err(settle) = agent_work::finish_agent_work_run(
+            match agent_work::finish_agent_work_run(
                 &dispatch.work_item_id,
                 AgentWorkOutcome::Error,
                 Some(&reason),
             ) {
-                eprintln!(
+                Ok(Some(settled)) => eprintln!(
+                    "forge-worker: settled {} as {} (story {})",
+                    dispatch.work_item_id,
+                    settled.item_state,
+                    settled.story_status.unwrap_or("unchanged")
+                ),
+                Ok(None) => eprintln!(
+                    "forge-worker: {} already had a verdict; left as-is",
+                    dispatch.work_item_id
+                ),
+                Err(settle) => eprintln!(
                     "forge-worker: could not settle {} as Error: {settle}",
                     dispatch.work_item_id
-                );
+                ),
             }
             heartbeat.store(true, Ordering::Relaxed);
             return Err(reason);
@@ -293,8 +309,12 @@ pub fn run_worker_pass() -> Result<i32, String> {
             AgentWorkOutcome::Error,
             Some(&reason),
         ) {
-            Ok(true) => eprintln!("forge-worker: settled {} as Error ({reason})", dispatch.work_item_id),
-            Ok(false) => eprintln!(
+            Ok(Some(settled)) => eprintln!(
+                "forge-worker: settled {} as {} with the board ({reason})",
+                dispatch.work_item_id,
+                settled.item_state
+            ),
+            Ok(None) => eprintln!(
                 "forge-worker: {} already had a verdict; left as-is ({reason})",
                 dispatch.work_item_id
             ),
@@ -323,15 +343,27 @@ mod tests {
     fn heartbeat_interval_stays_inside_the_stale_window() {
         assert_eq!(heartbeat_seconds_from(None, 10), 150);
         assert_eq!(heartbeat_seconds_from(Some("30"), 10), 30);
-        // A zero, negative-looking or unparsable setting falls back to the window-derived default, never to zero.
+        // A zero, unparsable, or window-sized setting falls back to the window-derived default, never to something
+        // that reaches the window it is racing: `3600` was accepted against a 600s window until 2026-09-29.
         assert_eq!(heartbeat_seconds_from(Some("0"), 10), 150);
         assert_eq!(heartbeat_seconds_from(Some("junk"), 10), 150);
+        assert_eq!(heartbeat_seconds_from(Some("600"), 10), 150);
+        assert_eq!(heartbeat_seconds_from(Some("3600"), 10), 150);
         assert_eq!(heartbeat_seconds_from(Some("0"), 1), 15);
         for stale in 1..=60 {
+            let window = stale as u64 * 60;
             assert!(
-                heartbeat_seconds_from(None, stale) < stale as u64 * 60,
+                heartbeat_seconds_from(None, stale) < window,
                 "heartbeat must be strictly inside the stale window for stale_after_minutes={stale}"
             );
+            // Whatever the operator asks for, the beat stays inside the window — that is the invariant, not the
+            // value of the setting.
+            for asked in ["1", "600", "3600", "999999"] {
+                assert!(
+                    heartbeat_seconds_from(Some(asked), stale) < window,
+                    "override {asked} must be clamped inside the {window}s window (stale_after_minutes={stale})"
+                );
+            }
         }
     }
 

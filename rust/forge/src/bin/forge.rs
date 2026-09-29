@@ -1,7 +1,7 @@
 //! Cutover host. Engine + Forge + OpenCode.
 //! NeonStore when APP_ENV / VERCEL_ENV is set. MemoryStore only for local dry-run.
 
-use db::AgentWorkOutcome;
+use db::{AgentWorkOutcome, AgentWorkSettlement};
 use forge::engine::agent_work;
 use forge::engine::db_writer::DbForgeStateWriter;
 use forge::engine::definition::forge_sdlc_definition;
@@ -47,16 +47,40 @@ fn reject_configuration(work_item: Option<&str>, reason: &str) {
     }
 }
 
-/// The run's own terminal write, on the way out of `main`. A second settle is a no-op by construction, so this
-/// cannot overwrite a verdict the worker or recovery already wrote.
-fn settle_work_item(work_item: Option<&str>, outcome: AgentWorkOutcome, reason: Option<&str>) {
+/// The run's own terminal write, on the way out of `main`: the item **and its story**, decided together in the
+/// database (`db::settlement_pair`).
+///
+/// The result is returned, not only printed. A terminal write that fails has to change the exit status: the worker
+/// settles a child only when it exits non-zero, and stale recovery then requeues whatever is left — which is how a
+/// claim whose work had already landed could be handed to a second run. A verdict this process failed to write must
+/// not look like a verdict it wrote.
+fn settle_work_item(
+    work_item: Option<&str>,
+    outcome: AgentWorkOutcome,
+    reason: Option<&str>,
+) -> Result<Option<AgentWorkSettlement>, String> {
     let Some(item) = work_item else {
-        return;
+        return Ok(None);
     };
     match agent_work::finish_agent_work_run(item, outcome, reason) {
-        Ok(true) => eprintln!("work_item={item} state={}", outcome.as_state()),
-        Ok(false) => eprintln!("work_item={item} already had a verdict; left as-is"),
-        Err(error) => eprintln!("work_item={item} could not be settled: {error}"),
+        Ok(Some(settled)) => {
+            eprintln!("work_item={item} state={}", settled.item_state);
+            if let Some(status) = settled.story_status {
+                eprintln!("work_item={item} story set to {status} with its item");
+            }
+            if let Some(ref refusal) = settled.reason {
+                eprintln!("work_item={item} {refusal}");
+            }
+            Ok(Some(settled))
+        }
+        Ok(None) => {
+            eprintln!("work_item={item} already had a verdict; left as-is");
+            Ok(None)
+        }
+        Err(error) => {
+            eprintln!("work_item={item} could not be settled: {error}");
+            Err(error)
+        }
     }
 }
 
@@ -105,11 +129,22 @@ fn main() {
     // Only now is this run real, so only now does it go `Running`. If the claim cannot be opened the run must not
     // start at all: a story driven without a claim is exactly the unowned dispatch this seam exists to remove.
     if let Some(item) = work_item.as_deref() {
-        if let Err(error) = agent_work::begin_agent_work_run(item) {
-            eprintln!("cannot begin work item {item}: {error}");
-            std::process::exit(2);
+        match agent_work::begin_agent_work_run(item) {
+            Ok(true) => eprintln!("work_item={item} state=Running"),
+            // The row was not `Claimed`: it already settled, or was cancelled, or recovery requeued it. The claim is
+            // not ours, so the story must not be driven — and the row must not be touched either, because settling a
+            // claim we do not own is how a second writer gets on to a live story.
+            Ok(false) => {
+                eprintln!(
+                    "work_item={item} is not Claimed; refusing to run a story whose claim this process does not own"
+                );
+                std::process::exit(2);
+            }
+            Err(error) => {
+                eprintln!("cannot begin work item {item}: {error}");
+                std::process::exit(2);
+            }
         }
-        eprintln!("work_item={item} state=Running");
     }
     let brain = forge::engine::routing_brain::parse_forge_routing_brain(
         env::var("FORGE_ROUTING_BRAIN").ok().as_deref(),
@@ -119,7 +154,15 @@ fn main() {
         Ok(h) => h,
         Err(e) => {
             eprintln!("{e}");
-            settle_work_item(work_item.as_deref(), AgentWorkOutcome::Error, Some(&format!("{e}")));
+            if settle_work_item(
+                work_item.as_deref(),
+                AgentWorkOutcome::Error,
+                Some(&format!("{e}")),
+            )
+            .is_err()
+            {
+                eprintln!("work_item could not be settled; the claim is left to recovery");
+            }
             std::process::exit(2);
         }
     };
@@ -156,11 +199,15 @@ fn main() {
             }
             Err(e) => {
                 eprintln!("provision: {e}");
-                settle_work_item(
+                if settle_work_item(
                     work_item.as_deref(),
                     AgentWorkOutcome::Error,
                     Some(&format!("provision: {e}")),
-                );
+                )
+                .is_err()
+                {
+                    eprintln!("work_item could not be settled; the claim is left to recovery");
+                }
                 std::process::exit(2);
             }
         }
@@ -220,16 +267,36 @@ fn main() {
     match result {
         Ok(summary) => {
             println!("{summary}");
-            settle_work_item(work_item.as_deref(), AgentWorkOutcome::Done, None);
-            std::process::exit(0);
+            let settled = settle_work_item(work_item.as_deref(), AgentWorkOutcome::Done, None);
+            match settled {
+                // The engine returns `Ok` for runs the board does not call finished — `exhausted`, the step cap, a
+                // wave blocked on a missing ready task. The pair refuses `Done` for those and records `Error` with
+                // the reason, and the exit status has to say what the row says.
+                Ok(Some(pair)) if pair.item_state != "Done" => {
+                    eprintln!(
+                        "work_item ended {}: the board did not confirm completion, so this is not a finished run",
+                        pair.item_state
+                    );
+                    std::process::exit(1);
+                }
+                // `Done` written, a claim someone else already settled, or no claim at all to settle: over.
+                Ok(_) => std::process::exit(0),
+                // A verdict this process could not write is not a verdict: non-zero exit hands the row to the
+                // worker's fallback and, after it, to stale recovery.
+                Err(_) => std::process::exit(1),
+            }
         }
         Err(error) => {
             eprintln!("{error}");
-            settle_work_item(
+            if settle_work_item(
                 work_item.as_deref(),
                 AgentWorkOutcome::Error,
                 Some(&error),
-            );
+            )
+            .is_err()
+            {
+                eprintln!("work_item could not be settled; the claim is left to recovery");
+            }
             std::process::exit(1);
         }
     }

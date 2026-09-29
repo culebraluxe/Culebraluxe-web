@@ -10,7 +10,8 @@
 //! write to. This test walks one item `Ready → Claimed → Running → Done` on DEV and proves, in the same run:
 //! dispatch never claims a story the board says is being worked; the claim is exclusive at the database; a live
 //! claim cannot be read as stale (the guard against requeueing a running story); a settled item cannot be settled
-//! twice; and the configuration-rejection path writes a state the live CHECK accepts.
+//! twice; `Done` is refused when the board never confirmed the work, with the story moving to `Hold` in the same
+//! write; and the configuration-rejection path writes a state the live CHECK accepts, holding the board with it.
 //!
 //! It leaves DEV as it found it: both proof stories are deleted (their items cascade), and if the claim fell to a
 //! pre-existing DEV item, that item's prior shape is restored exactly.
@@ -138,7 +139,14 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
 
     // 5. Claimed → Running, and the heartbeat keeps it out of stale recovery. This is the write that makes a long
     //    run survivable: without it, `stale_agent_work` requeues a live run and the next tick launches a twin.
-    engine.begin_agent_work_run(&claimed.id).await.unwrap();
+    assert!(
+        engine.begin_agent_work_run(&claimed.id).await.unwrap(),
+        "Claimed -> Running must settle exactly one row"
+    );
+    assert!(
+        !engine.begin_agent_work_run(&claimed.id).await.unwrap(),
+        "a row that is no longer `Claimed` must refuse to open: otherwise the engine drives a claim it does not own"
+    );
     let running: String = sqlx::query_scalar("select state from agent_work_item where id = $1::uuid")
         .bind(&claimed.id)
         .fetch_one(pool)
@@ -174,13 +182,23 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
         "a claim that was just heartbeated must not be readable as stale"
     );
 
-    // 6. The one terminal write — and it cannot be written twice.
-    assert!(
-        engine
-            .finish_agent_work_run(&claimed.id, AgentWorkOutcome::Done, None)
-            .await
-            .unwrap(),
-        "the first settle must land"
+    // 6. The one terminal write — and it cannot be written twice. The board is put where a finished run leaves it
+    //    first: `Done` is accepted only when the board confirms the work, so a settle over a `Ready`/`In Progress`
+    //    story is refused (proved in 6b) instead of being credited to a run that never finished.
+    sqlx::query("update storyboard_story set status='Complete', completion=100, updated_at=now() where id=$1")
+        .bind(&claimed.story_id)
+        .execute(pool)
+        .await
+        .expect("board: the story completed");
+    let settled = engine
+        .finish_agent_work_run(&claimed.id, AgentWorkOutcome::Done, None)
+        .await
+        .unwrap()
+        .expect("the first settle must land");
+    assert_eq!(settled.item_state, "Done");
+    assert_eq!(
+        settled.story_status, None,
+        "a board that already confirms completion needs no move"
     );
     let (state, finished): (String, Option<String>) =
         sqlx::query_as("select state, finished_at::text from agent_work_item where id = $1::uuid")
@@ -191,10 +209,11 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
     assert_eq!(state, "Done");
     assert!(finished.is_some(), "a terminal write must stamp finished_at");
     assert!(
-        !engine
+        engine
             .finish_agent_work_run(&claimed.id, AgentWorkOutcome::Error, Some("late second verdict"))
             .await
-            .unwrap(),
+            .unwrap()
+            .is_none(),
         "a settled item must not be settled again"
     );
     let (state_after, error_after): (String, Option<String>) =
@@ -205,6 +224,56 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
             .unwrap();
     assert_eq!(state_after, "Done", "a second settle must not overwrite the verdict");
     assert_eq!(error_after, None, "a second settle must not write its reason either");
+
+    // 6b. `Ok` from the engine is not completion. A run that stops `exhausted`, hits the step cap, or blocks on a
+    //     missing ready task returns `Ok` with the story still `In Progress`, and crediting that as `Done` leaves a
+    //     live workflow with no `Ready` row to resume it. The refusal therefore lives in the transaction, for every
+    //     caller: the item records `Error` and the board moves with it, in one write.
+    let stuck_story = format!("ENG-PROOF-STUCK-{tag}");
+    sqlx::query(
+        "insert into storyboard_story (id, workstream, title, priority, status, notes)
+         values ($1, 'PROOF', 'Queue claim proof (stuck)', 'High', 'In Progress', '')",
+    )
+    .bind(&stuck_story)
+    .execute(pool)
+    .await
+    .expect("insert stuck proof story");
+    let stuck_item: String = sqlx::query_scalar(
+        "insert into agent_work_item (story_id, state, priority, started_at)
+         values ($1, 'Running', 1, now()) returning id::text",
+    )
+    .bind(&stuck_story)
+    .fetch_one(pool)
+    .await
+    .expect("insert a running item over a story the board says is being worked");
+    let refused = engine
+        .finish_agent_work_run(&stuck_item, AgentWorkOutcome::Done, None)
+        .await
+        .unwrap()
+        .expect("a run that ends must still settle its claim");
+    assert_eq!(
+        refused.item_state, "Error",
+        "`Ok` is not completion: `Done` must be refused when the board never confirmed the work"
+    );
+    assert_eq!(
+        refused.story_status,
+        Some("Hold"),
+        "the board moves with the item, in the same transaction"
+    );
+    assert!(refused.reason.unwrap().contains("Done refused"));
+    let (stuck_item_state, stuck_story_status): (String, String) = sqlx::query_as(
+        "select i.state, s.status from agent_work_item i
+           join storyboard_story s on s.id = i.story_id where i.id = $1::uuid",
+    )
+    .bind(&stuck_item)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(stuck_item_state, "Error");
+    assert_eq!(
+        stuck_story_status, "Hold",
+        "a story the board still expected must not be left `In Progress` beside a terminal item"
+    );
 
     // 7. The configuration-rejection path writes a state the live CHECK accepts. It wrote `Failed` until
     //    2026-09-29 — a state the CHECK does not allow, which threw on the first caller ever to reach it.
@@ -218,6 +287,16 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
         .await
         .unwrap();
     assert_eq!(busy_state, "Error");
+    let busy_story_status: String = sqlx::query_scalar("select status from storyboard_story where id = $1")
+        .bind(&busy_story)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        busy_story_status, "Hold",
+        "refusing a claim's configuration must move the board too: a `Ready` story beside a terminal item is \
+         dispatched by nothing, which is the strand migration 258 repaired eight of"
+    );
     assert!(
         !engine.heartbeat_agent_work(&busy_item).await.unwrap(),
         "a terminal item is not claimable and must not accept a heartbeat"
@@ -233,7 +312,9 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
     assert_eq!(active_after, 0, "this proof must end with an empty single-active slot");
 
     if borrowed {
-        // Put the borrowed DEV item back the way it was: a freshly queued, unclaimed item.
+        // Put the borrowed DEV item back the way it was: a freshly queued, unclaimed item. The item goes first and
+        // the board second — the Ready trigger fires on the story update, and the open row has to be there for its
+        // `on conflict ... do nothing` to hold.
         sqlx::query(
             "update agent_work_item
                 set state='Ready', claimed_at=null, claimed_by=null, started_at=null, finished_at=null,
@@ -244,13 +325,25 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
         .execute(pool)
         .await
         .expect("restore the borrowed Ready item");
+        // The claim gate guarantees this story was `Ready` when the proof claimed it; step 6 moved it to `Complete`
+        // to settle the run, so the board is put back too. The trigger sees the open item and inserts nothing.
+        sqlx::query(
+            "update storyboard_story
+                set status='Ready', completion=0, completed_at=null, updated_at=now()
+              where id=$1",
+        )
+        .bind(&claimed.story_id)
+        .execute(pool)
+        .await
+        .expect("restore the borrowed story status");
         eprintln!(
-            "proof: claim fell to pre-existing DEV item {} (story {}); restored to Ready",
+            "proof: claim fell to pre-existing DEV item {} (story {}); item and board restored",
             claimed.id, claimed.story_id
         );
     }
     cleanup_story(pool, &ready_story).await;
     cleanup_story(pool, &busy_story).await;
+    cleanup_story(pool, &stuck_story).await;
 
     eprintln!(
         "proof: item {} walked Ready->Claimed->Running->Done; a `Ready` item over an `In Progress` story was not dispatched",
