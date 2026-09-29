@@ -304,6 +304,26 @@ Short facts that are expensive to rediscover.
   are Rust (`rust/cli/src/forge/`) and green — and the ODS chain is down at more places than the mail promotion:
   `contacts-sync.sh` (3 dead calls), `apple-calls-sync.sh`, `email-sync.sh` (both steps) and `gmail-sync.sh`, so
   **every scheduled feed except iMessage is broken**, which is one story and not five.
+- **2026-09-29 (the engine holds a transaction open across a multi-minute role turn, and the server kills the
+  session — one cause behind two different error strings):** scheduled runs died at the step boundary with
+  `Unknown during workflow.step (incident d42d33c2-…, sqlstate 25P03): terminating connection due to
+  idle-in-transaction timeout`, and earlier, at the end of a 50-minute run, with
+  `error communicating with database: Broken pipe (os error 32)`. A session idle *between statements* is never
+  killed by `idle_in_transaction_session_timeout`; only one *inside an open transaction* is — so the engine is
+  holding a transaction while the role runner drives `opencode` for minutes, and the server takes the session
+  away. A dead socket written to by the next statement is exactly EPIPE, so **assume one cause until someone
+  proves two**. Do not "fix" this by lengthening the timeout: that buys hours and still loses the work, and it
+  weakens the only guard against a leaked transaction holding locks across the control plane. Story
+  `ENG-POOL-IO-01` owns it and its acceptance criteria now include "no transaction is open across a role turn".**
+- **2026-09-29 (the engine's cold-start budgets were the request path's — two failures, one lesson): the pool
+  ships a 30-second statement ceiling and a 10-second connect budget with a floor of five connections, sized for a
+  page load. The engine's first statement is the one that may wake a suspended Neon branch, so the scheduler died
+  twice for the wrong reason: a run at ~55s on `SQLSTATE 57014`, and a whole tick after 12 seconds — claiming
+  nothing, running no story — on `pool timed out while waiting for an open connection`. Both are fixed by
+  `rust/forge/src/engine/db_budget.rs` (installed by BOTH `forge` and `forge-worker`, because the process that
+  died second was the worker), and every run now prints `statement_ceiling_ms=` / `connect_budget_ms=` so the
+  next failure of this kind is one log line instead of an afternoon. The request path keeps 30s/10s.**
+
 - **2026-09-29 (the engine's statement ceiling is not the request path's, and a run dies without one):
   `FORGE_DB_STATEMENT_TIMEOUT_MS` defaults to 30s in `rust/core/db/src/pool.rs` as "a ceiling against a stuck
   query, not a performance budget". A scheduled run died ~55s in on `error returned from database: canceling

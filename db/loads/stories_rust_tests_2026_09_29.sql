@@ -24,31 +24,31 @@ insert into storyboard_story
 values (
     'ENG-POOL-IO-01', 'HARDEN', 'An engine run survives a dropped database connection', 'High', 'Ready',
 
-    $goal$A transport failure on a pooled database connection (a socket the peer has closed under a long run) retries once on a fresh connection instead of ending the run, and the failure is announced as an app_error row rather than only printed.$goal$,
+    $goal$A run survives the database connection it is using being taken away mid-run — the server closing an idle session, an idle-in-transaction kill (SQLSTATE 25P03), or a socket the peer has closed — and a failure that reaches a run is announced as an app_error row rather than ending it in one line of output.$goal$,
 
-    $scope$In: the retry/classification seam in rust/core/db (a pure, tested "is this failure a transport failure" predicate plus the one retry), and its use on the engine's long-run write path (rust/forge/src/engine, rust/core/workflow/src/neon). Out: no schema change, no migration, no change to the HTTP server's pool sizing, and NO blanket test_before_acquire(true) — AGENTS.md records that ping-on-every-checkout as a measured 80ms-per-query regression, so it stays off.$scope$,
+    $scope$In: the classification/retry seam in rust/core/db (a pure, tested "is this failure transport-level, and did the transaction survive it" predicate plus the one retry), and the shape of the transaction the engine holds across a role turn (rust/core/workflow `workflow.step` / rust/forge/src/engine) — a transaction must not be open while an external role turn runs for minutes, or the fix is to stop holding it that way rather than to lengthen a timeout. Out: no schema change, no migration, no change to the HTTP server's pool sizing, and NO blanket test_before_acquire(true) — AGENTS.md records that ping-on-every-checkout as a measured 80ms-per-query regression, so it stays off.$scope$,
 
-    $ac$1. cargo test -p db passes and includes a test for the classification predicate: an IO/transport error (Broken pipe, connection reset, unexpected EOF) is retryable; a SQLSTATE error (a constraint violation, a syntax error, a unique violation) is not.
+    $ac$1. cargo test -p db passes and includes a test for the classification predicate: an IO/transport error (Broken pipe, connection reset, unexpected EOF) and SQLSTATE 25P03 are retryable; a SQLSTATE error that means the work was rejected (a constraint violation, a syntax error, a unique violation) is not.
 2. The retry runs the operation again on a NEW connection, not the same one, and retries at most once.
 3. A retried failure still announces itself through db::capture (an app_error row, operation named), so a run that limped through is visible in the rows rather than silent.
-4. cargo check --workspace --all-targets and cargo test -p db -p forge are green.
-5. The diff is the seam plus its callers. No unrelated pool tuning rides along.$ac$,
+4. NO TRANSACTION IS OPEN ACROSS A ROLE TURN. This is the load-bearing criterion, because it is the measured cause: report where the transaction was opened and what now bounds it, and if the answer is "a transaction is still open across the turn", say so instead of shipping a longer timeout.
+5. cargo check --workspace --all-targets and cargo test -p db -p forge are green.$ac$,
 
-    $brief$EVIDENCE (measured 2026-09-29, engine run #2 against story ENG-AUTH-GOOGLE-01).
+    $brief$EVIDENCE (measured 2026-09-29, scheduled runs against PROD, `ENG-AUTH-GOOGLE-01`). Two symptoms, and the second one names the cause:
 
-The run was live for about fifty minutes and had dispatched nine opencode role turns. Its last line on stdout was:
+    error communicating with database: Broken pipe (os error 32)            (a 50-minute run, 9 role turns)
+    Unknown during workflow.step (incident d42d33c2-20cc-4697-81b1-86a02cbc5e0b, sqlstate 25P03):
+      terminating connection due to idle-in-transaction timeout             (a run that died 2m45s in, no role turn output)
 
-    error communicating with database: Broken pipe (os error 32)
+SQLSTATE 25P03 is `idle_in_transaction_session_timeout`: the server ended the session because a transaction had been idle too long. A session sitting idle between statements is not killed by that — only one that is *inside* an open transaction is. So the engine holds a transaction open while the role runner drives `opencode` for minutes, and the server takes the session away underneath it. That also explains the Broken pipe: a socket whose server side has gone, written to by the next statement, is exactly EPIPE. Assume one cause until someone proves two.
 
-and the forge process was gone. No receipt was written, and the story it was running is left In Progress. The full log is /tmp/eng-run2.log; the run was hand-driven, so there is no engine row to read instead.
+WHERE IT DIES. `Unknown during workflow.step` — the step boundary, i.e. the runtime's transaction (rust/core/workflow, the store's `TxStore`), with the role turn running inside it.
 
-WHAT IT WAS DOING. `forge --story ENG-AUTH-GOOGLE-01 --work-type FEATURE` (rust/forge/src/bin/forge.rs:122, `NeonStore::connect_from_env`). NeonStore holds a `db::Database` (rust/core/workflow/src/neon/neon_store.rs:6) — the workspace's ONE pool — and the run is mostly waiting on an opencode subprocess: each role turn is minutes of database silence with a handful of writes between turns. That is exactly the shape the pool was designed around ("engine commands are far apart in time", rust/core/db/src/pool.rs:124).
+WHAT IS ALREADY THERE. The pool probes a connection that has sat idle (`FORGE_DB_IDLE_PROBE_MS`, 30s, rust/core/db/src/pool.rs:135-146) and discards one whose probe fails, and `spawn_keepalive` (pool.rs:227) keeps a pool warm — but its only caller is the HTTP server (rust/server/src/http_runtime.rs:22). Neither helps a session killed *mid-transaction*; the probe only runs at checkout, and the keepalive holds no transaction.
 
-WHAT IS ALREADY THERE, AND WHAT IS NOT. The pool already has an idle probe — `FORGE_DB_IDLE_PROBE_MS`, 30s, rust/core/db/src/pool.rs:135-146 — which pings a connection that has sat idle before handing it out, and sqlx discards a connection whose probe fails. A keepalive exists too (`spawn_keepalive`, rust/core/db/src/pool.rs:227) and it is started by exactly one caller: the HTTP server (rust/server/src/http_runtime.rs:22). The engine process starts none. So a connection that dies between the probe and the write, or that the peer closes after the last successful use, is handed to a query as a live socket and the write fails with EPIPE.
+THE ENGINE'S BUDGETS ARE NOT THE ANSWER HERE. `rust/forge/src/engine/db_budget.rs` already raised the engine's own statement ceiling and connect budget (commits 59f75f8c, 9a1d53d7) — that fixed a different two failures (a >30s first statement, and a 12-second tick that claimed nothing). Lengthening `idle_in_transaction_session_timeout` would buy hours and still lose the work when it fired, and it would weaken the one guard that stops a leaked transaction from holding locks across the control plane. Prefer not holding the transaction.
 
-NOT CLAIMED: which of those two happened here is not proven from one occurrence, and this story does not need it to be. What is proven is that a single transport failure ends a run whose state is durable and whose work is expensive, and that the engine has no path to a second attempt.
-
-RISKS. (1) A retry can double an operation whose first attempt actually landed. Restrict it to transport failures, keep it to one attempt, and do not wrap anything that is not idempotent — read the operation before wrapping it. (2) Do not let the retry swallow a failure: it must still be announced (criterion 3), or a sick database becomes invisible. (3) This is a shared seam: the server also uses this pool, so the change must not add latency to the request path — no ping on every checkout (see Out, above).$brief$,
+RISKS. (1) A retry can double an operation whose first attempt actually landed. Restrict it to transport failures, keep it to one attempt, and read the operation before wrapping it: a transaction that died mid-flight has taken its writes with it, so re-running the step must be safe or must be made safe. (2) Do not let the retry swallow a failure — criterion 3 exists so a sick database cannot go quiet. (3) This seam is shared with the server, whose request path must not gain latency (see Out). (4) If the transaction is opened by the harness adapter rather than the runtime, say so; the criterion is about the effect, not about which crate gets the blame.$brief$,
 
     $assay$cargo test --manifest-path rust/Cargo.toml -p db
 cargo check --manifest-path rust/Cargo.toml --workspace --all-targets$assay$,

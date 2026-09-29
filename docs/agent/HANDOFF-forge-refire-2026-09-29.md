@@ -5,10 +5,11 @@ Written because the session is ending mid-work, not because the work is done. Ev
 ## Status
 
 The scheduler is **installed and ticking** (`pnpm agent:scheduler:status` → `disabled: no`; it fired at
-`07:26:35`, `07:38:34` and `07:41:48`). A real story run is **in flight right now** under the fixed database
-budgets: `rust/target/debug/forge --story ENG-AUTH-GOOGLE-01 --work-type FEATURE`, alive past 3m21s at the time of
-writing — beyond both failure points that ended every earlier attempt (12s on `db.connect`, ~55s on the statement
-ceiling).
+`07:26:35`, `07:38:34`, `07:41:48` and every 180 seconds since). Ticks now **claim work and dispatch real story
+runs**, which is new: earlier ticks ended in 12 seconds with nothing claimed (`pool timed out while waiting for an
+open connection`). The run dispatched at `07:41:49` (`forge --story ENG-AUTH-GOOGLE-01`) ran 2m45s and died at the
+step boundary on `sqlstate 25P03 — terminating connection due to idle-in-transaction timeout`. **That is the one
+thing between this queue and stories completing**, and it is the last item in the list below.
 
 ## What landed today (commit ids, all pushed)
 
@@ -33,6 +34,14 @@ started).
    ~55s. Fixed: `59f75f8c`.
 4. `Timeout during db.connect … pool timed out while waiting for an open connection` — ended a tick after 12
    seconds with nothing claimed. Fixed: `9a1d53d7`.
+5. `Unknown during workflow.step (incident d42d33c2-20cc-4697-81b1-86a02cbc5e0b, sqlstate 25P03): terminating
+   connection due to idle-in-transaction timeout` — ended a dispatched run after 2m45s. **Open**, owned by
+   `ENG-POOL-IO-01`, whose brief was rewritten with this evidence (`db/loads/stories_rust_tests_2026_09_29.sql`,
+   re-applied to DEV and PROD with `--force` and a note). SQLSTATE 25P03 kills a session that is idle *inside an
+   open transaction*, never one idle between statements — so the engine holds a transaction across the role turn.
+   **This is very likely the same cause as item 2's Broken pipe**: a socket whose server side has gone, written to
+   by the next statement, is EPIPE. Treat it as one cause until someone proves two, and do not "fix" it by
+   lengthening the timeout.
 
 Items 3 and 4 are both "the engine's cold-start budget was the request path's": the pool ships a 30s statement
 ceiling and a 10s connect budget with a floor of five connections, which is right for a page load and wrong for a
@@ -51,12 +60,14 @@ The rows are the briefs the engine reads; the load file is
 
 ## Open, in the order that pays
 
-1. **Watch the run that is in flight** (`forge --story ENG-AUTH-GOOGLE-01`). If it reaches a receipt, the engine
-   is proven end to end and the rest of the queue follows on later ticks (`max_passes=20` per tick). If it dies,
-   the log is `~/Library/Logs/CulebraLuxe/agent-worker.out.log` (the wrapper's copy) — and the failure mode tells
-   you which story to look at next.
-2. `ENG-POOL-IO-01` — the dropped connection. Nothing else can complete a long run until the engine survives one
-   (`spawn_keepalive` still has one caller: the HTTP server, `rust/server/src/http_runtime.rs:22`).
+1. **Fix or dispatch `ENG-POOL-IO-01` first.** Nothing else in this queue can complete a run until the engine
+   stops losing its session at the step boundary. It is the highest-priority item and it is already enqueued with
+   the evidence. If you want it specifically next, its work item is the one the worker will take after
+   `ENG-AUTH-GOOGLE-01` (both High; the auth story is older, so it goes first every tick and fails first every
+   tick — consider `pnpm forge:story:reset ENG-AUTH-GOOGLE-01 reset --force` if you want the queue to move past it).
+2. Watch a tick after that fix lands: `~/Library/Logs/CulebraLuxe/agent-worker.out.log` shows
+   `forge-worker: story=<id>` (claimed), `Running \`rust/target/debug/forge --story …\``, the budgets, and any
+   `Unknown during …` line — one line per failure, which is the point of the incident ids.
 3. Finding C in `docs/agent/TEST-SAFETY-SWEEP-2026-09-29.md`: a story at `Ready` with a cancelled work item can
    never be dispatched again (`db/migrations/025_agent_work_queue.sql:104`).
 4. Findings A/B — the dead guard paths and the dead TypeScript paths in `AGENTS.md` — are what
