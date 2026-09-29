@@ -215,6 +215,19 @@ Two categories, and the difference is the answer to "what do we do about it":
 | `rust/forge/src/engine/neon_sql.rs` — nine SQL constants, no caller | a second COPY of statements `db::ForgeEngineDao` already owns (receipt claim/finalize/read/watermark, evidence read, story ledger, repair/replan increments, packet read) | **CLOSED 2026-09-29: deleted, not wired.** Wiring them would give `forge_workflow_evidence` and `storyboard_story` two writers each, which AGENTS.md:172 forbids; and the column-writer audit counted this file as a writer of `storyboard_story` while the writer that runs is `forge_engine.rs`. Kept: `RECEIPT_PREFIX`, the one literal with no SQL body. The bodies are in git history (`git show ae16ef38:…neon_sql.rs`) |
 | `rust/forge/src/engine/evidence_store.rs` `merge_forge_workflow_evidence` — no caller | a second door onto `forge_workflow_evidence` | **CLOSED 2026-09-29: deleted.** The merge runs through `db::ForgeEngineDao::merge_workflow_evidence`, driven by the completion ledger; the one mapping (`evidence_patch`) stays |
 
+### 6.7 The dispatch rule had two writers (found 2026-09-29, closed the same day)
+
+One rule owns the queue, and the database is its writer: `agent_work_item_dispatch()` inserts exactly one work item
+for a story that BECOMES `Ready`, scores it with `story_priority_score()` and arbitrates the conflict against the
+partial unique index (`db/migrations/025_agent_work_queue.sql:101`, restated in
+`146_fix_storyboard_ready_dispatch_arbiter.sql:36`). The port had not honoured that in two places:
+
+| site | the fact | disposition |
+| --- | --- | --- |
+| `rust/core/db/src/forge_engine.rs` (the sweep's repair, `insert into agent_work_item` at `:694` before this change) | the stranded-story repair spelled the trigger's rule out again in Rust — the same insert, the same `story_priority_score()` call, the same arbiter predicate typed out a second time. A rule with two spellings drifts: 146 exists only because the arbiter was not restated when 143 replaced the index underneath it, and 258 was written to repair rows a writer that was not the trigger had left behind | **CLOSED: the insert is deleted.** The repair restores the CHANGE the trigger fires on (off `Ready` and back, one transaction) and the row is the trigger's |
+| `rust/server/src/tech.rs` (the board's ENGINE RUN Q move, `:348-361` before this change) | `set status='Ready'` plus a note that *claimed* an item had been queued. On a story already `Ready` — which is what a bench round trip leaves, because moving to the bench cancels the item and keeps the status — a same-value update fires no trigger, so the card moved, the human was told it was queued, and nothing was dispatched | **CLOSED: the note is read back, not assumed.** One verb, `ensure_story_dispatched`, returns `Queued { item }` / `AlreadyQueued { item }` / `Missing`, and the `captureCommit` scoping path (`:258-271`) uses it too, so "scope this dispatch" can no longer fail for a reason that is really "there is no dispatch" |
+| `rust/core/db/src/forge_control.rs:168-173` (stale-claim requeue), `rust/core/db/src/forge_reset.rs:325` (claim recovery) | they move an EXISTING item back to `Ready` | **KEPT, deliberately, and the line is written down**: the database owns *which items exist* for a story; the engine owns *the state of a claim it holds*. Neither creates a row, so there is no rule for the trigger to own, and `requeue_stale_work` moves the story half in the same transaction, so the pair still moves together |
+
 ## 6. Blocking decisions (Captain)
 
 1. ~~**Keep or drop** the uncommitted contract 2 patch~~ — **RESOLVED 2026-09-29**: landed on `main` as `4ee9d6e2`
@@ -274,4 +287,60 @@ Not a rail: the removal of two dead second doors, so the one-writer rule (§6.6)
 Gates: `cargo test -p cli` (125 tests, the column-writer fence among them — it failed first and is what caught a
 comment that spelled the statement out), `cargo test -p db -p forge` (db 50, forge 93, durable_completion_ledger 6,
 forge_runtime 34, self_heal 1), `cargo check --workspace --all-targets` clean.
+
+### 7.3 Contract 2 (dispatch) — the database owns the rule, and the repair restores the CHANGE (2026-09-29)
+
+The Captain's word was "collapse it": the port stops writing the row the database's function writes. Closed with a
+refusal rail first, then the change, then the proof on DEV (§6.7 has the finding).
+
+- `rust/cli/src/forge/repo_guards.rs` — a fourth repo guard,
+  `the_database_owns_dispatch_no_production_rust_file_inserts_a_work_item`: no production Rust file may contain
+  `insert into agent_work_item`, because that rule has one writer and it is `agent_work_item_dispatch()`. It scans
+  582 tracked production Rust files and exempts `tests/` deliberately (a fixture may build a shape the database would
+  never create — `forge_work_claim_dev.rs` builds a `Ready` item for an `In Progress` story to prove dispatch refuses
+  it) and itself (a guard names the token it hunts). It **failed first**, naming `rust/core/db/src/forge_engine.rs`
+  as the second owner; that failure is the evidence this rail can see the thing it forbids.
+- `rust/core/db/src/forge_engine.rs` — `dispatch_story_in` (module scope) is now the only place a story is put into
+  the engine's queue: it locks the story, and if no open slot exists it restores the change into `Ready` that the
+  trigger fires on — off `Ready` and back, as two statements in the caller's transaction, because a data-modifying
+  CTE shares one snapshot and could not see its own update. It then **reads back the row the trigger wrote** and
+  returns it; no slot there is a `SchemaMismatch` (a missing trigger is a schema disagreement, and it is captured,
+  not shrugged). `ensure_story_dispatched_on` opens the transaction; `ForgeEngineDao::ensure_story_dispatched` and
+  `TechCockpitDao::ensure_story_dispatched` are two doors onto it. `EnsureDispatch::{Queued, AlreadyQueued, Missing}`
+  is what a caller's note to a human is built from.
+- `rust/core/db/src/forge_engine.rs` — `reconcile_dispatch_queue` finds the stranded `Ready` stories (a read) and
+  hands each to `dispatch_story_in`, the same writer the board uses. `queued` counts stories the database dispatched.
+  The sweep no longer contains a second spelling of the score call or the arbiter predicate.
+- `rust/server/src/tech.rs` — the ENGINE RUN Q move and the `captureCommit` scoping path go through the verb; the
+  note is chosen from its answer, so "queued a work item" is only said when the database produced one.
+
+Legacy spec: `legacy/workflow_app/tests/agent-work.test.ts:28-30` states the contract in the shape this change
+restores — "the dispatch trigger behavior (status INTO Ready creates one Ready work item)". Rust tests:
+`rust/core/db/tests/forge_dispatch_trigger_dev.rs` (DEV, `--ignored`, 2 tests) — the trigger writes and scores the
+item (priority 80 = `story_priority_score('High')`), the stranded story is repaired to exactly one slot with the
+database's score, the story the board sees stays `Ready`, a second sweep and a manual off/on cycle add nothing, a
+benched-but-`Ready` story handed to the engine gets a real slot and the same id on a second call, and an absent story
+reads `Missing`.
+
+Raw DEV output:
+
+```
+dispatch trigger: state=Ready priority=80 (score('High')=80)
+reconcile_dispatch_queue: queued=1 restated=0 cleared=0
+ensure_story_dispatched (benched, still Ready): Queued { item: "435780f3-…" }
+ensure_story_dispatched (already queued): AlreadyQueued { item: "435780f3-…" }
+ensure_story_dispatched (absent story): Missing
+test result: ok. 2 passed; 0 failed; 0 ignored
+```
+
+Gates: `cargo test -p cli` 127 passed (the four repo guards among them), `cargo test -p db -p forge -p server` clean
+(db 50, forge 93, server 114, durable_completion_ledger 6, forge_runtime 34, self_heal 1),
+`forge_work_claim_dev` (DEV) 2 passed — the pre-run sweep it exercises is the one that changed,
+`cargo check --workspace --all-targets` clean.
+
+Still open on this seam, named rather than implied: `model_policy` → model selection (billing: the Captain's call)
+and `launch_intent` → Lead benchIntent; the artifact-out-of-role seam; hold/verdict out; canonical Story Board writes;
+a read-only SQL verb in `cli` so live DEV functions and triggers can be audited (the gap in
+`docs/agent/TEST-SAFETY-SWEEP-2026-09-29.md:90-105`); and the Phase 1 parity audit of the 465 legacy tests. The
+scheduler stays stopped until the Captain says restart.
 

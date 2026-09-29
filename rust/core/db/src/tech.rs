@@ -296,6 +296,15 @@ impl TechCockpitDao {
         .map_err(|e| DbFailure::from_sqlx("tech.story_location", &e))
     }
 
+    /// The engine's queue verb from the cockpit's own door: the board's "into ENGINE RUN Q" IS this call, and it
+    /// is the same implementation the engine DAO and the pre-run sweep use (`forge_engine::dispatch_story_in`).
+    pub async fn ensure_story_dispatched(
+        &self,
+        story_id: &str,
+    ) -> DbResult<crate::EnsureDispatch> {
+        crate::forge_engine::ensure_story_dispatched_on(&self.db, story_id).await
+    }
+
     pub async fn story_status(&self, story_id: &str, status: &str) -> DbResult<()> {
         sqlx::query("update storyboard_story set status=$2, completion=case when $2='Complete' then 100 else completion end, updated_at=now() where id=$1")
             .bind(story_id).bind(status).execute(self.db.pool()).await

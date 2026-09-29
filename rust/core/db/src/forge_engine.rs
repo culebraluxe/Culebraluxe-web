@@ -246,6 +246,117 @@ pub struct ForgeHoldRow {
     pub reason: String,
     pub originating_node: Option<String>,
 }
+    /// What `ensure_story_dispatched` found and did. The caller's note to a human is built from this, so the note
+/// cannot claim a queue slot the database did not create.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EnsureDispatch {
+    /// The story had no open slot; the database's trigger created one, and this is its row.
+    Queued { item: String },
+    /// The story already held an open slot — a dispatch is not duplicated, it is confirmed.
+    AlreadyQueued { item: String },
+    /// There is no such story row. Never invented into a dispatch.
+    Missing,
+}
+
+/// **The one place a story is put into the engine's queue.** Rows are the database's, so this function owns no
+/// rule: it reads the story, and if the story holds no open slot it restores the CHANGE into `Ready` that
+/// `agent_work_item_dispatch()` fires on. The item, its `story_priority_score()` and the conflict arbitration are
+/// the trigger's, and the returned item id is the row the trigger wrote — never an id this function invented.
+///
+/// Off-`Ready`-and-back, as two statements in the caller's transaction: a data-modifying CTE shares one snapshot
+/// with the statement around it and could not see its own update, so the second half would not fire the trigger.
+/// No reader ever sees the intermediate status, because the transaction commits once.
+///
+/// Every caller that wants "this story is queued" goes through here — the board's ENGINE RUN Q move, the
+/// `captureCommit` scoping path and `reconcile_dispatch_queue`'s stranded-story repair — because the spelling this
+/// replaced was `set status='Ready'` and an *assumption* that the trigger fired: on a story that was already
+/// `Ready` (any bench round trip) it fires nothing, so the board said "queued" while nothing was dispatched.
+async fn dispatch_story_in(
+    connection: &mut sqlx::PgConnection,
+    story_id: &str,
+) -> DbResult<EnsureDispatch> {
+    const OPEN_SLOT: &str = "select id::text from agent_work_item
+                              where story_id=$1
+                                and state in ('Ready','Claimed','Running','Paused')
+                                and parallel_group_id is null
+                              order by queued_at desc
+                              limit 1";
+
+    // Lock the story while its status and its slot are read together: they are one fact with two rows, and a
+    // concurrent writer moving either half must not be able to interleave with this one.
+    let status: Option<String> =
+        sqlx::query_scalar("select status from storyboard_story where id=$1 for update")
+            .bind(story_id)
+            .fetch_optional(&mut *connection)
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_engine.dispatch_story.read", &error))?;
+    let Some(status) = status else {
+        return Ok(EnsureDispatch::Missing);
+    };
+
+    if let Some(item) = sqlx::query_scalar::<_, String>(OPEN_SLOT)
+        .bind(story_id)
+        .fetch_optional(&mut *connection)
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.dispatch_story.slot", &error))?
+    {
+        return Ok(EnsureDispatch::AlreadyQueued { item });
+    }
+
+    if status == "Ready" {
+        sqlx::query("update storyboard_story set status='Planned', updated_at=now() where id=$1")
+            .bind(story_id)
+            .execute(&mut *connection)
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_engine.dispatch_story.stage", &error))?;
+    }
+    sqlx::query("update storyboard_story set status='Ready', updated_at=now() where id=$1")
+        .bind(story_id)
+        .execute(&mut *connection)
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.dispatch_story.ready", &error))?;
+
+    // The trigger is the only writer of a slot, and it just ran. No item here means the database and this
+    // deployment disagree about the schema — a missing or renamed trigger — which is exactly what
+    // `SchemaMismatch` is for: it is refused and captured, never shrugged away as "nothing to do".
+    sqlx::query_scalar::<_, String>(OPEN_SLOT)
+        .bind(story_id)
+        .fetch_optional(&mut *connection)
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.dispatch_story.confirm", &error))?
+        .map(|item| EnsureDispatch::Queued { item })
+        .ok_or_else(|| {
+            DbFailure::schema_mismatch(
+                "forge_engine.dispatch_story.trigger",
+                format!(
+                    "the story {story_id} is `Ready` and the Ready changed, but \
+                     `agent_work_item_dispatch()` created no work item: the trigger this deployment relies on \
+                     is missing or no longer fires on a change into `Ready`"
+                ),
+            )
+        })
+}
+
+/// `ensure_story_dispatched`, for callers that hold a `Database` rather than a `ForgeEngineDao`: the cockpit DAO is
+/// the board's own door to the same verb. One implementation, two entry points — never two spellings.
+pub(crate) async fn ensure_story_dispatched_on(
+    database: &Database,
+    story_id: &str,
+) -> DbResult<EnsureDispatch> {
+    let mut tx = database.begin("forge_engine.ensure_story_dispatched").await?;
+    let outcome = match dispatch_story_in(tx.connection(), story_id).await {
+        Ok(outcome) => {
+            tx.commit().await?;
+            outcome
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(error);
+        }
+    };
+    Ok(outcome)
+}
+
 
 #[derive(Clone)]
 pub struct ForgeEngineDao {
@@ -626,7 +737,7 @@ impl ForgeEngineDao {
         }
     }
 
-    /// **Clean the control plane before every run.**
+/// **Clean the control plane before every run.**
     ///
     /// The queue and the board are one fact with two rows, and every defect in this area has been one half of that
     /// pair moving without the other. The captain's rule (2026-09-29) is that this junk is not a state a human should
@@ -635,9 +746,10 @@ impl ForgeEngineDao {
     ///
     ///  1. a story that says a run is happening (`In Progress`) while nothing anywhere holds it — no claimed item and
     ///     no live engine instance — goes back to `Ready`, so the queue can pick it up again;
-    ///  2. a `Ready` story with no work item gets one — the dispatch trigger's own rule, re-applied for the case the
-    ///     trigger cannot see (it fires on a *change* to `Ready`, so a story already `Ready` when its item went
-    ///     terminal had nothing left to fire it, and sat there dispatches to nothing);
+    ///  2. a `Ready` story with no work item goes back through the DISPATCH TRIGGER, which is the rule's only
+    ///     writer: it fires on a *change* to `Ready`, so a story already `Ready` when its item went terminal had
+    ///     nothing left to fire it. This restores the change (off `Ready` and back, in this transaction), never the
+    ///     row — see the comment at the repair itself;
     ///  3. an open item whose story no longer expects a run is cleared, because it is not work.
     ///
     /// A live run is never touched. `Claimed`/`Running` items and active `process_instances` are the two authorities
@@ -690,25 +802,44 @@ impl ForgeEngineDao {
             })?
             .rows_affected();
 
-            let queued = sqlx::query(
-                "insert into agent_work_item (story_id, state, priority)
-                 select s.id, 'Ready', story_priority_score(s.priority)
-                   from storyboard_story s
+            // A SECOND SPELLING OF AN OWNED RULE IS NOT A REPAIR, IT IS A SECOND OWNER.
+            //
+            // `agent_work_item_dispatch()` (`db/migrations/025_agent_work_queue.sql:101`, restated in
+            // `146_fix_storyboard_ready_dispatch_arbiter.sql:36`) owns the whole of dispatch: it inserts exactly one
+            // item, scores it with `story_priority_score()` and lets the partial unique index arbitrate the conflict.
+            // This sweep used to type that rule out again in Rust — the same insert, the same score call, the same
+            // arbiter predicate — and a rule with two spellings drifts: 146 exists only because the arbiter was not
+            // restated when 143 replaced the index underneath it, and `258_reopen_stranded_ready_work_items.sql` was
+            // written to repair rows a writer that was not the trigger had left behind.
+            //
+            // So the sweep finds the stranded stories (a read) and hands each one to `dispatch_story_in`, the same
+            // writer the board uses: that is what restores the CHANGE the trigger fires on, so the item, its score and
+            // its arbitration are all the database's.
+            let stranded: Vec<String> = sqlx::query_scalar::<_, String>(
+                "select s.id from storyboard_story s
                   where s.status='Ready'
                     and not exists (
                       select 1 from agent_work_item w
                        where w.story_id=s.id and w.state in ('Ready','Claimed','Running','Paused')
-                         and w.parallel_group_id is null)
-                 on conflict (story_id)
-                     where state in ('Ready','Claimed','Running','Paused') and parallel_group_id is null
-                     do nothing",
+                         and w.parallel_group_id is null)",
             )
-            .execute(tx.connection())
+            .fetch_all(tx.connection())
             .await
             .map_err(|error| {
-                DbFailure::from_sqlx("forge_engine.reconcile_dispatch_queue.queue", &error)
-            })?
-            .rows_affected();
+                DbFailure::from_sqlx("forge_engine.reconcile_dispatch_queue.stranded", &error)
+            })?;
+
+            // The repair is the SAME verb the board uses, in this transaction: one spelling of "make the database
+            // dispatch this story" for the board and for the sweep, so the two cannot drift into disagreeing about
+            // what a dispatch is.
+            let mut queued = 0u64;
+            for story in &stranded {
+                if let EnsureDispatch::Queued { .. } =
+                    dispatch_story_in(tx.connection(), story).await?
+                {
+                    queued += 1;
+                }
+            }
 
             let cleared = sqlx::query(
                 "update agent_work_item w
@@ -746,6 +877,13 @@ impl ForgeEngineDao {
                 Err(error)
             }
         }
+    }
+
+    /// **Put a story into the engine's queue, the database's way** — the board's ENGINE RUN Q move and the
+    /// `captureCommit` scoping path both call this, and so does the stranded-story repair in
+    /// `reconcile_dispatch_queue`. See `dispatch_story_in` for why the row is never written here.
+    pub async fn ensure_story_dispatched(&self, story_id: &str) -> DbResult<EnsureDispatch> {
+        ensure_story_dispatched_on(&self.db, story_id).await
     }
 
     pub async fn mark_story_in_progress(&self, story_id: &str) -> DbResult<()> {

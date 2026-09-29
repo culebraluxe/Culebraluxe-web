@@ -1,6 +1,6 @@
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
-use db::{DbResult, TechCockpitDao};
+use db::{DbResult, EnsureDispatch, TechCockpitDao};
 use domain::{TechCockpitSnapshot, TechCommandRequest, TechCommandResult};
 use serde_json::{json, Value};
 use service::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
@@ -12,6 +12,7 @@ pub trait TechCockpitRepository: Send {
     async fn set_active_work(&self, id: &str, active: bool, actor: &str) -> DbResult<()>;
     async fn story_location(&self, id: &str) -> DbResult<Option<(String, bool)>>;
     async fn story_status(&self, id: &str, status: &str) -> DbResult<()>;
+    async fn ensure_story_dispatched(&self, id: &str) -> DbResult<EnsureDispatch>;
     async fn active_agent_work(&self, id: &str) -> DbResult<Vec<Value>>;
     async fn set_dispatch_options(
         &self,
@@ -53,6 +54,10 @@ impl TechCockpitRepository for TechCockpitDao {
 
     async fn story_status(&self, id: &str, status: &str) -> DbResult<()> {
         TechCockpitDao::story_status(self, id, status).await
+    }
+
+    async fn ensure_story_dispatched(&self, id: &str) -> DbResult<EnsureDispatch> {
+        TechCockpitDao::ensure_story_dispatched(self, id).await
     }
 
     async fn active_agent_work(&self, id: &str) -> DbResult<Vec<Value>> {
@@ -256,7 +261,10 @@ impl<R: TechCockpitRepository> TechCockpitService<R> {
                         ));
                     }
                     if !active.iter().any(|work| work["state"] == "Ready") {
-                        self.repository.story_status(id, "Ready").await?;
+                        // The same verb the ENGINE RUN Q move uses: `Ready` alone dispatches nothing — a CHANGE into
+                        // `Ready` does — and a story can already be sitting at `Ready` with no item (a bench round
+                        // trip). Scoping work requires work, so the slot is created by the database first.
+                        self.repository.ensure_story_dispatched(id).await?;
                     }
                     if self
                         .repository
@@ -346,9 +354,24 @@ impl<R: TechCockpitRepository> TechCockpitService<R> {
                     }
 
                     if target == "engine" {
-                        self.repository.story_status(id, "Ready").await?;
-                        let note =
-                            "handed to the engine — status Ready queued a real work item".to_owned();
+                        // "Queued" is a claim about the database, so it is READ BACK, not assumed: setting the status
+                        // to `Ready` only dispatches when the story was NOT already there (the trigger fires on a
+                        // change into `Ready`), and a bench round trip leaves a story `Ready`. This verb restores the
+                        // change the trigger fires on and returns the row it wrote.
+                        let note = match self.repository.ensure_story_dispatched(id).await? {
+                            EnsureDispatch::Queued { .. } => {
+                                "handed to the engine — the database queued a work item".to_owned()
+                            }
+                            EnsureDispatch::AlreadyQueued { .. } => {
+                                "already queued for the engine".to_owned()
+                            }
+                            EnsureDispatch::Missing => {
+                                return Err(CoreServiceError::business(
+                                    "NOT_FOUND",
+                                    format!("Story not found: {id}"),
+                                ));
+                            }
+                        };
                         return ok_data(
                             note.clone(),
                             json!({

@@ -10,7 +10,7 @@
 //! fails on a legitimate file teaches people to bypass it. Each one also FAILS when it reads nothing
 //! at all: an empty scan is not a clean scan (Risk 2 in the story brief).
 //!
-//! The three rules, with the handbook sentence each test carries:
+//! The rules, with the handbook sentence each test carries:
 //!   * `AGENTS.md:151` — "Create a worktree, a per-lane tree, or any file-based parallel to the
 //!     database workflow. **NO TREES. EVER.**" The estate grew to 83 worktrees under
 //!     `Documents/Culebraluxe-worktrees/` plus `.assay-workspaces/`, and on 2026-09-16 a lane
@@ -26,6 +26,10 @@
 //!   * `AGENTS.md:166` — "Treat WhatsApp as a new identity type." The identity registry
 //!     (`PersonIdentityKind`) must stay exactly Phone/Email/External, and a WhatsApp number must be
 //!     attributed through the existing phone identity, never through a new kind.
+//!   * `AGENTS.md:172` — the same one-writer sentence, applied to the DISPATCH RULE: "a story that
+//!     becomes `Ready` gets exactly one open work item, scored and arbitrated" is written once, by
+//!     `agent_work_item_dispatch()` in the database (025:101, restated 146:36). No production Rust file
+//!     may insert one; the repair path restores the status change the trigger fires on instead.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -253,6 +257,57 @@ fn phone_attribution_present(text: &str) -> bool {
         Regex::new(r"(?is)identity_type\s*=\s*'phone'").expect("the phone column pattern is valid")
     });
     kind.is_match(text) && column.is_match(text)
+}
+
+// ---------------------------------------------------------------------------
+// AGENTS.md:172 — one fact has ONE writer, applied to the DISPATCH RULE.
+// ---------------------------------------------------------------------------
+
+/// The table whose INSERT belongs to the database and not to the port.
+///
+/// One rule owns the queue: *a story that BECOMES `Ready` gets exactly one open work item, scored by
+/// `story_priority_score()` and arbitrated by the partial unique index*. It is written once, in
+/// `agent_work_item_dispatch()` (`db/migrations/025_agent_work_queue.sql:101`, restated in
+/// `db/migrations/146_fix_storyboard_ready_dispatch_arbiter.sql:36`), and it is the whole reason
+/// `258_reopen_stranded_ready_work_items.sql` was needed at all — the rule has a single owner and a row
+/// the owner did not create is a row that dispatches to nothing.
+///
+/// The port spelled the rule a second time in Rust: the same insert, the same score call, the same
+/// arbiter predicate typed out again (`rust/core/db/src/forge_engine.rs` until 2026-09-29). A second
+/// spelling of an owned rule drifts — migration 146 exists because the arbiter was not restated when
+/// 143 replaced the index underneath it — so the decidable fact is frozen here: **no production Rust
+/// file inserts a work item.** Putting a `Ready` story back in the queue is done by restoring the
+/// status CHANGE the trigger fires on, never by writing the row.
+const DISPATCH_OWNED_TABLE: &str = "agent_work_item";
+
+struct DispatchWriteScan {
+    scanned: usize,
+    writers: Vec<String>,
+}
+
+fn dispatch_write_scan(root: &Path) -> DispatchWriteScan {
+    let pattern = insert_re(DISPATCH_OWNED_TABLE);
+    let mut scanned = 0usize;
+    let mut writers = Vec::new();
+    for relative in tracked_files(root, &["rust"]) {
+        if is_guard_source(&relative) || is_test_path(&relative) {
+            continue;
+        }
+        // Production Rust only: a fixture in `tests/` may build a shape the database would never
+        // create — that is what a test is for — but a code path that serves may not.
+        if !relative.contains("/src/") || extension(&relative) != Some("rs") {
+            continue;
+        }
+        let Some(text) = read(root, &relative) else {
+            continue;
+        };
+        scanned += 1;
+        if pattern.is_match(&text) {
+            writers.push(relative);
+        }
+    }
+    writers.sort();
+    DispatchWriteScan { scanned, writers }
 }
 
 // ---------------------------------------------------------------------------
@@ -612,6 +667,64 @@ mod tests {
             !whatsapp_kind_re().is_match(&attribution),
             "the WhatsApp path introduces a new \"kind\": \"whatsapp\" identity instead of the \
              existing phone identity"
+        );
+    }
+
+    /// `.guard: AGENTS.md:172` — "Let two sources answer one fact. One fact has ONE writer..." applied
+    /// to the dispatch rule: proves the matcher can see the second spelling it exists to forbid, and
+    /// does not confuse an item STATE change (which the engine legitimately owns) with a creation.
+    #[test]
+    fn the_dispatch_matcher_sees_a_work_item_insert_and_only_an_insert() {
+        let second_owner =
+            "insert into agent_work_item (story_id, state, priority) values ($1, 'Ready', $2)";
+        println!(
+            "dispatch matcher (second owner): {}",
+            insert_re(DISPATCH_OWNED_TABLE).is_match(second_owner)
+        );
+        assert!(insert_re(DISPATCH_OWNED_TABLE).is_match(second_owner));
+
+        let claim_recovery = "update agent_work_item set state='Ready', claimed_by=null, \
+                              error_text='stale claim recovered; awaiting fresh attempt' \
+                              where id=$1::uuid and state in ('Claimed','Running')";
+        println!(
+            "dispatch matcher (claim recovery): {}",
+            insert_re(DISPATCH_OWNED_TABLE).is_match(claim_recovery)
+        );
+        assert!(
+            !insert_re(DISPATCH_OWNED_TABLE).is_match(claim_recovery),
+            "the engine owns the state of a claim it holds; this guard only forbids CREATING an item"
+        );
+    }
+
+    /// `.guard: AGENTS.md:172` — "Let two sources answer one fact. One fact has ONE writer..."
+    /// The dispatch rule has exactly one writer and it is the database. Growth fails.
+    #[test]
+    fn the_database_owns_dispatch_no_production_rust_file_inserts_a_work_item() {
+        let root = repo_root();
+        let scan = dispatch_write_scan(&root);
+
+        println!(
+            "dispatch-owner: read {} tracked production Rust file(s)",
+            scan.scanned
+        );
+        for file in &scan.writers {
+            println!("  inserts {DISPATCH_OWNED_TABLE} <- {file}");
+        }
+
+        assert!(
+            scan.scanned > 0,
+            "the scan read no files at all — an empty scan is a failure, not a pass"
+        );
+        assert!(
+            scan.writers.is_empty(),
+            "the dispatch rule has ONE writer and it is the database. \
+             `agent_work_item_dispatch()` creates the item, scores it with `story_priority_score()` and \
+             arbitrates it with the partial unique index; a Rust file that inserts here is a second owner \
+             of a rule that has already drifted once (migration 146). To put a `Ready` story back in the \
+             queue, restore the status CHANGE the trigger fires on — off `Ready` and back, inside one \
+             transaction — instead of writing the row. Found: {}. If you are looking at a legitimate \
+             exception, that is a decision for the captain, not for this test.",
+            scan.writers.join(", ")
         );
     }
 }

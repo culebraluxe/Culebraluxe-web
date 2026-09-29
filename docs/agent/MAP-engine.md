@@ -60,7 +60,7 @@ process instances). `rust/forge` is the Forge SDLC on top of it.
 
 | Table | What it holds |
 | --- | --- |
-| `agent_work_item` | The queue and the single-active lock |
+| `agent_work_item` | The queue and the single-active lock. **The DATABASE creates the items** — `agent_work_item_dispatch()`, `db/migrations/025_agent_work_queue.sql:101` restated in `146:36` — and Rust only reads them, moves the state of a claim it holds, and puts a story into the queue by restoring the status change the trigger fires on (`ForgeEngineDao::ensure_story_dispatched`). `docs/agent/OLD-ENGINE-CONTRACT-RESTORATION.md` §6.7 has the finding |
 | `forge_engine_task_execution` | The ledger: what ran, how it ended |
 | `forge_tool_artifact` | Tool output and evidence attached to a run |
 | `storyboard_story_run` | Runs per story, their status and summaries |
