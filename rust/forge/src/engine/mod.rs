@@ -9,6 +9,7 @@ pub mod claim_blocker;
 pub mod commands;
 pub mod completion;
 pub mod db_budget;
+pub mod db_ledger;
 pub mod db_writer;
 pub mod decisions;
 pub mod definition;
@@ -78,6 +79,7 @@ pub mod xml;
 
 pub use commands::is_routed as forge_command_is_routed;
 pub use completion::{apply_completion_unit, CompletionLedger, CompletionRecord, MemoryLedger};
+pub use db_ledger::{durable_completion_ledger, DbCompletionLedger};
 pub use db_writer::DbForgeStateWriter;
 pub use definition::{forge_sdlc_compact_definition, forge_sdlc_definition, forge_sdlc_graph};
 pub use facts::ForgeGateEvidence;

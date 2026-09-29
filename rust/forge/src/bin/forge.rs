@@ -411,6 +411,10 @@ fn drive<S: TxStore>(
         writer.clone(),
         Some(release),
         None,
+        // The receipt row, not a process-local set: this binary IS a child process per dispatch, so a
+        // memory ledger would let every new process re-apply each completion in the instance history
+        // (2026-09-29). The ledger is a required argument for exactly this reason.
+        forge::engine::durable_completion_ledger(),
         forge_sdlc_definition(),
     ) {
         Ok(rt) => rt,
@@ -440,8 +444,13 @@ fn drive<S: TxStore>(
         },
     ) {
         Ok(out) => Ok(format!(
-            "instance={} status={} steps={:?} human={} stopped={:?}",
-            out.instance_id, out.status, out.steps, out.needs_human, out.stopped_after
+            "instance={} status={} steps={:?} human={} stopped={:?} reconciled={}",
+            out.instance_id,
+            out.status,
+            out.steps,
+            out.needs_human,
+            out.stopped_after,
+            out.reconciled
         )),
         Err(e) => {
             eprintln!("{e}");

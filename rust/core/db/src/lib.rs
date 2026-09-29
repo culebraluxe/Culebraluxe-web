@@ -114,7 +114,7 @@ pub use forge_doctor::{
 pub use forge_engine::{
     settlement_pair, AgentWorkOutcome, AgentWorkSettlement, DealWorkflowFactRow, DispatchReconcile,
     ForgeAgentWorkRow, ForgeDecisionRow, ForgeEngineDao, ForgeEvidencePatch, ForgeHoldRow,
-    ProcessDefinitionRow, StoryPacketRow, WorkflowCommandReceiptRow,
+    ProcessDefinitionRow, StoryPacketRow, WorkflowCommandReceiptRow, WorkflowReceiptClaim,
 };
 pub use forge_read::{
     ForgeBatchRow, ForgeBenchRow, ForgeQueueWorkRow, ForgeReadDao, ForgeStoryBoardRow,

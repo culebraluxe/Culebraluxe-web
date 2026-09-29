@@ -253,6 +253,9 @@ pub struct DriveForgeStoryResult {
     pub blocked_reason: Option<String>,
     pub needs_human: bool,
     pub stopped_after: Option<String>,
+    /// Completion units the resume door applied before the first role turn (the crash window healed on
+    /// the way in). Reported so "0 forever" and "the whole history again" are distinguishable.
+    pub reconciled: usize,
 }
 
 pub struct DriveForgeStoryOptions<'a> {
@@ -302,7 +305,7 @@ pub fn drive_forge_story<S: TxStore>(
 
     let wake = rt.wake_story(story_id, opts.work_type, opts.evidence.clone())?;
     let instance_id = wake.instance_id;
-    let _ = rt.reconcile_completions(story_id)?;
+    let reconciled = wake.reconciled;
 
     for _ in 0..opts.max_steps {
         let tasks = rt.list_role_tasks(story_id)?;
@@ -333,6 +336,7 @@ pub fn drive_forge_story<S: TxStore>(
                 blocked_reason: None,
                 needs_human: true,
                 stopped_after,
+                reconciled,
             });
         }
         if !tasks.iter().any(|t| t.status == TaskStatus::Ready) {
@@ -349,6 +353,7 @@ pub fn drive_forge_story<S: TxStore>(
                 blocked_reason: Some(format!("no ready task; active: {blocked}")),
                 needs_human: false,
                 stopped_after,
+                reconciled,
             });
         }
 
@@ -442,6 +447,7 @@ pub fn drive_forge_story<S: TxStore>(
                 .unwrap_or(false)
         }),
         stopped_after,
+        reconciled,
     })
 }
 

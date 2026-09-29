@@ -300,7 +300,9 @@ fn completion_unit_is_exactly_once() {
         },
     )
     .unwrap();
-    assert!(ledger.has_final(&completion_receipt_id(&task.task_id)));
+    assert!(ledger
+        .has_final(&completion_receipt_id(&task.task_id))
+        .unwrap());
     assert_eq!(
         ledger
             .evidence_for("story-1")
@@ -338,9 +340,13 @@ fn reconcile_finishes_orphaned_transition() {
             transition_name: Some("smith".into()),
         })
         .unwrap();
-    assert!(!ledger.has_final(&completion_receipt_id(&task.task_id)));
+    assert!(!ledger
+        .has_final(&completion_receipt_id(&task.task_id))
+        .unwrap());
     assert_eq!(rt.reconcile_completions("story-1").unwrap(), 1);
-    assert!(ledger.has_final(&completion_receipt_id(&task.task_id)));
+    assert!(ledger
+        .has_final(&completion_receipt_id(&task.task_id))
+        .unwrap());
 }
 
 fn compact() -> ForgeRuntime {

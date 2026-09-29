@@ -72,7 +72,7 @@ made it enforceable.
 
 | # | Contract | old | now | rail |
 | --- | --- | --- | --- | --- |
-| 1 | Durable completion receipt / repair-replan ledger | post-transition completion unit persisted; `reconcile_completions()` could answer "did this task already complete" after a restart | `MemoryLedger`, process-local; a new engine process per dispatch starts blank | `workflow_command_receipt`, `forge_engine_task_execution`, `forge_story_run_receipt` (all exist) |
+| 1 | Durable completion receipt / repair-replan ledger | post-transition completion unit persisted; `reconcile_completions()` could answer "did this task already complete" after a restart | **RESTORED 2026-09-29 (`DbCompletionLedger`)**: the unit is claimed and finalized in `workflow_command_receipt` (`forge.completion:{taskId}`), evidence merges into `forge_workflow_evidence`, the counters move on `storyboard_story`, and the runtime will not build without a ledger named at the call site — the process-local `MemoryLedger` is reachable only from test fixtures. The defect it replaced: `MemoryLedger` as the production default, so each per-dispatch process re-applied every completion in the instance history | `workflow_command_receipt`, `forge_workflow_evidence`, `forge_engine_task_execution`, `forge_story_run_receipt` (all exist) |
 | 2 | Story identity into every role task | runner resolved `process_instance.subject_id → storyboard_story.id` before any write | `story_id: String::new()`, substituted with the process-instance UUID at three write sites | `forge_hold_record.story_id → storyboard_story(id)`; ids are human keys |
 | 3 | Durable dispatch envelope reaching execution | `AgentWorkItem` carried role, model_profile, special_instructions, execution_policy, execution_environment, kind, model_policy, stop_after, launch_intent, runtime_adapter … and the child ran with them | queue object reads 6 fields; child launched with `--story --work-type --work-item`; model chosen by environment (`OpenCodeHarness::from_env()`); `special_instructions: None` | `agent_work_item` columns (35 exist) |
 | 4 | Story Packet is authoritative; unreadable means no run | could not resolve the Story Board command/context → fail, no agent turn | `StoryPacket::load_from_neon` error → `eprintln!` + environment packet, run proceeds | Story Board rows are the authority |
@@ -167,10 +167,15 @@ model policy while the engine ignores it; the Cockpit writes `launch_intent` and
 Distinction the guard must encode: `let _ = f()?;` propagates the error and discards an uninteresting value — allowed.
 `let _ = f();` discards the **failure** — that is the violation. On that rule:
 
-1. `engine/runtime.rs:145` — `ledger: Arc::new(MemoryLedger::new())` as the production default. `with_ledger()`
-   exists at `:91` as an injection point and has **no production caller**; every dispatch therefore starts blank.
-2. `engine/process.rs:24`, `engine/process.rs:47`, `engine/executor.rs:289` — `let _ = self.reconcile_completions(..)?;`
-   the reconcile result (how many completions were reconciled) is discarded at all three call sites.
+1. ~~`engine/runtime.rs:145` — `ledger: Arc::new(MemoryLedger::new())` as the production default.~~
+   **FIXED 2026-09-29.** `ForgeRuntime::from_store` now takes the ledger as a parameter, so the memory ledger is
+   only reachable from the `in_memory*` fixtures; `bin/forge.rs` passes `durable_completion_ledger()`, fenced by
+   `rust/forge/tests/durable_completion_ledger.rs::the_engine_binary_installs_the_durable_ledger`.
+2. ~~`engine/process.rs:24`, `engine/process.rs:47`, `engine/executor.rs:289` — `let _ = self.reconcile_completions(..)?;`
+   the reconcile result (how many completions were reconciled) is discarded at all three call sites.~~
+   **FIXED 2026-09-29.** The count is now carried: `WakeResult::reconciled` and `DriveForgeStoryResult::reconciled`,
+   reported by the engine binary as `reconciled=…`. It was never *just* a diagnostic while the ledger was
+   process-local — a non-zero count on every dispatch was the double-application itself.
 3. `bin/forge.rs:156` — `OpenCodeHarness::from_env()`: the model is chosen from the process environment while the
    rail-selected policy sits unread in the claimed row.
 4. `engine/packet.rs:40` — `special_instructions: None`.
@@ -202,10 +207,42 @@ test, status), which is Phase 1 work, and the audit of the 465 legacy tests adds
 
 ## 6. Blocking decisions (Captain)
 
-1. **Keep or drop** the uncommitted contract 2 patch: five Rust files, `rust/forge/src/engine/runtime.rs`,
-   `rust/forge/src/engine/runner.rs`, `rust/forge/src/engine/writer.rs`, `rust/forge/src/engine/db_writer.rs` and
-   `rust/forge/tests/forge_runtime.rs`. Nothing committed, nothing pushed, no schema touched.
-2. **Ledger storage shape** for contract 1: which existing receipt table owns the completion unit. Design first, no
-   code, and no schema change without the Captain's word.
+1. ~~**Keep or drop** the uncommitted contract 2 patch~~ — **RESOLVED 2026-09-29**: landed on `main` as `4ee9d6e2`
+   (story identity into role tasks, fail-closed Story Packet, canonical Story Board writes un-swallowed).
+2. ~~**Ledger storage shape** for contract 1~~ — **RESOLVED 2026-09-29**: the completion unit lives in
+   `workflow_command_receipt` under `forge.completion:{taskId}` (already the claim-first receipt table), with the
+   evidence in `forge_workflow_evidence` and the counters on `storyboard_story`. **No schema change**: every column
+   already existed and was unused.
 3. **The dispatch scheduler is stopped**, as a precondition for touching engine code, and stays stopped until the
-   Captain says restart.
+   Captain says restart. **Still stopped.**
+
+## 7. Restoration log (appended as rails land)
+
+### 7.1 Contract 1 — the durable completion ledger (2026-09-29)
+
+Landed files:
+
+- `rust/core/db/src/forge_engine.rs` — the receipt verbs. `claim_workflow_receipt` now answers
+  `WorkflowReceiptClaim::{Acquired, HeldByAnother, AlreadyFinal}` instead of `Option<row>` (where `None` had meant
+  both "you own it" and "someone else does", and a `pending` row was filtered out of the answer);
+  `read_workflow_receipt_outcome`, `receipt_watermark_ms` (finalized receipts only — a claim must not advance the
+  watermark), `increment_forge_repair_attempts`, `increment_forge_replan_attempts` and a `finalize_workflow_receipt`
+  that moves `updated_at` and refuses to finalize a row that does not exist.
+- `rust/forge/src/engine/db_ledger.rs` (new) — `DbCompletionLedger` + `durable_completion_ledger()`.
+- `rust/forge/src/engine/completion.rs` — `CompletionLedger` is fallible (`workflow::Result`): a database that
+  cannot answer must stop the caller, because `false` from `claim` means "already applied".
+- `rust/forge/src/engine/runtime.rs` — `from_store` **takes** the ledger; the memory ledger survives only in the
+  `in_memory*` fixtures. `reconcile_completions` propagates every ledger failure.
+- `rust/forge/src/engine/process.rs`, `rust/forge/src/engine/executor.rs`, `rust/forge/src/bin/forge.rs` — the
+  reconcile count is carried (`WakeResult::reconciled`, `DriveForgeStoryResult::reconciled`, `reconciled=` in the
+  engine's summary line) and the binary installs the durable ledger.
+
+Legacy spec: `legacy/workflow_app/tests/interrupted-sequences.test.ts` (transition durable, evidence unwritten,
+receipt absent, resume applies once). Rust refusal tests: `rust/forge/tests/durable_completion_ledger.rs` (6 tests)
+and `rust/core/db/tests/forge_completion_receipt_dev.rs` (DEV, `--ignored`: claim → refused-in-flight → no watermark
+while pending → finalize → `AlreadyFinal` → watermark advances → stale `pending` reclaimed → finalize-without-claim
+refused → counters move, missing story refused).
+
+Not yet landed, named rather than implied: `model_policy` → model selection (billing: Captain's call) and
+`launch_intent` → Lead bench intent.
+

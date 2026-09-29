@@ -5,6 +5,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
 
+use workflow::Result;
+
 use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::runtime::completion_receipt_id;
 
@@ -18,16 +20,20 @@ pub struct CompletionRecord {
 }
 
 pub trait CompletionLedger: Send + Sync {
-    fn claim(&self, receipt_id: &str) -> bool;
-    fn finalize(&self, receipt_id: &str);
-    fn has_final(&self, receipt_id: &str) -> bool;
-    fn merge_evidence(&self, rec: &CompletionRecord);
-    fn increment_repair(&self, story_id: &str);
-    fn increment_replan(&self, story_id: &str);
-    /// Newest finalized receipt time for `forge.completion:` — reconcile watermark.
-    fn watermark(&self, prefix: &str) -> Option<i64> {
+    /// `true` = this caller owns the unit and must apply it. `false` = it is already final, or another
+    /// process holds the claim. A failure to *ask* is an `Err`, never `false`: a lost database must not
+    /// read as "someone else applied it" and quietly drop the evidence merge and the counters.
+    fn claim(&self, receipt_id: &str) -> Result<bool>;
+    fn finalize(&self, receipt_id: &str) -> Result<()>;
+    fn has_final(&self, receipt_id: &str) -> Result<bool>;
+    fn merge_evidence(&self, rec: &CompletionRecord) -> Result<()>;
+    fn increment_repair(&self, story_id: &str) -> Result<()>;
+    fn increment_replan(&self, story_id: &str) -> Result<()>;
+    /// Newest finalized receipt time for `forge.completion:` — the reconcile watermark, in the same
+    /// unit as `ProcessEvent::created_at` (epoch milliseconds).
+    fn watermark(&self, prefix: &str) -> Result<Option<i64>> {
         let _ = prefix;
-        None
+        Ok(None)
     }
 }
 
@@ -58,10 +64,10 @@ impl MemoryLedger {
 }
 
 impl CompletionLedger for MemoryLedger {
-    fn claim(&self, receipt_id: &str) -> bool {
-        self.claimed.lock().unwrap().insert(receipt_id.to_string())
+    fn claim(&self, receipt_id: &str) -> Result<bool> {
+        Ok(self.claimed.lock().unwrap().insert(receipt_id.to_string()))
     }
-    fn finalize(&self, receipt_id: &str) {
+    fn finalize(&self, receipt_id: &str) -> Result<()> {
         self.finalized
             .lock()
             .unwrap()
@@ -72,57 +78,66 @@ impl CompletionLedger for MemoryLedger {
             .lock()
             .unwrap()
             .insert(receipt_id.to_string(), *clock);
+        Ok(())
     }
-    fn has_final(&self, receipt_id: &str) -> bool {
-        self.finalized.lock().unwrap().contains(receipt_id)
+    fn has_final(&self, receipt_id: &str) -> Result<bool> {
+        Ok(self.finalized.lock().unwrap().contains(receipt_id))
     }
-    fn watermark(&self, prefix: &str) -> Option<i64> {
-        self.finalized_at
+    fn watermark(&self, prefix: &str) -> Result<Option<i64>> {
+        Ok(self
+            .finalized_at
             .lock()
             .unwrap()
             .iter()
             .filter(|(id, _)| id.starts_with(prefix))
             .map(|(_, t)| *t)
-            .max()
+            .max())
     }
-    fn merge_evidence(&self, rec: &CompletionRecord) {
+    fn merge_evidence(&self, rec: &CompletionRecord) -> Result<()> {
         let mut map = self.evidence.lock().unwrap();
         let next = match map.get(&rec.story_id) {
             Some(prev) => rec.evidence.merge_over(prev),
             None => rec.evidence.clone(),
         };
         map.insert(rec.story_id.clone(), next);
+        Ok(())
     }
-    fn increment_repair(&self, story_id: &str) {
+    fn increment_repair(&self, story_id: &str) -> Result<()> {
         *self
             .repairs
             .lock()
             .unwrap()
             .entry(story_id.to_string())
             .or_insert(0) += 1;
+        Ok(())
     }
-    fn increment_replan(&self, story_id: &str) {
+    fn increment_replan(&self, story_id: &str) -> Result<()> {
         *self
             .replans
             .lock()
             .unwrap()
             .entry(story_id.to_string())
             .or_insert(0) += 1;
+        Ok(())
     }
 }
 
 /// Apply the post-transition unit exactly once. Loser/re-run claims nothing.
-pub fn apply_completion_unit(ledger: &dyn CompletionLedger, rec: CompletionRecord) -> bool {
+///
+/// The claim is taken BEFORE the writes and finalized AFTER them, so the durable receipt is the proof of
+/// the unit and its absence is the crash window the resume reconciles (`legacy/workflow_app/tests/
+/// interrupted-sequences.test.ts`: the transition is durable, the evidence is not written, no receipt).
+pub fn apply_completion_unit(ledger: &dyn CompletionLedger, rec: CompletionRecord) -> Result<bool> {
     let id = completion_receipt_id(&rec.task_id);
-    if !ledger.claim(&id) {
-        return false;
+    if !ledger.claim(&id)? {
+        return Ok(false);
     }
-    ledger.merge_evidence(&rec);
+    ledger.merge_evidence(&rec)?;
     match rec.node_id.as_deref() {
-        Some("repair_smith") => ledger.increment_repair(&rec.story_id),
-        Some("repair_architect") => ledger.increment_replan(&rec.story_id),
+        Some("repair_smith") => ledger.increment_repair(&rec.story_id)?,
+        Some("repair_architect") => ledger.increment_replan(&rec.story_id)?,
         _ => {}
     }
-    ledger.finalize(&id);
-    true
+    ledger.finalize(&id)?;
+    Ok(true)
 }

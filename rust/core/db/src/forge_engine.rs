@@ -1090,6 +1090,24 @@ pub struct WorkflowCommandReceiptRow {
     pub message: Option<String>,
 }
 
+/// What a claim-first receipt answered (2026-09-29).
+///
+/// This used to be `Option<WorkflowCommandReceiptRow>`, where `None` meant BOTH "this call inserted the
+/// row, the caller owns the unit" AND "another process is mid-flight on it", and a `pending` row was
+/// filtered out of the value that came back. A caller replaying a command could live with that (both
+/// answers mean "do not replay"), but the completion ledger cannot: `false` from "already final" and
+/// `false` from "someone else holds it" are different facts, and neither is "I claimed it". The claim
+/// therefore says which of the three it is.
+#[derive(Debug, Clone)]
+pub enum WorkflowReceiptClaim {
+    /// This call inserted the row (or took over a stale one): the caller owns the unit until it finalizes.
+    Acquired,
+    /// A `pending` row younger than the stale window: another process is mid-flight.
+    HeldByAnother,
+    /// The unit already ran and is no longer in flight; the row is its proof.
+    AlreadyFinal(WorkflowCommandReceiptRow),
+}
+
 impl ForgeEngineDao {
     pub async fn merge_workflow_evidence(
         &self,
@@ -1230,11 +1248,17 @@ impl ForgeEngineDao {
         .map_err(|error| DbFailure::from_sqlx("forge_engine.closing_document_counts", &error))
     }
 
+    /// Claim-first, and honest about the three answers (see [`WorkflowReceiptClaim`]).
+    ///
+    /// A `pending` row older than the engine's own stale window (15 minutes, `AGENTS.md`) belongs to a
+    /// process that died between the claim and the finalize, so it is reclaimable here. Without that,
+    /// the crash window the receipt exists to close would instead become a permanent lock: the unit
+    /// would never apply because nobody would ever hold the claim again.
     pub async fn claim_workflow_receipt(
         &self,
         command_id: &str,
         actor: Option<&str>,
-    ) -> DbResult<Option<WorkflowCommandReceiptRow>> {
+    ) -> DbResult<WorkflowReceiptClaim> {
         let inserted = sqlx::query_scalar::<_, String>(
             "insert into workflow_command_receipt
              (command_id,outcome,aggregate_id,message,actor_app_user_id)
@@ -1248,7 +1272,23 @@ impl ForgeEngineDao {
         .await
         .map_err(|error| DbFailure::from_sqlx("forge_engine.claim_workflow_receipt", &error))?;
         if inserted.is_some() {
-            return Ok(None);
+            return Ok(WorkflowReceiptClaim::Acquired);
+        }
+        let taken = sqlx::query_scalar::<_, String>(
+            "update workflow_command_receipt
+                set actor_app_user_id=$2::uuid, updated_at=now()
+              where command_id=$1
+                and outcome='pending'
+                and updated_at < now() - interval '15 minutes'
+              returning command_id",
+        )
+        .bind(command_id)
+        .bind(actor)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.reclaim_workflow_receipt", &error))?;
+        if taken.is_some() {
+            return Ok(WorkflowReceiptClaim::Acquired);
         }
         let row = sqlx::query_as::<_, WorkflowCommandReceiptRow>(
             "select outcome, message
@@ -1259,10 +1299,107 @@ impl ForgeEngineDao {
         .bind(command_id)
         .fetch_optional(self.db.pool())
         .await
-        .map_err(|error| DbFailure::from_sqlx("forge_engine.read_workflow_receipt", &error))?;
-        Ok(row.filter(|row| row.outcome != "pending"))
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.read_workflow_receipt", &error))?
+        // The insert above conflicted, so the row exists. If it is gone now it was deleted between the
+        // two statements: that is a lost claim, and reporting it as "not claimed" would silently skip
+        // the unit it guards.
+        .ok_or_else(|| {
+            DbFailure::schema_mismatch(
+                "forge_engine.claim_workflow_receipt",
+                format!("receipt {command_id} vanished between claim and read"),
+            )
+        })?;
+        if row.outcome == "pending" {
+            return Ok(WorkflowReceiptClaim::HeldByAnother);
+        }
+        Ok(WorkflowReceiptClaim::AlreadyFinal(row))
     }
 
+    /// A receipt's outcome once it is no longer in flight. `None` = no final receipt (either none at
+    /// all, or one that was claimed and never finalized — the crash window).
+    pub async fn read_workflow_receipt_outcome(
+        &self,
+        command_id: &str,
+    ) -> DbResult<Option<String>> {
+        sqlx::query_scalar::<_, String>(
+            "select outcome
+             from workflow_command_receipt
+             where command_id=$1 and outcome <> 'pending'
+             limit 1",
+        )
+        .bind(command_id)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.read_workflow_receipt_outcome", &error))
+    }
+
+    /// Newest FINALIZED receipt time for a prefix, in epoch milliseconds — the reconcile watermark.
+    ///
+    /// Taken over finalized receipts only: a `pending` row marks a unit that was claimed and not applied
+    /// yet, and the caller skips process events at or before the watermark, so letting a claim advance
+    /// it would skip the very event the unfinished unit belongs to.
+    pub async fn receipt_watermark_ms(&self, prefix: &str) -> DbResult<Option<i64>> {
+        let watermark = sqlx::query_scalar::<_, Option<i64>>(
+            "select (extract(epoch from max(created_at)) * 1000)::bigint
+             from workflow_command_receipt
+             where command_id like $1 and outcome <> 'pending'",
+        )
+        .bind(format!("{prefix}%"))
+        .fetch_one(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.receipt_watermark_ms", &error))?;
+        Ok(watermark)
+    }
+
+    /// The canonical story row's repair observer (legacy `INC_REPAIR`). One writer, one fact: the counter
+    /// lives on `storyboard_story` (`forge_repair_attempts`, migration 114), never in a process.
+    pub async fn increment_forge_repair_attempts(&self, story_id: &str) -> DbResult<()> {
+        let result = sqlx::query(
+            "update storyboard_story
+                set forge_repair_attempts = coalesce(forge_repair_attempts,0) + 1
+              where id = $1",
+        )
+        .bind(story_id)
+        .execute(self.db.pool())
+        .await
+        .map_err(|error| {
+            DbFailure::from_sqlx("forge_engine.increment_forge_repair_attempts", &error)
+        })?;
+        if result.rows_affected() != 1 {
+            return Err(DbFailure::schema_mismatch(
+                "forge_engine.increment_forge_repair_attempts",
+                format!("no storyboard_story row for {story_id}"),
+            ));
+        }
+        Ok(())
+    }
+
+    /// The canonical story row's replan observer (legacy `INC_REPLAN`).
+    pub async fn increment_forge_replan_attempts(&self, story_id: &str) -> DbResult<()> {
+        let result = sqlx::query(
+            "update storyboard_story
+                set forge_replan_attempts = coalesce(forge_replan_attempts,0) + 1
+              where id = $1",
+        )
+        .bind(story_id)
+        .execute(self.db.pool())
+        .await
+        .map_err(|error| {
+            DbFailure::from_sqlx("forge_engine.increment_forge_replan_attempts", &error)
+        })?;
+        if result.rows_affected() != 1 {
+            return Err(DbFailure::schema_mismatch(
+                "forge_engine.increment_forge_replan_attempts",
+                format!("no storyboard_story row for {story_id}"),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Finalize a claimed receipt. `updated_at` moves with it (migration 223) because the stale-window
+    /// takeover in [`Self::claim_workflow_receipt`] keys on it: a finalize that left it behind would make
+    /// a finalized row look reclaimable. Finalizing a receipt that does not exist is an error, not a
+    /// silent no-op — the caller believes it just committed the unit's proof.
     pub async fn finalize_workflow_receipt(
         &self,
         command_id: &str,
@@ -1270,9 +1407,9 @@ impl ForgeEngineDao {
         aggregate_id: Option<&str>,
         message: Option<&str>,
     ) -> DbResult<()> {
-        sqlx::query(
+        let result = sqlx::query(
             "update workflow_command_receipt
-             set outcome=$2, aggregate_id=$3, message=$4
+             set outcome=$2, aggregate_id=$3, message=$4, updated_at=now()
              where command_id=$1",
         )
         .bind(command_id)
@@ -1282,6 +1419,12 @@ impl ForgeEngineDao {
         .execute(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("forge_engine.finalize_workflow_receipt", &error))?;
+        if result.rows_affected() != 1 {
+            return Err(DbFailure::schema_mismatch(
+                "forge_engine.finalize_workflow_receipt",
+                format!("no claimed receipt exists for {command_id}"),
+            ));
+        }
         Ok(())
     }
 }

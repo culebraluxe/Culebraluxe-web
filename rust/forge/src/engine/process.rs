@@ -11,6 +11,10 @@ pub struct WakeResult {
     pub instance_id: String,
     pub started: bool,
     pub open: Option<OpenForgeTask>,
+    /// Completion units the resume door applied on the way in (a won transition whose unit never
+    /// finalized — the crash window). Reported, not discarded: with a durable ledger this number is the
+    /// evidence that a crash was healed, and with a process-local one it was always the whole history.
+    pub reconciled: usize,
 }
 
 impl<S: TxStore> ForgeRuntime<S> {
@@ -21,13 +25,14 @@ impl<S: TxStore> ForgeRuntime<S> {
         work_type: &str,
         evidence: ForgeGateEvidence,
     ) -> Result<WakeResult> {
-        let _ = self.reconcile_completions(story_id)?;
+        let reconciled = self.reconcile_completions(story_id)?;
         if let Some(instance_id) = self.find_active_instance(story_id)? {
             let open = self.find_open_task(&instance_id)?;
             return Ok(WakeResult {
                 instance_id,
                 started: false,
                 open,
+                reconciled,
             });
         }
         let StartProcessResult {
@@ -39,12 +44,13 @@ impl<S: TxStore> ForgeRuntime<S> {
             instance_id: process_instance_id,
             started: true,
             open,
+            reconciled,
         })
     }
 
     /// Resume door: claim the open task if needed. Does not complete it.
     pub fn resume_open(&mut self, story_id: &str, worker_id: &str) -> Result<OpenForgeTask> {
-        let _ = self.reconcile_completions(story_id)?;
+        self.reconcile_completions(story_id)?;
         let instance_id = self.find_active_instance(story_id)?.ok_or_else(|| {
             WorkflowError::NotFound(format!("no active FORGE_SDLC instance for {story_id}"))
         })?;

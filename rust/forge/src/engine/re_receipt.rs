@@ -1,7 +1,7 @@
 //! workflow_command_receipt claim-first through the canonical Forge repository boundary.
 
 use crate::engine::vendor_session::with_shared;
-use db::ForgeEngineDao;
+use db::{ForgeEngineDao, WorkflowReceiptClaim};
 
 pub struct Receipt {
     pub outcome: String,
@@ -14,11 +14,15 @@ pub fn claim_receipt(command_id: &str, actor: Option<&str>) -> Result<Option<Rec
         rt.block_on(async {
             dao.claim_workflow_receipt(command_id, actor)
                 .await
-                .map(|row| {
-                    row.map(|row| Receipt {
+                .map(|claim| match claim {
+                    // This caller only replays a decided command: "I own it now" and "another process owns
+                    // it" both mean the same thing here — run it (`WorkflowReceiptClaim` is the ledger's
+                    // distinction, not this one's).
+                    WorkflowReceiptClaim::Acquired | WorkflowReceiptClaim::HeldByAnother => None,
+                    WorkflowReceiptClaim::AlreadyFinal(row) => Some(Receipt {
                         outcome: row.outcome,
                         message: row.message.filter(|value| !value.is_empty()),
-                    })
+                    }),
                 })
                 .map_err(|error| error.to_string())
         })

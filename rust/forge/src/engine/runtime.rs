@@ -85,16 +85,16 @@ impl ForgeRuntime<MemoryStore> {
         evidence: Option<Arc<dyn ForgeEvidenceReader>>,
         def: workflow::ProcessDefinition,
     ) -> Result<Self> {
-        ForgeRuntime::from_store(MemoryStore::new(), writer, release, evidence, def)
-    }
-
-    pub fn with_ledger(mut self, ledger: Arc<dyn CompletionLedger>) -> Self {
-        self.ledger = ledger;
-        self
-    }
-
-    pub fn ledger(&self) -> &Arc<dyn CompletionLedger> {
-        &self.ledger
+        // A fixture ledger: these constructors exist for tests, which run one process. Production names
+        // its ledger at the call site (`ForgeRuntime::from_store` takes one).
+        ForgeRuntime::from_store(
+            MemoryStore::new(),
+            writer,
+            release,
+            evidence,
+            Arc::new(MemoryLedger::new()),
+            def,
+        )
     }
 }
 
@@ -114,11 +114,20 @@ impl workflow::ApplicationPort for PortClone {
 }
 
 impl<S: TxStore> ForgeRuntime<S> {
+    /// The completion ledger is a PARAMETER, not a default (2026-09-29).
+    ///
+    /// It used to be `Arc::new(MemoryLedger::new())` here, and this constructor is what the engine binary
+    /// called. Because the engine is one child process per dispatch, that default made every new process
+    /// re-apply every completion in the instance history: the evidence merge was replayed and the story's
+    /// repair/replan counters grew once per process that ever ran. A caller now has to name the ledger it
+    /// wants; the `in_memory*` fixtures below are the only users of the process-local one, and the engine
+    /// binary passes the receipt row (`engine::durable_completion_ledger`).
     pub fn from_store(
         store: S,
         writer: Arc<dyn ForgeStateWriter>,
         release: Option<Arc<dyn ForgeReleaseExecutor>>,
         evidence: Option<Arc<dyn ForgeEvidenceReader>>,
+        ledger: Arc<dyn CompletionLedger>,
         def: workflow::ProcessDefinition,
     ) -> Result<Self> {
         let top = topology_from_graph(&def.key, def.version, &def.definition);
@@ -142,7 +151,7 @@ impl<S: TxStore> ForgeRuntime<S> {
             engine,
             port,
             writer,
-            ledger: Arc::new(MemoryLedger::new()),
+            ledger,
         })
     }
 
@@ -156,6 +165,15 @@ impl<S: TxStore> ForgeRuntime<S> {
 
     pub fn port(&self) -> &ForgeApplicationPort {
         &self.port
+    }
+
+    pub fn with_ledger(mut self, ledger: Arc<dyn CompletionLedger>) -> Self {
+        self.ledger = ledger;
+        self
+    }
+
+    pub fn ledger(&self) -> &Arc<dyn CompletionLedger> {
+        &self.ledger
     }
 
     pub fn find_active_instance(&self, story_id: &str) -> Result<Option<String>> {
@@ -348,7 +366,7 @@ impl<S: TxStore> ForgeRuntime<S> {
                 node_id,
                 evidence,
             },
-        );
+        )?;
         Ok(completion_receipt_id(task_id))
     }
 
@@ -362,7 +380,7 @@ impl<S: TxStore> ForgeRuntime<S> {
         let tokens = self.engine.tokens_for_instance(&instance_id)?;
         let watermark = self
             .ledger
-            .watermark(crate::engine::neon_sql::RECEIPT_PREFIX);
+            .watermark(crate::engine::db_ledger::completion_receipt_prefix())?;
         let mut applied = 0;
         for ev in events.into_iter().rev() {
             if ev.event_type != "task.completed" {
@@ -376,7 +394,7 @@ impl<S: TxStore> ForgeRuntime<S> {
             let Some(task_id) = ev.task_id.clone() else {
                 continue;
             };
-            if self.ledger.has_final(&completion_receipt_id(&task_id)) {
+            if self.ledger.has_final(&completion_receipt_id(&task_id))? {
                 continue;
             }
             let form = ev
@@ -403,7 +421,7 @@ impl<S: TxStore> ForgeRuntime<S> {
                     node_id,
                     evidence: evidence_from_value(&form),
                 },
-            ) {
+            )? {
                 applied += 1;
             }
         }
