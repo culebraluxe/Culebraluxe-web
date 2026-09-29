@@ -127,10 +127,6 @@ pub fn launchctl(args: &[&str]) -> Output {
         .unwrap_or_else(|error| panic!("cannot run /bin/launchctl {}: {error}", args.join(" ")))
 }
 
-pub fn launchctl_succeeded(args: &[&str]) -> bool {
-    launchctl(args).status.success()
-}
-
 pub fn plutil_lint(plist: &Path) -> Output {
     Command::new("/usr/bin/plutil")
         .arg("-lint")
