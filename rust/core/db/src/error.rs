@@ -152,9 +152,7 @@ fn classify_sqlstate(code: &str) -> DbFailureKind {
     // end: `Unknown` is not `retryable`, so nothing retried it and an eight-minute story was lost 2m45s in at a step
     // boundary, on a session that had nothing to do with the work. The same is true of `57P02` (crash shutdown) and
     // of `53300` (no free connections): the work is fine, the session is not.
-    if code.starts_with("08")
-        || matches!(code, "25P03" | "57P01" | "57P02" | "57P03" | "53300")
-    {
+    if code.starts_with("08") || matches!(code, "25P03" | "57P01" | "57P02" | "57P03" | "53300") {
         return DbFailureKind::DatabaseUnavailable;
     }
     if code.starts_with("23") {
