@@ -45,9 +45,13 @@ impl<S: TxStore> WorkflowEngine<S> {
         (self.now)()
     }
 
+    /// Make sure the definition this engine is about to run is registered, and adopt the identity the store
+    /// holds for it. Safe to call on every start: `ensure_definition` inserts a `(tenant_id, key, version)`
+    /// that is absent and returns the registered row when it is present, which is what keeps a human key like
+    /// `FORGE_SDLC-v6` out of a uuid column.
     pub fn seed_definition(&self, def: ProcessDefinition) -> Result<()> {
         self.store.with_tx(|tx| {
-            tx.insert_definition(def)?;
+            tx.ensure_definition(def)?;
             Ok(())
         })
     }

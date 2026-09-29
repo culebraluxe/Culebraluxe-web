@@ -110,7 +110,20 @@ impl Store for MemoryTx<'_> {
             .ok_or_else(|| WorkflowError::NotFound(format!("definition {id}")))
     }
 
-    fn insert_definition(&mut self, def: ProcessDefinition) -> Result<ProcessDefinition> {
+    /// Memory mirror of the Neon rule: the first registration of a `(tenant_id, key, version)` is the
+    /// registration. MemoryStore has no uuid column to honour, so that first registration keeps the id it was
+    /// given, and every later one adopts it and leaves its content alone — the same shape as the Neon adapter,
+    /// which returns the registered row untouched rather than overwriting it.
+    fn ensure_definition(&mut self, def: ProcessDefinition) -> Result<ProcessDefinition> {
+        if let Some(registered) = self
+            .inner
+            .definitions
+            .values()
+            .find(|d| d.key == def.key && d.version == def.version && d.tenant_id == def.tenant_id)
+            .cloned()
+        {
+            return Ok(registered);
+        }
         self.inner.definitions.insert(def.id.clone(), def.clone());
         Ok(def)
     }

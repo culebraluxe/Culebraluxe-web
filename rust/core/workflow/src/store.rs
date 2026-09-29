@@ -19,7 +19,17 @@ pub trait Store {
 
     fn definition_by_id(&mut self, id: &str) -> Result<ProcessDefinition>;
 
-    fn insert_definition(&mut self, def: ProcessDefinition) -> Result<ProcessDefinition>;
+    /// Register a definition by `(tenant_id, key, version)`: insert it when that row is absent, adopt the row
+    /// that is already there when it is present. `process_definitions` is the authority on a definition's
+    /// identity — its `id` is a uuid with a `gen_random_uuid()` default and `(tenant_id, key, version)` is
+    /// unique — so the caller's `def.id` is a human key (`FORGE_SDLC-v6`), not the identity, and must never be
+    /// written to the column. Called on every process start (the engine seeds the definition it is about to
+    /// run), so it has to be safe to call any number of times.
+    ///
+    /// This replaces a plain insert that bound the caller's key as `$1::uuid`: from 2026-09-25 every Rust
+    /// engine start against Neon died on `invalid input syntax for type uuid: "FORGE_SDLC-v6"` before a single
+    /// instance existed, because a NULL tenant is not caught by `unique (tenant_id, key, version)`.
+    fn ensure_definition(&mut self, def: ProcessDefinition) -> Result<ProcessDefinition>;
 
     fn insert_instance(&mut self, inst: ProcessInstance) -> Result<ProcessInstance>;
     fn set_root_token(&mut self, instance_id: &str, token_id: &str) -> Result<()>;

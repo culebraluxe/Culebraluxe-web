@@ -67,16 +67,28 @@ impl Store for NeonTx<'_> {
         map_definition(&row)
     }
 
-    fn insert_definition(&mut self, def: ProcessDefinition) -> Result<ProcessDefinition> {
+    /// Register the definition unless `(tenant_id, key, version)` is already registered, in which case the
+    /// registered row is returned untouched.
+    ///
+    /// The id is the database's, never the caller's: `process_definitions.id` is a uuid with a
+    /// `gen_random_uuid()` default, while the engine's definition carries a human id (`FORGE_SDLC-v6`). The
+    /// guard cannot be `on conflict (tenant_id, key, version)` either — a NULL tenant makes the row distinct
+    /// from every other NULL, so the unique index does not catch a second insert of a tenant-less definition,
+    /// and the `where not exists` below is what makes this path idempotent.
+    fn ensure_definition(&mut self, def: ProcessDefinition) -> Result<ProcessDefinition> {
         let json = graph_to_json(&def.definition);
-        run_exec(
-            self,
+        let inserted = fetch_optional_q(
+            &mut *self,
             sqlx::query(
-                "INSERT INTO process_definitions
-                    (id, tenant_id, key, version, name, description, definition, status)
-                 VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7::jsonb, $8)",
+                "INSERT INTO process_definitions (tenant_id, key, version, name, description, definition, status)
+                 SELECT $1::uuid, $2, $3, $4, $5, $6::jsonb, $7
+                  WHERE NOT EXISTS (
+                        SELECT 1 FROM process_definitions
+                         WHERE key = $2 AND version = $3
+                           AND tenant_id IS NOT DISTINCT FROM $1::uuid)
+                 RETURNING id::text AS id, tenant_id::text AS tenant_id, key, version, name, description,
+                           definition::text AS definition, status",
             )
-            .bind(&def.id)
             .bind(&def.tenant_id)
             .bind(&def.key)
             .bind(def.version)
@@ -85,7 +97,19 @@ impl Store for NeonTx<'_> {
             .bind(&json)
             .bind(def_status(def.status)),
         )?;
-        Ok(def)
+        if let Some(row) = inserted {
+            return map_definition(&row);
+        }
+        let row = fetch_one_q(
+            &mut *self,
+            sqlx::query(
+                "SELECT id::text AS id, tenant_id::text AS tenant_id, key, version, name, description, definition::text AS definition, status FROM process_definitions WHERE key = $1 AND version = $2 AND tenant_id IS NOT DISTINCT FROM $3::uuid LIMIT 1",
+            )
+            .bind(&def.key)
+            .bind(def.version)
+            .bind(&def.tenant_id),
+        )?;
+        map_definition(&row)
     }
 
     fn insert_instance(&mut self, inst: ProcessInstance) -> Result<ProcessInstance> {

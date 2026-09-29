@@ -22,6 +22,38 @@ fn feature_ev() -> ForgeGateEvidence {
         ..Default::default()
     }
 }
+/// A registration is keyed by `(tenant_id, key, version)`, not by the definition's own id — the Neon schema
+/// gives `process_definitions.id` a uuid default while the engine's definition carries a human id
+/// (`FORGE_SDLC-v6`). Registering the same triple twice must therefore adopt the registered identity instead
+/// of adding a second registration, or every engine start against Neon binds a non-uuid into a uuid column
+/// (measured 2026-09-29: `invalid input syntax for type uuid: "FORGE_SDLC-v6"`).
+#[test]
+fn a_second_registration_adopts_the_registered_identity() {
+    let writer = Arc::new(RecordingWriter::default());
+    let rt = ForgeRuntime::in_memory_compact(writer).expect("compact fixture");
+    let registered = |rt: &ForgeRuntime| {
+        rt.engine()
+            .store()
+            .with_tx(|tx| tx.load_definition(FORGE_SDLC_KEY, Some(FORGE_SDLC_VERSION), None))
+            .expect("the fixture registers its definition")
+    };
+    let before = registered(&rt);
+    assert_eq!(
+        before.id, "forge-sdlc-compact",
+        "the fixture's id is the registered identity"
+    );
+
+    // The XML definition carries the same key and version under a different (human) id.
+    rt.engine()
+        .seed_definition(forge_sdlc_definition())
+        .expect("re-registration of a registered definition is a no-op");
+
+    let after = registered(&rt);
+    assert_eq!(after.id, before.id, "the registered identity wins");
+    assert_eq!(after.name, before.name, "and the registered row is untouched");
+}
+
+
 
 #[test]
 fn topology_of_compact_graph_is_valid() {
