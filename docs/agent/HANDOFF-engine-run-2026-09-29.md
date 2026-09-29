@@ -46,9 +46,10 @@ is the owner's call to start (§7). This file is the state, not the story.
 
 ## 5. NOT VERIFIED — the honest gaps
 
-- No PROD run row has been opened by this code, so `goal_snapshot` and its eleven siblings on a **written** PROD row,
-  `base_commit_hash`, and the run's `policy`/`model_policy` echo remain unobserved. The insert is measured in DEV; PROD is
-  measured read-only.
+- The run the Captain authorized (S10) has written a PROD run row and the twelve columns are filled on it, but it has not
+  reached a terminal state: `base_commit_hash` is still **unstamped** ~35 minutes in and `result_status` is unruled, so the
+  `stamp_run_base_commit` step of this seam is unobserved. If that run ends unstamped, the stamp is not reached on this
+  path — check whether the lane provisioned a worktree at all (`stamp_run_base_commit`'s only source).
 - `model_policy` and `launch_intent` on the eight `Ready` PROD items are NULL: a run on them bills the default
   (`cheap` → flash tier) and carries no Lead cap. The read-from-the-row path is compiled and unit-tested, not observed live.
 - PROD `db.connect` timed out once this session (`Timeout during db.connect`, incident `24b21e17-0cdc-4213-9cae-39da27266ace`); the next attempt succeeded. Whether that is what killed the 10:34 tick is not proven.
