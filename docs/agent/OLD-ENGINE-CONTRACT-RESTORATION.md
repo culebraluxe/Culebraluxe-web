@@ -33,6 +33,38 @@ expected for any item below. If the audit proves a rail the old engine relied on
 database, that becomes an explicit Captain decision in its own right — named, with the rail it restores — and never
 a silent side effect of a code fix.
 
+## 0.1 The invariant, as corrected by the Captain (2026-09-29)
+
+*"I don't care about any of the data in production with context to Forge or existing engine tests — they are not
+really tied to any business transaction and I own the Forge, so it's OK to delete the data there when I say.
+When I say protect production I mean the schema — the schema is the contract requirement and critical to the
+hand off."*
+
+Held as five rules from here on:
+
+1. **The schema is the contract.** It is the specification the engine must satisfy. It is not an implementation
+   detail, and it is never a side effect of engine code. "Does it conform to the schema" is the acceptance question
+   for a seam, not "does the run appear to work".
+2. **Forge data is disposable.** The Captain owns it and it is not business data. Engine rows may be deleted or
+   rewritten on his word: `agent_work_item`, `forge_hold_record`, `forge_open_holds`, `forge_engine_task_execution`,
+   `forge_story_run_receipt`, `workflow_command_receipt`, `storyboard_story_run`, `forge_dispatch_score`. That
+   permission is scoped to the Forge engine's own tables — `property`, `media`, `property_media`, buyers and every
+   other business table are untouched by it, absolutely and always.
+3. **The engine's existing tests are not precious.** They assert the port's own shape, not the rails. They are
+   rewritten to assert refusal, or dropped. The 465 restored legacy tests are **reference**, not scripture: they say
+   what the old engine enforced.
+4. **The schema moves in one direction only: toward more enforcement.** A rail may be **restored** or **added** when
+   a contract requires it. No rail is ever relaxed, dropped, made nullable, or given a default to accommodate engine
+   code. Every move is a named rail, with the contract it enforces, on the Captain's word.
+5. **A fix that would need a weaker schema is not a fix.** If conforming appears to require relaxing a rail, stop and
+   report it — that is either a missing rail being discovered or the engine's shape being wrong.
+
+What this unlocks, and why it matters more than it sounds: because Forge data may be deleted and the schema is the
+rail, the acceptance test for a seam can be a **real write that the database must refuse**. A hold with no story id
+is not merely a Rust unit test — it is an `INSERT` the foreign key rejects, and the test can assert both the
+engine's refusal and the row's absence. That is the strength the legacy engine got from its schema and the port
+never tested.
+
 ## 1. Contract inventory
 
 `old` = what the legacy engine enforced · `now` = what the Rust engine does today · `rail` = where the old engine
