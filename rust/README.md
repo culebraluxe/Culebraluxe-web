@@ -1,9 +1,13 @@
 # Rust workspace
 
-This directory is the side-by-side Rust backend workspace for CulebraLuxe.
+This is the whole CulebraLuxe application: the Yew UI (`ui`), the server that serves it and the HTTP API (`server`), the
+domain, database and service kernel (`core/*`), provider adapters (`integrations`), Forge (`forge`) and the operator CLI
+(`cli`). The map and the commands are in the repository [README](../README.md) and
+[docs/agent/ORIENTATION.md](../docs/agent/ORIENTATION.md).
 
-Nothing here is wired into Next.js, Vercel production routing, or the TypeScript
-runtime yet. Rust is being introduced behind explicit parity boundaries.
+> **Everything below "Slice 1" is HISTORY** — the notes written while the port was being built (September 2026), when
+> Rust ran beside a Next.js/TypeScript app. That app is gone; where a note below mentions Next, Auth.js or a TypeScript
+> edge, it describes the retired arrangement, not the current one.
 
 ## Structure
 
@@ -25,6 +29,8 @@ integration concerns must not leak into domain code.
 Forge role ownership is preserved structurally. QA verifies outcomes and does
 not own Git/release authority; DEV_OPS/release owns release identity and
 promotion concerns.
+
+## History — the slices that built the port
 
 ## Slice 1: DB + Project service
 

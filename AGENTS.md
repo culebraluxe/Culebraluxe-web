@@ -34,36 +34,24 @@ The pre-push hook in `.githooks/` enforces rules 1 and 5 on this machine: it ref
 and refuses a push whose `rust/Cargo.lock` is out of date. A new clone turns it on with
 `git config core.hooksPath .githooks`.
 
-## Rust First — the domain is Rust now
+## Rust First — the application is Rust
 
-The port moved the domain to Rust. TypeScript remains for exactly one job, and this section is what keeps the line where
-it is.
+The whole application is Rust: the website and the portal are one Yew app (`rust/ui`) served by the Rust server, and the
+domain, database and HTTP API are Rust crates. There is no TypeScript in the product (even Google sign-in is Rust), and
+this section keeps it that way.
 
-| If you are writing... | It goes in | Language |
-| --- | --- | --- |
-| UI: screens, components, styling, client state | `app/`, `components/` | TypeScript |
-| The UI's transport to the Rust API | `lib/rust-api/` | TypeScript, and only as a thin client |
-| Domain rules, validation, workflow transitions | `rust/core/domain`, `rust/core/workflow` | **Rust** |
-| Database access: SQL, DAOs, repositories | `rust/core/db` | **Rust** |
-| HTTP API: routes, shapes, identity resolution | `rust/server` | **Rust** |
-| Workflow engine commands | `rust/forge` + `rust/server/src/api/engine.rs` | **Rust** |
+| If you are writing... | It goes in |
+| --- | --- |
+| UI: screens, components, styling, client state | `rust/ui/src/app/` (a `Screen`, one registry line; `docs/agent/UI-SCREEN-ARCHITECTURE.md`) |
+| A URL the UI calls or links to | `rust/ui/src/app/api.rs` |
+| Domain rules, validation, workflow transitions | `rust/core/domain`, `rust/core/workflow` |
+| Database access: SQL, DAOs, repositories | `rust/core/db` |
+| HTTP API: routes, shapes, identity resolution | `rust/server` |
+| Workflow engine commands | `rust/forge` + `rust/server/src/api/engine.rs` |
 
-**The mechanical rule.** If a change decides *what is true* about a client, deal, contract, property or workflow — or
-reads or writes the database — it is Rust. If it decides *how that truth is displayed or captured* in a browser, it is
-TypeScript.
-
-**Never in new work:** a TypeScript module that talks to Postgres. A new `services/` class holding business rules. A new
-query in `db/`. A route re-implementing in TypeScript what `rust/server` already does. The old TypeScript server stack
-is **retired and out of the website's scope** — it lives in `legacy/`, and see `docs/agent/LEGACY-TYPESCRIPT.md` plus
-`legacy/README.md`.
-
-**`legacy/` is out of scope for the primary website.** The website reaches the domain through the Rust API
-(`lib/rust-api`) or a Rust route is added for what it needs; it does not import `legacy/`. That is enforced, not asked
-for: `eslint.config.mjs` restricts such imports for `app/`, `components/` and `lib/`, and the 186 files that still do it
-are recorded in `eslint-suppressions.json`. **That list may only shrink** — adding an import means either adding a Rust
-route or explaining why not in the same commit. A new violation fails `pnpm lint`.
-
-Prune it after removing an import: `npx eslint . --prune-suppressions`.
+**Never in new work:** a TypeScript or JavaScript file in the product, a relay in front of `rust/server`, a query outside
+`rust/core/db`, or business rules outside a service. The old TypeScript stack is **retired** — it lives in `legacy/`
+(`docs/agent/LEGACY-TYPESCRIPT.md`, `legacy/README.md`); read it for intent, never import it, never repair it.
 
 **Dead TypeScript is marked, not deleted, and never revived.** The port deleted `lib/` and
 `legacy/db/`, so **173 of the 248 TypeScript files under `scripts/` and `agent-runtime/` cannot load at
@@ -333,18 +321,18 @@ pnpm build              # rust/ui wasm (release) + tailwind + the rust server bi
 pnpm broken:ts:sweep    # dead-TS counts; fails if the tree and the inventory disagree
 ```
 
-**2026-09-27 correction — do not run `next build`: there is no Next.js application here.**
-`app/` and `components/` are **not tracked in git and do not exist on disk**; the website is the Yew app
-in `rust/ui` (wasm + Tailwind) served by the Rust server (`rust/server/src/site.rs`). Treat the table's
-"UI: `app/`, `components/`" row and the line "CulebraLuxe is a Next.js application" as historical: new UI
-lives in `rust/ui/src/app/screens/**`, and `pnpm dev` runs `scripts/dev.sh`.
+**There is no `next build`: there is no Next.js application.** The website is the Yew app in `rust/ui` (wasm +
+Tailwind) served by the Rust server (`rust/server/src/site.rs`); new UI lives in `rust/ui/src/app/screens/**`, and
+`pnpm dev` runs `scripts/dev.sh`.
 
 **2026-09-28 — a green `cargo check --workspace` does not mean `rust/ui` builds.** `ui` is a workspace
 member, but the application — screens, shell, the whole browser surface — is behind `--features wasm`, so the
 workspace check compiles `model`/`update` on the host target only and never the code the deploy ships. Roughly
 thirty commits landed with `rust/ui` uncompilable: the workspace was clean, `cargo check --workspace --all-targets`
 passed, the next `pnpm deploy:prod` died in the Docker step, and production served an older build until it was
-fixed (`305026d7`). The check that matches the artifact, to be run before pushing anything under `rust/ui`:
+fixed (`305026d7`). *(Later the same day `wasm` became a default feature of `ui`, so the workspace check and a plain
+`cargo test -p ui` now compile the app on the host; the wasm32 target is still only checked by the command below.)*
+The check that matches the artifact, to be run before pushing anything under `rust/ui`:
 
 ```sh
 pnpm ui:check           # cargo check --manifest-path rust/Cargo.toml -p ui --features wasm --target wasm32-unknown-unknown
