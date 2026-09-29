@@ -143,13 +143,16 @@ const AUDITED_TABLES: [&str; 3] = [
 /// cannot be quietly widened in the other direction.
 const TABLE_WRITERS_BASELINE: [(&str, &[&str]); 3] = [
     (
+        // `rust/forge/src/engine/neon_sql.rs` left this set on 2026-09-29: it held a second, never
+        // executed COPY of the repair/replan increments while `forge_engine.rs` held the ones that ran.
+        // Removing it makes this fence report the writer that serves. Do not re-add a file that only
+        // carries a dead copy of a statement it does not execute.
         "storyboard_story",
         &[
             "rust/core/db/src/forge_control.rs",
             "rust/core/db/src/forge_engine.rs",
             "rust/core/db/src/forge_reset.rs",
             "rust/core/db/src/tech.rs",
-            "rust/forge/src/engine/neon_sql.rs",
         ],
     ),
     (

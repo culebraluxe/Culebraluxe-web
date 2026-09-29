@@ -205,6 +205,16 @@ floor and it is bounded by the two sweeps in 6.2 and 6.3, run over three crates.
 count is complete: the authoritative completion is a per-contract row (contract, rail, legacy test, Rust refusal
 test, status), which is Phase 1 work, and the audit of the 465 legacy tests adds rows the sweeps cannot see.
 
+### 6.6 Rails with no writer at all (swept 2026-09-29, during the ledger work)
+
+Two categories, and the difference is the answer to "what do we do about it":
+
+| site | the fact | disposition |
+| --- | --- | --- |
+| `rust/forge/src/engine/observer.rs:13` `INSERT_OBSERVER_SQL` — "never used" (compiler warning) | the Flight Recorder trace. The legacy engine wrote a diagnostic observer row per step; the Rust port never does | **OPEN WORK, not a decision.** It is contract 7 (the audit's findings) and it needs a seam of its own — the same shape as the seven in §6.1: a writer for a rail that has a table. Nothing here needs the Captain |
+| `rust/forge/src/engine/neon_sql.rs` — nine SQL constants, no caller | a second COPY of statements `db::ForgeEngineDao` already owns (receipt claim/finalize/read/watermark, evidence read, story ledger, repair/replan increments, packet read) | **CLOSED 2026-09-29: deleted, not wired.** Wiring them would give `forge_workflow_evidence` and `storyboard_story` two writers each, which AGENTS.md:172 forbids; and the column-writer audit counted this file as a writer of `storyboard_story` while the writer that runs is `forge_engine.rs`. Kept: `RECEIPT_PREFIX`, the one literal with no SQL body. The bodies are in git history (`git show ae16ef38:…neon_sql.rs`) |
+| `rust/forge/src/engine/evidence_store.rs` `merge_forge_workflow_evidence` — no caller | a second door onto `forge_workflow_evidence` | **CLOSED 2026-09-29: deleted.** The merge runs through `db::ForgeEngineDao::merge_workflow_evidence`, driven by the completion ledger; the one mapping (`evidence_patch`) stays |
+
 ## 6. Blocking decisions (Captain)
 
 1. ~~**Keep or drop** the uncommitted contract 2 patch~~ — **RESOLVED 2026-09-29**: landed on `main` as `4ee9d6e2`
@@ -245,4 +255,23 @@ refused → counters move, missing story refused).
 
 Not yet landed, named rather than implied: `model_policy` → model selection (billing: Captain's call) and
 `launch_intent` → Lead bench intent.
+
+### 7.2 Hygiene — the second copy of a statement, removed (2026-09-29)
+
+Not a rail: the removal of two dead second doors, so the one-writer rule (§6.6) is what the audit reports.
+
+- `rust/forge/src/engine/neon_sql.rs` — nine SQL constants deleted (receipt claim/finalize/read/watermark, evidence
+  read, story ledger, repair/replan increments, packet read). Every one was a never-executed copy of a statement
+  `db::ForgeEngineDao` owns; `RECEIPT_PREFIX` stays. This also removed the file from the column-writer audit's writer
+  set for `storyboard_story`, where it had been counted while the writer that runs is `forge_engine.rs`.
+- `rust/cli/src/forge/repo_guards.rs` — `TABLE_WRITERS_BASELINE` narrowed deliberately, in this commit, with the reason
+  in the code: the fence must name the writer that serves.
+- `rust/forge/src/engine/evidence_store.rs` — the unused `merge_forge_workflow_evidence` wrapper deleted; the merge has
+  one door (`ForgeEngineDao::merge_workflow_evidence`, driven by the ledger) and one mapping (`evidence_patch`).
+- `docs/agent/MAP-engine.md` — the "how the engine talks to Neon" row now points at `db_ledger.rs`, which is where the
+  engine's database writes actually leave from.
+
+Gates: `cargo test -p cli` (125 tests, the column-writer fence among them — it failed first and is what caught a
+comment that spelled the statement out), `cargo test -p db -p forge` (db 50, forge 93, durable_completion_ledger 6,
+forge_runtime 34, self_heal 1), `cargo check --workspace --all-targets` clean.
 
