@@ -192,6 +192,7 @@ def main() -> int:
                 continue
             # A Rust test exists for the subject but none of this file's cases: keep it queued.
             counted["no_case_overlap"] += 1
+            continue
 
         if cases:
             want_all: set[str] = set()
