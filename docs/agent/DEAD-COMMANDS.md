@@ -13,6 +13,12 @@ three of them are named in runbooks as if they worked.
 121 `package.json` scripts. **25 name a banner file.** Zero name a file that is missing from disk: every
 reference resolves to a file that exists and is marked dead.
 
+**Later on 2026-09-29 the count was 116 scripts and 19 dead commands** (7 Forge + 1 agent runtime + 11 retired
+stack), measured after the second lane removed its own commands in the same sweep. Both lanes are deleting, so
+the sweep is the authority for the number and `BASELINE` in the sweep file is the one place it is written down:
+**when the count falls, lower `BASELINE` here and in the sweep in the same commit.** `--check` fails either way,
+up or down, on purpose.
+
 | Block | Commands | What it is |
 | --- | --- | --- |
 | Forge / story operator surface | 7 | the Forge harness and the board feeders: one Rust `forge` subcommand each |
@@ -34,7 +40,8 @@ Four corrections, recorded so the number stays honest:
    `forge:silent-failure-gate`, `forge:story:run`, `forge:test-stories`, `forge:tools`, `forge:triage`,
    `identity:phone:audit:prod`, `mailbox:intake`, `mailbox:verify`, and `test:agent-runtime` (whose glob
    `agent-runtime/*.test.ts` matched no file). `` `pnpm forge:engine` `` is the Rust replacement for what
-   `agent:runtime:*` used to drive.
+   `agent:runtime:*` used to drive. One more file in that lane, `scripts/check-svar-widgets.mts`, carried the
+   banner and could not load either (it imported the deleted `ui/projects/*`), so `check:widgets` went with it.
 
 The count may only fall. `--check` fails when it rises **and** when it falls without the baseline being
 lowered, so this page and the tree cannot drift apart silently.

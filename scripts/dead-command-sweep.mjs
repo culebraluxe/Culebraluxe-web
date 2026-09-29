@@ -23,7 +23,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const BANNER = 'BROKEN ON PURPOSE'
 
 /// The total at the last sweep (docs/agent/DEAD-COMMANDS.md). Lower it when it falls.
-const BASELINE = 25
+const BASELINE = 19
 
 /// The three blocks: who owns the command, in the order they are worked.
 const BLOCKS = [

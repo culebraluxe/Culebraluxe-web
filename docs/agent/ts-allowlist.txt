@@ -4,7 +4,6 @@ scripts/apple-local-listener.mjs
 scripts/apple-sync-agent.mjs
 scripts/broken-ts-sweep.mjs
 scripts/calendar-sync-agent.mjs
-scripts/check-svar-widgets.mts
 scripts/dead-command-sweep.mjs
 scripts/protected-files.test.ts
 scripts/protected-files.ts

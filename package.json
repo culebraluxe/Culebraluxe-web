@@ -116,7 +116,6 @@
     "forge:sync-history": "node --env-file=.env.local --import tsx scripts/sync-forge-history.ts",
     "rw:map": "ripwire . --exclude=.next --exclude=node_modules --exclude=gsd-core --exclude=praxis --exclude=claude-orchestrate --report",
     "rw:for": "bash scripts/ripwire-task.sh",
-    "check:widgets": "tsx scripts/check-svar-widgets.mts",
     "verify:mapper": "node --env-file=.env.local --import tsx scripts/verify-contract-mapper.ts",
     "db:seed:projects": "cargo run --manifest-path rust/Cargo.toml -p cli -- db-tool apply db/seeds/dev-projects-workspace.sql dev",
     "whatsapp:coexistence:test": "node --import tsx --test scripts/whatsapp-coexistence-completion.test.ts"
