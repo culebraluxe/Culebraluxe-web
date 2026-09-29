@@ -99,6 +99,18 @@ pub(super) fn rules_over_the_corpus(
                 ),
             ));
         }
+        // The guard-PATH half of the same idea: a `guard:` line that names a test which is not there.
+        // `docs/agent/TEST-SAFETY-SWEEP-2026-09-29.md` finding A is why this exists; `forge guard-lint`
+        // runs the same check as a blocking gate, and this keeps `pnpm forge:packet-lint` honest too.
+        for guard in crate::forge::guard_paths::check(resolver.root(), &agents.content) {
+            findings.push(finding(
+                Level::Fail,
+                guard.rule,
+                &agents.path,
+                Some(guard.line),
+                guard.message,
+            ));
+        }
         let block = crate::forge::vendor_block::render_block();
         for file in files {
             if !MANAGED_VENDOR_FILES.contains(&file.path.as_str()) || !has_block(&file.content) {

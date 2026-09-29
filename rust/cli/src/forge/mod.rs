@@ -20,6 +20,7 @@ pub mod citations;
 pub mod dead_commands;
 pub mod decision;
 pub mod doctor;
+pub mod guard_paths;
 pub mod lint;
 pub mod manifest;
 pub mod protected_files;
@@ -91,6 +92,10 @@ impl std::error::Error for Failure {}
 pub async fn dispatch(args: &[String]) -> Result<u8, Failure> {
     match args.first().map(String::as_str).unwrap_or_default() {
         "harness-lint" => lint::run(&args[1..]),
+        // The handbook's `guard:` paths, checked against the tree they claim to describe. Separate from
+        // `harness-lint` because it BLOCKS: a dead guard path is a rule with no enforcement, and that is
+        // not something to report-and-continue.
+        "guard-lint" => guard_paths::run(&args[1..]),
         "sync-agents" => sync_agents::run(&args[1..]),
         // The dead-TypeScript ledger, two gates in one family: the loader sweep answers which FILES
         // cannot load, the menu sweep which COMMANDS cannot run. Both are pure file checks that touch
@@ -117,7 +122,7 @@ pub async fn dispatch(args: &[String]) -> Result<u8, Failure> {
         // caller must name. It exists so an audit is a command instead of a throwaway script.
         "sql" => sql::run(&args[1..]).await,
         other => Err(Failure::usage(format!(
-            "unknown forge command `{other}`; usage: forge <harness-lint|sync-agents|manifest|protected-files|test-section|board|story-show|batch-status|doctor|roi|sql|reset|recover|clean> [options]"
+            "unknown forge command `{other}`; usage: forge <harness-lint|guard-lint|sync-agents|manifest|protected-files|test-section|board|story-show|batch-status|doctor|roi|sql|reset|recover|clean> [options]"
         ))),
     }
 }

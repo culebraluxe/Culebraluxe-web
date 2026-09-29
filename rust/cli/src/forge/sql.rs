@@ -189,7 +189,7 @@ mod tests {
         assert!(read_only_refusal("-- a comment\nselect now()").is_none());
         assert!(read_only_refusal("/* why */ select now()").is_none());
 
-        let refusal = read_only_refusal("update storyboard_story set status='Complete'").unwrap();
+        let refusal = read_only_refusal("update some_other_table set status='Complete'").unwrap();
         assert!(refusal.contains("read-only"), "{refusal}");
         assert!(refusal.contains("update"), "{refusal}");
         assert!(read_only_refusal("truncate table app_error").is_some());
