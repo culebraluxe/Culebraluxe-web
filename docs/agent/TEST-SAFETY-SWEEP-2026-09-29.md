@@ -106,7 +106,32 @@ there was nothing to fix. Recorded so the next lane does not "repair" it again.
 ## Open, in the order that pays
 
 1. `package.json:57` — make `pnpm test` run the workspace (WBS 1).
-2. The guard-path existence check beside `rust/cli/src/forge/vendor_block.rs:168` (finding A).
+2. **CLOSED 2026-09-29** (`01403e8a`, `07d1705a`, `dcb1583c`, `fb7a68be`) — the guard-path check is
+   `rust/cli/src/forge/guard_paths.rs`, blocking as `forge guard-lint` and also wired into
+   `forge harness-lint`; see "Closed after this sweep" below.
 3. The parity-ledger decision — restore the Rust generator or re-label the file (WBS 6).
-4. `AGENTS.md`'s dead TS paths and the Error Capture Obligation, rewritten to the Rust seams (finding B).
+4. **CLOSED 2026-09-29** (`01403e8a`) — `AGENTS.md`'s dead TypeScript paths and the retired Error Capture
+   Obligation seams now name their Rust equivalents (`db::capture`, `ApiError::into_response`, the panic hook,
+   `ServiceErrorSink`, `DurableServiceErrorSink`); see "Closed after this sweep" below.
 5. The orphan-`Ready` dispatch gap (finding C), if stories are to stop going missing.
+
+## Closed after this sweep
+
+The two findings this document raised about `AGENTS.md` are enforced now, not noted. Both landed under
+`ENG-GUARD-AGENTS-LINT-01`.
+
+- **A — every guard path is linted.** `rust/cli/src/forge/guard_paths.rs` reads every `guard:` clause in
+  `AGENTS.md` and fails when the path does not exist, when it exists but holds no test (an empty file is not a
+  guard), when a `Never` rule declares no guard at all, or when a bare `guard: NONE` gives no reason. It is
+  blocking as `forge guard-lint` (`.github/workflows/gates.yml`, static job), it runs inside `forge harness-lint`,
+  and the unit test `the_real_handbook_guard_paths_resolve_to_tests_on_disk` runs it against the committed
+  handbook under `cargo test --workspace`. The eight dead `workflow_app/tests/*.test.ts` lines now point at the
+  Rust tests that hold each rule.
+- **B — no deleted TypeScript path is called canonical.** The Error Capture Obligation seam list, the "Two
+  rules, both mechanical" block and the DEV_OPS playbook reference all name the Rust modules that exist; the
+  nine dead TypeScript paths (`lib/*`, `db/app-error.ts`, `scripts/*`, `agent-runtime/*`, `services/core/*`) are
+  gone from the handbook.
+
+Verified on the corrected handbook: `forge guard-lint` → PASS (0 findings); the deliberately-broken copy
+returns exit 1 with `guard-path-missing` / `guard-path-not-a-test` / `guard-none-without-reason`, each naming
+its line and path.
