@@ -24,8 +24,9 @@ TypeScript libraries**, which is why the Node/TypeScript engine had to be droppe
 Reading one of these files for its intent is fine. Wiring live code to it is not.
 
 - **Translate, never revive.** The Rust home is the destination, never a resurrected TS file.
-- **A dead `pnpm` command is not runnable.** 64 of the repository's 145 `package.json` scripts name a
-  file listed here. Those commands exist in the menu and cannot run; that is a known, marked state —
+- **A dead `pnpm` command is not runnable.** At the 2026-09-27 measurement, 64 of the then-145 `package.json`
+  scripts named a file listed here (today's number is `pnpm broken:ts:commands`: **10 of 107**). Those commands
+  exist in the menu and cannot run; that is a known, marked state —
   and some of them are the gates and the sync jobs (see "Live callers" below), not conveniences.
 - **`agent:workspace` must never be ported.** `scripts/workspace-cli.ts` created per-lane
   worktrees, and AGENTS.md forbids that outright — "NO TREES. EVER. There is ONE workflow and it is
@@ -33,9 +34,22 @@ Reading one of these files for its intent is fine. Wiring live code to it is not
 
 ## How this list was produced, and how to re-check it
 
-`pnpm broken:ts:sweep` (`scripts/broken-ts-sweep.mjs`) walks `scripts/` and `agent-runtime/`, resolves
-every import statically, and **fails** when a broken file is unmarked or a marked file still loads — so
-the list and the tree cannot drift apart silently. It touches no database and no network.
+`pnpm broken:ts:sweep` walks `scripts/` and `agent-runtime/`, resolves every import statically, and **fails**
+when a broken file is unmarked or a marked file still loads — so the list and the tree cannot drift apart
+silently. It touches no database and no network.
+
+**It is Rust now, and it is the same gate.** Ported 2026-09-29 to `rust/cli/src/forge/ts_sweep.rs`
+(`cargo run -p cli -- forge ts-sweep`), because the port that removed the last Node script in this repository
+could not leave its own metric behind. The TypeScript it replaced printed the same four counts and the same
+drift sections, diffed line for line before the file was deleted; the one deliberate change is that the drift
+lists print **sorted**, since `readdir` order is the filesystem's and a gate whose output moves cannot be
+diffed. CI runs it from the `rust` job (`.github/workflows/gates.yml`), which is where cargo is.
+
+Measured the day of the port, on the tree it landed on: **10 files scanned, 0 cannot load, 0 cannot work,
+0 marked — the two roots hold nothing broken and unmarked, which is the one thing this gate exists to say.**
+(An hour earlier the same gate said 37 / 15 / 9 / 24: both lanes are deleting at once, so the count belongs to
+the command and never to this page.) The table below is the 2026-09-27 measurement and is kept as the record of
+that day, not as the current count — the command is the authority.
 
 Corrected **2026-09-27**, after the first sweep was found to undercount. The first pass did not walk the
 whole tree, and it marked 9 files that load fine. Measured by the resolver:

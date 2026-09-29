@@ -17,6 +17,7 @@
 //!   cargo run -p cli -- forge sync-agents [--check] [--format json]
 
 pub mod citations;
+pub mod dead_commands;
 pub mod decision;
 pub mod doctor;
 pub mod lint;
@@ -27,6 +28,7 @@ pub mod reset;
 pub mod roi;
 pub mod secret_shapes;
 pub mod sync_agents;
+pub mod ts_sweep;
 pub mod vendor_block;
 
 use std::fmt;
@@ -86,6 +88,12 @@ pub async fn dispatch(args: &[String]) -> Result<u8, Failure> {
     match args.first().map(String::as_str).unwrap_or_default() {
         "harness-lint" => lint::run(&args[1..]),
         "sync-agents" => sync_agents::run(&args[1..]),
+        // The dead-TypeScript ledger, two gates in one family: the loader sweep answers which FILES
+        // cannot load, the menu sweep which COMMANDS cannot run. Both are pure file checks that touch
+        // no database, like the harness gates above — they replaced `scripts/broken-ts-sweep.mjs` and
+        // `scripts/dead-command-sweep.mjs` when the last Node runtime left this repository.
+        "ts-sweep" => ts_sweep::run(&args[1..]),
+        "dead-commands" => dead_commands::run(&args[1..]),
         // The scope manifest: the writer half of the pair the packet lint checks (rule 8 parses these rows).
         // Sync, like the other two harness gates: it reads the tree and git, and touches no database.
         "manifest" => manifest::run(&args[1..]),

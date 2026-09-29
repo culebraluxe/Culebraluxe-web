@@ -11,6 +11,7 @@ dotenvy = "0.15"
 db = { path = "../core/db" }
 domain = { path = "../core/domain" }
 forge = { path = "../forge" }
+indexmap = { version = "2", features = ["serde"] }
 integrations = { path = "../integrations" }
 regex.workspace = true
 reqwest.workspace = true

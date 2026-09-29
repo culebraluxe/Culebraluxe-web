@@ -109,11 +109,12 @@ jobs:
       # files) and `ts-ratchet` against `docs/agent/ts-allowlist.txt` (all 259 tracked TS/JS outside
       # `legacy/`). Both were green and both had to be edited to retire one file, which is one fact
       # with two writers. The owner kept the ratchet: it is the wider set, its allowlist MAY ONLY
-      # SHRINK, and `broken:ts:sweep` (the step above) still demands the retirement banner from
-      # anything that cannot load. The live-TS gate and its baseline were deleted on this order.
-      - name: dead-TS ledger
-        run: pnpm broken:ts:sweep
-
+      # SHRINK, and `broken:ts:sweep` still demands the retirement banner from anything that cannot
+      # load. The live-TS gate and its baseline were deleted on this order.
+      #
+      # `broken:ts:sweep` itself MOVED to the `rust` job on 2026-09-29, when the port deleted the last
+      # Node script in the repository and the gate became a `forge` subcommand: this job has pnpm and
+      # node but no toolchain and no cargo cache, and compiling `cli` here would cost the whole timeout.
       - name: TS/JS ratchet (allowlist may only shrink)
         run: bash scripts/ts-ratchet.sh
 
@@ -395,6 +396,21 @@ jobs:
             exit 1
           fi
           echo "no .rs file over 800 lines outside the four deferred module trees and generated tables"
+
+      # THE DEAD-TYPESCRIPT LEDGER, RUST AND HERE (moved out of the `static` job, 2026-09-29).
+      #
+      # Both gates were Node scripts until the port deleted the last Node runtime in this repository:
+      # they are `forge` subcommands now (`rust/cli/src/forge/{ts_sweep,dead_commands}.rs`), so they
+      # run in the job that has cargo and a warm cache. `pnpm broken:ts:sweep` and
+      # `pnpm broken:ts:commands` still exist and call exactly these two commands. The menu gate is the
+      # one that can refuse: a new dead command is a finding, and the count may only fall.
+      - name: dead-TS ledger (which files cannot load)
+        working-directory: rust
+        run: cargo run -p cli -- forge ts-sweep
+
+      - name: dead-TS ledger (the pnpm menu, baseline enforced)
+        working-directory: rust
+        run: cargo run -p cli -- forge dead-commands --check
 
 
   rust_database:

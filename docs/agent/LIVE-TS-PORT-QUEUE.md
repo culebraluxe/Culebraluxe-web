@@ -23,7 +23,7 @@ used, **port it to Rust or a shell script and then delete it**; remove any `pnpm
 it; remove its allowlist row in the same commit. Two lanes ran it: **Cline — everything outside `scripts/`, plus
 `scripts/a*` to `scripts/f*`**; GPT — `scripts/g*` to `scripts/z*`.
 
-This lane is done. **139 entries in this half, 7 left**, in three commits:
+This lane is done. **139 entries in this half, 5 left**, in three sweep commits and one port commit:
 
 1. `08648e86` — 88 files, every one carrying the `⚠ BROKEN ON PURPOSE` banner (the sweep's two unloadable
    categories — `cannot load`, and `loads, but lazy target gone`, `scripts/broken-ts-sweep.mjs:136-139`), all with
@@ -40,6 +40,13 @@ This lane is done. **139 entries in this half, 7 left**, in three commits:
 3. `2580d44e` — `check-svar-widgets.mts`, the last bannered file in this half (it imported the deleted
    `ui/projects/*`), with `check:widgets`; plus the dead-command `BASELINE` re-measured on the smaller menu
    (53 → 25 → 19).
+4. *(port, not sweep)* **the two ledger gates are Rust now**: `forge ts-sweep`
+   (`rust/cli/src/forge/ts_sweep.rs`) and `forge dead-commands` (`rust/cli/src/forge/dead_commands.rs`),
+   with the `package.json` names kept (`pnpm broken:ts:sweep`, `pnpm broken:ts:commands`), both scripts
+   deleted, the CI step moved into the `rust` job (it needs cargo, and the `static` job has none), and
+   `BASELINE` re-measured on the tree this landed on: **19 → 10 → 0** — the menu names no bannered file at
+   all, out of 97 scripts. Both gates were run against the TypeScript they replace and agree line for line,
+   including the `--check` refusal and `--format json`.
 
 Two of those were decided by fact, not by guessing: `postcss.config.mjs` went only after the Tailwind v4 CLI
 built `rust/ui/styles/app.css` byte-identically without it (its consumer was Next.js; `scripts/site-build.sh` runs
@@ -56,8 +63,8 @@ that cited deleted files had their citations **removed, not baselined**, because
 | File | Why it is still here | The port it needs |
 | --- | --- | --- |
 | `eslint.config.mjs` | `pnpm lint` is a CI gate and eslint is configured in JS; delete it and the lint stops | none exists — it goes when the last JS tool does |
-| `scripts/broken-ts-sweep.mjs` | the ledger gate CI runs (`pnpm broken:ts:sweep`); it measures this retirement, so it must outlive the last file it measures | `rust/cli` `forge ts-sweep` — the banner rule, the import resolution, the counts |
-| `scripts/dead-command-sweep.mjs` | the `pnpm` menu ledger; `--check` refuses a count that moves without the baseline | same subcommand family |
+| ~~`scripts/broken-ts-sweep.mjs`~~ | **PORTED 2026-09-29** → `rust/cli/src/forge/ts_sweep.rs` (`cargo run -p cli -- forge ts-sweep`); its output was verified byte-identical, and one thing changed on purpose: the drift lists print sorted, because the filesystem's `readdir` order is not stable enough to diff | — |
+| ~~`scripts/dead-command-sweep.mjs`~~ | **PORTED 2026-09-29** → `rust/cli/src/forge/dead_commands.rs` (`forge dead-commands`); text, `--format json` and the `--check` refusal are byte-identical, `BASELINE` is re-measured — the menu is read through an `IndexMap` so the row order stays `package.json`'s | — |
 | `scripts/agent-scheduler.mjs` | installs/status/run/stop/uninstall `com.culebraluxe.agent-worker`, whose plist is **installed on this machine** and drives `pnpm agent:work` (already Rust) | a `rust/cli` launchd subcommand — nothing under `rust/` mentions `LaunchAgents` today |
 | `scripts/apple-sync-agent.mjs` | same, for the installed `com.culebraluxe.apple-sync` agent (6 `pnpm` commands) | as above |
 | `scripts/calendar-sync-agent.mjs` | same, for the installed `com.culebraluxe.calendar-sync` agent (5 `pnpm` commands) | as above |

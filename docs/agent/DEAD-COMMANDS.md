@@ -1,6 +1,7 @@
 # Dead commands — the `pnpm` menu, keep-or-delete
 
-Measured **2026-09-29** by `node scripts/dead-command-sweep.mjs` (`pnpm broken:ts:commands --check`).
+Measured **2026-09-29** by `cargo run -p cli -- forge dead-commands` (`pnpm broken:ts:commands --check`).
+The gate is Rust now: it was `scripts/dead-command-sweep.mjs` until the port below.
 
 `docs/agent/BROKEN-TS-INVENTORY.md` is the file-by-file ledger: which FILES cannot load, and what each
 capability's Rust home is. This page asks the same question from the operator's side: **which COMMANDS
@@ -18,6 +19,16 @@ stack), measured after the second lane removed its own commands in the same swee
 the sweep is the authority for the number and `BASELINE` in the sweep file is the one place it is written down:
 **when the count falls, lower `BASELINE` here and in the sweep in the same commit.** `--check` fails either way,
 up or down, on purpose.
+
+**Then the gate itself moved to Rust, 2026-09-29, and it arrived at zero.** `pnpm broken:ts:commands` is now
+`cargo run -p cli -- forge dead-commands` (`rust/cli/src/forge/dead_commands.rs`); the TypeScript it replaced
+printed the same report line for line — text, `--format json` and the `--check` refusal were diffed against it
+before the script was deleted — and there is one deliberate change: the menu is read through an `IndexMap`, so
+the rows keep `package.json`'s own order instead of a map's sort. `BASELINE` was re-measured three times in one
+day while both lanes deleted — **19 → 10 → 0** — which is why the number lives in exactly one place and is read
+off the command rather than carried across a commit: the TypeScript gate was red on `The count FELL to 10,
+below the baseline of 19` while this port was being written, and the tree this port landed on measures **0 dead
+commands out of 97 scripts, all three blocks empty.** The menu names no file that cannot load.
 
 | Block | Commands | What it is |
 | --- | --- | --- |
@@ -143,6 +154,7 @@ pnpm broken:ts:commands --check   # fails if the count rose, or fell without the
 pnpm broken:ts:sweep              # the file-by-file counterpart, and the file count's own gate
 ```
 
-Lower the baseline in `scripts/dead-command-sweep.mjs` and the number here when a command is ported or
-removed — those two numbers are the whole metric, and they may only fall.
+Lower `BASELINE` in `rust/cli/src/forge/dead_commands.rs` and the number here when a command is ported or
+removed — those two numbers are the whole metric, and they may only fall. The gate is `--check`: it fails
+when the count rises, and when it falls without the baseline being lowered.
 

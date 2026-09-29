@@ -161,6 +161,8 @@ fn print_usage() {
     eprintln!("  cargo run -p cli -- forge batch-status [--format json]");
     eprintln!("  cargo run -p cli -- forge doctor");
     eprintln!("  cargo run -p cli -- forge roi [--days N] [--format json]");
+    eprintln!("  cargo run -p cli -- forge ts-sweep [roots...]");
+    eprintln!("  cargo run -p cli -- forge dead-commands [--check] [--format json]");
     eprintln!("  cargo run -p cli -- service serve");
     eprintln!("  cargo run -p cli -- service catalog");
     eprintln!("  cargo run -p cli -- service health");
