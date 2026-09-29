@@ -8,6 +8,7 @@ pub mod baseline;
 pub mod claim_blocker;
 pub mod commands;
 pub mod completion;
+pub mod db_budget;
 pub mod db_writer;
 pub mod decisions;
 pub mod definition;

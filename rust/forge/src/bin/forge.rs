@@ -26,17 +26,14 @@ fn flag(args: &[String], name: &str) -> Option<String> {
 /// query ends the run instead of holding it forever.
 const ENGINE_STATEMENT_TIMEOUT_MS: &str = "300000";
 
+/// The engine's default wait for an open connection: 60 seconds, against the pool's 10-second request-path
+/// default. A cold Neon branch has to complete the pool's floor of handshakes before the first statement can run.
+const ENGINE_CONNECT_TIMEOUT_MS: &str = "60000";
+
 fn main() {
-    // THE ENGINE'S CEILING IS NOT THE REQUEST PATH'S. `pool.rs` cancels any statement after 30s — "a ceiling
-    // against a stuck query, not a performance budget" — which is right for a page load and wrong for the first
-    // write of a run, the one that may wake a suspended Neon branch and touch a table's cold pages. Measured
-    // 2026-09-29: a run died ~55s in with `error returned from database: canceling statement due to statement
-    // timeout` (SQLSTATE 57014, the whole run lost, no receipt), and the identical run with a raised ceiling went
-    // on to dispatch its first role turn. The engine therefore installs a longer default of its own; an explicit
-    // FORGE_DB_STATEMENT_TIMEOUT_MS still wins, and the pool still reads it once per process.
-    if env::var("FORGE_DB_STATEMENT_TIMEOUT_MS").is_err() {
-        env::set_var("FORGE_DB_STATEMENT_TIMEOUT_MS", ENGINE_STATEMENT_TIMEOUT_MS);
-    }
+    // The engine's own database budgets, and the rule behind them: `forge::engine::db_budget`. Both binaries that
+    // talk to the control plane install these, because the process that was dying was the worker.
+    let budget = forge::engine::db_budget::install_engine_db_budget();
     let args: Vec<String> = env::args().collect();
     let story = flag(&args, "--story")
         .or_else(|| env::var("FORGE_STORY_ID").ok())
@@ -121,11 +118,11 @@ fn main() {
         harness.workspace.display(),
         database_url().is_some()
     );
-    // Declared, not inferred: the ceiling a run is actually using is the one thing this failure mode needed
-    // visible, and the run that died at 30s left no trace of which ceiling it had.
+    // Declared, not inferred: the budgets a run is actually using, said out loud. The run that died at the
+    // statement ceiling and the tick that died on the connect budget both left no trace of which they had.
     eprintln!(
-        "statement_ceiling_ms={}",
-        env::var("FORGE_DB_STATEMENT_TIMEOUT_MS").unwrap_or_else(|_| "unset".into())
+        "statement_ceiling_ms={} connect_budget_ms={}",
+        budget.statement_timeout_ms, budget.connect_timeout_ms
     );
 
     let writer: Arc<dyn ForgeStateWriter> = match DbForgeStateWriter::connect_env() {
