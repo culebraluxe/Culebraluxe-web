@@ -74,7 +74,7 @@ made it enforceable.
 | --- | --- | --- | --- | --- |
 | 1 | Durable completion receipt / repair-replan ledger | post-transition completion unit persisted; `reconcile_completions()` could answer "did this task already complete" after a restart | **RESTORED 2026-09-29 (`DbCompletionLedger`)**: the unit is claimed and finalized in `workflow_command_receipt` (`forge.completion:{taskId}`), evidence merges into `forge_workflow_evidence`, the counters move on `storyboard_story`, and the runtime will not build without a ledger named at the call site — the process-local `MemoryLedger` is reachable only from test fixtures. The defect it replaced: `MemoryLedger` as the production default, so each per-dispatch process re-applied every completion in the instance history | `workflow_command_receipt`, `forge_workflow_evidence`, `forge_engine_task_execution`, `forge_story_run_receipt` (all exist) |
 | 2 | Story identity into every role task | runner resolved `process_instance.subject_id → storyboard_story.id` before any write | `story_id: String::new()`, substituted with the process-instance UUID at three write sites | `forge_hold_record.story_id → storyboard_story(id)`; ids are human keys |
-| 3 | Durable dispatch envelope reaching execution | `AgentWorkItem` carried role, model_profile, special_instructions, execution_policy, execution_environment, kind, model_policy, stop_after, launch_intent, runtime_adapter … and the child ran with them | queue object reads 6 fields; child launched with `--story --work-type --work-item`; model chosen by environment (`OpenCodeHarness::from_env()`); `special_instructions: None` | `agent_work_item` columns (35 exist) |
+| 3 | Durable dispatch envelope reaching execution | `AgentWorkItem` carried role, model_profile, special_instructions, execution_policy, execution_environment, kind, model_policy, stop_after, launch_intent, runtime_adapter … and the child ran with them | **RESTORED 2026-09-29 (`d68c9634`, `3352673d`)** — the claim returns the envelope's four execution fields (`rust/core/db/src/forge_engine.rs`, `rust/forge/src/engine/agent_work.rs:30-32`) and each one bites: `execution_policy` refuses an unattended claim (`forge.rs:214`, rule `agent_work.rs:16`), `stop_after` becomes the child's `--stop-after` (`worker.rs:330-331`), `model_policy` names the model the lane bills (`forge.rs:256` → `OpenCodeHarness::from_env_for_policy`, table `opencode.rs:64-70`), `launch_intent` caps the Lead (`forge.rs:400` → `runner.rs:95-118` → `role_slice.rs:34-45`). Residue, named: `model_profile` is still carried by nothing, and both policies currently name the same pinned model (`opencode.rs:54-56`) so the selection is enforced but not observable as a different model | `agent_work_item` columns (35 exist) |
 | 4 | Story Packet is authoritative; unreadable means no run | could not resolve the Story Board command/context → fail, no agent turn | `StoryPacket::load_from_neon` error → `eprintln!` + environment packet, run proceeds | Story Board rows are the authority |
 | 5 | Self-heal supplies the corrective instruction | retry named what was missing (`FORGE_ARCHITECT_HANDOFF`) | `_directive` computed and dropped; retry is the same prompt again | role deliverable set |
 | 6 | Canonical state writes are never discarded | failed Story Board write was surfaced | `let _ = mark_story_in_progress(...)`, `let _ = mark_story_human_hold(...)`, `let _ = open_forge_hold_record(...)` | `storyboard_story`, `forge_hold_record` |
@@ -151,16 +151,17 @@ Searched `rust/forge/src`, `rust/server/src`, `rust/core/db/src` for each column
 
 | column | rail in the schema | readers found | what the readers are |
 | --- | --- | --- | --- |
-| `execution_policy` | **NOT NULL**, CHECK `Unattended OK / Daytime Only / Human Gate / Manual Only` | **none** | — the Human Gate rail has no reader anywhere |
-| `model_profile` | legacy envelope field | **none** | — |
-| `model_policy` | CHECK `cheap / judgment` | 2 files | `core/db/forge_doctor.rs`, `core/db/forge_read.rs` — reporting only, never execution |
-| `launch_intent` | CHECK `SOLO / SMITH / SPLIT / HOLD`, DB comment "Carried to the Lead as benchIntent" | 1 file | `server/src/tech.rs` — the **writer** (Cockpit `set_dispatch_options`); no engine reader |
-| `stop_after` | CHECK `scout / architect / lead`, DB comment "read by the engine worker when it claims the item" | type only | `engine/executor.rs:250`, defaulted `None` at `:266`; no read of the column |
+| `execution_policy` | **NOT NULL**, CHECK `Unattended OK / Daytime Only / Human Gate / Manual Only` | 2 files | the rail now has a reader: `rust/forge/src/engine/agent_work.rs:16` (the rule) and `rust/forge/src/bin/forge.rs:214` — a policy naming a human refuses the claim before any model turn (`FORGE_ATTENDED=1` is the deliberate attended override) |
+| `model_profile` | legacy envelope field | **none** | — carried by no claim and read by no code |
+| `model_policy` | CHECK `cheap / judgment` | 4 files | execution: `rust/forge/src/bin/forge.rs:256` → `OpenCodeHarness::from_env_for_policy` → `rust/forge/src/engine/opencode.rs:64-70`; reporting: `core/db/forge_doctor.rs`, `core/db/forge_read.rs` |
+| `launch_intent` | CHECK `SOLO / SMITH / SPLIT / HOLD`, DB comment "Carried to the Lead as benchIntent" | 4 files | the **writer** `rust/server/src/tech.rs` (Cockpit `set_dispatch_options`); the **reader** since `3352673d`: `rust/forge/src/bin/forge.rs:202` → `:400` → `rust/forge/src/engine/runner.rs:95-118` → `rust/forge/src/engine/role_slice.rs:34-45` — a decision outside the cap is a rejected deliverable |
+| `stop_after` | CHECK `scout / architect / lead`, DB comment "read by the engine worker when it claims the item" | 3 files | `rust/forge/src/engine/worker.rs:208` (off the claim) → `:330-331` (the child's `--stop-after`) → `rust/forge/src/bin/forge.rs:126-132` → `DriveForgeStoryOptions.stop_after` |
 | `execution_environment` | CHECK `DEV / PROD / TEST / LOCAL` | 1 file | `core/db/tech.rs` — inside a `json_build_object` for the cockpit, reporting |
 | `special_instructions` | legacy envelope field | 1 file | `engine/packet.rs:9` type, `:40` hardcoded `None`, `:106` read — from the environment packet, not the work item |
 
-The pattern is exact: **the rails are read for display and not for execution.** The doctor can report a dispatch's
-model policy while the engine ignores it; the Cockpit writes `launch_intent` and nothing carries it to the Lead.
+The pattern this table found on 2026-09-29 was exact: **the rails were read for display and not for execution.** Two of those rows have since been closed by `d68c9634` and `3352673d` — `execution_policy`, `model_policy`, `stop_after` and `launch_intent` now have execution readers with the file:line above, and a reader added below this line must move its row here rather than leave it reading "none". What is left reading-only: `model_profile` (no reader at all), `execution_environment` (cockpit `json_build_object`), and `special_instructions`, which still reaches a run only through the environment packet (`engine/packet.rs:106`, `engine/opencode.rs:173`) and not through the work item.
+
+A row in this table is a claim with a date. Before quoting one as current, re-run the search: the 2026-09-29 re-evaluation of all seven items was taken against a checkout at `d1c8d027` — one commit *before* `3352673d`, which is the commit that closes item 3 — and reported item 3 as PARTIAL for exactly the rows above. The verdict was honest about the checkout it read and wrong about `main`.
 
 ### 6.3 Mask sites on write or decision paths (the sweep)
 
@@ -266,8 +267,10 @@ and `rust/core/db/tests/forge_completion_receipt_dev.rs` (DEV, `--ignored`: clai
 while pending → finalize → `AlreadyFinal` → watermark advances → stale `pending` reclaimed → finalize-without-claim
 refused → counters move, missing story refused).
 
-Not yet landed, named rather than implied: `model_policy` → model selection (billing: Captain's call) and
-`launch_intent` → Lead bench intent.
+Closed on this seam by `3352673d`, with the file:line of each reader in §6.2: `model_policy` → model selection
+(`forge.rs:256` → `opencode.rs:64-70`) and `launch_intent` → Lead bench intent (`forge.rs:400` →
+`runner.rs:95-118` → `role_slice.rs:34-45`). Residue rather than a missing rail: `model_profile` still travels
+nowhere, and both policies name the same pinned model, so a policy change cannot yet be seen as a different model.
 
 ### 7.2 Hygiene — the second copy of a statement, removed (2026-09-29)
 
@@ -338,12 +341,12 @@ Gates: `cargo test -p cli` 127 passed (the four repo guards among them), `cargo 
 `forge_work_claim_dev` (DEV) 2 passed — the pre-run sweep it exercises is the one that changed,
 `cargo check --workspace --all-targets` clean.
 
-Still open on this seam, named rather than implied: `model_policy` → model selection (billing: the Captain's call)
-and `launch_intent` → Lead benchIntent; hold/verdict out; canonical Story Board writes; a read-only SQL verb in `cli`
-so live DEV functions and triggers can be audited (the gap in
+Still open on this seam, named rather than implied: hold/verdict out; canonical Story Board writes; a read-only SQL
+verb in `cli` so live DEV functions and triggers can be audited (the gap in
 `docs/agent/TEST-SAFETY-SWEEP-2026-09-29.md:90-105`); the Phase 1 parity audit of the 465 legacy tests; and the
-receipt-out seam. The artifact-out-of-role seam is closed — §7.5. The scheduler stays stopped until the Captain says
-restart.
+receipt-out seam. `model_policy` → model selection and `launch_intent` → Lead bench intent are **no longer on this
+list** — `3352673d` landed both, and §6.2 carries the file:line of each reader. The artifact-out-of-role seam is
+closed — §7.5. The scheduler stays stopped until the Captain says restart.
 
 ### 7.4 Seam 4a — **a lane execution is a Story Run row** (2026-09-29, `b3eac211`)
 
