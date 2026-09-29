@@ -78,7 +78,7 @@ impl ServiceMailbox {
         parent_cancel: &CancellationToken,
     ) -> Result<Self, ServiceDispatchError> {
         if config.capacity == 0 || config.max_concurrency == 0 {
-            return Err(ServiceDispatchError::operation(
+            return Err(ServiceDispatchError::infrastructure(
                 "SERVICE_MAILBOX_CONFIG_INVALID",
                 "Service mailbox capacity and max_concurrency must be greater than zero.",
                 false,

@@ -64,7 +64,7 @@ impl ServiceRegistry {
             let descriptor = service.descriptor();
             let domain = descriptor.domain.clone();
             if entries.contains_key(&domain) {
-                return Err(ServiceDispatchError::operation(
+                return Err(ServiceDispatchError::infrastructure(
                     "SERVICE_ALREADY_REGISTERED",
                     format!("Service already registered for domain: {domain}"),
                     false,
@@ -357,7 +357,7 @@ fn validate_service_graph(
             .insert(descriptor.domain.clone(), descriptor.dependencies.clone())
             .is_some()
         {
-            return Err(ServiceDispatchError::operation(
+            return Err(ServiceDispatchError::infrastructure(
                 "SERVICE_ALREADY_REGISTERED",
                 format!(
                     "Service already registered for domain: {}",
@@ -370,7 +370,7 @@ fn validate_service_graph(
     for (domain, dependencies) in &graph {
         for dependency in dependencies {
             if !graph.contains_key(dependency) {
-                return Err(ServiceDispatchError::operation(
+                return Err(ServiceDispatchError::infrastructure(
                     "SERVICE_DEPENDENCY_MISSING",
                     format!("Service {domain} requires missing dependency {dependency}."),
                     false,
@@ -388,7 +388,7 @@ fn validate_service_graph(
         match state.get(domain).copied() {
             Some(2) => return Ok(()),
             Some(1) => {
-                return Err(ServiceDispatchError::operation(
+                return Err(ServiceDispatchError::infrastructure(
                     "SERVICE_DEPENDENCY_CYCLE",
                     format!("Service dependency cycle includes {domain}."),
                     false,

@@ -75,9 +75,8 @@ pub enum ServiceDispatchError {
 }
 
 impl ServiceDispatchError {
-    pub fn operation(code: impl Into<String>, message: impl Into<String>, retryable: bool) -> Self {
-        Self::infrastructure(code, message, retryable)
-    }
+    // There is deliberately no `operation(...)` constructor: it read like a business refusal and quietly classified the
+    // failure as infrastructure (retryable). Name the class — `business`, `caller`, `infrastructure` — at the call site.
 
     pub fn business(code: impl Into<String>, message: impl Into<String>, retryable: bool) -> Self {
         Self::Operation {
