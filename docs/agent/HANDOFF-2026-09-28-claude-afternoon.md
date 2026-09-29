@@ -43,9 +43,8 @@ Read `AGENTS.md`, `docs/agent/ORIENTATION.md`, `docs/agent/MEMORY.md` (top entri
 
 ## 6. OPEN — in order
 
-1. `rust/core/service/src/mailbox.rs` (1,265 lines): split protocol vs persistence vs retry on its next change.
-2. Enforce "a service that gains an envelope operation leaves `abstract_service!`" — a test pairing every
-   `execute_registered(domain, op)` with the domain's declared capabilities.
+1. DONE: `mailbox.rs` split (637 lines + `mailbox/tests.rs`). DONE-BY-COMPILER: a service on `abstract_service!` cannot
+   grow an envelope operation — adding its own `dispatch` is a second `AbstractService` impl, `E0119`.
 3. Grok's suggested vertical review: clients screen → `api.rs` → `portal_bridge` → clients service → DAO.
 4. Screens over 800 lines split on their next edit (workbench/view.rs 2,492; deals/view.rs 1,642; forms.rs 1,706;
    system_health.rs 1,351; projects/view/calendar.rs 940).
