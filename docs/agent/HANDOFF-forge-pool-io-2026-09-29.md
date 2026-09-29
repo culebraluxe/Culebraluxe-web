@@ -18,6 +18,11 @@ it is §4. The live-run gate (AC #5) is still open — §5 and §6.
 | S6 | The only long-lived-transaction mechanism in the workspace is the server's HTTP mutation scope, and forge never touches it. | `DbTransaction::scoped` at `rust/core/db/src/transaction.rs:11`, handed out at `rust/core/db/src/pool.rs:306`, its single caller `rust/core/db/src/unit_of_work.rs:102` |
 | S7 | The dispatched run dies **before any role-turn output**, and no story run has ever been recorded for it — so it cannot be idle-in-transaction across a turn it never reached. | `forge story-show ENG-AUTH-GOOGLE-01` → `receipt: none — no run has been recorded for this story` (same for `ENG-GUARD-AGENTS-LINT-01`); `~/Library/Logs/CulebraLuxe/agent-worker.out.log` ends at the banner (`routing-brain=Engine`, `workflow store=neon`) |
 | S8 | What did land is on `origin/main`: a session the server terminated now costs a round trip instead of a run. | `git log origin/main -1` → `d3f7552b` |
+| S9 | The first tick on the new binary **still died on 25P03** — the classifier is live (the label changed), the retry did not rescue that pass. | `~/Library/Logs/CulebraLuxe/agent-worker.out.log`, pass `08:10:04` (git-sync head `d3f7552b`) → `DatabaseUnavailable during workflow.step (incident 5e575d72-40cf-4b41-91ff-3415df054a20, sqlstate 25P03)`; `pass=1 end exit=1` at `08:13:46` |
+| S10 | `pnpm forge:clean` **empties the queue and strands it**: it cancels open work items (`forge_reset.rs:164-174`) without moving `storyboard_story.status` off `Ready`, and nothing re-queues a `Ready` story (`025_agent_work_queue.sql:104`). Measured, not inferred: `cancelled stale open work items: 8` → `open work items: 0` → the next tick `idle: no work`. | `pnpm forge:clean` output; `forge doctor`; invocations `08:17:39 idle: no work` |
+| S11 | `reset` does **not** strand (it returns the story to `Planned`, `forge_reset.rs:108-116`) — and it was not needed: `ENG-AUTH-GOOGLE-01` was already off `Ready`, because the 08:10 run took it. | `forge batch-status` → `Ready on the board` names the same 8 stories as the queue, without `ENG-AUTH-GOOGLE-01` |
+| S12 | The queue was restored by `db/migrations/258_reopen_stranded_ready_work_items.sql` (DEV then PROD, ledger-recorded), which re-opens the newest `Cancelled` item of every `Ready` story and keeps `queued_at` so FIFO order survives. Tick after it: `open work items: 11`, `08:20:40 pass=1 start`. | `cli db-tool apply … dev` / `… prod --force`; `forge doctor` |
+| S13 | **The first live run on `d3f7552b` got past the point where every earlier run died, and it is in a real role turn with the database untouched.** 10m44s alive against the auth story's 2m40s; the turn is a live `opencode run … --model deepseek/deepseek-flash --auto Execute SDLC story TECH-FLIGHT-RECORDER-…` at 9m24s; and `pg_stat_activity` shows **no forge session at all** during it, `IDLE-IN-TRANSACTION: 0`. | `ps -eo pid,etime,command`; `pg_stat_activity` samples §5 |
 
 **Read S5 with S4.** The earlier reading of this failure ("the engine holds a transaction across the role turn") was
 built on three things that each mislead: the operation label `workflow.step` (S5 — it is the constant on every kernel
@@ -64,20 +69,57 @@ terminated session costs a round trip, not a run.
   with 25P03, before any role turn. Suspect: a run killed mid-transaction leaves, on the Neon `-pooler` endpoint
   (PgBouncer, transaction mode), a *server-side* session inside a transaction; the server terminates it ~3 min later;
   the next client handed that server connection reads the FATAL on its first statement (for the engine, the `BEGIN`
-  of a step). Sampling `pg_stat_activity` during a tick would settle it; nobody has.
+  of a step). **Sampled 2026-09-29 against the PROD pooler** (`pg_stat_activity`, read-only, one query each, four
+  sessions in the whole cluster): `08:21:40` (one minute into the `TECH-FLIGHT-RECORDER-01` run) and `08:24:5x`
+  (three minutes later) — **`idle in transaction: 0` both times, every session `idle`, no `xact_start` at all**, and
+  no session belonging to `forge`. So during a live role turn the engine holds *no* database session, let alone a
+  transaction: measured, on the box, by the third party to say so.
+  **What the samples cannot see is the moment of the kill** — a session that is terminated while some *other* pass
+  holds a transaction, which is the only form the suspect still takes. Closing it would need a sample taken seconds
+  after a failure, not during a healthy run. See §6 item 3.
+- **A killed pass is still the only thing observed to precede the failure**, and the auth story reproduced on the new
+  binary (S9) — so the mechanism is unexplained, not dismissed. The measurement above removes "the turn holds a
+  transaction" from the explanation space; it does not yet name what is left.
+
+  The rows, `pid | state | txn_age | state_age | application_name`, PROD pooler, one query per sample:
+
+  ```
+  08:2x (between passes, queue empty)   idle in transaction: 0   (four sessions, same shape as below)
+  08:21:40  10919 idle | (null) | 00:03:03.850 | culebraluxe-rust-prod   (server, not forge)
+            10920 idle | (null) | 00:00:03.567 | culebraluxe-rust-prod   select 1::int
+            10922 idle | (null) | 00:03:03.750 | culebraluxe-rust-prod   (server)
+            11945 idle | (null) | 00:03:03.997 | pgbouncer
+            idle in transaction: 0
+  08:24:55  10919 idle | (null) | 00:06:30.904 | culebraluxe-rust-prod
+            10921 idle | (null) | 00:00:30.639 | culebraluxe-rust-prod   select 1::int
+            10922 idle | (null) | 00:06:30.804 | culebraluxe-rust-prod
+            11945 idle | (null) | 00:06:31.051 | pgbouncer
+            idle in transaction: 0
+  ```
+
+  `txn_age` (null) is `now() - xact_start`, i.e. no open transaction anywhere; the two `culebraluxe-rust-prod`
+  sessions that sit unchanged are the running web server's, and the pooler's own monitoring connection is the
+  fourth. **No `forge` session appears in any sample** — while `ps` shows the run alive and in a role turn (S13).
 - **The 2m45s and the "Broken pipe after nine role turns" were measured by the previous session**, not re-measured
   here. They are quoted from `docs/agent/HANDOFF-forge-refire-2026-09-29.md`, whose item 5 still states the disproven
   premise and now carries a correction pointer to this file.
 - `rust/forge/src/execution/mod.rs` and `rust/forge/src/runtime/mod.rs` were read as inventories, not line by line.
   The conclusion does not rest on them (§1 S1 and S4 do).
-- `pnpm forge:clean` was **not** run, and neither was the story reset (H2). Nothing was deployed.
+- `pnpm forge:clean` **was** run (H2 answered Yes — §7) and it emptied the queue (§1 S10); the story reset was not
+  run and is not needed (§1 S11). `db/migrations/258_reopen_stranded_ready_work_items.sql` was applied to DEV and to
+  PROD — that is the only write this session made to either control plane. Nothing was deployed.
 
 ## 6. OPEN — the next actions, in order
 
-1. **Take the live-run gate (AC #5).** After H2's go: on the next tick the worker rebuilds and runs
-   `rust/target/debug/forge`, so the new binary is used automatically. Watch
-   `~/Library/Logs/CulebraLuxe/agent-worker.out.log` **once** for a role turn longer than 60s followed by a later DB
-   write, with no `25P03` and no `Broken pipe` at that boundary. Finished when that excerpt exists — or when the run
+1. **Take the live-run gate (AC #5) — first half taken, second half open.** The role turn is observed (§1 S13:
+   `opencode run … Execute SDLC story TECH-FLIGHT-RECORDER-…` at 9m24s, no `forge` session in `pg_stat_activity`,
+   no `25P03`, no `Broken pipe`, on the `d3f7552b` binary). **What is missing is the DB write after that turn:** at
+   `08:31` all three of `storyboard_story_run`, `forge_engine_task_execution` and `forge_tool_artifact` were still
+   `0` rows for `TECH-FLIGHT-RECORDER-01`, because they are written at step completion. Watch **the rows**
+   (`forge story-show TECH-FLIGHT-RECORDER-01`, and the three tables above) — not the log: the engine prints its
+   banner and nothing else, so a turn in flight is invisible in it, which is why S7's "dies before any role-turn
+   output" was never evidence that a turn had not started.
+   Finished when a row timestamped after the turn exists with no `25P03`/`Broken pipe` before it — or when the run
    dies at `workflow.step` with a *new* sqlstate.
 2. **If it dies with a new sqlstate: stop.** File the incident id from `Unknown during … (incident …, sqlstate …)` and
    hand it to Grok. The brief forbids stacking a second theory, and that instruction is right: both earlier theories
@@ -90,10 +132,23 @@ terminated session costs a round trip, not a run.
 
 ## 7. ASK THE OWNER
 
-- **May I run `pnpm forge:clean` and `pnpm forge:story:reset ENG-AUTH-GOOGLE-01 reset --force`?** Yes → the queue head
-  stops being the story that dies first every tick, and step 1 can be observed. No → `ENG-AUTH-GOOGLE-01` keeps
-  winning the High queue and the observation waits for a tick where it happens to get past its first step.
+- **Answered Yes on 2026-09-29** — with two corrections to the commands as written, both worth keeping. (1)
+  `pnpm forge:clean` **cancels every `Ready` work item and strands the queue**: it does not move the story off
+  `Ready`, and nothing re-queues it (§1 S10). It is not hygiene while stories are queued, and it needs
+  `db/migrations/258_reopen_stranded_ready_work_items.sql` (or an equivalent re-open) behind it. (2) The reset's
+  argument order is wrong: `pnpm forge:story:reset` already carries the word `reset`, so the answer's form produces
+  `forge: unknown mode "eng-auth-google-01"`; the working form is
+  `pnpm forge:story:reset ENG-AUTH-GOOGLE-01 --force`. It was not needed in the end: the story is already off
+  `Ready` (§1 S11).
+- **Should `ENG-AUTH-GOOGLE-01` be put back in the queue on purpose?** It is the only known `25P03` reproducer and it
+  is now at neither `Ready` nor running. Bringing it back is one write — `update storyboard_story set status='Ready'
+  where id='ENG-AUTH-GOOGLE-01'`, which fires the dispatch trigger — and running it is the cheapest way to test
+  whether `d3f7552b`'s retry carries *that* failure, which a fresh story may never reproduce.
 - **Is a second fence wanted** — a store-side test asserting `with_tx` stays synchronous and closure-scoped (H1)?
   Yes → one small commit in `rust/core/workflow`. No → §1 is the fence.
 - **Was the packet's `file:line` for the old span ever written down by the lane that rewrote the brief?** If it was,
   it names a site this search says does not exist, and that is worth knowing before the next agent re-derives it.
+- **Should the `Story Board` show a story as `Ready` when it has no work item?** `forge doctor` and
+  `forge batch-status` both reported `Ready`/`agree` for eight stories that had **no open work item** and could not
+  be dispatched. If the board is meant to mean "dispatchable", that is the same one-fact-two-writers question as
+  `docs/agent/MEMORY.md`'s "a story left at `Ready` can never be dispatched again".
