@@ -17,7 +17,10 @@ not a statement that it is still true: verify before fixing, and say so if it is
 
 ## Evidence (from the trace, not authority)
 
-- `scripts/agent-work.ts:563`
+- The unattended-worker script, at line 563 of the revision the loop read. **RETIRED 2026-09-29** — that file was one
+  of the 88 unloadable TypeScript files deleted in the dead-TS sweep (owner's order: `docs/agent/ts-allowlist.txt` is
+  the only TS gate). The citation is gone on purpose: the lint refuses a path that no longer exists, and there is
+  nothing left to fix in a file that is not in the tree. Closed by retirement, not by a silent close.
 
 ## Architect brief
 
