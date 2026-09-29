@@ -2,7 +2,7 @@ use super::context::{
     asserted_identity_context, resolve_public_guest_context, resolve_request_context,
     ResolvedRequestContext,
 };
-use super::{diagnostics, engine, ApiError, ApiState};
+use super::{build_info, diagnostics, engine, ApiError, ApiState};
 use crate::service_support::CoreServiceError;
 use axum::{
     body::Body,
@@ -71,6 +71,12 @@ pub fn router(state: ApiState) -> Router {
         .merge(super::google_auth::router())
         .route("/healthz", get(health))
         .route("/readyz", get(ready))
+        // THE RELEASE GATE'S TWO QUESTIONS, at the addresses it asks them. Both were Vercel functions of the retired
+        // TypeScript site; the answers are not new (`/readyz` above is the same handler, `build_info.rs` reads a stamp
+        // the deploy writes), only the paths are. `/api/rust-ready` is deliberately the SAME handler rather than a
+        // second opinion, so the container's own HEALTHCHECK and the smoke can never disagree.
+        .route("/api/build-info", get(build_info::build_info))
+        .route("/api/rust-ready", get(ready))
         .route("/v1/whoami", get(whoami))
         // ABSTRACT SERVICE INGRESS. The transport resolves identity/context; callers supply only
         // domain + operation + payload. Typed services remain authoritative underneath.

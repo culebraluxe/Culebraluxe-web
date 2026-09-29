@@ -17,6 +17,30 @@ pub(super) struct ReadyResponse {
     pub(super) database_target: String,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn readiness_serializes_the_key_the_release_gate_and_the_healthcheck_read() {
+        // Two readers depend on this exact name: the production smoke parses `databaseTarget` to prove the live
+        // container reached PROD (`rust/cli/src/smoke.rs`), and the container's own HEALTHCHECK asks `/healthz`
+        // beside it. `rename_all = "camelCase"` is one word away from being deleted without a compile error.
+        let body = serde_json::to_value(ReadyResponse {
+            ok: true,
+            database_target: "prod".to_owned(),
+        })
+        .expect("ReadyResponse must serialize");
+
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["databaseTarget"], "prod");
+        assert!(
+            body.get("database_target").is_none(),
+            "the snake_case key is not the contract"
+        );
+    }
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct WhoAmI {

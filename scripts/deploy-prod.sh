@@ -35,6 +35,13 @@ printf '\n3/5 Packing the finished files...\n'
 STAGE="$WORK/stage"
 mkdir -p "$STAGE/public/rust-ui" "$STAGE/templates"
 cp deploy/Dockerfile.runtime "$STAGE/Dockerfile"
+# THE BUILD STAMP IS THE DEPLOYED COMMIT, written into the image that serves it. `/api/build-info` reads these two at
+# runtime; the production smoke asserts the sha it reports is HEAD (or names the commits it is behind). Stamping here
+# rather than at compile time is what makes the answer true: the binary is built once and the container is rebuilt per
+# deploy, so the commit that travels with the image is the commit that is live. If this line is ever skipped the
+# endpoint answers with no sha AND SAYS SO, and the release check fails loudly instead of comparing against nothing.
+printf 'ENV CULEBRALUXE_BUILD_SHA=%s\nENV CULEBRALUXE_BUILT_AT=%s\n' \
+  "$(git rev-parse HEAD)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$STAGE/Dockerfile"
 gzip -9 -c "$WORK/build/culebraluxe" > "$STAGE/culebraluxe.gz"
 rsync -a --exclude rust-ui --exclude '* 2.*' --exclude '* 2' public/ "$STAGE/public/"
 cp "$WORK/build/ui.js" "$STAGE/public/rust-ui/ui.js"

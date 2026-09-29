@@ -4,6 +4,7 @@ use service::ServiceInfrastructure;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
+mod build_info;
 mod context;
 mod diagnostics;
 mod engine;
