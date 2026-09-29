@@ -69,3 +69,32 @@ test files. Every number below is measured; the command is in the row.
 2. **Keep or drop the smoke-out Rust tests (H4)?** *"Drop"* → one commit removing them (`pool::forge_refuses_everything_but_production`, the three `budgeted_failure_class` tests, DEV walk case 6). *"Keep"* → nothing to do; they are pushed.
 3. **May the eight `guard:` lines be annotated now** (`guard: NONE today — <why>`, plus the card that restores it) **or does that wait for the audit?** *"Annotate"* → one commit, `AGENTS.md` only. *"Wait"* → H1 stands.
 
+## 8. UNPLANNED, AND PUT BACK — the deleted estate, 2026-09-29
+
+§1–§2 assumed the suite had been *left* behind by the TS port. It had not. `bad45d39` (2026-09-26 17:01 EDT,
+author `culebraluxe <culebraluxe@gmail.com>`, subject *"delete 829 TypeScript files nothing runs, builds or
+tests"*) removed **829 files / 148,065 lines**, of which **465 are test files** — 384 under `legacy/`, 81 in
+`agent-runtime/`, `testv2/`, `lib/`. It was not a one-off: eight further deletion commits landed 2026-09-29
+(`08648e86`, `ddd4b643`, `7acb3d35`, `f6c9e4e8`, `6264ce01`, `be3ce3cd`, `7c963ec6`, `24f4f33b`).
+
+**It contradicts the decision on file.** `docs/agent/DEAD-TS-DOWNSIZE.md:73-79` (§5, *"Delete or keep?"*):
+*"The rule on the books is **marked, not deleted**, and it still makes sense: a dead file costs nothing at
+rest, cannot be loaded by accident, and is searchable intent. The honest downsize is therefore **the files
+stay, the lying menu entries go**."* No document orders the deletion, and the owner had not authorised it.
+
+**Landed and pushed — `3718bc83`.** All 465 test files restored from `bad45d39^`: 384 at their original path
+(all under `legacy/`), 81 under `legacy/<original path>`, so no retired TypeScript enters the product tree.
+`legacy/TS-TESTS-RESTORED-2026-09-29.md` lists the 81 remapped paths and gives the one-line recovery command
+for any deleted file. Verified in the same session: `bash scripts/ts-ratchet.sh` → PASS (4 tracked TS/JS
+outside `legacy/`, allowlist matches); `pnpm broken:ts:sweep` → "the tree and the inventory agree", exit 0;
+`git ls-files legacy | grep -c '\.test\.ts$'` → 465.
+
+**Still deleted: the other 364 files** of `bad45d39` (the non-test half: `lib/`, `agent-runtime/`,
+`legacy/db/`, scripts and probes) plus everything the eight 2026-09-29 commits removed. They are one
+`git checkout bad45d39^ -- <paths>` away.
+
+**ASK 4 (owner).** Say **"put the rest back too"** to restore the other 364 files under the same rule
+(`legacy/<original path>`), or **"tests are enough"** to leave them in history. Either way, say
+**"the deletion stands"** if the downsize was in fact authorised and the decision doc is what is stale —
+that changes ASK 1's answer, because the deleted suite is then raw material rather than a corpus to port.
+
