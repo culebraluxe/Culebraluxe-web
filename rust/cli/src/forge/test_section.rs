@@ -559,10 +559,7 @@ mod tests {
             section_for_file("rust/forge/src/scope_manifest.rs"),
             Some("forge-engine")
         );
-        assert_eq!(
-            section_for_file("rust/cli/src/forge/manifest.rs"),
-            Some("forge-engine")
-        );
+        assert_eq!(section_for_file("rust/cli/src/forge/manifest.rs"), Some("forge-engine"));
         assert_eq!(section_for_file("rust/core/workflow/src/types.rs"), Some("forge-engine"));
         assert_eq!(section_for_file("rust/server/src/api/engine.rs"), Some("app-core"));
         assert_eq!(section_for_file("rust/ui/src/update.rs"), Some("app-portal"));
