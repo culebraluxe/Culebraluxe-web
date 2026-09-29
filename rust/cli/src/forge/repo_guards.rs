@@ -350,6 +350,8 @@ mod tests {
 
     // -- matcher unit tests: prove each scan can actually see a violation -------------------------
 
+    /// `.guard: AGENTS.md:151` — "Create a worktree, a per-lane tree, or any file-based parallel to
+    /// the database workflow. **NO TREES. EVER.**" Proves the matcher can actually see a violation.
     #[test]
     fn the_worktree_matcher_sees_the_phrase_the_split_invocation_and_the_estate_name() {
         assert!(worktree_tokens_in("git worktree add -b x /tmp/t")
@@ -363,6 +365,8 @@ mod tests {
         assert!(worktree_tokens_in("let x = 1; // harmless\n").is_empty());
     }
 
+    /// `.guard: AGENTS.md:172` — "Let two sources answer one fact. One fact has ONE writer; if two
+    /// ever disagree, that is a REFUSAL (HOLD) naming both...". Proves the matcher can see a write.
     #[test]
     fn the_writer_matcher_does_not_confuse_the_run_table_with_the_story_table() {
         let text = "UPDATE storyboard_story_run SET result_status='x'";
@@ -371,6 +375,8 @@ mod tests {
         assert!(writes_table("insert into storyboard_story(id) values ($1)", "storyboard_story"));
     }
 
+    /// `.guard: AGENTS.md:166` — "Treat WhatsApp as a new identity type." Proves the parser reads the
+    /// real variant list and would notice a fourth kind.
     #[test]
     fn the_identity_parser_reads_the_variants_and_notices_a_new_one() {
         let known = "pub enum PersonIdentityKind {\n    Phone,\n    Email,\n    External,\n}\n";
