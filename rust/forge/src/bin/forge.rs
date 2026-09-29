@@ -21,7 +21,22 @@ fn flag(args: &[String], name: &str) -> Option<String> {
     args.windows(2).find(|w| w[0] == name).map(|w| w[1].clone())
 }
 
+/// The engine's default per-statement ceiling: 5 minutes, against the pool's 30-second request-path default.
+/// See the comment in `main`. Long enough for a cold branch's first write; still a ceiling, so a genuinely stuck
+/// query ends the run instead of holding it forever.
+const ENGINE_STATEMENT_TIMEOUT_MS: &str = "300000";
+
 fn main() {
+    // THE ENGINE'S CEILING IS NOT THE REQUEST PATH'S. `pool.rs` cancels any statement after 30s — "a ceiling
+    // against a stuck query, not a performance budget" — which is right for a page load and wrong for the first
+    // write of a run, the one that may wake a suspended Neon branch and touch a table's cold pages. Measured
+    // 2026-09-29: a run died ~55s in with `error returned from database: canceling statement due to statement
+    // timeout` (SQLSTATE 57014, the whole run lost, no receipt), and the identical run with a raised ceiling went
+    // on to dispatch its first role turn. The engine therefore installs a longer default of its own; an explicit
+    // FORGE_DB_STATEMENT_TIMEOUT_MS still wins, and the pool still reads it once per process.
+    if env::var("FORGE_DB_STATEMENT_TIMEOUT_MS").is_err() {
+        env::set_var("FORGE_DB_STATEMENT_TIMEOUT_MS", ENGINE_STATEMENT_TIMEOUT_MS);
+    }
     let args: Vec<String> = env::args().collect();
     let story = flag(&args, "--story")
         .or_else(|| env::var("FORGE_STORY_ID").ok())
@@ -105,6 +120,12 @@ fn main() {
         harness.cli_bin,
         harness.workspace.display(),
         database_url().is_some()
+    );
+    // Declared, not inferred: the ceiling a run is actually using is the one thing this failure mode needed
+    // visible, and the run that died at 30s left no trace of which ceiling it had.
+    eprintln!(
+        "statement_ceiling_ms={}",
+        env::var("FORGE_DB_STATEMENT_TIMEOUT_MS").unwrap_or_else(|_| "unset".into())
     );
 
     let writer: Arc<dyn ForgeStateWriter> = match DbForgeStateWriter::connect_env() {
