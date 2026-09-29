@@ -136,7 +136,56 @@ terminated session costs a round trip, not a run.
 4. `ENG-GUARD-AGENTS-LINT-01`, then Finding C in `docs/agent/TEST-SAFETY-SWEEP-2026-09-29.md`
    (`db/migrations/025_agent_work_queue.sql:104`) — unchanged from the previous handoff.
 
-## 7. ASK THE OWNER
+## 8. THE SEAM — verified 2026-09-29, after the AC #5 tick (the larger cause, above this file's subject)
+
+The held-transaction question is a side quest. This is the one that explains the board/queue/engine
+disagreement, and every line below is measured, not read.
+
+| # | Fact | How to check it |
+| --- | --- | --- |
+| S14 | The worker does **not claim**: `next_ready_story()` is a bare `select story_id, kind … where state='Ready' … limit 1`, and the child gets **only** `--story/--work-type`. No `--work-item`, no `Claimed`, no `claimed_by`. | `rust/forge/src/engine/worker.rs:106-120`, `:155-179`; `rust/core/db/src/forge_control.rs:264-274` |
+| S15 | The real machinery exists and has **no caller anywhere in the workspace**: `claim_next_agent_work` (advisory lock `9_000_212`, global active-slot check, `Ready → Claimed`, `claimed_by`, `claimed_at`, `attempts+1`, ordered **`priority desc, queued_at asc, id`**), `claim_specific_agent_work`, `begin_agent_work_run` (`Claimed → Running`), `reject_agent_work_configuration`. | `rust/core/db/src/forge_engine.rs:111-198`; wrappers `rust/forge/src/engine/agent_work.rs:27-73`, re-exported at `rust/forge/src/engine/mod.rs:107`; `rg` finds no other reference |
+| S16 | **Consequence, dated:** `Done` newest `2026-09-19`, `Error` newest `2026-09-18`, `Cancelled` newest `2026-09-29`, `Ready` 8 rows all `2026-09-29`, **zero `Claimed`/`Running`/`Paused`**. Nothing has terminalized a work item since the cutover: the queue has had no writer but the sweep. | `select state, count(*), min(updated_at), max(updated_at) from agent_work_item group by state` |
+| S17 | The documented contract is `priority DESC, queued_at ASC` with `agent_work_item_single_active` (partial unique index) as the system-wide single-active lock — and `next_ready_work` **drops priority**, so the lock it protects is never taken. | `db/migrations/025_agent_work_queue.sql:22-23`, `:73-86`; `forge_control.rs:264-274` |
+| S18 | **The dead path carries a landmine.** `reject_agent_work_configuration` writes `state='Failed'`, and the live CHECK allows only `Ready, Claimed, Running, Paused, Done, Error, Cancelled`. Proven on DEV inside a rolled-back transaction: `new row for relation "agent_work_item" violates check constraint "agent_work_item_state_check"`. Wiring the DAO as-is throws on its first failure path. | `forge_engine.rs:187`; `pg_constraint` on `agent_work_item` |
+| S19 | **The coherent pattern already exists, for one path only:** `hold_stale_work` moves item → `Error` **and** story → `Hold` in **one transaction**; `requeue_stale_work` does the same shape back to `Ready`. That is the template for every other lifecycle transition, and the only one the Rust port kept. | `rust/core/db/src/forge_control.rs:84-114`, `:117-140` |
+| S20 | The contract the port dropped is written down in the retired worker: `4a828f3b:agent-runtime/invoker.ts` — nine responsibilities, headed by *"find next ELIGIBLE work and atomically claim it"* and closed by *"terminalize the work item"*. The file is **absent from HEAD**; `legacy/agent-runtime/` no longer exists. | `git --no-pager show 4a828f3b:agent-runtime/invoker.ts` |
+
+**Read S14 with S16.** It is not that the claim is skipped — it is that the queue stopped having a lifecycle:
+an item is created by the trigger, and from then on the only writers are `forge:clean` and stale recovery.
+That is why the same story can be dispatched again, why `capture` of the queue says `Ready` while a run is
+in flight, why the single-active lock never fires (S17), and why `forge doctor`'s claim count had to be
+de-confused from the queue once already today (`rust/core/db/src/forge_doctor.rs:201`, `:225`, and the
+comment at `:252-253` recording `active claims: 8` on the morning the two were summed).
+
+**Implementation order** (scope for a new story — `ENG-FORGE-WORKER-CLAIM-01` — not started here):
+
+1. `worker.rs` claims a **specific item** before launching, via the existing DAO (not a new queue), and the
+   child receives `--work-item <id>` alongside `--story`. This also restores `priority DESC` (S17).
+2. The child calls `begin_agent_work_run` (`Claimed → Running`) once it owns the run, and on launch failure
+   settles the item — **with `Error`, not `Failed` (S18)** — in the same transaction that annotates the story.
+3. One lifecycle command for Story Board + queue together, modelled on `hold_stale_work` (S19), so
+   `story=Ready / queue=Cancelled` becomes unrepresentable: `forge:clean` must move both or neither (S10).
+4. Restore the execution envelope (role, model profile/policy, adapter, environment) on the claim, not just
+   `story_id`/`kind`.
+5. One integration gate over the whole chain — Story→`Ready` → item created → **claim** → `Running` →
+   workflow instance → real role turn → completion receipt → item `Done` → story `Complete` — and then run
+   `clean`/recovery against that fixture and prove it can still be dispatched. Step 5 is what was missing
+   when this cutover shipped; it is also the only thing that would have caught any of the eight failures
+   listed in `docs/agent/MEMORY.md`.
+
+The `25P03` mechanism stays open and stays last (S9, §5): it is real, it is not this, and it must not drive
+an engine rewrite.
+
+## 9. NEW QUESTIONS — this round, from §8
+
+- **Go / no-go on the seam slice above**, and whether to let the live `TECH-FLIGHT-RECORDER-01` run finish
+  first: the change touches `worker.rs` (rebuilt every tick) plus the child's args, so landing it during a
+  live run is possible but the next tick would pick it up mid-story.
+- **Is `Error` the right terminal state** for a launch failure (S18), given `Done`/`Error`/`Cancelled` are
+  the only legal ones — or should the CHECK gain `Failed` so the dead DAO's vocabulary survives?
+
+## 10. ASK THE OWNER — previous round, still open
 
 - **Answered Yes on 2026-09-29** — with two corrections to the commands as written, both worth keeping. (1)
   `pnpm forge:clean` **cancels every `Ready` work item and strands the queue**: it does not move the story off
