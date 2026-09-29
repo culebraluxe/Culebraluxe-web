@@ -299,9 +299,15 @@ pub fn drive_forge_story<S: TxStore>(
                 .map(|n| FORGE_HUMAN_GATE_NODES.contains(&n))
                 .unwrap_or(false)
         }) {
-            let _ = rt
-                .writer()
-                .mark_story_human_hold(story_id, "Forge engine entered a human decision gate.");
+            // A canonical Story Board write is not optional: if the hold cannot be recorded, the drive fails
+            // visibly rather than reporting a human gate that no row describes (2026-09-29).
+            rt.writer()
+                .mark_story_human_hold(story_id, "Forge engine entered a human decision gate.")
+                .map_err(|error| {
+                    workflow::WorkflowError::generic(format!(
+                        "mark_story_human_hold({story_id}): {error}"
+                    ))
+                })?;
             let _ = human;
             return Ok(DriveForgeStoryResult {
                 instance_id: instance_id.clone(),

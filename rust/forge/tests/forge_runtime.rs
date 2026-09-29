@@ -590,6 +590,127 @@ fn production_runner_holds_architect_without_handoff() {
         .contains("ARCHITECT"));
 }
 
+/// A held lane names the story it was listed for — never the process-instance UUID.
+///
+/// 2026-09-29: the runner substituted the process-instance UUID for the story id at all three write sites.
+/// `forge_hold_record.story_id` is a foreign key to `storyboard_story(id)`, whose ids are human keys, so the
+/// hold row was rejected and the rejection was discarded with `let _ =`: a rejected deliverable recorded
+/// nothing at all. This test fails on the old code (`"s"` was replaced by `"p"`).
+#[test]
+fn a_held_lane_writes_the_story_id_not_the_instance_uuid() {
+    let h = ScriptedHarness {
+        raw: "I thought about the plan".into(),
+        sha: None,
+        commands: vec![],
+        mapped: false,
+        cmd_ok: true,
+    };
+    let writer = RecordingWriter::default();
+    let mut role = runner::ProductionRoleRunner::new(&h, ForgeGateEvidence::default());
+    role.writer = Some(&writer as &dyn ForgeStateWriter);
+    let task = runtime::ActiveForgeRoleTask {
+        task_id: "t".into(),
+        process_instance_id: "p".into(),
+        story_id: "ENG-GUARD-REPO-RUST-01".into(),
+        token_id: Some("k".into()),
+        node_id: Some("architect".into()),
+        status: workflow::TaskStatus::Ready,
+        assignee: None,
+        candidates: vec!["architect".into()],
+    };
+    let out = executor::ForgeRoleRunner::run(&role, "architect", &task).unwrap();
+    assert!(out.evidence.deliverable_rejection.is_some());
+
+    let holds = writer.holds.lock().unwrap();
+    assert_eq!(holds[0].0, "ENG-GUARD-REPO-RUST-01");
+    let opened = writer.opened_holds.lock().unwrap();
+    assert_eq!(opened[0].0, "ENG-GUARD-REPO-RUST-01");
+    assert_eq!(opened[0].1, "DELIVERABLE_REJECTED");
+    assert_ne!(opened[0].0, task.process_instance_id);
+}
+
+/// A task with no story id is refused before anything is written: an identity-bearing record is never written
+/// against an identity the run does not have, and never against a substitute.
+#[test]
+fn a_role_task_without_a_story_id_is_refused() {
+    let h = ScriptedHarness {
+        raw: "I thought about the plan".into(),
+        sha: None,
+        commands: vec![],
+        mapped: false,
+        cmd_ok: true,
+    };
+    let writer = RecordingWriter::default();
+    let mut role = runner::ProductionRoleRunner::new(&h, ForgeGateEvidence::default());
+    role.writer = Some(&writer as &dyn ForgeStateWriter);
+    let task = runtime::ActiveForgeRoleTask {
+        task_id: "t".into(),
+        process_instance_id: "p".into(),
+        story_id: String::new(),
+        token_id: Some("k".into()),
+        node_id: Some("architect".into()),
+        status: workflow::TaskStatus::Ready,
+        assignee: None,
+        candidates: vec!["architect".into()],
+    };
+    let error = match executor::ForgeRoleRunner::run(&role, "architect", &task) {
+        Ok(_) => panic!("a story-less task is refused"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("no story id"), "{error}");
+    assert!(writer.holds.lock().unwrap().is_empty());
+    assert!(writer.opened_holds.lock().unwrap().is_empty());
+}
+
+/// A hold that cannot be recorded fails the lane instead of vanishing behind `let _ =`.
+#[test]
+fn a_hold_that_cannot_be_recorded_fails_the_lane() {
+    struct BrokenHold;
+    impl ForgeStateWriter for BrokenHold {
+        fn mark_story_human_hold(&self, _s: &str, _r: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn mark_story_complete(&self, _s: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn mark_story_in_progress(&self, _s: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn append_run_detail(&self, _r: &str, _d: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn open_hold(&self, _i: &forge::engine::hold::OpenHold) -> Result<String, String> {
+            Err("no such story".into())
+        }
+    }
+    let h = ScriptedHarness {
+        raw: "I thought about the plan".into(),
+        sha: None,
+        commands: vec![],
+        mapped: false,
+        cmd_ok: true,
+    };
+    let writer = BrokenHold;
+    let mut role = runner::ProductionRoleRunner::new(&h, ForgeGateEvidence::default());
+    role.writer = Some(&writer as &dyn ForgeStateWriter);
+    let task = runtime::ActiveForgeRoleTask {
+        task_id: "t".into(),
+        process_instance_id: "p".into(),
+        story_id: "ENG-GUARD-REPO-RUST-01".into(),
+        token_id: Some("k".into()),
+        node_id: Some("architect".into()),
+        status: workflow::TaskStatus::Ready,
+        assignee: None,
+        candidates: vec!["architect".into()],
+    };
+    let error = match executor::ForgeRoleRunner::run(&role, "architect", &task) {
+        Ok(_) => panic!("an unrecordable hold is a failed lane"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("forge_hold_record"), "{error}");
+    assert!(error.to_string().contains("ENG-GUARD-REPO-RUST-01"), "{error}");
+}
+
 #[test]
 fn assay_empty_plan_fails() {
     let report = assay::adjudicate_assay(&[], &[], true);

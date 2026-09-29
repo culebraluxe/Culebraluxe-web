@@ -205,7 +205,17 @@ impl<S: TxStore> ForgeRuntime<S> {
         });
         self.port.clear_pending();
         let started = started?;
-        let _ = self.writer.mark_story_in_progress(story_id);
+        // A canonical Story Board write is not optional. Discarding this failure left the pair
+        // workflow=Active / queue=Running / story=Ready, and the settlement rail (`storyboard_story` forbids
+        // completion >= 100 unless status = 'Complete') then correctly refuses `Done` and puts a story that
+        // actually succeeded on Hold (2026-09-29). A failed canonical write after the instance started is a
+        // failed start and is reported as one.
+        if let Err(error) = self.writer.mark_story_in_progress(story_id) {
+            return Err(WorkflowError::generic(format!(
+                "mark_story_in_progress({story_id}) failed after instance {} started: {error}",
+                started.process_instance_id
+            )));
+        }
         Ok(started)
     }
 
@@ -218,7 +228,7 @@ impl<S: TxStore> ForgeRuntime<S> {
         Ok(tasks
             .into_iter()
             .filter(|t| t.status.is_actionable())
-            .map(|t| map_role_task(t, &tokens))
+            .map(|t| map_role_task(t, &tokens, story_id))
             .collect())
     }
 
@@ -401,7 +411,15 @@ impl<S: TxStore> ForgeRuntime<S> {
     }
 }
 
-fn map_role_task(t: Task, tokens: &[workflow::Token]) -> ActiveForgeRoleTask {
+/// The story id is not on `Task` — a workflow task knows its instance, not the story — so the caller that
+/// resolved the instance passes it in.
+///
+/// ONE IDENTITY, PASSED IN (2026-09-29). This used to be `story_id: String::new()`, and the runner then
+/// substituted the process-instance UUID for it at all three write sites. `forge_hold_record.story_id` is a
+/// foreign key to `storyboard_story(id)`, whose ids are human keys (`ENG-*`), so every hold written that way
+/// was rejected by the foreign key and the rejection was discarded: a rejected deliverable left no row and no
+/// error. The story id is known one boundary away and is never reconstructed from anything else.
+fn map_role_task(t: Task, tokens: &[workflow::Token], story_id: &str) -> ActiveForgeRoleTask {
     let node_id = t.node_id.clone().or_else(|| {
         t.token_id.as_ref().and_then(|id| {
             tokens
@@ -413,7 +431,7 @@ fn map_role_task(t: Task, tokens: &[workflow::Token]) -> ActiveForgeRoleTask {
     ActiveForgeRoleTask {
         task_id: t.id,
         process_instance_id: t.process_instance_id.clone(),
-        story_id: String::new(),
+        story_id: story_id.to_string(),
         token_id: t.token_id,
         node_id,
         status: t.status,
@@ -424,4 +442,55 @@ fn map_role_task(t: Task, tokens: &[workflow::Token]) -> ActiveForgeRoleTask {
 
 pub fn empty_vars() -> Value {
     json!({})
+}
+
+#[cfg(test)]
+mod role_task_identity_tests {
+    use super::*;
+
+    fn fixture_task() -> Task {
+        Task {
+            id: "t-1".into(),
+            tenant_id: None,
+            process_instance_id: "p-1".into(),
+            token_id: Some("k-1".into()),
+            node_id: Some("architect".into()),
+            name: "architect review".into(),
+            description: None,
+            status: workflow::TaskStatus::Ready,
+            assignee: None,
+            candidates: vec!["architect".into()],
+            swimlane: None,
+            priority: 0,
+            due_date: None,
+            form_key: None,
+            form_data: Value::Null,
+            created_at: 0,
+            claimed_at: None,
+            completed_at: None,
+            completed_by: None,
+            version: 1,
+        }
+    }
+
+    /// The regression this guards (2026-09-29): a role task listed for a story came back with an empty
+    /// `story_id`, and the runner filled it with the process-instance UUID at three write sites — the observer
+    /// `correlation_id`, `mark_story_human_hold`, and the `forge_hold_record` row, whose story id is a foreign
+    /// key to a table of human keys.
+    #[test]
+    fn a_mapped_role_task_carries_the_story_it_was_listed_for() {
+        let mapped = map_role_task(fixture_task(), &[], "ENG-GUARD-REPO-RUST-01");
+        assert_eq!(mapped.story_id, "ENG-GUARD-REPO-RUST-01");
+        assert_eq!(mapped.process_instance_id, "p-1");
+        assert_ne!(mapped.story_id, mapped.process_instance_id);
+    }
+
+    /// It is the caller's story that lands on the task, not any story the task itself might suggest.
+    #[test]
+    fn a_mapped_role_task_takes_the_story_from_its_caller() {
+        let a = map_role_task(fixture_task(), &[], "ENG-01");
+        let b = map_role_task(fixture_task(), &[], "ENG-02");
+        assert_eq!(a.story_id, "ENG-01");
+        assert_eq!(b.story_id, "ENG-02");
+    }
 }

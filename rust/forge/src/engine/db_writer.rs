@@ -23,6 +23,11 @@ impl DbForgeStateWriter {
 }
 
 impl ForgeStateWriter for DbForgeStateWriter {
+    fn open_hold(&self, input: &crate::engine::hold::OpenHold) -> Result<String, String> {
+        // One implementation of the row, in `hold`, reached through the same port as every other write.
+        crate::engine::hold::open_forge_hold_record(input)
+    }
+
     fn mark_story_in_progress(&self, story_id: &str) -> Result<(), String> {
         self.run(|dao, rt| {
             rt.block_on(async {

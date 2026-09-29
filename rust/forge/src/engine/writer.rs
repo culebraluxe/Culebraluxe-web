@@ -6,6 +6,13 @@ pub trait ForgeStateWriter: Send + Sync {
     fn mark_story_complete(&self, story_id: &str) -> Result<(), String>;
     fn mark_story_in_progress(&self, story_id: &str) -> Result<(), String>;
     fn append_run_detail(&self, run_id: &str, detail: &str) -> Result<(), String>;
+    /// Open the durable `forge_hold_record` row for a held run and answer with its id.
+    ///
+    /// The hold is a state write like the story writes above, so it goes through the same port and the same
+    /// sink decision (2026-09-29): a run with no state writer records no hold and reports none, instead of
+    /// writing into whichever pool `with_shared` happens to resolve — which is how a `cargo test` on a
+    /// development machine put fixture rows (`story_id = 's'`) into the DEV trace table.
+    fn open_hold(&self, input: &crate::engine::hold::OpenHold) -> Result<String, String>;
 }
 
 /// Release-critical command-nodes (publish / migrate / verify).
@@ -34,6 +41,9 @@ impl ForgeStateWriter for NullWriter {
     fn append_run_detail(&self, _r: &str, _d: &str) -> Result<(), String> {
         Ok(())
     }
+    fn open_hold(&self, _i: &crate::engine::hold::OpenHold) -> Result<String, String> {
+        Ok(String::new())
+    }
 }
 
 pub struct RecordingWriter {
@@ -41,6 +51,8 @@ pub struct RecordingWriter {
     pub completed: std::sync::Mutex<Vec<String>>,
     pub in_progress: std::sync::Mutex<Vec<String>>,
     pub details: std::sync::Mutex<Vec<(String, String)>>,
+    /// `(story_id, failure_class, reason)` for every `forge_hold_record` the engine asked to open.
+    pub opened_holds: std::sync::Mutex<Vec<(String, String, String)>>,
 }
 
 impl Default for RecordingWriter {
@@ -50,6 +62,7 @@ impl Default for RecordingWriter {
             completed: std::sync::Mutex::new(vec![]),
             in_progress: std::sync::Mutex::new(vec![]),
             details: std::sync::Mutex::new(vec![]),
+            opened_holds: std::sync::Mutex::new(vec![]),
         }
     }
 }
@@ -76,6 +89,15 @@ impl ForgeStateWriter for RecordingWriter {
             .unwrap()
             .push((run_id.into(), detail.into()));
         Ok(())
+    }
+    fn open_hold(&self, input: &crate::engine::hold::OpenHold) -> Result<String, String> {
+        let mut opened = self.opened_holds.lock().unwrap();
+        opened.push((
+            input.story_id.clone(),
+            input.failure_class.clone().unwrap_or_default(),
+            input.reason.clone(),
+        ));
+        Ok(format!("hold-{}", opened.len()))
     }
 }
 

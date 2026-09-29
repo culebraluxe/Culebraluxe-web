@@ -9,10 +9,7 @@ use crate::engine::assay::{collect_assay_evidence, CommandResult};
 use crate::engine::execution_target::{assert_forge_execution_target, env_pairs_from_process};
 use crate::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::facts::ForgeGateEvidence;
-use crate::engine::hold::{
-    deliverable_enforcement_enabled, open_forge_hold_record, parse_deliverable_reprompt_budget,
-    OpenHold,
-};
+use crate::engine::hold::{deliverable_enforcement_enabled, parse_deliverable_reprompt_budget, OpenHold};
 use crate::engine::observer::record_forge_observer;
 use crate::engine::phase::{ForgePhaseAgent, RoleEffectPorts};
 use crate::engine::runtime::ActiveForgeRoleTask;
@@ -209,42 +206,55 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
             }
         }
 
-        let story_id = if task.story_id.is_empty() {
-            task.process_instance_id.as_str()
-        } else {
-            task.story_id.as_str()
-        };
-        let _ = record_forge_observer(
-            &task.process_instance_id,
-            story_id,
-            &task.task_id,
-            node_id,
-            "role.completed",
-            &format!("node={node_id}"),
-        );
+        // ONE identity, taken from the task this lane was listed with. `runtime::list_role_tasks` fills it
+        // from the story that owns the instance; the process-instance UUID is not a story id and was
+        // substituted here at all three write sites below until 2026-09-29 (`forge_hold_record.story_id` is a
+        // foreign key to `storyboard_story(id)`, so those holds were rejected and the rejection was thrown
+        // away). A task that carries no story id is refused rather than given one.
+        let story_id = task.story_id.as_str();
+        if story_id.trim().is_empty() {
+            return Err(WorkflowError::generic(format!(
+                "role task {} carries no story id; refusing to write identity-bearing Forge records against \
+                 the process-instance id",
+                task.task_id
+            )));
+        }
+
+        // Trace recording is diagnostic (see `engine::observer`) and is deliberately contained, so its failure
+        // is not a lane failure. It is written only for a run that has a state writer: a writer-less run
+        // (tests, a machine with no PROD URL) must not write trace rows into whichever pool is installed.
+        if self.writer.is_some() {
+            let _ = record_forge_observer(
+                &task.process_instance_id,
+                story_id,
+                &task.task_id,
+                node_id,
+                "role.completed",
+                &format!("node={node_id}"),
+            );
+        }
 
         if let Some(reason) = evidence.deliverable_rejection.clone() {
             if let Some(writer) = self.writer {
-                let sid = if task.story_id.is_empty() {
-                    &task.process_instance_id
-                } else {
-                    &task.story_id
-                };
-                let _ = writer.mark_story_human_hold(sid, &reason);
+                // A hold that cannot be recorded is not a hold that was silently skipped: both writes
+                // propagate, so a gate that failed to record itself is visible as a failed lane.
+                writer.mark_story_human_hold(story_id, &reason).map_err(|error| {
+                    WorkflowError::generic(format!("mark_story_human_hold({story_id}): {error}"))
+                })?;
+                writer
+                    .open_hold(&OpenHold {
+                        process_instance_id: task.process_instance_id.clone(),
+                        task_id: Some(task.task_id.clone()),
+                        story_id: story_id.to_string(),
+                        reason,
+                        originating_node: Some(node_id.into()),
+                        failure_class: Some("DELIVERABLE_REJECTED".into()),
+                        resume_target: None,
+                    })
+                    .map_err(|error| {
+                        WorkflowError::generic(format!("forge_hold_record({story_id}): {error}"))
+                    })?;
             }
-            let _ = open_forge_hold_record(&OpenHold {
-                process_instance_id: task.process_instance_id.clone(),
-                task_id: Some(task.task_id.clone()),
-                story_id: if task.story_id.is_empty() {
-                    task.process_instance_id.clone()
-                } else {
-                    task.story_id.clone()
-                },
-                reason,
-                originating_node: Some(node_id.into()),
-                failure_class: Some("DELIVERABLE_REJECTED".into()),
-                resume_target: None,
-            });
         }
         Ok(ForgeRoleOutcome {
             transition_name: Some("complete".into()),

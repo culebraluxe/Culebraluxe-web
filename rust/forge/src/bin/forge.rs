@@ -171,13 +171,34 @@ fn main() {
             std::process::exit(2);
         }
     };
+    // The Story Packet is the authoritative context this run acts on, and it is the only thing standing between
+    // an unattended agent and its own judgement. An unreadable packet is not a reason to fall back to whatever
+    // the environment happens to hold: the engine's own plumbing failed, the story never ran, so the claim goes
+    // back to the queue and NO model turn happens (legacy contract; captain, 2026-09-29). The environment packet
+    // stays reachable for an attended, deliberate run only, behind FORGE_PACKET_FROM_ENV=1.
+    let packet_from_env = env::var("FORGE_PACKET_FROM_ENV").ok().as_deref() == Some("1");
     match StoryPacket::load_from_neon(&story) {
         Ok(packet) => {
             eprintln!("packet from storyboard_story {}", packet.id);
             harness.packet = packet;
             harness.story_id = Some(story.clone());
         }
-        Err(e) => eprintln!("story packet: {e} (using env packet)"),
+        Err(e) if packet_from_env => {
+            eprintln!("story packet: {e} (FORGE_PACKET_FROM_ENV=1: running on the environment packet)");
+        }
+        Err(e) => {
+            eprintln!("story packet: {e}; refusing to run {story} without its authoritative packet");
+            if settle_work_item(
+                work_item.as_deref(),
+                AgentWorkOutcome::Abandoned,
+                Some(&format!("story packet: {e}")),
+            )
+            .is_err()
+            {
+                eprintln!("work_item could not be settled; the claim is left to recovery");
+            }
+            std::process::exit(2);
+        }
     }
     if env::var("FORGE_PROVISION").ok().as_deref() == Some("1") {
         match provision_worker_workspace(
