@@ -15,7 +15,7 @@ rails move only toward more enforcement; no schema change.
 | S5 | The receipt verbs exist in `db`, and the DEV proof passed: claim → `HeldByAnother` → `AlreadyFinal` → stale `pending` reclaimed → finalize-without-claim refused → story counters move | `rust/core/db/tests/forge_completion_receipt_dev.rs` (run with `DATABASE_URL_DEV … -- --ignored`) |
 | S6 | `model_policy` and `launch_intent` are carried on the claim and printed, wired to no decision | `rust/forge/src/engine/worker.rs:261-270` |
 | S7 | The scheduler is stopped and nothing is in flight | `pnpm forge:doctor` (`open engine tasks: 0`, `active claims: 0`) |
-| S8 | Working tree clean, `origin/main` at `ae16ef38` | `git status --short`, `git --no-pager log --oneline -3 origin/main` |
+| S8 | Working tree clean; `origin/main` is at least `ae16ef38` (the ledger) — read the log, this line cannot stay current | `git status --short`, `git --no-pager log --oneline -3 origin/main` |
 
 ## 2. HOLDS — do not act on these
 
