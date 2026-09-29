@@ -62,8 +62,8 @@ process instances). `rust/forge` is the Forge SDLC on top of it.
 | --- | --- |
 | `agent_work_item` | The queue and the single-active lock. **The DATABASE creates the items** — `agent_work_item_dispatch()`, `db/migrations/025_agent_work_queue.sql:101` restated in `146:36` — and Rust only reads them, moves the state of a claim it holds, and puts a story into the queue by restoring the status change the trigger fires on (`ForgeEngineDao::ensure_story_dispatched`). `docs/agent/OLD-ENGINE-CONTRACT-RESTORATION.md` §6.7 has the finding |
 | `forge_engine_task_execution` | The ledger: what ran, how it ended |
-| `forge_tool_artifact` | Tool output and evidence attached to a run |
-| `storyboard_story_run` | Runs per story, their status and summaries |
+| `forge_tool_artifact` | Tool output and evidence attached to a run. **One writer**: `ForgeEngineDao::record_tool_artifact` (migration 130), reached through `ForgeStateWriter::record_tool_artifact`. The run's ruling is read inside the write's transaction and the polarity guard refuses a verdict that contradicts it (`artifact_verdict_for_run`); an unruled run (including a cleared claim, whose `result_status` is NULL) certifies nothing. The QA lane records `kind='qa-assay-evidence'` with its own three-way reading. `docs/agent/OLD-ENGINE-CONTRACT-RESTORATION.md` §7.5 |
+| `storyboard_story_run` | Runs per story, their status and summaries. **The engine creates the row when execution begins** (migration `025:11`): `ForgeEngineDao::begin_agent_work_run` opens it and stamps `agent_work_item.story_run_id` in one transaction; the settle closes it with the item's ruling (`Done→Complete`, `Error→Failed`, `Cancelled→Cancelled`) or leaves it unruled for a cleared claim. `forge_control.rs` still interrupts one. §7.4 |
 | `forge_workflow_evidence` | The evidence a gate accepted |
 | `workflow_execution_trace_event` | The Flight Recorder trace (observer-only, joined by process-instance id) |
 | `app_error` | Durable error capture, for every failure that reaches a seam |

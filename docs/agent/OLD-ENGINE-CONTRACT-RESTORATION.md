@@ -339,8 +339,93 @@ Gates: `cargo test -p cli` 127 passed (the four repo guards among them), `cargo 
 `cargo check --workspace --all-targets` clean.
 
 Still open on this seam, named rather than implied: `model_policy` → model selection (billing: the Captain's call)
-and `launch_intent` → Lead benchIntent; the artifact-out-of-role seam; hold/verdict out; canonical Story Board writes;
-a read-only SQL verb in `cli` so live DEV functions and triggers can be audited (the gap in
-`docs/agent/TEST-SAFETY-SWEEP-2026-09-29.md:90-105`); and the Phase 1 parity audit of the 465 legacy tests. The
-scheduler stays stopped until the Captain says restart.
+and `launch_intent` → Lead benchIntent; hold/verdict out; canonical Story Board writes; a read-only SQL verb in `cli`
+so live DEV functions and triggers can be audited (the gap in
+`docs/agent/TEST-SAFETY-SWEEP-2026-09-29.md:90-105`); the Phase 1 parity audit of the 465 legacy tests; and the
+receipt-out seam. The artifact-out-of-role seam is closed — §7.5. The scheduler stays stopped until the Captain says
+restart.
+
+### 7.4 Seam 4a — **a lane execution is a Story Run row** (2026-09-29, `b3eac211`)
+
+Found while opening seam 4: `forge_tool_artifact.story_run_id` and `agent_work_item.story_run_id` both point at
+`storyboard_story_run`, and **nothing in the tree — Rust or SQL — ever created a row in it.** No trigger, no function
+(migration 130 is a plain table; the only writers were the deleted TypeScript DAO), no Rust code: every lane executed
+with `story_run_id = null`, `forge_story_run_receipt` (migration 191) had nothing to read, and artifacts had no parent.
+The port had dropped the execution unit itself.
+
+The contract was already written down in the migration that created the queue, `025_agent_work_queue.sql:11`: the item
+"stores NO story specification; the authoritative spec lives on `storyboard_story` and is snapshotted into
+`storyboard_story_run` **when execution begins**" — and `030:14-15` splits the field: the item carries the *intended*
+target, the run carries the *actual* one.
+
+Landed:
+
+- `rust/core/db/src/forge_engine.rs` — `BeginAgentWorkRun { execution_policy, story_run_id }` and
+  `run_result_status_for(item_state)`. `begin_agent_work_run` opens the run (`execution_environment` = the actual
+  target, `run_type` = the item's own `role`/`kind`, read from the row) and stamps the claim with it **in one
+  transaction**; `finish_agent_work_run` and `reject_agent_work_configuration` close it with the item's ruling
+  (`Done→Complete`, `Error→Failed`, `Cancelled→Cancelled`) through `close_story_run_in`, guarded by `ended_at is null`.
+- A **cleared** claim (`AgentWorkOutcome::Abandoned` → `Ready`) rules nothing, so its run ends with `result_status`
+  NULL. That is the value the artifact guard reads as "certifies nothing", and it is why an engine fault can no longer
+  become a story verdict by accident.
+- `rust/forge/src/bin/forge.rs` — the run is named in the log, once, so a lane's execution can be followed.
+
+DEV proof (`rust/core/db/tests/forge_work_claim_dev.rs`, `--ignored`, 2 passed): the claim opens a run, stamps
+`story_run_id`, the run starts unruled (`result_status` NULL, `ended_at` NULL), a second `begin` on a row that is no
+longer `Claimed` refuses, and the settle closes the run `Complete`.
+
+### 7.5 Seam 4 — **artifact out of a role into a row** (2026-09-29, `f4021a58` + `740f2668`)
+
+Migration 130 created `forge_tool_artifact` for "per-execution tool verdicts/outputs … that future Forge agents /
+operator / Cline should query, not re-derive". The port wrote **no row ever** — no writer, no reader — so a lane's own
+reading (an assay's `PASS`, a lane's `Hold`) died with its process.
+
+Landed:
+
+- `artifact_verdict_for_run(kind, ruling, verdict)` + `verdict_polarity` — the rule the legacy `artifactVerdictForRun`
+  enforced, ported assertion for assertion (`legacy/workflow_app/tests/artifact-verdict.test.ts`). **Polarity, not
+  spelling**: `Complete`+`PASS` and `Hold`+`Failed` agree, `Complete`+`Hold` contradicts (the summary stays, the
+  verdict does not), and an unruled run — including a cleared one, whose ruling is NULL — certifies nothing. Any other
+  `kind` is that tool's own reading and passes through.
+  **Do not merge this with `qa_consistency.rs`**: `expected_verdict_for_run_status('Hold')` is `None` there and that is
+  a *different question* (a QA pass/fail claim needs a clean `Complete`); the artifact rule reads `Hold` as a **negative
+  ruling**.
+- `ForgeEngineDao::record_tool_artifact` — **the one writer**. The ruling is read from `storyboard_story_run` inside the
+  write's transaction, never taken from the caller, and a ruling that cannot be **read** fails closed to no verdict
+  while the artifact is still recorded: the measurement happened, and a failure to read the run is not a licence to
+  lend it one. The `DbFailure` announces itself through `db::capture`, so the failure is visible, not swallowed.
+- `forge` side: `ForgeStateWriter::record_tool_artifact` (same port and same sink decision as `open_hold` — a
+  writer-less run records nothing), `ProductionRoleRunner::with_story_run`, and the `qa_verify`/`fast_qa_verify` lane
+  records its reading the moment it exists. `collect_assay_evidence` answers with `AssayEvidence { evidence, verdict }`,
+  keeping the lane's **three-way** reading (`PASS`/`FAIL`/`UNPROVEN`) apart from the gate's boolean `qa_passed`: "not
+  proven" is not "failed", and the gate's collapse must not erase what the lane measured.
+- The identity guard (a task carrying no story id is refused) moved **before** any write of the turn, because
+  `forge_tool_artifact.story_id` is a foreign key to `storyboard_story(id)` exactly as `forge_hold_record.story_id` is.
+
+DEV proof (`rust/core/db/tests/forge_tool_artifact_dev.rs`, `--ignored`, 1 passed) — raw output:
+
+```
+unruled run + run-verdict "Failed"      -> verdict null, summary kept
+unruled run + qa-assay-evidence "PASS"  -> verdict PASS (the tool's own reading)
+artifact naming no run + "Complete"     -> verdict null
+run ruled Complete + "Hold"             -> verdict null, summary kept
+run ruled Complete + "PASS"             -> verdict PASS
+4 rows keyed to the proof run; an artifact for a story that does not exist is refused by the FK
+test result: ok. 1 passed; 0 failed; 0 ignored
+```
+
+Rust refusal tests: `rust/forge/tests/forge_runtime.rs` (3 new) — one measurement one artifact keyed to the run, the
+lane's own reading recorded (`PASS`/`FAIL`/`UNPROVEN`), and an artifact that cannot be recorded fails the lane. Unit
+tests: `the_guard_agrees_by_polarity_not_by_spelling` (the legacy assertions word for word),
+`a_reading_that_cannot_be_compared_is_not_kept`, `a_cleared_run_keeps_no_ruling`,
+`the_run_ruling_follows_the_pair_that_settles_it`.
+
+Gates for §7.4–7.5: `cargo test -p db` (54) `-p forge` (93 + 37) `-p server` (114) `-p cli` (127) green;
+`cargo check --workspace --all-targets` clean; both DEV proofs above pass.
+
+Still open, named rather than implied: the run's packet snapshot columns (`goal_snapshot`, `packet_sha_snapshot`,
+`base_commit_hash`, … — migrations 024/106) are unwritten, because the binary loads the packet after the claim has
+already opened the run; the receipt-out seam (`forge_story_run_receipt`) now has rows to read but no Rust reader that
+uses them; hold/verdict out; canonical Story Board writes; a read-only SQL verb in `cli`; the Phase 1 parity audit of
+the 465 legacy tests.
 
