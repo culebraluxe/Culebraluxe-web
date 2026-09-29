@@ -117,10 +117,30 @@ checkout, and proves a `pg_sleep(40)` is cancelled at the 30s ceiling (1 passed,
     37  rust/server/src/forms/mod.rs:222                     update_instance
    ```
 
-   Two are genuinely too big (`forms_write`, `tech::command`) and are not touched by this pass. The
-   review's other three figures (439, 339, 336) are 4× to 12× the real sizes; the nearest function to
-   "forms update" that exists (`update_instance`) is 37. A reviewer's number is evidence, not an order,
-   and this one is wrong — so no refactor was scheduled against it.
+   Two were genuinely too big (`forms_write`, `tech::command`). **`forms_write` is now split** (this pass,
+   2026-09-28): it was not tangled logic but four whole handlers stacked in one `match`, and the move was
+   **text-exact** — each arm's body was sliced out and re-emitted in
+   `rust/server/src/api/portal_bridge/forms_write_actions.rs` unchanged, the arm became a call, and the
+   compiler checked every captured local (it caught one: `save_or_issue` reads `action` to tell `save`
+   from `issue`, now passed in rather than re-derived). Sizes after the split: `forms_write.rs` is 69
+   lines (the dispatcher, `camel_keys`, `str_at`) and the actions file is 667 lines across four
+   functions — `create_form`, `fill_client`, `send_signature`, `save_or_issue`. Only `create_form` needs
+   no `form_id`; the other three act on an existing instance and take `form_id: Option<&str>`, which each
+   already refused as its first act.
+
+   **Verified as a move, not as a rewrite.** `cargo check -p server --all-targets` clean, `cargo test -p
+   server` 106 passed, and the text itself compared at token level: each arm body, whitespace-free, is
+   present unchanged in the new file (630 lines moved, 0 altered; braces and commas excluded because
+   rustfmt is entitled to collapse `{ StatusCode::BAD_REQUEST }` once the body is dedented — it did
+   exactly once). A first attempt to move the arms listed **three** of them and silently missed
+   `"save" | "issue"` because the grep pattern could not match a `|`; the shipped script discovers the
+   arms and asserts they are contiguous with exactly one `_ =>` after the last, which is why that class of
+   miss cannot recur.
+
+   `tech::command` (379 lines) is still too big and is not touched by this pass. The review's other three
+   figures (439, 339, 336) are 4× to 12× the real sizes; the nearest function to "forms update" that
+   exists (`update_instance`) is 37. A reviewer's number is evidence, not an order, and this one is
+   wrong — so no refactor was scheduled against it.
 2. **The rest of the live TypeScript.** `prod-smoke.ts` (the release path) is ported and deleted.
    Still live: `forge:silent-failure-gate` and `scripts/agent-scheduler.mjs`.
 3. **Blanket `use super::*`.** Not cleaned. Measured, not guessed: **290 files** under `rust/` carry
