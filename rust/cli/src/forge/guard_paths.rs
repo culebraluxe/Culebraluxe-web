@@ -11,12 +11,15 @@
 //! distinction is the whole value: a path that exists but holds no test still passes a naive check, so a
 //! declared path must resolve to a file that actually carries a test (an empty file is not a guard).
 //!
-//! THREE FINDINGS, all `fail`:
+//! FOUR FINDINGS, all `fail`:
 //!   * `guard-missing` — a rule in the `Never` list declares no guard at all (a silent hole). The
 //!     handbook's own `guard: NONE — <reason>` form is how a genuinely un-automatable rule is written down;
 //!     silence is not.
 //!   * `guard-path-missing` — a `guard: <path>` whose path is not a file on disk.
 //!   * `guard-path-not-a-test` — a path that exists but holds no test.
+//!   * `guard-none-without-reason` — a bare `guard: NONE` with no reason. The `NONE` form IS the escape
+//!     hatch, so it must be a WRITTEN decision: "cannot be automated because X", not one word that
+//!     silences the gate. Risk 1 of the story: `NONE` is never for a test that was merely not written yet.
 //!
 //! A wrong path is worse than a missing one, because it reads as enforced — so a rule whose Rust guard has
 //! not landed says `guard: NONE — <why>` rather than pointing at a file that looks plausible.
@@ -37,6 +40,9 @@ pub const AGENTS_MD: &str = "AGENTS.md";
 pub struct GuardDeclaration {
     pub line: usize,
     pub value: String,
+    /// The text after the value token. For `guard: NONE — <reason>` this is `<reason>`, and it is what makes
+    /// the escape hatch a written decision rather than a one-word silence.
+    pub reason: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -73,14 +79,16 @@ pub fn guard_declarations(agents_md: &str) -> Vec<GuardDeclaration> {
     let mut out = Vec::new();
     for (index, line) in agents_md.split('\n').enumerate() {
         for at in guard_clause_offsets(line) {
-            let rest = line[at + "guard:".len()..].trim_start();
+            let rest = line[at + "guard:".len()..].trim();
             let value = rest.split_whitespace().next().unwrap_or("").to_string();
             if value.is_empty() {
                 continue;
             }
+            let reason = rest[value.len()..].trim().to_string();
             out.push(GuardDeclaration {
                 line: index + 1,
                 value,
+                reason,
             });
         }
     }
@@ -181,6 +189,20 @@ pub fn check(root: &Path, agents_md: &str) -> Vec<GuardFinding> {
 
     for declaration in guard_declarations(agents_md) {
         if declaration.value.eq_ignore_ascii_case("NONE") {
+            // `None` is the written decision for a rule no test can hold — but only when it says WHY. A bare
+            // `guard: NONE` is a one-word silence, indistinguishable from a test nobody wrote yet, so it fails
+            // the same way a missing path does.
+            if declaration.reason.is_empty() {
+                findings.push(GuardFinding {
+                    rule: "guard-none-without-reason",
+                    line: declaration.line,
+                    reference: declaration.value.clone(),
+                    message:
+                        "`guard: NONE` carries no reason; write why the rule cannot be automated \
+                              (`guard: NONE — <reason>`), or point it at a real test"
+                            .to_string(),
+                });
+            }
             continue;
         }
         let full = root.join(&declaration.value);
@@ -406,6 +428,21 @@ mod tests {
             ),
         );
         assert!(findings.is_empty(), "{findings:?}");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_bare_none_guard_without_a_reason_is_a_silent_hole() {
+        // `NONE` is the escape hatch, so it must be a WRITTEN decision. One word is not: it is
+        // indistinguishable from a test that was merely not written yet (story risk 1), which is the hole
+        // the gate exists to report.
+        let root = fixture_root("bare-none");
+        let findings = check(&root, &handbook("- A rule. guard: NONE\n"));
+        let hit = findings
+            .iter()
+            .find(|finding| finding.rule == "guard-none-without-reason")
+            .expect("a bare `guard: NONE` must fail");
+        assert_eq!(hit.line, 5, "{findings:?}");
         let _ = fs::remove_dir_all(&root);
     }
 
