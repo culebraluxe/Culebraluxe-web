@@ -83,7 +83,7 @@
     "test:sections": "node --import tsx scripts/test-section.ts --list",
     "broken:ts:sweep": "node scripts/broken-ts-sweep.mjs",
     "broken:ts:commands": "node scripts/dead-command-sweep.mjs",
-    "protected-files": "node --import tsx scripts/protected-files.ts",
+    "protected-files": "cargo run --manifest-path rust/Cargo.toml -p cli -- forge protected-files",
     "forge:roi": "APP_ENV=production cargo run --manifest-path rust/Cargo.toml -p cli -- forge roi",
     "test:persistence": "cargo test --manifest-path rust/Cargo.toml -p workflow",
     "agent:work": "APP_ENV=production EXECUTION_ENV=PROD cargo run --manifest-path rust/Cargo.toml -p forge --bin forge-worker --",

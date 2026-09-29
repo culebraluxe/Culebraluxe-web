@@ -5,8 +5,6 @@ scripts/apple-sync-agent.mjs
 scripts/broken-ts-sweep.mjs
 scripts/calendar-sync-agent.mjs
 scripts/dead-command-sweep.mjs
-scripts/protected-files.test.ts
-scripts/protected-files.ts
 scripts/test-harness.mjs
 scripts/test-section.ts
 scripts/test-sections.test.ts
