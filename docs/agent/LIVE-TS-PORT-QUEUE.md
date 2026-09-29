@@ -5,69 +5,69 @@
 > non-legacy estate). The owner kept the wider one: **`docs/agent/ts-allowlist.txt` is the single writer — 259 tracked
 > TS/JS files at the handover, and it may only shrink.** `scripts/live-ts-gate.sh` and `docs/agent/live-ts-baseline.txt`
 > were deleted in the same commit, together with the `ts:count` commands and the CI step that ran them. This file is
-> kept because the classification below is still the map of *what each remaining file needs*; the count it names (69)
-> is the live subset of the allowlist's 259.
+> kept as the record of the sweep below; its old classification is gone, and **every count in it is historical** —
+> `docs/agent/ts-allowlist.txt` is the only current fact.
 
 The gate was `pnpm ts:count` (`scripts/live-ts-gate.sh`, baseline `docs/agent/live-ts-baseline.txt`, CI step
-`live-TS count (may only fall)` in the `static gates` job). **69 files at 2026-09-29. The baseline may only fall.**
+`live-TS count (may only fall)` in the `static gates` job). It counted **69** loadable files, and it is gone too.
 
-This file is the other half of `docs/agent/BROKEN-TS-INVENTORY.md`, and the split is the whole point: that
-inventory lists files that **cannot load**, this one lists files that **load and run**. `broken:ts:sweep` was
-green for a week while 69 working TypeScript files sat outside `legacy/`, which is how a green sweep came to be
-read as "the TypeScript is retired". Re-derive the list any time with `pnpm ts:count:list`.
+This file used to be the other half of `docs/agent/BROKEN-TS-INVENTORY.md`: that inventory listed files that
+**cannot load**, this one listed files that **load and run**, and the split is why a green `broken:ts:sweep` came to
+be read as "the TypeScript is retired" while 69 working files sat outside `legacy/`. That split no longer decides
+anything. **`docs/agent/ts-allowlist.txt` is the single writer of what remains, and it may only shrink.**
 
-## Ask the engine owner before deleting or moving anything here (33 files)
+## 2026-09-29 — the sweep the owner ordered, and what is left in this half
 
-`agent-runtime/` (29) is the worker's body — lanes, roles, the harness client, gateway providers, the assay
-arithmetic — and these four are the entry points around it:
+The order: for every file in the allowlist, **delete it if it cannot load or nothing calls it**; if it is live and
+used, **port it to Rust or a shell script and then delete it**; remove any `pnpm` command or CI step that pointed at
+it; remove its allowlist row in the same commit. Two lanes ran it: **Cline — everything outside `scripts/`, plus
+`scripts/a*` to `scripts/f*`**; GPT — `scripts/g*` to `scripts/z*`.
 
-`scripts/agent-scheduler.mjs` · `scripts/agent-scheduler.test.mjs` · `scripts/forge-engine-worker.ts` ·
-`scripts/forge-silent-failure-gate.ts`
+This lane is done. **139 entries in this half, 7 left**, in three commits:
 
-They are named by `package.json` commands and launchd installs that the operator runs. **Nothing here is deleted
-on a Task-3 sweep without the owner of those files agreeing first** — the captain asked for exactly that check on
-2026-09-29, because a lane deleting the worker that drives it is a self-inflicted outage.
+1. `08648e86` — 88 files, every one carrying the `⚠ BROKEN ON PURPOSE` banner (the sweep's two unloadable
+   categories — `cannot load`, and `loads, but lazy target gone`, `scripts/broken-ts-sweep.mjs:136-139`), all with
+   **zero live importers**; 17 `pnpm` commands that pointed only at them; and the `eslint-suppressions.json` entries
+   that went stale with them (275 file entries before the sweep, 7 now — a suppression for a file that no longer
+   exists is itself a lint failure).
+2. `7acb3d35` — 43 files that do load but that **no live root reaches**, decided by a reverse-import walk from every
+   `pnpm` command, CI step and shell script (a dead file cannot be imported by a live one): 29 `agent-runtime/`
+   modules whose only importers were the files deleted in step 1; the 4-file `workflow_engine/lib/workflow` kernel
+   and 2 `testv2` fixtures (`rust/core/workflow` replaces them, and `rust/FORGE_CUTOVER.md` already said delete once
+   the Rust host is default); `forge-engine-worker.ts` (a shim whose body is `cargo run -p forge --bin forge`);
+   `forge-silent-failure-gate.ts` + `agent-runtime/silent-failure-patterns.ts`; `app-runtime-boundary.mjs` + both
+   `.dependency-cruiser` configs; `check-trailing-whitespace.ts`; `agent-scheduler.test.mjs`; `postcss.config.mjs`.
+3. `2580d44e` — `check-svar-widgets.mts`, the last bannered file in this half (it imported the deleted
+   `ui/projects/*`), with `check:widgets`; plus the dead-command `BASELINE` re-measured on the smaller menu
+   (53 → 25 → 19).
 
-## Ask first, and update the references in the same change (6 files)
+Two of those were decided by fact, not by guessing: `postcss.config.mjs` went only after the Tailwind v4 CLI
+built `rust/ui/styles/app.css` byte-identically without it (its consumer was Next.js; `scripts/site-build.sh` runs
+`npx tailwindcss` directly), and `scripts/tmp-go.sh` was repointed from the deleted shim to `pnpm forge:engine`.
 
-`workflow_engine/` (4: `lib/workflow/{engine,errors,expressions,types}.ts`) and `testv2/engine_tests/{fake-sql,fixtures}.ts`.
+Two false positives the gates themselves produced were fixed in the gates' own terms: deleting a file another lane's
+`scripts/oc-probe3.ts` lazy-imported made that file unloadable and unmarked, which `broken:ts:sweep` correctly refuses
+as DRIFT (it was already ruled DELETE in `docs/agent/TS-TRIAGE.md:183`, so the verdict was applied); and two learn packets
+that cited deleted files had their citations **removed, not baselined**, because
+`docs/agent/harness-lint-baseline.json` states in its own first line that the list may only shrink.
 
-Nothing imports them, and `legacy/` is their natural home — the repository's retirement rule is that the old stack
-lives in `legacy/`, and `legacy/workflow_app/README.md` already links to `../workflow_engine/lib/workflow/types.ts`,
-a link that is broken today and would become correct. But they are not inert: `agent-runtime/test-mode.ts` forbids
-their test globs, `agent-runtime/learn-loop.ts` skips `testv2/`, and `.dependency-cruiser{,.runtime}.js` plus
-`.gitleaks.toml` name both paths. Moving them means editing those four references in the same commit, in someone
-else's crate. Ask, then move.
+### Kept in this half, with the reason and the port each one needs (7)
 
-## The rest (30 files) — the port order
+| File | Why it is still here | The port it needs |
+| --- | --- | --- |
+| `eslint.config.mjs` | `pnpm lint` is a CI gate and eslint is configured in JS; delete it and the lint stops | none exists — it goes when the last JS tool does |
+| `scripts/broken-ts-sweep.mjs` | the ledger gate CI runs (`pnpm broken:ts:sweep`); it measures this retirement, so it must outlive the last file it measures | `rust/cli` `forge ts-sweep` — the banner rule, the import resolution, the counts |
+| `scripts/dead-command-sweep.mjs` | the `pnpm` menu ledger; `--check` refuses a count that moves without the baseline | same subcommand family |
+| `scripts/agent-scheduler.mjs` | installs/status/run/stop/uninstall `com.culebraluxe.agent-worker`, whose plist is **installed on this machine** and drives `pnpm agent:work` (already Rust) | a `rust/cli` launchd subcommand — nothing under `rust/` mentions `LaunchAgents` today |
+| `scripts/apple-sync-agent.mjs` | same, for the installed `com.culebraluxe.apple-sync` agent (6 `pnpm` commands) | as above |
+| `scripts/calendar-sync-agent.mjs` | same, for the installed `com.culebraluxe.calendar-sync` agent (5 `pnpm` commands) | as above |
+| `scripts/apple-local-listener.mjs` | the Apple intake listener, **loaded and running under launchd**; a long-lived process, not a utility | a Rust listener, or accept it as part of the macOS bridge beside `apple-messages-export/` |
 
-**Named by a `package.json` command (8).** These are the operator's menu, so porting them changes what the
-operator types: `apple-sync-agent.mjs` · `calendar-sync-agent.mjs` · `broken-ts-sweep.mjs` · `dead-command-sweep.mjs` ·
-`portal-nav-smoke.mjs` · `protected-files.ts` · `test-section.ts` · `ui-capture-fixtures.mjs`.
+One landmine, named: `scripts/agent-scheduler.test.mjs` was deleted although nothing ran it — its subject (the
+launchd installer above) is still unported, so that coverage is owed back as a Rust test.
 
-**Named by a workflow (1).** `app-runtime-boundary.mjs` (the dependency-cruiser architecture run, via
-`.dependency-cruiser.runtime.js`).
+`e2e/portal-nav-smoke.mjs` is not in the allowlist by design: `scripts/ts-ratchet.sh:18` skips `e2e/*` (the WebKit
+exception). It drives the **current** Yew UI and is named by `pnpm debug:portal-nav`.
 
-**Harness suites the runner discovers by convention (4).** `scripts/*.test.ts` is globbed by
-`scripts/test-harness.mjs`, so these are named by their directory, not by a path: `protected-files.test.ts` ·
-`rust-parity-ledger.test.ts` · `test-sections.test.ts` · `workflow-cli.test.ts`.
-
-**Reached by a live sibling (10).** `rust-live-check/{_env,apple-mail,apple-messages-intake,engine-routes,pool-counters}.mjs`
-(the DEV live-check kit `docs/rust-contributing.md` points at) · `apple-local-listener.mjs` · `rust-parity-ledger.ts` ·
-`test-sections.ts` · `harness-authorization.ts` · `route-authority-manifest.ts`.
-
-**Named only in this baseline and in documents (7) — the cheapest wins, measured not assumed.** Each stem was
-searched across the tree (`git grep -l --fixed-strings <stem>`) and none has a code caller left:
-`check-trailing-whitespace.ts` and `static-page-body.mjs` are named by nothing at all besides this gate's baseline;
-`generate-break-glass-hash.mjs` and `verify-break-glass-secret.mjs` survive only in `docs/auth-bootstrap-order.md`,
-`docs/auth-test-matrix.md` and the storyboard docs; `merge-contacts-notes.ts` in a handoff; `ui-flip-readiness.mjs` in
-`docs/RUST-UI-PORT.md`; `oc-probe3.ts` in a packet and `eslint-suppressions.json`. Two of them (break-glass) touch a
-security control, so they are ported deliberately or not at all — never deleted on a sweep.
-
-## What the count means when the allowlist hits the config floor
-
-The ratification is now `docs/agent/ts-allowlist.txt` (may only shrink). At its floor every remaining entry must be a
-tool configuration file — `eslint.config.mjs`, `postcss.config.mjs`, `.dependency-cruiser.js`,
-`.dependency-cruiser.runtime.js` — because those are settings for the tools that check what is left, not product
-code; the owner decides whether they are exempted by name or replaced. Every other entry in the allowlist is a
-retirement, and a single new `.ts/.tsx/.mts/.cts/.js/.mjs/.cjs` outside `legacy/` fails CI (the owner's rule).
+The other lane (`scripts/g*`–`scripts/z*`) was still in flight when this was written. **The allowlist is the
+authority for what remains**, never a count in prose — including the one in this file.
