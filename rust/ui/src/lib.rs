@@ -21,6 +21,7 @@
 //! entry replaces, and Project Management is deliberately a placeholder.
 
 pub mod calendar;
+pub mod flight_recorder;
 pub mod format;
 pub mod model;
 pub mod navigation;

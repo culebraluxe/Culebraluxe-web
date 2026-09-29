@@ -31,6 +31,7 @@ use super::routes::{
 };
 mod accounting_opps;
 mod clients;
+mod flight_recorder;
 mod forms_templates;
 mod forms_values;
 mod forms_write;
@@ -44,6 +45,8 @@ mod workspaces;
 pub(super) use accounting_opps::*;
 #[allow(unused_imports)]
 pub(super) use clients::*;
+#[allow(unused_imports)]
+pub(super) use flight_recorder::*;
 #[allow(unused_imports)]
 pub(super) use forms_templates::*;
 #[allow(unused_imports)]
@@ -77,6 +80,7 @@ pub fn router() -> Router<ApiState> {
         .route("/api/portal/rust-ui/clients", get(clients))
         .route("/api/portal/rust-ui/page", get(page))
         .route("/api/portal/rust-ui/cabinet", get(cabinet))
+        .route("/api/portal/flight-recorder/{id}", get(flight_recorder))
         .route("/api/portal/rust-ui/deals", get(deals).post(deals_write))
         .route("/api/portal/rust-ui/forms", get(forms).post(forms_write))
         .route(

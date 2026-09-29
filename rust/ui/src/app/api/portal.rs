@@ -315,6 +315,22 @@ impl Endpoint for DealWorkspaceCommand {
     }
 }
 
+/// One process instance's Flight Recorder trace, read for the TECH console.
+///
+/// The internal `/v1/flight-recorder/{id}` is a machine API a page cannot reach; this is the portal
+/// address that resolves the caller once and returns the same transaction read-model, camelCase, unwrapped.
+pub struct FlightRecorderRead {
+    pub instance_id: String,
+}
+
+impl Endpoint for FlightRecorderRead {
+    const METHOD: Method = Method::Get;
+    type Response = domain::FlightRecorderTransaction;
+    fn path(&self) -> String {
+        format!("/api/portal/flight-recorder/{}", encode(&self.instance_id))
+    }
+}
+
 /// The Forge Cockpit, with one story's detail when `selected` is set. Answers `{ tech: ... }`.
 pub struct TechRead {
     pub selected: Option<String>,
