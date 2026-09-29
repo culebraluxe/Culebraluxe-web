@@ -14,6 +14,7 @@ pub mod decisions;
 pub mod definition;
 pub mod deploy;
 pub mod dispatch;
+pub mod engine_fault;
 pub mod evidence_gate;
 pub mod evidence_store;
 pub mod execution_target;

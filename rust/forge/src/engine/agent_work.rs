@@ -99,6 +99,20 @@ pub fn finish_agent_work_run(
     })?
 }
 
+/// Clean the control plane before a claim is taken: the queue and the board are put back into agreement, and work
+/// that no longer exists is cleared rather than left to be read as queue state. Called at the top of every worker
+/// pass, so it runs before each run — see `db::ForgeEngineDao::reconcile_dispatch_queue`.
+pub fn reconcile_dispatch_queue() -> Result<db::DispatchReconcile, String> {
+    with_shared(|db, rt| {
+        let dao = ForgeEngineDao::new(db.clone());
+        rt.block_on(async {
+            dao.reconcile_dispatch_queue()
+                .await
+                .map_err(|error| error.to_string())
+        })
+    })?
+}
+
 /// Touch the claim so `stale_agent_work` does not requeue a run that is still alive. False = no longer claimable.
 pub fn heartbeat_agent_work(work_item_id: &str) -> Result<bool, String> {
     with_shared(|db, rt| {

@@ -350,3 +350,209 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
         claimed.id
     );
 }
+
+/// The engine-fault and pre-run-sweep proof against DEV.
+///
+/// Run with the first walk, single-threaded, because both occupy the system-wide single-active slot:
+///   DATABASE_URL_DEV=... cargo test -p db --test forge_work_claim_dev -- --ignored --test-threads=1
+///
+/// What it proves that unit tests cannot: an engine fault **clears the pair back into the queue** instead of holding
+/// the story (the captain's rule, 2026-09-29 — a broken engine must not cost a story its turn or leave a row that
+/// reads like a verdict), a broken engine that will not stop stops spinning at `max_attempts`, and the sweep run
+/// before every worker pass repairs the three shapes of junk: a story whose run is gone while the board says one is
+/// happening, a `Ready` story with no item to dispatch, and an item whose story no longer expects a run.
+#[tokio::test]
+#[ignore = "needs DATABASE_URL_DEV"]
+async fn engine_faults_clear_the_pair_and_the_plane_is_swept_before_each_run() {
+    let database = Database::connect_target(DbTarget::Dev)
+        .await
+        .expect("DATABASE_URL_DEV");
+    let pool = database.pool();
+    let engine = ForgeEngineDao::new(database.clone());
+    let tag = uuid::Uuid::new_v4().simple().to_string();
+
+    // 1. The stranded pair: the board says a run is happening and nothing anywhere holds it — no claimed item, no
+    //    live instance. This is the shape that sat undispatchable, and the sweep puts the story back where a claim
+    //    can reach it.
+    let stranded = format!("ENG-PROOF-STRANDED-{tag}");
+    sqlx::query(
+        "insert into storyboard_story (id, workstream, title, priority, status, notes)
+         values ($1, 'PROOF', 'Sweep proof (stranded)', 'High', 'In Progress', '')",
+    )
+    .bind(&stranded)
+    .execute(pool)
+    .await
+    .expect("insert stranded proof story");
+    let stranded_item: String = sqlx::query_scalar(
+        "insert into agent_work_item (story_id, state, priority) values ($1, 'Ready', 0) returning id::text",
+    )
+    .bind(&stranded)
+    .fetch_one(pool)
+    .await
+    .expect("insert the stranded item by hand");
+
+    let swept = engine.reconcile_dispatch_queue().await.unwrap();
+    assert!(
+        swept.restated >= 1,
+        "the sweep must put a story whose run is gone back on the board"
+    );
+    let board: String = sqlx::query_scalar("select status from storyboard_story where id = $1")
+        .bind(&stranded)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(board, "Ready", "the board must move back with the item");
+    let open_items: i64 = sqlx::query_scalar(
+        "select count(*) from agent_work_item where story_id = $1 and state = 'Ready'",
+    )
+    .bind(&stranded)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        open_items, 1,
+        "and the dispatch trigger must not open a second item for a story that already has one"
+    );
+
+
+
+    // 2. An engine fault clears the pair. The claim is taken through the real DAO, so the guard being measured is
+    //    the one that runs in production.
+    engine
+        .claim_specific_agent_work(&stranded_item, "proof-worker")
+        .await
+        .unwrap()
+        .expect("claim the proof item");
+    assert!(
+        engine.begin_agent_work_run(&stranded_item).await.unwrap(),
+        "the run must be able to open its claim"
+    );
+    let cleared = engine
+        .finish_agent_work_run(
+            &stranded_item,
+            AgentWorkOutcome::Abandoned,
+            Some("DatabaseUnavailable during workflow.step (sqlstate 25P03)"),
+        )
+        .await
+        .unwrap()
+        .expect("the engine-fault settle must land");
+    assert_eq!(
+        cleared.item_state, "Ready",
+        "an engine fault clears the item back into the queue"
+    );
+    assert_eq!(
+        cleared.story_status,
+        Some("Ready"),
+        "and the story goes back with it, or nothing dispatches the pair again"
+    );
+    let (state, claimed_by, claimed_at, started, finished, error_text): (
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) = sqlx::query_as(
+        "select state, claimed_by, claimed_at::text, started_at::text, finished_at::text, error_text
+           from agent_work_item where id = $1::uuid",
+    )
+    .bind(&stranded_item)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(state, "Ready");
+    assert_eq!(claimed_by, None, "a cleared row names nobody");
+    assert_eq!(claimed_at, None);
+    assert_eq!(started, None, "a cleared row is not a run that started");
+    assert_eq!(finished, None, "and it is not finished either");
+    assert!(
+        error_text.unwrap_or_default().contains("25P03"),
+        "the reason stays on the row, so the fault is readable after the fact"
+    );
+
+    // 3. It is genuinely back in the queue: the same item can be claimed again.
+    assert!(
+        engine
+            .claim_specific_agent_work(&stranded_item, "proof-worker")
+            .await
+            .unwrap()
+            .is_some(),
+        "a cleared item must be claimable again"
+    );
+
+    // 4. A broken engine that will not stop stops spinning: at `max_attempts` the pair stops clearing and holds the
+    //    story where a human will see it, instead of cycling the same story through the queue forever.
+    sqlx::query("update agent_work_item set attempts = coalesce(max_attempts, 3) where id = $1::uuid")
+        .bind(&stranded_item)
+        .execute(pool)
+        .await
+        .unwrap();
+    let exhausted = engine
+        .finish_agent_work_run(&stranded_item, AgentWorkOutcome::Abandoned, Some("still broken"))
+        .await
+        .unwrap()
+        .expect("the exhausted settle must land");
+    assert_eq!(exhausted.item_state, "Error");
+    assert_eq!(exhausted.story_status, Some("Hold"));
+
+
+    // 5. The other two shapes: an item whose story no longer expects a run is cleared, and a `Ready` story whose item
+    //    went away gets one — the case the dispatch trigger cannot see, because it fires on a *change* to `Ready`.
+    let settled_story = format!("ENG-PROOF-SETTLED-{tag}");
+    sqlx::query(
+        "insert into storyboard_story (id, workstream, title, priority, status, notes)
+         values ($1, 'PROOF', 'Sweep proof (settled)', 'High', 'Complete', '')",
+    )
+    .bind(&settled_story)
+    .execute(pool)
+    .await
+    .expect("insert settled proof story");
+    let junk_item: String = sqlx::query_scalar(
+        "insert into agent_work_item (story_id, state, priority) values ($1, 'Ready', 0) returning id::text",
+    )
+    .bind(&settled_story)
+    .fetch_one(pool)
+    .await
+    .expect("insert the junk item");
+
+    let requeued_story = format!("ENG-PROOF-REQUEUED-{tag}");
+    sqlx::query(
+        "insert into storyboard_story (id, workstream, title, priority, status, notes)
+         values ($1, 'PROOF', 'Sweep proof (requeued)', 'High', 'Ready', '')",
+    )
+    .bind(&requeued_story)
+    .execute(pool)
+    .await
+    .expect("insert requeued proof story");
+    sqlx::query("update agent_work_item set state='Cancelled', finished_at=now() where story_id = $1")
+        .bind(&requeued_story)
+        .execute(pool)
+        .await
+        .expect("cancel the item the trigger made, leaving a Ready story with nothing to dispatch");
+
+    let swept = engine.reconcile_dispatch_queue().await.unwrap();
+    assert!(swept.cleared >= 1, "an item over a settled story is junk");
+    let junk_state: String = sqlx::query_scalar("select state from agent_work_item where id = $1::uuid")
+        .bind(&junk_item)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(junk_state, "Cancelled");
+    assert!(
+        swept.queued >= 1,
+        "a Ready story with no item must be given one"
+    );
+    let requeued_items: i64 = sqlx::query_scalar(
+        "select count(*) from agent_work_item where story_id = $1 and state = 'Ready'",
+    )
+    .bind(&requeued_story)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(requeued_items, 1, "and exactly one, never a duplicate");
+
+    // DEV is left as it was found: the proof stories go, and their items cascade.
+    for story in [&stranded, &settled_story, &requeued_story] {
+        cleanup_story(pool, story).await;
+    }
+}

@@ -212,6 +212,15 @@ pub fn run_worker_pass() -> Result<i32, String> {
         .unwrap_or(10);
 
     let recovered = recover_stale_agent_work(stale)?;
+    // Clean the junk before each run (captain, 2026-09-29). A `Ready` story with no work item, a story whose run is
+    // gone while its board still says one is happening, and an item whose story no longer expects a run are all the
+    // same defect - one half of a pair moved without the other - and none of them is queue state a human should have
+    // to read. This runs before the claim, so what is dispatched is what is actually queued.
+    let swept = agent_work::reconcile_dispatch_queue()?;
+    eprintln!(
+        "forge-worker: queue reconciled queued={} restated={} cleared={}",
+        swept.queued, swept.restated, swept.cleared
+    );
     let flights = fire_due_flights()?;
     eprintln!("forge-worker: recovered={recovered} due_flights={flights}");
 
@@ -269,13 +278,13 @@ pub fn run_worker_pass() -> Result<i32, String> {
     let status = match launch {
         Ok(status) => status,
         Err(error) => {
-            // The child never started, so nothing else will ever settle this claim. Settle it here as `Error` (the
-            // legal terminal state) rather than leaving a `Claimed` row for stale recovery to requeue ten minutes
-            // later — the queue should say a launch failed, at the moment it failed.
+            // The child never started, so nothing else will ever settle this claim. Settle it here as `Abandoned`:
+            // no run happened, so the claim is cleared back into the queue instead of being held against the story
+            // (captain, 2026-09-29 - an engine fault must not cost a story its turn).
             let reason = format!("launch Rust Forge engine: {error}");
             match agent_work::finish_agent_work_run(
                 &dispatch.work_item_id,
-                AgentWorkOutcome::Error,
+                AgentWorkOutcome::Abandoned,
                 Some(&reason),
             ) {
                 Ok(Some(settled)) => eprintln!(
@@ -302,17 +311,21 @@ pub fn run_worker_pass() -> Result<i32, String> {
     // The child settles its own run. This is the net under a child that died before it could (crash, kill, OOM):
     // the guard inside `finish_agent_work_run` makes it a no-op if the child already has a verdict, so it can
     // only ever replace a hung `Running` row, never a real one.
+    //
+    // Reaching here therefore means exactly one thing: **the child left no verdict**. That is never a story's
+    // failure - a story that failed says so in the row it writes - so the claim is cleared back into the queue
+    // (`Abandoned`) rather than held. This is the case that cost hours on 2026-09-29: a failed engine ended the
+    // story in a human `Hold` nobody had decided.
     if !status.success() {
         let reason = format!("forge run exited with {}", status.code().unwrap_or(1));
         match agent_work::finish_agent_work_run(
             &dispatch.work_item_id,
-            AgentWorkOutcome::Error,
+            AgentWorkOutcome::Abandoned,
             Some(&reason),
         ) {
             Ok(Some(settled)) => eprintln!(
                 "forge-worker: settled {} as {} with the board ({reason})",
-                dispatch.work_item_id,
-                settled.item_state
+                dispatch.work_item_id, settled.item_state
             ),
             Ok(None) => eprintln!(
                 "forge-worker: {} already had a verdict; left as-is ({reason})",

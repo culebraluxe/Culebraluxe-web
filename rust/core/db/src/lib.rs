@@ -112,9 +112,9 @@ pub use forge_doctor::{
     RoiAttemptRow,
 };
 pub use forge_engine::{
-    settlement_pair, AgentWorkOutcome, AgentWorkSettlement, DealWorkflowFactRow, ForgeAgentWorkRow,
-    ForgeDecisionRow, ForgeEngineDao, ForgeEvidencePatch, ForgeHoldRow, ProcessDefinitionRow,
-    StoryPacketRow, WorkflowCommandReceiptRow,
+    settlement_pair, AgentWorkOutcome, AgentWorkSettlement, DealWorkflowFactRow, DispatchReconcile,
+    ForgeAgentWorkRow, ForgeDecisionRow, ForgeEngineDao, ForgeEvidencePatch, ForgeHoldRow,
+    ProcessDefinitionRow, StoryPacketRow, WorkflowCommandReceiptRow,
 };
 pub use forge_read::{
     ForgeBatchRow, ForgeBenchRow, ForgeQueueWorkRow, ForgeReadDao, ForgeStoryBoardRow,

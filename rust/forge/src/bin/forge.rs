@@ -154,9 +154,11 @@ fn main() {
         Ok(h) => h,
         Err(e) => {
             eprintln!("{e}");
+            // An unusable harness is the engine's own plumbing, not the story's verdict: nothing was attempted, so
+            // the claim is cleared back into the queue (captain, 2026-09-29).
             if settle_work_item(
                 work_item.as_deref(),
-                AgentWorkOutcome::Error,
+                AgentWorkOutcome::Abandoned,
                 Some(&format!("{e}")),
             )
             .is_err()
@@ -199,9 +201,10 @@ fn main() {
             }
             Err(e) => {
                 eprintln!("provision: {e}");
+                // A workspace that could not be provisioned is the engine's own plumbing: the story never ran.
                 if settle_work_item(
                     work_item.as_deref(),
-                    AgentWorkOutcome::Error,
+                    AgentWorkOutcome::Abandoned,
                     Some(&format!("provision: {e}")),
                 )
                 .is_err()
@@ -288,13 +291,19 @@ fn main() {
         }
         Err(error) => {
             eprintln!("{error}");
-            if settle_work_item(
-                work_item.as_deref(),
-                AgentWorkOutcome::Error,
-                Some(&error),
-            )
-            .is_err()
-            {
+            // An engine fault is not the story's verdict. When the failure is the plumbing - the session was taken
+            // away, the transport died, a statement was cut off - nothing about the story was decided, so the claim
+            // is cleared back into the queue and the story keeps its turn (captain, 2026-09-29). Only a failure that
+            // is about the work is recorded against it.
+            let outcome = if forge::engine::engine_fault::is_engine_fault(&error) {
+                eprintln!(
+                    "work_item is cleared back into the queue: the engine failed, not the story"
+                );
+                AgentWorkOutcome::Abandoned
+            } else {
+                AgentWorkOutcome::Error
+            };
+            if settle_work_item(work_item.as_deref(), outcome, Some(&error)).is_err() {
                 eprintln!("work_item could not be settled; the claim is left to recovery");
             }
             std::process::exit(1);
