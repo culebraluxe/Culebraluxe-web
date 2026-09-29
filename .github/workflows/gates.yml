@@ -82,7 +82,7 @@ jobs:
       #     dead TypeScript (`agent-runtime/`, `scripts/*.ts` importing the deleted `legacy/`). Those files
       #     are kept on purpose ("marked, not deleted" — docs/agent/BROKEN-TS-INVENTORY.md) and they cannot
       #     typecheck, so this step cannot be green until they are deleted. The live TypeScript is the
-      #     harness scripts, exercised by `pnpm test:harness` below.
+      #     remaining TypeScript is tracked by the ratchet; executable tests live in Rust.
       #   * `node scripts/app-runtime-boundary.mjs` — it walks `app/`, which was deleted with the TypeScript
       #     application, so it exits ENOENT. Its boundary (the UI must not import the retired server) is
       #     enforced by `eslint.config.mjs` over `rust/ui`-facing TypeScript now.
@@ -99,9 +99,6 @@ jobs:
 
       - name: lint
         run: pnpm lint
-
-      - name: harness tests (no database)
-        run: pnpm test:harness
 
       # THE TYPESCRIPT COUNT — ONE WRITER (owner's order, 2026-09-29).
       #

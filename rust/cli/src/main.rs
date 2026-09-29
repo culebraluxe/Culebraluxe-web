@@ -8,6 +8,7 @@ mod forge;
 mod gmail;
 mod launchd;
 mod smoke;
+mod ui_tool;
 
 use db::{Database, DbTarget, ProjectDao, ProjectTxDao};
 use domain::{CreateProjectRequest, ProjectStatus, UpdateProjectRequest, WbsCategory};
@@ -92,6 +93,7 @@ async fn dispatch_cli(args: &[String]) -> Result<(), Box<dyn Error>> {
         // The post-deploy smoke, ported from `scripts/prod-smoke.ts` on 2026-09-28 (the last live TypeScript in
         // the release path). It exits non-zero when a check fails, which is how `pnpm release` notices.
         "smoke" => smoke::dispatch(&args[1..]).await,
+        "ui" => ui_tool::dispatch(&args[1..]).await,
         "media-cards" => media_cards(&args[1..]).await,
         _ => {
             print_usage();
@@ -176,6 +178,8 @@ fn print_usage() {
     eprintln!("  cargo run -p cli -- forge doctor");
     eprintln!("  cargo run -p cli -- forge roi [--days N] [--format json]");
     eprintln!("  cargo run -p cli -- forge ts-sweep [roots...]");
+    eprintln!("  cargo run -p cli -- forge test-section [--list|--changed [--since <ref>]|<section|area>...]");
+    eprintln!("  cargo run -p cli -- ui capture-fixtures [base-url]");
     eprintln!("  cargo run -p cli -- forge dead-commands [--check] [--format json]");
     eprintln!(
         "  cargo run -p cli -- launchd agent-worker <render|install|status|run|stop|uninstall>"

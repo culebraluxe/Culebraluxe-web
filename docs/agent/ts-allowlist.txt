@@ -2,9 +2,3 @@ eslint.config.mjs
 scripts/apple-local-listener.mjs
 scripts/apple-sync-agent.mjs
 scripts/calendar-sync-agent.mjs
-scripts/test-harness.mjs
-scripts/test-section.ts
-scripts/test-sections.test.ts
-scripts/test-sections.ts
-scripts/ui-capture-fixtures.mjs
-scripts/verify-break-glass-secret.mjs
