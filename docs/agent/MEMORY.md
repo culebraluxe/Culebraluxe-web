@@ -304,3 +304,22 @@ Short facts that are expensive to rediscover.
   are Rust (`rust/cli/src/forge/`) and green — and the ODS chain is down at more places than the mail promotion:
   `contacts-sync.sh` (3 dead calls), `apple-calls-sync.sh`, `email-sync.sh` (both steps) and `gmail-sync.sh`, so
   **every scheduled feed except iMessage is broken**, which is one story and not five.
+- **2026-09-29 (the engine's statement ceiling is not the request path's, and a run dies without one):
+  `FORGE_DB_STATEMENT_TIMEOUT_MS` defaults to 30s in `rust/core/db/src/pool.rs` as "a ceiling against a stuck
+  query, not a performance budget". A scheduled run died ~55s in on `error returned from database: canceling
+  statement due to statement timeout` (SQLSTATE 57014) — the whole run lost, no receipt, the story left
+  `In Progress` — and the identical run with a 5-minute ceiling went on to dispatch its first role turn (measured
+  against `ENG-AUTH-GOOGLE-01`, 2026-09-29). The first write of a run is the one that may wake a suspended Neon
+  branch and touch cold pages; a page load never is. `rust/forge/src/bin/forge.rs` now installs
+  `ENGINE_STATEMENT_TIMEOUT_MS=300000` when the variable is unset, an explicit value still wins, and every run
+  prints `statement_ceiling_ms=` in its banner — the run that died at 30s left no trace of which ceiling it had.
+  The HTTP request path keeps 30s.**
+- **2026-09-29 (`forge doctor` counted the queue as held claims, so its own two lines contradicted each other):
+  `active_claims` was `open_tasks + open_work_items`, and `open_work_items` is every non-terminal
+  `agent_work_item` — `Ready` included. Seven stories merely *queued* made it print `active claims: 8` directly
+  above `oldest claim: none`. AGENTS.md gates hand-driving the engine on that number ("`open engine tasks: 0`,
+  `active claims: 0`"), so the gate was both misleading and unsatisfiable while any story waited — and it produced
+  a wrong diagnosis in this very session (a stale claim read where nothing was held). The count now comes from
+  `held_claims(open_tasks, claimed_work_items)` (state `in ('Claimed','Running')`), with the queue left as the
+  queue. Rule: a number an operator acts on must not conflate "waiting" with "held".**
+
