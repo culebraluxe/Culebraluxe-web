@@ -64,8 +64,10 @@ impl Screen for Account {
     fn update(model: &mut Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> {
         match msg {
             Msg::SessionLoaded(answer) => {
-                let signed_in = answer.as_ref().is_ok_and(|session| session.signed_in);
-                model.session = Remote::from_result(answer);
+                // A failed "who is signed in" is read as signed out: the sign-in forms are the remedy.
+                let session = answer.unwrap_or(GuestSession { signed_in: false, display_name: String::new(), email: None });
+                let signed_in = session.signed_in;
+                model.session = Remote::Loaded(session);
                 if signed_in {
                     model.room = Remote::Loading;
                     return Cmd::request(ClientRoomRead, Msg::RoomLoaded);
@@ -115,14 +117,13 @@ impl Screen for Account {
 
     fn view(model: &Model, _ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
         let signed_in = model.session.loaded().filter(|session| session.signed_in);
-        let body = match (&model.session, signed_in) {
-            (Remote::Loading | Remote::NotAsked, _) => html! {
-                <p class="mt-10 text-sm font-light text-muted-foreground">{"One moment\u{2026}"}</p>
-            },
-            (_, Some(session)) => signed_in_view(model, session),
-            // A failed "who is signed in" shows the sign-in forms: signing in is the remedy.
-            _ => sign_in_view(model, link),
-        };
+        let body = template::remote_toned(&model.session, template::Tone::Site, "your account", |session| {
+            if session.signed_in {
+                signed_in_view(model, session)
+            } else {
+                sign_in_view(model, link)
+            }
+        });
         html! {
             <section class="px-6 py-24 md:px-12 md:py-32">
                 <div class={classes!("mx-auto", if signed_in.is_some() { "max-w-5xl" } else { "max-w-md" })}>
@@ -175,18 +176,12 @@ fn signed_in_view(model: &Model, session: &GuestSession) -> Html {
 }
 
 fn client_room(room: &Remote<ClientRoomResponse>) -> Html {
-    match room {
-        Remote::NotAsked | Remote::Loading => html! {
-            <div class="border-y border-border py-10 text-sm font-light text-muted-foreground">
-                {"Reading your transaction room…"}
-            </div>
-        },
-        Remote::Failed(error) => html! {
-            <div class="border border-destructive/30 px-5 py-4 text-sm font-light text-destructive">
-                { error.message.clone() }
-            </div>
-        },
-        Remote::Loaded(response) if !response.linked || response.room.is_none() => html! {
+    template::remote_toned(room, template::Tone::Site, "your transaction room", client_room_loaded)
+}
+
+fn client_room_loaded(response: &ClientRoomResponse) -> Html {
+    match response {
+        response if !response.linked || response.room.is_none() => html! {
             <div class="border-y border-border py-8">
                 <p class="font-serif text-2xl font-light">{"Your CulebraLuxe room"}</p>
                 <p class="mt-2 max-w-2xl text-sm font-light leading-6 text-muted-foreground">
@@ -194,7 +189,7 @@ fn client_room(room: &Remote<ClientRoomResponse>) -> Html {
                 </p>
             </div>
         },
-        Remote::Loaded(response) => {
+        response => {
             let room = response.room.as_ref().expect("linked response has room");
             html! {
                 <div class="space-y-8">

@@ -104,18 +104,14 @@ fn toolbar(
     let recurrence_change = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: Event| {
-            let value = event
-                .target_unchecked_into::<web_sys::HtmlSelectElement>()
-                .value();
+            let value = crate::app::exec::select_value(&event);
             on_msg.emit(Msg::ProjectCalendarRecurrenceScopeSelected(value));
         })
     };
     let filter_change = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: Event| {
-            let value = event
-                .target_unchecked_into::<web_sys::HtmlSelectElement>()
-                .value();
+            let value = crate::app::exec::select_value(&event);
             on_msg.emit(Msg::ProjectCalendarFilterSelected(value));
         })
     };
@@ -200,7 +196,7 @@ fn toolbar(
                 <span class="text-[var(--portal-gold-muted)]">
                     {
                         if projects.calendar_loading {
-                            "Loading visible dates…".to_owned()
+                            crate::app::template::loading_words("visible dates")
                         } else if let Some(pending) = model.calendar_pending {
                             match pending.phase.as_str() {
                                 "queueing" => "Queueing Apple change…".into(),
@@ -515,14 +511,14 @@ fn time_labels(grid: GridSpec) -> Html {
 fn drag_target(
     key: String,
     on_msg: &Callback<Msg>,
-) -> (Callback<web_sys::DragEvent>, Callback<web_sys::DragEvent>) {
+) -> (Callback<DragEvent>, Callback<DragEvent>) {
     let enter_msg = on_msg.clone();
     let enter_key = key;
-    let ondragenter = Callback::from(move |event: web_sys::DragEvent| {
+    let ondragenter = Callback::from(move |event: DragEvent| {
         event.prevent_default();
         enter_msg.emit(Msg::ProjectCalendarDragTargetChanged(Some(enter_key.clone())));
     });
-    let ondragover = Callback::from(|event: web_sys::DragEvent| event.prevent_default());
+    let ondragover = Callback::from(|event: DragEvent| event.prevent_default());
     (ondragenter, ondragover)
 }
 
@@ -730,7 +726,7 @@ fn timed_event(
             if editable {
                 <div
                     draggable="true"
-                    ondragstart={Callback::from(move |event: web_sys::DragEvent| {
+                    ondragstart={Callback::from(move |event: DragEvent| {
                         event.stop_propagation();
                         resize_start.emit(event);
                     })}
@@ -749,7 +745,7 @@ fn drag_start(
     event: &CalendarChip,
     kind: &'static str,
     on_msg: &Callback<Msg>,
-) -> Callback<web_sys::DragEvent> {
+) -> Callback<DragEvent> {
     let payload = serde_json::json!({
         "kind": kind,
         "occurrenceId": event.id,
@@ -762,7 +758,7 @@ fn drag_start(
     .to_string();
     let id = event.id.clone();
     let on_msg = on_msg.clone();
-    Callback::from(move |event: web_sys::DragEvent| {
+    Callback::from(move |event: DragEvent| {
         if let Some(data) = event.data_transfer() {
             let _ = data.set_data("text/plain", &payload);
             data.set_effect_allowed("move");
@@ -771,12 +767,12 @@ fn drag_start(
     })
 }
 
-fn drag_end(on_msg: &Callback<Msg>) -> Callback<web_sys::DragEvent> {
+fn drag_end(on_msg: &Callback<Msg>) -> Callback<DragEvent> {
     let on_msg = on_msg.clone();
-    Callback::from(move |_: web_sys::DragEvent| on_msg.emit(Msg::ProjectCalendarDragEnded))
+    Callback::from(move |_: DragEvent| on_msg.emit(Msg::ProjectCalendarDragEnded))
 }
 
-fn drop_payload(event: &web_sys::DragEvent) -> Option<serde_json::Value> {
+fn drop_payload(event: &DragEvent) -> Option<serde_json::Value> {
     let data = event.data_transfer()?;
     let raw = data.get_data("text/plain").ok()?;
     serde_json::from_str(&raw).ok()
@@ -791,9 +787,9 @@ fn timed_drop(
     date: String,
     slot: usize,
     grid: GridSpec,
-) -> Callback<web_sys::DragEvent> {
+) -> Callback<DragEvent> {
     let on_msg = on_msg.clone();
-    Callback::from(move |event: web_sys::DragEvent| {
+    Callback::from(move |event: DragEvent| {
         event.prevent_default();
         let Some(payload) = drop_payload(&event) else {
             return;
@@ -838,9 +834,9 @@ fn timed_drop(
     })
 }
 
-fn all_day_drop(on_msg: &Callback<Msg>, date: String) -> Callback<web_sys::DragEvent> {
+fn all_day_drop(on_msg: &Callback<Msg>, date: String) -> Callback<DragEvent> {
     let on_msg = on_msg.clone();
-    Callback::from(move |event: web_sys::DragEvent| {
+    Callback::from(move |event: DragEvent| {
         event.prevent_default();
         let Some(payload) = drop_payload(&event) else {
             return;

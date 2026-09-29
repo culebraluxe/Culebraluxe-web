@@ -65,8 +65,8 @@ pub(super) fn portfolio(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
                         <tbody>
                             if model.loading && data.is_none() {
                                 <tr>
-                                    <td colspan="7" class="px-4 py-12 text-center text-sm font-light text-black/40">
-                                        {"Loading contracts…"}
+                                    <td colspan="7" class="px-4 py-12 text-center">
+                                        { crate::app::template::loading_line("contracts") }
                                     </td>
                                 </tr>
                             } else if deals.is_empty() {
@@ -99,36 +99,28 @@ fn create_panel(model: &Vm<'_>, data: Option<&PortalDealsPage>, on_msg: &Callbac
     let property_change = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: Event| {
-            let value = event
-                .target_unchecked_into::<web_sys::HtmlSelectElement>()
-                .value();
+            let value = crate::app::exec::select_value(&event);
             on_msg.emit(Msg::DealCreatePropertyChanged(value));
         })
     };
     let client_input = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
-            let value = event
-                .target_unchecked_into::<web_sys::HtmlInputElement>()
-                .value();
+            let value = crate::app::exec::input_value(&event);
             on_msg.emit(Msg::DealCreateClientQueryChanged(value));
         })
     };
     let owner_change = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: Event| {
-            let value = event
-                .target_unchecked_into::<web_sys::HtmlSelectElement>()
-                .value();
+            let value = crate::app::exec::select_value(&event);
             on_msg.emit(Msg::DealCreateOwnerChanged(value));
         })
     };
     let notes_change = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
-            let value = event
-                .target_unchecked_into::<web_sys::HtmlTextAreaElement>()
-                .value();
+            let value = crate::app::exec::textarea_value(&event);
             on_msg.emit(Msg::DealCreateNotesChanged(value));
         })
     };
@@ -323,7 +315,7 @@ fn deal_row(deal: &PortalDeal) -> Html {
             <td class="px-4 py-3">
                 <div class="flex items-center gap-3">
                     if let Some(media_id) = deal.hero_media_id.as_ref() {
-                        <img src={format!("/api/media/{media_id}")} alt={deal.property_name.clone()}
+                        <img src={crate::app::api::links::media(&media_id)} alt={deal.property_name.clone()}
                             class="h-10 w-14 shrink-0 rounded-md object-cover" />
                     } else {
                         <div class="h-10 w-14 shrink-0 rounded-md bg-gradient-to-br from-[var(--portal-blue-pale)] to-[var(--portal-navy-soft)]"></div>
@@ -760,9 +752,7 @@ fn other_participant_controls(
         let on_msg = on_msg.clone();
         let id = id.clone();
         Callback::from(move |event: InputEvent| {
-            let value = event
-                .target_unchecked_into::<web_sys::HtmlInputElement>()
-                .value();
+            let value = crate::app::exec::input_value(&event);
             on_msg.emit(Msg::DealWorkspaceOtherRoleChanged {
                 participant_id: id.clone(),
                 value,
@@ -799,9 +789,7 @@ fn add_participant_form(model: &Vm<'_>, on_msg: &Callback<Msg>, busy: bool) -> H
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
             on_msg.emit(Msg::DealWorkspaceParticipantQueryChanged(
-                event
-                    .target_unchecked_into::<web_sys::HtmlInputElement>()
-                    .value(),
+                crate::app::exec::input_value(&event),
             ))
         })
     };
@@ -809,9 +797,7 @@ fn add_participant_form(model: &Vm<'_>, on_msg: &Callback<Msg>, busy: bool) -> H
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
             on_msg.emit(Msg::DealWorkspaceParticipantRoleChanged(
-                event
-                    .target_unchecked_into::<web_sys::HtmlInputElement>()
-                    .value(),
+                crate::app::exec::input_value(&event),
             ))
         })
     };
@@ -852,9 +838,7 @@ fn structural_participant_form(
         let on_msg = on_msg.clone();
         Callback::from(move |event: Event| {
             on_msg.emit(Msg::DealWorkspaceStructuralRoleChanged(
-                event
-                    .target_unchecked_into::<web_sys::HtmlSelectElement>()
-                    .value(),
+                crate::app::exec::select_value(&event),
             ))
         })
     };
@@ -862,9 +846,7 @@ fn structural_participant_form(
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
             on_msg.emit(Msg::DealWorkspaceStructuralQueryChanged(
-                event
-                    .target_unchecked_into::<web_sys::HtmlInputElement>()
-                    .value(),
+                crate::app::exec::input_value(&event),
             ))
         })
     };
@@ -872,9 +854,7 @@ fn structural_participant_form(
         let on_msg = on_msg.clone();
         Callback::from(move |event: Event| {
             on_msg.emit(Msg::DealWorkspaceStructuralOwnerChanged(
-                event
-                    .target_unchecked_into::<web_sys::HtmlSelectElement>()
-                    .value(),
+                crate::app::exec::select_value(&event),
             ))
         })
     };
@@ -963,9 +943,7 @@ fn tasks_card(
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
             on_msg.emit(Msg::DealWorkspaceTaskTitleChanged(
-                event
-                    .target_unchecked_into::<web_sys::HtmlInputElement>()
-                    .value(),
+                crate::app::exec::input_value(&event),
             ))
         })
     };
@@ -973,9 +951,7 @@ fn tasks_card(
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
             on_msg.emit(Msg::DealWorkspaceTaskDetailChanged(
-                event
-                    .target_unchecked_into::<web_sys::HtmlInputElement>()
-                    .value(),
+                crate::app::exec::input_value(&event),
             ))
         })
     };
@@ -983,9 +959,7 @@ fn tasks_card(
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
             on_msg.emit(Msg::DealWorkspaceTaskDueChanged(
-                event
-                    .target_unchecked_into::<web_sys::HtmlInputElement>()
-                    .value(),
+                crate::app::exec::input_value(&event),
             ))
         })
     };
@@ -1250,7 +1224,7 @@ fn offer_form(
         Callback::from(move |event: InputEvent| {
             on_msg.emit(Msg::DealWorkspaceOfferAmountChanged {
                 key: key.clone(),
-                value: event.target_unchecked_into::<web_sys::HtmlInputElement>().value(),
+                value: crate::app::exec::input_value(&event),
             })
         })
     };
@@ -1261,7 +1235,7 @@ fn offer_form(
             on_msg.emit(Msg::DealWorkspaceOfferTermChanged {
                 key: key.clone(),
                 field,
-                value: event.target_unchecked_into::<web_sys::HtmlInputElement>().value(),
+                value: crate::app::exec::input_value(&event),
             })
         })
     };
@@ -1272,7 +1246,7 @@ fn offer_form(
             on_msg.emit(Msg::DealWorkspaceOfferTermChanged {
                 key: key.clone(),
                 field: "contingencies",
-                value: event.target_unchecked_into::<web_sys::HtmlTextAreaElement>().value(),
+                value: crate::app::exec::textarea_value(&event),
             })
         })
     };
@@ -1371,9 +1345,7 @@ fn showing_row(
         Callback::from(move |event: InputEvent| {
             on_msg.emit(Msg::DealWorkspaceShowingTimeChanged {
                 showing_id: id.clone(),
-                value: event
-                    .target_unchecked_into::<web_sys::HtmlInputElement>()
-                    .value(),
+                value: crate::app::exec::input_value(&event),
             })
         })
     };

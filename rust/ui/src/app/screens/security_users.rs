@@ -132,10 +132,6 @@ const ROLES: [(&str, &str); 5] = [
 
 impl SecurityUsers {
     fn body(&self, model: &Model, ctx: &ScreenCtx, on_msg: &Callback<Msg>) -> Html {
-        if let Remote::Failed(error) = &model.read {
-            return template::failure(error);
-        }
-        let users = model.read.loaded().map(Vec::as_slice);
         let can_manage = ctx.can(domain::security::ROLE_MANAGE);
 
         html! {
@@ -152,7 +148,8 @@ impl SecurityUsers {
                     <div class="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm" role="alert">{ error.clone() }</div>
                 }
                 <section class={classes!(PANEL, "p-6")}>
-                    if let Some(users) = users {
+                    { template::remote(&model.read, "application users", |users| html! {
+                    <>
                         if users.is_empty() {
                             <p class="text-sm font-light text-black/45">{"No internal application users."}</p>
                         } else {
@@ -175,9 +172,8 @@ impl SecurityUsers {
                                 </table>
                             </div>
                         }
-                    } else {
-                        <p class="text-sm font-light text-black/40">{"Reading application users…"}</p>
-                    }
+                    </>
+                    }) }
                 </section>
 
                 if can_manage {
@@ -212,9 +208,7 @@ impl SecurityUsers {
             let on_msg = on_msg.clone();
             let app_user_id = user.app_user_id.clone();
             Callback::from(move |event: Event| {
-                let role_code = event
-                    .target_unchecked_into::<web_sys::HtmlSelectElement>()
-                    .value();
+                let role_code = crate::app::exec::select_value(&event);
                 on_msg.emit(Msg::SecurityUserRoleDraftChanged {
                     app_user_id: app_user_id.clone(),
                     role_code,

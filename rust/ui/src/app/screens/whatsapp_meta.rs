@@ -75,23 +75,15 @@ impl WhatsAppMeta {
     /// A screen that has not been answered yet says so. It must not show an empty list of numbers, because "Meta returned
     /// nothing" and "we have not asked yet" are different facts and this is the screen whose job is telling them apart.
     fn body(&self, model: &Model) -> Html {
-        if let Remote::Failed(error) = &model.read {
-            return template::failure(error);
-        }
-        let Some(read) = model.read.loaded().cloned() else {
-            return html! {
-                <section class={PANEL}>
-                    <p class="text-sm">{"Asking Meta…"}</p>
-                </section>
-            };
-        };
-        html! {
-            <>
-                { self.facts(&read) }
-                { self.problem(&read) }
-                { for read.phones.iter().map(phone_card) }
-            </>
-        }
+        template::remote(&model.read, "what Meta reports", |read| {
+            html! {
+                <>
+                    { self.facts(read) }
+                    { self.problem(read) }
+                    { for read.phones.iter().map(phone_card) }
+                </>
+            }
+        })
     }
 
     /// The WABA ID and whether a token is configured — the two things the reader needs before any error makes sense.

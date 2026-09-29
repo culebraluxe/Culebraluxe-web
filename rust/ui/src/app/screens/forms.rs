@@ -668,9 +668,7 @@ fn create_form(model: &mut Model, template_id: &str) -> Cmd<Msg> {
 
 fn view(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
     if model.loading {
-        return html! {
-            <p class="py-10 text-sm font-light text-black/45">{"Loading Forms…"}</p>
-        };
+        return crate::app::template::loading_panel("Forms");
     }
     let Some(page) = model.page.as_ref() else {
         return html! {
@@ -719,9 +717,7 @@ fn view(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
 
     let grok_changed = link.callback(|event: InputEvent| {
         Msg::GrokPromptChanged(
-            event
-                .target_unchecked_into::<web_sys::HtmlInputElement>()
-                .value(),
+            crate::app::exec::input_value(&event),
         )
     });
     let grok_key = link.callback(|event: KeyboardEvent| {
@@ -730,9 +726,7 @@ fn view(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
             Msg::GrokGo
         } else {
             Msg::GrokPromptChanged(
-                event
-                    .target_unchecked_into::<web_sys::HtmlInputElement>()
-                    .value(),
+                crate::app::exec::input_value(&event),
             )
         }
     });
@@ -955,9 +949,7 @@ fn view(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
                                 placeholder="Document text…"
                                 oninput={link.callback(|event: InputEvent| {
                                     Msg::DetailsChanged(
-                                        event
-                                            .target_unchecked_into::<web_sys::HtmlTextAreaElement>()
-                                            .value(),
+                                        crate::app::exec::textarea_value(&event),
                                     )
                                 })}
                                 class="mt-2 block min-h-[16rem] w-full resize-y rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/80 px-3 py-2.5 font-serif text-[15px] font-light leading-7 text-black/80 outline-none focus:border-[var(--portal-navy-soft)] disabled:opacity-60"
@@ -1030,16 +1022,12 @@ fn forms_rail(
         .collect::<Vec<_>>();
     let query_changed = link.callback(|event: InputEvent| {
         Msg::SessionQueryChanged(
-            event
-                .target_unchecked_into::<web_sys::HtmlInputElement>()
-                .value(),
+            crate::app::exec::input_value(&event),
         )
     });
     let template_changed = link.callback(|event: Event| {
         Msg::TemplateSelected(
-            event
-                .target_unchecked_into::<web_sys::HtmlSelectElement>()
-                .value(),
+            crate::app::exec::select_value(&event),
         )
     });
 
@@ -1063,10 +1051,10 @@ fn forms_rail(
                     <div class="mb-2 space-y-1.5 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/60 p-2">
                         <p class="text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--portal-gold-muted)]">{"Who is this form for?"}</p>
                         <input value={model.new_seller.clone()} placeholder="Seller, as on the contract"
-                            oninput={link.callback(|event: InputEvent| Msg::NewSellerChanged(event.target_unchecked_into::<web_sys::HtmlInputElement>().value()))}
+                            oninput={link.callback(|event: InputEvent| Msg::NewSellerChanged(crate::app::exec::input_value(&event)))}
                             class="block h-8 w-full rounded-md border border-[var(--portal-panel-border)] bg-white px-2 text-[12px] text-[var(--portal-navy)]" />
                         <input value={model.new_catastro.clone()} placeholder="Catastro number (optional)"
-                            oninput={link.callback(|event: InputEvent| Msg::NewCatastroChanged(event.target_unchecked_into::<web_sys::HtmlInputElement>().value()))}
+                            oninput={link.callback(|event: InputEvent| Msg::NewCatastroChanged(crate::app::exec::input_value(&event)))}
                             class="block h-8 w-full rounded-md border border-[var(--portal-panel-border)] bg-white px-2 text-[12px] text-[var(--portal-navy)]" />
                         <div class="flex justify-end gap-1.5">
                             <button type="button" onclick={link.callback(|_: MouseEvent| Msg::NewFormCancel)}
@@ -1203,9 +1191,7 @@ fn field_control(
             let name = field.name.clone();
             let changed = link.callback(move |event: InputEvent| Msg::FieldChanged {
                 name: name.clone(),
-                value: event
-                    .target_unchecked_into::<web_sys::HtmlTextAreaElement>()
-                    .value(),
+                value: crate::app::exec::textarea_value(&event),
             });
             html! {
                 <textarea
@@ -1220,9 +1206,7 @@ fn field_control(
             let name = field.name.clone();
             let changed = link.callback(move |event: InputEvent| Msg::FieldChanged {
                 name: name.clone(),
-                value: event
-                    .target_unchecked_into::<web_sys::HtmlSelectElement>()
-                    .value(),
+                value: crate::app::exec::select_value(&event),
             });
             html! {
                 <select value={value} oninput={changed} class={INPUT_CLASS}>
@@ -1239,9 +1223,7 @@ fn field_control(
             let name = field.name.clone();
             let changed = link.callback(move |event: InputEvent| Msg::FieldChanged {
                 name: name.clone(),
-                value: event
-                    .target_unchecked_into::<web_sys::HtmlInputElement>()
-                    .value()
+                value: crate::app::exec::input_value(&event)
                     .replace('$', "").replace(',', ""),
             });
             html! {
@@ -1257,9 +1239,7 @@ fn field_control(
             let name = field.name.clone();
             let changed = link.callback(move |event: InputEvent| Msg::FieldChanged {
                 name: name.clone(),
-                value: event
-                    .target_unchecked_into::<web_sys::HtmlInputElement>()
-                    .value(),
+                value: crate::app::exec::input_value(&event),
             });
             html! {
                 <input
@@ -1274,9 +1254,7 @@ fn field_control(
             let name = field.name.clone();
             let changed = link.callback(move |event: InputEvent| Msg::FieldChanged {
                 name: name.clone(),
-                value: event
-                    .target_unchecked_into::<web_sys::HtmlInputElement>()
-                    .value(),
+                value: crate::app::exec::input_value(&event),
             });
             html! {
                 <input type="text" value={value} oninput={changed} class={INPUT_CLASS} />

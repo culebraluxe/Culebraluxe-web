@@ -386,7 +386,7 @@ fn planned_bar(item: &PortalProjectWorkItem, start: NaiveDate, finish: NaiveDate
     let width = timeline::planned_bar_width(start, finish, spec).max(10) - 4;
     let id = item.id.clone();
     let drag_id = id.clone();
-    let drag_start = on_msg.reform(move |event: web_sys::DragEvent| {
+    let drag_start = on_msg.reform(move |event: DragEvent| {
         if let Some(data) = event.data_transfer() {
             let _ = data.set_data("text/plain", &drag_id);
             data.set_effect_allowed("move");
@@ -396,7 +396,7 @@ fn planned_bar(item: &PortalProjectWorkItem, start: NaiveDate, finish: NaiveDate
     let label = format!("{} planned {start} through {finish}; status {}; select or drag to reschedule", item.title, item.status);
     html! {
         <button type="button" draggable="true" ondragstart={drag_start}
-            ondragend={on_msg.reform(|_: web_sys::DragEvent| Msg::ProjectTimelineDragEnded)}
+            ondragend={on_msg.reform(|_: DragEvent| Msg::ProjectTimelineDragEnded)}
             onclick={on_msg.reform(move |_: MouseEvent| Msg::ProjectNodeSelected(Some(id.clone())))}
             aria-label={label.clone()} title={label}
             class={classes!("absolute","top-[19px]","z-10","h-4","cursor-grab","rounded","shadow-sm","ring-1","ring-white/70",
@@ -458,7 +458,7 @@ fn milestone(
     let ondragstart = {
         let on_msg = on_msg.clone();
         let id = item_id.clone();
-        Callback::from(move |event: web_sys::DragEvent| {
+        Callback::from(move |event: DragEvent| {
             if let Some(data) = event.data_transfer() {
                 let _ = data.set_data("text/plain", &id);
                 data.set_effect_allowed("move");
@@ -468,7 +468,7 @@ fn milestone(
     };
     let ondragend = {
         let on_msg = on_msg.clone();
-        Callback::from(move |_: web_sys::DragEvent| on_msg.emit(Msg::ProjectTimelineDragEnded))
+        Callback::from(move |_: DragEvent| on_msg.emit(Msg::ProjectTimelineDragEnded))
     };
     let onclick = {
         let on_msg = on_msg.clone();
@@ -528,18 +528,18 @@ fn drag_targets(
                 let enter = {
                     let on_msg = on_msg.clone();
                     let date_text = date_text.clone();
-                    Callback::from(move |event: web_sys::DragEvent| {
+                    Callback::from(move |event: DragEvent| {
                         event.prevent_default();
                         on_msg.emit(Msg::ProjectTimelineDragTargetChanged(Some(date_text.clone())));
                     })
                 };
-                let over = Callback::from(|event: web_sys::DragEvent| event.prevent_default());
+                let over = Callback::from(|event: DragEvent| event.prevent_default());
                 let drop = {
                     let on_msg = on_msg.clone();
                     let date_text = date_text.clone();
                     let item_id = item_id.clone();
                     let planned = projects.timeline_drag_kind == "planned";
-                    Callback::from(move |event: web_sys::DragEvent| {
+                    Callback::from(move |event: DragEvent| {
                         event.prevent_default();
                         if planned {
                             on_msg.emit(Msg::ProjectTimelinePlannedMoved {

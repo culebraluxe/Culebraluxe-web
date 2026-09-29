@@ -127,7 +127,6 @@ const SECTIONS: [(&str, &str, &str); 3] = [
 
 impl Security {
     fn body(&self, model: &Model, ctx: &ScreenCtx, on_msg: &Callback<Msg>) -> Html {
-        let read = model.read.loaded().cloned();
         html! {
             <div>
                 <div class="mb-8">
@@ -139,13 +138,16 @@ impl Security {
                     </p>
                 </div>
                 { self.sections() }
-                { self.status_panel(read.as_ref().map(|read| &read.status)) }
-                if let Remote::Failed(error) = &model.read { { template::failure(error) } }
                 if let Some(error) = &model.error {
                     <div class="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm" role="alert">{ error.clone() }</div>
                 }
-                { self.entitlement_panel(model, ctx, read.as_ref().map(|read| read.role_entitlements.as_slice()), on_msg) }
-                { self.break_glass_panel(read.as_ref().map(|read| &read.break_glass)) }
+                { template::remote(&model.read, "the security projection", |read| html! {
+                    <>
+                        { self.status_panel(&read.status) }
+                        { self.entitlement_panel(model, ctx, Some(read.role_entitlements.as_slice()), on_msg) }
+                        { self.break_glass_panel(&read.break_glass) }
+                    </>
+                }) }
             </div>
         }
     }
@@ -204,9 +206,7 @@ impl Security {
             let on_msg = on_msg.clone();
             Callback::from(move |event: Event| {
                 on_msg.emit(Msg::SecurityRoleSelected(
-                    event
-                        .target_unchecked_into::<web_sys::HtmlSelectElement>()
-                        .value(),
+                    crate::app::exec::select_value(&event),
                 ));
             })
         };
@@ -263,7 +263,7 @@ impl Security {
                         }
                     }
                 } else {
-                    <p class="mt-3 text-sm font-light text-black/40">{"Reading role entitlements…"}</p>
+                    <p class="mt-3 text-sm font-light text-black/40">{"No internal roles."}</p>
                 }
             </section>
         }
@@ -273,15 +273,7 @@ impl Security {
     ///
     /// The owner-assignment badge is the live panel's: amber when nobody holds the owner role, navy when somebody does. That
     /// is the one judgement the panel made, and it is a judgement about a count rather than about a person.
-    fn status_panel(&self, status: Option<&PortalSecurityStatus>) -> Html {
-        let Some(status) = status else {
-            return html! {
-                <section class={classes!(PANEL, "mt-6", "p-6")}>
-                    <h2 class="font-serif text-2xl font-light">{"Security Status"}</h2>
-                    <p class="mt-3 text-sm font-light text-black/40">{"Reading the security projection…"}</p>
-                </section>
-            };
-        };
+    fn status_panel(&self, status: &PortalSecurityStatus) -> Html {
         let items: [(&str, i64, &str); 9] = [
             (
                 "Active internal users",
@@ -373,15 +365,7 @@ impl Security {
     ///
     /// THE DASH IS NOT AN ERROR STATE. A configuration that is not set up is not a failure to load — it is a fact about the
     /// deployment, and the panel states it in the same calm register as "Ready".
-    fn break_glass_panel(&self, readiness: Option<&PortalBreakGlassReadiness>) -> Html {
-        let Some(readiness) = readiness else {
-            return html! {
-                <section class={classes!(PANEL, "mt-6", "p-6")}>
-                    <h2 class="font-serif text-2xl font-light">{"Break-glass readiness"}</h2>
-                    <p class="mt-3 text-sm font-light text-black/40">{"Reading the readiness projection…"}</p>
-                </section>
-            };
-        };
+    fn break_glass_panel(&self, readiness: &PortalBreakGlassReadiness) -> Html {
         let items: [(&str, bool); 6] = [
             ("Break-glass configured", readiness.configured),
             ("Break-glass enabled", readiness.enabled),

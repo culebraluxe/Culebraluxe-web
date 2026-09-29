@@ -163,7 +163,7 @@ fn filters(state: &super::super::CatchUpState, entries: &[&PortalProjectWorkItem
     areas.sort_unstable();
     areas.dedup();
     let onchange = on_msg.reform(|event: Event| {
-        Msg::CatchUpAreaSelected(event.target_unchecked_into::<web_sys::HtmlSelectElement>().value())
+        Msg::CatchUpAreaSelected(crate::app::exec::select_value(&event))
     });
     html! {
         <div class="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--portal-panel-border)]/70 px-3 py-2">
@@ -297,11 +297,7 @@ fn title_case(value: &str) -> String {
 
 /// People: the relationship queue on the left, the chosen person on the right, in the panel's glass.
 fn people(state: &super::super::CatchUpState, on_msg: &Callback<Msg>) -> Html {
-    let body = match &state.people {
-        Remote::Loaded(page) => people_workspace(page, state, on_msg),
-        Remote::Failed(error) => html! { <p class="px-4 py-10 text-center text-sm font-light text-[var(--portal-archive)]">{ error.message.clone() }</p> },
-        _ => html! { <p class="px-4 py-10 text-center text-sm font-light text-black/40">{"Loading who needs you…"}</p> },
-    };
+    let body = crate::app::template::remote(&state.people, "who needs you", |page| people_workspace(page, state, on_msg));
     html! {
         <div class="flex min-h-0 flex-1 flex-col px-3 py-2">
             if let Some(notice) = &state.notice {

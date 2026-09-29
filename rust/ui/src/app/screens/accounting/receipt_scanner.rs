@@ -183,8 +183,7 @@ impl View {
         let change = {
             let on_msg = on_msg.clone();
             Callback::from(move |event: Event| {
-                let select: web_sys::HtmlSelectElement = event.target_unchecked_into();
-                on_msg.emit(Msg::ScannerCategoryChanged(select.value()));
+                on_msg.emit(Msg::ScannerCategoryChanged(crate::app::exec::select_value(&event)));
             })
         };
         let submit = {

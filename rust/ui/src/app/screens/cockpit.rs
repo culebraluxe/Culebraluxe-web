@@ -391,7 +391,7 @@ fn featured_deal(deal: Option<&PortalCockpitDeal>) -> Html {
             <div class="flex gap-3 p-4">
                 if let Some(media_id) = deal.hero_media_id.as_deref() {
                     <img
-                        src={format!("/api/media/{media_id}")}
+                        src={crate::app::api::links::media(&media_id)}
                         alt={deal.property_name.clone()}
                         class="h-16 w-20 shrink-0 rounded-md object-cover"
                     />

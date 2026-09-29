@@ -90,9 +90,7 @@ fn cabinet(data: &PortalCabinetPage, query: &str, on_msg: &Callback<Msg>) -> Htm
     let oninput = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
-            let value = event
-                .target_unchecked_into::<web_sys::HtmlInputElement>()
-                .value();
+            let value = crate::app::exec::input_value(&event);
             on_msg.emit(Msg::QueryChanged(value));
         })
     };
@@ -306,12 +304,8 @@ fn download_links(document: &PortalCabinetDocument, mobile: bool) -> Html {
         "Issued PDF"
     };
     // The Rust file route: the executed copy once signed, the issued PDF before; the audit trail on its own.
-    let pdf_href = format!(
-        "/api/portal/documents/{}/file{}",
-        document.id,
-        if document.signed_artifact_available { "?artifact=signed" } else { "" }
-    );
-    let audit_href = format!("/api/portal/documents/{}/file?artifact=audit", document.id);
+    let pdf_href = crate::app::api::links::vault_document(&document.id, document.signed_artifact_available);
+    let audit_href = crate::app::api::links::vault_audit(&document.id);
 
     if mobile {
         html! {

@@ -401,20 +401,16 @@ pub(crate) fn frame(
     link: &Link<Msg>,
     body: impl FnOnce(&Vm<'_>, &Callback<Msg>) -> Html,
 ) -> Html {
-    let content = match &model.read {
-        Remote::Failed(error) => template::failure(error),
-        Remote::Loaded(book) => body(
+    let content = template::remote_toned(&model.read, template::Tone::Dark, "the book", |book| {
+        body(
             &Vm {
                 book: Some(book),
                 accounting: &model.accounting,
                 ctx,
             },
             &link.callback(|msg: Msg| msg),
-        ),
-        Remote::Loading | Remote::NotAsked => html! {
-            <p class="text-sm font-light text-white/40" data-screen-state="loading">{"Reading the book\u{2026}"}</p>
-        },
-    };
+        )
+    });
     html! {
         <shell::AccountingShell eyebrow="Accounting" title={title}>
             { content }

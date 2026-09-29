@@ -253,11 +253,11 @@ fn workspace(model: &Model) -> Html {
         return template::remote(&model.data, "clients", |_| Html::default());
     };
     let Some(client) = data.selected.as_ref() else {
-        return template::empty_panel(if model.refreshing {
-            "Loading the selected client\u{2026}"
+        return if model.refreshing {
+            template::loading_panel("the selected client")
         } else {
-            "Select a client."
-        });
+            template::empty_panel("Select a client.")
+        };
     };
     html! {
         <div class="flex h-full min-h-0 flex-col gap-3">
@@ -278,7 +278,7 @@ fn workspace(model: &Model) -> Html {
 
 fn command_status_band(model: &Model, client: &PortalClientDetail) -> Html {
     let status_text = if model.refreshing {
-        "Loading client\u{2026}".to_string()
+        crate::app::template::loading_words("the client")
     } else {
         format!("Ready \u{b7} {}", client.display_name)
     };

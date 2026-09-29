@@ -42,9 +42,9 @@ pub struct Model {
     pub controls: Controls,
     pub error: Option<String>,
     /// Photos chosen together, waiting their turn (uploaded one at a time).
-    upload_queue: Vec<web_sys::File>,
+    upload_queue: Vec<crate::app::exec::File>,
     /// The photo uploading now, kept so a failure can put it back in the queue.
-    upload_current: Option<web_sys::File>,
+    upload_current: Option<crate::app::exec::File>,
     /// Photos already put back once: a second failure is reported instead of retried again.
     upload_retried: Vec<String>,
     /// The newest read's number; an answer with another is stale and dropped.
@@ -90,9 +90,9 @@ pub enum Msg {
     OpsMediaUploaderToggled,
     OpsMediaRoleChanged(String),
     OpsMediaAltChanged(String),
-    OpsMediaFileChosen(Option<web_sys::File>),
+    OpsMediaFileChosen(Option<crate::app::exec::File>),
     /// Several photos, or a whole folder: uploaded one after another.
-    OpsMediaFilesChosen(Vec<web_sys::File>),
+    OpsMediaFilesChosen(Vec<crate::app::exec::File>),
     /// Make this photograph the hero.
     MakeHero(String),
     /// Delete pressed on a photo: the first press asks, the second deletes.
@@ -100,7 +100,7 @@ pub enum Msg {
     PhotoDeleted(Result<serde_json::Value, ApiError>),
     HeroSet(Result<serde_json::Value, ApiError>),
     OpsVideoRefreshRequested,
-    VideoChosen(web_sys::File),
+    VideoChosen(crate::app::exec::File),
     VideoRoleChanged(String),
     VideoCaptionChanged(String),
     VideoProgressed(crate::app::cmd::VideoProgress),
@@ -609,7 +609,7 @@ fn update(model: &mut Model, msg: Msg) -> Cmd<Msg> {
                 return Cmd::none();
             }
             // Photos only, in name order (a folder uploads in the order it is sorted on disk).
-            let mut files: Vec<web_sys::File> = files.into_iter().filter(|file| file.type_().starts_with("image/")).collect();
+            let mut files: Vec<crate::app::exec::File> = files.into_iter().filter(|file| file.type_().starts_with("image/")).collect();
             files.sort_by_key(|file| file.name().to_lowercase());
             if files.is_empty() {
                 model.error = Some("No photos were chosen.".into());

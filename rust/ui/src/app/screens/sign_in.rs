@@ -7,19 +7,10 @@ use crate::app::screen::ScreenCtx;
 
 const PANEL: &str = "mx-auto mt-24 max-w-md rounded-2xl border border-black/10 bg-white/70 p-8 text-center shadow-sm";
 
-fn encode(text: &str) -> String {
-    text.bytes()
-        .map(|byte| match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => (byte as char).to_string(),
-            _ => format!("%{byte:02X}"),
-        })
-        .collect()
-}
-
 /// The Google sign-in address, returning to `callbackUrl` (the portal page that sent the visitor here) afterwards.
 pub fn sign_in_href(ctx: &ScreenCtx) -> String {
     let back = ctx.query("callbackUrl").unwrap_or("/portal/dashboard");
-    format!("/api/auth/signin/google?callbackUrl={}", encode(back))
+    crate::app::api::auth::sign_in_google(back)
 }
 
 pub fn login(ctx: ScreenCtx) -> Html {

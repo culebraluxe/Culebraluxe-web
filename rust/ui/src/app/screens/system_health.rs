@@ -134,27 +134,21 @@ const RECEIPT_PILL: &str =
 
 impl SystemHealth {
     fn body(&self, model: &Model, on_msg: &Callback<Msg>) -> Html {
-        if let Remote::Failed(error) = &model.read {
-            return html! { <div>{ self.heading() }{ template::failure(error) }</div> };
-        }
-        let read = model.read.loaded().cloned();
         html! {
             <div>
                 { self.heading() }
-                if let Some(read) = read {
-                    { self.metrics(&read.health) }
-                    { self.recent_activity(&read.health) }
-                    { self.data_quality(&read.health) }
-                    { self.transaction_quality(&read.health) }
-                    { self.write_invariants(&read.health) }
-                    { self.security_model(&read.health) }
-                    { self.environment(&read.environment) }
-                    { self.workflow_diagnostics(model, &read.diagnostics, on_msg) }
-                } else {
-                    <section class={PANEL}>
-                        <p class="text-sm font-light text-black/40">{"Reading the health snapshot…"}</p>
-                    </section>
-                }
+                { template::remote(&model.read, "the health snapshot", |read| html! {
+                    <>
+                        { self.metrics(&read.health) }
+                        { self.recent_activity(&read.health) }
+                        { self.data_quality(&read.health) }
+                        { self.transaction_quality(&read.health) }
+                        { self.write_invariants(&read.health) }
+                        { self.security_model(&read.health) }
+                        { self.environment(&read.environment) }
+                        { self.workflow_diagnostics(model, &read.diagnostics, on_msg) }
+                    </>
+                }) }
             </div>
         }
     }
@@ -630,9 +624,7 @@ impl SystemHealth {
         definition_name: Option<&str>,
     ) -> Html {
         if workflow.loading_instance.as_deref() == Some(instance.instance_id.as_str()) {
-            return html! {
-                <p class="py-6 text-sm font-light text-black/40">{"Loading technical detail…"}</p>
-            };
+            return template::loading_line("technical detail");
         }
         if let Some(error) = workflow.error.as_deref() {
             return html! {

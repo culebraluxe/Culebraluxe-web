@@ -219,9 +219,7 @@ impl Buyers {
         let oninput = {
             let on_msg = on_msg.clone();
             Callback::from(move |event: InputEvent| {
-                let value = event
-                    .target_unchecked_into::<web_sys::HtmlInputElement>()
-                    .value();
+                let value = crate::app::exec::input_value(&event);
                 on_msg.emit(Msg::QueryChanged(value));
             })
         };
@@ -265,9 +263,7 @@ fn select(
     let onchange = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: Event| {
-            let value = event
-                .target_unchecked_into::<web_sys::HtmlSelectElement>()
-                .value();
+            let value = crate::app::exec::select_value(&event);
             on_msg.emit(Msg::FilterSelected {
                 key: name.to_string(),
                 value,
@@ -293,9 +289,7 @@ fn view_select(options: &[String], chosen: &str, on_msg: &Callback<Msg>) -> Html
     let onchange = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: Event| {
-            let value = event
-                .target_unchecked_into::<web_sys::HtmlSelectElement>()
-                .value();
+            let value = crate::app::exec::select_value(&event);
             on_msg.emit(Msg::FilterSelected {
                 key: "view".to_string(),
                 value,

@@ -75,11 +75,7 @@ pub(super) fn documents_view(projects: &PortalProjectsPage, project: &PortalProj
                     _ => "Issued — awaiting signature".to_owned(),
                 }),
                 thumbnail: None,
-                href: format!(
-                    "/api/portal/documents/{}/file{}",
-                    document.id,
-                    if signed && document.signed_artifact_available { "?artifact=signed" } else { "" }
-                ),
+                href: crate::app::api::links::vault_document(&document.id, signed && document.signed_artifact_available),
                 type_label: "PDF",
                 source: "Vault",
                 date: Some(document.created_at.clone()),
@@ -144,15 +140,12 @@ pub(super) fn documents_view(projects: &PortalProjectsPage, project: &PortalProj
     let columns = "grid grid-cols-[minmax(0,1.7fr)_90px_135px_105px] gap-3";
     let signing = projects.signing_document_id.clone();
     let date_change = on_msg.reform(|event: InputEvent| {
-        Msg::ProjectSignedCopyDate(event.target_unchecked_into::<web_sys::HtmlInputElement>().value())
+        Msg::ProjectSignedCopyDate(crate::app::exec::input_value(&event))
     });
     let file_change = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: Event| {
-            let input = event.target_unchecked_into::<web_sys::HtmlInputElement>();
-            let file = input.files().and_then(|list| list.get(0));
-            input.set_value("");
-            if let Some(file) = file {
+            if let Some(file) = crate::app::exec::take_files(&event).into_iter().next() {
                 on_msg.emit(Msg::ProjectSignedCopyChosen(file));
             }
         })
@@ -251,12 +244,5 @@ pub(super) fn documents_view(projects: &PortalProjectsPage, project: &PortalProj
 
 /// Opens the hidden PDF picker for "Record signed".
 pub(super) fn open_signed_copy_picker() {
-    use web_sys::wasm_bindgen::JsCast;
-    if let Some(input) = web_sys::window()
-        .and_then(|window| window.document())
-        .and_then(|document| document.get_element_by_id("project-signed-copy"))
-        .and_then(|element| element.dyn_into::<web_sys::HtmlElement>().ok())
-    {
-        input.click();
-    }
+    crate::app::exec::open_file_picker("project-signed-copy");
 }

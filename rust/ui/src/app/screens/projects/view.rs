@@ -98,9 +98,7 @@ fn project_header(
     let onchange = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: Event| {
-            let value = event
-                .target_unchecked_into::<web_sys::HtmlSelectElement>()
-                .value();
+            let value = crate::app::exec::select_value(&event);
             on_msg.emit(Msg::ProjectStatusRequested(value));
         })
     };

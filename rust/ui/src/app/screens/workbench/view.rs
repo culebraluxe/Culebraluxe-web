@@ -985,9 +985,7 @@ fn selector_rail(
     let search = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
-            let value = event
-                .target_unchecked_into::<web_sys::HtmlInputElement>()
-                .value();
+            let value = crate::app::exec::input_value(&event);
             on_msg.emit(Msg::QueryChanged(value));
         })
     };
@@ -1113,18 +1111,14 @@ fn create_property(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
     let change = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
-            let value = event
-                .target_unchecked_into::<web_sys::HtmlInputElement>()
-                .value();
+            let value = crate::app::exec::input_value(&event);
             on_msg.emit(Msg::OpsCreateNameChanged(value));
         })
     };
     let change_type = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
-            let value = event
-                .target_unchecked_into::<web_sys::HtmlInputElement>()
-                .value();
+            let value = crate::app::exec::input_value(&event);
             on_msg.emit(Msg::OpsCreateTypeChanged(value));
         })
     };
@@ -1462,7 +1456,7 @@ fn feature_panel(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
                                 checked={value(model, field.key) == "true"}
                                 disabled={model.ops.saving}
                                 onchange={Callback::from(move |event: Event| {
-                                    let checked = event.target_unchecked_into::<web_sys::HtmlInputElement>().checked();
+                                    let checked = crate::app::exec::checked(&event);
                                     on_msg.emit(Msg::OpsFieldChanged { key: key.clone(), value: checked.to_string() });
                                 })}
                                 class="h-4 w-4 shrink-0 rounded border-[var(--portal-panel-border)]"
@@ -1528,9 +1522,7 @@ fn property_person_editor(
     let on_query = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
-            let value = event
-                .target_unchecked_into::<web_sys::HtmlInputElement>()
-                .value();
+            let value = crate::app::exec::input_value(&event);
             on_msg.emit(Msg::OpsPersonQueryChanged(value));
         })
     };
@@ -1690,10 +1682,7 @@ fn video_uploader(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
     let file_change = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: Event| {
-            let input = event.target_unchecked_into::<web_sys::HtmlInputElement>();
-            let file = input.files().and_then(|list| list.get(0));
-            input.set_value("");
-            if let Some(file) = file {
+            if let Some(file) = crate::app::exec::take_files(&event).into_iter().next() {
                 on_msg.emit(Msg::VideoChosen(file));
             }
         })
@@ -1701,13 +1690,13 @@ fn video_uploader(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
     let role_change = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: Event| {
-            on_msg.emit(Msg::VideoRoleChanged(event.target_unchecked_into::<web_sys::HtmlSelectElement>().value()))
+            on_msg.emit(Msg::VideoRoleChanged(crate::app::exec::select_value(&event)))
         })
     };
     let caption_change = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
-            on_msg.emit(Msg::VideoCaptionChanged(event.target_unchecked_into::<web_sys::HtmlInputElement>().value()))
+            on_msg.emit(Msg::VideoCaptionChanged(crate::app::exec::input_value(&event)))
         })
     };
     let busy = model.ops.video_file_name.is_some();
@@ -2011,36 +2000,15 @@ fn open_folder_picker() {
 }
 
 fn open_picker(id: &str) {
-    // `web_sys` re-exports the cast trait, and this file's other casts come from Yew's prelude which does not include
-    // it — so it is brought in here, locally, rather than widening the module's imports for one call.
-    use web_sys::wasm_bindgen::JsCast;
-
-    let Some(window) = web_sys::window() else {
-        return;
-    };
-    let Some(document) = window.document() else {
-        return;
-    };
-    let Some(element) = document.get_element_by_id(id) else {
-        return;
-    };
-    if let Ok(input) = element.dyn_into::<web_sys::HtmlInputElement>() {
-        input.click();
-    }
+    crate::app::exec::open_file_picker(id);
 }
 
 /// The chosen-file callback, shared by the hidden input and the uploader panel so both write the same message field.
 fn media_file_change(on_msg: &Callback<Msg>) -> Callback<Event> {
     let on_msg = on_msg.clone();
     Callback::from(move |event: Event| {
-        let input = event.target_unchecked_into::<web_sys::HtmlInputElement>();
-        let files: Vec<web_sys::File> = input
-            .files()
-            .map(|list| (0..list.length()).filter_map(|index| list.get(index)).collect())
-            .unwrap_or_default();
-        // Cleared, so choosing the same files again (after a failure) is a new choice.
-        input.set_value("");
-        on_msg.emit(Msg::OpsMediaFilesChosen(files));
+        // Cleared by `take_files`, so choosing the same files again (after a failure) is a new choice.
+        on_msg.emit(Msg::OpsMediaFilesChosen(crate::app::exec::take_files(&event)));
     })
 }
 
@@ -2048,18 +2016,14 @@ fn ops_media_uploader(model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
     let role_change = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: Event| {
-            let value = event
-                .target_unchecked_into::<web_sys::HtmlSelectElement>()
-                .value();
+            let value = crate::app::exec::select_value(&event);
             on_msg.emit(Msg::OpsMediaRoleChanged(value));
         })
     };
     let alt_change = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
-            let value = event
-                .target_unchecked_into::<web_sys::HtmlInputElement>()
-                .value();
+            let value = crate::app::exec::input_value(&event);
             on_msg.emit(Msg::OpsMediaAltChanged(value));
         })
     };
@@ -2288,7 +2252,7 @@ fn sized_field(model: &Vm<'_>, on_msg: &Callback<Msg>, field: &FieldSpec, wrappe
                     rows={rows.to_string()}
                     disabled={disabled}
                     oninput={Callback::from(move |event: InputEvent| {
-                        let value = event.target_unchecked_into::<web_sys::HtmlTextAreaElement>().value();
+                        let value = crate::app::exec::textarea_value(&event);
                         on_msg.emit(Msg::OpsFieldChanged { key: key.clone(), value });
                     })}
                     class="mt-1.5 w-full resize-y rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 px-3 py-2 text-[13px] font-light leading-relaxed text-black/75 outline-none focus:border-[var(--portal-navy)] disabled:opacity-50"
@@ -2305,7 +2269,7 @@ fn sized_field(model: &Vm<'_>, on_msg: &Callback<Msg>, field: &FieldSpec, wrappe
                         checked={field_value == "true"}
                         disabled={disabled}
                         onchange={Callback::from(move |event: Event| {
-                            let checked = event.target_unchecked_into::<web_sys::HtmlInputElement>().checked();
+                            let checked = crate::app::exec::checked(&event);
                             on_msg.emit(Msg::OpsFieldChanged { key: key.clone(), value: checked.to_string() });
                         })}
                         class="h-4 w-4 rounded border-[var(--portal-panel-border)]"
@@ -2321,7 +2285,7 @@ fn sized_field(model: &Vm<'_>, on_msg: &Callback<Msg>, field: &FieldSpec, wrappe
                     value={field_value.clone()}
                     disabled={disabled}
                     onchange={Callback::from(move |event: Event| {
-                        let value = event.target_unchecked_into::<web_sys::HtmlSelectElement>().value();
+                        let value = crate::app::exec::select_value(&event);
                         on_msg.emit(Msg::OpsFieldChanged { key: key.clone(), value });
                     })}
                     class="mt-1.5 h-10 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 px-3 text-[13px] font-light text-black/75 outline-none focus:border-[var(--portal-navy)] disabled:opacity-50"
@@ -2343,7 +2307,7 @@ fn sized_field(model: &Vm<'_>, on_msg: &Callback<Msg>, field: &FieldSpec, wrappe
                     value={usd(&field_value)}
                     disabled={disabled}
                     oninput={Callback::from(move |event: InputEvent| {
-                        let typed = event.target_unchecked_into::<web_sys::HtmlInputElement>().value();
+                        let typed = crate::app::exec::input_value(&event);
                         let digits: String = typed.chars().filter(|c| c.is_ascii_digit() || *c == '.').collect();
                         on_msg.emit(Msg::OpsFieldChanged { key: key.clone(), value: digits });
                     })}
@@ -2371,7 +2335,7 @@ fn sized_field(model: &Vm<'_>, on_msg: &Callback<Msg>, field: &FieldSpec, wrappe
                     value={field_value}
                     disabled={disabled}
                     oninput={Callback::from(move |event: InputEvent| {
-                        let value = event.target_unchecked_into::<web_sys::HtmlInputElement>().value();
+                        let value = crate::app::exec::input_value(&event);
                         on_msg.emit(Msg::OpsFieldChanged { key: key.clone(), value });
                     })}
                     class="mt-1.5 h-10 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 px-3 text-[13px] font-light text-black/75 outline-none focus:border-[var(--portal-navy)] disabled:opacity-50"
@@ -2446,7 +2410,7 @@ fn empty_editor(loading: bool) -> Html {
         <section class="portal-glass-panel grid h-full min-h-64 place-items-center rounded-[var(--portal-panel-radius)] p-8 text-center">
             <div>
                 <div class="font-serif text-xl font-light text-[var(--portal-navy)]">
-                    {if loading { "Loading workbench…" } else { "Select a record" }}
+                    {if loading { crate::app::template::loading_words("the workbench") } else { "Select a record".to_owned() }}
                 </div>
                 <p class="mt-2 text-[12px] font-light text-black/45">
                     {"The same workspace edits every major entity."}

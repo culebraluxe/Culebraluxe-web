@@ -3,9 +3,7 @@
 //! This screen is deliberately local: no read model, no credentials, no server effect. It is the safe place to compare
 //! native Yew controls before a pattern is promoted into product screens.
 
-use web_sys::{HtmlInputElement, HtmlSelectElement};
 use yew::prelude::*;
-use yew::TargetCast;
 
 use crate::app::cmd::Cmd;
 use crate::app::screen::{Link, Screen, ScreenCtx};
@@ -174,16 +172,13 @@ impl View<'_> {
 
     fn controls(&self, link: &Link<LabMsg>) -> Html {
         let on_query = link.callback(|event: InputEvent| {
-            let input: HtmlInputElement = event.target_unchecked_into();
-            LabMsg::QueryChanged(input.value())
+            LabMsg::QueryChanged(crate::app::exec::input_value(&event))
         });
         let on_role = link.callback(|event: Event| {
-            let select: HtmlSelectElement = event.target_unchecked_into();
-            LabMsg::RoleChanged(select.value())
+            LabMsg::RoleChanged(crate::app::exec::select_value(&event))
         });
         let on_notifications = link.callback(|event: Event| {
-            let input: HtmlInputElement = event.target_unchecked_into();
-            LabMsg::NotificationsChanged(input.checked())
+            LabMsg::NotificationsChanged(crate::app::exec::checked(&event))
         });
 
         html! {

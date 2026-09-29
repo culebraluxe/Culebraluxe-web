@@ -61,7 +61,7 @@ pub enum Msg {
     RowSelected(String),
     RoleChanged(String),
     AltChanged(String),
-    FileChosen(Option<web_sys::File>),
+    FileChosen(Option<crate::app::exec::File>),
     Uploaded(Result<(), ApiError>),
 }
 
@@ -250,9 +250,11 @@ fn workspace(
                 </div>
                 <div class="min-h-0 flex-1 overflow-y-auto">
                     if page.properties.is_empty() {
-                        <p class="px-3 py-6 text-sm font-light text-black/40">
-                            { if model.loading { "Loading…" } else { "No matching listings." } }
-                        </p>
+                        if model.loading {
+                            <div class="px-3 py-6">{ template::loading_line("listings") }</div>
+                        } else {
+                            <p class="px-3 py-6 text-sm font-light text-black/40">{"No matching listings."}</p>
+                        }
                     } else {
                         { for page.properties.iter().map(|row| row_view(row, page.selected_id.as_deref(), link)) }
                     }
@@ -308,17 +310,12 @@ fn selected(
     };
     let on_role = link.callback(|event: Event| {
         Msg::RoleChanged(
-            event
-                .target_unchecked_into::<web_sys::HtmlSelectElement>()
-                .value(),
+            crate::app::exec::select_value(&event),
         )
     });
     let on_alt = link.callback(|event: InputEvent| Msg::AltChanged(template::input_value(&event)));
     let on_file = link.callback(|event: Event| {
-        let input = event.target_unchecked_into::<web_sys::HtmlInputElement>();
-        let file = input.files().and_then(|files| files.get(0));
-        input.set_value("");
-        Msg::FileChosen(file)
+        Msg::FileChosen(crate::app::exec::take_files(&event).into_iter().next())
     });
     html! {
         <div class="flex h-full min-h-0 flex-col gap-3">

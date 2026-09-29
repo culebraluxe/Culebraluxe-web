@@ -12,7 +12,6 @@ use yew::prelude::*;
 
 use super::visitor::{Model, Msg};
 
-use wasm_bindgen::JsCast;
 
 use crate::app::site::{form_field, page_hero};
 use crate::model::{BlockItem, ContactStatus, ContactSubmission, PageContent};
@@ -206,17 +205,7 @@ fn enquiry_form(model: &Model, on_msg: &Callback<Msg>) -> Html {
 /// `crypto.randomUUID()` — the submission id the intake pipeline requires. Empty only if the browser has no Web Crypto,
 /// which the pipeline then rejects as invalid rather than accepting an id that is not unique.
 fn random_uuid() -> String {
-    let Some(window) = web_sys::window() else {
-        return String::new();
-    };
-    let crypto = js_sys::Reflect::get(&window, &"crypto".into()).ok();
-    crypto
-        .and_then(|crypto| {
-            let function = js_sys::Reflect::get(&crypto, &"randomUUID".into()).ok()?;
-            let function = function.dyn_into::<js_sys::Function>().ok()?;
-            function.call0(&crypto).ok()?.as_string()
-        })
-        .unwrap_or_default()
+    crate::app::exec::random_uuid()
 }
 
 impl Contact {

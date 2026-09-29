@@ -485,7 +485,7 @@ fn cockpit(state: &SellerStrategyState, on_msg: &Callback<Msg>) -> Html {
                     >
                         {"Reset"}
                     </button>
-                    <form method="post" action="/api/portal/seller-strategy/pdf">
+                    <form method="post" action={crate::app::api::links::SELLER_STRATEGY_PDF}>
                         <input type="hidden" name="payload" value={pdf_payload} />
                         <button
                             type="submit"
@@ -676,9 +676,7 @@ fn field_view(inputs: &Inputs, field: FieldDef, on_msg: &Callback<Msg>) -> Html 
     let callback = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: InputEvent| {
-            let raw = event
-                .target_unchecked_into::<web_sys::HtmlInputElement>()
-                .value();
+            let raw = crate::app::exec::input_value(&event);
             on_msg.emit(Msg::SellerStrategyFieldChanged {
                 key: key.clone(),
                 raw,
@@ -737,9 +735,7 @@ fn strategy_card(
     let toggle = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: Event| {
-            let enabled = event
-                .target_unchecked_into::<web_sys::HtmlInputElement>()
-                .checked();
+            let enabled = crate::app::exec::checked(&event);
             on_msg.emit(Msg::SellerStrategyOptionToggled { option, enabled });
         })
     };

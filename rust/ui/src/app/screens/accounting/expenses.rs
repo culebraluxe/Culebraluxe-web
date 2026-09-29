@@ -116,15 +116,13 @@ impl View {
         let field = |makes: fn(String) -> Msg| {
             let on_msg = on_msg.clone();
             Callback::from(move |event: InputEvent| {
-                let input: web_sys::HtmlInputElement = event.target_unchecked_into();
-                on_msg.emit(makes(input.value()));
+                on_msg.emit(makes(crate::app::exec::input_value(&event)));
             })
         };
         let change = |makes: fn(String) -> Msg| {
             let on_msg = on_msg.clone();
             Callback::from(move |event: Event| {
-                let select: web_sys::HtmlSelectElement = event.target_unchecked_into();
-                on_msg.emit(makes(select.value()));
+                on_msg.emit(makes(crate::app::exec::select_value(&event)));
             })
         };
         let submit = {

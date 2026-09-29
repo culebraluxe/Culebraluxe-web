@@ -188,9 +188,7 @@ fn flight_strip(model: &Vm<'_>, tech: &PortalTechPage, on_msg: &Callback<Msg>) -
     let schedule_change = {
         let on_msg = on_msg.clone();
         Callback::from(move |event: Event| {
-            let value = event
-                .target_unchecked_into::<web_sys::HtmlInputElement>()
-                .value();
+            let value = crate::app::exec::input_value(&event);
             on_msg.emit(Msg::TechScheduleChanged(value));
         })
     };
@@ -319,9 +317,7 @@ fn workbench(model: &Vm<'_>, tech: &PortalTechPage, on_msg: &Callback<Msg>) -> H
                 "Take all {} stories off the Workbench?\n\nThis clears today's list only. Story status and run history stay exactly as they are.",
                 clear_count
             );
-            let confirmed = web_sys::window()
-                .and_then(|window| window.confirm_with_message(&prompt).ok())
-                .unwrap_or(false);
+            let confirmed = crate::app::exec::confirm(&prompt);
             if confirmed {
                 on_msg.emit(Msg::TechClearWorkbenchRequested);
             }

@@ -1048,6 +1048,48 @@ pub mod auth {
     pub const SIGN_OUT: &str = "/api/auth/signout";
     pub const SIGN_IN_GOOGLE: &str = "/api/auth/signin/google";
     pub const EMAIL_CODE_CALLBACK: &str = "/api/auth/callback/email-code";
+    pub const BREAK_GLASS_CALLBACK: &str = "/api/auth/callback/break-glass";
+
+    /// Google sign-in, returning to `back` (a portal path) afterwards.
+    pub fn sign_in_google(back: &str) -> String {
+        format!("{SIGN_IN_GOOGLE}?callbackUrl={}", encode(back))
+    }
+
+    fn encode(text: &str) -> String {
+        text.bytes()
+            .map(|byte| match byte {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => (byte as char).to_string(),
+                _ => format!("%{byte:02X}"),
+            })
+            .collect()
+    }
+}
+
+/// Addresses a page LINKS to rather than fetches — an image's `src`, a document's download `href`, a form's `action`.
+/// They are URLs all the same, so they live here.
+pub mod links {
+    /// A stored photograph (`?size=card|thumb` picks a derived copy; none is the web copy).
+    pub fn media(media_id: &str) -> String {
+        format!("/api/media/{media_id}")
+    }
+
+    /// A property document for the public site.
+    pub fn property_document(document_id: &str) -> String {
+        format!("/api/media/documents/{document_id}")
+    }
+
+    /// A Vault document's PDF: the executed copy when `signed`, the issued one otherwise.
+    pub fn vault_document(document_id: &str, signed: bool) -> String {
+        format!("/api/portal/documents/{document_id}/file{}", if signed { "?artifact=signed" } else { "" })
+    }
+
+    /// A Vault document's signature audit trail.
+    pub fn vault_audit(document_id: &str) -> String {
+        format!("/api/portal/documents/{document_id}/file?artifact=audit")
+    }
+
+    /// The Seller Strategy PDF (a form post).
+    pub const SELLER_STRATEGY_PDF: &str = "/api/portal/seller-strategy/pdf";
 }
 
 /// Where property photographs are sent, in pieces (`Cmd::upload`).

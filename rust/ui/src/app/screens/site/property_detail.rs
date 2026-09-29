@@ -25,9 +25,11 @@ impl PropertyDetail {
             return html! {
                 <section class="px-6 py-20 md:px-12">
                     <div class="mx-auto max-w-[1600px]">
-                        <p class="text-sm font-light text-muted-foreground">
-                            { if model.loading { "Loading property…" } else { "This property could not be loaded." } }
-                        </p>
+                        if model.loading {
+                            { crate::app::template::loading_toned(crate::app::template::Tone::Site, "the property") }
+                        } else {
+                            <p class="text-sm font-light text-muted-foreground">{"This property could not be loaded."}</p>
+                        }
                     </div>
                 </section>
             };
@@ -776,7 +778,7 @@ fn documents(record: &PropertyRecord) -> Html {
             <p class="mb-5 text-xs font-medium uppercase tracking-[0.24em] text-brand-gold">{"Property Documents"}</p>
             <ul class="space-y-3">{ for record.documents.iter().filter_map(|document| {
                 let id = document.id.as_deref()?;
-                let route = format!("/api/media/documents/{id}");
+                let route = crate::app::api::links::property_document(id);
                 let label = document.title.as_deref().unwrap_or("Property Document").to_string();
                 Some(html! {
                     <li class="flex flex-col gap-4 border border-brand-navy/30 bg-card/70 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">

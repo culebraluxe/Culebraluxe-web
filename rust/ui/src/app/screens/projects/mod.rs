@@ -106,7 +106,7 @@ pub enum Msg {
     ProjectSignedCopyStart(String),
     ProjectSignedCopyDate(String),
     /// The signed PDF chosen: it uploads at once, with the date given.
-    ProjectSignedCopyChosen(web_sys::File),
+    ProjectSignedCopyChosen(crate::app::exec::File),
     ProjectSignedCopySaved(Result<serde_json::Value, ApiError>),
     /// Signed, but no PDF yet: "copy to come".
     ProjectSignedCopyToCome,

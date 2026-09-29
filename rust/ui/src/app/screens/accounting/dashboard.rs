@@ -43,9 +43,7 @@ impl View {
         else {
             // No payload yet is not an error and not a set of zeroes: the shell above already shows whether the read is
             // still loading, so this says only that there is nothing to draw yet.
-            return html! {
-                <p class="text-sm font-light text-white/40">{"Loading the book…"}</p>
-            };
+            return crate::app::template::loading_toned(crate::app::template::Tone::Dark, "the book");
         };
         html! {
             <div class="space-y-4">

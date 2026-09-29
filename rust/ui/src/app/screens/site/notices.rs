@@ -100,7 +100,7 @@ impl Screen for Recovery {
         article(
             &LOGIN_RECOVERY_VIEW_CONTENT,
             html! {
-                <form method="post" action="/api/auth/callback/break-glass" class="mt-10 max-w-md space-y-4">
+                <form method="post" action={crate::app::api::auth::BREAK_GLASS_CALLBACK} class="mt-10 max-w-md space-y-4">
                     <input type="hidden" name="csrfToken" value={model.csrf_token.clone()} />
                     <input type="hidden" name="callbackUrl" value="/portal" />
                     <label class="block text-xs font-light uppercase tracking-[0.22em] text-muted-foreground">

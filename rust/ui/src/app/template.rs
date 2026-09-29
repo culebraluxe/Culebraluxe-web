@@ -35,6 +35,42 @@ pub fn remote<T>(remote: &Remote<T>, loading: &str, loaded: impl FnOnce(&T) -> H
     }
 }
 
+/// The ground a screen is drawn on: the portal's light glass, the dark Accounting shell, or the public site.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Tone {
+    Portal,
+    Dark,
+    Site,
+}
+
+/// `remote`, on a given ground. The failure panel is the same everywhere; only the loading line takes the tone.
+pub fn remote_toned<T>(remote: &Remote<T>, tone: Tone, loading: &str, loaded: impl FnOnce(&T) -> Html) -> Html {
+    match (remote, tone) {
+        (Remote::Loading, Tone::Portal) => loading_panel(loading),
+        (Remote::Loading, tone) => loading_toned(tone, loading),
+        (other, _) => self::remote(other, loading, loaded),
+    }
+}
+
+/// A loading line inside something already drawn (a panel, a detail pane): the same words as `loading_panel`.
+pub fn loading_line(what: &str) -> Html {
+    loading_toned(Tone::Portal, what)
+}
+
+pub fn loading_toned(tone: Tone, what: &str) -> Html {
+    let class = match tone {
+        Tone::Portal => "text-sm font-light text-black/40",
+        Tone::Dark => "text-sm font-light text-white/40",
+        Tone::Site => "py-10 text-sm font-light text-muted-foreground",
+    };
+    html! { <p class={class} data-screen-state="loading">{ loading_words(what) }</p> }
+}
+
+/// The loading words, for a status line that says it in passing ("Reading visible dates…").
+pub fn loading_words(what: &str) -> String {
+    format!("Reading {what}\u{2026}")
+}
+
 pub fn loading_panel(what: &str) -> Html {
     html! {
         <section class={classes!(PANEL, "p-10", "text-center")} data-screen-state="loading">

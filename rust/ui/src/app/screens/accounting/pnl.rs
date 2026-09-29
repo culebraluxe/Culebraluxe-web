@@ -36,9 +36,7 @@ impl View {
     fn body(&self, model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html {
         let statement = model.book.and_then(|accounting| accounting.pnl.clone());
         let Some(statement) = statement else {
-            return html! {
-                <p class="text-sm font-light text-white/40">{"Loading the period…"}</p>
-            };
+            return crate::app::template::loading_toned(crate::app::template::Tone::Dark, "the period");
         };
         let lines = statement.income.len() + statement.expenses.len();
         let negative = statement.net_income.trim().starts_with('-');
@@ -78,8 +76,7 @@ impl View {
         let field = |makes: fn(String) -> Msg| {
             let on_msg = on_msg.clone();
             Callback::from(move |event: Event| {
-                let input: web_sys::HtmlInputElement = event.target_unchecked_into();
-                on_msg.emit(makes(input.value()));
+                on_msg.emit(makes(crate::app::exec::input_value(&event)));
             })
         };
         let submit = {

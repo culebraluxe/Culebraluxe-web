@@ -122,7 +122,7 @@ pub(super) fn selected_work_editor(
                         <label class="min-w-[210px] flex-1">
                             <span class="block text-[10px] font-semibold uppercase tracking-[0.1em]">{"Add predecessor (finish to start)"}</span>
                             <select value={projects.timeline_link_target_id.clone().unwrap_or_default()}
-                                onchange={on_msg.reform(|event: Event| Msg::ProjectTimelineLinkTargetSelected(event.target_unchecked_into::<web_sys::HtmlSelectElement>().value()))}
+                                onchange={on_msg.reform(|event: Event| Msg::ProjectTimelineLinkTargetSelected(crate::app::exec::select_value(&event)))}
                                 class={work_input_class()}>
                                 <option value="">{"Choose work item"}</option>
                             { for projects.items.iter().filter(|candidate| candidate.project_id.as_deref() == item.project_id.as_deref()
@@ -172,9 +172,7 @@ pub(super) enum MsgKind {
 pub(super) fn input_msg(on_msg: &Callback<Msg>, kind: MsgKind) -> Callback<InputEvent> {
     let on_msg = on_msg.clone();
     Callback::from(move |event: InputEvent| {
-        let value = event
-            .target_unchecked_into::<web_sys::HtmlInputElement>()
-            .value();
+        let value = crate::app::exec::input_value(&event);
         on_msg.emit(match kind {
             MsgKind::Title => Msg::ProjectWorkTitleChanged(value),
             MsgKind::Owner => Msg::ProjectWorkOwnerChanged(value),
@@ -188,9 +186,7 @@ pub(super) fn input_msg(on_msg: &Callback<Msg>, kind: MsgKind) -> Callback<Input
 pub(super) fn textarea_msg(on_msg: &Callback<Msg>) -> Callback<InputEvent> {
     let on_msg = on_msg.clone();
     Callback::from(move |event: InputEvent| {
-        let value = event
-            .target_unchecked_into::<web_sys::HtmlTextAreaElement>()
-            .value();
+        let value = crate::app::exec::textarea_value(&event);
         on_msg.emit(Msg::ProjectWorkNotesChanged(value));
     })
 }
@@ -198,9 +194,7 @@ pub(super) fn textarea_msg(on_msg: &Callback<Msg>) -> Callback<InputEvent> {
 pub(super) fn select_status_msg(on_msg: &Callback<Msg>) -> Callback<Event> {
     let on_msg = on_msg.clone();
     Callback::from(move |event: Event| {
-        let value = event
-            .target_unchecked_into::<web_sys::HtmlSelectElement>()
-            .value();
+        let value = crate::app::exec::select_value(&event);
         on_msg.emit(Msg::ProjectWorkStatusChanged(value));
     })
 }
