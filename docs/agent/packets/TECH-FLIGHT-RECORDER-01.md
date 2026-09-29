@@ -1,7 +1,7 @@
 # TECH-FLIGHT-RECORDER-01 — the Flight Recorder console, ported to Rust/Yew
 
 Lane: builder. Research done 2026-09-28 (the owner designed this console; port it faithfully — its structure is the
-spec, not a suggestion). Status: **ready to build, not started.**
+spec, not a suggestion). Status: **implemented and live-verified (2026-09-29)** — see "Verification" at the end.
 
 ## Goal (one line)
 
@@ -101,3 +101,30 @@ default selection), `format.ts` (`formatClock`, `formatDisplayTime`, `formatDura
 
 No change to the trace read or its SQL; no new trace data; no JavaScript (no virtualizer library, no graph library);
 no Forge changes.
+
+## Verification (2026-09-29)
+
+Landed by `dcf2be3f` (the port: `rust/ui/src/flight_recorder.rs`, the screen, the portal route
+`/api/portal/flight-recorder/{id}`) and `2110d6a5` (timeline arrow `preventDefault`). `dcf2be3f` is on `origin/main`;
+`2110d6a5` is local only — this node's brief says **do not push**, so nothing was pushed from here.
+
+- **Classifiers and both layouts, as unit tests:** `cargo test -p ui flight_recorder` → **18 passed, 0 failed**
+  (event-type/system/outcome/node-type classifiers and formats, the adapter, `layout_master_workflow`,
+  `layout_causal_graph`, the view projections, and five screen-reducer tests).
+- **The wasm artifact:** `pnpm ui:check` clean (`cargo check -p ui --features wasm --target wasm32-unknown-unknown`).
+- **The route against real DEV:** the Rust API was run with `APP_ENV=development` (boot line
+  `database_target=dev`) and, with the dev stub, `/api/portal/flight-recorder/{id}` returned three real Forge traces
+  (25/16/16 events; each a 71-node workflow with 176 transitions and 71 node states; system `forge_observer`).
+- **All five views, in WebKit (Safari's engine):** the built app (wasm 09:43, matching HEAD) was driven with
+  Playwright `webkit` at `/portal/tech/flight-recorder/{id}`. Timeline showed real `RUN_START`/`RUN_END` rows; the
+  Workflow Graph showed the real node names (Architect, Architect Review Gate, Research Complete, Deploy, …); the
+  Causality Graph, System Swimlane (Forge Observer lane) and Raw Events table all rendered. **No page errors, no
+  "could not load" banner.** The literal Safari confirmation on the owner's machine remains his manual step.
+- **No TypeScript:** the commits touched only `rust/**/*.rs` and `rust/ui/Cargo.toml`.
+
+**Deviation from build plan step 4 — the old list is deliberately NOT put back in the Tech menu.** There is no
+registry mount for `tech-flight-recorder`, its retirement is a deliberate owner decision recorded in `model.rs`, and
+the registry test `the_rail_is_the_designed_menu_in_its_order` fixes the Tech rail to *Cockpit / Story Board / UI Lab*.
+The console is reached from the Cockpit (`rust/ui/src/app/screens/tech/view/engine.rs:105` and `workbench.rs:177`) and
+by direct URL (`trace-record`, `rust/ui/src/app/registry.rs:199`). Listing the old list would be a dead link and would
+reopen a decision the registry closed.
