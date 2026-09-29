@@ -15,8 +15,8 @@ fi
 
 while IFS= read -r -d '' file; do
   case "$file" in
-    legacy/*) continue ;;
-    *.ts|*.tsx|*.js|*.mjs|*.cjs) printf '%s\n' "$file" ;;
+    legacy/*|e2e/*) continue ;;
+    *.ts|*.tsx|*.js|*.mjs|*.cjs|*.mts|*.cts) printf '%s\n' "$file" ;;
   esac
 done < <(git -C "$root" ls-files -z) | LC_ALL=C sort -u > "$actual"
 

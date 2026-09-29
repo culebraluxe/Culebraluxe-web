@@ -15,13 +15,13 @@
 //   - it fails too                     → a real bug in the current build; the printed line shows where.
 //
 // Needs the dev server running with PORTAL_AUTH_BYPASS=1 (no sign-in here). First run: `pnpm exec playwright install
-// chromium` downloads the headless browser.
+// webkit` downloads the WebKit browser used to match Safari.
 // ---------------------------------------------------------------------------
 
-import { chromium } from 'playwright'
+import { webkit } from 'playwright'
 
 const base = (process.argv[2] ?? 'http://localhost:3000').replace(/\/+$/, '')
-const browser = await chromium.launch()
+const browser = await webkit.launch()
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
 const errors = []
 page.on('pageerror', (error) => errors.push(`pageerror: ${error.message.slice(0, 160)}`))

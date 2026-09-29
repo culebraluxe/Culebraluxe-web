@@ -78,6 +78,7 @@ scripts/capture-driver-value-formats.ts
 scripts/catchup-calendar-attention-proof.ts
 scripts/catchup-calendar-proof.ts
 scripts/catchup-dev-proof.ts
+scripts/check-svar-widgets.mts
 scripts/check-trailing-whitespace.ts
 scripts/cleanse-dev-fixtures.ts
 scripts/cleanup-apple-rows.ts
@@ -148,7 +149,6 @@ scripts/mq-worker.ts
 scripts/normalize-phone-identities.ts
 scripts/normalize-story-priorities.ts
 scripts/oc-probe3.ts
-scripts/portal-nav-smoke.mjs
 scripts/probe-agent-work-state.ts
 scripts/probe-batch-schedule.ts
 scripts/probe-batch-sync.ts
