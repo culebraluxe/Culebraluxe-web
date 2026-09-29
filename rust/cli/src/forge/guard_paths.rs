@@ -73,6 +73,16 @@ fn guard_clause_offsets(line: &str) -> Vec<usize> {
     out
 }
 
+/// The token after `guard:` as an author writes it, not as the path must literally be spelled. The handbook
+/// backticks every other path it names, so a reader writing `` guard: `rust/x.rs` `` is writing a path, not
+/// four extra characters that happen to be missing from disk; and a guard clause that ends a sentence carries
+/// the sentence's period. Neither is drift, so neither may fail the gate (which must fail on a path the tree
+/// does not have, and on nothing else).
+fn normalize_guard_value(raw: &str) -> String {
+    let unbracketed = raw.trim_end_matches(['.', ',', ';']).trim_matches('`');
+    unbracketed.trim_end_matches(['.', ',', ';']).to_string()
+}
+
 /// Every `guard:` clause in the document, with the line it sits on. A `guard: NONE — <reason>` clause
 /// yields `NONE`; the reason stays in the document, where a reader needs it and this gate does not.
 pub fn guard_declarations(agents_md: &str) -> Vec<GuardDeclaration> {
@@ -80,11 +90,15 @@ pub fn guard_declarations(agents_md: &str) -> Vec<GuardDeclaration> {
     for (index, line) in agents_md.split('\n').enumerate() {
         for at in guard_clause_offsets(line) {
             let rest = line[at + "guard:".len()..].trim();
-            let value = rest.split_whitespace().next().unwrap_or("").to_string();
+            let raw = rest.split_whitespace().next().unwrap_or("");
+            if raw.is_empty() {
+                continue;
+            }
+            let value = normalize_guard_value(raw);
             if value.is_empty() {
                 continue;
             }
-            let reason = rest[value.len()..].trim().to_string();
+            let reason = rest[raw.len()..].trim().to_string();
             out.push(GuardDeclaration {
                 line: index + 1,
                 value,
@@ -370,6 +384,31 @@ mod tests {
                 .any(|finding| finding.rule == "guard-path-not-a-test"),
             "a file with no test is not a guard: {findings:?}"
         );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_backticked_or_sentence_ended_guard_path_is_still_the_path_it_names() {
+        // The handbook backticks every other path it names, and a guard clause can end a sentence. Neither
+        // adds a character to the file on disk, so neither is drift: the gate must resolve the path, not fail
+        // on the punctuation around it.
+        let root = fixture_root("decorated-path");
+        write_file(
+            &root,
+            "rust/real_guard.rs",
+            "#[cfg(test)]\nmod tests { #[test] fn guarded() {} }\n",
+        );
+        for written in [
+            "- A rule. guard: `rust/real_guard.rs`\n",
+            "- A rule. guard: rust/real_guard.rs.\n",
+            "- A rule. guard: `rust/real_guard.rs`.\n",
+        ] {
+            let findings = check(&root, &handbook(written));
+            assert!(
+                findings.is_empty(),
+                "`{written}` should resolve: {findings:?}"
+            );
+        }
         let _ = fs::remove_dir_all(&root);
     }
 
