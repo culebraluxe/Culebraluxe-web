@@ -106,7 +106,8 @@ there was nothing to fix. Recorded so the next lane does not "repair" it again.
 ## Open, in the order that pays
 
 1. `package.json:57` — make `pnpm test` run the workspace (WBS 1).
-2. **CLOSED 2026-09-29** (`01403e8a`, `07d1705a`, `dcb1583c`, `fb7a68be`) — the guard-path check is
+2. **CLOSED 2026-09-29** (`01403e8a`, `07d1705a`, `3eee3e1d`, `a40368aa`, `dcb1583c`, `fb7a68be`,
+   `2a9f2c16`, `61c83dd9`, `86cb77bb`) — the guard-path check is
    `rust/cli/src/forge/guard_paths.rs`, blocking as `forge guard-lint` and also wired into
    `forge harness-lint`; see "Closed after this sweep" below.
 3. The parity-ledger decision — restore the Rust generator or re-label the file (WBS 6).
@@ -126,7 +127,10 @@ The two findings this document raised about `AGENTS.md` are enforced now, not no
   blocking as `forge guard-lint` (`.github/workflows/gates.yml`, static job), it runs inside `forge harness-lint`,
   and the unit test `the_real_handbook_guard_paths_resolve_to_tests_on_disk` runs it against the committed
   handbook under `cargo test --workspace`. The eight dead `workflow_app/tests/*.test.ts` lines now point at the
-  Rust tests that hold each rule.
+  Rust tests that hold each rule. The gate was then hardened against four ways it could still pass a handbook
+  that lies: a `safeguard:` word is not a guard clause (`dcb1583c`), a bare `guard: NONE` with no reason is a
+  silent hole (`fb7a68be`), a `#[cfg(test)] mod tests {}` with no `#[test]` is not a guard (`61c83dd9`), and a
+  backticked or sentence-ended path is resolved as the path it names (`86cb77bb`).
 - **B — no deleted TypeScript path is called canonical.** The Error Capture Obligation seam list, the "Two
   rules, both mechanical" block and the DEV_OPS playbook reference all name the Rust modules that exist; the
   nine dead TypeScript paths (`lib/*`, `db/app-error.ts`, `scripts/*`, `agent-runtime/*`, `services/core/*`) are
