@@ -41,3 +41,24 @@ pub fn refuse_unclaimed_fork_work_branch(
         "refusing to advance unclaimed fork work branch {node_id} while {open_siblings} siblings are open — that fabricates completion"
     ))
 }
+
+#[cfg(test)]
+mod legacy_forge_hold_tests {
+    //! Ported from `legacy/workflow_app/tests/forge-hold.test.ts` (ENG-FORGE-V10 S4).
+    //! The legacy suite cannot run against Rust; these assertions are its resumeTarget contract.
+    use super::*;
+
+    #[test]
+    fn eng_forge_v10_s4_accepts_every_xml_resume_target_enum_value() {
+        for target in FORGE_HOLD_RESUME_TARGETS {
+            assert!(valid_resume_target(target), "expected valid: {target}");
+        }
+    }
+
+    #[test]
+    fn eng_forge_v10_s4_rejects_a_prose_or_invalid_resume_target() {
+        assert!(!valid_resume_target("back to smith please"));
+        assert!(!valid_resume_target(""));
+        assert!(valid_resume_target("SMITH"));
+    }
+}

@@ -46,3 +46,23 @@ That line becomes evidence.failureClass. Routing stays on the engine XML + qa-re
         ENGINE_FAILURE_CLASSES.join(" | ")
     )
 }
+
+#[cfg(test)]
+mod legacy_qa_classify_line_tests {
+    //! Ported from `legacy/workflow_app/forge/qa-classify-line.test.ts`.
+    //! Case 1 is the parse contract and is honoured. Case 2 — "does not attach a class on PASS" —
+    //! is NOT honoured: `role_mapping.rs:193` attaches `failureClass` from a role's evidence JSON
+    //! with no gate on the verdict, so a PASS run can acquire a failure class. That case is
+    //! recorded as `diverged` in `docs/agent/LEGACY-TEST-PARITY.md`; porting it here would only
+    //! turn the suite red until the gate exists.
+    use super::*;
+
+    #[test]
+    fn reads_failure_class_after_assay_fail() {
+        assert_eq!(
+            parse_failure_class(Some("FAILURE_CLASS: TEST_DEFECT")).as_deref(),
+            Some("TEST_DEFECT")
+        );
+        assert_eq!(parse_failure_class(Some("FAILURE_CLASS: nope")), None);
+    }
+}
