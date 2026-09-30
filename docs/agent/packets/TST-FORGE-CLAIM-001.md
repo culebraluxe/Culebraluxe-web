@@ -1307,3 +1307,61 @@ passed, so the contract named by this story remains non-vacuous (the mutation ch
 test (`rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs`) was present at run time, left
 untouched, and is **not** part of this candidate; the workspace check compiled it without error. The candidate this
 node delivers is the git commit this block is committed with.
+
+## Raw verification — repair_smith candidate (task 666282d1, 2026-09-30)
+
+The `repair_smith` node was HELD for `smith-candidate`: every prior attempt for task `666282d1` committed only a
+packet section (`2d0baa3e`), so the control plane had no candidate commit that owned the story's artifact. This run
+lands a real candidate: a small, in-scope strengthening of the canonical test that closes the last no-write gap in the
+refusal suite. No production behavior, schema or migration changed, and no migration ran.
+
+What changed (`rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs`, +10):
+
+1. **Section 5 — the never-claimed caller.** The item's whole durable row (`state`, `claimed_by`, `story_run_id`,
+   `started_at`, `updated_at`) is now captured before the refused `begin_agent_work_run` on the unclaimed `Ready` item
+   and compared byte-for-byte after it. The second begin (section 3), the requeued claim (section 4) and the settled
+   claim (section 6) already carried this proof; this closes the same no-write rule for the unowned caller, so a
+   boundary that ran the predicate-less update against a `Ready` row is caught rather than passing on the run count
+   alone.
+2. Everything else is byte-identical: the CAS/exclusivity assertions, the refusal suite and the namespace-scoped
+   cleanup are unchanged.
+
+The canonical artifact is now `md5 8bf23154b1da908d11e75215c234495d` (was `47bdbc202cc93b98a1ff6ac647de8df7`); the
+production CAS is unchanged (`md5 rust/core/db/src/forge_engine.rs` = `7d631a70f1b54334586adccb7571bd14`). Its
+production citations resolve: `claim_specific_agent_work` at `rust/core/db/src/forge_engine.rs:651`,
+`begin_agent_work_run` at `:798`, its CAS read `where ... state='Claimed' for update` at `:806-810`, the Story Run
+insert at `:835-859`, the predicate update at `:864-870`, `finish_agent_work_run` at `:1025`, `requeue_stale_work` at
+`rust/core/db/src/forge_control.rs:117`, and `guard_target` at `rust/test-harness/src/database.rs:68-75`.
+
+Commands run from the repo root, output pasted with exit status:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ignored, needs DATABASE_URL_DEV (a disposable DEV branch); TestDatabase refuses PROD before any socket
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; APP_ENV=development cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run -- --ignored
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.08s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 49s
+CHECK_EXIT=0
+```
+
+The live run calls `TestDatabase::connect_declared(Some("dev"), Some("dev"))`, which resolves the harness PROD refusal
+before any socket (`guard_target`), asserts `target = Dev` before any assertion executes, and reaps its proof stories
+by namespace, so PRODUCTION is never connected to and the disposable DEV branch is left as it was found. The live run
+exercised the strengthened refusal suite — the exclusive second claim, a second begin, a requeued claim, an unclaimed
+`Ready` item, an unknown id and a settled claim are each refused, committing nothing and opening no run — and the
+committed-truth rollback probe (`with_rollback`, section 3b) passed, so the contract is non-vacuous. The concurrent
+peer changes (`rust/test-harness/src/forge.rs`, `rust/test-harness/tests/forge_claim__003__stale_recovery.rs`, and the
+untracked `arch_boundary__011__*`) were present at run time, left untouched, and are **not** part of this candidate;
+the workspace check compiled them without error. The candidate this node delivers is the git commit this block is
+committed with.

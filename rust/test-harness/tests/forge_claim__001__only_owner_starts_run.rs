@@ -413,6 +413,7 @@ async fn forge_claim_001__only_owner_starts_run() {
     //    and an id that does not exist at all.
     // -----------------------------------------------------------------------------------------------------------
     let unowned_item = insert_ready_story(&pool, &unowned_story).await;
+    let unowned_durable = durable_item_row(&pool, &unowned_item).await;
     assert!(
         engine
             .begin_agent_work_run(&unowned_item)
@@ -432,6 +433,15 @@ async fn forge_claim_001__only_owner_starts_run() {
     assert!(
         run_rows(&pool, &unowned_story).await.is_empty(),
         "{HARNESS}: neither refusal opened a run"
+    );
+    // The never-claimed caller is held to the same no-write rule as the second begin, the requeued claim and the
+    // settled claim: refusing it moves no column of its durable row, so a boundary that ran the predicate-less
+    // update against an unowned `Ready` item would be caught here rather than passing because only the run count
+    // was read.
+    assert_eq!(
+        durable_item_row(&pool, &unowned_item).await,
+        unowned_durable,
+        "{HARNESS}: a refused begin on an unclaimed item must commit nothing — state, owner, run id and timestamps are unchanged"
     );
 
     // -----------------------------------------------------------------------------------------------------------
