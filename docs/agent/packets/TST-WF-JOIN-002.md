@@ -556,3 +556,64 @@ untracked file `rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mu
 present in the working tree at run time; it was left untouched and is not part of this candidate.
 
 FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false}
+
+## Re-run — fast_repair_smith (2026-09-30, task bd6c240a self-heal)
+
+The prior run for task `bd6c240a` was HELD because the control plane derived no `smith-candidate`: the current Rust
+runner takes the candidate from the run's workspace HEAD (`rust/forge/src/engine/opencode.rs:316-324`) and diffs it
+against the recorded base, and the prior reply was not accompanied by a candidate commit the runner could promote.
+This re-run lands one further **load-bearing** clause on the canonical test and commits it, so the candidate is the
+new workspace HEAD. No production code changed.
+
+What changed in `rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs`:
+
+1. The required branch `main` now declares **no** `required` (`transition("main", MAIN_NODE, None)`) instead of an
+   explicit `Some(true)`. This exercises the definition of "optional" instead of assuming it: a sibling is required
+   by default, and only an explicit `required=false` makes it optional — production's
+   `let required = transition.required.unwrap_or(true)` at `rust/core/workflow/src/engine/execute_node_leave.rs:388`.
+   Before this change the test's required branch was explicit `true`, so the default was never exercised.
+2. New assertions read the durable `token.forked` events (`rust/core/workflow/src/engine/execute_node_leave.rs:404-415`)
+   and pin that the branch which omitted `required` was minted `required=true`, while each of the three explicit
+   `required=false` branches was minted `required=false`. A fork that defaulted an unspecified sibling to optional —
+   silently letting the join fire before the required branch arrived — now fails here as well as at the token-count
+   gate, and the durable log names the rule that produced the counts.
+
+Commands below are this node's own run, pasted with their exit status.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_join__002__optional_siblings_handled_correctly
+running 1 test
+test wf_join_002__optional_siblings_handled_correctly ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 35s
+CHECK_EXIT=0
+```
+
+Mutation check (the default-required rule is now load-bearing and was not before): flipping
+`rust/core/workflow/src/engine/execute_node_leave.rs:388` from `transition.required.unwrap_or(true)` to
+`unwrap_or(false)` makes the unspecified `main` branch optional, so the required-sibling gate reads zero and the test
+fails at `rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs:382`
+(`exactly the one required branch is counted — the optional siblings are not`), `test result: FAILED` (exit 101):
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_join__002__optional_siblings_handled_correctly
+test wf_join_002__optional_siblings_handled_correctly ... FAILED
+thread 'wf_join_002__optional_siblings_handled_correctly' panicked at test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs:382:5:
+assertion `left == right` failed: WorkflowHarness/L4 Adversarial: exactly the one required branch is counted — the optional siblings are not
+  left: 0
+ right: 1
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+MUTATION_DEFAULT_EXIT=101
+```
+
+The production file was restored byte-for-byte with `git checkout --` (`git diff --quiet` clean) and the test is green
+again (`TEST_EXIT=0`). With `main` unspecified, the flip is caught; with the prior explicit `Some(true)` it was not —
+that is the coverage this clause adds. An unrelated, pre-existing untracked file
+`rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs` (another agent's) was present in the
+working tree at run time; it was left untouched and is not part of this candidate.
+
+FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false}

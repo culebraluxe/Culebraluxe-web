@@ -171,8 +171,12 @@ fn ledger_definition() -> ProcessDefinition {
             node_type: "fork".to_string(),
             name: Some("Fan".to_string()),
             transitions: Some(vec![
-                // main — the only required branch; the join waits for this one and nothing else.
-                transition("main", MAIN_NODE, Some(true)),
+                // main — a required branch BY DEFAULT: the transition carries no explicit `required`, and the fork
+                // rule (`transition.required.unwrap_or(true)`, `rust/core/workflow/src/engine/execute_node_leave.rs:388`)
+                // still mints it required. Only an explicit `false` below makes a sibling optional, so a sibling that
+                // merely omits `required` must keep holding the join — that is the boundary the optionals are defined
+                // against, and the fork-event assertion below pins it.
+                transition("main", MAIN_NODE, None),
                 // extra — an optional branch that does arrive (a human completes it).
                 transition("extra", REVIEW_NODE, Some(false)),
                 // hold — an optional branch parked on an open task the join must obsolete.
@@ -317,6 +321,18 @@ fn events_of_type(store: &MemoryStore, instance: &str, event_type: &str) -> Vec<
         .collect()
 }
 
+/// The `required` decision the fork recorded for the branch born at `node`, read back from the durable
+/// `token.forked` event. `None` means no fork event, or a payload that did not carry the flag.
+fn forked_required(store: &MemoryStore, instance: &str, node: &str) -> Option<bool> {
+    events_of_type(store, instance, "token.forked")
+        .into_iter()
+        .find(|event| event.node_id.as_deref() == Some(node))
+        .and_then(|event| match event.data.get("required") {
+            Some(Value::Bool(required)) => Some(*required),
+            _ => None,
+        })
+}
+
 fn instance_status(store: &MemoryStore, instance: &str) -> ProcessStatus {
     store
         .with_tx(|tx| tx.get_instance(instance))
@@ -389,6 +405,25 @@ fn wf_join_002__optional_siblings_handled_correctly() {
         optional, expected_optional,
         "{HARNESS}: the optional set is exactly the three optional branches; the required branch is not in it"
     );
+
+    // The default is the load-bearing half of the split. The required branch's transition declared NO `required`,
+    // yet the production fork rule minted it required; the optional branches are optional only because they said
+    // `false` explicitly (`rust/core/workflow/src/engine/execute_node_leave.rs:388`,
+    // `let required = transition.required.unwrap_or(true)`). The `token.forked` events carry that decision, so a fork
+    // that defaulted an unspecified sibling to optional — silently letting the join fire early — fails here, where
+    // the token counts above already would, but the durable log names the rule that produced them.
+    assert_eq!(
+        forked_required(reader.memory(), &instance, MAIN_NODE),
+        Some(true),
+        "{HARNESS}: a sibling that omits `required` defaults to required and must keep holding the join"
+    );
+    for node in [REVIEW_NODE, HOLD_NODE, WAIT_NODE] {
+        assert_eq!(
+            forked_required(reader.memory(), &instance, node),
+            Some(false),
+            "{HARNESS}: the optional sibling at {node} is optional only by its explicit `required=false`"
+        );
+    }
 
     // The parked optional branches exist: an open task at `hold`, an open timer job at `sla`. These are what the
     // join must retire, so their absence would make the retirement assertions vacuous.
