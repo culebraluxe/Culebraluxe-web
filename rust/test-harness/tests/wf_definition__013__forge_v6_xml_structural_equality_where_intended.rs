@@ -279,6 +279,23 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
         "{HARNESS}: declaration order is not structure — the canonical encoding is keyed by node id"
     );
 
+    // 3g. WHERE INTENDED (entity references) — an XML entity reference names the same value as the character it
+    //     stands for, so `&apos;` inside an attribute value is the same structure as a literal `'`. The production
+    //     parser decodes `&amp; &lt; &gt; &quot; &apos;` (`rust/forge/src/engine/xml.rs:219-234`); a parser that kept
+    //     the raw reference instead of decoding it would read a different decision condition and fail here, even
+    //     though the definition means the same thing.
+    let entity_encoded = FORGE_SDLC_V6_XML.replacen(
+        "workType == 'HOTFIX'",
+        "workType == &apos;HOTFIX&apos;",
+        1,
+    );
+    let entity_encoded_def = definition_from_xml(&entity_encoded)
+        .expect("an attribute value written with entity references still parses");
+    assert!(
+        graphs_equal(&def.definition, &entity_encoded_def.definition),
+        "{HARNESS}: an entity reference names the same value — `&apos;` must parse equal to `'`"
+    );
+
     // 4. WHERE INTENDED (structural) — a real structural edit parses, but is NOT equal. Four independent facets are
     //    edited so the equality cannot be pinned to one serialized field: an edge (transition target), a decision
     //    arm's condition, a command node's command type, and the declared display order. Each parse must SUCCEED (the
@@ -521,6 +538,16 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
     assert!(
         definition_from_xml(&duplicated).is_err(),
         "{HARNESS}: a duplicate node id is refused"
+    );
+
+    let bad_entity = FORGE_SDLC_V6_XML.replacen(
+        "workType == 'HOTFIX'",
+        "workType == &bogus;HOTFIX&bogus;",
+        1,
+    );
+    assert!(
+        definition_from_xml(&bad_entity).is_err(),
+        "{HARNESS}: an unknown entity reference is refused, not decoded into a different-but-equal graph"
     );
 
     // 10. NEGATIVE (non-vacuity) — the predicate returns BOTH answers on real graphs. If `graphs_equal` were a
