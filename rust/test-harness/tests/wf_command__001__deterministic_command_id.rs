@@ -335,4 +335,67 @@ fn wf_command_001__deterministic_command_id() {
         "COMMAND_DUPLICATE",
         "{HARNESS}: the deterministic id is the dedup key the store refuses to duplicate"
     );
+
+    // 6. NEGATIVE — the id is bound to the whole identity triple, not to the node alone and not a global constant.
+    //    Two instances started from the same definition at the same clock are two distinct identities, so the same
+    //    node's first visit must mint two distinct command ids. If the derivation dropped the instance from its
+    //    inputs (keying on node only), this is the case that would expose it.
+    let starts = || StartProcessParams {
+        definition_key: DEFINITION_KEY.to_string(),
+        version: Some(DEFINITION_VERSION),
+        business_key: None,
+        variables: Value::object(),
+        started_by: "tst".to_string(),
+        tenant_id: None,
+        subject: None,
+    };
+    let pair_app = RecordingApplicationPort::new();
+    let pair_recorder = pair_app.clone();
+    let pair_harness = EngineHarness::with_application_port(
+        TestClock::at_unix_millis(1_650_000_000_000),
+        Box::new(pair_app),
+    );
+    pair_harness
+        .engine()
+        .seed_definition(definition(&[(COMMAND_NODE, COMMAND_TYPE)]))
+        .expect("the command definition registers with the engine");
+    let first = pair_harness
+        .engine()
+        .start_process(starts())
+        .expect("the first instance runs to its end");
+    let second = pair_harness
+        .engine()
+        .start_process(starts())
+        .expect("the second instance runs to its end");
+
+    assert_ne!(
+        first.process_instance_id, second.process_instance_id,
+        "{HARNESS}: two starts in one engine are two instances"
+    );
+    let pair_requests = pair_recorder.requests();
+    assert_eq!(
+        pair_requests.len(),
+        2,
+        "{HARNESS}: each instance visits the command node exactly once"
+    );
+    assert_eq!(
+        pair_requests[0].command_id,
+        command_id(&first.process_instance_id, COMMAND_NODE, 1),
+        "{HARNESS}: the first instance's id is its own triple's production id"
+    );
+    assert_eq!(
+        pair_requests[1].command_id,
+        command_id(&second.process_instance_id, COMMAND_NODE, 1),
+        "{HARNESS}: the second instance's id is its own triple's production id"
+    );
+    assert_ne!(
+        pair_requests[0].command_id, pair_requests[1].command_id,
+        "{HARNESS}: distinct instances must not collide on a command id"
+    );
+    // The first of these instances is, once more, the same (instance, node, visit) triple as the first run — a fourth
+    // independent execution of the same inputs, which must agree on the id.
+    assert_eq!(
+        pair_requests[0].command_id, *left_id,
+        "{HARNESS}: an independent run of the same identity agrees on the id"
+    );
 }
