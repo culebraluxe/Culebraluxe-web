@@ -136,7 +136,12 @@ pub trait TxStore {
 ///
 /// Everything that is not a connection failure goes back to the caller on the first attempt, because repeating it
 /// either wastes a round trip or changes the meaning of the answer: a step the database refused has been refused.
-pub(crate) fn repeat_connection_failures<R, S, W>(mut step: S, attempts: u32, mut wait: W) -> Result<R>
+///
+/// `pub` so a contract test can compose this exact rule at the `TxStore` seam
+/// (`rust/test-harness/tests/wf_command__003__retry_produces_same_identity.rs`). A test that copied the retry loop
+/// would prove a second implementation; the seam lets the retry be this one. The function stays pure — the caller
+/// supplies the step and the wait — so it is still exercised here without a database by the unit tests below.
+pub fn repeat_connection_failures<R, S, W>(mut step: S, attempts: u32, mut wait: W) -> Result<R>
 where
     S: FnMut() -> Result<R>,
     W: FnMut(u32),

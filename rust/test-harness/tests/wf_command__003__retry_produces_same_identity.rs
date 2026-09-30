@@ -9,18 +9,25 @@
 //! `rust/core/workflow/src/memory.rs:35-53`), so the retry re-reads the same count, regenerates the same id, and the
 //! store records the command exactly once.
 //!
+//! The retry is **the production retry rule**, not a loop written here. Production repeats a failed step in
+//! `TxStore::with_tx` through `repeat_connection_failures` (`rust/core/workflow/src/store.rs:144`), and the only
+//! production store wired to it is `NeonStore` (`rust/core/workflow/src/neon/neon_store.rs:90-104`). That store needs
+//! a real database, so the contract exercises the same rule at the `TxStore` seam: `FlakyConnectionStore` delegates
+//! every byte of storage to the production `MemoryStore` and wraps the step in the production
+//! `repeat_connection_failures`. The engine makes ONE `complete_task` call; the retry is invisible to it, exactly as
+//! it is in production. If the production rule stopped repeating, the engine would see the connection failure and the
+//! test would fail. No retry loop lives in this file.
+//!
 //! The retry is exercised on an instance that was **already committed** by an earlier, successful transaction: the
 //! process starts and parks on a task node, the first attempt to drive the command out of that task dies mid-step,
 //! and the retry re-drives the *same* instance. That shape matters — production mints an instance id once, with
-//! `uuid_v4()` at `rust/core/workflow/src/neon/new_id.rs:7-9`, and never re-derives it — so a contract that only
-//! held when a fresh `start_process` re-minted its instance would not be a production contract. Here the identity is
-//! pinned to the committed instance, exactly the state a real redelivery sees.
+//! `uuid_v4()` at `rust/core/workflow/src/neon/new_id.rs:7-9`, and never re-derives it — so a contract that only held
+//! when a fresh `start_process` re-minted its instance would not be a production contract.
 //!
-//! This file exercises the production boundary, not a re-declaration of it. The real `WorkflowEngine` is driven
-//! through `start_process` and `complete_task`; its `command` node calls the production `ApplicationPort` seam —
-//! faked at the adapter boundary, so no live provider is touched — and the only substitution is a deterministic
-//! broken-connection fault injected at the `TxStore` seam (`rust/test-harness/src/fault.rs`), which delegates every
-//! byte of storage to the production `MemoryStore` and adds nothing but the failure. Level: L3 Composition.
+//! The real `WorkflowEngine` is driven through `start_process` and `complete_task`; its `command` node calls the
+//! production `ApplicationPort` seam — faked at the adapter boundary, so no live provider is touched — and the only
+//! substitution is the deterministic broken-connection fault injected at the `TxStore` seam
+//! (`rust/test-harness/src/fault.rs`). Level: L3 Composition.
 //!
 //! The fault is load-bearing: without a failed first attempt there is no retry, so the identity comparison would be
 //! vacuous. The negative cases prove the test can fail — a genuine second run gets a distinct identity, and a
@@ -31,6 +38,7 @@ use std::sync::{Arc, Mutex};
 
 use test_harness::fault::{Fault, FaultInjector};
 use test_harness::TestClock;
+use workflow::store::repeat_connection_failures;
 use workflow::{
     command_id, ApplicationCommandOutcome, ApplicationCommandRequest, ApplicationCommandResult,
     ApplicationPort, CompleteTaskParams, DefinitionStatus, EngineOptions, MemoryStore,
@@ -51,6 +59,9 @@ const TASK_TRANSITION: &str = "submit";
 const DEFINITION_KEY: &str = "TST-WF-COMMAND-003";
 const DEFINITION_VERSION: i32 = 1;
 const STARTED_BY: &str = "tst";
+/// The production retry bound. `NeonStore::with_tx` takes this from the db policy
+/// (`db::retry::policy()`, default 3); the rule itself does not care where the number comes from.
+const RETRY_ATTEMPTS: u32 = 3;
 
 /// The external-facing `ApplicationPort`, faked at the adapter seam.
 ///
@@ -89,13 +100,13 @@ impl ApplicationPort for FakeApplicationPort {
     }
 }
 
-/// The production `MemoryStore`, with a scripted broken connection.
+/// The production `MemoryStore` with a scripted broken connection, retried by the production rule.
 ///
-/// This is a fault interposer, not a second store: every call delegates to `MemoryStore::with_tx`, so the transaction
-/// semantics under test — all mutations commit or none, and a failed body restores the snapshot — are the production
-/// ones. On the scripted connection fault the step body is still run against the real store, then the transaction is
-/// forced to fail, exactly as a socket that dies mid-step fails the body; the store then rolls back and the retry
-/// sees the first attempt's state. No retry policy is implemented here: the test itself performs the retry.
+/// This is a fault interposer at the `TxStore` seam, not a second store and not a second retry: every byte of
+/// storage is `MemoryStore`'s, and the decision to repeat a broken step is `repeat_connection_failures` — the same
+/// function `NeonStore::with_tx` calls in production. On the scripted connection fault the step body is still run
+/// against the real store, then the transaction is forced to fail, exactly as a socket that dies mid-step fails the
+/// body; `MemoryStore` rolls back and the repeated step sees the first attempt's state.
 #[derive(Clone)]
 struct FlakyConnectionStore {
     memory: MemoryStore,
@@ -113,7 +124,7 @@ impl FlakyConnectionStore {
     /// The untouched production store, for observation only.
     ///
     /// Reads go through the real `MemoryStore` so they neither consume a scripted fault nor perturb the state the
-    /// engine is being retried against; the fault script belongs to the engine's own transactions.
+    /// engine's step is being retried against; the fault script belongs to the engine's own transactions.
     fn memory(&self) -> &MemoryStore {
         &self.memory
     }
@@ -124,21 +135,28 @@ impl TxStore for FlakyConnectionStore {
     where
         F: FnMut(&mut dyn Store) -> Result<R>,
     {
-        match self.faults.next_fault() {
-            Fault::None => self.memory.with_tx(f),
-            Fault::Error { message, .. } => {
-                let _: Result<()> = self.memory.with_tx(|tx| {
+        let memory = &self.memory;
+        let faults = &self.faults;
+        repeat_connection_failures(
+            || match faults.next_fault() {
+                Fault::None => memory.with_tx(&mut f),
+                Fault::Error { message, .. } => {
                     // Run the real step body first, so the attempt produces the identity it would have sent, then
-                    // fail the connection. The body's own result is discarded: a broken socket is the outcome.
-                    let _ = f(tx);
-                    Err(WorkflowError::unavailable(message.clone()))
-                });
-                Err(WorkflowError::unavailable(message))
-            }
-            other => {
-                panic!("the retry contract is scripted with None and Error only, got {other:?}")
-            }
-        }
+                    // fail the connection. `MemoryStore` rolls the whole step back, so the repeated attempt re-reads
+                    // the state the first attempt saw — the production transaction contract.
+                    let _: Result<()> = memory.with_tx(|tx| {
+                        let _ = f(tx);
+                        Err(WorkflowError::unavailable(message.clone()))
+                    });
+                    Err(WorkflowError::unavailable(message))
+                }
+                other => {
+                    panic!("the retry contract is scripted with None and Error only, got {other:?}")
+                }
+            },
+            RETRY_ATTEMPTS,
+            |_attempt| {},
+        )
     }
 }
 
@@ -260,12 +278,11 @@ fn complete_the_task(engine: &WorkflowEngine<FlakyConnectionStore>, task_id: &st
 fn wf_command_003__retry_produces_same_identity() {
     const HARNESS: &str = "WorkflowHarness/L3 Composition";
 
-    let clock = TestClock::at_unix_millis(1_700_000_000_000);
-    let engine_clock = clock.clone();
+    let engine_clock = TestClock::at_unix_millis(1_700_000_000_000);
 
     // One scripted fault: the definition registration and the process start commit clean (the instance is durable
-    // from here on), the first attempt to drive the command dies on a broken connection, and every call after that
-    // runs clean — which is the retry.
+    // from here on), the first attempt to drive the command dies on a broken connection, and the production retry
+    // rule repeats the step — which then runs clean.
     let faults = FaultInjector::scripted(vec![
         Fault::None,
         Fault::None,
@@ -274,13 +291,16 @@ fn wf_command_003__retry_produces_same_identity() {
             "error communicating with database: Broken pipe (os error 32)",
         ),
     ]);
+    let fault_probe = faults.clone();
     let port = FakeApplicationPort::default();
     let recorder = port.clone();
+    // A clock that moves on every read, so the failed attempt and the repeat necessarily run at different instants.
+    // The identity must not change because wall time moved, so this is the clock-independence half of the contract.
     let engine = WorkflowEngine::new(
         FlakyConnectionStore::new(faults),
         EngineOptions {
             app: Some(Box::new(port)),
-            now: Box::new(move || engine_clock.now_millis()),
+            now: Box::new(move || engine_clock.tick().timestamp_millis()),
         },
     );
 
@@ -310,61 +330,31 @@ fn wf_command_003__retry_produces_same_identity() {
         "{HARNESS}: the command node has not been visited yet"
     );
 
-    // ATTEMPT 1 — completing the task drives the token into the command node. The step generates the command, then
-    // the connection breaks and the production transaction rolls the whole step back.
-    let first_error = complete_the_task(&engine, &task_id)
-        .expect_err("the broken connection fails the first attempt");
-    assert!(
-        first_error.is_connection_failure(),
-        "{HARNESS}: the failure is a connection failure, which is the only kind worth retrying: {first_error}"
-    );
-    assert_eq!(
-        recorder.requests().len(),
-        1,
-        "{HARNESS}: the failed attempt still generated its command before the socket died"
-    );
+    // ATTEMPT + RETRY — ONE engine call. Completing the task drives the token into the command node; the first
+    // attempt dies on the broken connection before it can commit, and `repeat_connection_failures` inside the
+    // store's `with_tx` repeats the step. The engine never sees the failure, which is the production shape.
+    complete_the_task(&engine, &task_id)
+        .expect("the production retry repeats the broken step and the repeat commits");
 
-    // The failed step committed nothing: the task is still open and no command reached the store. This is what makes
-    // the retry a retry rather than a second visit.
-    let still_open = engine
-        .store()
-        .memory()
-        .with_tx(|tx| tx.get_task(&task_id))
-        .expect("the task is readable");
+    // The repeat actually happened: registration, start, the failed attempt, and the successful repeat.
     assert_eq!(
-        still_open.status,
-        TaskStatus::Ready,
-        "{HARNESS}: a failed step leaves the task exactly as it was"
+        fault_probe.fired(),
+        4,
+        "{HARNESS}: the connection failure was retried by the production rule, not swallowed"
     );
-    assert_eq!(
-        engine
-            .store()
-            .memory()
-            .with_tx(|tx| tx.command_visit_count(&instance_id, COMMAND_NODE))
-            .expect("the store answers the visit count"),
-        0,
-        "{HARNESS}: the rolled-back attempt recorded no command"
-    );
-
-    // The retry happens at a later instant. If identity incorporated the attempt time it would now differ.
-    clock.advance_millis(86_400_000);
-
-    // ATTEMPT 2 — the retry of the same step on the same committed instance. The state is the state the first
-    // attempt saw, so it must reproduce the same identity.
-    complete_the_task(&engine, &task_id).expect("the retry commits");
 
     let requests = recorder.requests();
     assert_eq!(
         requests.len(),
         2,
-        "{HARNESS}: the retry generates its own command, not a cached copy"
+        "{HARNESS}: the failed attempt generated its identity and the repeat generated its own"
     );
 
     let attempt = &requests[0];
     let retry = &requests[1];
     assert_eq!(
         attempt.correlation_id, retry.correlation_id,
-        "{HARNESS}: the retry is the same process instance, not a new one"
+        "{HARNESS}: the retry is the same committed process instance, not a new one"
     );
     assert_eq!(
         attempt.correlation_id, instance_id,
@@ -380,7 +370,9 @@ fn wf_command_003__retry_produces_same_identity() {
         "{HARNESS}: the identity is that visit's own id, derived from the persisted instance"
     );
 
-    // The commit is exactly once: the rolled-back attempt left no command row, so the visit count is one.
+    // The commit is exactly once: the rolled-back attempt left no command, so the visit count is one. If the failed
+    // attempt had committed, the repeat would have read count 1, minted visit 2, and produced a DIFFERENT id — which
+    // is why this assertion makes the rollback load-bearing for the contract.
     assert_eq!(
         engine
             .store()
@@ -389,6 +381,17 @@ fn wf_command_003__retry_produces_same_identity() {
             .expect("the store answers the visit count"),
         1,
         "{HARNESS}: the failed attempt left no command; the retry recorded exactly one"
+    );
+
+    let task = engine
+        .store()
+        .memory()
+        .with_tx(|tx| tx.get_task(&task_id))
+        .expect("the task is readable");
+    assert_eq!(
+        task.status,
+        TaskStatus::Completed,
+        "{HARNESS}: the retried step completed the task exactly once"
     );
 
     let process = engine
