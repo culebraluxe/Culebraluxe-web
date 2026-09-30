@@ -612,6 +612,14 @@ fn wf_join_002__optional_siblings_handled_correctly() {
         Some(fork.id.as_str()),
         "{HARNESS}: the result token belongs to the fork that was joined"
     );
+    // Optional siblings are absorbed by the join, but the join's own continuation is a REQUIRED token
+    // (`rust/core/workflow/src/engine/handle_join.rs:99`, `required: true`). If the result were minted optional, the
+    // join output would itself be skippable and could not hold an enclosing join; nothing else in this test reads the
+    // result token's `required` flag, so a regression there would pass silently without this clause.
+    assert!(
+        settle.required,
+        "{HARNESS}: the join's result token is required — the optional siblings are absorbed, not the continuation"
+    );
     // The join event is attributed to the join node it actually fired at, not merely to a token: both the event's
     // `node_id` and its `joinNodeId` datum must name `converge`. A join that recorded the wrong node — or dropped
     // the datum — would still carry the right roster and result token, so it fails only here
@@ -730,6 +738,14 @@ fn wf_join_002__optional_siblings_handled_correctly() {
         cancelled[0].data.get("reason").and_then(Value::as_str),
         Some("branch skipped"),
         "{HARNESS}: the cancellation carries the join's skip reason"
+    );
+    // The cancellation must also name the retired job's own type (`rust/core/workflow/src/engine/handle_join.rs:75`,
+    // `"type": job.job_type`), so a reader of the durable log can tell which work the optional branch left behind. No
+    // other clause reads this datum, so dropping it — or writing a different job's type — would otherwise pass.
+    assert_eq!(
+        cancelled[0].data.get("type").and_then(Value::as_str),
+        Some("timer"),
+        "{HARNESS}: the cancellation names the optional branch's own timer job type"
     );
 
     // The obsoletion of the skipped branch's open task is announced on the durable log too, not only left in the

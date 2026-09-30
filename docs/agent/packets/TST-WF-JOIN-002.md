@@ -728,3 +728,74 @@ The production file was restored with `git checkout --` (`git diff --quiet` clea
 again (`TEST_EXIT=0`), so the clause is load-bearing. The working tree contained no other changes at commit time.
 
 FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false}
+
+## Repair re-run — fast_repair_smith (2026-09-30, task 5db02cbf self-heal)
+
+The prior run for task `5db02cbf` was HELD because its reply's `FORGE_EVIDENCE_JSON` carried no `candidateSha`, so the
+control plane derived no `smith-candidate` even though the test change was already committed (`54302c59`). This
+self-heal re-run lands a further **load-bearing test change** and commits it, so the candidate is a new workspace HEAD
+descending from the retry base. No production code changed.
+
+What changed in
+`rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs` — two clauses the test did not pin
+(both were verified non-redundant: neither is caught by any pre-existing assertion):
+
+1. **The join's result token is required.** `settle.required == true`, pinning
+   `rust/core/workflow/src/engine/handle_join.rs:99` (`required: true` in the result-token literal). Optional siblings
+   are absorbed by the join, but the join's own continuation must remain required so it can hold an enclosing join. No
+   other clause reads the result token's `required` flag, so minting it optional passed silently before.
+2. **The cancellation names the retired job's type.** `cancelled[0].data["type"] == "timer"`, pinning
+   `rust/core/workflow/src/engine/handle_join.rs:75` (`"type": job.job_type`). A reader of the durable log can then tell
+   which work the optional branch left behind; dropping the datum or writing a different job's type passed before.
+
+The commands below are this node's own run, pasted with their exit status.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_join__002__optional_siblings_handled_correctly
+running 1 test
+test wf_join_002__optional_siblings_handled_correctly ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 49s
+CHECK_EXIT=0
+```
+
+Mutation check A (the result-token `required` clause is load-bearing): changing `required: true` to `required: false`
+at `rust/core/workflow/src/engine/handle_join.rs:99` makes the test fail at
+`rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs:619`
+(`the join's result token is required — the optional siblings are absorbed, not the continuation`),
+`test result: FAILED` (exit 101):
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_join__002__optional_siblings_handled_correctly
+thread 'wf_join_002__optional_siblings_handled_correctly' panicked at test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs:619:5:
+WorkflowHarness/L4 Adversarial: the join's result token is required — the optional siblings are absorbed, not the continuation
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+MUTATION_A_EXIT=101
+```
+
+Mutation check B (the cancelled-job-type clause is load-bearing): changing `"type": job.job_type` to `"type": "job"` at
+`rust/core/workflow/src/engine/handle_join.rs:75` makes the test fail at
+`rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs:745`
+(`the cancellation names the optional branch's own timer job type`), `test result: FAILED` (exit 101):
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_join__002__optional_siblings_handled_correctly
+thread 'wf_join_002__optional_siblings_handled_correctly' panicked at test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs:745:5:
+assertion `left == right` failed: WorkflowHarness/L4 Adversarial: the cancellation names the optional branch's own timer job type
+  left: Some("job")
+ right: Some("timer")
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+MUTATION_B_EXIT=101
+```
+
+The production file was restored byte-for-byte (`cmp` clean against the pre-mutation copy; `git diff --stat` empty) after
+both mutations and the test is green again (`TEST_EXIT=0`), so both new clauses are load-bearing. The only other
+working-tree change at commit time was another agent's in-progress edit to
+`rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs`; it was left untouched
+and is not part of this candidate.
+
+FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false}
