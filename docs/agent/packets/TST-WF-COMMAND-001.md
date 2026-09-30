@@ -1,0 +1,91 @@
+# TST-WF-COMMAND-001 — deterministic command ID
+
+## Goal
+
+Prove, at the production boundary, that the command id the `WorkflowEngine` mints for a `command` node is a pure
+function of `(process_instance_id, node_id, visit_sequence)` — independent of the wall clock, the call instant, and
+any entropy. Greenfield Rust: the legacy TypeScript estate is not the specification.
+
+## Scope
+
+In: `rust/test-harness/tests/wf_command__001__deterministic_command_id.rs`, the one canonical file, and the
+production `WorkflowEngine`/`Store`/`ApplicationPort` boundary it exercises.
+
+Out: porting any TypeScript test; any live external provider; any PRODUCTION database connection; any change to the
+production identity derivation or the store's dedup guard (none was needed — the contract already held and is now
+named and executable).
+
+## Architect brief
+
+Taxonomy WF.COMMAND; level L3 Composition; harness WorkflowHarness. The command id is derived from
+`(process_instance_id, node_id, visit_sequence)`; every input is committed state, so the boundary cannot read a clock
+or a random salt. The test drives the real `WorkflowEngine<MemoryStore>` through `start_process`/`complete_task`, with
+the production `ApplicationPort` faked at the adapter seam (no provider is touched), reads the generated id back at
+the adapter and on the durable event log through the production `Store`, and pins the id to the documented canonical
+preimage independently of `command_id` so a clock or entropy added inside the derivation cannot move both sides
+together. The same triple reproduces the same id across a day of clock movement; a different instance, node, or visit
+derives a different id; the store refuses a recomputed duplicate id (`COMMAND_DUPLICATE`).
+
+## Context refs
+
+- `rust/test-harness/tests/wf_command__001__deterministic_command_id.rs:278-477` — the canonical test.
+- `rust/core/workflow/src/engine/handle_join.rs:215-216` — `visit_sequence = command_visit_count + 1`, then `command_id` from the triple.
+- `rust/core/workflow/src/engine/handle_join.rs:373-377` — `command_id(instance, node, visit_sequence)`, the derivation production runs.
+- `rust/core/workflow/src/memory.rs:598-625` — the duplicate-command refusal (`COMMAND_DUPLICATE`), the dedup key the deterministic id supplies.
+- `rust/core/workflow/src/neon/new_id.rs:7-9` — `uuid_v4()`, the instance id minted once and never re-derived, so two independent runs are two distinct identities.
+
+## Acceptance criteria
+
+1. Canonical file `rust/test-harness/tests/wf_command__001__deterministic_command_id.rs` with test
+   `wf_command_001__deterministic_command_id`. — met.
+2. Requirement under test: deterministic command ID. — met.
+3. Boundary rule: the actual `WorkflowEngine` composition, with the external `ApplicationPort` faked at the adapter
+   boundary and the store read through the production `Store` trait. — met.
+4. PASS only when the production boundary demonstrates the contract exactly. — met: the committed instance is parked,
+   the clock moves a day, the command is generated later, and the id equals the clock-free production derivation.
+5. FAIL when an invalid/negative/fault case can bypass the contract. — met: the dedup refusal, and the
+   instance/node/visit inputs each shown load-bearing.
+6. At least one meaningful negative/refusal/fault case. — met: a recomputed id at an unused visit is refused
+   (`COMMAND_DUPLICATE`); distinct instances, nodes, and visits must not collide.
+7. No legacy TypeScript test ported. — met.
+8. Deterministic and isolated; never PROD; no live provider. — met: `TestClock` + `MemoryStore` + a recording fake.
+9. Coverage named and discoverable even where the invariant already held. — met: this canonical file.
+10. `cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__001__deterministic_command_id` passes. — met.
+11. `cargo check --manifest-path rust/Cargo.toml --workspace --all-targets` passes. — met.
+
+## Preconditions
+
+Rust workspace builds. No database, network or environment is required.
+
+## Postconditions
+
+The deterministic command id contract is executable and named: the same committed triple yields the same id whatever
+the clock says, a different instance/node/visit yields a different id, and a recorded id cannot be replayed.
+
+## Skills
+
+workflow
+
+## Loop
+
+intent: build
+loop: 2/2
+
+## Test mode
+
+SCOPED
+
+## Assay commands
+
+- cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__001__deterministic_command_id
+- cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+
+## Verification (2026-09-30)
+
+Landed by `b682d333`, then strengthened across `92a30c19`, `d3a3c784`, and `59df250a`. Commits are local only; this
+node's brief says do not push.
+
+- `cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__001__deterministic_command_id`
+  → **1 passed, 0 failed**.
+- `cargo test --manifest-path rust/Cargo.toml -p test-harness` → **all tests passed, 0 failed**.
+- `cargo check --manifest-path rust/Cargo.toml --workspace --all-targets` → **exit 0**.
