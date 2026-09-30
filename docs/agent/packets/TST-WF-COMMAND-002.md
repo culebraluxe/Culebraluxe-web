@@ -215,3 +215,44 @@ $ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 34.40s
 CHECK_EXIT=0
 ```
+
+## Raw verification — lead_post integration re-run (2026-09-30)
+
+The `lead_post` node was re-issued for this story. The canonical test is already committed (currently at `6310c6b3`,
+an ancestor of HEAD) and the acceptance commands below are this node's own run against the current tree, pasted with
+their exit status. The candidate this node freezes is the git commit this block is committed with.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__002__command_generated_once_per_node_visit
+running 1 test
+test wf_command_002__command_generated_once_per_node_visit ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 32.78s
+CHECK_EXIT=0
+```
+
+Mutation check (this node's own, the per-node bypass): dropping the `node_id` filter from `command_visit_count` at
+`rust/core/workflow/src/memory.rs:578` (so the visit counter becomes instance-wide) makes the test fail at
+`rust/test-harness/tests/wf_command__002__command_generated_once_per_node_visit.rs:532`
+(`the second node's first visit is its own visit 1, not a per-instance visit 2`), `test result: FAILED` (exit 101):
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__002__command_generated_once_per_node_visit
+test wf_command_002__command_generated_once_per_node_visit ... FAILED
+thread '...' panicked at test-harness/tests/wf_command__002__command_generated_once_per_node_visit.rs:532:5:
+assertion `left == right` failed: WorkflowHarness/L3 Composition: the second node's first visit is its own visit 1, not a per-instance visit 2
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+MUTATION_EXIT=101
+```
+
+The filter was restored byte-for-byte with the editor (not `git checkout --`), because `rust/core/workflow/src/memory.rs`
+carried another story's in-flight edit; `git diff` confirms only that unrelated edit remains, and the test is green
+again (`TEST_EXIT=0`). The per-node clause is therefore load-bearing and the contract is not vacuous.
+
+Unrelated, pre-existing working-tree changes under `rust/core/workflow/` and `rust/forge/` (parallel-timer concurrency
+work: `concurrency.rs`, the `TxStore: Send + Sync` bound and the bounded timer-fire change) were present at run time;
+they were left untouched and are deliberately not part of this story's candidate.
