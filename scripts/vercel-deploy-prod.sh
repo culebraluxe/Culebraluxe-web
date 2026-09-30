@@ -153,7 +153,10 @@ printf 'In the Cockpit, the corner reads V2 · %s.\n' "$LIVE_SHA"
 # `--expect-head` makes the sha assertion part of the smoke too, so the two checks cannot
 # drift apart; the smoke's page markers are strings the pages own, not byte counts.
 printf '\nLIVE SMOKE (does production actually work)\n'
-if ! (cd "$ROOT_DIR" && node --import tsx scripts/prod-smoke.ts --expect-head); then
+# The smoke is Rust now: `scripts/prod-smoke.ts` was ported to `cli smoke prod` on 2026-09-28 (commit 9ea50f32,
+# zero TypeScript on the release path). This is the same command `pnpm smoke:prod` runs, with `--expect-head`
+# folding the sha assertion into the smoke itself.
+if ! (cd "$ROOT_DIR" && cargo run -q --manifest-path "$ROOT_DIR/rust/Cargo.toml" -p cli -- smoke prod --expect-head); then
   fail "Deployed and aliased, but the live smoke failed. Production is answering but not behaving - see the checks above."
 fi
 printf '\nRELEASE COMPLETE AND SMOKED.\n'
