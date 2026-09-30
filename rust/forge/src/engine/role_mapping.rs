@@ -85,7 +85,7 @@ const PREFIX: &str = "FORGE_EVIDENCE_JSON:";
 fn allowed_enum(key: &str, value: &str) -> bool {
     match key {
         "researchDisposition" => matches!(value, "IMPLEMENT" | "ARCHIVE" | "HOLD"),
-        "leadDecision" => matches!(value, "SOLO" | "SMITH" | "SPLIT" | "HOLD"),
+        "leadDecision" => matches!(value, "SOLO" | "SMITH" | "SPLIT" | "HOLD" | "ASSAY"),
         "disposition" => matches!(value, "REPAIR" | "REPLAN" | "ESCALATE"),
         "failureClass" => matches!(
             value,
@@ -201,4 +201,29 @@ fn parse_marker_object(raw: &str) -> ForgeGateEvidence {
         }
     }
     ev
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// ASSAY is the Lead's decision for a story whose work already exists on the base
+    /// (FORGE-VERIFY-EXISTING-COMPLETE-01). It is one of the engine's `LEAD_DECISIONS`
+    /// (`phase.rs:14`) and one of the `execution_shape` conditions
+    /// (`FORGE_SDLC-v6.xml:257`), so the marker parser must record it rather than drop it —
+    /// an unparsed ASSAY is reported as a missing `lead-decision` and holds the run.
+    #[test]
+    fn lead_decision_assay_is_parsed() {
+        let ev = parse_forge_evidence_marker(
+            "prose\nFORGE_EVIDENCE_JSON: {\"leadDecision\":\"ASSAY\"}\n",
+        );
+        assert_eq!(ev.lead_decision.as_deref(), Some("ASSAY"));
+    }
+
+    /// The enum still refuses anything the engine cannot route.
+    #[test]
+    fn lead_decision_unknown_value_is_refused() {
+        let ev = parse_forge_evidence_marker("FORGE_EVIDENCE_JSON: {\"leadDecision\":\"MAYBE\"}");
+        assert!(ev.lead_decision.is_none());
+    }
 }
