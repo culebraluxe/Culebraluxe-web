@@ -491,3 +491,59 @@ not vacuous.
 An unrelated in-flight working-tree change (another story: `rust/test-harness/src/lib.rs`, the `arch_boundary__*`
 tests and `source.rs`) was present at run time, left untouched, and is **not** part of this candidate. The candidate
 this node freezes for QA is the git commit this block is committed with.
+
+## Verification — qa_verify re-run (2026-09-30)
+
+**Verdict: PASS (qaPassed = true).** The frozen candidate is `bad9fbb1` (the `lead_post` re-freeze, HEAD). The
+canonical test `rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs` is byte-identical across the
+candidate, HEAD and the QA-verified repair (no diff from `b61d210b`). The test names the contract exactly, drives the
+real `ForgeEngineDao`/`ForgeControlDao` through `ForgeHarness` on a disposable DEV target, reads committed truth back
+on the pool, carries the negative/refusal suite, and removes its proof rows scoped to its own namespace. Both
+acceptance commands are green and the live L2 DEV contract is green.
+
+The contract is not vacuous: the production CAS in `begin_agent_work_run` guards the run on the live claim — the read
+`select story_id from agent_work_item where id=$1::uuid and state='Claimed' for update`
+(`rust/core/db/src/forge_engine.rs:806-817`) returns `None` for any non-`Claimed` row, and the update carries the same
+`where id=$1::uuid and state='Claimed'` predicate (`:864-870`). The test's refused-second-begin assertion (no second
+`storyboard_story_run`) fails if either guard is removed; the mutation checks recorded under the earlier
+`lead_solo_implement`/`repair_smith` nodes demonstrated exactly that (`left: 2`, `right: 1`, exit 101). No mutation was
+applied in this node: the shared checkout had a concurrent writer active in `rust/core/db/src/forge_engine.rs`
+(the run waited on the build lock), so mutating that production file here risked colliding with the peer writer's own
+mutation; non-vacuity was instead re-confirmed read-only against the current bytes.
+
+Commands run from the repo root, output pasted with exit status:
+
+```
+$ git diff b61d210b HEAD -- rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs
+(empty — the canonical artifact is unchanged)
+ARTIFACT_DIFF_EXIT=0
+
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ignored, needs DATABASE_URL_DEV (a disposable DEV branch); TestDatabase refuses PROD before any socket
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run -- --ignored
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 23.19s
+LIVE_EXIT=0
+PRE_MD5=7d631a70f1b54334586adccb7571bd14
+POST_MD5=7d631a70f1b54334586adccb7571bd14
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 41s
+CHECK_EXIT=0
+```
+
+The live run asserts `target = Dev` before any assertion executes and reaps its proof stories at the end, so the
+disposable DEV branch is left as it was found and PRODUCTION is never connected to (only `DATABASE_URL_DEV` was read;
+`APP_ENV` was left as the shell's, and the test declares DEV explicitly). The `md5` of
+`rust/core/db/src/forge_engine.rs` was identical before and after the live run, so no production byte moved. An
+unrelated in-flight working-tree change (another story: `rust/test-harness/src/lib.rs`, the `arch_boundary__*` tests and
+`source.rs`) was present at run time, left untouched, and is **not** part of this candidate; the workspace check
+compiled it without error. Pre-existing `forge`/`workflow`-crate warnings were present at run time and are not part of
+this candidate. All acceptance criteria are met by candidate `bad9fbb1`; no open item belongs to this story.
