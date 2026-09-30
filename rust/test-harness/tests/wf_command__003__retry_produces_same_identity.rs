@@ -383,6 +383,29 @@ fn wf_command_003__retry_produces_same_identity() {
         "{HARNESS}: the failed attempt left no command; the retry recorded exactly one"
     );
 
+    // The durable log agrees with the adapter. The failed attempt's transaction rolled back, so the log holds
+    // exactly one `command.requested` event and it carries the retry's identity. A retry that re-recorded the
+    // command would leave two events here; one whose identity drifted would leave a different id. Both are
+    // violations of "retry produces same identity", and both are invisible to the adapter-only assertions above.
+    let requested: Vec<_> = engine
+        .store()
+        .memory()
+        .with_tx(|tx| tx.history(&instance_id, 128))
+        .expect("the instance history reads")
+        .into_iter()
+        .filter(|event| event.event_type == "command.requested")
+        .collect();
+    assert_eq!(
+        requested.len(),
+        1,
+        "{HARNESS}: only the committed retry recorded a command; the failed attempt left no event"
+    );
+    assert_eq!(
+        requested[0].data.get("commandId").and_then(Value::as_str),
+        Some(retry.command_id.as_str()),
+        "{HARNESS}: the durable log carries the same identity the adapter received"
+    );
+
     let task = engine
         .store()
         .memory()
