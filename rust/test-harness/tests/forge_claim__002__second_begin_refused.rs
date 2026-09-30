@@ -26,7 +26,7 @@
 
 use test_harness::ForgeHarness;
 
-use db::{DbFailure, DbTarget};
+use db::{AgentWorkOutcome, DbFailure, DbTarget};
 
 const HARNESS: &str = "ForgeHarness/L2 Persistence";
 /// The worker that claims, and then begins, the item under test.
@@ -231,6 +231,46 @@ async fn forge_claim_002__second_begin_refused() {
         committed_after_rollback, "Running",
         "{HARNESS}: rollback restored the committed truth the production begin wrote"
     );
+
+    // 5c. A SETTLED CLAIM CANNOT BE BEGUN AGAIN EITHER. The run is closed through the production settle path, and a
+    //     further begin on the settled item is refused: it cannot resurrect the item or reopen the run. So the
+    //     one-begin-per-claim rule holds across the whole lifecycle, not only while the item happens to be Running.
+    let settled = harness
+        .engine()
+        .finish_agent_work_run(&item_a, AgentWorkOutcome::Error, Some("contract proof settle"))
+        .await
+        .expect("the production settle runs")
+        .expect("a Running item must be settleable exactly once");
+    assert_eq!(settled.item_state, "Error");
+    assert!(
+        harness
+            .engine()
+            .begin_agent_work_run(&item_a)
+            .await
+            .expect("a refused begin is not an error")
+            .is_none(),
+        "{HARNESS}: a settled claim must never be begun again"
+    );
+    assert_eq!(
+        run_count(&harness, &story_a).await,
+        1,
+        "{HARNESS}: the settled claim still owns exactly the one run it opened"
+    );
+    let (closed_status, closed_ended): (Option<String>, Option<String>) = sqlx::query_as(
+        "select result_status, ended_at::text
+           from storyboard_story_run
+          where id = $1::uuid",
+    )
+    .bind(&first.story_run_id)
+    .fetch_one(harness.pool())
+    .await
+    .expect("the settled run is readable");
+    assert_eq!(
+        closed_status.as_deref(),
+        Some("Failed"),
+        "{HARNESS}: the settled run carries the item's ruling"
+    );
+    assert!(closed_ended.is_some(), "{HARNESS}: the settled run is closed");
 
     // 6. NEGATIVE — OWNERSHIP, NOT A CALL COUNTER. An item that was never claimed (`Ready`) is refused by the same
     //    guard and opens NO run. A boundary that opened a run for any id handed to it would pass step 5 and fail
