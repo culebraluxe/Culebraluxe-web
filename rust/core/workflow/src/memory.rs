@@ -655,7 +655,6 @@ impl Store for MemoryTx<'_> {
 #[cfg(test)]
 mod cas_task_tests {
     use super::*;
-    use crate::store::Store;
     use crate::value::Value;
 
     fn ready_task(id: &str, version: i32) -> Task {
