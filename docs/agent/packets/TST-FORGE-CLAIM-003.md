@@ -752,3 +752,66 @@ found. A first `cargo check` attempt raced a concurrent writer's untracked
 transient `server (lib test)` compile error; the authoritative re-run above is green with that file left untouched and
 is not part of this candidate. The candidate this node commits is the git commit this section is committed with; its
 `SMITH_CANDIDATE` marker carries the same SHA.
+
+## Verification — lead_post re-freeze (re-issue, 2026-09-30)
+
+**Integration frozen (re-issue, task `c3cffe97-59fe-4401-8b4b-da52966b7429`).** This `lead_post` node was issued
+after the `repair_smith` re-issue (run 4) landed its candidate. There was no split to integrate (the story is serially
+authored) and no production or test code needed to change — the canonical test is judged correct as it stands, so this
+node re-inspects the tree, re-runs the story's two acceptance commands plus the live L2 DEV contract, and freezes a
+fresh candidate for QA. The only working-tree change this node commits is this packet section.
+
+The canonical test `rust/test-harness/tests/forge_claim__003__stale_recovery.rs` is **byte-identical** to the QA-frozen
+candidate (sha256 `d2e54b8a633747bdf622b33f2d9d42da65edc75cb4ebff9c50fbfc4594ac97dc`; `git diff a92ae424 -- <file>` is
+empty) and every production citation it names re-resolves against the current tree by declaration line:
+`stale_agent_work` at `rust/core/db/src/forge_control.rs:39` (predicate
+`updated_at < now() - ($1::text || ' minutes')::interval` at `:47`), `hold_stale_work` at `:78`, `requeue_stale_work`
+at `:117`, `recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176`, the harness PROD refusal `guard_target`
+at `rust/test-harness/src/database.rs:68`, and `connect_declared` at `:116`. The production bytes are unchanged for this
+node: `rust/core/db/src/forge_control.rs` sha256
+`a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`, `rust/forge/src/engine/worker.rs`
+`4131fdd664ef2f5cc48a0cc454a22997d45da592b664874fc3655f9e977c6bad`, `rust/test-harness/src/database.rs`
+`493e72466fdb79686f8e9692d5046a190290d9b86d921cc2a5623943d0786bfa`.
+
+The staleness window is load-bearing and the contract is not vacuous: the discovery predicate admits a row only when
+`state in ('Claimed','Running','Paused')` **and** `updated_at < now() - interval`, so a claim heartbeated inside the
+window cannot be discovered and a settled `Done` row is excluded by the state filter — the two properties the test's
+live-peer-survival and settled-no-op assertions pin. This node did not re-run the mutation (the `qa_verify` nodes did so
+independently twice, inverting `:47` and observing the test fail at
+`rust/test-harness/tests/forge_claim__003__stale_recovery.rs:220`); the code was read only.
+
+Commands run from the repo root, output pasted with exit status:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+running 1 test
+test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+running 1 test
+test forge_claim_003__stale_recovery ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.41s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4m 43s
+CHECK_EXIT=0
+```
+
+The live run asserts `target() == "dev"` before any assertion, calls
+`TestDatabase::connect_declared(None, Some("test"))` with an explicit declared environment (the shell's `APP_ENV` was
+`production`, which the explicit declaration overrides), and `Database::connect_target(DbTarget::Dev)` reads only
+`DATABASE_URL_DEV`; PRODUCTION was never connected to. The six proof stories are deleted at the end, leaving the
+disposable DEV branch as it was found. The live run demonstrates the contract end to end: the windowed predicate
+discovers the silently-stale claim and not the live peer; `requeue_stale_work` returns it to `Ready`/`Ready` and
+advances `updated_at`; landed work settles `Done`, a human-held story settles `Error`, and an already-settled claim is
+left `Done`; the terminal `hold_stale_work` path moves the claim to `Error` and the board to `Hold` in one write; and
+the `with_rollback` probe shows the committed `Ready` row survives an uncommitted rewrite. The negative cases (live
+survivor, no double recovery, landed/held refusals) keep the test non-vacuous. The workspace check emitted only
+pre-existing `forge` test-bin warnings (unused `mut`/dead code in `forge/tests/forge_runtime.rs`), unrelated to this
+candidate. The working tree was clean at freeze time (the concurrent writer's untracked `arch_boundary__008*` file was
+no longer present). The candidate this node freezes for QA is the git commit this block is committed with.
