@@ -1427,3 +1427,77 @@ second run and the test fails on the run count). An unrelated untracked peer tes
 (`rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs`) was present at run time, left untouched,
 and is **not** part of this candidate; the workspace check compiled it without error. The candidate this node freezes
 for QA is the git commit this block is committed with.
+
+## Verification — qa_verify (task ae8cba82, 2026-09-30)
+
+**Verdict: PASS (qaPassed = true).** The frozen candidate is `0f858c9f` (the `lead_post` re-freeze, task `fe072e43`).
+The canonical test `rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs` is byte-identical to the frozen
+artifact: `md5 = 8bf23154b1da908d11e75215c234495d`, `git diff HEAD -- <file>` empty, and the file holds exactly one
+`#[tokio::test]` and exactly one `async fn forge_claim_001__only_owner_starts_run` (line 162). The production CAS it
+fences is unchanged (`md5 rust/core/db/src/forge_engine.rs` = `7d631a70f1b54334586adccb7571bd14`). Every production
+citation in the test header resolves against this tree: `claim_specific_agent_work` at `rust/core/db/src/forge_engine.rs:651`,
+`begin_agent_work_run` at `:798`, its lock read `select story_id … where id=$1::uuid and state='Claimed' for update` at
+`:806-810`, the Story Run insert in the same transaction at `:835-859`, the predicate update
+`where id=$1::uuid and state='Claimed'` at `:864-870`, `finish_agent_work_run` at `:1025`, `requeue_stale_work` at
+`rust/core/db/src/forge_control.rs:117`, `guard_target` at `rust/test-harness/src/database.rs:68-75`, and the engine
+binary refusal at `rust/forge/src/bin/forge.rs:199-242`. Both acceptance commands and the live L2 DEV contract are
+green. All acceptance criteria are met by candidate `0f858c9f`; no open item belongs to this story.
+
+The contract is not vacuous, re-confirmed read-only against the current bytes: `begin_agent_work_run` locks the claim
+`select story_id from agent_work_item where id=$1::uuid and state='Claimed' for update`
+(`rust/core/db/src/forge_engine.rs:806-817`) and returns `None` for any non-`Claimed` row *before* the Story Run insert
+in the same transaction (`:835-859`), and the state move carries the same predicate `where id=$1::uuid and state='Claimed'`
+(`:864-870`). The test's refused-second-begin assertion (run count stays 1, whole durable row byte-identical) fails if
+either guard is removed; the mutation checks recorded under the earlier `lead_solo_implement`/`repair_smith` nodes
+demonstrated exactly that (`left: 2`, `right: 1`, exit 101). **No mutation was applied in this node**: the checkout is
+shared and peers were actively reading and writing it during this run (an in-flight peer edit to
+`rust/core/db/src/forge_control.rs` and a peer `qa_verify` commit `2e72ef03` for `TST-FORGE-CLAIM-003` both landed
+mid-run), so mutating a `db`-crate file here risked being swept into a peer's commit; non-vacuity was re-confirmed
+read-only instead, and no byte of production or test code was changed by this node.
+
+Commands run from the repo root, output pasted with exit status:
+
+```
+$ md5 -q rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs rust/core/db/src/forge_engine.rs
+8bf23154b1da908d11e75215c234495d
+7d631a70f1b54334586adccb7571bd14
+
+$ git diff HEAD -- rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs
+(empty — the frozen artifact is unchanged)
+ARTIFACT_DIFF_EXIT=0
+
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ignored, needs DATABASE_URL_DEV (a disposable DEV branch); TestDatabase refuses PROD before any socket
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; APP_ENV=development cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run -- --ignored
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.89s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 22s
+CHECK_EXIT=0
+```
+
+The live run calls `TestDatabase::connect_declared(Some("dev"), Some("dev"))`, which resolves the harness's PROD refusal
+before any socket (`guard_target`, `rust/test-harness/src/database.rs:68-75`) and asserts `target = Dev` before any
+assertion executes; `Database::connect_target(DbTarget::Dev)` reads only `DATABASE_URL_DEV` (`.env.local` was sourced,
+setting `APP_ENV=development`), then the test reaps its proof stories by its own `TestDatabase` namespace, so PRODUCTION
+is never connected to and the disposable DEV branch is left as it was found. The live run exercised the load-bearing
+refusal suite — the exclusive second claim, a second begin, a requeued claim (`requeue_stale_work`,
+`rust/core/db/src/forge_control.rs:117`), an unclaimed `Ready` item, an unknown id and a settled claim are each
+refused, committing nothing and opening no run — and the committed-truth rollback probe (`with_rollback`, section 3b)
+passed, so the contract named by this story is non-vacuous. Pre-existing `forge`/`workflow`-crate warnings
+(`unused import` at `core/workflow/src/concurrency.rs:70`, `forge/src/engine/executor.rs:10`, and others) were present
+at run time and are not part of this candidate. An unrelated untracked peer test
+(`rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs`) was present at run time, left untouched,
+and is **not** part of this candidate; the workspace check compiled it without error. The candidate this node verifies
+is `0f858c9f`; the only working-tree change this node commits is this packet section.
+
+FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":true,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"0f858c9f5a345a609d46376b300606f6d9a5e278"}
