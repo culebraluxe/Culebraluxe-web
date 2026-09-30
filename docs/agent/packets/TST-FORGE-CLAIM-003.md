@@ -1152,3 +1152,63 @@ this shared checkout left `rust/test-harness/tests/forge_claim__001__only_owner_
 untracked `rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs`; both belong to other in-flight
 stories, were left untouched, and are deliberately not part of this candidate. The only change this node commits is
 this packet section.
+
+## Verification — repair_smith (task 87981938, 2026-09-30)
+
+The `repair_smith` node was re-issued (task `87981938-249e-4f87-917d-904b53ff67c6`). The canonical test
+`rust/test-harness/tests/forge_claim__003__stale_recovery.rs` already names and proves "stale recovery" at the
+production `ForgeControlDao` boundary and every acceptance criterion is met by it, so no production or test body
+changed and no migration ran. This node re-verifies the artifact against the current tree and lands the descendant
+candidate commit the control plane records.
+
+The test is byte-identical to the QA-frozen artifact (sha256
+`a2e78bd618c400191dca0d830e092f26001c20d8818d44224ada46bd11e9df56`, the self-heal no-write proof). Every production
+citation the file and this packet name re-resolves against the current tree by declaration line:
+`stale_agent_work` at `rust/core/db/src/forge_control.rs:39` (predicate
+`updated_at < now() - ($1::text || ' minutes')::interval` at `:47`), `hold_stale_work` at `:78`, `requeue_stale_work`
+at `:117`, `recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176`, the harness PROD refusal `guard_target`
+at `rust/test-harness/src/database.rs:68`, and `connect_declared` at `:116`. The production bytes are unchanged:
+`rust/core/db/src/forge_control.rs` sha256 `a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`,
+`rust/forge/src/engine/worker.rs` sha256 `4131fdd664ef2f5cc48a0cc454a22997d45da592b664874fc3655f9e977c6bad`,
+`rust/test-harness/src/database.rs` sha256 `493e72466fdb79686f8e9692d5046a190290d9b86d921cc2a5623943d0786bfa`.
+
+The live run asserts `target() == "dev"` before any assertion, calls
+`TestDatabase::connect_declared(None, Some("test"))` with an explicit declared environment (the shell's `APP_ENV` was
+`production`, which the explicit declaration overrides), and `Database::connect_target(DbTarget::Dev)` reads only
+`DATABASE_URL_DEV`; PRODUCTION was never connected to. The six proof stories are deleted at the end, leaving the
+disposable DEV branch as it was found.
+
+Commands run from the repo root, output pasted with exit status:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+running 1 test
+test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+TEST_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+running 1 test
+test forge_claim_003__stale_recovery ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.18s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+warning: `workflow` (lib test) generated 2 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.64s
+CHECK_EXIT=0
+```
+
+The live run demonstrates the contract end to end: the windowed predicate discovers the silently-stale claim and not
+the live peer; `requeue_stale_work` returns it to `Ready`/`Ready` and advances `updated_at`; landed work settles
+`Done`, a human-held story settles `Error`, and an already-settled claim is left `Done`; the terminal `hold_stale_work`
+path moves the claim to `Error` and the board to `Hold` in one write; and the `with_rollback` probe shows the committed
+`Ready` row survives an uncommitted rewrite. The negative cases (live survivor compared on the whole row, no double
+recovery, landed/held refusals) keep the test non-vacuous. The workspace check emitted only pre-existing warnings
+(`forge` lib/test, `workflow` unused imports at `core/workflow/src/concurrency.rs:70`, and the untracked
+`arch_boundary__011` test file). The untracked
+`rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs` in this shared checkout belongs to another
+in-flight story, was left untouched, and is deliberately not part of this candidate. The only change this node commits
+is this packet section; its `SMITH_CANDIDATE` marker carries the same SHA.
