@@ -21,8 +21,9 @@
 //! - cosmetic XML (a comment — before the root or between nodes, extra whitespace, the declaration, the explicit
 //!   `<x></x>` form of a self-closing tag, an element whose **attributes are reordered**) parses to a
 //!   **structurally equal** graph, because the parser intentionally drops what is not structure; and
-//! - a structural edit (a transition target, a decision condition, a command type, a display-order entry) parses to a
-//!   **structurally unequal** graph, because those are the parts the definition intends to mean.
+//! - a structural edit (a transition target or its condition/required flag, a decision condition or its
+//!   `refresh-facts`, a command type, a task `priority`, an end-state `outcome`, a dynamic-fork bound, a display-order
+//!   entry) parses to a **structurally unequal** graph, because those are the parts the definition intends to mean.
 //!
 //! A structural edit that would make the graph dishonest (a transition to a node that does not exist, an unknown
 //! element, a duplicate node id) is not a different graph — it is a refusal, so equality can never paper over a
@@ -96,6 +97,12 @@ fn routing_signature(graph: &workflow::ProcessGraph) -> Vec<String> {
         }
         if let Some(maximum) = node.maximum {
             row.push_str(&format!("|max={maximum}"));
+        }
+        if let Some(refresh) = node.refresh_facts {
+            row.push_str(&format!("|refresh={refresh}"));
+        }
+        if let Some(priority) = node.priority {
+            row.push_str(&format!("|priority={priority}"));
         }
         rows.push(row);
     }
@@ -267,6 +274,68 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
     assert!(
         !graphs_equal(&def.definition, &reordered_def.definition),
         "{HARNESS}: a changed display order is a structural difference"
+    );
+
+    // 4b. WHERE INTENDED (control fields) — the remaining control fields the production parser reads and the production
+    //     codec persists are each meaning, not decoration: an edge's `condition`/`required`, a decision's
+    //     `refresh-facts`, a task's `priority`, an end-state's `outcome`, and a dynamic fork's `maximum`. Editing any
+    //     one must parse (it stays legal) and must NOT be equal — otherwise the equality predicate would ignore a
+    //     control field the engine routes on. Each anchor is the first occurrence of a field the definition declares,
+    //     so `replacen(.., 1)` pins one node while the rest of the definition stays identical.
+    let with_edge_condition = FORGE_SDLC_V6_XML.replacen(
+        BEGIN_TRANSITION,
+        "<transition name=\"begin\" to=\"classify_work\" condition=\"always\"/>",
+        1,
+    );
+    let with_edge_condition_def = definition_from_xml(&with_edge_condition)
+        .expect("an edge carrying a condition still parses");
+    assert!(
+        !graphs_equal(&def.definition, &with_edge_condition_def.definition),
+        "{HARNESS}: an edge's condition is structure — adding one is a structural difference"
+    );
+
+    let with_edge_required = FORGE_SDLC_V6_XML.replacen(
+        BEGIN_TRANSITION,
+        "<transition name=\"begin\" to=\"classify_work\" required=\"true\"/>",
+        1,
+    );
+    let with_edge_required_def = definition_from_xml(&with_edge_required)
+        .expect("an edge carrying a required flag still parses");
+    assert!(
+        !graphs_equal(&def.definition, &with_edge_required_def.definition),
+        "{HARNESS}: an edge's required flag is structure — setting it is a structural difference"
+    );
+
+    let refreshed_off = FORGE_SDLC_V6_XML.replacen("refresh-facts=\"true\"", "refresh-facts=\"false\"", 1);
+    let refreshed_off_def = definition_from_xml(&refreshed_off)
+        .expect("a decision with refresh-facts off still parses");
+    assert!(
+        !graphs_equal(&def.definition, &refreshed_off_def.definition),
+        "{HARNESS}: a decision's refresh-facts is structure — flipping it is a structural difference"
+    );
+
+    let reprioritised = FORGE_SDLC_V6_XML.replacen("priority=\"100\"", "priority=\"50\"", 1);
+    let reprioritised_def =
+        definition_from_xml(&reprioritised).expect("a task with a different priority still parses");
+    assert!(
+        !graphs_equal(&def.definition, &reprioritised_def.definition),
+        "{HARNESS}: a task's priority is structure — changing it is a structural difference"
+    );
+
+    let reoutcomed = FORGE_SDLC_V6_XML.replacen("outcome=\"completed\"", "outcome=\"cancelled\"", 1);
+    let reoutcomed_def =
+        definition_from_xml(&reoutcomed).expect("an end-state with a different outcome still parses");
+    assert!(
+        !graphs_equal(&def.definition, &reoutcomed_def.definition),
+        "{HARNESS}: an end-state's outcome is structure — changing it is a structural difference"
+    );
+
+    let wider_fork = FORGE_SDLC_V6_XML.replacen("maximum=\"8\"", "maximum=\"4\"", 1);
+    let wider_fork_def =
+        definition_from_xml(&wider_fork).expect("a dynamic fork with a different bound still parses");
+    assert!(
+        !graphs_equal(&def.definition, &wider_fork_def.definition),
+        "{HARNESS}: a dynamic fork's maximum is structure — changing it is a structural difference"
     );
 
     // 5. THE ROUTING STRUCTURE MUST SURVIVE THE PRODUCTION PERSISTENCE BOUNDARY. `deploy_xml` writes the parsed
