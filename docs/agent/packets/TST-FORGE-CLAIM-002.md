@@ -314,3 +314,45 @@ CHECK_EXIT=0
 
 The live run asserts `target = Dev` before any assertion executes and deletes its proof stories at the end, so the
 disposable DEV branch is left as it was found and PRODUCTION is never connected to.
+
+## Raw verification — lead_post integration re-run (2026-09-30)
+
+The `lead_post` node was re-issued after the second `repair_smith` repair. The canonical test
+`rust/test-harness/tests/forge_claim__002__second_begin_refused.rs` is committed at `6b076831` (an ancestor of HEAD)
+and its production citations resolve against the current tree; the acceptance commands below are this node's own run
+against the current tree, pasted with their exit status. The candidate this node freezes for QA is the git commit
+this block is committed with.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__002__second_begin_refused
+running 1 test
+test forge_claim_002__second_begin_refused ... ignored, needs DATABASE_URL_DEV: runs only against the disposable DEV branch (PROD is refused)
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__002__second_begin_refused -- --ignored
+running 1 test
+test forge_claim_002__second_begin_refused ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.05s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 27s
+CHECK_EXIT=0
+```
+
+The live run asserts `target = Dev` before any assertion executes (`APP_ENV=development` resolves to `DbTarget::Dev`,
+`rust/core/db/src/pool.rs:565`; PRODUCTION is refused before any socket) and deletes its proof stories at the end, so
+the disposable DEV branch is left as it was found and PRODUCTION is never connected to. The refusal clause is proven
+load-bearing by the mutation recorded in the `repair_smith` block above: dropping the `and state='Claimed'` predicate
+from the production read at `rust/core/db/src/forge_engine.rs:808` makes the second begin commit a phantom
+`storyboard_story_run` (the method still returns `None`, because the update predicate refuses the item move), and this
+test fails on the run count. The same mutation is caught by this test's negative case for the unclaimed `Ready` item,
+so the contract is not vacuous.
+
+Unrelated, pre-existing working-tree changes under
+`rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs` and `docs/agent/packets/TST-FORGE-CLAIM-001.md`
+(another in-flight story) were present at run time; they were left untouched and are deliberately not part of this
+candidate.
