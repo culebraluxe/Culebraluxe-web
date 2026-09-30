@@ -27,7 +27,7 @@ structural-equality predicate is `graphs_equal` (`rust/forge/src/engine/version_
 
 ## Context refs
 
-- `rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:1-537` — the canonical test.
+- `rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:1-564` — the canonical test.
 - `rust/forge/src/engine/xml.rs:352-426` — `parse_process_definition_xml` / `definition_from_xml`, the production parser.
 - `rust/forge/src/engine/xml.rs:196-199` — the nested-comment skip inside an element's children.
 - `rust/forge/src/engine/version_policy.rs:39-41` — `graphs_equal`, the production equality predicate.
@@ -275,3 +275,68 @@ An untracked `arch_boundary__011__qa_cannot_own_git_mutations.rs` (another lane)
 time; it was left untouched and is not part of this candidate.
 
 FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"dc779bb05365136faab1971014df312430f749d7"}
+
+## Raw verification — fast_repair_smith (2026-09-30, task fc4b0878)
+
+The canonical test was already committed and green (last test-touching commit `dc779bb0`), but a later commit moved
+HEAD past that candidate, so this node lands a fresh, load-bearing commit: the smith deliverable is the run's workspace
+HEAD. The production parser's entity-reference path (`parse_ent`, `rust/forge/src/engine/xml.rs:219-234`) was the one
+parser behaviour the contract did not yet pin; two clauses are added to the canonical test and no production code
+changed.
+
+What changed in the canonical test:
+
+1. WHERE INTENDED (entity references) — an XML entity reference names the same value as the character it stands for,
+   so a decision condition written `workType == &apos;HOTFIX&apos;` must parse to a structurally equal graph as
+   `workType == 'HOTFIX'`; a parser that kept the raw reference would report a structural difference.
+2. NEGATIVE (refusal) — an unknown entity reference (`&bogus;`) in an attribute value is REFUSED, not decoded into a
+   different-but-equal graph.
+
+Both clauses are self-proving: each `replacen(.., 1)` targets the single occurrence of `workType == 'HOTFIX'`, so if the
+anchor were absent the edited source would be byte-identical and the `assert!(!..is_err())`/`assert!(graphs_equal(..))`
+directions would fail — the parse never silently no-ops.
+
+Commands below are this node's own run, pasted with their exit status.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+running 1 test
+test wf_definition_013__forge_v6_xml_structural_equality_where_intended ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.47s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 48s
+CHECK_EXIT=0
+```
+
+Mutation check A (this node's own, the entity-equality clause): keeping `apos` undecoded in production
+(`rust/forge/src/engine/xml.rs:231`, `"apos" => "'".into(),` → `"apos" => "&apos;".into(),`) makes the test fail exactly
+at the new clause, `test result: FAILED` (exit 101):
+
+```
+thread '...' panicked at test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:294:5:
+WorkflowHarness/L0 Pure: an entity reference names the same value — `&apos;` must parse equal to `'`
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+MUTATION_A_EXIT=101
+```
+
+Mutation check B (the unknown-entity refusal): swallowing an unknown entity in production
+(`rust/forge/src/engine/xml.rs:232`, `_ => return Err(..)` → `_ => "".into(),`) makes the `&bogus;` source parse and the
+test fail exactly at the new refusal clause, `test result: FAILED` (exit 101):
+
+```
+thread '...' panicked at test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:548:5:
+WorkflowHarness/L0 Pure: an unknown entity reference is refused, not decoded into a different-but-equal graph
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.53s
+MUTATION_B_EXIT=101
+```
+
+The production file was restored byte-for-byte (`cmp` clean against the pre-mutation copy) and the test is green again
+(`TEST_EXIT=0`), so both new clauses are load-bearing and the entity contract is not vacuous.
+
+An untracked `arch_boundary__011__qa_cannot_own_git_mutations.rs` (another lane) was present in the working tree at run
+time; it was left untouched and is not part of this candidate.
+
+FORGE_EVIDENCE_JSON: {"qaPassed":null,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"d8862348aa3b872bb2d5682b21b998cc5571241f"}
