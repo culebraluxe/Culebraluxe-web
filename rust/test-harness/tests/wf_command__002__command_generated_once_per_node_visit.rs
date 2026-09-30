@@ -4,7 +4,7 @@
 //! that visit. The visit sequence is the number of commands already recorded for `(process instance, node)` plus
 //! one; the `command_id` is derived from `(instance, node, visit_sequence)`; and the store refuses a second
 //! command for a visit that is already used. Two visits to the same node are two commands, one each — never zero,
-//! never two for one visit — and a failing command does not change that.
+//! never two for one visit, a node never visited gets none — and a failing command does not change that.
 //!
 //! This file exercises the production boundary, not a re-declaration of it: the real `WorkflowEngine<MemoryStore>`
 //! is driven through `start_process`, its `command` node calls the production `ApplicationPort` seam (faked at the
@@ -253,5 +253,92 @@ fn wf_command_002__command_generated_once_per_node_visit() {
         refusal.code(),
         "COMMAND_VISIT_DUPLICATE",
         "{HARNESS}: the visit guard is what refuses the bypass"
+    );
+
+    // NEGATIVE — "once per visit" has a zero side: a command node that is never reached generates no command at
+    // all, because the visit is the unit of generation and not the definition's shape. A command node sitting
+    // unreached in the graph must produce zero adapter calls and zero recorded commands; if generation were keyed
+    // to the definition instead of the visit, this is the case that would expose it.
+    let mut unreached = BTreeMap::new();
+    unreached.insert(
+        "start".to_string(),
+        NodeDefinition {
+            id: "start".to_string(),
+            node_type: "start".to_string(),
+            transitions: Some(vec![TransitionDefinition {
+                name: "skip".to_string(),
+                to: "end".to_string(),
+                condition: None,
+                required: None,
+            }]),
+            ..Default::default()
+        },
+    );
+    unreached.insert(
+        COMMAND_NODE.to_string(),
+        NodeDefinition {
+            id: COMMAND_NODE.to_string(),
+            node_type: "command".to_string(),
+            command_type: Some(COMMAND_TYPE.to_string()),
+            ..Default::default()
+        },
+    );
+    unreached.insert(
+        "end".to_string(),
+        NodeDefinition {
+            id: "end".to_string(),
+            node_type: "end".to_string(),
+            outcome: Some(ProcessOutcome::Completed),
+            ..Default::default()
+        },
+    );
+
+    let skip_app = FakeApplicationPort::scripted(vec![]);
+    let skip_recorder = skip_app.clone();
+    let skip_harness = EngineHarness::with_application_port(
+        TestClock::at_unix_millis(1_700_000_000_001),
+        Box::new(skip_app),
+    );
+    skip_harness
+        .engine()
+        .seed_definition(ProcessDefinition {
+            id: "tst-wf-command-002-skip".to_string(),
+            tenant_id: None,
+            key: "TST-WF-COMMAND-002-SKIP".to_string(),
+            version: 1,
+            name: "TST WF.COMMAND 002 SKIP".to_string(),
+            description: None,
+            definition: ProcessGraph {
+                nodes: unreached,
+                start_node_id: "start".to_string(),
+                display_order: None,
+            },
+            status: DefinitionStatus::Active,
+        })
+        .expect("the skipping definition registers with the engine");
+    let skipped = skip_harness
+        .engine()
+        .start_process(StartProcessParams {
+            definition_key: "TST-WF-COMMAND-002-SKIP".to_string(),
+            version: Some(1),
+            business_key: None,
+            variables: Value::object(),
+            started_by: "tst".to_string(),
+            tenant_id: None,
+            subject: None,
+        })
+        .expect("the process that never reaches the command node runs to completion");
+    assert_eq!(
+        skip_recorder.requests().len(),
+        0,
+        "{HARNESS}: a command node that is never visited generates no command"
+    );
+    assert_eq!(
+        skip_harness
+            .store()
+            .with_tx(|tx| tx.command_visit_count(&skipped.process_instance_id, COMMAND_NODE))
+            .expect("the store answers the visit count"),
+        0,
+        "{HARNESS}: zero visits means zero recorded commands"
     );
 }
