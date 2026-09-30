@@ -250,7 +250,7 @@ NODE
   vc api "/v10/projects/${RUST_PROJECT_ID}/env?upsert=true&teamId=${TEAM_ID}" \
     -X POST --input "$TMP_DIR/pool-setting.json" >/dev/null
 done
-printf '  Rust PROD pool pinned: min=5 max=12 connect=15s\n'
+printf '  Rust PROD pool pinned: min=20 max=30 connect=15s\n'
 
 # The Rust API has its own internal-key authentication on every application route.
 # Production needs to be reachable from the Next frontend without Vercel login interposition.
