@@ -300,3 +300,37 @@ CHECK_EXIT=0
 The live run asserted `target = Dev` before any assertion ran and deletes its proof stories at the end, so the
 disposable DEV branch is left as it was found and PRODUCTION is never connected to. The candidate this node freezes
 for QA is the git commit this block is committed with.
+
+## Verification — repair_smith self-heal (2026-09-30)
+
+The `repair_smith` node was re-issued a second time because the prior run was HELD for a missing `smith-candidate`
+(the control plane recorded no descendant commit for the run, not a test defect). The canonical test and its
+citations are unchanged and already meet every acceptance criterion; this node confirms the artifact against the
+current tree and lands the candidate commit the control plane asked for. No production behavior, schema or test
+body changed.
+
+What was checked: the canonical test `rust/test-harness/tests/forge_claim__003__stale_recovery.rs:1-462` still
+resolves its production citations — `stale_agent_work` at `rust/core/db/src/forge_control.rs:39-54`,
+`hold_stale_work` at `:78-108`, `requeue_stale_work` at `:117-202`, `recover_stale_agent_work` at
+`rust/forge/src/engine/worker.rs:176-224`, `guard_target` at `rust/test-harness/src/database.rs:68-75`, and
+`connect_declared` at `:116-123`.
+
+Commands run from the repo root, output pasted:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+running 1 test
+test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.91s
+CHECK_EXIT=0
+```
+
+The live `-- --ignored` run needs a disposable DEV branch (`DATABASE_URL_DEV`); it is empty in this environment's
+`.env.local`, so the L2 contract is skipped here and was already proven green by the three prior nodes
+(15.29s–19.61s, `LIVE_EXIT=0`). The harness refuses PRODUCTION before any socket regardless. The candidate this node
+freezes for QA is the git commit this block is committed with.
