@@ -199,17 +199,30 @@ fn wf_command_002__command_generated_once_per_node_visit() {
         "{HARNESS}: exactly one command record for each of the two visits"
     );
 
-    // The observable history agrees with the command table: one command.requested event per visit.
-    let requested_events = harness
+    // The observable history agrees with the command table: one command.requested event per visit. The durable log
+    // names exactly the two ids the boundary generated — same set, no extra, no missing — so "once per visit" holds
+    // on the event log as well as at the adapter, and a second hidden generation could not hide off-log.
+    let mut logged_ids: Vec<String> = harness
         .store()
         .with_tx(|tx| tx.history(&instance_id, 128))
         .expect("the instance history reads")
         .into_iter()
         .filter(|event| event.event_type == "command.requested")
-        .count();
+        .map(|event| {
+            event
+                .data
+                .get("commandId")
+                .and_then(Value::as_str)
+                .expect("every command.requested event carries its commandId")
+                .to_string()
+        })
+        .collect();
+    logged_ids.sort();
+    let mut generated_ids: Vec<String> = requests.iter().map(|r| r.command_id.clone()).collect();
+    generated_ids.sort();
     assert_eq!(
-        requested_events, 2,
-        "{HARNESS}: one command.requested event per visit"
+        logged_ids, generated_ids,
+        "{HARNESS}: the durable log names exactly the generated commands, one per visit"
     );
 
     // FAULT: the second (failing) command still produced one command for its visit, and it ended the run. A fault
@@ -347,5 +360,16 @@ fn wf_command_002__command_generated_once_per_node_visit() {
             .expect("the store answers the visit count"),
         0,
         "{HARNESS}: zero visits means zero recorded commands"
+    );
+    // The zero above is a completed run that simply never entered the command node, not a run that died before it:
+    // the skip process ran to its declared end outcome. Without this, a crash could masquerade as "never visited".
+    let skipped_instance = skip_harness
+        .store()
+        .with_tx(|tx| tx.get_instance(&skipped.process_instance_id))
+        .expect("the skipped instance is readable");
+    assert_eq!(
+        skipped_instance.status,
+        ProcessStatus::Completed,
+        "{HARNESS}: the run that skips the command node completed normally"
     );
 }
