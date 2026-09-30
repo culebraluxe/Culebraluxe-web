@@ -1441,3 +1441,64 @@ non-vacuous. The workspace check emitted only pre-existing warnings (`workflow` 
 `rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs` in this shared checkout belongs to another
 in-flight story, was left untouched, and is deliberately not part of this candidate. The only change this node commits
 is this packet section; its `FORGE_EVIDENCE_JSON` carries `qaPassed = true`.
+
+## Verification — repair_smith re-issue (task 757433be, 2026-09-30)
+
+The `repair_smith` node was re-issued once more (task `757433be-2c43-4853-9b4d-c289ced154cb`). The canonical test
+`rust/test-harness/tests/forge_claim__003__stale_recovery.rs` is **byte-identical** to the QA-frozen
+`ForgeHarness`-routed artifact (sha256 `635016b2adb004a3f0a547df58794c6c983d3b1a8d9dde6e9b65d04916fbf2de`, unchanged
+since `0f858c9f`) and every acceptance criterion is still met by it, so no production or test body changed and no
+migration ran. This node re-verifies the artifact against the current tree and lands the descendant candidate commit
+the control plane records.
+
+Every production citation the file and this packet name re-resolves against the current tree by declaration line:
+`stale_agent_work` at `rust/core/db/src/forge_control.rs:39`, `hold_stale_work` at `:78`, `requeue_stale_work` at
+`:117`, `recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176`, the harness PROD refusal `guard_target` at
+`rust/test-harness/src/database.rs:68`, and `connect_declared` at `:116`. The test declares exactly one
+`#[tokio::test]` named `forge_claim_003__stale_recovery` (annotation at
+`rust/test-harness/tests/forge_claim__003__stale_recovery.rs:129`).
+
+The live run asserts `target() == "dev"` before any assertion, calls
+`ForgeHarness::connect_declared(None, Some("test"))` with an explicit declared environment (the shell's `APP_ENV` is
+overridden by the explicit declaration), and `Database::connect_target(DbTarget::Dev)` reads only `DATABASE_URL_DEV`
+(`ep-muddy-lab-axtgckj9-pooler`, distinct from the PROD host `ep-flat-art-ax92tn7a-pooler`); PRODUCTION was never
+connected to. The six proof stories are deleted at the end, leaving the disposable DEV branch as it was found.
+
+Commands run from the repo root, output pasted with exit status:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+running 1 test
+test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+TEST_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+running 1 test
+test forge_claim_003__stale_recovery ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.72s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+warning: unused import: `TxStore`
+  --> core/workflow/src/concurrency.rs:70:31
+warning: unused import: `Store`
+  --> core/workflow/src/concurrency.rs:70:24
+warning: `workflow` (lib test) generated 2 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.94s
+CHECK_EXIT=0
+```
+
+The live run demonstrates the contract end to end: the windowed predicate discovers the silently-stale claim and not
+the live peer; `requeue_stale_work` returns it to `Ready`/`Ready` and advances `updated_at`; landed work settles `Done`,
+a human-held story settles `Error`, and an already-settled claim is left `Done`; the terminal `hold_stale_work` path
+moves the claim to `Error` and the board to `Hold` in one write; and the `with_rollback` probe shows the committed
+`Ready` row survives an uncommitted rewrite. The negative cases (live survivor compared on the whole row, no double
+recovery, landed/held refusals) keep the test non-vacuous. The workspace check emitted only pre-existing warnings
+(`workflow` unused imports at `core/workflow/src/concurrency.rs:70`, `forge` dead-code warnings), unrelated to this
+candidate. The untracked `rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs` in this shared
+checkout belongs to another in-flight story, was left untouched, and is deliberately not part of this candidate. The
+candidate this node commits is the git commit this block is committed with; its `SMITH_CANDIDATE` marker carries the
+same SHA.
