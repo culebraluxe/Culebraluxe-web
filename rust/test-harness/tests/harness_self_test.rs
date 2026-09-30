@@ -4,7 +4,9 @@
 //! actually deterministic, and they prove the PRODUCTION database guard refuses execution *before* any connection is
 //! attempted. Everything here runs in `cargo test -p test-harness` with no database, no network and no environment.
 
-use test_harness::database::{guard_target, resolve_test_target, unique_namespace, HarnessDbError};
+use test_harness::database::{
+    guard_target, resolve_test_target, unique_namespace, HarnessDbError, TestDatabase,
+};
 use test_harness::{DeterministicIds, FixtureFactory, TestClock, TestLevel};
 use db::DbTarget;
 
@@ -68,6 +70,34 @@ fn the_production_database_guard_refuses_execution() {
         resolve_test_target(Some("preview"), None).unwrap(),
         DbTarget::Dev
     );
+}
+
+/// The guard's real entry point, not just its pure resolver.
+///
+/// `the_production_database_guard_refuses_execution` proves the *decision* (`guard_target`/`resolve_test_target`).
+/// This proves the *execution*: `TestDatabase::connect_declared`, the async constructor every database-backed test
+/// funnels through, returns the refusal instead of opening a pool. It runs with no database and no network, so it
+/// holds even where no DEV database is reachable — which is exactly why the refusal can be proven in `cargo test`.
+#[tokio::test]
+async fn the_database_constructor_refuses_to_execute_against_production() {
+    // A production declaration is refused before any socket is opened.
+    assert!(
+        matches!(
+            TestDatabase::connect_declared(Some("production"), Some("dev")).await,
+            Err(HarnessDbError::ProductionRefused(_))
+        ),
+        "a production declaration must resolve to the PRODUCTION refusal before connecting"
+    );
+    assert!(matches!(
+        TestDatabase::connect_declared(None, Some("prod")).await,
+        Err(HarnessDbError::ProductionRefused(_))
+    ));
+
+    // Silence is refused as undeclared, not defaulted to a database.
+    assert!(matches!(
+        TestDatabase::connect_declared(None, None).await,
+        Err(HarnessDbError::Undeclared(_))
+    ));
 }
 
 #[test]
