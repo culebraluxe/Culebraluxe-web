@@ -223,3 +223,55 @@ The production file was restored byte-for-byte with `git checkout --` (`cmp` cle
 the test is green again (`TEST_EXIT=0`). The unrelated, pre-existing untracked file
 `rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs` was present in the working tree at run
 time; it was left untouched and is not part of this candidate.
+
+## Repair re-run — fast_repair_smith (2026-09-30, task 766b3bdd)
+
+The prior `fast_repair_smith` run was HELD because it did not deliver a `smith-candidate` (no valid
+`FORGE_EVIDENCE_JSON` with a `candidateSha` on the reply, so the runner saw no candidate). This run makes a
+load-bearing test change and commits it, so the candidate is a new commit descending from the retry base. No
+production code changed.
+
+What changed in
+`rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs`:
+the retirement of the skipped optional branch's **open task** was observed only through the task row's status. The
+test now also pins the durable `task.obsoleted` event: exactly one, naming the optional `hold` branch's own task and
+carrying the `branch skipped` reason (`rust/core/workflow/src/engine/handle_join.rs:59-61`, event emitted at
+`rust/core/workflow/src/engine/execute_node_leave.rs:160-170`). This is the task half of the same retirement path the
+`job.cancelled` clause already pins. Obsoleting the row while dropping the event — or obsoleting a task on the
+required branch or the arrived optional branch — would satisfy the status assertions and fail here.
+
+The commands below are this node's own run, pasted with their exit status.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_join__002__optional_siblings_handled_correctly
+running 1 test
+test wf_join_002__optional_siblings_handled_correctly ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 26s
+CHECK_EXIT=0
+```
+
+Mutation check (the new `task.obsoleted` clause is load-bearing): renaming the event type at
+`rust/core/workflow/src/engine/execute_node_leave.rs:165` from `task.obsoleted` to `task.obsoleted_MUTATION` makes the
+test fail at `rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs:644`
+(`the join obsoletes exactly one task, the open task an optional sibling left`), `test result: FAILED` (exit 101):
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_join__002__optional_siblings_handled_correctly
+test wf_join_002__optional_siblings_handled_correctly ... FAILED
+thread '...' panicked at test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs:644:5:
+assertion `left == right` failed: WorkflowHarness/L4 Adversarial: the join obsoletes exactly one task, the open task an optional sibling left
+  left: 0
+ right: 1
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+MUTATION_EXIT=101
+```
+
+The production file was restored with `git checkout --` (working tree clean for it) and the test is green again
+(`TEST_EXIT=0`). The unrelated, pre-existing untracked file
+`rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs` was present in the working tree at run
+time; it was left untouched and is not part of this candidate.

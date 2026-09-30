@@ -634,6 +634,29 @@ fn wf_join_002__optional_siblings_handled_correctly() {
         "{HARNESS}: the cancellation carries the join's skip reason"
     );
 
+    // The obsoletion of the skipped branch's open task is announced on the durable log too, not only left in the
+    // task row: exactly one `task.obsoleted`, naming the optional hold task, carrying the join's skip reason. A join
+    // that flipped the row Obsolete but dropped the event — or obsoleted a task on the required branch or the
+    // arrived optional branch — would satisfy the task-status assertions above and fail here, so this clause pins
+    // the task half of the same retirement path the job cancellation clause pins
+    // (`rust/core/workflow/src/engine/handle_join.rs:59-61`, event at `execute_node_leave.rs:160-170`).
+    let obsoleted = events_of_type(reader.memory(), &instance, "task.obsoleted");
+    assert_eq!(
+        obsoleted.len(),
+        1,
+        "{HARNESS}: the join obsoletes exactly one task, the open task an optional sibling left"
+    );
+    assert_eq!(
+        obsoleted[0].task_id.as_deref(),
+        Some(hold_task.id.as_str()),
+        "{HARNESS}: the obsoleted event names the optional hold branch's own task, not the required or arrived one"
+    );
+    assert_eq!(
+        obsoleted[0].data.get("reason").and_then(Value::as_str),
+        Some("branch skipped"),
+        "{HARNESS}: the obsoletion carries the join's skip reason"
+    );
+
     // No optional token leaks active into the terminal state: the process converges to its declared end.
     assert_eq!(
         reader
