@@ -27,7 +27,7 @@ structural-equality predicate is `graphs_equal` (`rust/forge/src/engine/version_
 
 ## Context refs
 
-- `rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:1-638` — the canonical test.
+- `rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:1-674` — the canonical test.
 - `rust/forge/src/engine/xml.rs:352-426` — `parse_process_definition_xml` / `definition_from_xml`, the production parser.
 - `rust/forge/src/engine/xml.rs:196-199` — the nested-comment skip inside an element's children.
 - `rust/forge/src/engine/version_policy.rs:39-41` — `graphs_equal`, the production equality predicate.
@@ -444,3 +444,70 @@ An in-flight WF-JOIN-002 lane had a modified `rust/core/workflow/src/engine/exec
 `arch_boundary__011__qa_cannot_own_git_mutations.rs`; they were left untouched and are not part of this candidate.
 
 FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"8f99b3944da12b0d88e375d6d33715782e551f92"}
+
+## Raw verification — fast_repair_smith (2026-09-30, task 977d3bdb)
+
+The canonical test was already committed and green (last test-touching commit `8f99b394`), but a later commit moved
+HEAD past that candidate, so this node lands a fresh, load-bearing commit: the smith deliverable is the run's workspace
+HEAD. Two production parser behaviours the contract did not yet pin are added and no production code changed. The
+Context ref range is refreshed from `:1-638` to `:1-674` so `pnpm forge:packet-lint` rule 10 stays clean.
+
+What changed in the canonical test (this node's own candidate, `b35a9368`):
+
+1. WHERE INTENDED (default outcome) — an end-state that omits `outcome` means `Completed`; the parser supplies that
+   default (`rust/forge/src/engine/xml.rs:280-285`). Declaring the default explicitly is not structure, so removing
+   `outcome="completed"` from the definition's first end-state must parse to a structurally equal graph. The anchor is
+   asserted before the edit, so the clause cannot pass on a no-op `replacen`.
+2. WHERE INTENDED (display order is ordered) — `display-order` is the definition's explicit sequence and order is
+   meaning: swapping two adjacent entries parses (the source stays legal) and is structurally unequal
+   (`rust/forge/src/engine/xml.rs:364-375`, `rust/core/workflow/src/json_codec.rs:233-238`). The anchor is two
+   adjacent lines, so an absent anchor would no-op and `assert!(!graphs_equal(..))` would fail — the clause is
+   self-proving.
+
+Commands below are this node's own run, pasted with their exit status.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+running 1 test
+test wf_definition_013__forge_v6_xml_structural_equality_where_intended ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.49s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 34s
+CHECK_EXIT=0
+```
+
+Mutation check A (this node's own, the default-outcome clause): making an absent outcome parse as `Cancelled`
+(`rust/forge/src/engine/xml.rs:284`, add `None => ProcessOutcome::Cancelled,`) makes the test fail exactly at the new
+clause `rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:319`,
+`test result: FAILED` (exit 101):
+
+```
+thread 'wf_definition_013__forge_v6_xml_structural_equality_where_intended' panicked at test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:319:5:
+WorkflowHarness/L0 Pure: an end-state's default outcome is not structure — omitting `outcome="completed"` must parse to an equal graph
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+MUTATION_A_EXIT=101
+```
+
+Mutation check B (this node's own, the display-order clause): making the parser sort the collected order
+(`rust/forge/src/engine/xml.rs`, `display_order.sort();` before `Ok(ParsedDefinition { .. })`) makes the two swapped
+sequences equal and the test fail exactly at the new clause
+`rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:382`,
+`test result: FAILED` (exit 101):
+
+```
+thread 'wf_definition_013__forge_v6_xml_structural_equality_where_intended' panicked at test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:382:5:
+WorkflowHarness/L0 Pure: display order is ordered structure — swapping two entries is a structural difference
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+MUTATION_B_EXIT=101
+```
+
+Both production files were restored byte-for-byte (`cmp` clean against the pre-mutation copies) and the test is green
+again (`TEST_EXIT=0`), so both new clauses are load-bearing and the contract is not vacuous.
+
+An untracked `arch_boundary__011__qa_cannot_own_git_mutations.rs` (another lane) was present in the working tree at run
+time; it was left untouched and is not part of this candidate.
+
+FORGE_EVIDENCE_JSON: {"qaPassed":null,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"b35a936808b153c73b950e1d3725e188b4e1cbc8"}
