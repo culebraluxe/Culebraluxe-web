@@ -1246,3 +1246,64 @@ in-flight peer change (`rust/forge/src/roles/dev_ops.rs` modified, plus an untra
 `rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs`) was present at run time, left untouched,
 and is **not** part of this candidate; the workspace check compiled it without error. All acceptance criteria are met
 by candidate `e2ca8207`; no open item belongs to this story.
+
+## Raw verification — repair_smith (task 666282d1, 2026-09-30)
+
+The `repair_smith` node was re-issued for this story. The canonical test
+`rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs:1-511` is byte-identical to the QA-verified
+artifact (`md5 47bdbc202cc93b98a1ff6ac647de8df7`; HEAD blob `6c6227aafae2df8a2f9f491cf59ba21922d1139e`) and the
+production CAS it fences is unchanged (`md5 rust/core/db/src/forge_engine.rs` = `7d631a70f1b54334586adccb7571bd14`).
+Nothing in the contract is missing or wrong, so this node re-verifies the exact bytes against the current tree
+(HEAD `394b6284`) and lands the candidate commit the control plane asked for: **no production or test code changed**,
+and the only working-tree change this node commits is this packet section.
+
+The production citations in the test header resolve against this tree: `claim_specific_agent_work` at
+`rust/core/db/src/forge_engine.rs:651`, `begin_agent_work_run` at `:798`, its CAS read
+`select story_id … where id=$1::uuid and state='Claimed' for update` at `:806-810`, the Story Run insert in the same
+transaction at `:835-859`, the predicate update `where id=$1::uuid and state='Claimed'` at `:864-870`,
+`finish_agent_work_run` at `:1025`, `requeue_stale_work` at `rust/core/db/src/forge_control.rs:117`, and the harness
+PROD refusal `guard_target` at `rust/test-harness/src/database.rs:68-75`.
+
+Commands run from the repo root, output pasted with exit status:
+
+```
+$ md5 -q rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs rust/core/db/src/forge_engine.rs
+47bdbc202cc93b98a1ff6ac647de8df7
+7d631a70f1b54334586adccb7571bd14
+
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ignored, needs DATABASE_URL_DEV (a disposable DEV branch); TestDatabase refuses PROD before any socket
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ export APP_ENV=development DATABASE_URL_DEV=…   # only DATABASE_URL_DEV read; PROD never exported as a target
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run -- --ignored
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.64s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.65s
+CHECK_EXIT=0
+```
+
+The live run calls `TestDatabase::connect_declared(Some("dev"), Some("dev"))`, which resolves the harness's PROD
+refusal before any socket (`guard_target`, `rust/test-harness/src/database.rs:68-75`) and asserts `target = Dev`
+before any assertion executes; `Database::connect_target(DbTarget::Dev)` reads only `DATABASE_URL_DEV`
+(`rust/core/db/src/pool.rs:56-104`), then the test reaps its proof stories by its own `TestDatabase` namespace, so
+PRODUCTION is never connected to and the disposable DEV branch is left as it was found. Only `DATABASE_URL_DEV` was
+extracted from `.env.local`; the shell's `DATABASE_URL_PROD` was left in place but is never read by
+`connect_target(DbTarget::Dev)` and `guard_target` refuses PROD first. The live run again exercised the load-bearing
+refusal suite — the exclusive second claim, a second begin, a requeued claim (`requeue_stale_work`,
+`rust/core/db/src/forge_control.rs:117`), an unclaimed `Ready` item, an unknown id and a settled claim are each
+refused, committing nothing and opening no run — and the committed-truth rollback probe (`with_rollback`, section 3b)
+passed, so the contract named by this story remains non-vacuous (the mutation checks recorded under the earlier
+`lead_solo_implement`/`repair_smith` nodes stand). The `md5` of the canonical test and of
+`rust/core/db/src/forge_engine.rs` are unchanged, so no production or test byte moved. An unrelated untracked peer
+test (`rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs`) was present at run time, left
+untouched, and is **not** part of this candidate; the workspace check compiled it without error. The candidate this
+node delivers is the git commit this block is committed with.
