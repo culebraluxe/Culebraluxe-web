@@ -120,9 +120,7 @@ pub trait Store {
 /// and the alternative is losing the whole run (`NeonStore::with_tx`). A closure that moves a captured value out of
 /// itself cannot be called twice, so this bound is the compiler refusing a step that could not be retried — which is
 /// the right place for that refusal to happen, at the call site that built the step.
-/// One engine step = one transaction. The store itself is shareable across threads:
-/// each `with_tx` takes its own connection (Neon) or the memory mutex (tests).
-pub trait TxStore: Send + Sync {
+pub trait TxStore {
     fn with_tx<R, F>(&self, f: F) -> Result<R>
     where
         F: FnMut(&mut dyn Store) -> Result<R>;

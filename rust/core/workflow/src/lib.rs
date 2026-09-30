@@ -2,7 +2,6 @@
 
 pub use domain;
 
-pub mod concurrency;
 pub mod engine;
 pub mod error;
 pub mod expr;

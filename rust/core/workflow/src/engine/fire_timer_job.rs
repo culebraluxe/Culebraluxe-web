@@ -148,23 +148,17 @@ impl<S: TxStore> WorkflowEngine<S> {
             claimed: jobs.clone(),
             ..Default::default()
         };
-        if jobs.is_empty() {
-            return Ok(report);
-        }
-        // Each job is its own transaction. Fire them on a bounded thread pool so one
-        // slow timer does not hold the others, and so Neon takes separate connections
-        // rather than one serial session. A panic in a worker is a step failure.
-        let outcomes = crate::concurrency::run_bounded(&jobs, crate::concurrency::job_workers(), |job| {
+        for job in jobs {
             if job.job_type == "timer" && job.token_id.is_some() {
                 match self.fire_timer_job(FireTimerParams {
                     job_id: job.id.clone(),
                     worker_id: worker_id.to_string(),
                     variables: json!({}),
                 }) {
-                    Ok(()) => Ok(true),
+                    Ok(()) => report.fired += 1,
                     Err(error) => {
                         self.fail_job(&job.id, worker_id, &error.to_string(), false)?;
-                        Ok(false)
+                        report.failed += 1;
                     }
                 }
             } else {
@@ -174,14 +168,7 @@ impl<S: TxStore> WorkflowEngine<S> {
                     &format!("no executor registered for job type '{}'", job.job_type),
                     false,
                 )?;
-                Ok(false)
-            }
-        });
-        for outcome in outcomes {
-            match outcome {
-                Ok(true) => report.fired += 1,
-                Ok(false) => report.failed += 1,
-                Err(error) => return Err(error),
+                report.failed += 1;
             }
         }
         Ok(report)
@@ -321,11 +308,11 @@ impl<S: TxStore> WorkflowEngine<S> {
         self.store.with_tx(|tx| tx.get_task(id))
     }
 
-    pub fn tasks_for_instance(&self, id: &str) -> Result<Vec<Task>> {
+    pub fn tasks_for_instance(&mut self, id: &str) -> Result<Vec<Task>> {
         self.store.with_tx(|tx| tx.tasks_for_instance(id))
     }
 
-    pub fn tokens_for_instance(&self, id: &str) -> Result<Vec<Token>> {
+    pub fn tokens_for_instance(&mut self, id: &str) -> Result<Vec<Token>> {
         self.store.with_tx(|tx| tx.tokens_for_instance(id))
     }
 

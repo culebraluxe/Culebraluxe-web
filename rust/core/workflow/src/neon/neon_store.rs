@@ -106,10 +106,6 @@ impl TxStore for NeonStore {
 
 impl NeonStore {
     /// One attempt at a step: begin, run the body, commit — or roll back and say so.
-    ///
-    /// CONCURRENCY: `Database::begin` checks out a pool connection. Two threads calling
-    /// `with_tx` at once take two connections and two transactions. They never share a
-    /// session. Isolation is Postgres READ COMMITTED plus the row locks / CAS the body takes.
     fn step_once<R, F>(&self, f: &mut F) -> Result<R>
     where
         F: FnMut(&mut dyn Store) -> Result<R>,
