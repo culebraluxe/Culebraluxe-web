@@ -1,0 +1,9 @@
+[profile.ci]
+fail-fast = false
+
+[profile.ci.junit]
+path = "junit.xml"
+report-name = "CulebraLuxe Rust Tests"
+store-success-output = false
+store-failure-output = true
+report-skipped = "all"

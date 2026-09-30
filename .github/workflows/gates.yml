@@ -284,6 +284,10 @@ jobs:
     name: rust core
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      checks: write
     steps:
       # FULL HISTORY, for the same reason the static job has it — and this one is not about the secret scan.
       # `cli/src/forge/manifest.rs`'s `the_history_reader_answers_three_questions_in_one_pass` reads the real
@@ -340,9 +344,21 @@ jobs:
           fi
           echo "rustfmt clean — four module trees deferred to their owner (cli/src/apple_mail, cli/src/forge/lint, core/domain/src/applemail, core/domain/src/apple_messages)"
 
+      - name: install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
       - name: rust tests
         working-directory: rust
-        run: cargo test --workspace --all-targets
+        run: cargo nextest run --workspace --profile ci
+
+      - name: CulebraLuxe Rust test report
+        if: ${{ !cancelled() }}
+        uses: dorny/test-reporter@v3
+        with:
+          name: CulebraLuxe Rust Tests
+          path: rust/target/nextest/ci/junit.xml
+          reporter: java-junit
+          fail-on-empty: 'false'
 
       # The browser surface is feature-gated, so the host check above never compiles it. This is the crate the
       # deploy actually ships; a green workspace check does not imply it builds (2026-09-28, commit 305026d7).
