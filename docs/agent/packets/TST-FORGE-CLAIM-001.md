@@ -39,13 +39,13 @@ refused and open no run. PRODUCTION is refused by the harness before any socket 
 
 ## Context refs
 
-- `rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs:1-426` — the canonical test.
-- `rust/core/db/src/forge_engine.rs:787-888` — `begin_agent_work_run`, the compare-and-set that opens the one run.
-- `rust/core/db/src/forge_engine.rs:795-806` — the read `where state='Claimed' for update`; a non-`Claimed` row returns `None`.
-- `rust/core/db/src/forge_engine.rs:824-848` — the Story Run insert, in the same transaction as the state move.
-- `rust/core/db/src/forge_engine.rs:853-869` — the update with the same `state='Claimed'` predicate, the second half of the CAS.
-- `rust/core/db/src/forge_engine.rs:640-711` — `claim_specific_agent_work`, the exclusive `Ready → Claimed` path that names the owner.
-- `rust/core/db/src/forge_engine.rs:1014-1130` — `finish_agent_work_run`, the settle path the "settled claim" case uses.
+- `rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs:1-450` — the canonical test.
+- `rust/core/db/src/forge_engine.rs:798-899` — `begin_agent_work_run`, the compare-and-set that opens the one run.
+- `rust/core/db/src/forge_engine.rs:806-810` — the read `where state='Claimed' for update`; a non-`Claimed` row returns `None`.
+- `rust/core/db/src/forge_engine.rs:835-859` — the Story Run insert, in the same transaction as the state move.
+- `rust/core/db/src/forge_engine.rs:864-870` — the update with the same `state='Claimed'` predicate, the second half of the CAS.
+- `rust/core/db/src/forge_engine.rs:651-723` — `claim_specific_agent_work`, the exclusive `Ready → Claimed` path that names the owner.
+- `rust/core/db/src/forge_engine.rs:1025-1141` — `finish_agent_work_run`, the settle path the "settled claim" case uses.
 - `rust/core/db/src/forge_control.rs:117-202` — `requeue_stale_work`, the recovery path the requeued-claim fault case drives.
 - `rust/test-harness/src/database.rs:68-75` — `guard_target`, the pure PROD refusal every constructor is built on.
 - `rust/test-harness/src/database.rs:116-123` — `connect_declared`, the declaration resolved as production does.
@@ -319,3 +319,70 @@ disposable DEV branch is left as it was found and PRODUCTION is never connected 
 `APP_ENV` was left as the shell's `development`, and the test declares DEV explicitly). Pre-existing `forge`/`workflow`
 crate warnings (`unused import`, dead code) were present at run time and are not part of this candidate. All acceptance
 criteria are met by candidate `fa908cb5`; no open item belongs to this story.
+
+## Raw verification — repair_smith (2026-09-30)
+
+The `repair_smith` node was re-issued for this story. The canonical test already proved "only owner starts run" at the
+production `forge_engine` boundary and had passed QA, but the migration-259 commit `728c107e` (story-declared work
+type) added eleven lines above `begin_agent_work_run`, so the production citations in the test header no longer
+resolved — the named evidence pointed at the wrong lines. This run repairs them to the current tree and strengthens
+the core refusal; no production behavior changed and no migration was run.
+
+What changed in the canonical test:
+
+1. Citations corrected to the current tree: `begin_agent_work_run` `787 → 798`; the CAS read
+   `where state='Claimed' for update` `795-806 → 806-810`; the Story Run insert `824-848 → 835-859`; the predicate
+   update `853-869 → 864-870`. Untouched by `728c107e`: `requeue_stale_work` at
+   `rust/core/db/src/forge_control.rs:117`, `guard_target` at `rust/test-harness/src/database.rs:68-75`, and the
+   engine binary refusal at `rust/forge/src/bin/forge.rs:198-244`.
+2. The refusal is now asserted to commit **nothing at all**: the test captures the item's whole durable row
+   (`state`, `claimed_by`, `story_run_id`, `started_at`, `updated_at`) before the refused second begin and compares it
+   byte-for-byte after. Before, only the run count and the pre-begin state were compared, so a boundary that ran the
+   update without its `state='Claimed'` predicate could move a timestamp the test never looked at.
+
+Mutation check (the read guard): dropping `and state='Claimed'` from the production CAS read at
+`rust/core/db/src/forge_engine.rs:808` lets the second begin insert and commit a phantom `storyboard_story_run`. The
+test fails on the run count at `forge_claim__001__only_owner_starts_run.rs:304` — `left: 2`, `right: 1`,
+`test result: FAILED` (exit 101). The production file was restored byte-for-byte
+(`md5 7d631a70f1b54334586adccb7571bd14` before and after) and the live re-run is green, so the CAS is load-bearing
+and the contract is not vacuous.
+
+The candidate is the git commit this block is committed with. Commands run from the repo root, output pasted:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ignored, needs DATABASE_URL_DEV (a disposable DEV branch); TestDatabase refuses PROD before any socket
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run -- --ignored
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.73s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.96s
+CHECK_EXIT=0
+
+# Mutation — drop `and state='Claimed'` from the CAS read (`forge_engine.rs:808`), then run the live contract:
+$ cargo test ... -- --ignored
+test forge_claim_001__only_owner_starts_run ... FAILED
+thread '...' panicked at test-harness/tests/forge_claim__001__only_owner_starts_run.rs:304:5:
+assertion `left == right` failed: ForgeHarness/L2 Persistence: the refused second begin opened no run
+  left: 2
+ right: 1
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.22s
+MUTATION_EXIT=101
+# `git checkout -- rust/core/db/src/forge_engine.rs`; md5 restored: 7d631a70f1b54334586adccb7571bd14
+```
+
+The live run asserts `target = Dev` before any assertion executes and deletes its proof stories at the end, so the
+disposable DEV branch is left as it was found and PRODUCTION is never connected to (only `DATABASE_URL_DEV` was read;
+`APP_ENV` was left as the shell's `development`, and the test declares DEV explicitly). The three `TST-FORGE-CLAIM-001-`
+proof stories stranded by this mutation run and two earlier failing runs were reaped against DEV (scoped to the prefix,
+older than the live window); zero remain. The only working-tree changes in this node are the canonical test and this
+packet section; no production code changed.

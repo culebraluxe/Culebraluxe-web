@@ -5,11 +5,11 @@
 //! `agent_work_item.claimed_by`; the run may be started once, by that owner, from `Claimed`, and a second caller
 //! (any caller) is refused because the row has already left `Claimed`.
 //!
-//! The subject is `ForgeEngineDao::begin_agent_work_run` at `rust/core/db/src/forge_engine.rs:787` — the CAS the
+//! The subject is `ForgeEngineDao::begin_agent_work_run` at `rust/core/db/src/forge_engine.rs:798` — the CAS the
 //! engine binary runs before its first role turn (`rust/forge/src/bin/forge.rs:198-244`, "refusing to run a story
 //! whose claim this process does not own"). The CAS it performs is read-then-update on `state='Claimed'`
-//! (`rust/core/db/src/forge_engine.rs:795-806` for the lock, `:853-869` for the transition), and it opens
-//! `storyboard_story_run` in the same transaction (`rust/core/db/src/forge_engine.rs:824-848`). `Ok(None)` is the
+//! (`rust/core/db/src/forge_engine.rs:806-810` for the lock, `:864-870` for the transition), and it opens
+//! `storyboard_story_run` in the same transaction (`rust/core/db/src/forge_engine.rs:835-859`). `Ok(None)` is the
 //! refusal: the row was not `Claimed`, so this process does not own the run and must not drive the story. The bug
 //! this contract fences was real (2026-09-29 review): `begin_agent_work_run` used to return `Ok(())`
 //! unconditionally, so a row that had settled, been cancelled, or been requeued by recovery took the update as a
@@ -124,6 +124,23 @@ async fn item_row(pool: &PgPool, item_id: &str) -> (String, Option<String>, Opti
     .fetch_one(pool)
     .await
     .expect("the work item is readable")
+}
+
+/// The **whole durable row a begin writes**: `(state, claimed_by, story_run_id, started_at, updated_at)`, read back
+/// on the pool. Captured before and after a refused second begin so the refusal is proven to commit *nothing* — not
+/// the state, not the owner, not the run id and not even the `updated_at` the update would have touched had it run.
+async fn durable_item_row(
+    pool: &PgPool,
+    item_id: &str,
+) -> (String, Option<String>, Option<String>, String, String) {
+    sqlx::query_as(
+        "select state, claimed_by, story_run_id::text, coalesce(started_at::text, ''), updated_at::text
+           from agent_work_item where id=$1::uuid",
+    )
+    .bind(item_id)
+    .fetch_one(pool)
+    .await
+    .expect("the work item's durable row is readable")
 }
 
 /// Every Story Run opened for a story: `(id, started_at?, open?, run_type, execution_environment)`.
@@ -266,14 +283,13 @@ async fn forge_claim_001__only_owner_starts_run() {
     //    begin (from anyone, including the owner) must return `None` and open no second run. This is the "exactly
     //    once" half of "only the owner starts run".
     // -----------------------------------------------------------------------------------------------------------
-    let (state_before_second, owner_before_second, _) = item_row(&pool, &owned_item).await;
+    let durable_before_second = durable_item_row(&pool, &owned_item).await;
     assert_eq!(
-        state_before_second,
-        "Running",
+        durable_before_second.0, "Running",
         "{HARNESS}: the owner's begin left the item Running (and no peer touched this run's private story)"
     );
     assert_eq!(
-        owner_before_second.as_deref(),
+        durable_before_second.1.as_deref(),
         Some(OWNER_A),
         "{HARNESS}: the owner's begin did not reassign ownership"
     );
@@ -289,6 +305,14 @@ async fn forge_claim_001__only_owner_starts_run() {
         run_rows(&pool, &owned_story).await.len(),
         1,
         "{HARNESS}: the refused second begin opened no run"
+    );
+    // ...and the refusal commits *nothing*. The entire durable row the first begin wrote is byte-identical after the
+    // refused begin: a boundary that ran the update without the `state='Claimed'` predicate — or that inserted the
+    // run before checking — would move at least one of these columns, and the whole-row comparison fails.
+    assert_eq!(
+        durable_item_row(&pool, &owned_item).await,
+        durable_before_second,
+        "{HARNESS}: a refused second begin must commit nothing — state, owner, run id and timestamps are unchanged"
     );
 
     // -----------------------------------------------------------------------------------------------------------
