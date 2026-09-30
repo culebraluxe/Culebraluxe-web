@@ -18,8 +18,9 @@
 //!
 //! WHERE INTENDED is the point of the contract, and it is demonstrated in both directions:
 //!
-//! - cosmetic XML (a comment, extra whitespace, the declaration, an element whose **attributes are reordered**)
-//!   parses to a **structurally equal** graph, because the parser intentionally drops what is not structure; and
+//! - cosmetic XML (a comment — before the root or between nodes, extra whitespace, the declaration, the explicit
+//!   `<x></x>` form of a self-closing tag, an element whose **attributes are reordered**) parses to a
+//!   **structurally equal** graph, because the parser intentionally drops what is not structure; and
 //! - a structural edit (a transition target, a decision condition, a command type, a display-order entry) parses to a
 //!   **structurally unequal** graph, because those are the parts the definition intends to mean.
 //!
@@ -191,6 +192,37 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
         "{HARNESS}: attribute order is not structure — a reordered element must parse to an equal graph"
     );
 
+    // 3c. WHERE INTENDED (comments anywhere) — a comment between the root's child elements is not structure. The
+    //     parser drops comments inside an element's children as well as before the root, so a comment sitting next
+    //     to the definition's nodes must parse to the same graph. A parser that lost the nested-comment path would
+    //     refuse this source outright; one that kept it as a pseudo-child would make it a structural difference.
+    let nested_comment = FORGE_SDLC_V6_XML.replacen(
+        "  <start-state",
+        "  <!-- TST-WF-DEFINITION-013: a comment between nodes is not structure -->\n  <start-state",
+        1,
+    );
+    let nested_comment_def = definition_from_xml(&nested_comment)
+        .expect("a comment between the root's children still parses");
+    assert!(
+        graphs_equal(&def.definition, &nested_comment_def.definition),
+        "{HARNESS}: a comment between nodes is not structure — parsing it must yield an equal graph"
+    );
+
+    // 3d. WHERE INTENDED (element form) — `<x/>` and `<x></x>` are the same XML element. An element written with an
+    //     explicit open/close pair must parse to the same structure as its self-closing form. A parser that kept the
+    //     two apart (or fabricated a child from the empty body) would be a structural lie the predicate reports.
+    let explicit_close = FORGE_SDLC_V6_XML.replacen(
+        BEGIN_TRANSITION,
+        "<transition name=\"begin\" to=\"classify_work\"></transition>",
+        1,
+    );
+    let explicit_close_def = definition_from_xml(&explicit_close)
+        .expect("an explicitly-closed element still parses");
+    assert!(
+        graphs_equal(&def.definition, &explicit_close_def.definition),
+        "{HARNESS}: `<x/>` and `<x></x>` are the same element — the explicit form must parse to an equal graph"
+    );
+
     // 4. WHERE INTENDED (structural) — a real structural edit parses, but is NOT equal. Four independent facets are
     //    edited so the equality cannot be pinned to one serialized field: an edge (transition target), a decision
     //    arm's condition, a command node's command type, and the declared display order. Each parse must SUCCEED (the
@@ -358,6 +390,12 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
     assert!(
         definition_from_xml(&unknown).is_err(),
         "{HARNESS}: an unknown element is refused"
+    );
+
+    let mismatched = FORGE_SDLC_V6_XML.replacen("  </start-state>", "  </start_node>", 1);
+    assert!(
+        definition_from_xml(&mismatched).is_err(),
+        "{HARNESS}: a mismatched close tag is refused, not repaired into an equal graph"
     );
 
     let duplicated =
