@@ -18,10 +18,10 @@
 //!
 //! WHERE INTENDED is the point of the contract, and it is demonstrated in both directions:
 //!
-//! - cosmetic XML (a comment, extra whitespace, the declaration) parses to a **structurally equal** graph, because
-//!   the parser intentionally drops what is not structure; and
-//! - a structural edit (a transition target, a command type, a display-order entry) parses to a **structurally
-//!   unequal** graph, because those are the parts the definition intends to mean.
+//! - cosmetic XML (a comment, extra whitespace, the declaration, an element whose **attributes are reordered**)
+//!   parses to a **structurally equal** graph, because the parser intentionally drops what is not structure; and
+//! - a structural edit (a transition target, a decision condition, a command type, a display-order entry) parses to a
+//!   **structurally unequal** graph, because those are the parts the definition intends to mean.
 //!
 //! A structural edit that would make the graph dishonest (a transition to a node that does not exist, an unknown
 //! element, a duplicate node id) is not a different graph — it is a refusal, so equality can never paper over a
@@ -175,10 +175,26 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
         "{HARNESS}: comments and whitespace are not structure — parsing them must yield an equal graph"
     );
 
-    // 4. WHERE INTENDED (structural) — a real structural edit parses, but is NOT equal. Three independent facets are
-    //    edited so the equality cannot be pinned to one serialized field: an edge (transition target), a command
-    //    node's command type, and the declared display order. Each parse must SUCCEED (the syntax stays legal) while
-    //    the structure differs, which is exactly what the predicate must report.
+    // 3b. WHERE INTENDED (attribute order) — XML attribute order is not significant. Reordering the attributes of an
+    //     element must parse to the same structure. A parser that read attributes into a positional list and
+    //     serialized them in source order would make this a structural difference and fail here, even though the
+    //     definition means the same thing.
+    let reordered_attrs = FORGE_SDLC_V6_XML.replacen(
+        BEGIN_TRANSITION,
+        "<transition to=\"classify_work\" name=\"begin\"/>",
+        1,
+    );
+    let reordered_attrs_def = definition_from_xml(&reordered_attrs)
+        .expect("an element whose attributes are reordered still parses");
+    assert!(
+        graphs_equal(&def.definition, &reordered_attrs_def.definition),
+        "{HARNESS}: attribute order is not structure — a reordered element must parse to an equal graph"
+    );
+
+    // 4. WHERE INTENDED (structural) — a real structural edit parses, but is NOT equal. Four independent facets are
+    //    edited so the equality cannot be pinned to one serialized field: an edge (transition target), a decision
+    //    arm's condition, a command node's command type, and the declared display order. Each parse must SUCCEED (the
+    //    syntax stays legal) while the structure differs, which is exactly what the predicate must report.
     let moved = FORGE_SDLC_V6_XML.replacen(
         BEGIN_TRANSITION,
         "<transition name=\"begin\" to=\"architect\"/>",
@@ -188,6 +204,18 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
     assert!(
         !graphs_equal(&def.definition, &moved_def.definition),
         "{HARNESS}: a changed transition target is a structural difference, not a cosmetic one"
+    );
+
+    let reconditioned = FORGE_SDLC_V6_XML.replacen(
+        "workType == 'HOTFIX'",
+        "workType == 'PATCH'",
+        1,
+    );
+    let reconditioned_def =
+        definition_from_xml(&reconditioned).expect("a still-legal decision condition parses");
+    assert!(
+        !graphs_equal(&def.definition, &reconditioned_def.definition),
+        "{HARNESS}: a changed decision condition is a structural difference"
     );
 
     let retyped = FORGE_SDLC_V6_XML.replacen(
@@ -239,6 +267,13 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
         ),
         "{HARNESS}: a missing row is an insert"
     );
+    match classify_deploy(true, 0, None, &def.definition) {
+        DeployDecision::Update { duplicate, .. } => assert!(
+            !duplicate,
+            "{HARNESS}: a present row with no stored graph is a non-duplicate replace — equality has nothing to hold to"
+        ),
+        other => panic!("{HARNESS}: expected Update, got {other:?}"),
+    }
     match classify_deploy(true, 0, Some(&def.definition), &again.definition) {
         DeployDecision::Update { duplicate, .. } => assert!(
             duplicate,
