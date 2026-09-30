@@ -275,3 +275,47 @@ The production file was restored with `git checkout --` (working tree clean for 
 (`TEST_EXIT=0`). The unrelated, pre-existing untracked file
 `rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs` was present in the working tree at run
 time; it was left untouched and is not part of this candidate.
+
+## QA re-verify — fast_qa_verify (2026-09-30, task 6d3dffc4)
+
+The `fast_qa_verify` node (task `6d3dffc4-139d-4d54-a907-ae443bcec625`) re-ran the story's own acceptance commands
+against the current tree. Verdict: **PASS**. The canonical file
+`rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs` is tracked, contains the test
+`wf_join_002__optional_siblings_handled_correctly`, and proves "optional siblings handled correctly" at the
+production `WorkflowEngine`/`TxStore`/`Store` boundary. The verified candidate is the `fast_repair_smith` commit
+`47987df8` (HEAD before this node; this node changes documentation only — no production or test behavior changed).
+
+Both commands are this node's own run, pasted with their exit status.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_join__002__optional_siblings_handled_correctly
+test wf_join_002__optional_siblings_handled_correctly ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.73s
+CHECK_EXIT=0
+```
+
+Mutation check (the required-only join gate is load-bearing): removing the `&& t.required` filter from
+`count_required_active_siblings` at `rust/core/workflow/src/memory.rs:291` makes the gate count all active siblings
+and the test fails at
+`rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs:359`
+(`the one required branch is counted — the optional siblings are not`), `test result: FAILED` (exit 101):
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_join__002__optional_siblings_handled_correctly
+test wf_join_002__optional_siblings_handled_correctly ... FAILED
+thread '...' panicked at test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs:359:5:
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+MUTATION_EXIT=101
+```
+
+The production file was restored byte-for-byte with `git checkout --` (`cmp` clean against the pre-mutation copy) and
+the test is green again (`TEST_EXIT=0`), so the optional-sibling split is not vacuous. The unrelated, pre-existing
+untracked file `rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs` was present in the working
+tree at run time; it was left untouched and is not part of this candidate.
+
+FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"47987df8882acc9738db2cbfd01a5ece843389e2"}
