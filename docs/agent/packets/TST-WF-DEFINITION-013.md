@@ -27,7 +27,7 @@ structural-equality predicate is `graphs_equal` (`rust/forge/src/engine/version_
 
 ## Context refs
 
-- `rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:1-421` — the canonical test.
+- `rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:1-488` — the canonical test.
 - `rust/forge/src/engine/xml.rs:352-426` — `parse_process_definition_xml` / `definition_from_xml`, the production parser.
 - `rust/forge/src/engine/xml.rs:196-199` — the nested-comment skip inside an element's children.
 - `rust/forge/src/engine/version_policy.rs:39-41` — `graphs_equal`, the production equality predicate.
@@ -44,7 +44,8 @@ structural-equality predicate is `graphs_equal` (`rust/forge/src/engine/version_
 5. FAIL when an invalid/negative/fault case can bypass the contract. — met: structurally dishonest XML is refused;
    a real structural edit is not equal.
 6. At least one meaningful negative/refusal/fault case. — met: dangling transition target, unknown element, duplicate
-   node id, mismatched close tag; a changed transition target/condition/command type/display order is not equal.
+   node id, mismatched close tag; a changed transition target/condition/required, decision condition/refresh-facts,
+   command type, task priority, end-state outcome, dynamic-fork bound or display order is not equal.
 7. No legacy TypeScript test ported. — met.
 8. Deterministic and isolated; never PROD; no live provider. — met: pure functions over the embedded v6 XML.
 9. Coverage named and discoverable even where the invariant already held. — met: this canonical file.
@@ -59,9 +60,10 @@ Rust workspace builds. No database, network or environment is required.
 
 The "structural equality where intended" contract is executable and named: cosmetic XML (comment/whitespace, the
 declaration, explicit `<x></x>` form, reordered attributes) is structurally equal; a structural edit (transition
-target, decision condition, command type, display order) is structurally unequal; the routing structure survives the
-production JSON codec; the policy consuming equality agrees; and a structurally dishonest XML is refused rather than
-parsed into a different-but-equal graph.
+target, transition condition/required, decision condition/refresh-facts, command type, task priority, end-state
+outcome, dynamic-fork bound, display order) is structurally unequal; the routing structure survives the production
+JSON codec; the policy consuming equality agrees; and a structurally dishonest XML is refused rather than parsed into
+a different-but-equal graph.
 
 ## Skills
 
@@ -134,3 +136,43 @@ An unrelated, pre-existing modified `wf_join__002__optional_siblings_handled_cor
 untouched and are not part of this candidate.
 
 FORGE_EVIDENCE_JSON: {"qaPassed":null,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"6fb241e9780b034761e766c6fe7942ce88590974"}
+
+## Raw verification — fast_repair_smith (2026-09-30, task 63d53243)
+
+The canonical test was already committed (`f4dfe806`, strengthened `553bc75b`, `6fb241e9`) and green. This node pins
+the remaining production control fields as structure and repairs the story packet: its Context ref cited
+`.../wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:1-421` on a 419-line file, which
+`pnpm forge:packet-lint` reported as `FAIL evidence-line-past-eof`. The range is corrected and no longer runs past EOF.
+
+What changed in the canonical test (this node's own candidate, `9e09d746`):
+
+1. Step 4b — an edge's `condition`, an edge's `required`, a decision's `refresh-facts`, a task's `priority`, an
+   end-state's `outcome`, and a dynamic fork's `maximum` each parse and are structurally unequal, because the
+   production codec `graph_to_json` (`rust/core/workflow/src/json_codec.rs:242-355`) represents every one of them.
+2. `routing_signature` now carries `refresh-facts` and `priority`, so step 5 proves those survive
+   `graph_to_json`/`graph_from_json` as well.
+
+Commands below are this node's own run, pasted with their exit status.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+running 1 test
+test wf_definition_013__forge_v6_xml_structural_equality_where_intended ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.42s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.76s
+CHECK_EXIT=0
+```
+
+The new clauses are self-proving: each `replacen(.., 1)` targets the first occurrence of a field the production
+definition declares, so if an anchor were absent the parsed graph would be equal and `assert!(!graphs_equal(..))`
+would fail — the parse never silently no-ops.
+
+An unrelated modified `wf_join__002__optional_siblings_handled_correctly.rs` and an untracked
+`arch_boundary__011__qa_cannot_own_git_mutations.rs` were present in the working tree (another lane); they were left
+untouched and are not part of this candidate.
+
+FORGE_EVIDENCE_JSON: {"qaPassed":null,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"9e09d7467a321cdec9dd483d9697dcf29d03aa0a"}
