@@ -162,6 +162,29 @@ impl Database {
         // ABOVE the floor, so the twenty are held deliberately; `FORGE_DB_POOL_MIN=0` restores the old hold-nothing
         // behaviour, which is what tests want.
         //
+        // AND TWENTY WAS NOT REACHABLE UNTIL THE POOL STOPPED WAITING FOR THEM (2026-09-29, hours after this sizing
+        // landed). `PgPoolOptions::connect_with` establishes `min_connections` before it returns, in a SERIAL
+        // `while size() < min_connections` loop, inside a deadline taken from `acquire_timeout`
+        // (sqlx-core 0.9.0, `pool/options.rs:541-550` and `pool/inner.rs:400`). A single cold connect to this project's
+        // Neon `-pooler` endpoint measured 1.4s, and the loop's slope measured ~0.93s per connection (the bisect below),
+        // so twenty of them is 19-28s against a 10s budget: the pool did not come up slowly, it did not come up at all,
+        // and the error was
+        //
+        //   Timeout during db.connect: pool timed out while waiting for an open connection
+        //
+        // Measured live on PRODUCTION, with the engine's own floor already open on the same endpoint: `min=2` -> 2.3s,
+        // `min=5` -> 4.8s, `min=10` -> 9.3s, `min=20` -> failed at 10.1s. Linear in the floor, because the loop is
+        // serial. Serial on THIS SIDE only, though: four concurrent one-connection clients took 1.7s wall where four
+        // serial ones took 5.7s, so the pooler serves logins in parallel. The engine survived the floor for one reason
+        // and it was not the pool: it raises its own connect budget to 60s (`forge/src/engine/db_budget.rs`), which is
+        // long enough to warm twenty serially. Nothing else in the workspace has that budget, which is why a CLI read
+        // timed out at ten seconds while the engine was running.
+        //
+        // So the pool opens LAZILY (`connect_lazy_with`), the floor is warmed concurrently below, and the first query
+        // pays one handshake instead of twenty. Re-measured against production after the change, same 10s budget:
+        // `min=20` acquires in 3.0s where it previously failed at 10.1s, and the cost no longer tracks the floor
+        // (`min=2` 2.2s, `min=10` 2.5s, `min=20` 3.0s).
+        //
         // The ceiling does NOT fix a dead socket. The run that died at 19:25 on 2026-09-29 was killed by a connection
         // that broke while it was checked out, and no ceiling size can repair that — a bigger pool would only have had
         // more good connections to hand out around the broken one. The repairs for that are `max_lifetime`, the
@@ -269,9 +292,44 @@ impl Database {
                     Ok(true)
                 })
             })
-            .connect_with(options)
+            .connect_lazy_with(options);
+
+        // ONE BOUNDED CHECKOUT, because a database that is not there must still be reported as `db.connect` when the
+        // pool is built — not discovered later by whichever query happens to run first. This is exactly the second
+        // half of sqlx's own `connect_with` (`pool/options.rs:552-555`); what is deliberately NOT copied is its first
+        // half, which establishes the floor before returning (see the sizing comment above the builder).
+        let checkout = pool
+            .acquire()
             .await
             .map_err(|error| DbFailure::from_sqlx("db.connect", &error))?;
+        drop(checkout);
+
+        // WARM THE FLOOR CONCURRENTLY, because the pooler serves logins in parallel and sqlx's reaper does not.
+        // Measured against production on 2026-09-29: four concurrent one-connection clients took 1.7s wall where
+        // four serial ones took 5.7s, so nineteen parallel handshakes cost about what one does. Left to the reaper's
+        // serial `try_min_connections` loop (`pool/inner.rs:400`) the floor would arrive in ~28s, and every request in
+        // that window would pay the handshake the floor exists to remove. Failures here are ignored on purpose: the
+        // reaper keeps trying, and a warm-up that cannot open a connection is not a reason to fail a `Db::connect`.
+        let openers = warm_openers(min_connections, max_connections);
+        if openers > 0 {
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                let warm_pool = pool.clone();
+                handle.spawn(async move {
+                    let mut warming = Vec::with_capacity(openers as usize);
+                    for _ in 0..openers {
+                        let pool = warm_pool.clone();
+                        warming.push(tokio::spawn(async move {
+                            if let Ok(connection) = pool.acquire().await {
+                                drop(connection);
+                            }
+                        }));
+                    }
+                    for task in warming {
+                        let _ = task.await;
+                    }
+                });
+            }
+        }
 
         Ok(Self {
             pool,
@@ -626,6 +684,26 @@ const fn default_pool_bounds(target: DbTarget) -> (u32, u32) {
         DbTarget::Dev => (DEV_POOL_MIN, DEV_POOL_MAX),
     }
 }
+/// How many connections the background warm-up opens: the floor, less the one the bounded checkout already holds.
+///
+/// CLAMPED BY THE CEILING, and that clamp is the reason this is a function. The checkout and the warm-up are the two
+/// things that grow the pool at start-up, so `1 + warm_openers` overshooting the ceiling would mean asking for
+/// connections the pool cannot grant — a self-inflicted version of the starvation this file keeps repairing. A floor
+/// above the ceiling is clamped by sqlx too (`min_connections` wins), so the warm-up has to clamp the same way or the
+/// two disagree about what the pool size is.
+///
+/// Zero is the common case in tests and one-shot tools (`FORGE_DB_POOL_MIN=0`): nothing to warm, nothing spawned.
+const fn warm_openers(min_connections: u32, max_connections: u32) -> u32 {
+    let floor = min_connections.saturating_sub(1);
+    let ceiling = max_connections.saturating_sub(1);
+    if floor < ceiling {
+        floor
+    } else {
+        ceiling
+    }
+}
+
+
 
 /// Whether the pool must verify a connection before it is handed to a caller.
 ///
@@ -782,7 +860,26 @@ mod tests {
         );
     }
 
-    /// THE POOL REPAIR (2026-09-29). A connection is verified when it has been idle past the threshold, and for a
+    /// THE WARM-UP IS BOUNDED BY THE CEILING, AND THAT IS THE ASSERTION THAT MATTERS (2026-09-29).
+    ///
+    /// The pool is grown at start-up by exactly two things: the bounded checkout (one connection) and the background
+    /// warm-up. If the warm-up asked for more than the ceiling holds, start-up would demand connections the pool cannot
+    /// grant — and the failure would look like the starvation this file already spent the day repairing, not like a
+    /// sizing mistake.
+    #[test]
+    fn the_background_warm_up_never_asks_for_more_than_the_ceiling_holds() {
+        // The production decision, in full: one checkout plus nineteen openers is the twenty hot connections.
+        assert_eq!(warm_openers(20, 30), 19);
+        // Nothing to warm: the case every test process and one-shot CLI runs, and the reason `min=0` spawns nothing.
+        assert_eq!(warm_openers(1, 5), 0);
+        assert_eq!(warm_openers(0, 0), 0);
+        // A full pool: the checkout holds one, so the warm-up may claim every remaining slot and no more.
+        assert_eq!(warm_openers(30, 30), 29);
+        // A floor above the ceiling is clamped by sqlx, so the warm-up clamps the same way rather than disagreeing
+        // about the pool's size.
+        assert_eq!(warm_openers(5, 2), 1);
+    }
+
     /// window after any connection-class failure — and NOT otherwise, because a round trip on every checkout is the
     /// cost this design exists to avoid.
     #[test]

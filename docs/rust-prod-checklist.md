@@ -30,6 +30,7 @@ curl -s -H "x-culebra-internal-key: $KEY" localhost:8080/v1/diagnostics/db
 | `FORGE_DB_POOL_MAX` | 30 | Ceiling on simultaneous connections, per process. The engine and the app hold separate pools, so these do not add up into one number. |
 | `FORGE_DB_POOL_MIN` | 20 | The warm floor: open and ready, so a request pays a round trip instead of a 498ms handshake. **Never set this to 0 in production.** |
 | `FORGE_DB_POOL_IDLE_MS` | 60000 | Reclaims connections above the floor, never the floor itself. |
+| `FORGE_DB_POOL_CONNECT_MS` | 15000 (provisioned; code default 10000) | How long a checkout may wait for a connection, and therefore how long a statement may wait for a handshake. **It also bounds building the pool**, so it must cover ONE handshake — the floor is warmed separately, in the background, and never out of this budget (`core/db/src/pool.rs`). |
 | `FORGE_DB_POOL_MAX_LIFETIME_MS` | 1800000 | Retire a connection by age (30m) and replace it; a socket the pooler has forgotten looks exactly like a good one. 0 disables. |
 | `FORGE_DB_IDLE_PROBE_MS` | 30000 | Probe a connection after it has been idle this long. 0 probes every checkout (~80ms each). |
 | `FORGE_DB_RECHECK_MS` | 60000 | After a connection-class failure, verify EVERY checkout for this long, because a socket that broke while checked out comes back looking new. 0 disables. |

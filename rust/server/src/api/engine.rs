@@ -52,7 +52,7 @@ struct EnginePool {
 type Job = Box<dyn FnOnce() + Send + 'static>;
 
 /// `FORGE_ENGINE_WORKERS` - how many engine commands may run at once. Default 4, which leaves the database pool
-/// (`FORGE_DB_POOL_MAX`, default 5) a connection for ordinary reads rather than letting the engine take every one.
+/// (`FORGE_DB_POOL_MAX`, default 30) a connection for ordinary reads rather than letting the engine take every one.
 fn engine_workers() -> usize {
     std::env::var("FORGE_ENGINE_WORKERS")
         .ok()

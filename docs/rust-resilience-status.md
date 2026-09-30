@@ -99,7 +99,10 @@ because it now shares the server's pool instead of building one.
 **Knobs, if engine traffic grows in production.** The engine runs `FORGE_ENGINE_WORKERS` commands at once (default 4)
 against its own pool — `FORGE_DB_POOL_MIN` 20 hot inside `FORGE_DB_POOL_MAX` 30, per process, since the engine and the
 app are separate processes and never share a pool (resized 2026-09-29; both were 5 and 1). Four workers is a small
-fraction of twenty ready connections, so engine work and ordinary reads do not compete for a handshake.
+fraction of twenty ready connections, so engine work and ordinary reads do not compete for a handshake. The twenty are
+opened in the background *after* the pool is built, not before it can be used: establishing them first was a serial
+warm-up, and no caller with a connect budget shorter than the engine's own 60s could get a connection at all — measured
+against production, min=10 took 9.3s and min=20 never opened (see `core/db/src/pool.rs`).
 
 
 Two things were wrong with "the engine inherits the server's pool", and both were measured rather than assumed.

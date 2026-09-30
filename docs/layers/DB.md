@@ -17,7 +17,7 @@ report the target. **Check it before believing a command is on dev.**
 
 | setting | value | why |
 | --- | --- | --- |
-| `FORGE_DB_POOL_MIN` | 20 | the floor: connections open and ready, so work pays a round trip (~72ms) and not a handshake (498ms). The engine and the app are separate processes with separate pools, so each holds its own twenty |
+| `FORGE_DB_POOL_MIN` | 20 | the floor: connections open and ready, so work pays a round trip (~72ms) and not a handshake (498ms). The engine and the app are separate processes with separate pools, so each holds its own twenty. **Opened in the background after the pool is built, never before it can be used**: sqlx's warm-up is serial, and twenty of them (measured 2.3s at min=2, 4.8s at min=5, 9.3s at min=10) exceed the 10s connect budget — so the pool opens lazily and warms concurrently (`core/db/src/pool.rs`) |
 | `FORGE_DB_POOL_MAX` | 30 | the ceiling on simultaneous connections, leaving the floor room to grow with load |
 | checkout ping | **off** | sqlx pings by default and that is a full round trip; probe when idle ≥ `FORGE_DB_IDLE_PROBE_MS` (30s), and for `FORGE_DB_RECHECK_MS` (60s) after any connection-class failure |
 | `FORGE_DB_POOL_MAX_LIFETIME_MS` | 30min | retire a connection by age and replace it; the pooler retires server connections on its own schedule, and an old socket is the likeliest one to be half-dead |
