@@ -30,6 +30,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use test_harness::{EngineHarness, TestClock};
+use workflow::sha256::sha256_hex;
 use workflow::{
     command_id, ApplicationCommandOutcome, ApplicationCommandRequest, ApplicationCommandResult,
     ApplicationPort, CompleteTaskParams, DefinitionStatus, NodeDefinition, ProcessCommand,
@@ -327,6 +328,17 @@ fn wf_command_001__deterministic_command_id() {
         id.chars()
             .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
         "{HARNESS}: a command id is lowercase hex"
+    );
+
+    // 2b. NON-CIRCULAR DETERMINISM ORACLE — step 2 compares the boundary id against the production
+    //     `command_id`, which proves the boundary *uses* that derivation but would not notice a clock or a
+    //     random salt added *inside* it: both sides would move together. Hashing the documented canonical
+    //     preimage here, directly and independently of `command_id`, pins the id to the triple alone. This is
+    //     the case that fails if the id stops being a pure function of `(instance, node, visit)`.
+    assert_eq!(
+        id,
+        sha256_hex(format!("{instance}:{COMMAND_NODE}:1").as_bytes()),
+        "{HARNESS}: the id is sha256 of the canonical (instance:node:visit) preimage — no instant, no entropy"
     );
 
     // 3. The id reaches the durable log boundary: the command.requested event carries it.
