@@ -547,3 +547,54 @@ unrelated in-flight working-tree change (another story: `rust/test-harness/src/l
 `source.rs`) was present at run time, left untouched, and is **not** part of this candidate; the workspace check
 compiled it without error. Pre-existing `forge`/`workflow`-crate warnings were present at run time and are not part of
 this candidate. All acceptance criteria are met by candidate `bad9fbb1`; no open item belongs to this story.
+
+## Raw verification — repair_smith re-issue (2026-09-30)
+
+The `repair_smith` node was re-issued for this story. The canonical test
+`rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs:1-462` is byte-identical to the QA-verified
+artifact (`md5 45a45cc696e8eaabb268ecfdcdb32b48`; `git diff b61d210b HEAD -- <file>` is empty), the production
+boundary it fences is unchanged (`rust/core/db/src/forge_engine.rs:798-899` last moved by `728c107e`;
+`md5 7d631a70f1b54334586adccb7571bd14`), and both acceptance commands are green on a clean tree at this candidate.
+Nothing in the contract was wrong, so this node re-verifies the exact bytes against the current tree and re-delivers
+the candidate rather than editing: no production or test code changed, and the only working-tree change this node
+commits is this packet section.
+
+A concurrent lane's `ARCH-BOUNDARY` commit (`5938e8ec`, `rust/test-harness/src/lib.rs` + `source.rs` +
+`arch_boundary__*` tests) landed while this node ran; it does not touch the `forge_engine` boundary or this test, and
+the acceptance commands above were run against a tree that includes it.
+
+Commands run from the repo root, output pasted with exit status:
+
+```
+$ git rev-parse HEAD
+bed85415e484ea7a23ed89b278b0a1ee7eb8aa0d
+
+$ git diff --stat b61d210b HEAD -- rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs
+(empty — the canonical artifact is unchanged)
+ARTIFACT_DIFF_EXIT=0
+
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ignored, needs DATABASE_URL_DEV (a disposable DEV branch); TestDatabase refuses PROD before any socket
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run -- --ignored
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 25.67s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4m 21s
+CHECK_EXIT=0
+```
+
+Only `DATABASE_URL_DEV` was read; the test declares DEV explicitly, asserts `target = Dev` before any assertion
+executes, and reaps its proof stories by namespace, so PRODUCTION is never connected to and the disposable DEV branch
+is left as it was found. The live run again exercised the load-bearing refusal suite (an exclusive second claim, a
+second begin, a requeued claim, an unclaimed `Ready` item, an unknown id and a settled claim are each refused,
+committing nothing and opening no run), so the contract named by this story remains non-vacuous. The candidate is the
+git commit this block is committed with.
