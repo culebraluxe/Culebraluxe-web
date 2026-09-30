@@ -91,14 +91,23 @@ node's brief says do not push.
   → **1 passed, 0 failed**.
 - `cargo check --manifest-path rust/Cargo.toml --workspace --all-targets` → **exit 0**.
 
-## Raw verification — repair_smith (2026-09-30)
+## Raw verification — repair_smith (2026-09-30, re-run)
 
-The repair_smith node was re-run to deliver the missing `smith-candidate`. The candidate is the git commit this block
-is committed with; the commands below are this node's own run, pasted with their exit status. The canonical test
-`rust/test-harness/tests/wf_command__003__retry_produces_same_identity.rs` already proves the contract, so no
-production code was changed for this story. This node also refreshed the Context refs above: the production refactor
-in `1951c451` moved `command_id`, `command_visit_count` and `uuid_v4`, so the test's own evidence now points at the
-lines that exist.
+The `repair_smith` node re-ran to deliver the missing `smith-candidate`. The canonical test already proved the
+contract, so no production code changed; this run **strengthened the test so the clock-independence claim is
+load-bearing** and made the candidate commit this block travels with.
+
+What changed in the canonical test:
+
+- The fake `ApplicationPort` now stamps the harness clock at each `execute_command`, and the test asserts the failed
+  attempt and the retry were observed at **different instants** (`observed[0] != observed[1]`). Before this, the
+  clock moved but nothing asserted the two attempts ran at different times, so "same identity" could have been a
+  same-instant coincidence.
+- It also asserts the retry reproduces the command **type and payload**, not only the id string, so "same identity"
+  is not merely a stable id.
+
+The candidate is the git commit this block is committed with; the commands below are this node's own run, pasted with
+their exit status.
 
 ```
 $ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__003__retry_produces_same_identity
@@ -109,9 +118,10 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 TEST_EXIT=0
 
 $ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 29.83s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 32.30s
 CHECK_EXIT=0
 ```
 
-Negative coverage is inside the one test: the committed identity cannot be recorded twice (`COMMAND_DUPLICATE`), and
-a distinct run gets a distinct identity, so the same-identity assertion is not vacuous.
+Negative coverage is inside the one test: the committed identity cannot be recorded twice (`COMMAND_DUPLICATE`), the
+failed attempt must leave the visit count at zero (rollback is load-bearing), and a distinct run gets a distinct
+identity — so the same-identity assertion is not vacuous.

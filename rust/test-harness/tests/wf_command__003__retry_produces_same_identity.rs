@@ -68,14 +68,36 @@ const RETRY_ATTEMPTS: u32 = 3;
 /// It records every command the engine asks it to execute and always succeeds. It performs no I/O and names no
 /// provider. Its `requests()` is the observation point for the identity: the id the engine hands the application is
 /// the identity production would send, so comparing it across the two attempts is comparing the retry's identity.
-#[derive(Clone, Default)]
+///
+/// It also stamps the harness clock at each call, so the test can prove the failed attempt and the retry ran at
+/// **different instants** — which is what makes "same identity" a claim about the identity being derived from
+/// persisted state rather than from wall time.
+#[derive(Clone)]
 struct FakeApplicationPort {
     requests: Arc<Mutex<Vec<ApplicationCommandRequest>>>,
+    observed_at: Arc<Mutex<Vec<i64>>>,
+    clock: TestClock,
 }
 
 impl FakeApplicationPort {
+    fn new(clock: TestClock) -> Self {
+        Self {
+            requests: Arc::new(Mutex::new(Vec::new())),
+            observed_at: Arc::new(Mutex::new(Vec::new())),
+            clock,
+        }
+    }
+
     fn requests(&self) -> Vec<ApplicationCommandRequest> {
         self.requests
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    /// The engine-clock instant observed at each `execute_command`, in call order.
+    fn observed_at(&self) -> Vec<i64> {
+        self.observed_at
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone()
@@ -88,6 +110,10 @@ impl ApplicationPort for FakeApplicationPort {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .push(request.clone());
+        self.observed_at
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push(self.clock.now_millis());
         ApplicationCommandResult {
             command_id: request.command_id.clone(),
             outcome: ApplicationCommandOutcome::Success,
@@ -292,7 +318,7 @@ fn wf_command_003__retry_produces_same_identity() {
         ),
     ]);
     let fault_probe = faults.clone();
-    let port = FakeApplicationPort::default();
+    let port = FakeApplicationPort::new(engine_clock.clone());
     let recorder = port.clone();
     // A clock that moves on every read, so the failed attempt and the repeat necessarily run at different instants.
     // The identity must not change because wall time moved, so this is the clock-independence half of the contract.
@@ -368,6 +394,32 @@ fn wf_command_003__retry_produces_same_identity() {
         retry.command_id,
         command_id(&instance_id, COMMAND_NODE, 1),
         "{HARNESS}: the identity is that visit's own id, derived from the persisted instance"
+    );
+
+    // The retry reproduces the whole application-facing command, not only the id string: same type and same payload.
+    assert_eq!(
+        attempt.command_type, retry.command_type,
+        "{HARNESS}: the retry runs the same command type"
+    );
+    assert_eq!(
+        attempt.input, retry.input,
+        "{HARNESS}: the retry carries the same payload, so identity is not merely a stable id string"
+    );
+
+    // ...and it does so across a moved clock. The engine advances the harness clock on every step (the
+    // `command.requested` event is stamped from `self.now()`, `rust/core/workflow/src/engine/handle_join.rs:213,341`),
+    // so the failed attempt and the retry are observed at DIFFERENT instants. If any wall-time value reached the
+    // command identity, the equalities above would break here — this makes the clock-independence half of the
+    // contract load-bearing instead of assumed.
+    let observed = recorder.observed_at();
+    assert_eq!(
+        observed.len(),
+        2,
+        "{HARNESS}: the adapter was reached by both the failed attempt and the retry"
+    );
+    assert_ne!(
+        observed[0], observed[1],
+        "{HARNESS}: the retry ran at a different instant, so the same identity is not a same-instant coincidence"
     );
 
     // The commit is exactly once: the rolled-back attempt left no command, so the visit count is one. If the failed
