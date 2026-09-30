@@ -10,6 +10,13 @@
 //! is driven through `start_process`, its `command` node calls the production `ApplicationPort` seam (faked at the
 //! adapter boundary, so no live provider is touched), and the recorded commands are read back through the
 //! production `Store` (`command_visit_count`, `insert_command`, `history`, `get_instance`). Level: L3 Composition.
+//!
+//! The production lines this contract pins:
+//! `rust/core/workflow/src/engine/handle_join.rs:215-216` derives the visit sequence from the committed
+//! `command_visit_count` and the command id from it; `rust/core/workflow/src/engine/handle_join.rs:239-254` calls
+//! the adapter once and records the command once; `rust/core/workflow/src/memory.rs:598-625` refuses a second
+//! command for an already-used visit (`COMMAND_VISIT_DUPLICATE`), which the production unique index
+//! `db/migrations/108_forge_v10_command_visits.sql:10-11` mirrors.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex};
