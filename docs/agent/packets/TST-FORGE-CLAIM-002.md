@@ -148,3 +148,42 @@ CHECK_EXIT=0
 ```
 
 The DEV run asserted `target = Dev` before any assertion ran; PRODUCTION was never connected to.
+
+## Raw verification — lead_post integration (2026-09-30)
+
+Lead post inspected the candidate and re-ran the story's own acceptance commands against the current tree. The
+canonical test `rust/test-harness/tests/forge_claim__002__second_begin_refused.rs` is committed at `427d8b86`; the
+frozen candidate SHA for QA is this lead_post integration commit (reported as `candidateSha` in the node's
+`FORGE_EVIDENCE_JSON`, visible as HEAD). The production citations in this packet were checked against the current
+tree and resolve without drift — `begin_agent_work_run` at `rust/core/db/src/forge_engine.rs:787`, the CAS read
+`where id=$1::uuid and state='Claimed' for update` at `:795-806`, the run insert in the same transaction at
+`:824-848`, the predicate update at `:853-858`, `claim_specific_agent_work` at `:640` and `finish_agent_work_run` at
+`:1014`; the `ForgeHarness` seam at `rust/test-harness/src/forge.rs:21-97`, `connect_from_env` at
+`rust/test-harness/src/database.rs:109-113` and `with_rollback` at `:155-169`. No production or test behavior changed.
+The acceptance command (plain, L2 DEV contract skipped without a declared database) and the live run against the
+disposable DEV branch are this node's own run, pasted with their exit status.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__002__second_begin_refused
+running 1 test
+test forge_claim_002__second_begin_refused ... ignored, needs DATABASE_URL_DEV: runs only against the disposable DEV branch (PROD is refused)
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+TEST_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__002__second_begin_refused -- --ignored
+running 1 test
+test forge_claim_002__second_begin_refused ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 26.79s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.14s
+CHECK_EXIT=0
+```
+
+The live run asserts `target = Dev` before any assertion executes and removes its proof stories at the end, so the
+disposable DEV branch is left as it was found and PRODUCTION is never connected to. Unrelated, pre-existing
+warnings in `forge`/`workflow` crates (unused imports/variables) were present at run time; they are not part of this
+story's candidate.
