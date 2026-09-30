@@ -84,9 +84,11 @@ const SECTIONS: &[Section] = &[
     Section {
         name: "harness",
         area: "HARNESS",
-        about: "the guardrails themselves: manifests, packets, protections",
+        about: "the guardrails themselves: manifests, packets, protections, the contract-test foundation",
         historical: false,
-        crates: &["cli"],
+        // `test-harness` is the Rust contract-test foundation (TST-HARNESS-FOUNDATION-001): it belongs to the
+        // guardrails, so its own self-tests run with the section rather than being an unclassified tree.
+        crates: &["cli", "test-harness"],
     },
 ];
 
@@ -98,6 +100,11 @@ fn section_for_file(path: &str) -> Option<&'static str> {
     let path = path.trim_start_matches("./").replace('\\', "/");
 
     if path.starts_with("scripts/") {
+        return Some("harness");
+    }
+    // The Rust contract-test foundation is a guardrail, not app code: its self-tests belong to the `harness`
+    // section so `pnpm test:changed` runs them and the taxonomy has no unclassified tree.
+    if path.starts_with("rust/test-harness/") {
         return Some("harness");
     }
     if path.starts_with("rust/cli/src/forge/")
@@ -562,6 +569,8 @@ mod tests {
             ("rust/server/src/api/engine.rs", "app-core"),
             ("rust/ui/src/update.rs", "app-portal"),
             ("rust/cli/src/main.rs", "harness"),
+            ("rust/test-harness/src/clock.rs", "harness"),
+            ("rust/test-harness/tests/harness_self_test.rs", "harness"),
         ];
 
         for (path, expected) in cases {
@@ -603,5 +612,25 @@ mod tests {
         assert!(SECTIONS
             .iter()
             .all(|section| !section.crates.is_empty() && section.about.len() > 20));
+    }
+
+    #[test]
+    fn the_contract_test_foundation_runs_with_the_harness_section() {
+        let harness = SECTIONS
+            .iter()
+            .find(|section| section.name == "harness")
+            .expect("the harness section exists");
+        assert!(
+            harness.crates.contains(&"test-harness"),
+            "the test-harness crate must run in the harness section"
+        );
+        assert_eq!(
+            section_for_file("rust/test-harness/src/database.rs"),
+            Some("harness")
+        );
+        assert_eq!(
+            section_for_file("rust/test-harness/tests/harness_self_test.rs"),
+            Some("harness")
+        );
     }
 }
