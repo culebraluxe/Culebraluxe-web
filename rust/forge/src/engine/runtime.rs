@@ -232,7 +232,7 @@ impl<S: TxStore> ForgeRuntime<S> {
         Ok(started)
     }
 
-    pub fn list_role_tasks(&mut self, story_id: &str) -> Result<Vec<ActiveForgeRoleTask>> {
+    pub fn list_role_tasks(&self, story_id: &str) -> Result<Vec<ActiveForgeRoleTask>> {
         let Some(instance_id) = self.find_active_instance(story_id)? else {
             return Ok(vec![]);
         };
@@ -245,7 +245,7 @@ impl<S: TxStore> ForgeRuntime<S> {
             .collect())
     }
 
-    pub fn find_open_task(&mut self, instance_id: &str) -> Result<Option<OpenForgeTask>> {
+    pub fn find_open_task(&self, instance_id: &str) -> Result<Option<OpenForgeTask>> {
         let tasks = self.engine.tasks_for_instance(instance_id)?;
         let tokens = self.engine.tokens_for_instance(instance_id)?;
         let open: Vec<_> = tasks
@@ -299,7 +299,7 @@ impl<S: TxStore> ForgeRuntime<S> {
         Ok(())
     }
 
-    pub fn claim_role_task(&mut self, task_id: &str, worker_id: &str) -> Result<()> {
+    pub fn claim_role_task(&self, task_id: &str, worker_id: &str) -> Result<()> {
         self.engine.claim_task(task_id, worker_id)
     }
 
@@ -321,7 +321,7 @@ impl<S: TxStore> ForgeRuntime<S> {
     }
 
     pub fn complete_role_task(
-        &mut self,
+        &self,
         task_id: &str,
         worker_id: &str,
         transition: Option<&str>,
@@ -366,7 +366,7 @@ impl<S: TxStore> ForgeRuntime<S> {
     }
 
     /// Resume door: finish any won transition whose receipt never finalized.
-    pub fn reconcile_completions(&mut self, story_id: &str) -> Result<usize> {
+    pub fn reconcile_completions(&self, story_id: &str) -> Result<usize> {
         let Some(instance_id) = self.find_active_instance(story_id)? else {
             return Ok(0);
         };
