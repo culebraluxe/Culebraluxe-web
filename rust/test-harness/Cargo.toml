@@ -31,3 +31,10 @@ tower.workspace = true
 ui = { path = "../ui" }
 uuid.workspace = true
 workflow = { path = "../core/workflow" }
+
+[dev-dependencies]
+# The Forge definition boundary under test (TST-WF-DEFINITION-013): the production XML parser
+# (`forge::engine::xml`) and the pure definition policies it feeds (`version_policy`, `commands`, `topology`).
+# Test-only, so the harness's own modules never link the Forge runtime — the parse is the same one the deploy path
+# (`forge::engine::deploy::deploy_xml`) and the engine binary use, not a re-declared copy of it.
+forge = { path = "../forge" }
