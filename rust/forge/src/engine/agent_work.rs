@@ -25,6 +25,9 @@ pub struct AgentWorkItem {
     pub claimed_by: Option<String>,
     pub role: Option<String>,
     pub kind: Option<String>,
+    /// The work type the story declared (migration 259), or `None`. It is the engine's own vocabulary — `FAST`
+    /// opens the fast lane — and it wins over `kind`, whose six batch words cannot express it.
+    pub work_type: Option<String>,
     /// The durable dispatch envelope (migrations 029 and 167), carried on the claim so the run is configured by the
     /// row rather than by argv. `None`/`null` means "not set", which has a meaning of its own: a null `stop_after`
     /// is the full chain, a null `launch_intent` leaves the decision to the Lead.
@@ -42,6 +45,7 @@ fn map(row: db::ForgeAgentWorkRow) -> AgentWorkItem {
         claimed_by: row.claimed_by,
         role: row.role,
         kind: row.kind,
+        work_type: row.work_type,
         execution_policy: row.execution_policy,
         model_policy: row.model_policy,
         stop_after: row.stop_after,

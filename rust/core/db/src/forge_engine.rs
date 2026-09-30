@@ -14,7 +14,18 @@ pub struct ForgeAgentWorkRow {
     /// `fix` / `qa` / `learn` / `normal`, copied onto the item at dispatch (migration 179). The claim carries it
     /// forward so the worker can still choose the engine work type it used to read off `next_ready_work` — losing it
     /// would silently downgrade every `fix` item to a FEATURE lane.
+    ///
+    /// It is the BATCH's vocabulary and it cannot express `FAST` (migration 179's constraint holds six batch words).
+    /// The story's own declaration is `work_type` below, and it wins.
     pub kind: Option<String>,
+    /// The work type the STORY declared: `FEATURE` / `FAST` / `BUG` / `HOTFIX` / `RESEARCH` / `MIGRATION`, copied
+    /// from `storyboard_story.work_type` by the Ready trigger (migration 259), or `None` for a story that declares
+    /// nothing — which means FEATURE, the behaviour of every row before 259.
+    ///
+    /// It is on the claim for the same reason `execution_policy` is: the run must be configured by the ROW. `FAST`
+    /// is the whole reason it exists — it opens the fast lane (`FORGE_SDLC-v6.xml:85`), and before 259 no story the
+    /// board dispatched could reach it.
+    pub work_type: Option<String>,
     /// `Unattended OK` / `Daytime Only` / `Human Gate` / `Manual Only` (migration 029). NOT NULL.
     ///
     /// It is on the claim because the claim decides whether a run may be unattended at all: the migration says
@@ -698,7 +709,7 @@ impl ForgeEngineDao {
              set state='Claimed', claimed_at=now(), claimed_by=$2,
                  attempts=attempts+1, updated_at=now()
              where id=$1::uuid and state='Ready'
-             returning id::text as id, story_id, state, claimed_by, role, kind,
+             returning id::text as id, story_id, state, claimed_by, role, kind, work_type,
                        execution_policy, model_policy, stop_after, launch_intent",
         )
         .bind(work_item_id)
@@ -762,7 +773,7 @@ impl ForgeEngineDao {
              from candidate c
              where w.id = c.id
                and w.state = 'Ready'
-             returning w.id::text as id, w.story_id, w.state, w.claimed_by, w.role, w.kind,
+             returning w.id::text as id, w.story_id, w.state, w.claimed_by, w.role, w.kind, w.work_type,
                        w.execution_policy, w.model_policy, w.stop_after, w.launch_intent",
         )
         .bind(worker_id)

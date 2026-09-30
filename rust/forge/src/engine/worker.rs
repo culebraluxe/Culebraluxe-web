@@ -123,11 +123,46 @@ fn spawn_heartbeat(work_item_id: String, interval: Duration) -> Arc<AtomicBool> 
 }
 
 
+/// The engine's work types, verbatim as `--work-type` accepts them (`rust/forge/src/bin/forge.rs:117`) and as
+/// migration 173's ledger and migration 259's column store them.
+const DECLARED_WORK_TYPES: &[&str] = &[
+    "FEATURE",
+    "FAST",
+    "BUG",
+    "HOTFIX",
+    "RESEARCH",
+    "MIGRATION",
+];
+
 fn work_type_for_kind(kind: Option<&str>) -> &'static str {
     match kind.unwrap_or("").trim().to_ascii_lowercase().as_str() {
         "fix" => "BUG",
         "qa" | "learn" => "RESEARCH",
         _ => "FEATURE",
+    }
+}
+
+/// The engine work type for a claimed item: the work type the **story declared** (migration 259) when it declared
+/// one, otherwise the legacy mapping off the batch `kind` (migration 179).
+///
+/// THE DECLARATION WINS, and it has to. `FAST` is the switch that opens the fast lane
+/// (`FORGE_SDLC-v6.xml:85` → `fast_lane_entry` → `fast_smith` → `fast_qa_verify`), and the queue's `kind` cannot say
+/// it: 179's vocabulary is the batch's six words, which land on BUG / RESEARCH / FEATURE. Until 2026-09-30 that made
+/// the lane unreachable from the board, so all 680 armed TST rows resolved to FEATURE and each paid a Scout, an
+/// Architect and a Lead turn on work whose acceptance bar is "it compiles".
+///
+/// An undeclared story, or a declaration that is not one of the six (impossible through the column's check
+/// constraint, but this is a boundary and it validates rather than trusts), falls back to the kind mapping — never to
+/// a work type invented from an unrecognised string.
+fn work_type_for_item(declared: Option<&str>, kind: Option<&str>) -> &'static str {
+    let declared = declared.unwrap_or("").trim().to_ascii_uppercase();
+    match DECLARED_WORK_TYPES
+        .iter()
+        .find(|candidate| **candidate == declared)
+        .copied()
+    {
+        Some(known) => known,
+        None => work_type_for_kind(kind),
     }
 }
 
@@ -220,7 +255,7 @@ pub fn fire_due_flights() -> Result<u64, String> {
 pub fn claim_next_dispatch(worker_id: &str) -> Result<Option<WorkerDispatch>, String> {
     let claimed = agent_work::claim_next_agent_work(worker_id)?;
     Ok(claimed.map(|item| WorkerDispatch {
-        work_type: work_type_for_kind(item.kind.as_deref()).to_string(),
+        work_type: work_type_for_item(item.work_type.as_deref(), item.kind.as_deref()).to_string(),
         work_item_id: item.id,
         story_id: item.story_id,
         execution_policy: item.execution_policy,
@@ -532,6 +567,34 @@ mod tests {
         assert_eq!(work_type_for_kind(Some("qa")), "RESEARCH");
         assert_eq!(work_type_for_kind(Some("learn")), "RESEARCH");
         assert_eq!(work_type_for_kind(Some("normal")), "FEATURE");
+    }
+
+    /// `FAST` is what opens the fast lane (`FORGE_SDLC-v6.xml:85`), and the batch `kind` vocabulary cannot express
+    /// it — so the story's declaration must win, or every board-dispatched story is a FEATURE story. That was the
+    /// state until migration 259: 680 armed test rows, each paying a Scout, an Architect and a Lead turn.
+    #[test]
+    fn a_declared_work_type_opens_the_fast_lane() {
+        assert_eq!(work_type_for_item(Some("FAST"), Some("fix")), "FAST");
+        assert_eq!(work_type_for_item(Some("fast"), None), "FAST");
+        assert_eq!(work_type_for_item(Some(" FAST "), Some("qa")), "FAST");
+    }
+
+    /// The legacy path is untouched: an undeclared story behaves exactly as it did before migration 259.
+    #[test]
+    fn an_undeclared_story_still_maps_off_its_kind() {
+        assert_eq!(work_type_for_item(None, Some("fix")), "BUG");
+        assert_eq!(work_type_for_item(None, Some("qa")), "RESEARCH");
+        assert_eq!(work_type_for_item(None, Some("learn")), "RESEARCH");
+        assert_eq!(work_type_for_item(None, None), "FEATURE");
+        assert_eq!(work_type_for_item(Some(""), Some("fix")), "BUG");
+    }
+
+    /// A declaration outside the six work types never invents a lane and never leaks through: the column's check
+    /// constraint makes this unreachable in the database, and this is the boundary that does not trust that.
+    #[test]
+    fn an_unknown_declaration_falls_back_to_the_kind_mapping() {
+        assert_eq!(work_type_for_item(Some("TURBO"), Some("qa")), "RESEARCH");
+        assert_eq!(work_type_for_item(Some("turbo"), None), "FEATURE");
     }
 
     /// The heartbeat is the only thing standing between a long run and `stale_agent_work` requeuing it while it is
