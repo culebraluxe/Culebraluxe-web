@@ -1073,3 +1073,82 @@ survives an uncommitted rewrite. The negative cases (live survivor, no double re
 test non-vacuous. The workspace check emitted only pre-existing `workflow`-crate warnings
 (`core/workflow/src/concurrency.rs:70`), unrelated to this candidate. The working tree was clean at freeze time. The
 candidate this node freezes for QA is the git commit this block is committed with.
+
+## Verification — qa_verify (task 8748ae8c, 2026-09-30)
+
+**Verdict: PASS (qaPassed = true).** Task `8748ae8c-06a2-4d90-ae79-ece67c01549a`. The frozen candidate is HEAD
+(`6ee755ce`, the `lead_post` re-freeze section). The canonical test
+`rust/test-harness/tests/forge_claim__003__stale_recovery.rs` is the QA-frozen artifact with the self-heal no-write
+proof (sha256 `a2e78bd618c400191dca0d830e092f26001c20d8818d44224ada46bd11e9df56`; `git status` clean at inspection
+time). It names exactly the contract and exercises the production `ForgeControlDao` boundary (`stale_agent_work` /
+`requeue_stale_work` / `hold_stale_work`) on a disposable DEV target (`target() == "dev"` asserted before any
+assertion), reads committed truth back on the pool, carries a `with_rollback` probe plus negative/refusal/fault cases
+(live-peer survival compared on the whole row, no double recovery, landed → `Done`, held → `Error`, settled no-op),
+and deletes its six proof stories at the end. Both acceptance commands are green and the live L2 DEV contract is
+green. All eleven acceptance criteria are met.
+
+Every production citation the file and this packet name re-resolves against the current tree, and the production bytes
+are unchanged for this node: `stale_agent_work` at `rust/core/db/src/forge_control.rs:39` (predicate
+`updated_at < now() - ($1::text || ' minutes')::interval` at `:47`), `hold_stale_work` at `:78`, `requeue_stale_work`
+at `:117` (file sha256 `a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`); `recover_stale_agent_work`
+at `rust/forge/src/engine/worker.rs:176` (sha256 `4131fdd664ef2f5cc48a0cc454a22997d45da592b664874fc3655f9e977c6bad`);
+`guard_target` at `rust/test-harness/src/database.rs:68`, `connect_declared` at `:116` (sha256
+`493e72466fdb79686f8e9692d5046a190290d9b86d921cc2a5623943d0786bfa`).
+
+**Independent non-vacuity check (this node's own).** Inverting the discovery predicate's comparison in
+`stale_agent_work` from `updated_at < now() - interval` to `updated_at > now() - interval`
+(`rust/core/db/src/forge_control.rs:47`) makes the sweep admit the live peer instead of the stale claim, and the
+canonical test fails exactly at its discovery assertion
+(`rust/test-harness/tests/forge_claim__003__stale_recovery.rs:222`,
+`a claim silently older than the window must be discovered as stale`), `test result: FAILED`. The production file was
+restored with `git checkout --` (sha256 back to `a8f0e22a…`, `git status` clean of production edits) and the live run
+is green again. The staleness window is therefore load-bearing and the contract is not vacuous.
+
+Commands run from the repo root, output pasted with exit status:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+running 1 test
+test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+running 1 test
+test forge_claim_003__stale_recovery ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.00s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.02s
+CHECK_EXIT=0
+
+$ # mutation — discovery predicate inverted (rust/core/db/src/forge_control.rs:47)
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+test forge_claim_003__stale_recovery ... FAILED
+thread 'forge_claim_003__stale_recovery' panicked at test-harness/tests/forge_claim__003__stale_recovery.rs:222:5:
+ForgeHarness/L2 Persistence: a claim silently older than the window must be discovered as stale
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.61s
+
+$ # restore + re-run
+$ git checkout -- rust/core/db/src/forge_control.rs   # sha256 a8f0e22a…, production edits clean
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+test forge_claim_003__stale_recovery ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.58s
+LIVE_AFTER_RESTORE_EXIT=0
+```
+
+The live run asserted `target() == "dev"` before any assertion, connected only through `DATABASE_URL_DEV`
+(`ep-muddy-lab-axtgckj9-pooler`, distinct from the PROD host `ep-flat-art-ax92tn7a-pooler`), and deleted its six proof
+stories at the end. The mutant run panicked before its own cleanup and stranded exactly six proof stories under the
+`FORGE-CLAIM-003-%` prefix; this node reaped exactly those (`delete from storyboard_story where id like
+'FORGE-CLAIM-003-%'`, `stranded before reap: 6`, `deleted: 6`, `after: 0`) through a disposable harness scratch test
+that was removed immediately after it ran. PRODUCTION was never connected to. The workspace check emitted only
+pre-existing warnings (`forge` lib/test warnings, `workflow` unused imports at `core/workflow/src/concurrency.rs:70`,
+and test warnings in `arch_boundary__011`, which is another in-flight story's untracked file). A concurrent writer in
+this shared checkout left `rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs` modified and an
+untracked `rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs`; both belong to other in-flight
+stories, were left untouched, and are deliberately not part of this candidate. The only change this node commits is
+this packet section.
