@@ -197,3 +197,55 @@ CHECK_EXIT=0
 ```
 
 The DEV run asserted `target = Dev` before any assertion ran; PRODUCTION was never connected to.
+
+## Verification — lead_post (2026-09-30)
+
+**Integration frozen.** The canonical test `rust/test-harness/tests/forge_claim__003__stale_recovery.rs` is committed
+on the base (`0e7964a7`, refined) and every acceptance criterion is met by it; there was no split to integrate (serially
+authored) and no production or test code needed to change. The candidate this node freezes for QA is the git commit this
+block is committed with. Production citations were re-checked against the current tree and all resolve:
+`stale_agent_work` at `rust/core/db/src/forge_control.rs:39-54`, `hold_stale_work` at `:78-108`, `requeue_stale_work`
+at `:117-202`, `recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:141-189`, `guard_target` at
+`rust/test-harness/src/database.rs:68-75`.
+
+This node's own run of the story's two acceptance commands is pasted with its exit status:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+running 1 test
+test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+TEST_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+running 1 test
+test forge_claim_003__stale_recovery ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.08s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.36s
+CHECK_EXIT=0
+```
+
+**Mutation check (this node's own) — the window is load-bearing.** Flipping the stale predicate's comparison from
+`updated_at < now() - interval` to `updated_at > now() - interval` in `stale_agent_work`
+(`rust/core/db/src/forge_control.rs:47`) makes the sweep discover the *live* peer instead of the stale claim, and the
+test fails at `rust/test-harness/tests/forge_claim__003__stale_recovery.rs:220`
+(`a claim silently older than the window must be discovered as stale`), `test result: FAILED` (exit 101):
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+test forge_claim_003__stale_recovery ... FAILED
+thread '...' panicked at test-harness/tests/forge_claim__003__stale_recovery.rs:220:5:
+ForgeHarness/L2 Persistence: a claim silently older than the window must be discovered as stale
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.44s
+MUTATION_EXIT=101
+```
+
+The predicate was restored byte-for-byte with the editor (`git diff` is empty), and the re-run is green
+(`LIVE_EXIT=0`, `1 passed`, 18.08s). The staleness window is therefore load-bearing and the contract is not vacuous.
+The DEV target asserted `target = Dev` before any assertion ran; PRODUCTION was never connected to. No working-tree
+changes beyond this packet section were carried into the frozen candidate.
