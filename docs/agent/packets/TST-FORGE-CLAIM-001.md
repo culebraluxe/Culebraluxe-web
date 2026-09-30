@@ -644,3 +644,56 @@ disposable DEV branch is left as it was found and PRODUCTION is never connected 
 `APP_ENV` was set to `development` for the run, and the test declares DEV explicitly). The `md5` of the canonical test
 and of `rust/core/db/src/forge_engine.rs` are unchanged before and after, so no production or test byte moved. The
 candidate this node delivers is the git commit this block is committed with.
+
+## Verification — lead_post re-freeze (re-issue, 2026-09-30)
+
+**Integration frozen (re-issue).** `lead_post` was re-issued after the last `qa_verify` PASS and the
+`repair_smith` self-heal; the canonical test is byte-identical across the QA-verified artifact and this tree, so this
+node re-inspects the tree, re-runs the story's own assay commands against the disposable DEV branch, and freezes a
+fresh candidate for QA. There was no split to integrate (the story is serially authored) and no production or test
+code needed to change — the contract is judged correct as it stands, so the only working-tree change this node commits
+is this packet section.
+
+The canonical test `rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs:1-462` is unchanged
+(`md5 45a45cc696e8eaabb268ecfdcdb32b48`, identical to the digest recorded under the earlier
+`repair_smith`/`qa_verify` sections) and its production citations resolve against this tree:
+`claim_specific_agent_work` at `rust/core/db/src/forge_engine.rs:651`, `begin_agent_work_run` at `:798`, its CAS read
+`where id=$1::uuid and state='Claimed' for update` at `:806-810`, the Story Run insert in the same transaction at
+`:835-859`, the predicate update `where id=$1::uuid and state='Claimed'` at `:864-870`, `finish_agent_work_run` at
+`:1025`, `requeue_stale_work` at `rust/core/db/src/forge_control.rs:117`, and the harness PROD refusal `guard_target` at
+`rust/test-harness/src/database.rs:68-75`. The production CAS file is also unchanged
+(`md5 7d631a70f1b54334586adccb7571bd14`); no production byte moved in this node.
+
+Commands run from the repo root, output pasted with exit status:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ignored, needs DATABASE_URL_DEV (a disposable DEV branch); TestDatabase refuses PROD before any socket
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; APP_ENV=development cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run -- --ignored
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.77s
+LIVE_EXIT=0
+PRE_TEST_MD5=45a45cc696e8eaabb268ecfdcdb32b48
+POST_TEST_MD5=45a45cc696e8eaabb268ecfdcdb32b48
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.87s
+CHECK_EXIT=0
+```
+
+The live run asserts `target = Dev` before any assertion executes and reaps its proof stories by namespace at the end,
+so the disposable DEV branch is left as it was found and PRODUCTION is never connected to. The shell's `APP_ENV` was
+`production` at node start; the test calls `TestDatabase::connect_declared(Some("dev"), Some("dev"))`, which resolves
+the harness's declared-dev refusal before any socket, and `Database::connect_target(DbTarget::Dev)` reads only
+`DATABASE_URL_DEV`, so no PRODUCTION connection was possible. The live run again exercised the load-bearing refusal
+suite — the exclusive second claim, a second begin, a requeued claim, an unclaimed `Ready` item, an unknown id and a
+settled claim are each refused, committing nothing and opening no run — so the contract named by this story remains
+non-vacuous. Pre-existing `forge`/`workflow`-crate warnings were present at run time and are not part of this candidate.
+The candidate this node freezes for QA is the git commit this block is committed with.
