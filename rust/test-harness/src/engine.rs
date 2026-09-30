@@ -9,7 +9,7 @@
 //! The harness wraps the engine; it does not re-implement it. A test drives `start_process`, `apply_command` and the
 //! rest through [`EngineHarness::engine`].
 
-use workflow::{EngineOptions, MemoryStore, WorkflowEngine};
+use workflow::{ApplicationPort, EngineOptions, MemoryStore, WorkflowEngine};
 
 use crate::clock::TestClock;
 
@@ -40,6 +40,24 @@ impl EngineHarness {
     /// An engine whose clock starts at a Unix timestamp in milliseconds.
     pub fn at_unix_millis(millis: i64) -> Self {
         Self::new(TestClock::at_unix_millis(millis))
+    }
+
+    /// The same engine, wired to the `ApplicationPort` seam production uses for `command` nodes.
+    ///
+    /// [`new`](Self::new) leaves the port unset, which is right for a graph with no command node: a command node
+    /// reached without one is refused with `MISSING_APPLICATION_PORT`. A contract test about commands therefore has
+    /// to hand the engine the real port — here a deterministic fake substituted at the same adapter seam
+    /// production substitutes — rather than a parallel command implementation on the side.
+    pub fn with_application_port(clock: TestClock, app: Box<dyn ApplicationPort>) -> Self {
+        let engine_clock = clock.clone();
+        let engine = WorkflowEngine::new(
+            MemoryStore::new(),
+            EngineOptions {
+                app: Some(app),
+                now: Box::new(move || engine_clock.now_millis()),
+            },
+        );
+        Self { engine, clock }
     }
 
     /// The engine itself.
