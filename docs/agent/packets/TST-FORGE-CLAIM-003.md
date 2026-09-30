@@ -1805,3 +1805,45 @@ this node reaped exactly those through a disposable scratch test (removed immedi
 `stranded before: 6; deleted: 6; after: 0`, so the disposable DEV branch is left as it was found.
 
 FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":true,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"1f4a99e087ce1974996c46a5edf375e27d00abc5"}
+
+## Verification — qa_verify (task f213debd re-run, 2026-09-30)
+
+**Verdict: PASS (qaPassed = true).** This node was re-driven; the canonical artifact is unchanged and the story is
+judged correct as it stands. The canonical test
+`rust/test-harness/tests/forge_claim__003__stale_recovery.rs` is byte-identical to the frozen artifact (sha256
+`635016b2adb004a3f0a547df58794c6c983d3b1a8d9dde6e9b65d04916fbf2de`), declares exactly one `#[tokio::test]` named
+`forge_claim_003__stale_recovery`, exercises the production `ForgeControlDao` boundary (`stale_agent_work` /
+`requeue_stale_work` / `hold_stale_work`) on a disposable DEV target asserted before any other assertion, reads
+committed truth back on the pool, and carries a `with_rollback` probe plus negative/refusal cases (live-peer survival
+compared on the whole row including `updated_at`, no double recovery, landed → `Done`, held → `Error`, settled no-op).
+PROD is never connected: the test declares the environment itself (`ForgeHarness::connect_declared(None, Some("test"))`)
+and the harness refuses PROD before any socket (`rust/test-harness/src/database.rs:68`). No production byte changed for
+this node. The unfrozen working-tree changes in this shared checkout (`docs/agent/packets/TST-FORGE-CLAIM-001.md`,
+`rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs`,
+`rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs`) belong to other in-flight stories, were
+left untouched, and are not part of this candidate. The only change this node commits is this packet section.
+
+Commands run from the repo root, output pasted with exit status:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+running 1 test
+test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+running 1 test
+test forge_claim_003__stale_recovery ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.65s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4m 05s
+CHECK_EXIT=0
+```
+
+The live run asserted `target = dev` before any assertion ran and deleted its proof stories at the end, so the
+disposable DEV branch is left as it was found and PRODUCTION was never connected to.
+
+FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":true,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"53082ceea8c7e9fdcfb60e55153d0a283a7c51da"}
