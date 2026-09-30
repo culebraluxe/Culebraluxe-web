@@ -160,3 +160,40 @@ CHECK_EXIT=0
 The DEV target was verified as `dev` by the harness guard before any assertion ran; PRODUCTION was never connected to.
 The first live attempt failed on a suspended Neon compute (`db.connect: unexpected end of file`) and succeeded on the
 immediate retry — a transient wake-up, not a code fault.
+
+## Verification — lead_pre (2026-09-30)
+
+**Decision: ASSAY.** The canonical test named by this story's acceptance criteria is already committed on the base
+(`rust/test-harness/tests/forge_claim__003__stale_recovery.rs`, landed `5ad32cb6`, refined `0e7964a7`) and every
+acceptance criterion is met by it, so the cheapest sound strategy is to JUDGE the existing work rather than re-author
+it — the `leadDecision == 'ASSAY'` branch (`rust/forge/definitions/FORGE_SDLC-v6.xml:257`) routes straight to the
+deterministic `qa_verify` node. No production or test code changed in this node.
+
+The lead re-ran this story's own assay commands against the disposable DEV branch. The plain command is green with the
+L2 DEV contract skipped (it needs a disposable DEV branch; PROD is refused before any socket), and the live run is
+green: the stale claim is discovered by the windowed predicate and requeued `Ready`/`Ready` with `updated_at` advanced
+and absent from a second sweep, a live peer stays `Running`, landed work settles `Done`, a human-held story settles
+`Error`, an already-settled claim is a no-op, the terminal `hold_stale_work` path moves the board to `Hold`, and the
+rollback probe leaves committed truth intact. Commands run from the repo root, output pasted:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+running 1 test
+test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+TEST_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+running 1 test
+test forge_claim_003__stale_recovery ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.61s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.90s
+CHECK_EXIT=0
+```
+
+The DEV run asserted `target = Dev` before any assertion ran; PRODUCTION was never connected to.
