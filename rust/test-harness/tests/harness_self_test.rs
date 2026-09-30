@@ -4,7 +4,7 @@
 //! actually deterministic, and they prove the PRODUCTION database guard refuses execution *before* any connection is
 //! attempted. Everything here runs in `cargo test -p test-harness` with no database, no network and no environment.
 
-use test_harness::database::{guard_target, resolve_test_target, HarnessDbError};
+use test_harness::database::{guard_target, resolve_test_target, unique_namespace, HarnessDbError};
 use test_harness::{DeterministicIds, FixtureFactory, TestClock, TestLevel};
 use db::DbTarget;
 
@@ -68,6 +68,17 @@ fn the_production_database_guard_refuses_execution() {
         resolve_test_target(Some("preview"), None).unwrap(),
         DbTarget::Dev
     );
+}
+
+#[test]
+fn the_database_helpers_own_cleanup_with_a_unique_namespace_per_instance() {
+    // Cleanup is ownership: a `TestDatabase` drops the isolated schema named by its namespace with `CASCADE`.
+    // Two instances must never share that name, or one test's cleanup would delete another's objects. `cargo test`
+    // runs one binary's tests on parallel threads, so this is per-instance, not per-process.
+    let first = unique_namespace();
+    let second = unique_namespace();
+    assert_ne!(first, second, "each test database owns its own schema");
+    assert!(first.starts_with("tsth-"), "the namespace is a safe schema prefix");
 }
 
 #[test]

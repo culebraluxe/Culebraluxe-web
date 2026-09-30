@@ -19,11 +19,33 @@
 
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use db::{resolve_declared_target, Database, DbFailure, DbResult, DbTarget, DbTransaction};
 use sqlx::PgConnection;
 
 use crate::fixtures::FixtureFactory;
+
+/// Counts `TestDatabase` instances in this process, so each gets its own isolated schema.
+static TEST_DB_INSTANCE: AtomicU64 = AtomicU64::new(0);
+
+/// A namespace unique to one [`TestDatabase`] instance.
+///
+/// Isolation is per-instance, not per-process: `cargo test` runs one binary's tests on parallel threads, so two
+/// `TestDatabase`s in a single process that shared a namespace would share one schema — and whichever test finished
+/// first would `drop schema ... cascade` the other's objects out from under it. The process id keeps two processes
+/// apart; a monotonic counter and the wall clock keep two instances in one process apart. The result is safe as a SQL
+/// identifier (hex digits, `-`, and no caller text), which is what lets it name a schema directly.
+pub fn unique_namespace() -> String {
+    let instance = TEST_DB_INSTANCE.fetch_add(1, Ordering::SeqCst);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos() as u64)
+        .unwrap_or(0);
+    let seed = (u64::from(std::process::id()) << 32) ^ nanos ^ instance;
+    FixtureFactory::new(seed).namespace().to_owned()
+}
 
 /// A harness database operation failed, or the harness refused to perform it.
 #[derive(Debug, thiserror::Error)]
@@ -77,7 +99,7 @@ impl TestDatabase {
     /// Wrap an already-connected pool, refusing a PRODUCTION handle.
     pub fn from_database(inner: Database) -> Result<Self, HarnessDbError> {
         guard_target(inner.target())?;
-        let namespace = FixtureFactory::new(std::process::id() as u64).namespace().to_owned();
+        let namespace = unique_namespace();
         Ok(Self { inner, namespace })
     }
 
@@ -264,5 +286,18 @@ mod tests {
     #[test]
     fn silence_is_refused_rather_than_defaulted_to_a_database() {
         assert!(resolve_test_target(None, None).is_err());
+    }
+
+    #[test]
+    fn every_test_database_gets_its_own_namespace() {
+        // The namespace names the isolated schema, and `cleanup` drops it `CASCADE`. If two instances shared one,
+        // one test's cleanup would delete another test's objects. Per-instance uniqueness is the isolation contract.
+        let first = unique_namespace();
+        let second = unique_namespace();
+        assert_ne!(
+            first, second,
+            "two test databases in one process must not share a namespace/schema"
+        );
+        assert!(first.starts_with("tsth-"), "a namespace names a schema prefix safely");
     }
 }

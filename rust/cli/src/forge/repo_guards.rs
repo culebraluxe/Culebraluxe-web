@@ -67,7 +67,16 @@ const TREE_FIELD_TOKENS: [&str; 4] = [
 /// is the sole Rust file that invokes `git worktree add`; it is under an active engine audit
 /// (`H3` in `docs/agent/HANDOFF-ts-guards-to-rust-2026-09-29.md`), so this guard baselines it rather
 /// than editing it.
-const WORKTREE_CAPABILITY_FILES: [&str; 1] = ["rust/forge/src/engine/worktree.rs"];
+///
+/// `rust/test-harness/src/git.rs` is the contract-test harness's disposable-worktree helper. It is
+/// allowed because it is the one shape AGENTS.md:151 exempts by name — "Scratch that a command creates
+/// and consumes inside itself is fine". `DisposableWorktree` adds a worktree under the system temp
+/// directory and removes it in `Drop`, so it never outlives the test that made it, is never read by
+/// another lane, and is not a per-lane tree. It adds no workflow the database does not already own.
+const WORKTREE_CAPABILITY_FILES: [&str; 2] = [
+    "rust/forge/src/engine/worktree.rs",
+    "rust/test-harness/src/git.rs",
+];
 
 /// The tracked roots the capability scan is allowed to read. Scoped deliberately: `gsd-core/` is an
 /// unrelated, untracked vendored tool and `legacy/` is retired, so neither belongs to this rule's
