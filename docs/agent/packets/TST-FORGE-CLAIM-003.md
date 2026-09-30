@@ -539,3 +539,52 @@ any assertion, connects only through `DATABASE_URL_DEV` (`ep-muddy-lab-axtgckj9-
 it was found; PRODUCTION is never connected to. The candidate this node commits is this packet section; the unrelated
 untracked `arch_boundary__*`/`source.rs` files and `rust/test-harness/src/lib.rs` edit left in the shared checkout by a
 concurrent writer were left untouched and are not part of it.
+
+## Verification — lead_post re-freeze (run 2, 2026-09-30)
+
+**Integration frozen (re-issue, task `5782e495-ac0d-4192-ae1e-066e5e89ca27`).** This `lead_post` node was issued after
+the `repair_smith` self-heal landed its candidate. There was no split to integrate (the story is serially authored) and
+no production or test code needed to change — the canonical test is judged correct as it stands. This node re-inspects
+the tree, re-runs the story's two acceptance commands plus the live L2 DEV contract, and freezes a fresh candidate for
+QA. The candidate this node commits is this packet section.
+
+The canonical test `rust/test-harness/tests/forge_claim__003__stale_recovery.rs` is **byte-identical** to the QA-frozen
+candidate (`sha256 d2e54b8a633747bdf622b33f2d9d42da65edc75cb4ebff9c50fbfc4594ac97dc`, unchanged since `a92ae424`) and
+every production citation it names re-resolves against the current tree: `stale_agent_work` at
+`rust/core/db/src/forge_control.rs:39-54`, `hold_stale_work` at `:78-108`, `requeue_stale_work` at `:117-202`,
+`recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176-224`, `guard_target` at
+`rust/test-harness/src/database.rs:68-75`, and `connect_declared` at `:116-123`.
+
+The live run asserted `target() == "dev"` before any assertion and deletes its six proof stories at the end, so the
+disposable DEV branch is left as it was found; PRODUCTION is never connected to. The DEV host resolved from
+`DATABASE_URL_DEV` (`ep-muddy-lab-axtgckj9-pooler`) is distinct from the PROD host (`ep-flat-art-ax92tn7a-pooler`).
+
+Commands run from the repo root, output pasted with exit status:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+running 1 test
+test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+TEST_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+running 1 test
+test forge_claim_003__stale_recovery ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.01s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 48s
+CHECK_EXIT=0
+```
+
+The live run demonstrates the contract end to end: the windowed predicate discovers the silently-stale claim and not
+the live peer; `requeue_stale_work` returns it to `Ready`/`Ready` and advances `updated_at`; landed work settles
+`Done`, a human-held story settles `Error`, and an already-settled claim is left `Done`; the terminal `hold_stale_work`
+path moves the claim to `Error` and the board to `Hold` in one write; and the `with_rollback` probe shows the recovery
+committed. The negative cases (live survivor, no double recovery, landed/held refusals) keep the test non-vacuous.
+Concurrent agent activity in the shared checkout (`TST-FORGE-CLAIM-001` and a `forge harness-lint` run) held the cargo
+build lock and delayed this node's live run; it changed nothing under this story and is not part of this candidate.
