@@ -226,12 +226,17 @@ committed on the base (`c8c1ab94`, isolated `1a32ee49`) and every acceptance cri
 split to integrate and no production or test code needed to change. The candidate this node freezes for QA is this
 lead_post integration commit (reported as `candidateSha` in the node's `FORGE_EVIDENCE_JSON`, visible as HEAD).
 
-Lead post re-checked the production citations in the test header against the current tree; they resolve without
-drift — `claim_specific_agent_work` at `rust/core/db/src/forge_engine.rs:640`, `begin_agent_work_run` at `:787`, its
-CAS read `where id=$1::uuid and state='Claimed' for update` at `:795-806`, the Story Run insert in the same
-transaction at `:824-848`, the predicate update at `:853-869`, `finish_agent_work_run` at `:1014`, and
-`requeue_stale_work` at `rust/core/db/src/forge_control.rs:117`; the harness PROD refusal `guard_target` at
-`rust/test-harness/src/database.rs:68-75`. The mutation check recorded above (removing the `and state='Claimed'`
+Lead post re-checked the production citations in the test header against the current tree. Note the drift: a peer's
+commit (`728c107e`, the story-declared work-type change) added eleven lines near the top of
+`rust/core/db/src/forge_engine.rs` after this test was authored, so the header's line numbers are stale by +11 while
+the functions themselves still resolve at their current lines — `claim_specific_agent_work` at
+`rust/core/db/src/forge_engine.rs:651`, `begin_agent_work_run` at `:798`, its CAS read
+`select … where id=$1::uuid and state='Claimed' for update` at `:806-817`, the Story Run insert in the same
+transaction at `:835-859`, the predicate update at `:864-880`, and `finish_agent_work_run` at `:1025`. Untouched by
+that commit: `requeue_stale_work` at `rust/core/db/src/forge_control.rs:117` and the harness PROD refusal
+`guard_target` at `rust/test-harness/src/database.rs:68-75`. The test file is left byte-for-byte as authored (its
+header line numbers are documentation, not behavior; editing them would invalidate the frozen artifact and the
+line references in the verifications above). The mutation check recorded above (removing the `and state='Claimed'`
 predicate from the CAS read lets a second begin open a second run and the test fails at
 `forge_claim__001__only_owner_starts_run.rs:288`) still stands: the CAS is load-bearing and the contract is not
 vacuous.
