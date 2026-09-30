@@ -143,6 +143,19 @@ async fn durable_item_row(
     .expect("the work item's durable row is readable")
 }
 
+/// Every work item bound to one Story Run. Ownership is only unambiguous if the run the owner opened is
+/// stamped on exactly that owner's item and no other — a second item carrying the run id would mean the
+/// run belonged to two claims.
+async fn run_holder_ids(pool: &PgPool, run_id: &str) -> Vec<String> {
+    sqlx::query_scalar(
+        "select id::text from agent_work_item where story_run_id=$1::uuid order by id",
+    )
+    .bind(run_id)
+    .fetch_all(pool)
+    .await
+    .expect("the run's holders are readable")
+}
+
 /// Every Story Run opened for a story: `(id, started_at?, open?, run_type, execution_environment)`.
 async fn run_rows(pool: &PgPool, story_id: &str) -> Vec<(String, bool, bool, String, String)> {
     sqlx::query_as(
@@ -290,6 +303,14 @@ async fn forge_claim_001__only_owner_starts_run() {
     assert_eq!(
         run.execution_policy, "Unattended OK",
         "{HARNESS}: the durable execution policy rides the fence"
+    );
+    // The run belongs to the owner alone: the item the begin stamped is exactly the owner's item, and no other
+    // work item in the database carries this run id. "Only the owner starts run" is only true if the run is bound
+    // to that one claim — a run shared with another item would be a run two workers could drive.
+    assert_eq!(
+        run_holder_ids(&pool, &run.story_run_id).await,
+        vec![owned_item.clone()],
+        "{HARNESS}: the run is bound to exactly the owner's work item and nothing else"
     );
 
     // -----------------------------------------------------------------------------------------------------------

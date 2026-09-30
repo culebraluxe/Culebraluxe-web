@@ -1566,3 +1566,70 @@ probe (`with_rollback`, section 3b) passed, so the contract is non-vacuous. The 
 untracked peer test (`rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs`) was present at run
 time, left untouched, and is **not** part of this candidate; the workspace check compiled it without error. The
 candidate this node delivers is the git commit this block is committed with.
+
+## Raw verification — repair_smith self-heal re-run (task 150e4c44, 2026-09-30)
+
+The `repair_smith` node was HELD for `smith-candidate`: the runner derives the smith deliverable from
+`git rev-parse HEAD` and the prior attempt for this task left no candidate the control plane could freeze. Nothing in
+the contract is missing or wrong — the canonical test already proves "only owner starts run" at the production
+`forge_engine` boundary — so this run **lands a real candidate**: a small, in-scope strengthening of the ownership half
+of the contract. **No production behavior, schema or migration changed**, and no migration ran.
+
+What changed (`rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs`, +21): a new `run_holder_ids` helper
+(`:149-157`) reads every work item stamped with a Story Run's id, and section 2 now asserts (`:309-314`) that the run
+the owner's begin opened is bound to **exactly the owner's work item and nothing else**. Before, the test asserted the
+owner's item carried the returned run id, but not that no *other* item shared it; a boundary that stamped the run on a
+second claim would still have passed. The run id is written by the same begin that opens the run
+(`rust/core/db/src/forge_engine.rs:864-870`), so this pins the run to the single live claim that started it. Everything
+else is byte-identical: the CAS/`Claimed → Running` assertions, the exclusivity second-claim no-write pin, the
+second-begin/requeued/unclaimed/unknown/settled refusal suite, the committed-truth rollback probe (section 3b) and the
+namespace-scoped cleanup are unchanged. The file holds exactly one `#[tokio::test]` and exactly one
+`async fn forge_claim_001__only_owner_starts_run` (`:184`) and is now `:1-556`.
+
+The production citations in the test header resolve against this tree: `claim_specific_agent_work` at
+`rust/core/db/src/forge_engine.rs:651`, `begin_agent_work_run` at `:798`, its CAS read
+`where id=$1::uuid and state='Claimed' for update` at `:806-810`, the Story Run insert in the same transaction at
+`:835-859`, the predicate update `where id=$1::uuid and state='Claimed'` at `:864-870`, `finish_agent_work_run` at
+`:1025`, `requeue_stale_work` at `rust/core/db/src/forge_control.rs:117`, and the harness PROD refusal `guard_target` at
+`rust/test-harness/src/database.rs:68-75`.
+
+Commands run from the repo root, output pasted with exit status:
+
+```
+$ md5 -q rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs
+ca2696143a0c7e97729790fb3f229b18
+
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ignored, needs DATABASE_URL_DEV (a disposable DEV branch); TestDatabase refuses PROD before any socket
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; APP_ENV=development VERCEL_ENV=development cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run -- --ignored
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.10s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.24s
+CHECK_EXIT=0
+```
+
+The live run calls `TestDatabase::connect_declared(Some("dev"), Some("dev"))`, which resolves the harness PROD refusal
+before any socket (`guard_target`, `rust/test-harness/src/database.rs:68-75`) and asserts `target = Dev` before any
+assertion executes; `Database::connect_target(DbTarget::Dev)` reads only `DATABASE_URL_DEV` (`.env.local` was sourced,
+setting `APP_ENV=development`; `VERCEL_ENV` was set to `development` for the run), then the test reaps its proof stories
+by its own `TestDatabase` namespace, so PRODUCTION is never connected to and the disposable DEV branch is left as it was
+found. The live run exercised the load-bearing refusal suite — the exclusive second claim (with its whole-row no-write
+pin), a second begin, a requeued claim (`requeue_stale_work`), an unclaimed `Ready` item, an unknown id and a settled
+claim are each refused, committing nothing and opening no run — the new run-holder binding assertion passed, and the
+committed-truth rollback probe (`with_rollback`, section 3b) passed, so the contract named by this story remains
+non-vacuous (the mutation checks recorded under the earlier `lead_solo_implement`/`repair_smith` nodes stand: dropping
+the `state='Claimed'` predicate lets a second begin open a second run and the test fails on the run count). An unrelated
+untracked peer test (`rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs`) was present at run
+time, left untouched, and is **not** part of this candidate; the workspace check compiled it without error. Pre-existing
+`forge`/`workflow`-crate warnings were present at run time and are not part of this candidate. The candidate this node
+delivers is the git commit this block is committed with.
