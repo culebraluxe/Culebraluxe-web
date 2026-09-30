@@ -499,4 +499,36 @@ fn wf_command_001__deterministic_command_id() {
         visit_ids[3], visit_ids[4],
         "{HARNESS}: two visits to one node must never share an id"
     );
+
+    // 7b. The durable log agrees with the adapter for *every* visit, not just the first instance. Step 3 read the
+    //     log for one command; the loop generates two on one instance, so the log is read back here and must name
+    //     exactly the first visit's own deterministic id and the revisit's own deterministic id — no more, no fewer,
+    //     and no constant. A boundary that sent distinct ids to the adapter but stamped one id (or the first visit's
+    //     id) into the durable log would pass step 7 and fail here, so the deterministic id is proven on the durable
+    //     boundary for repeated visits as well as at the adapter.
+    let mut loop_logged: Vec<String> = harness
+        .store()
+        .with_tx(|tx| tx.history(&loop_instance, 128))
+        .expect("the looping instance history reads")
+        .into_iter()
+        .filter(|event| event.event_type == "command.requested")
+        .map(|event| {
+            event
+                .data
+                .get("commandId")
+                .and_then(Value::as_str)
+                .expect("every command.requested event carries its commandId")
+                .to_string()
+        })
+        .collect();
+    loop_logged.sort();
+    let mut loop_expected = vec![
+        command_id(&loop_instance, COMMAND_NODE, 1),
+        command_id(&loop_instance, COMMAND_NODE, 2),
+    ];
+    loop_expected.sort();
+    assert_eq!(
+        loop_logged, loop_expected,
+        "{HARNESS}: the durable log names each visit's own deterministic id, one per visit"
+    );
 }
