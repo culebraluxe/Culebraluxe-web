@@ -208,8 +208,9 @@ impl ForgeDoctorDao {
     /// The oldest held claim across BOTH ledgers, with the ledger named and its age measured in SQL.
     ///
     /// The ledgers are separate on purpose (`forge_engine_task_execution` records role turns,
-    /// `agent_work_item` enforces the single-active lock) and they can disagree, so the caller prints this
-    /// figure only with its ledger attached. A claim whose age cannot be read is not a claim this reports.
+    /// `agent_work_item` enforces the per-story serial claim, not a system-wide lock, since 2026-09-29) and they can
+    /// disagree, so the caller prints this figure only with its ledger attached. A claim whose age cannot be read is
+    /// not a claim this reports.
     ///
     /// A STALE engine claim is excluded, not counted: a claim nobody has touched in 15 minutes is abandoned,
     /// and an abandoned claim is not a held one (active decision: abandoned-claim-is-not-running). The

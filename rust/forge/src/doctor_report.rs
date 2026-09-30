@@ -10,8 +10,9 @@
 //! board-drifted-from-table case and the worker-failing case unit tests instead of live probes.
 
 /// The two ledgers a "claim" can live in. They are separate on purpose:
-/// `forge_engine_task_execution` records engine role turns, while `agent_work_item` enforces the system-wide
-/// single-active lock. They can disagree, so the oldest-claim figure is NEVER printed without naming the
+/// `forge_engine_task_execution` records engine role turns, while `agent_work_item` enforces the per-story serial
+/// claim (`agent_work_item_one_serial_active_per_story`, migration 143 — one active chain per STORY, not per
+/// system, since 2026-09-29). They can disagree, so the oldest-claim figure is NEVER printed without naming the
 /// ledger it was read from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClaimLedger {

@@ -16,7 +16,7 @@ pub fn describe_claim_blocker(
     story_id: &str,
 ) -> String {
     if rows.is_empty() {
-        return "no work item is holding the single-active lock right now, so the refusal was transient — retry the run".into();
+        return "no work item is holding THIS story's claim right now, so the refusal was transient — retry the run".into();
     }
     let lines: Vec<String> = rows
         .iter()
@@ -48,10 +48,13 @@ pub fn describe_claim_blocker(
     } else if rows.iter().any(|r| r.story_id == story_id) {
         "This story already holds a claim: reset the story and retry."
     } else {
-        "A live peer holds the lock: wait for it to finish."
+        // Since 2026-09-29 the claim is serial per STORY, not per system: another story's live claim does not block
+        // this one, so a refusal cannot be explained by a peer holding a global lock.
+        "Another story holds a claim and that no longer blocks this one: retry the run, and if it still refuses, \
+         this story has no claimable item."
     };
     format!(
-        "the single-active lock is held by {}. {advice}",
+        "this story's claim is held by {}. {advice}",
         lines.join("; ")
     )
 }
