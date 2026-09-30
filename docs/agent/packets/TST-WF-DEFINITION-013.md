@@ -575,3 +575,50 @@ present in the working tree at run time; it was left untouched and is not part o
 The candidate for this node is the run's workspace HEAD — the commit this section is recorded with — which owns the
 canonical test change described above. The structured evidence is emitted in the node's reply:
 `{"qaPassed":null,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"<this commit>"}`.
+
+## QA re-verify — fast_qa_verify (2026-09-30, task 12a8711a)
+
+The `fast_qa_verify` node (task `12a8711a-9931-4e06-9b11-8f34f6c3e63d`) independently re-ran the story's own acceptance
+commands against the current tree (HEAD `54302c59`). Verdict: **PASS**. The canonical file
+`rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs` (748 lines) is tracked,
+contains the test `wf_definition_013__forge_v6_xml_structural_equality_where_intended`, and exercises the production
+boundary directly: `parse_process_definition_xml` / `definition_from_xml`
+(`rust/forge/src/engine/xml.rs:352,414`), `graphs_equal` = `graph_to_json(a) == graph_to_json(b)`
+(`rust/forge/src/engine/version_policy.rs:39-41`), `classify_deploy` (`:43-62`), and
+`graph_to_json`/`graph_from_json` (`rust/core/workflow/src/json_codec.rs:214-220`). The verified candidate is the
+`fast_repair_smith` commit `387d36a1` — the last commit to touch the canonical test (unchanged at the current HEAD); this
+node changes documentation only, no production or test behavior.
+
+Both commands are this node's own run, pasted with their exit status.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+running 1 test
+test wf_definition_013__forge_v6_xml_structural_equality_where_intended ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.57s
+CHECK_EXIT=0
+```
+
+Mutation check (this node's own, the structural-equality predicate is load-bearing): forcing `graphs_equal` to a
+constant `true` at `rust/forge/src/engine/version_policy.rs:39-41`
+(`graph_to_json(a) == graph_to_json(b)` → `let _ = (a, b); true`) makes the test fail exactly at the
+structural-inequality clause, `test result: FAILED` (exit 101):
+
+```
+thread 'wf_definition_013__forge_v6_xml_structural_equality_where_intended' panicked at test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:364:5:
+WorkflowHarness/L0 Pure: a changed transition target is a structural difference, not a cosmetic one
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+MUTATION_EXIT=101
+```
+
+The production file was restored byte-for-byte (`git diff --stat` clean) and the test is green again (`TEST_EXIT=0`), so
+the equality contract is not vacuous and the cosmetic-vs-structural split is genuinely exercised.
+
+The working tree was clean at run time; no other lane's file was present and nothing outside this packet changed.
+
+FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"387d36a197a34002211fa27fa173e22ffc11f81e"}
