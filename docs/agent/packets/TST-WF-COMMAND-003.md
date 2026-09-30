@@ -155,3 +155,39 @@ CHECK_EXIT=0
 Unrelated, pre-existing working-tree changes under `rust/core/workflow/` and `rust/forge/` (another story's in-flight
 work: `concurrency.rs` and the `TxStore: Send + Sync` / bounded timer-fire changes) were present at run time; they
 were left untouched and are not part of this story's candidate.
+
+## QA verdict — qa_verify (2026-09-30)
+
+The `qa_verify` node re-ran the story's own acceptance commands against the current tree. Verdict: **PASS**. The
+canonical file `rust/test-harness/tests/wf_command__003__retry_produces_same_identity.rs` exists with the test
+`wf_command_003__retry_produces_same_identity`, and it proves "retry produces same identity" at the production
+`WorkflowEngine`/`TxStore`/`ApplicationPort` boundary. The only change this node made is a comment citation refreshed
+to the current tree: the inline ref to the production retry rule moved from `rust/core/workflow/src/store.rs:144` to
+`:146` (two lines were added above it by in-flight work). No production or test behavior changed.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__003__retry_produces_same_identity
+running 1 test
+test wf_command_003__retry_produces_same_identity ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 34.64s
+CHECK_EXIT=0
+```
+
+Mutation check (the retry rule is load-bearing): replacing the body of
+`repeat_connection_failures` at `rust/core/workflow/src/store.rs:146-165` with an unconditional `return Err(error)`
+(so a broken connection is never repeated) makes `complete_task` return the `Unavailable` failure and the test fail at
+`rust/test-harness/tests/wf_command__003__retry_produces_same_identity.rs:363`
+(`the production retry repeats the broken step and the repeat commits: Unavailable { message: "error communicating
+with database: Broken pipe (os error 32)" }`), `test result: FAILED` (exit 101). The production file was restored
+byte-for-byte from a backup (`md5 95a6444763d9960b6f81a1956a8df767`, unchanged from before the mutation), because that
+file carried another story's in-flight edits and `git checkout --` would have destroyed them. So the same-identity
+contract depends on production repeating the failed step — the test is not vacuous.
+
+The candidate is the git commit this block is committed with (local only; no push, per this node's brief). The
+unrelated working-tree changes under `rust/core/workflow/` and `rust/forge/` remain present, untouched, and are not
+part of this candidate.

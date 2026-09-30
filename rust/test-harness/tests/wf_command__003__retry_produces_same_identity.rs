@@ -10,7 +10,7 @@
 //! store records the command exactly once.
 //!
 //! The retry is **the production retry rule**, not a loop written here. Production repeats a failed step in
-//! `TxStore::with_tx` through `repeat_connection_failures` (`rust/core/workflow/src/store.rs:144`), and the only
+//! `TxStore::with_tx` through `repeat_connection_failures` (`rust/core/workflow/src/store.rs:146`), and the only
 //! production store wired to it is `NeonStore` (`rust/core/workflow/src/neon/neon_store.rs:90-104`). That store needs
 //! a real database, so the contract exercises the same rule at the `TxStore` seam: `FlakyConnectionStore` delegates
 //! every byte of storage to the production `MemoryStore` and wraps the step in the production
