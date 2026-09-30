@@ -225,6 +225,31 @@ fn wf_command_002__command_generated_once_per_node_visit() {
         "{HARNESS}: the durable log names exactly the generated commands, one per visit"
     );
 
+    // The completion side of the same log: only the successful visit produced a `command.completed`, and it names
+    // that visit's command. The failing visit generated exactly one `command.requested` (asserted above) and no
+    // completion, so a fault cannot turn a single visit into an extra generation, and "once per visit" holds at the
+    // outcome boundary as well as at generation.
+    let completed_ids: Vec<String> = harness
+        .store()
+        .with_tx(|tx| tx.history(&instance_id, 128))
+        .expect("the instance history reads")
+        .into_iter()
+        .filter(|event| event.event_type == "command.completed")
+        .map(|event| {
+            event
+                .data
+                .get("commandId")
+                .and_then(Value::as_str)
+                .expect("every command.completed event carries its commandId")
+                .to_string()
+        })
+        .collect();
+    assert_eq!(
+        completed_ids,
+        vec![requests[0].command_id.clone()],
+        "{HARNESS}: exactly one completion, for the one successful visit; the fault completed nothing"
+    );
+
     // FAULT: the second (failing) command still produced one command for its visit, and it ended the run. A fault
     // must not turn one visit into zero commands or into two.
     let instance = harness
