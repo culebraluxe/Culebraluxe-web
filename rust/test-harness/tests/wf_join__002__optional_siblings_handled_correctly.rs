@@ -495,21 +495,35 @@ fn wf_join_002__optional_siblings_handled_correctly() {
         "{HARNESS}: the result token belongs to the fork that was joined"
     );
 
-    // The optional branches that never arrived were retired: one `token.skipped` each, no more.
-    let mut skipped_nodes: Vec<String> = events_of_type(reader.memory(), &instance, "token.skipped")
+    // The optional branches that never arrived were retired: one `token.skipped` each, no more. The event carries the
+    // branch's own token id, so the durable log names which token was retired — not just which node it sat at. A join
+    // that skipped a different token, or emitted the event for a token it did not actually complete, fails here.
+    let hold_token_id = hold_task
+        .token_id
+        .clone()
+        .expect("the optional hold task is linked to its token");
+    let mut skipped: Vec<(String, String)> = events_of_type(reader.memory(), &instance, "token.skipped")
         .into_iter()
         .map(|event| {
-            event
-                .node_id
-                .expect("every token.skipped event names the skipped branch's node")
+            (
+                event
+                    .node_id
+                    .expect("every token.skipped event names the skipped branch's node"),
+                event
+                    .token_id
+                    .expect("every token.skipped event names the token that was skipped"),
+            )
         })
         .collect();
-    skipped_nodes.sort();
-    let mut expected_skipped = vec![HOLD_NODE.to_string(), WAIT_NODE.to_string()];
+    skipped.sort();
+    let mut expected_skipped = vec![
+        (HOLD_NODE.to_string(), hold_token_id.clone()),
+        (WAIT_NODE.to_string(), wait_token.id.clone()),
+    ];
     expected_skipped.sort();
     assert_eq!(
-        skipped_nodes, expected_skipped,
-        "{HARNESS}: exactly the two parked optional branches were skipped once each; the arrived one was not"
+        skipped, expected_skipped,
+        "{HARNESS}: exactly the two parked optional branches were skipped once each, each naming its own token; the arrived one was not"
     );
     for node in [HOLD_NODE, WAIT_NODE] {
         let token = token_at(reader.memory(), &instance, node);
@@ -558,6 +572,32 @@ fn wf_join_002__optional_siblings_handled_correctly() {
             .len(),
         0,
         "{HARNESS}: no optional branch leaves an open job behind"
+    );
+
+    // The cancel is announced on the durable log, not only left in the job row: one `job.cancelled`, naming the
+    // optional branch's own job and token with the skip reason. Cancelling the row but dropping the event — or
+    // cancelling another branch's job — would still satisfy the status assertions above, so this is the clause
+    // that pins the production retirement path (`rust/core/workflow/src/engine/handle_join.rs:62-79`).
+    let cancelled = events_of_type(reader.memory(), &instance, "job.cancelled");
+    assert_eq!(
+        cancelled.len(),
+        1,
+        "{HARNESS}: the join emits exactly one job.cancelled, for the one open job an optional sibling left"
+    );
+    assert_eq!(
+        cancelled[0].job_id.as_deref(),
+        Some(sla_job_id.as_str()),
+        "{HARNESS}: the cancelled event names the optional sla branch's own timer job"
+    );
+    assert_eq!(
+        cancelled[0].token_id.as_deref(),
+        Some(wait_token.id.as_str()),
+        "{HARNESS}: the cancellation is attributed to the skipped optional token, not the required branch"
+    );
+    assert_eq!(
+        cancelled[0].data.get("reason").and_then(Value::as_str),
+        Some("branch skipped"),
+        "{HARNESS}: the cancellation carries the join's skip reason"
     );
 
     // No optional token leaks active into the terminal state: the process converges to its declared end.
