@@ -212,6 +212,11 @@ async fn forge_claim_001__only_owner_starts_run() {
         Some(OWNER_A),
         "{HARNESS}: the claim records its owner"
     );
+    // The whole committed row the owner's claim produced, captured before a peer tries to take it. Ownership is only
+    // real if the refusal is a no-op: a boundary that reassigned `claimed_by` (or bumped `updated_at`) as a side effect
+    // of a refused claim would leave the run startable under a different owner, so "only the owner" would not hold
+    // even though the refused claim returned `None`.
+    let durable_after_claim = durable_item_row(&pool, &owned_item).await;
     assert!(
         engine
             .claim_specific_agent_work(&owned_item, OWNER_B)
@@ -219,6 +224,15 @@ async fn forge_claim_001__only_owner_starts_run() {
             .unwrap()
             .is_none(),
         "{HARNESS}: ownership is exclusive — a second worker must not take a claimed item"
+    );
+    assert_eq!(
+        durable_item_row(&pool, &owned_item).await,
+        durable_after_claim,
+        "{HARNESS}: a refused second claim must commit nothing — the owner, state, run id and timestamps are unchanged"
+    );
+    assert!(
+        run_rows(&pool, &owned_story).await.is_empty(),
+        "{HARNESS}: the refused second claim opened no run"
     );
 
     // -----------------------------------------------------------------------------------------------------------

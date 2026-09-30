@@ -1501,3 +1501,68 @@ and is **not** part of this candidate; the workspace check compiled it without e
 is `0f858c9f`; the only working-tree change this node commits is this packet section.
 
 FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":true,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"0f858c9f5a345a609d46376b300606f6d9a5e278"}
+
+## Raw verification — repair_smith (task 150e4c44, 2026-09-30)
+
+The `repair_smith` node was re-issued for this story. The canonical test still names the contract ("only the owner
+starts run"), drives the real `ForgeEngineDao`/`ForgeControlDao` on a disposable DEV target and reads committed truth
+back on the pool; this node re-verifies that and closes one remaining no-write gap in the ownership half of the
+contract. **No production behavior, schema or migration changed**, and no migration ran.
+
+What changed (`rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs`, +14):
+
+1. **Section 1 — the refused second claim must commit nothing.** The committed row the owner's claim produced
+   (`state`, `claimed_by`, `story_run_id`, `started_at`, `updated_at`) is now captured after `OWNER_A` claims and
+   compared byte-for-byte after `OWNER_B`'s claim is refused, and the refusal is asserted to have opened no run.
+   Previously the file asserted only that the refused claim returned `None`, so a boundary that reassigned
+   `claimed_by` (or bumped `updated_at`) as a side effect of a refused claim would still pass — and ownership of the
+   run would then not actually hold. `claim_specific_agent_work` returns before any write when an active claim exists
+   (`rust/core/db/src/forge_engine.rs:702-705`) and its update is guarded by `state='Ready'` (`:711`), so the new
+   assertion pins the production predicate rather than restating it.
+2. Everything else is byte-identical: the CAS/`Claimed → Running` assertions, the second-begin/requeued/unclaimed/
+   settled refusal suite, the committed-truth rollback probe (section 3b) and the namespace-scoped cleanup are
+   unchanged.
+
+The canonical artifact is now `md5 fc94a801f54df82bd2d5152072ee78b2` (was `8bf23154b1da908d11e75215c234495d`); the
+production CAS is unchanged (`md5 rust/core/db/src/forge_engine.rs` = `7d631a70f1b54334586adccb7571bd14`). The file
+holds exactly one `#[tokio::test]` and exactly one `async fn forge_claim_001__only_owner_starts_run`, and its
+production citations resolve against this tree: `claim_specific_agent_work` at `rust/core/db/src/forge_engine.rs:651`,
+`begin_agent_work_run` at `:798`, its CAS read `where id=$1::uuid and state='Claimed' for update` at `:806-810`, the
+Story Run insert in the same transaction at `:835-859`, the predicate update `where id=$1::uuid and state='Claimed'`
+at `:864-870`, `finish_agent_work_run` at `:1025`, `requeue_stale_work` at `rust/core/db/src/forge_control.rs:117`, and
+the harness PROD refusal `guard_target` at `rust/test-harness/src/database.rs:68-75`.
+
+Commands run from the repo root, output pasted with exit status:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ignored, needs DATABASE_URL_DEV (a disposable DEV branch); TestDatabase refuses PROD before any socket
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; APP_ENV=development cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run -- --ignored
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 25.28s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.33s
+CHECK_EXIT=0
+```
+
+The live run calls `TestDatabase::connect_declared(Some("dev"), Some("dev"))`, which resolves the harness PROD refusal
+before any socket (`guard_target`) and asserts `target = Dev` before any assertion executes; `Database::connect_target`
+reads only `DATABASE_URL_DEV` (`.env.local` was sourced, setting `APP_ENV=development`), then the test reaps its proof
+stories by its own `TestDatabase` namespace, so PRODUCTION is never connected to and the disposable DEV branch is left
+as it was found. The live run exercised the load-bearing refusal suite — the exclusive second claim (now with the
+whole-row no-write pin), a second begin, a requeued claim (`requeue_stale_work`), an unclaimed `Ready` item, an unknown
+id and a settled claim are each refused, committing nothing and opening no run — and the committed-truth rollback
+probe (`with_rollback`, section 3b) passed, so the contract is non-vacuous. The `md5` of the canonical test and of
+`rust/core/db/src/forge_engine.rs` were unchanged before and after the run, so no production byte moved. An unrelated
+untracked peer test (`rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs`) was present at run
+time, left untouched, and is **not** part of this candidate; the workspace check compiled it without error. The
+candidate this node delivers is the git commit this block is committed with.
