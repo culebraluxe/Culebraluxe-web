@@ -89,3 +89,28 @@ node's brief says do not push.
   → **1 passed, 0 failed**.
 - `cargo test --manifest-path rust/Cargo.toml -p test-harness` → **all tests passed, 0 failed**.
 - `cargo check --manifest-path rust/Cargo.toml --workspace --all-targets` → **exit 0**.
+
+## Raw verification — repair_smith (2026-09-30)
+
+The repair_smith node was re-run to deliver the missing `smith-candidate`. The candidate is the git commit this block
+is committed with; the commands below are this node's own run, pasted with their exit status. The canonical test
+`rust/test-harness/tests/wf_command__001__deterministic_command_id.rs` already proves the contract, so no production
+code was changed for this story.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__001__deterministic_command_id
+running 1 test
+test wf_command_001__deterministic_command_id ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 18s
+CHECK_EXIT=0
+```
+
+Mutation check: appending the live `SystemTime::now()` nanos to the canonical preimage in `command_id`
+(`rust/core/workflow/src/engine/handle_join.rs:359-363`) fails the determinism assertion at
+`rust/test-harness/tests/wf_command__001__deterministic_command_id.rs:317` (`test result: FAILED`, exit 101); the
+production file was restored with `git checkout --` and the test is green again. A clock or entropy added inside the
+derivation therefore cannot pass this contract.
