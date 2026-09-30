@@ -319,3 +319,61 @@ untracked file `rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mu
 tree at run time; it was left untouched and is not part of this candidate.
 
 FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"47987df8882acc9738db2cbfd01a5ece843389e2"}
+
+## Repair re-run — fast_repair_smith (2026-09-30, task 2eec0a59)
+
+The prior `fast_repair_smith` run was HELD because it did not deliver a `smith-candidate`. This node re-inspected the
+canonical test and the production `handle_join` boundary to find a clause worth repairing, and found none that is both
+reachable and on-contract. The canonical test at
+`rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs` already proves the invariant at the
+production `WorkflowEngine`/`TxStore`/`Store` boundary, so per acceptance criterion 9 it is left as the named,
+discoverable coverage it is; no test or production code changed. The candidate this node delivers is therefore the
+workspace HEAD, and this section is the node's own evidence record.
+
+What was considered and rejected (so the next reader does not repeat it). The one branch of `handle_join` not reached
+by the test is the `evaluate_decision(...) == None` path at `rust/core/workflow/src/engine/handle_join.rs:87-89`. It
+cannot be reached by giving the join node no transitions: `execute_node_leave` intercepts any node whose transition set
+is empty **before** dispatching on node type (`rust/core/workflow/src/engine/execute_node_leave.rs:22-40`), treating
+the join as an implicit terminal node, so `handle_join` is never called and its `None` arm is dead for that
+configuration. Reaching it would require a join whose outbound transition is filtered out at runtime, which is not the
+optional-sibling contract. A probe introducing a transition-less join confirmed the interception (the optional
+siblings were left `Active` and `handle_join` never ran); the probe was reverted. The `token.joined` roster, the
+`token.skipped` `(node, token)` pairs, the `job.cancelled` and `task.obsoleted` events, the required-only gate, and
+the two durable refusals already pin every reachable clause of the retirement path.
+
+The commands below are this node's own run, pasted with their exit status.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_join__002__optional_siblings_handled_correctly
+running 1 test
+test wf_join_002__optional_siblings_handled_correctly ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+CHECK_EXIT=0
+```
+
+Mutation check (the required-only join gate is load-bearing): removing the `&& t.required` filter from
+`count_required_active_siblings` at `rust/core/workflow/src/memory.rs:291` makes the gate count the optional siblings
+too and the test fails at
+`rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs:359`
+(`exactly the one required branch is counted — the optional siblings are not`), `test result: FAILED` (exit 101):
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_join__002__optional_siblings_handled_correctly
+test wf_join_002__optional_siblings_handled_correctly ... FAILED
+thread '...' panicked at test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs:359:5:
+assertion `left == right` failed: WorkflowHarness/L4 Adversarial: exactly the one required branch is counted — the optional siblings are not
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+MUTATION_EXIT=101
+```
+
+The production file was restored byte-for-byte (`cmp` clean against the pre-mutation copy) and the test is green again
+(`TEST_EXIT=0`), so the optional-sibling split is not vacuous. An unrelated, pre-existing untracked file
+`rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs` and an unrelated working-tree change to
+`docs/agent/packets/TST-WF-DEFINITION-013.md` (another agent's) were present at run time; both were left untouched and
+are not part of this candidate.
+
+FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false}
