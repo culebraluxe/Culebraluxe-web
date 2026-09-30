@@ -893,3 +893,63 @@ was never connected to. The workspace check emitted only pre-existing warnings u
 `rust/test-harness/tests/arch_boundary__010__entitlement_owns_action_screen_authorization.rs` left in the shared
 checkout by a concurrent writer belongs to another in-flight story, was left untouched, and is deliberately not part
 of this candidate. The only change this node commits is this packet section.
+
+## Verification — repair_smith re-issue (run 5, 2026-09-30)
+
+The `repair_smith` node was re-issued again (task `0bd01c42-ab66-4977-83d4-146943325151`, self-heal prompt: a prior run
+was HELD for a missing `smith-candidate`). The missing artifact is the candidate commit itself, not a test defect: the
+canonical test `rust/test-harness/tests/forge_claim__003__stale_recovery.rs` is **byte-identical** to the QA-frozen
+candidate (sha256 `d2e54b8a633747bdf622b33f2d9d42da65edc75cb4ebff9c50fbfc4594ac97dc`; `git diff a92ae424 -- <file>` is
+empty) and every acceptance criterion is still met by it, so no production or test body changed and no migration ran.
+This node re-verifies the artifact against the current tree and lands the descendant commit the control plane records
+as the candidate.
+
+Every production citation the file and this packet name re-resolves against the current tree by declaration line:
+`stale_agent_work` at `rust/core/db/src/forge_control.rs:39` (predicate
+`updated_at < now() - ($1::text || ' minutes')::interval` at `:47`), `hold_stale_work` at `:78`, `requeue_stale_work`
+at `:117`, `recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176`, the harness PROD refusal `guard_target`
+at `rust/test-harness/src/database.rs:68`, and `connect_declared` at `:116`. The production bytes are unchanged for
+this node: `rust/core/db/src/forge_control.rs` sha256
+`a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`, `rust/forge/src/engine/worker.rs`
+`4131fdd664ef2f5cc48a0cc454a22997d45da592b664874fc3655f9e977c6bad`, `rust/test-harness/src/database.rs`
+`493e72466fdb79686f8e9692d5046a190290d9b86d921cc2a5623943d0786bfa`.
+
+The live run asserts `target() == "dev"` before any assertion, calls
+`TestDatabase::connect_declared(None, Some("test"))` with an explicit declared environment (the shell's `APP_ENV` is
+overridden by the explicit declaration), and `Database::connect_target(DbTarget::Dev)` reads only `DATABASE_URL_DEV`;
+PRODUCTION was never connected to. The six proof stories are deleted at the end, leaving the disposable DEV branch as
+it was found.
+
+Commands run from the repo root, output pasted with exit status:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+running 1 test
+test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+running 1 test
+test forge_claim_003__stale_recovery ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.61s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7m 43s
+CHECK_EXIT=0
+```
+
+The live run demonstrates the contract end to end: the windowed predicate discovers the silently-stale claim and not
+the live peer; `requeue_stale_work` returns it to `Ready`/`Ready` and advances `updated_at`; landed work settles
+`Done`, a human-held story settles `Error`, and an already-settled claim is left `Done`; the terminal `hold_stale_work`
+path moves the claim to `Error` and the board to `Hold` in one write; and the `with_rollback` probe shows the committed
+`Ready` row survives an uncommitted rewrite. The negative cases (live survivor, no double recovery, landed/held
+refusals) keep the test non-vacuous. The workspace check emitted only pre-existing `forge` test-bin warnings unrelated
+to this candidate. An unrelated working-tree change (`rust/ui/src/app/registry.rs`, a `vault.read` → `vault.reaad`
+typo) and an untracked `rust/test-harness/tests/arch_boundary__010__entitlement_owns_action_screen_authorization.rs`
+left in the shared checkout by a concurrent writer belong to other in-flight stories; they were left untouched and are
+deliberately not part of this candidate. The candidate this node commits is the git commit this section is committed
+with.
