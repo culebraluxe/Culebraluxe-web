@@ -268,3 +268,54 @@ disposable DEV branch is left as it was found and PRODUCTION is never connected 
 `workflow` crate (`unused import` at `core/workflow/src/concurrency.rs:70`) were present at run time and are not part
 of this story's candidate. No production or test behavior changed in this node; the only working-tree change
 committed here is this packet section.
+
+## Verification — qa_verify (2026-09-30)
+
+**Verdict: PASS (qaPassed = true).** The frozen candidate is `fa908cb5`; the canonical test
+`rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs` is byte-identical at the candidate and at the
+current HEAD (`git diff fa908cb5 HEAD -- …` empty). The test names exactly the contract, exercises the real
+`ForgeEngineDao`/`ForgeControlDao` through `ForgeHarness` on a disposable DEV target, reads committed truth back on
+the pool, carries a suite of negative/refusal cases, and removes its proof rows at the end. Both acceptance commands
+are green and the live L2 DEV contract is green.
+
+The shared checkout is active: the only dirty file at node start was a peer's 002 repair. While this node's first live
+run was in flight that peer (commit `6b076831`, the 002 `repair_smith`) was transiently applying its mutation check to
+`rust/core/db/src/forge_engine.rs`, and the run failed at
+`forge_claim__001__only_owner_starts_run.rs:288` (`the refused second begin opened no run`, `left: 2`, `right: 1`) —
+the exact phantom-second-run signature of a missing `and state='Claimed'` on the CAS read. The working tree was
+confirmed back to the committed bytes and the live run re-taken on a stable tree (`md5` of
+`rust/core/db/src/forge_engine.rs` = `7d631a70f1b54334586adccb7571bd14` immediately before and after the run). That
+transient failure is independent evidence that the contract test detects the very regression it fences; it is not a
+defect in the candidate. Raw output:
+
+```
+$ git diff fa908cb5 HEAD -- rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs
+(empty — the candidate artifact is unchanged)
+ARTIFACT_DIFF_EXIT=0
+
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ignored, needs DATABASE_URL_DEV (a disposable DEV branch); TestDatabase refuses PROD before any socket
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run -- --ignored
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 24.55s
+LIVE_EXIT=0
+PRE_MD5=7d631a70f1b54334586adccb7571bd14
+POST_MD5=7d631a70f1b54334586adccb7571bd14
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 51s
+CHECK_EXIT=0
+```
+
+The live run asserts `target = Dev` before any assertion executes and reaps its proof stories at the end, so the
+disposable DEV branch is left as it was found and PRODUCTION is never connected to (only `DATABASE_URL_DEV` was read;
+`APP_ENV` was left as the shell's `development`, and the test declares DEV explicitly). Pre-existing `forge`/`workflow`
+crate warnings (`unused import`, dead code) were present at run time and are not part of this candidate. All acceptance
+criteria are met by candidate `fa908cb5`; no open item belongs to this story.
