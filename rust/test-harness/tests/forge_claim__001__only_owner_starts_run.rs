@@ -23,8 +23,9 @@
 //!
 //! The boundary rule is L2 Persistence: an isolated, disposable DEV/Neon test target only. `TestDatabase` refuses
 //! PRODUCTION before any socket is opened (`rust/test-harness/src/database.rs:68-75`), and the harness asserts the
-//! target is DEV. The proof leaves nothing behind: every proof story is deleted (its item and runs cascade) and a
-//! leftover count is asserted to be zero, so the rows a panicking run could strand are reaped on the next run.
+//! target is DEV. The proof leaves nothing behind: this run's proof stories are deleted by namespace (their items and
+//! runs cascade) and a zero-leftover count is asserted, so cleanup is complete on the normal path and a panicking run
+//! can only strand rows under its own unique namespace, which no later run reads.
 //!
 //! Run with:
 //!   DATABASE_URL_DEV=... cargo test --manifest-path rust/Cargo.toml -p test-harness \
@@ -44,8 +45,34 @@ const OWNER_A: &str = "forge-owner-a";
 const OWNER_B: &str = "forge-owner-b";
 /// The owner of the requeue case.
 const OWNER_C: &str = "forge-owner-c";
-/// The namespace every proof row in this file is named under, so a leftover is reaped before it can poison a run.
+/// The namespace every proof row in this file is named under. Each run appends its own `TestDatabase` namespace, so
+/// two concurrent runs of this contract (the engine's own QA node runs the same assay) never share a row, and
+/// cleanup is scoped to this run's namespace alone.
 const PROOF_PREFIX: &str = "TST-FORGE-CLAIM-001-";
+
+/// Connect to the disposable DEV branch, tolerating a cold-pool timeout under concurrent test load.
+///
+/// This is infrastructure, not the contract: `Database::connect_target` budgets one cold Neon handshake, and several
+/// contract tests plus the engine can be opening pools against the same DEV branch at once, so a single connect can
+/// time out before any statement runs. The retry changes nothing about which database is targeted — `TestDatabase`
+/// still refuses PRODUCTION before any socket is opened.
+async fn connect_dev() -> TestDatabase {
+    let mut last: Option<String> = None;
+    for attempt in 1..=4 {
+        match TestDatabase::connect_declared(Some("dev"), Some("dev")).await {
+            Ok(database) => return database,
+            Err(error) => {
+                eprintln!("proof: DEV connect attempt {attempt} failed: {error}");
+                last = Some(error.to_string());
+                tokio::time::sleep(std::time::Duration::from_millis(500 * attempt)).await;
+            }
+        }
+    }
+    panic!(
+        "DATABASE_URL_DEV must reach a disposable DEV branch; TestDatabase refuses PROD: {}",
+        last.unwrap_or_default()
+    );
+}
 
 /// Put one disposable story on the board at `Ready`. The database's own dispatch trigger
 /// (`db/migrations/025_agent_work_queue.sql:101-111`) creates exactly one `Ready` work item; this returns its id.
@@ -73,14 +100,18 @@ async fn insert_ready_story(pool: &PgPool, story_id: &str) -> String {
         .expect("the board's Ready trigger created exactly one work item")
 }
 
-/// Delete every proof story this file owns; items and runs cascade with the story
+/// Delete this run's proof stories; items and runs cascade with the story
 /// (`db/migrations/025_agent_work_queue.sql:51`, `db/migrations/023_storyboard_execution_history.sql:74`).
-async fn reap_proof_rows(pool: &PgPool) -> u64 {
+///
+/// Scoped to `namespace` on purpose: a concurrent run of this same contract (a peer assay) has its own namespace, and
+/// a sweep of the whole prefix would delete the peer's live fixtures out from under it. This is the "leave the
+/// kitchen clean" half of the boundary rule, and it only ever touches rows this run created.
+async fn reap_namespace(pool: &PgPool, namespace: &str) -> u64 {
     sqlx::query("delete from storyboard_story where id like $1")
-        .bind(format!("{PROOF_PREFIX}%"))
+        .bind(format!("{PROOF_PREFIX}%-{namespace}"))
         .execute(pool)
         .await
-        .expect("reap this proof's own leftovers")
+        .expect("remove this run's own proof rows")
         .rows_affected()
 }
 
@@ -113,9 +144,7 @@ async fn run_rows(pool: &PgPool, story_id: &str) -> Vec<(String, bool, bool, Str
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-FORGE-CLAIM-001); the file and the assay use it.
 async fn forge_claim_001__only_owner_starts_run() {
     // 0. L2 boundary: an isolated disposable DEV/Neon target, never PRODUCTION.
-    let test_db = TestDatabase::connect_declared(Some("dev"), Some("dev"))
-        .await
-        .expect("DATABASE_URL_DEV must point at a disposable DEV branch");
+    let test_db = connect_dev().await;
     assert_eq!(
         test_db.target(),
         DbTarget::Dev,
@@ -125,13 +154,8 @@ async fn forge_claim_001__only_owner_starts_run() {
     let engine = ForgeEngineDao::new(test_db.database().clone());
     let control = ForgeControlDao::new(test_db.database().clone());
 
-    // A panicking earlier run can leave rows behind; reap them before adding any, so this proof is about its own
-    // stories and not a stale one that happens to share the queue.
-    let reaped = reap_proof_rows(&pool).await;
-    if reaped > 0 {
-        eprintln!("proof: reaped {reaped} leftover proof story/stories from an earlier run");
-    }
-
+    // Every row this run creates is named under this unique namespace, so it can never collide with a concurrent
+    // run of this same contract or with another FORGE.CLAIM test on the shared DEV branch.
     let ns = test_db.namespace().to_string();
     let owned_story = format!("{PROOF_PREFIX}owned-{ns}");
     let requeued_story = format!("{PROOF_PREFIX}requeued-{ns}");
@@ -242,6 +266,17 @@ async fn forge_claim_001__only_owner_starts_run() {
     //    begin (from anyone, including the owner) must return `None` and open no second run. This is the "exactly
     //    once" half of "only the owner starts run".
     // -----------------------------------------------------------------------------------------------------------
+    let (state_before_second, owner_before_second, _) = item_row(&pool, &owned_item).await;
+    assert_eq!(
+        state_before_second,
+        "Running",
+        "{HARNESS}: the owner's begin left the item Running (and no peer touched this run's private story)"
+    );
+    assert_eq!(
+        owner_before_second.as_deref(),
+        Some(OWNER_A),
+        "{HARNESS}: the owner's begin did not reassign ownership"
+    );
     assert!(
         engine
             .begin_agent_work_run(&owned_item)
@@ -353,13 +388,14 @@ async fn forge_claim_001__only_owner_starts_run() {
     );
 
     // -----------------------------------------------------------------------------------------------------------
-    // 7. CLEANUP / ROLLBACK. Every proof story is deleted; the item and run are gone with it, so DEV is left as it
-    //    was found. A non-zero count is a failed rollback and fails the proof.
+    // 7. CLEANUP / ROLLBACK. This run's proof stories are deleted; the item and run are gone with them, so DEV is
+    //    left as it was found. A non-zero count is a failed rollback and fails the proof.
     // -----------------------------------------------------------------------------------------------------------
-    reap_proof_rows(&pool).await;
+    reap_namespace(&pool, &ns).await;
+    let scope = format!("{PROOF_PREFIX}%-{ns}");
     let leftovers: i64 =
         sqlx::query_scalar("select count(*) from storyboard_story where id like $1")
-            .bind(format!("{PROOF_PREFIX}%"))
+            .bind(&scope)
             .fetch_one(&pool)
             .await
             .unwrap();
@@ -369,7 +405,7 @@ async fn forge_claim_001__only_owner_starts_run() {
     );
     let leftover_items: i64 =
         sqlx::query_scalar("select count(*) from agent_work_item where story_id like $1")
-            .bind(format!("{PROOF_PREFIX}%"))
+            .bind(&scope)
             .fetch_one(&pool)
             .await
             .unwrap();
@@ -379,7 +415,7 @@ async fn forge_claim_001__only_owner_starts_run() {
     );
     let leftover_runs: i64 =
         sqlx::query_scalar("select count(*) from storyboard_story_run where story_id like $1")
-            .bind(format!("{PROOF_PREFIX}%"))
+            .bind(&scope)
             .fetch_one(&pool)
             .await
             .unwrap();
