@@ -69,6 +69,26 @@ fn heartbeat_seconds_from(raw: Option<&str>, stale_after_minutes: i64) -> u64 {
         .unwrap_or(default)
 }
 
+/// How many stories one pass may run at once.
+///
+/// The queue has been serial per STORY since migration 143 (`agent_work_item_one_serial_active_per_story`), so this
+/// is the only thing that decides whether the machine works on one story or several: the claim transaction no longer
+/// asks the whole system to be idle (2026-09-29), and the default is the pool size chosen deliberately for this
+/// shape — four. Upper bound eight so a mistyped setting cannot open a wall of children against one Neon branch;
+/// lower bound one so the pass always makes progress and `FORGE_STORY_WORKERS=0` cannot mean "do nothing quietly".
+fn story_worker_concurrency() -> usize {
+    story_worker_concurrency_from(std::env::var("FORGE_STORY_WORKERS").ok().as_deref())
+}
+
+/// Pure core of `story_worker_concurrency`, so the clamp is a test and not a comment: a blank, zero, unparsable or
+/// absurd setting falls back to the default rather than to something the machine cannot carry.
+fn story_worker_concurrency_from(raw: Option<&str>) -> usize {
+    raw.and_then(|value| value.trim().parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(4)
+        .clamp(1, 8)
+}
+
 /// Hold the claim open while the child runs.
 ///
 /// This is the half of the claim that the port also dropped: `stale_agent_work` decides staleness on `updated_at`
@@ -195,8 +215,8 @@ pub fn fire_due_flights() -> Result<u64, String> {
 ///
 /// This is the seam the port dropped: the old worker found work and claimed it in one act, while the Rust worker
 /// selected a `Ready` story and launched against it, so an item was never owned by anyone and every queue
-/// protection (single-active, attempts, ordering, stale recovery) was inert. There is no fallback here on purpose:
-/// if the claim returns nothing, there is no work to dispatch.
+/// protection (the per-story serial claim, attempts, ordering, stale recovery) was inert. There is no fallback here
+/// on purpose: if the claim returns nothing, there is no work to dispatch.
 pub fn claim_next_dispatch(worker_id: &str) -> Result<Option<WorkerDispatch>, String> {
     let claimed = agent_work::claim_next_agent_work(worker_id)?;
     Ok(claimed.map(|item| WorkerDispatch {
@@ -251,12 +271,98 @@ pub fn run_worker_pass() -> Result<i32, String> {
         Err(error) => eprintln!("forge-learn-pass-failed: {error}"),
     }
 
-    let worker_id = worker_identity();
-    let Some(dispatch) = claim_next_dispatch(&worker_id)? else {
+    // BOUNDED STORY CONCURRENCY (2026-09-29). The queue is serial per story, not per system, so one pass may hold
+    // several stories at once and run them in parallel — which is what the three ready test stories needed and did
+    // not get: they queued behind a single harness run because one refusal asked the whole system to be idle.
+    //
+    // Each slot claims under its OWN worker identity (`scheduler:0`, `scheduler:1`, …), because the claim is what a
+    // human reads when a run is stuck and what every heartbeat and settlement is authorised by. Identity does not
+    // loosen anything: the story is the lock, `agent_work_item_one_serial_active_per_story` still refuses a second
+    // serial item on one story, and the slots only decide how many DIFFERENT stories move at once.
+    let base_worker_id = worker_identity();
+    let concurrency = story_worker_concurrency();
+    let mut claimed: Vec<(String, WorkerDispatch)> = Vec::new();
+    for slot in 0..concurrency {
+        let worker_id = format!("{base_worker_id}:{slot}");
+        match claim_next_dispatch(&worker_id)? {
+            Some(dispatch) => {
+                eprintln!(
+                    "forge-worker: slot={slot} claimed={} story={}",
+                    dispatch.work_item_id, dispatch.story_id
+                );
+                claimed.push((worker_id, dispatch));
+            }
+            // The queue is read in priority order, so an empty slot means there is nothing behind it to claim.
+            // The next tick sweeps whatever arrives while these stories run.
+            None => break,
+        }
+    }
+
+    if claimed.is_empty() {
         println!("no work");
         return Ok(0);
-    };
+    }
 
+    eprintln!(
+        "forge-worker: launching {} of {} story slot(s)",
+        claimed.len(),
+        concurrency
+    );
+
+    // One thread per claimed story. Each child is a separate process with its own pool, its own worktree and its own
+    // claim, so the threads share nothing but this process's lifetime — and every one of them must be joined before
+    // the pass returns, because each settles its own claim on the way out.
+    let mut handles = Vec::with_capacity(claimed.len());
+    for (worker_id, dispatch) in claimed {
+        handles.push(std::thread::spawn(move || {
+            run_claimed_dispatch(dispatch, worker_id, stale)
+        }));
+    }
+
+    // DO NOT RETURN ON THE FIRST FAILURE. Every claim has to be reaped and settled, or a story is left open with
+    // nobody driving it — the state stale recovery exists to clean up, and it should not have to.
+    let mut first_error: Option<String> = None;
+    let mut exit_code = 0;
+    for handle in handles {
+        match handle.join() {
+            Ok(Ok(code)) => {
+                if code != 0 && exit_code == 0 {
+                    exit_code = code;
+                }
+            }
+            Ok(Err(error)) => {
+                eprintln!("forge-worker: {error}");
+                if first_error.is_none() {
+                    first_error = Some(error);
+                }
+            }
+            Err(panic) => {
+                let error = format!("forge story worker panicked: {panic:?}");
+                eprintln!("forge-worker: {error}");
+                if first_error.is_none() {
+                    first_error = Some(error);
+                }
+            }
+        }
+    }
+
+    if let Some(error) = first_error {
+        return Err(error);
+    }
+    Ok(exit_code)
+}
+
+/// Run ONE claimed story to its end, in its own thread.
+///
+/// Everything below the claim lives here rather than in `run_worker_pass`, so the pass can hold several stories at
+/// once: the policy fence, the heartbeat that keeps the claim out of stale recovery, the child process itself, and
+/// the settlement of a child that left no verdict of its own. The claim is passed in rather than looked up, so this
+/// function owns exactly the dispatch it was given — which is what makes it safe to run beside its peers.
+fn run_claimed_dispatch(
+    dispatch: WorkerDispatch,
+    worker_id: String,
+    stale_after_minutes: i64,
+) -> Result<i32, String> {
     eprintln!(
         "forge-worker: claimed={} worker={} story={} work_type={} policy={} model_policy={} stop_after={} launch_intent={}",
         dispatch.work_item_id,
@@ -305,7 +411,7 @@ pub fn run_worker_pass() -> Result<i32, String> {
     // The claim is only worth holding if it stays fresh for as long as the run lasts.
     let heartbeat = spawn_heartbeat(
         dispatch.work_item_id.clone(),
-        Duration::from_secs(heartbeat_seconds(stale)),
+        Duration::from_secs(heartbeat_seconds(stale_after_minutes)),
     );
 
     let mut command = Command::new("cargo");
@@ -338,6 +444,18 @@ pub fn run_worker_pass() -> Result<i32, String> {
         .env(
             "EXECUTION_ENV",
             std::env::var("EXECUTION_ENV").unwrap_or_else(|_| "PROD".into()),
+        )
+        // THE FLOOR BELONGS TO THE COORDINATOR, NOT TO EVERY CHILD. Each story runs in its own process with its own
+        // pool, so four concurrent stories must not each hold the engine's warm floor open against one Neon branch
+        // (`FORGE_DB_POOL_MIN`, default 20 in `rust/core/db/src/pool.rs:193`). The children are short-lived and
+        // single-story, so they hold nothing when idle and take at most six connections each.
+        .env(
+            "FORGE_DB_POOL_MIN",
+            std::env::var("FORGE_CHILD_DB_POOL_MIN").unwrap_or_else(|_| "0".into()),
+        )
+        .env(
+            "FORGE_DB_POOL_MAX",
+            std::env::var("FORGE_CHILD_DB_POOL_MAX").unwrap_or_else(|_| "6".into()),
         )
         .status();
 
@@ -458,5 +576,25 @@ mod tests {
         assert!(assay_terminal_role(Some("reviewer")));
         assert!(assay_terminal_role(Some("verifier")));
         assert!(!assay_terminal_role(Some("builder")));
+    }
+
+    /// Story concurrency is a pool size, not a prayer: an unset, blank, unparsable or absurd setting must land on a
+    /// number of stories this machine can carry, and never on zero — which would read as "no work" forever.
+    #[test]
+    fn story_concurrency_is_clamped_to_a_pool_that_can_be_carried() {
+        assert_eq!(story_worker_concurrency_from(None), 4);
+        assert_eq!(story_worker_concurrency_from(Some("  ")), 4);
+        assert_eq!(story_worker_concurrency_from(Some("junk")), 4);
+        assert_eq!(story_worker_concurrency_from(Some("0")), 4);
+        assert_eq!(story_worker_concurrency_from(Some("3")), 3);
+        assert_eq!(story_worker_concurrency_from(Some(" 2 ")), 2);
+        assert_eq!(story_worker_concurrency_from(Some("64")), 8);
+        for asked in ["1", "8", "9", "100", "999999"] {
+            let slots = story_worker_concurrency_from(Some(asked));
+            assert!(
+                (1..=8).contains(&slots),
+                "setting {asked} produced {slots} story slots"
+            );
+        }
     }
 }
