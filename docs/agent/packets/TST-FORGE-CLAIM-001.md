@@ -126,3 +126,40 @@ $ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.15s
 CHECK_EXIT=0
 ```
+
+## Verification — lead_pre (2026-09-30)
+
+**Decision: ASSAY.** The canonical test named by this story's acceptance criteria is already committed on the base
+(`rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs`, landed `c8c1ab94`, isolated `1a32ee49`) and
+every acceptance criterion is met by it, so the cheapest sound strategy is to JUDGE the existing work rather than
+re-author it — the `leadDecision == 'ASSAY'` branch (`legacy/workflow_app/definitions/FORGE_SDLC-v6.xml:257`) routes
+straight to the deterministic `qa_verify` node. No production or test code changed in this node.
+
+The lead re-ran this story's own assay commands. The plain command is green with the L2 DEV contract skipped (it needs
+a disposable DEV branch; PROD is refused before any socket), and the live run against the disposable DEV branch is
+green: the owner's one live `Claimed` moment opens exactly one `storyboard_story_run` and moves the item to `Running`,
+and the exclusivity, second-begin, unclaimed, unknown-id, requeued and settled cases are each refused and open no
+run. Commands run from the repo root, output pasted:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ignored, needs DATABASE_URL_DEV (a disposable DEV branch); TestDatabase refuses PROD before any socket
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+TEST_EXIT=0
+
+$ DATABASE_URL_DEV=... cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run -- --ignored
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.13s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.00s
+CHECK_EXIT=0
+```
+
+The only URL read for the live run was `DATABASE_URL_DEV` (extracted from `.env.local`); the shell's `APP_ENV` was
+left untouched and the test declares DEV explicitly, so PRODUCTION was never connected to.
