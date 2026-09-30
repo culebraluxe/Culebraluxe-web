@@ -230,6 +230,55 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
         "{HARNESS}: `<x/>` and `<x></x>` are the same element — the explicit form must parse to an equal graph"
     );
 
+    // 3e. WHERE INTENDED (attribute quoting) — XML lets an attribute value be quoted with single or double quotes,
+    //     and both name the same value. An element written with single-quoted attributes must parse to the same
+    //     structure; a parser that understood only `"` would refuse the definition outright.
+    let single_quoted = FORGE_SDLC_V6_XML.replacen("version=\"6\"", "version='6'", 1);
+    let single_quoted_def =
+        definition_from_xml(&single_quoted).expect("single-quoted attributes still parse");
+    assert!(
+        graphs_equal(&def.definition, &single_quoted_def.definition),
+        "{HARNESS}: attribute quoting style is not structure — `'` and `\"` name the same value"
+    );
+
+    // 3f. WHERE INTENDED (declaration order) — the order the node elements are declared in the source is not
+    //     structure: `display-order` is the definition's explicit order, and the parser keys nodes by id, so the
+    //     canonical JSON encoding must be independent of declaration order. Swapping two adjacent node elements
+    //     must parse to a structurally equal graph; an encoding that followed insertion order would report a
+    //     difference the definition does not mean.
+    let (first, second) = (
+        FORGE_SDLC_V6_XML
+            .find("<task-node id=\"fast_smith\"")
+            .expect("the definition declares fast_smith"),
+        FORGE_SDLC_V6_XML
+            .find("<task-node id=\"fast_qa_verify\"")
+            .expect("the definition declares fast_qa_verify"),
+    );
+    let first_end = FORGE_SDLC_V6_XML[first..]
+        .find("</task-node>")
+        .expect("fast_smith is closed")
+        + first
+        + "</task-node>".len();
+    let second_end = FORGE_SDLC_V6_XML[second..]
+        .find("</task-node>")
+        .expect("fast_qa_verify is closed")
+        + second
+        + "</task-node>".len();
+    let swapped = format!(
+        "{}{}{}{}{}",
+        &FORGE_SDLC_V6_XML[..first],
+        &FORGE_SDLC_V6_XML[second..second_end],
+        &FORGE_SDLC_V6_XML[first_end..second],
+        &FORGE_SDLC_V6_XML[first..first_end],
+        &FORGE_SDLC_V6_XML[second_end..],
+    );
+    let swapped_def =
+        definition_from_xml(&swapped).expect("swapping two adjacent node elements still parses");
+    assert!(
+        graphs_equal(&def.definition, &swapped_def.definition),
+        "{HARNESS}: declaration order is not structure — the canonical encoding is keyed by node id"
+    );
+
     // 4. WHERE INTENDED (structural) — a real structural edit parses, but is NOT equal. Four independent facets are
     //    edited so the equality cannot be pinned to one serialized field: an edge (transition target), a decision
     //    arm's condition, a command node's command type, and the declared display order. Each parse must SUCCEED (the

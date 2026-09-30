@@ -27,7 +27,7 @@ structural-equality predicate is `graphs_equal` (`rust/forge/src/engine/version_
 
 ## Context refs
 
-- `rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:1-488` — the canonical test.
+- `rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:1-537` — the canonical test.
 - `rust/forge/src/engine/xml.rs:352-426` — `parse_process_definition_xml` / `definition_from_xml`, the production parser.
 - `rust/forge/src/engine/xml.rs:196-199` — the nested-comment skip inside an element's children.
 - `rust/forge/src/engine/version_policy.rs:39-41` — `graphs_equal`, the production equality predicate.
@@ -176,3 +176,56 @@ An unrelated modified `wf_join__002__optional_siblings_handled_correctly.rs` and
 untouched and are not part of this candidate.
 
 FORGE_EVIDENCE_JSON: {"qaPassed":null,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"9e09d7467a321cdec9dd483d9697dcf29d03aa0a"}
+
+## Raw verification — fast_repair_smith self-heal re-run (task 63d53243)
+
+This run was HELD because it did not deliver a `smith-candidate`: the smith deliverable is the run's workspace HEAD
+(`OpenCodeHarness::run_role` sets `candidate_sha = git rev-parse HEAD`, `rust/forge/src/engine/opencode.rs:316-324`),
+and a commit from another lane had moved HEAD past the prior candidate `9e09d746`. The canonical test was already
+committed and green, so this node lands a fresh, load-bearing commit — the candidate is the commit this block is
+committed with — and changes no production code.
+
+What changed in the canonical test (this node's own candidate):
+
+1. WHERE INTENDED (attribute quoting) — XML lets an attribute value be quoted with `'` or `"`; both name the same
+   value. A source where `version="6"` is written `version='6'` must parse to a structurally equal graph, exercising
+   the parser's `q != '"' && q != '\''` branch (`rust/forge/src/engine/xml.rs:158-160`).
+2. WHERE INTENDED (declaration order) — the order the node elements are declared in the source is not structure:
+   `display-order` is the definition's explicit order and the parser keys nodes by id, so swapping two adjacent
+   `<task-node>` elements must parse to a structurally equal graph. This pins the canonical-encoding property of
+   `graph_to_json` (`rust/core/workflow/src/json_codec.rs:222-240`).
+
+Both clauses are self-proving: a production regression that made either cosmetic difference structural would fail the
+`assert!(graphs_equal(..))` at the new lines.
+
+Commands below are this node's own run, pasted with their exit status.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+running 1 test
+test wf_definition_013__forge_v6_xml_structural_equality_where_intended ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.76s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 00s
+CHECK_EXIT=0
+```
+
+Mutation check (this node's own, the attribute-quoting clause): narrowing the production branch to double quotes only
+(`rust/forge/src/engine/xml.rs:158`, `if q != '"' && q != '\''` → `if q != '"'`) makes the test fail exactly at the new
+clause, `test result: FAILED` (exit 101):
+
+```
+thread '...' panicked at test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:238:45:
+single-quoted attributes still parse: XmlError("attribute must be quoted at 626")
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+MUTATION_EXIT=101
+```
+
+The production file was restored byte-for-byte with `git checkout -- rust/forge/src/engine/xml.rs`, so the new clause is
+load-bearing and the contract is not vacuous.
+
+An untracked `arch_boundary__011__qa_cannot_own_git_mutations.rs` (another lane) was present in the working tree at run
+time; it was left untouched and is not part of this candidate.
