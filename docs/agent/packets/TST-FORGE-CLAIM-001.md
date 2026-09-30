@@ -39,7 +39,7 @@ refused and open no run. PRODUCTION is refused by the harness before any socket 
 
 ## Context refs
 
-- `rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs:1-450` — the canonical test.
+- `rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs:1-462` — the canonical test.
 - `rust/core/db/src/forge_engine.rs:798-899` — `begin_agent_work_run`, the compare-and-set that opens the one run.
 - `rust/core/db/src/forge_engine.rs:806-810` — the read `where state='Claimed' for update`; a non-`Claimed` row returns `None`.
 - `rust/core/db/src/forge_engine.rs:835-859` — the Story Run insert, in the same transaction as the state move.
@@ -386,3 +386,54 @@ disposable DEV branch is left as it was found and PRODUCTION is never connected 
 proof stories stranded by this mutation run and two earlier failing runs were reaped against DEV (scoped to the prefix,
 older than the live window); zero remain. The only working-tree changes in this node are the canonical test and this
 packet section; no production code changed.
+
+## Raw verification — repair_smith re-run (2026-09-30)
+
+The `repair_smith` node was re-issued because the run held on a missing `smith-candidate`. The previous repair
+(`ee200398`) changed the canonical test *after* the last QA pass, so its candidate had to be re-delivered for QA to
+verify the current bytes; nothing in the contract was wrong, and no production code changed. This run re-delivers the
+candidate and tightens the two remaining refusal cases so the no-write half of "only the owner starts run" is asserted
+for every negative caller, not only the second begin.
+
+What changed in the canonical test (12 added lines, both pure assertions):
+
+1. **Requeued claim** (`forge_claim__001__only_owner_starts_run.rs:343-359`): the item's whole durable row
+   (`state`, `claimed_by`, `story_run_id`, `started_at`, `updated_at`) is captured before the refused begin and
+   compared byte-for-byte after, so a boundary that ran the predicate-less update against a recovery-requeued row
+   would move a column the test now looks at.
+2. **Settled claim** (`forge_claim__001__only_owner_starts_run.rs:406-418`): the same whole-row capture around the
+   refused late begin on a `Cancelled` item.
+
+Both additions reuse the existing `durable_item_row` helper added by the previous repair; the second begin already had
+this proof (`:312`), so this closes the same gap for the requeued and settled callers. The canonical test is otherwise
+unchanged; its header citations and the packet Context refs were re-checked against the current tree and resolve
+(`begin_agent_work_run` at `rust/core/db/src/forge_engine.rs:798`, the CAS read `:806-810`, the Story Run insert
+`:835-859`, the predicate update `:864-870`, `claim_specific_agent_work` at `:651`, `finish_agent_work_run` at `:1025`,
+`requeue_stale_work` at `rust/core/db/src/forge_control.rs:117`, `guard_target` at
+`rust/test-harness/src/database.rs:68-75`). The test file is now `:1-462`.
+
+The candidate is the git commit this block is committed with. Commands run from the repo root, output pasted:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ignored, needs DATABASE_URL_DEV (a disposable DEV branch); TestDatabase refuses PROD before any socket
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; APP_ENV=development cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run -- --ignored
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.93s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.68s
+CHECK_EXIT=0
+```
+
+Only `DATABASE_URL_DEV` was read; the test declares DEV explicitly and asserts `target = Dev` before any assertion
+executes, so PRODUCTION is never connected to. Pre-existing `workflow`-crate `unused import` warnings were present at
+run time and are not part of this candidate.

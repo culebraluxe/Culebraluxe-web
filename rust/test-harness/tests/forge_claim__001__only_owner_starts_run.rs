@@ -340,6 +340,7 @@ async fn forge_claim_001__only_owner_starts_run() {
         claimed_by, None,
         "{HARNESS}: a requeued claim names no owner"
     );
+    let requeued_durable = durable_item_row(&pool, &requeued_item).await;
     assert!(
         engine
             .begin_agent_work_run(&requeued_item)
@@ -351,6 +352,11 @@ async fn forge_claim_001__only_owner_starts_run() {
     assert!(
         run_rows(&pool, &requeued_story).await.is_empty(),
         "{HARNESS}: the requeued claim opened no run"
+    );
+    assert_eq!(
+        durable_item_row(&pool, &requeued_item).await,
+        requeued_durable,
+        "{HARNESS}: a refused begin on a requeued claim must commit nothing — state, owner, run id and timestamps are unchanged"
     );
 
     // -----------------------------------------------------------------------------------------------------------
@@ -397,6 +403,7 @@ async fn forge_claim_001__only_owner_starts_run() {
         state, "Cancelled",
         "{HARNESS}: the settled item is terminal"
     );
+    let settled_durable = durable_item_row(&pool, &owned_item).await;
     assert!(
         engine
             .begin_agent_work_run(&owned_item)
@@ -404,6 +411,11 @@ async fn forge_claim_001__only_owner_starts_run() {
             .unwrap()
             .is_none(),
         "{HARNESS}: a settled claim must not start a run"
+    );
+    assert_eq!(
+        durable_item_row(&pool, &owned_item).await,
+        settled_durable,
+        "{HARNESS}: a refused begin on a settled claim must commit nothing — state, owner, run id and timestamps are unchanged"
     );
     assert_eq!(
         run_rows(&pool, &owned_story).await.len(),
