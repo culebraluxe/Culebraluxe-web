@@ -2,11 +2,11 @@
 //!
 //! Contract: when a command step dies on a broken connection and the engine repeats it, the retry produces the
 //! **same** command identity. The `WorkflowEngine` derives a command's id from `(process_instance_id, node_id,
-//! visit_sequence)` — `command_id` at `rust/core/workflow/src/engine/handle_join.rs:373` — and every input is
+//! visit_sequence)` — `command_id` at `rust/core/workflow/src/engine/handle_join.rs:359-363` — and every input is
 //! persisted state: the instance id is committed before the command runs, and the visit sequence is
-//! `command_visit_count + 1` read back from the store (`rust/core/workflow/src/engine/handle_join.rs:215-216`). A
+//! `command_visit_count + 1` read back from the store (`rust/core/workflow/src/engine/handle_join.rs:201-202`). A
 //! step that dies on the connection commits nothing (the production transaction contract,
-//! `rust/core/workflow/src/memory.rs:35-53`), so the retry re-reads the same count, regenerates the same id, and the
+//! `rust/core/workflow/src/memory.rs:38-54`), so the retry re-reads the same count, regenerates the same id, and the
 //! store records the command exactly once.
 //!
 //! The retry is **the production retry rule**, not a loop written here. Production repeats a failed step in
@@ -21,7 +21,7 @@
 //! The retry is exercised on an instance that was **already committed** by an earlier, successful transaction: the
 //! process starts and parks on a task node, the first attempt to drive the command out of that task dies mid-step,
 //! and the retry re-drives the *same* instance. That shape matters — production mints an instance id once, with
-//! `uuid_v4()` at `rust/core/workflow/src/neon/new_id.rs:7-9`, and never re-derives it — so a contract that only held
+//! `uuid_v4()` at `rust/core/workflow/src/ids.rs:5`, and never re-derives it — so a contract that only held
 //! when a fresh `start_process` re-minted its instance would not be a production contract.
 //!
 //! The real `WorkflowEngine` is driven through `start_process` and `complete_task`; its `command` node calls the
