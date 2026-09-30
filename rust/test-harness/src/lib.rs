@@ -51,7 +51,9 @@ pub mod snapshot;
 pub mod source;
 
 pub use clock::TestClock;
-pub use database::{guard_target, resolve_test_target, HarnessDbError, TestDatabase, TestTransaction};
+pub use database::{
+    guard_target, resolve_test_target, HarnessDbError, TestDatabase, TestTransaction,
+};
 pub use engine::EngineHarness;
 pub use fixtures::FixtureFactory;
 pub use forge::ForgeHarness;
