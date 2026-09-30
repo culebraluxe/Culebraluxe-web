@@ -93,3 +93,20 @@ this node's per-node case. Commits are local only; this node's brief says do not
 - Mutation check: dropping the `node_id` filter from `rust/core/workflow/src/memory.rs:594` fails the new per-node
   assertion at `rust/test-harness/tests/wf_command__002__command_generated_once_per_node_visit.rs:505`; restored
   afterwards.
+
+## Raw verification — repair_smith attempt 2 (2026-09-30)
+
+The repair_smith node was re-run to deliver the missing `smith-candidate`. The candidate is the git commit this
+block is committed with; the commands below are this node's own run, pasted with their exit status.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__002__command_generated_once_per_node_visit
+running 1 test
+test wf_command_002__command_generated_once_per_node_visit ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.39s
+CHECK_EXIT=0
+```
