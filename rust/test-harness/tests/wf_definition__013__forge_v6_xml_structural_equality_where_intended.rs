@@ -22,7 +22,8 @@
 //!   `<x></x>` form of a self-closing tag, an element whose **attributes are reordered**) parses to a
 //!   **structurally equal** graph, because the parser intentionally drops what is not structure; and
 //! - a structural edit (a transition target or its condition/required flag, a decision condition or its
-//!   `refresh-facts`, a command type, a task `priority`, an end-state `outcome`, a dynamic-fork bound, a display-order
+//!   `refresh-facts`, a command type, a task `priority`, a task's `form-key`/`label`/`description`, an end-state
+//!   `outcome`, a dynamic-fork `count-variable`/`plan-variable`/`branch-node`/`minimum`/`maximum`, a display-order
 //!   entry) parses to a **structurally unequal** graph, because those are the parts the definition intends to mean.
 //!
 //! A structural edit that would make the graph dishonest (a transition to a node that does not exist, an unknown
@@ -59,6 +60,9 @@ fn routing_signature(graph: &workflow::ProcessGraph) -> Vec<String> {
         let mut row = format!("{id}|{}", node.node_type);
         if let Some(command_type) = &node.command_type {
             row.push_str(&format!("|cmd={command_type}"));
+        }
+        if let Some(form_key) = &node.form_key {
+            row.push_str(&format!("|formKey={form_key}"));
         }
         if let Some(transition) = &node.transition {
             row.push_str(&format!("|transition={transition}"));
@@ -402,6 +406,76 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
     assert!(
         !graphs_equal(&def.definition, &wider_fork_def.definition),
         "{HARNESS}: a dynamic fork's maximum is structure — changing it is a structural difference"
+    );
+
+    // 4c. WHERE INTENDED (node identity metadata) — the production parser reads a node's `label` into `name`, its
+    //     `description` into `description`, and a task's `form-key` into `form_key`; the production codec
+    //     (`rust/core/workflow/src/json_codec.rs:246-251,273-275`) represents all three, so a change to any one is
+    //     structure, not decoration. Each anchor is the first occurrence the definition declares, so the rest of the
+    //     definition stays identical and the parse can never silently no-op.
+    let relabelled = FORGE_SDLC_V6_XML.replacen("label=\"Start Forge Story\"", "label=\"Begin\"", 1);
+    let relabelled_def =
+        definition_from_xml(&relabelled).expect("a node with a different label still parses");
+    assert!(
+        !graphs_equal(&def.definition, &relabelled_def.definition),
+        "{HARNESS}: a node's label is structure — changing it is a structural difference"
+    );
+
+    let redescribed = FORGE_SDLC_V6_XML.replacen(
+        "description=\"Start a Forge workflow instance for one software delivery story.\"",
+        "description=\"Start.\"",
+        1,
+    );
+    let redescribed_def =
+        definition_from_xml(&redescribed).expect("a node with a different description still parses");
+    assert!(
+        !graphs_equal(&def.definition, &redescribed_def.definition),
+        "{HARNESS}: a node's description is structure — changing it is a structural difference"
+    );
+
+    let reform_keyed = FORGE_SDLC_V6_XML.replacen("form-key=\"forge.smith\"", "form-key=\"forge.scout\"", 1);
+    let reform_keyed_def =
+        definition_from_xml(&reform_keyed).expect("a task with a different form-key still parses");
+    assert!(
+        !graphs_equal(&def.definition, &reform_keyed_def.definition),
+        "{HARNESS}: a task's form-key is structure — changing it is a structural difference"
+    );
+
+    // 4d. WHERE INTENDED (dynamic-fork control) — the dynamic fork is fully control: its `count-variable`,
+    //     `plan-variable` and `branch-node` name the runtime inputs and the node to spawn, and its `minimum` bounds
+    //     the fan-out. The production parser reads each (`rust/forge/src/engine/xml.rs:328-337`) and the codec writes
+    //     each (`rust/core/workflow/src/json_codec.rs:309-326`), so each is structure. The `maximum` clause above
+    //     already pins the upper bound; these pin the rest.
+    let recounted = FORGE_SDLC_V6_XML.replacen("count-variable=\"splitCount\"", "count-variable=\"splitCountX\"", 1);
+    let recounted_def =
+        definition_from_xml(&recounted).expect("a dynamic fork with a different count variable still parses");
+    assert!(
+        !graphs_equal(&def.definition, &recounted_def.definition),
+        "{HARNESS}: a dynamic fork's count-variable is structure — changing it is a structural difference"
+    );
+
+    let replanned = FORGE_SDLC_V6_XML.replacen("plan-variable=\"splitPlan\"", "plan-variable=\"splitPlanX\"", 1);
+    let replanned_def =
+        definition_from_xml(&replanned).expect("a dynamic fork with a different plan variable still parses");
+    assert!(
+        !graphs_equal(&def.definition, &replanned_def.definition),
+        "{HARNESS}: a dynamic fork's plan-variable is structure — changing it is a structural difference"
+    );
+
+    let rebranched = FORGE_SDLC_V6_XML.replacen("branch-node=\"smith_split_work\"", "branch-node=\"split_join\"", 1);
+    let rebranched_def =
+        definition_from_xml(&rebranched).expect("a dynamic fork pointing at another node still parses");
+    assert!(
+        !graphs_equal(&def.definition, &rebranched_def.definition),
+        "{HARNESS}: a dynamic fork's branch-node is structure — changing it is a structural difference"
+    );
+
+    let narrowed_fork = FORGE_SDLC_V6_XML.replacen("minimum=\"2\"", "minimum=\"1\"", 1);
+    let narrowed_fork_def =
+        definition_from_xml(&narrowed_fork).expect("a dynamic fork with a different lower bound still parses");
+    assert!(
+        !graphs_equal(&def.definition, &narrowed_fork_def.definition),
+        "{HARNESS}: a dynamic fork's minimum is structure — changing it is a structural difference"
     );
 
     // 5. THE ROUTING STRUCTURE MUST SURVIVE THE PRODUCTION PERSISTENCE BOUNDARY. `deploy_xml` writes the parsed
