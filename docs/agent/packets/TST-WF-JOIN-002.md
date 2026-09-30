@@ -674,3 +674,57 @@ present in the working tree at run time and is compiled by `--all-targets`; it w
 this candidate.
 
 FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"81193a5b985da581048d500d2c6fe359e595ef22"}
+
+## Repair — fast_repair_smith (2026-09-30, task 5db02cbf)
+
+One reachable, on-contract clause of the join's retirement path was still unpinned, so this node strengthens the
+canonical test on the contract it already names and commits it; the candidate is the new workspace HEAD. No production
+code changed.
+
+What changed in
+`rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs`:
+
+the `token.joined` event was pinned only by the **`resultTokenId` datum** in its payload, never by the event's own
+durable `token_id` column. Production emits the event with `token_id: Some(new_token.id.clone())`
+(`rust/core/workflow/src/engine/handle_join.rs:110`), so the event must be attributed to the result token it created,
+not to the arriving branch `token` the handler was called with. The test now asserts
+`joined[0].token_id == settle.id` alongside the existing `resultTokenId == settle.id`. A join that attributed the
+event to the arriving branch token while still naming the right result in its payload would satisfy every other
+clause — roster, result token, `parent_token_id`, `node_id`, `joinNodeId` — and satisfies this one only if both
+attributions agree.
+
+The commands below are this node's own run, pasted with their exit status.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_join__002__optional_siblings_handled_correctly
+running 1 test
+test wf_join_002__optional_siblings_handled_correctly ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4m 14s
+CHECK_EXIT=0
+```
+
+Mutation check (the event-token attribution is load-bearing): changing the `token.joined` event's `token_id` at
+`rust/core/workflow/src/engine/handle_join.rs:110` from the result token to the arriving branch `token` makes the test
+fail at `rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs:611`
+(`the token.joined event is attributed to the result token it created, not the arriving branch token`),
+`test result: FAILED` (exit 101):
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_join__002__optional_siblings_handled_correctly
+thread 'wf_join_002__optional_siblings_handled_correctly' panicked at test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs:611:5:
+assertion `left == right` failed: WorkflowHarness/L4 Adversarial: the token.joined event is attributed to the result token it created, not the arriving branch token
+  left: Some("tok-3")
+ right: Some("tok-11")
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+MUTATION_EXIT=101
+```
+
+The production file was restored with `git checkout --` (`git diff --quiet` clean against it) and the test is green
+again (`TEST_EXIT=0`), so the clause is load-bearing. The working tree contained no other changes at commit time.
+
+FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false}

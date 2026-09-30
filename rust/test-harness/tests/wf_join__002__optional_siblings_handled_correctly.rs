@@ -598,6 +598,15 @@ fn wf_join_002__optional_siblings_handled_correctly() {
         Some(settle.id.as_str()),
         "{HARNESS}: the join names the single result token"
     );
+    // The event's own durable `token_id` column must be the result token too, not merely the `resultTokenId` datum.
+    // The join emits with `token_id: Some(new_token.id.clone())` (`rust/core/workflow/src/engine/handle_join.rs:110`),
+    // so a join that attributed the event to the arriving branch token — the `token` it was called with — while still
+    // naming the right result in its payload would satisfy every other clause and fail only here. The two must agree.
+    assert_eq!(
+        joined[0].token_id.as_deref(),
+        Some(settle.id.as_str()),
+        "{HARNESS}: the token.joined event is attributed to the result token it created, not the arriving branch token"
+    );
     assert_eq!(
         settle.parent_token_id.as_deref(),
         Some(fork.id.as_str()),
