@@ -33,14 +33,14 @@ socket is opened; the seeded stories are deleted at the end, so the disposable D
 
 ## Context refs
 
-- `rust/test-harness/tests/forge_claim__002__second_begin_refused.rs:39-339` — the canonical test.
-- `rust/core/db/src/forge_engine.rs:787-886` — `begin_agent_work_run`, the compare-and-set that opens the one run.
-- `rust/core/db/src/forge_engine.rs:795-806` — the read `where state='Claimed' for update`; a non-`Claimed` row returns `None`.
-- `rust/core/db/src/forge_engine.rs:824-848` — the Story Run insert, in the same transaction as the state move.
-- `rust/core/db/src/forge_engine.rs:853-858` — the update with the same `state='Claimed'` predicate, the second half of the CAS.
-- `rust/core/db/src/forge_engine.rs:640-711` — `claim_specific_agent_work`, the production `Ready → Claimed` path.
-- `rust/core/db/src/forge_engine.rs:1014-1130` — `finish_agent_work_run`, the settle path the "settled claim" case uses.
-- `rust/test-harness/src/forge.rs:21-97` — `ForgeHarness`: the PROD-refusing seam wrapping the production DAO.
+- `rust/test-harness/tests/forge_claim__002__second_begin_refused.rs:43-347` — the canonical test.
+- `rust/core/db/src/forge_engine.rs:798-908` — `begin_agent_work_run`, the compare-and-set that opens the one run.
+- `rust/core/db/src/forge_engine.rs:806-810` — the read `where state='Claimed' for update`; a non-`Claimed` row returns `None`.
+- `rust/core/db/src/forge_engine.rs:835-859` — the Story Run insert, in the same transaction as the state move.
+- `rust/core/db/src/forge_engine.rs:864-870` — the update with the same `state='Claimed'` predicate, the second half of the CAS.
+- `rust/core/db/src/forge_engine.rs:651-723` — `claim_specific_agent_work`, the production `Ready → Claimed` path.
+- `rust/core/db/src/forge_engine.rs:1025-1160` — `finish_agent_work_run`, the settle path the "settled claim" case uses.
+- `rust/test-harness/src/forge.rs:22-98` — `ForgeHarness`: the PROD-refusing seam wrapping the production DAO.
 - `rust/test-harness/src/database.rs:109-113` — `connect_from_env`, the declaration resolved as production does.
 - `rust/test-harness/src/database.rs:155-169` — `with_rollback`, the committed-truth-survives-a-rollback probe.
 
@@ -275,6 +275,40 @@ LIVE_EXIT=0
 
 $ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 04s
+CHECK_EXIT=0
+```
+
+The live run asserts `target = Dev` before any assertion executes and deletes its proof stories at the end, so the
+disposable DEV branch is left as it was found and PRODUCTION is never connected to.
+
+## Raw verification — repair_smith (2026-09-30, second repair)
+
+Re-issued because the node held on a missing `smith-candidate`: the prior repair commit `6b076831` re-pointed the
+**test header** citations but left this packet's Context refs at the pre-`728c107e` line numbers, so one half of the
+story's evidence still pointed at the wrong lines (the same drift, in the packet this time). This repair corrects the
+Context refs to the current tree — `begin_agent_work_run` `787-886 → 798-908`, the CAS read `795-806 → 806-810`, the
+Story Run insert `824-848 → 835-859`, the predicate update `853-858 → 864-870`, `claim_specific_agent_work`
+`640-711 → 651-723`, `finish_agent_work_run` `1014-1130 → 1025-1160`, the canonical test `39-339 → 43-347` and
+`ForgeHarness` `21-97 → 22-98`. No production behavior, schema or test body changed; the canonical test is
+unchanged from `6b076831`. Commands run from the repo root, output pasted:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__002__second_begin_refused
+running 1 test
+test forge_claim_002__second_begin_refused ... ignored, needs DATABASE_URL_DEV: runs only against the disposable DEV branch (PROD is refused)
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__002__second_begin_refused -- --ignored
+running 1 test
+test forge_claim_002__second_begin_refused ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.11s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.22s
 CHECK_EXIT=0
 ```
 
