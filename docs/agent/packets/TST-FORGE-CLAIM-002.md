@@ -187,3 +187,43 @@ The live run asserts `target = Dev` before any assertion executes and removes it
 disposable DEV branch is left as it was found and PRODUCTION is never connected to. Unrelated, pre-existing
 warnings in `forge`/`workflow` crates (unused imports/variables) were present at run time; they are not part of this
 story's candidate.
+
+## Verification — qa_verify (2026-09-30)
+
+**Verdict: PASS (qaPassed = true).** The frozen candidate is `9d54b2ea`; the canonical test
+`rust/test-harness/tests/forge_claim__002__second_begin_refused.rs` is unchanged from `427d8b86`. Both acceptance
+commands are green and the live L2 DEV contract is green on the candidate.
+
+The checkout is shared: while this node ran, a concurrent writer's **uncommitted** migration-259 work (untracked
+`db/migrations/259_forge_declared_work_type.sql`, and edits to `rust/core/db/src/forge_engine.rs`,
+`rust/forge/src/engine/agent_work.rs`, `rust/forge/src/engine/worker.rs`) added a `work_type` column the candidate
+does not reference and DEV does not yet hold. Running the live test against that dirty tree fails on **their** row
+(`column "work_type" does not exist`, `forge_engine.claim_specific.update`, exit 101) — not the candidate's. That work
+was left untouched and is not part of this candidate. The candidate's own live run was therefore taken on an isolated
+export of `9d54b2ea` (scratch directory removed in the same command; PRODUCTION never connected). Raw output:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__002__second_begin_refused
+running 1 test
+test forge_claim_002__second_begin_refused ... ignored, needs DATABASE_URL_DEV: runs only against the disposable DEV branch (PROD is refused)
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 14s
+CHECK_EXIT=0
+
+$ # isolated export of candidate 9d54b2ea (shared-checkout concurrent writer excluded)
+$ set -a; . ./.env.local; set +a
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__002__second_begin_refused -- --ignored
+running 1 test
+test forge_claim_002__second_begin_refused ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.61s
+CLEAN_LIVE_EXIT=0
+```
+
+The live run asserts `target = Dev` before any assertion executes, exercises the production `ForgeEngineDao` claim /
+begin / settle boundary, and deletes its proof stories at the end. All acceptance criteria are met by the candidate;
+the only open item is the unrelated concurrent writer, which does not touch this story.
