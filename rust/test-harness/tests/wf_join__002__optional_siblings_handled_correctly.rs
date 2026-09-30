@@ -532,6 +532,20 @@ fn wf_join_002__optional_siblings_handled_correctly() {
         Some(fork.id.as_str()),
         "{HARNESS}: the result token belongs to the fork that was joined"
     );
+    // The join event is attributed to the join node it actually fired at, not merely to a token: both the event's
+    // `node_id` and its `joinNodeId` datum must name `converge`. A join that recorded the wrong node — or dropped
+    // the datum — would still carry the right roster and result token, so it fails only here
+    // (`rust/core/workflow/src/engine/handle_join.rs:111-114`).
+    assert_eq!(
+        joined[0].node_id.as_deref(),
+        Some(JOIN_NODE),
+        "{HARNESS}: the token.joined event names the join node it fired at"
+    );
+    assert_eq!(
+        joined[0].data.get("joinNodeId").and_then(Value::as_str),
+        Some(JOIN_NODE),
+        "{HARNESS}: the token.joined payload names the join node"
+    );
 
     // The optional branches that never arrived were retired: one `token.skipped` each, no more. The event carries the
     // branch's own token id, so the durable log names which token was retired — not just which node it sat at. A join
@@ -656,6 +670,35 @@ fn wf_join_002__optional_siblings_handled_correctly() {
         Some("branch skipped"),
         "{HARNESS}: the obsoletion carries the join's skip reason"
     );
+
+    // The retirement is durable and ordered BEFORE the join. Event ids are assigned in insertion order and the
+    // test's clock never moves, so history cannot reorder events by time: every retirement event committed with
+    // the join (`token.skipped`, `task.obsoleted`, `job.cancelled`) must carry a lower id than the `token.joined`
+    // event. A join that announced itself before it retired the still-active optional branches would leave those
+    // branches open behind a join that had already fired; the row-state and count checks above cannot see that
+    // ordering, so this clause pins it (`rust/core/workflow/src/engine/handle_join.rs:46-80` before `:106-117`).
+    let retirement_ids: Vec<i64> = history(reader.memory(), &instance)
+        .into_iter()
+        .filter(|event| {
+            matches!(
+                event.event_type.as_str(),
+                "token.skipped" | "task.obsoleted" | "job.cancelled"
+            )
+        })
+        .map(|event| event.id)
+        .collect();
+    assert_eq!(
+        retirement_ids.len(),
+        4,
+        "{HARNESS}: the join retires the optional siblings in exactly four durable events"
+    );
+    for id in &retirement_ids {
+        assert!(
+            *id < joined[0].id,
+            "{HARNESS}: retirement event {id} is announced before the join event {}",
+            joined[0].id
+        );
+    }
 
     // No optional token leaks active into the terminal state: the process converges to its declared end.
     assert_eq!(

@@ -377,3 +377,74 @@ The production file was restored byte-for-byte (`cmp` clean against the pre-muta
 are not part of this candidate.
 
 FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false}
+
+## Repair — fast_repair_smith (2026-09-30, task 2eec0a59 re-run)
+
+The prior `fast_repair_smith` run for this task was HELD because it delivered no `smith-candidate` (its reply lacked a
+`FORGE_EVIDENCE_JSON` with a `candidateSha`, so the runner saw no commit to promote). This re-run lands a **load-bearing
+test change** and commits it, so the candidate is a new workspace HEAD descending from the retry base. No production
+code changed.
+
+What changed in
+`rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs` — two clauses the test did not pin:
+
+1. **Join-node attribution.** The `token.joined` event was pinned only by its roster and its result token. It is now
+   also pinned to the node it fired at: `joined[0].node_id == "converge"` and `joined[0].data["joinNodeId"] ==
+   "converge"` (`rust/core/workflow/src/engine/handle_join.rs:111-114`). A join that recorded the wrong node, or
+   dropped the `joinNodeId` datum, would still carry the right roster and result token and fail only here.
+2. **Durable retirement-before-join order.** Event ids are assigned in insertion order and the test's clock never
+   moves (`TestClock::at_unix_millis`), so history cannot reorder events by time. The test now asserts that every
+   retirement event committed with the join (`token.skipped`, `task.obsoleted`, `job.cancelled` — four of them) carries
+   a lower id than the `token.joined` event (`rust/core/workflow/src/engine/handle_join.rs:46-80` before `:106-117`).
+   A join that announced itself before retiring the still-active optional branches would leave those branches open
+   behind a join that had already fired; the row-state and count assertions cannot see that ordering.
+
+The commands below are this node's own run, pasted with their exit status.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_join__002__optional_siblings_handled_correctly
+running 1 test
+test wf_join_002__optional_siblings_handled_correctly ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 54s
+CHECK_EXIT=0
+```
+
+Mutation check A (join-node attribution is load-bearing): changing `"joinNodeId": node.id` to
+`"joinNodeId": "MUTATION"` at `rust/core/workflow/src/engine/handle_join.rs:114` makes the test fail at
+`rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs:544`
+(`the token.joined payload names the join node`), `test result: FAILED` (exit 101):
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_join__002__optional_siblings_handled_correctly
+thread 'wf_join_002__optional_siblings_handled_correctly' panicked at test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs:544:5:
+assertion `left == right` failed: WorkflowHarness/L4 Adversarial: the token.joined payload names the join node
+  left: Some("MUTATION")
+ right: Some("converge")
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+MUTATION_A_EXIT=101
+```
+
+Mutation check B (retirement-before-join order is load-bearing, and not covered by the row-state clauses): moving the
+optional-sibling retirement loop (`rust/core/workflow/src/engine/handle_join.rs:46-80`) to after the `token.joined`
+emission leaves every row and every retirement event otherwise identical — two skips, one obsoletion, one cancellation,
+the same roster — but makes the test fail at
+`rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs:696`
+(`retirement event 22 is announced before the join event 18`), `test result: FAILED` (exit 101):
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_join__002__optional_siblings_handled_correctly
+thread 'wf_join_002__optional_siblings_handled_correctly' panicked at test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs:696:9:
+WorkflowHarness/L4 Adversarial: retirement event 22 is announced before the join event 18
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+MUTATION_B_EXIT=101
+```
+
+The production file was restored byte-for-byte (`cmp` clean against the pre-mutation copy) after both mutations and the
+test is green again (`TEST_EXIT=0`), so both new clauses are load-bearing. An unrelated, pre-existing untracked file
+`rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs` (another agent's) was present in the
+working tree at run time; it was left untouched and is not part of this candidate.
