@@ -28,10 +28,10 @@ derives a different id; the store refuses a recomputed duplicate id (`COMMAND_DU
 
 ## Context refs
 
-- `rust/test-harness/tests/wf_command__001__deterministic_command_id.rs:278-477` — the canonical test.
-- `rust/core/workflow/src/engine/handle_join.rs:215-216` — `visit_sequence = command_visit_count + 1`, then `command_id` from the triple.
-- `rust/core/workflow/src/engine/handle_join.rs:373-377` — `command_id(instance, node, visit_sequence)`, the derivation production runs.
-- `rust/core/workflow/src/memory.rs:598-625` — the duplicate-command refusal (`COMMAND_DUPLICATE`), the dedup key the deterministic id supplies.
+- `rust/test-harness/tests/wf_command__001__deterministic_command_id.rs:276-502` — the canonical test.
+- `rust/core/workflow/src/engine/handle_join.rs:201-202` — `visit_sequence = command_visit_count + 1`, then `command_id` from the triple.
+- `rust/core/workflow/src/engine/handle_join.rs:359-363` — `command_id(instance, node, visit_sequence)`, the derivation production runs.
+- `rust/core/workflow/src/memory.rs:583-594` — the duplicate-command refusal (`COMMAND_DUPLICATE`), the dedup key the deterministic id supplies.
 - `rust/core/workflow/src/neon/new_id.rs:7-9` — `uuid_v4()`, the instance id minted once and never re-derived, so two independent runs are two distinct identities.
 
 ## Acceptance criteria
@@ -147,3 +147,30 @@ The added fault case: a command carrying a **fresh** command id (`sha256_hex("ts
 already-commanded `(instance, emit, visit 1)` triple is still refused with `COMMAND_VISIT_DUPLICATE`, so a
 non-deterministic id cannot mint a second command into a spent visit; the id dedup (`COMMAND_DUPLICATE`) is not the
 only guard.
+
+## Raw verification — lead_post integration (2026-09-30)
+
+Lead post inspected the candidate and re-ran the story's own acceptance commands against the current tree. The
+canonical test `rust/test-harness/tests/wf_command__001__deterministic_command_id.rs` is committed at `7c030f01`;
+the frozen candidate SHA for QA is this lead_post integration commit (reported as `candidateSha` in the node's
+`FORGE_EVIDENCE_JSON`, visible as HEAD). The production citations in this packet had drifted under later commits, so
+they were re-pointed at the current tree — `visit_sequence`/`command_id` at
+`rust/core/workflow/src/engine/handle_join.rs:201-202`, the derivation at
+`rust/core/workflow/src/engine/handle_join.rs:359-363`, the `COMMAND_DUPLICATE` refusal at
+`rust/core/workflow/src/memory.rs:583-594`. No production or test behavior changed. Both commands are this node's
+own run, pasted with their exit status.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__001__deterministic_command_id
+running 1 test
+test wf_command_001__deterministic_command_id ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.14s
+CHECK_EXIT=0
+```
+
+Unrelated, pre-existing working-tree changes under `rust/core/workflow/` and `rust/forge/` (another story's in-flight
+work) were present at run time; they were left untouched and are not part of this story's candidate.
