@@ -238,7 +238,11 @@ fn identity_kinds(source: &str) -> Vec<String> {
     for segment in body.split(',') {
         let line = segment.lines().last().unwrap_or("").trim();
         let name = line.split_whitespace().next().unwrap_or("");
-        if !name.is_empty() && name.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_') {
+        if !name.is_empty()
+            && name
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+        {
             kinds.push(name.to_string());
         }
     }
@@ -248,8 +252,7 @@ fn identity_kinds(source: &str) -> Vec<String> {
 fn whatsapp_kind_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r#"(?i)"kind"\s*:\s*"whatsapp""#)
-            .expect("the whatsapp kind pattern is valid")
+        Regex::new(r#"(?i)"kind"\s*:\s*"whatsapp""#).expect("the whatsapp kind pattern is valid")
     })
 }
 
@@ -355,6 +358,22 @@ fn is_test_path(path: &str) -> bool {
     path.contains("/tests/") || path.ends_with("_test.rs") || path.contains(".test.")
 }
 
+/// A crate whose every module exists to run a test, so it is not production code even where it lives
+/// under `src/`.
+///
+/// `rust/test-harness/` is the arch-boundary harness: its `tests/` hold the cases and its `src/` holds the
+/// fixture client (`Database`, `ForgeHarness`) that writes and cleans up canonical rows on purpose —
+/// asking the rows instead of a DAO is the whole method, so writing them is the harness's job, not a
+/// second owner of a fact. `rust/test-harness/src/git.rs` is already named in
+/// `WORKTREE_CAPABILITY_FILES` for exactly this reason (a harness may create a disposable worktree).
+///
+/// The production-writer scan lacked the same line, so on 2026-09-30 `rust/test-harness/src/forge.rs`
+/// joined the `storyboard_story` writer set through its fixture `delete from storyboard_story` and turned
+/// the one-writer guard red — for a crate that is linked into no binary and serves nobody.
+fn is_test_support_crate(path: &str) -> bool {
+    path.starts_with("rust/test-harness/")
+}
+
 /// The guard's own source names every token it hunts, so a scan that counted itself would report its
 /// own text as a capability. The deleted TypeScript guard excluded itself for the same reason: it
 /// measures what production can do.
@@ -380,7 +399,9 @@ fn residue_scan(root: &Path) -> ResidueScan {
         // worktree-named directory is the residue itself, independent of what it contains.
         let path_tokens = worktree_tokens_in_path(&relative);
         if !path_tokens.is_empty() {
-            hits.entry(relative.clone()).or_default().extend(path_tokens);
+            hits.entry(relative.clone())
+                .or_default()
+                .extend(path_tokens);
         }
         if is_guard_source(&relative) || is_test_path(&relative) {
             continue;
@@ -427,7 +448,11 @@ fn writer_scan(root: &Path) -> WriterScan {
         if is_guard_source(&relative) || is_test_path(&relative) {
             continue;
         }
-        // Production Rust only: the audit is about the code paths that serve, not their tests.
+        // Production Rust only: the audit is about the code paths that serve, not their tests — and not
+        // their test harness either, whose `src/` is a fixture client (see `is_test_support_crate`).
+        if is_test_support_crate(&relative) {
+            continue;
+        }
         if !relative.contains("/src/") || extension(&relative) != Some("rs") {
             continue;
         }
@@ -523,7 +548,10 @@ mod tests {
         );
         assert!(!writes_table(text, "storyboard_story"));
         assert!(writes_table(text, "storyboard_story_run"));
-        assert!(writes_table("insert into storyboard_story(id) values ($1)", "storyboard_story"));
+        assert!(writes_table(
+            "insert into storyboard_story(id) values ($1)",
+            "storyboard_story"
+        ));
     }
 
     /// `.guard: AGENTS.md:166` — "Treat WhatsApp as a new identity type." Proves the parser reads the
@@ -652,7 +680,9 @@ mod tests {
              through the existing phone identity (PersonIdentityKind::Phone), never a fourth kind."
         );
         assert!(
-            !kinds.iter().any(|kind| kind.eq_ignore_ascii_case("whatsapp")),
+            !kinds
+                .iter()
+                .any(|kind| kind.eq_ignore_ascii_case("whatsapp")),
             "WhatsApp was introduced as an identity kind"
         );
 
