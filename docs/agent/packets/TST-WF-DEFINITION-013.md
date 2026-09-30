@@ -622,3 +622,67 @@ the equality contract is not vacuous and the cosmetic-vs-structural split is gen
 The working tree was clean at run time; no other lane's file was present and nothing outside this packet changed.
 
 FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"387d36a197a34002211fa27fa173e22ffc11f81e"}
+
+## Raw verification — fast_repair_smith (2026-09-30, task 58e9c9b5)
+
+The canonical test was already committed and green (last test-touching commit `387d36a1`), but the QA/packet commits
+after it moved HEAD past that candidate, so this node lands a fresh, load-bearing commit: the smith deliverable is the
+run's workspace HEAD. The one parser behaviour the contract did not yet pin is the after-root handling in `parse_xml`
+(`rust/forge/src/engine/xml.rs:69-73`): `skip_misc` runs once more after the root and then EOF is demanded. Two clauses
+are added to the canonical test and no production code changed.
+
+What changed in the canonical test (this node's own candidate):
+
+1. WHERE INTENDED (trailing misc) — whitespace, a declaration and a comment AFTER the root element are not structure,
+   so a definition that carries a trailing comment parses to a structurally equal graph (the post-root `skip_misc`).
+2. NEGATIVE (refusal) — non-misc content after the root (a second root-level element) is REFUSED, not silently
+   truncated into an equal graph (`unexpected content after root`).
+
+Both clauses are self-proving: the trailing-misc source is built by appending to the whole embedded definition (so it
+always changes the source), and the refusal clause asserts `is_err()` on content the parser would otherwise have to
+ignore — a parser that dropped either behaviour fails the corresponding `assert!`.
+
+Commands below are this node's own run, pasted with their exit status.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+running 1 test
+test wf_definition_013__forge_v6_xml_structural_equality_where_intended ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.53s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 21s
+CHECK_EXIT=0
+```
+
+Mutation check A (this node's own, the trailing-content refusal clause): deleting the post-root EOF guard
+(`rust/forge/src/engine/xml.rs:71-73`, `if !c.eof() { return Err(..) }`) makes the test fail exactly at the new clause,
+`test result: FAILED` (exit 101):
+
+```
+thread 'wf_definition_013__forge_v6_xml_structural_equality_where_intended' panicked at test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:726:5:
+WorkflowHarness/L0 Pure: non-misc content after the root is refused, not ignored into an equal graph
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.53s
+MUTATION_A_EXIT=101
+```
+
+Mutation check B (this node's own, the trailing-misc clause): deleting the post-root `skip_misc` call
+(`rust/forge/src/engine/xml.rs:70`) makes even the trailing-comment source fail to parse and the test fail,
+`test result: FAILED` (exit 101):
+
+```
+thread 'wf_definition_013__forge_v6_xml_structural_equality_where_intended' panicked at test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:135:10:
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+MUTATION_B_EXIT=101
+```
+
+The production file was restored byte-for-byte (`cmp` clean against the pre-mutation copy) and the test is green again
+(`TEST_EXIT=0`), so both new clauses are load-bearing and the contract is not vacuous.
+
+An unrelated in-flight WF-JOIN-002 lane had a modified
+`rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs` in the working tree at run time; it was
+left untouched and is not part of this candidate. Nothing outside the canonical test file and this packet changed.
+
+FORGE_EVIDENCE_JSON: {"qaPassed":null,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"<this commit>"}

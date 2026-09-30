@@ -351,6 +351,21 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
         "{HARNESS}: whitespace inside a close tag is not structure — it must parse to an equal graph"
     );
 
+    // 3k. WHERE INTENDED (trailing misc) — whitespace, a declaration and a comment AFTER the root element are not
+    //     structure either; `parse_xml` runs `skip_misc` once more after the root before it demands EOF
+    //     (`rust/forge/src/engine/xml.rs:69-73`), so a definition with a trailing comment must parse to a
+    //     structurally equal graph. A parser that ignored `skip_misc` after the root would refuse the definition
+    //     outright; one that treated the comment as content would report a difference the definition does not mean.
+    let trailing_misc = format!(
+        "{FORGE_SDLC_V6_XML}\n<!-- TST-WF-DEFINITION-013: a trailing comment is not structure -->\n<?after root?>\n   "
+    );
+    let trailing_misc_def = definition_from_xml(&trailing_misc)
+        .expect("trailing whitespace, a declaration and a comment after the root still parse");
+    assert!(
+        graphs_equal(&def.definition, &trailing_misc_def.definition),
+        "{HARNESS}: trailing misc after the root is not structure — it must parse to an equal graph"
+    );
+
     // 4. WHERE INTENDED (structural) — a real structural edit parses, but is NOT equal. Four independent facets are
     //    edited so the equality cannot be pinned to one serialized field: an edge (transition target), a decision
     //    arm's condition, a command node's command type, and the declared display order. Each parse must SUCCEED (the
@@ -701,6 +716,16 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
     assert!(
         definition_from_xml(&mismatched).is_err(),
         "{HARNESS}: a mismatched close tag is refused, not repaired into an equal graph"
+    );
+
+    //     A second root-level element after the root is not trailing misc: `parse_xml` demands EOF once
+    //     `skip_misc` is exhausted (`rust/forge/src/engine/xml.rs:71-73`), so a definition with content after its
+    //     root is REFUSED rather than silently truncated into an equal graph. The anchor is the whole definition, so
+    //     the edit always changes the source and the clause cannot pass on a no-op.
+    let trailing_content = format!("{FORGE_SDLC_V6_XML}\n<extra/>\n");
+    assert!(
+        definition_from_xml(&trailing_content).is_err(),
+        "{HARNESS}: non-misc content after the root is refused, not ignored into an equal graph"
     );
 
     let duplicated =
