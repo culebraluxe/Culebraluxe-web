@@ -32,6 +32,10 @@ use workflow::{
 const COMMAND_NODE: &str = "emit";
 /// The command type the node runs.
 const COMMAND_TYPE: &str = "tst.emit";
+/// A second command node, so the contract can show the visit count is per node, not per instance.
+const SECOND_COMMAND_NODE: &str = "notify";
+/// The second command node's type.
+const SECOND_COMMAND_TYPE: &str = "tst.notify";
 /// The definition key and version registered with the engine.
 const DEFINITION_KEY: &str = "TST-WF-COMMAND-002";
 const DEFINITION_VERSION: i32 = 1;
@@ -396,5 +400,137 @@ fn wf_command_002__command_generated_once_per_node_visit() {
         skipped_instance.status,
         ProcessStatus::Completed,
         "{HARNESS}: the run that skips the command node completed normally"
+    );
+
+    // PER-NODE ("once per *node* visit"). The visit is counted per `(instance, node)` — production's
+    // `command_visit_count` filters on both columns (rust/core/workflow/src/neon/new_id.rs:710-711, mirrored at
+    // rust/core/workflow/src/memory.rs:589-596) — not per instance. A second command node reached once is its own
+    // visit 1, so its command is derived with visit sequence 1, never a per-instance visit 2. A single command node
+    // cannot expose the difference: every command is that node's, so an instance-wide counter would still sequence
+    // 1 then 2 and the main case would pass. This scenario is the bypass that closes it — if the counter ever
+    // stopped filtering by `node_id`, the second node's first visit would derive sequence 2 and the assertion below
+    // would fail.
+    let per_node_app = FakeApplicationPort::scripted(vec![]);
+    let per_node_recorder = per_node_app.clone();
+    let per_node_harness = EngineHarness::with_application_port(
+        TestClock::at_unix_millis(1_700_000_000_002),
+        Box::new(per_node_app),
+    );
+
+    let mut per_node_graph = BTreeMap::new();
+    per_node_graph.insert(
+        COMMAND_NODE.to_string(),
+        NodeDefinition {
+            id: COMMAND_NODE.to_string(),
+            node_type: "command".to_string(),
+            command_type: Some(COMMAND_TYPE.to_string()),
+            transition: Some("next".to_string()),
+            transitions: Some(vec![TransitionDefinition {
+                name: "next".to_string(),
+                to: SECOND_COMMAND_NODE.to_string(),
+                condition: None,
+                required: None,
+            }]),
+            ..Default::default()
+        },
+    );
+    per_node_graph.insert(
+        SECOND_COMMAND_NODE.to_string(),
+        NodeDefinition {
+            id: SECOND_COMMAND_NODE.to_string(),
+            node_type: "command".to_string(),
+            command_type: Some(SECOND_COMMAND_TYPE.to_string()),
+            transition: Some("done".to_string()),
+            transitions: Some(vec![TransitionDefinition {
+                name: "done".to_string(),
+                to: "end".to_string(),
+                condition: None,
+                required: None,
+            }]),
+            ..Default::default()
+        },
+    );
+    per_node_graph.insert(
+        "end".to_string(),
+        NodeDefinition {
+            id: "end".to_string(),
+            node_type: "end".to_string(),
+            outcome: Some(ProcessOutcome::Completed),
+            ..Default::default()
+        },
+    );
+    per_node_harness
+        .engine()
+        .seed_definition(ProcessDefinition {
+            id: "tst-wf-command-002-per-node".to_string(),
+            tenant_id: None,
+            key: "TST-WF-COMMAND-002-PER-NODE".to_string(),
+            version: 1,
+            name: "TST WF.COMMAND 002 PER-NODE".to_string(),
+            description: None,
+            definition: ProcessGraph {
+                nodes: per_node_graph,
+                start_node_id: COMMAND_NODE.to_string(),
+                display_order: None,
+            },
+            status: DefinitionStatus::Active,
+        })
+        .expect("the two-command-node definition registers with the engine");
+    let per_node = per_node_harness
+        .engine()
+        .start_process(StartProcessParams {
+            definition_key: "TST-WF-COMMAND-002-PER-NODE".to_string(),
+            version: Some(1),
+            business_key: None,
+            variables: Value::object(),
+            started_by: "tst".to_string(),
+            tenant_id: None,
+            subject: None,
+        })
+        .expect("the two-command-node process runs to completion");
+
+    // Exactly one command for each node — and the second node's only command is its visit 1, not a per-instance
+    // sequence 2. That equality is what the per-node clause buys and what an instance-wide counter would break.
+    let per_node_requests = per_node_recorder.requests();
+    assert_eq!(
+        per_node_requests.len(),
+        2,
+        "{HARNESS}: each of the two command nodes generated exactly one command"
+    );
+    assert_eq!(
+        per_node_requests[0].command_id,
+        command_id(&per_node.process_instance_id, COMMAND_NODE, 1),
+        "{HARNESS}: the first node's only visit is that node's visit 1"
+    );
+    assert_eq!(
+        per_node_requests[1].command_id,
+        command_id(&per_node.process_instance_id, SECOND_COMMAND_NODE, 1),
+        "{HARNESS}: the second node's first visit is its own visit 1, not a per-instance visit 2"
+    );
+    assert_ne!(
+        per_node_requests[1].command_id,
+        command_id(&per_node.process_instance_id, SECOND_COMMAND_NODE, 2),
+        "{HARNESS}: the second node was not charged a second visit"
+    );
+
+    // The store agrees: each node carries its own visit count of one, read back through the production `Store`.
+    for (node, expected) in [(COMMAND_NODE, 1_i32), (SECOND_COMMAND_NODE, 1_i32)] {
+        assert_eq!(
+            per_node_harness
+                .store()
+                .with_tx(|tx| tx.command_visit_count(&per_node.process_instance_id, node))
+                .expect("the store answers the per-node visit count"),
+            expected,
+            "{HARNESS}: {node} carries its own visit count"
+        );
+    }
+    assert_eq!(
+        per_node_harness
+            .store()
+            .with_tx(|tx| tx.get_instance(&per_node.process_instance_id))
+            .expect("the per-node instance is readable")
+            .status,
+        ProcessStatus::Completed,
+        "{HARNESS}: the two-command-node run completed normally"
     );
 }
