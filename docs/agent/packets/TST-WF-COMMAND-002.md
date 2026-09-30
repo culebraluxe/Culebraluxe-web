@@ -180,3 +180,38 @@ TEST_EXIT=0
 $ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
 CHECK_EXIT=0
 ```
+
+## Raw verification — repair_smith fresh candidate (2026-09-30)
+
+The prior repair_smith re-run committed the packet only, so its commit was already HEAD at retry start and no fresh
+`smith-candidate` was delivered — the exact delivery miss repaired for TST-WF-COMMAND-001 and -003. This run makes a
+load-bearing test change and commits it, so the candidate is a new commit descending from the retry base.
+
+What changed in the canonical test
+`rust/test-harness/tests/wf_command__002__command_generated_once_per_node_visit.rs`:
+
+1. The fault-side outcome boundary was unasserted. The test now reads `command.failed` from the durable history and
+   asserts exactly one, naming the failing visit's own command id (`requests[1].command_id`). Before this, a fault
+   that emitted no failure event, a duplicate failure event, or a mislabelled one could pass while only
+   `command.requested` and `command.completed` matched.
+2. The per-node clause was pinned only in memory (adapter ids + `command_visit_count`). It is now also pinned on the
+   durable log: the per-node scenario asserts the history's `command.requested` ids equal exactly the two generated
+   ids, one per node, each that node's own visit 1. If `command_visit_count` ever stopped filtering by `node_id`,
+   the second node would derive a per-instance sequence and the logged id would disagree with the boundary.
+
+No production code changed; the two edits strengthen the test's negative and per-node coverage. Unrelated
+working-tree changes under `rust/core/workflow/` and `rust/forge/` (parallel-lane work, not this story) were present
+at run time and are deliberately not part of this candidate.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__002__command_generated_once_per_node_visit
+running 1 test
+test wf_command_002__command_generated_once_per_node_visit ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 34.40s
+CHECK_EXIT=0
+```

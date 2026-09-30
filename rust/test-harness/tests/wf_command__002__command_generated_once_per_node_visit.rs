@@ -254,6 +254,33 @@ fn wf_command_002__command_generated_once_per_node_visit() {
         "{HARNESS}: exactly one completion, for the one successful visit; the fault completed nothing"
     );
 
+    // The fault side of the same log: the failing visit emitted exactly one `command.failed`, naming its own
+    // command and no other. Together with the one `command.requested` per visit above, a visit that fails still
+    // produced exactly one generation and exactly one failure event — a fault cannot drop the generation, hide a
+    // second one, or mark a visit failed twice. This is the outcome boundary the completion assertion does not
+    // reach, so a fault that mislabelled or duplicated the failure would fail here even while requested/completed
+    // still matched.
+    let failed_ids: Vec<String> = harness
+        .store()
+        .with_tx(|tx| tx.history(&instance_id, 128))
+        .expect("the instance history reads")
+        .into_iter()
+        .filter(|event| event.event_type == "command.failed")
+        .map(|event| {
+            event
+                .data
+                .get("commandId")
+                .and_then(Value::as_str)
+                .expect("every command.failed event carries its commandId")
+                .to_string()
+        })
+        .collect();
+    assert_eq!(
+        failed_ids,
+        vec![requests[1].command_id.clone()],
+        "{HARNESS}: exactly one failure, for the failing visit's own command; a fault cannot generate or fail a second"
+    );
+
     // FAULT: the second (failing) command still produced one command for its visit, and it ended the run. A fault
     // must not turn one visit into zero commands or into two.
     let instance = harness
@@ -524,6 +551,38 @@ fn wf_command_002__command_generated_once_per_node_visit() {
             "{HARNESS}: {node} carries its own visit count"
         );
     }
+
+    // The per-node clause on a second, independent boundary: the durable log names exactly one `command.requested`
+    // per node — the two ids the boundary generated, each that node's own visit 1. The store count above and the
+    // adapter ids prove it in memory; the event log proves it durably. If `command_visit_count` ever stopped
+    // filtering by `node_id`, the second node would derive a per-instance sequence and the logged id would not
+    // match the adapter's, so the log and the boundary would disagree.
+    let mut per_node_logged: Vec<String> = per_node_harness
+        .store()
+        .with_tx(|tx| tx.history(&per_node.process_instance_id, 128))
+        .expect("the per-node history reads")
+        .into_iter()
+        .filter(|event| event.event_type == "command.requested")
+        .map(|event| {
+            event
+                .data
+                .get("commandId")
+                .and_then(Value::as_str)
+                .expect("every command.requested event carries its commandId")
+                .to_string()
+        })
+        .collect();
+    per_node_logged.sort();
+    let mut per_node_generated: Vec<String> = per_node_requests
+        .iter()
+        .map(|request| request.command_id.clone())
+        .collect();
+    per_node_generated.sort();
+    assert_eq!(
+        per_node_logged, per_node_generated,
+        "{HARNESS}: the durable log names exactly one command per node, each that node's own visit 1"
+    );
+
     assert_eq!(
         per_node_harness
             .store()
