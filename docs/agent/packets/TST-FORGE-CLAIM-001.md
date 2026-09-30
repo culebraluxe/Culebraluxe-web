@@ -163,3 +163,58 @@ CHECK_EXIT=0
 
 The only URL read for the live run was `DATABASE_URL_DEV` (extracted from `.env.local`); the shell's `APP_ENV` was
 left untouched and the test declares DEV explicitly, so PRODUCTION was never connected to.
+
+## Verification — lead_solo_implement (2026-09-30)
+
+The canonical test already exists on the base (`c8c1ab94`, isolated `1a32ee49`) and satisfies every acceptance
+criterion, so this node changed no production or test code; the intended change is this verification record. The
+production citations in the test header were re-checked against the current tree and all resolve:
+`claim_specific_agent_work` at `rust/core/db/src/forge_engine.rs:640`, `begin_agent_work_run` at `:787`, its CAS read at
+`:795-806`, the Story Run insert at `:824-848`, the predicate update at `:853-869`, `finish_agent_work_run` at `:1014`,
+`requeue_stale_work` at `rust/core/db/src/forge_control.rs:117`, and `guard_target` at
+`rust/test-harness/src/database.rs:68-75`.
+
+Both acceptance commands are this node's own run, pasted with their exit status:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ignored, needs DATABASE_URL_DEV (a disposable DEV branch); TestDatabase refuses PROD before any socket
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run -- --ignored
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.79s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 47s
+CHECK_EXIT=0
+```
+
+**Mutation check (this node's own) — the CAS is load-bearing, the contract is not vacuous.** Removing the
+`and state='Claimed'` predicate from the CAS *read* inside `begin_agent_work_run`
+(`rust/core/db/src/forge_engine.rs:797`) lets a row that has already left `Claimed` reach the run insert, so a second
+begin opens a second `storyboard_story_run`, and the test fails at
+`rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs:288`
+(`the refused second begin opened no run`, `left: 2`, `right: 1`):
+
+```
+$ cargo test ... --test forge_claim__001__only_owner_starts_run -- --ignored
+test forge_claim_001__only_owner_starts_run ... FAILED
+thread '...' panicked at test-harness/tests/forge_claim__001__only_owner_starts_run.rs:288:5:
+assertion `left == right` failed: ForgeHarness/L2 Persistence: the refused second begin opened no run
+  left: 2
+ right: 1
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.50s
+MUTATION_EXIT=101
+```
+
+The production file was restored byte-for-byte (`git diff --stat rust/core/db/src/forge_engine.rs` empty) and the live
+re-run is green (`LIVE_EXIT=0`, `1 passed`, 18.79s). The one proof story stranded by the failing mutation run was
+reaped by a PROD-refusing one-off against DEV (scoped to `TST-FORGE-CLAIM-001-` and older than the live window); no
+working-tree change beyond this packet section is part of this node.
