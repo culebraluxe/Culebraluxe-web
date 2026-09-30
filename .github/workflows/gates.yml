@@ -345,9 +345,11 @@ jobs:
           echo "rustfmt clean — four module trees deferred to their owner (cli/src/apple_mail, cli/src/forge/lint, core/domain/src/applemail, core/domain/src/apple_messages)"
 
       - name: install cargo-nextest
+        if: ${{ !cancelled() }}
         uses: taiki-e/install-action@nextest
 
       - name: rust tests
+        if: ${{ !cancelled() }}
         working-directory: rust
         run: cargo nextest run --workspace --profile ci
 
