@@ -617,3 +617,60 @@ that is the coverage this clause adds. An unrelated, pre-existing untracked file
 working tree at run time; it was left untouched and is not part of this candidate.
 
 FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false}
+
+## QA re-verify — fast_qa_verify (2026-09-30, task 99501fef)
+
+The `fast_qa_verify` node (task `99501fef-7cb9-4c3d-b014-c7ca6b1fada0`) re-ran the story's own acceptance commands
+against the current tree. Verdict: **PASS**. The canonical file
+`rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs` is tracked, contains exactly the one
+test `wf_join_002__optional_siblings_handled_correctly`, and proves "optional siblings handled correctly" at the
+production `WorkflowEngine`/`TxStore`/`Store` boundary. The candidate under test is the workspace HEAD
+`81193a5b985da581048d500d2c6fe359e595ef22` (the `fast_repair_smith` default-required commit); this node changes
+documentation only — no production or test behavior changed.
+
+The production boundary the test drives was re-read and matches every cited clause:
+`rust/core/workflow/src/engine/handle_join.rs:42` (`count_required_active_siblings` is the only gate),
+`:46-80` (skip optional siblings: token `Skipped`, task obsoleted, job cancelled with the worker and lease cleared),
+`:82-86` (roster from `list_children`), `:106-118` (the one `token.joined` event with `joinNodeId`/`branches`/
+`resultTokenId`); `rust/core/workflow/src/memory.rs:283-294` and `:296-308` (the `required` / `!required` filters);
+`rust/core/workflow/src/engine/execute_node_leave.rs:388` (`required.unwrap_or(true)`); and
+`rust/core/workflow/src/store.rs:146-165` (`repeat_connection_failures`).
+
+Both commands are this node's own run, pasted with their exit status.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_join__002__optional_siblings_handled_correctly
+running 1 test
+test wf_join_002__optional_siblings_handled_correctly ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 36s
+CHECK_EXIT=0
+```
+
+Mutation check (the required-only join gate is load-bearing): deleting the `&& t.required` filter from
+`count_required_active_siblings` at `rust/core/workflow/src/memory.rs:291` makes the gate count all four active
+siblings and the test fails at
+`rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs:382`
+(`exactly the one required branch is counted — the optional siblings are not`), `test result: FAILED` (exit 101):
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_join__002__optional_siblings_handled_correctly
+thread 'wf_join_002__optional_siblings_handled_correctly' panicked at test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs:382:5:
+assertion `left == right` failed: WorkflowHarness/L4 Adversarial: exactly the one required branch is counted — the optional siblings are not
+  left: 4
+ right: 1
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+MUTATION_EXIT=101
+```
+
+The production file was restored byte-for-byte (`cmp` clean against the pre-mutation copy, `git diff --stat` empty) and
+the test is green again (`TEST_EXIT=0`), so the optional-sibling split is not vacuous. An unrelated, pre-existing
+untracked file `rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs` (another agent's) was
+present in the working tree at run time and is compiled by `--all-targets`; it was left untouched and is not part of
+this candidate.
+
+FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"81193a5b985da581048d500d2c6fe359e595ef22"}
