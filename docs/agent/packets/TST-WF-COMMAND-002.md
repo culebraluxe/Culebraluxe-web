@@ -160,3 +160,23 @@ Mutation check (the per-node bypass): removing the `node_id` filter from
 (`the second node's first visit is its own visit 1, not a per-instance visit 2`), `test result: FAILED` (exit 101).
 The production file was restored with `git checkout --` and the test is green again, so the per-node clause is
 load-bearing and the contract is not vacuous.
+
+## Raw verification — repair_smith re-run (2026-09-30)
+
+The repair_smith node was re-issued for this story with the canonical test already present and green at
+`rust/test-harness/tests/wf_command__002__command_generated_once_per_node_visit.rs`. No production or test change was
+required: the acceptance commands below are this node's own run against the current tree, pasted with their exit
+status. The candidate is the git commit this block is committed with. Unrelated working-tree changes under
+`rust/core/workflow/` and `rust/forge/` (parallel-timer concurrency work, not this story) were present at run time
+and are deliberately not part of this candidate.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__002__command_generated_once_per_node_visit
+running 1 test
+test wf_command_002__command_generated_once_per_node_visit ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+CHECK_EXIT=0
+```
