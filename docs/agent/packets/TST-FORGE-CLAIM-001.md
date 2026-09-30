@@ -927,3 +927,78 @@ load-bearing refusal suite — the exclusive second claim, a second begin, a req
 unknown id and a settled claim are each refused, committing nothing and opening no run — so the contract named by this
 story remains non-vacuous. Pre-existing `forge`/`workflow`-crate warnings were present at run time and are not part of
 this candidate. The candidate this node freezes for QA is the git commit this block is committed with.
+
+## Verification — qa_verify (task bf08397b, 2026-09-30)
+
+**Verdict: PASS (qaPassed = true).** The frozen candidate is `84d4f588b427720771596b3965ce073b465123bd` (the
+`lead_post` freeze for this story; HEAD had advanced to `061d34a0` by a peer's CLaim-003 packet-only commit before this
+node finished, which does not touch this story's artifact). The canonical test
+`rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs:1-462` is byte-identical at the candidate and at
+HEAD — the artifact blob is `dbd996abe948f1dc4e1b715a2cd32f71df68aead` at `84d4f588`, at `f837d71f` and at `b61d210b`
+alike, `git diff f837d71f HEAD -- <file>` is empty, and the working tree file is clean
+(`md5 45a45cc696e8eaabb268ecfdcdb32b48`, identical to every digest recorded under the earlier QA/repair sections). The
+production CAS file is also unchanged (`md5 rust/core/db/src/forge_engine.rs` = `7d631a70f1b54334586adccb7571bd14`, last
+moved by `728c107e`). The file holds exactly one `#[tokio::test]` and exactly one
+`async fn forge_claim_001__only_owner_starts_run`, and both acceptance commands are green with the live L2 DEV contract
+green.
+
+The boundary is the production one: `ForgeEngineDao::begin_agent_work_run` opens the `storyboard_story_run` only for a
+live `Claimed` row. The CAS guard is confirmed read-only against the current bytes — the read
+`select story_id from agent_work_item where id=$1::uuid and state='Claimed' for update`
+(`rust/core/db/src/forge_engine.rs:806-814`) returns `None` for any non-`Claimed` row *before* the run insert, and the
+state move carries the same predicate `where id=$1::uuid and state='Claimed'` (`:864-870`); the run insert is in that
+same transaction (`:835-859`). The test's refused-second-begin assertion (run count stays 1) and its whole-durable-row
+byte-identity assertion fail if either guard is removed, so the contract is not vacuous. **No mutation was applied in
+this node**: the shared checkout had concurrent writers active (a peer's CLaim-003 `repair_smith`, a peer assay running
+`arch_boundary__010__*`, and the engine binaries for CLaim-001/003), so mutating `rust/core/db/src/forge_engine.rs`
+here risked colliding with a peer's own build/mutation; non-vacuity was re-confirmed read-only instead, and the
+mutation checks recorded under the earlier `lead_solo_implement`/`repair_smith` nodes (`left: 2`, `right: 1`, exit 101)
+stand.
+
+Commands run from the repo root, output pasted with exit status:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ignored, needs DATABASE_URL_DEV (a disposable DEV branch); TestDatabase refuses PROD before any socket
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run -- --ignored
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 24.41s
+LIVE_EXIT=0
+PRE_MD5=7d631a70f1b54334586adccb7571bd14
+POST_MD5=7d631a70f1b54334586adccb7571bd14
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6m 21s
+CHECK_EXIT=0
+
+$ git rev-parse HEAD:rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs
+dbd996abe948f1dc4e1b715a2cd32f71df68aead
+$ git diff f837d71f HEAD -- rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs
+(empty — the candidate artifact is unchanged)
+ARTIFACT_DIFF_EXIT=0
+
+$ md5 -q rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs rust/core/db/src/forge_engine.rs
+45a45cc696e8eaabb268ecfdcdb32b48
+7d631a70f1b54334586adccb7571bd14
+```
+
+The live run calls `TestDatabase::connect_declared(Some("dev"), Some("dev"))`, which resolves the harness's PROD refusal
+before any socket (`guard_target`, `rust/test-harness/src/database.rs:68-75`) and asserts `target = Dev` before any
+assertion executes; `Database::connect_target(DbTarget::Dev)` reads only `DATABASE_URL_DEV`, then the test reaps its
+proof stories by its own `TestDatabase` namespace, so PRODUCTION is never connected to and the disposable DEV branch is
+left as it was found. The live run again exercised the load-bearing refusal suite — the exclusive second claim, a second
+begin, a requeued claim, an unclaimed `Ready` item, an unknown id and a settled claim are each refused, committing
+nothing and opening no run — so the contract named by this story remains non-vacuous. The `md5` of
+`rust/core/db/src/forge_engine.rs` was identical before and after the run, so no production byte moved. Pre-existing
+`forge`/`workflow`-crate warnings (e.g. `durable_completion_ledger` unused `mut`) were present at run time and are not
+part of this candidate. An unrelated in-flight working-tree change (another story: an untracked
+`rust/test-harness/tests/arch_boundary__010__entitlement_owns_action_screen_authorization.rs`) was present at run time,
+left untouched, and is **not** part of this candidate; the workspace check compiled it without error. All acceptance
+criteria are met by candidate `84d4f588`; no open item belongs to this story.
