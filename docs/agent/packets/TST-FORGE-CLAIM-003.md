@@ -1007,3 +1007,69 @@ proof stories are deleted at the end, leaving the disposable DEV branch as it wa
 landed on `main` during this node (`690d24f5`, `a5f4edb2`); they do not touch this test or its boundary, and the
 acceptance commands above were run against a tree that includes them. The candidate this node commits is the git commit
 this section is committed with.
+
+## Verification — lead_post re-freeze (re-issue 2, 2026-09-30)
+
+**Integration frozen (re-issue, task `f84b5550-1c1f-4ca3-809f-3cb026211932`).** This `lead_post` node was issued after
+the `repair_smith self-heal` (task `0bd01c42`) closed the no-write half of the negative contract and landed candidate
+`6b03ec79`. There was no split to integrate (the story is serially authored) and no production or test code needed to
+change — the canonical test is judged correct as it stands, so this node re-inspects the tree, re-runs the story's two
+acceptance commands plus the live L2 DEV contract, and freezes a fresh candidate for QA. The only working-tree change
+this node commits is this packet section.
+
+The canonical test `rust/test-harness/tests/forge_claim__003__stale_recovery.rs` is the QA-frozen artifact with the
+self-heal no-write proof (sha256 `a2e78bd618c400191dca0d830e092f26001c20d8818d44224ada46bd11e9df56`), and every
+production citation it names re-resolves against the current tree by declaration line: `stale_agent_work` at
+`rust/core/db/src/forge_control.rs:39` (predicate `updated_at < now() - ($1::text || ' minutes')::interval` at `:47`),
+`hold_stale_work` at `:78`, `requeue_stale_work` at `:117`, `recover_stale_agent_work` at
+`rust/forge/src/engine/worker.rs:176`, the harness PROD refusal `guard_target` at `rust/test-harness/src/database.rs:68`,
+and `connect_declared` at `:116`. The production bytes are unchanged for this node: `rust/core/db/src/forge_control.rs`
+sha256 `a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`, `rust/forge/src/engine/worker.rs` sha256
+`4131fdd664ef2f5cc48a0cc454a22997d45da592b664874fc3655f9e977c6bad`, `rust/test-harness/src/database.rs` sha256
+`493e72466fdb79686f8e9692d5046a190290d9b86d921cc2a5623943d0786bfa`.
+
+The staleness window is load-bearing and the contract is not vacuous: `stale_agent_work` admits a row only when
+`state in ('Claimed','Running','Paused')` **and** `updated_at < now() - interval`, so a claim heartbeated inside the
+window cannot be discovered and a settled `Done` row is excluded by the state filter — the two properties the test's
+live-peer-survival and settled-no-op assertions pin, now against the whole row (including `updated_at`). This node did
+not re-run the mutation (the `qa_verify` nodes inverted `:47` independently and observed the test fail at
+`rust/test-harness/tests/forge_claim__003__stale_recovery.rs:220`); the code was read only.
+
+Commands run from the repo root, output pasted with exit status:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+running 1 test
+test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+TEST_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+running 1 test
+test forge_claim_003__stale_recovery ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.27s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+warning: unused import: `Store`
+  --> core/workflow/src/concurrency.rs:70:24
+warning: `workflow` (lib test) generated 2 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.05s
+CHECK_EXIT=0
+```
+
+The live run asserts `target() == "dev"` before any assertion, calls `TestDatabase::connect_declared(None, Some("test"))`
+with an explicit declared environment (the shell's `APP_ENV` was `production`, which the explicit declaration
+overrides), and `Database::connect_target(DbTarget::Dev)` reads only `DATABASE_URL_DEV`
+(`ep-muddy-lab-axtgckj9-pooler`, distinct from the PROD host `ep-flat-art-ax92tn7a-pooler`); PRODUCTION was never
+connected to. The six proof stories are deleted at the end, leaving the disposable DEV branch as it was found. The live
+run demonstrates the contract end to end: the windowed predicate discovers the silently-stale claim and not the live
+peer; `requeue_stale_work` returns it to `Ready`/`Ready` and advances `updated_at`; landed work settles `Done`, a
+human-held story settles `Error`, and an already-settled claim is left `Done`; the terminal `hold_stale_work` path moves
+the claim to `Error` and the board to `Hold` in one write; and the `with_rollback` probe shows the committed `Ready` row
+survives an uncommitted rewrite. The negative cases (live survivor, no double recovery, landed/held refusals) keep the
+test non-vacuous. The workspace check emitted only pre-existing `workflow`-crate warnings
+(`core/workflow/src/concurrency.rs:70`), unrelated to this candidate. The working tree was clean at freeze time. The
+candidate this node freezes for QA is the git commit this block is committed with.
