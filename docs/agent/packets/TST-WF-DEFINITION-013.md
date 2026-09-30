@@ -27,7 +27,7 @@ structural-equality predicate is `graphs_equal` (`rust/forge/src/engine/version_
 
 ## Context refs
 
-- `rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:1-564` — the canonical test.
+- `rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:1-638` — the canonical test.
 - `rust/forge/src/engine/xml.rs:352-426` — `parse_process_definition_xml` / `definition_from_xml`, the production parser.
 - `rust/forge/src/engine/xml.rs:196-199` — the nested-comment skip inside an element's children.
 - `rust/forge/src/engine/version_policy.rs:39-41` — `graphs_equal`, the production equality predicate.
@@ -340,3 +340,60 @@ An untracked `arch_boundary__011__qa_cannot_own_git_mutations.rs` (another lane)
 time; it was left untouched and is not part of this candidate.
 
 FORGE_EVIDENCE_JSON: {"qaPassed":null,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"d8862348aa3b872bb2d5682b21b998cc5571241f"}
+
+## Raw verification — fast_repair_smith self-heal re-run (2026-09-30, task fc4b0878)
+
+This run was HELD because it did not deliver a `smith-candidate`: the smith deliverable is the run's workspace HEAD
+(`OpenCodeHarness::run_role` sets `candidate_sha = git rev-parse HEAD`, `rust/forge/src/engine/opencode.rs:316-324`), and
+the packet's own documentation commit had moved HEAD past the prior test candidate. The canonical test was already
+committed and green, so this node lands a fresh, load-bearing commit — the candidate is the commit this block records —
+and changes no production code.
+
+What changed in the canonical test (this node's own candidate, `8f99b394`):
+
+1. WHERE INTENDED (node identity metadata) — a node's `label` (`name`), a node's `description`, and a task's
+   `form-key` (`form_key`) are each read by the production parser (`rust/forge/src/engine/xml.rs:263-265,292`) and
+   written by the production codec (`rust/core/workflow/src/json_codec.rs:246-251,273-275`), so a change to any one
+   parses and is structurally unequal.
+2. WHERE INTENDED (dynamic-fork control) — a dynamic fork's `count-variable`, `plan-variable`, `branch-node` and
+   `minimum` are structure (`rust/forge/src/engine/xml.rs:328-337`, `rust/core/workflow/src/json_codec.rs:309-326`);
+   `maximum` was already pinned.
+3. `routing_signature` now carries `formKey`, so step 5 proves it also survives the production JSON codec round trip.
+
+Each clause is self-proving: every `replacen(.., 1)` targets the single/first occurrence the production v6 XML declares,
+so if an anchor were absent the edited source would be byte-identical and the `assert!(!graphs_equal(..))` would fail —
+the parse never silently no-ops.
+
+Commands below are this node's own run, pasted with their exit status.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+running 1 test
+test wf_definition_013__forge_v6_xml_structural_equality_where_intended ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.40s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 21s
+CHECK_EXIT=0
+```
+
+Mutation check (this node's own, the form-key clause): dropping the production read of `form-key`
+(`rust/forge/src/engine/xml.rs:292`, `node.form_key = el.attrs.get("form-key").cloned();` → `node.form_key = None;`)
+makes the test fail exactly at the new clause, `test result: FAILED` (exit 101):
+
+```
+thread 'wf_definition_013__forge_v6_xml_structural_equality_where_intended' panicked at test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:439:5:
+WorkflowHarness/L0 Pure: a task's form-key is structure — changing it is a structural difference
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.36s
+MUTATION_EXIT=101
+```
+
+The production file was restored byte-for-byte (`cmp` clean against the pre-mutation copy) and the test is green again
+(`TEST_EXIT=0`), so the new clauses are load-bearing and the contract is not vacuous.
+
+An untracked `arch_boundary__011__qa_cannot_own_git_mutations.rs` (another lane) was present in the working tree at run
+time; it was left untouched and is not part of this candidate.
+
+FORGE_EVIDENCE_JSON: {"qaPassed":null,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"8f99b3944da12b0d88e375d6d33715782e551f92"}
