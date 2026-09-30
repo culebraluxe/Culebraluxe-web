@@ -334,3 +334,51 @@ The live `-- --ignored` run needs a disposable DEV branch (`DATABASE_URL_DEV`); 
 `.env.local`, so the L2 contract is skipped here and was already proven green by the three prior nodes
 (15.29s–19.61s, `LIVE_EXIT=0`). The harness refuses PRODUCTION before any socket regardless. The candidate this node
 freezes for QA is the git commit this block is committed with.
+
+## Verification — lead_post re-freeze (2026-09-30)
+
+**Integration frozen (re-issue).** `lead_post` was re-issued after the `repair_smith` self-heal landed, so this node
+re-inspects the tree, re-runs the story's own assay commands against the disposable DEV branch, and freezes a fresh
+candidate for QA. There was no split to integrate (the story is serially authored) and no production or test code
+needed to change — the canonical test is judged correct as it stands.
+
+The canonical test `rust/test-harness/tests/forge_claim__003__stale_recovery.rs:1-462` resolves its production
+citations against this tree: `stale_agent_work` at `rust/core/db/src/forge_control.rs:39-54`, `hold_stale_work` at
+`:78-108`, `requeue_stale_work` at `:117-202`, `recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176-224`,
+`guard_target` at `rust/test-harness/src/database.rs:68-75`, and `connect_declared` at `:116-123`. The live run
+asserted `target = dev` before any assertion ran and deletes its proof stories at the end; PRODUCTION was never
+connected to. Unlike the prior re-issue, `DATABASE_URL_DEV` is set in this environment and the `-- --ignored` L2
+contract ran green here, not skipped.
+
+Commands run from the repo root, output pasted with exit status:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+running 1 test
+test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+running 1 test
+test forge_claim_003__stale_recovery ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.75s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.28s
+CHECK_EXIT=0
+```
+
+The live run demonstrates the contract end to end: the windowed predicate discovers the silent claim and not the
+live peer; `requeue_stale_work` returns it to `Ready`/`Ready` and advances `updated_at`; landed work settles `Done`,
+a human-held story settles `Error`, and an already-settled claim is left `Done`; the terminal `hold_stale_work` path
+moves the claim to `Error` and the board to `Hold` in one write; and the rollback probe shows the recovery committed
+(both the `Running` write inside its own transaction and the committed `Ready` row after rollback). The negative
+cases make the test non-vacuous, so it cannot pass without exercising "stale recovery".
+
+The unrelated in-flight working-tree change in `rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs`
+(another story) was present at run time, left untouched, and is **not** part of this candidate. The candidate this
+node freezes for QA is the git commit this block is committed with.
