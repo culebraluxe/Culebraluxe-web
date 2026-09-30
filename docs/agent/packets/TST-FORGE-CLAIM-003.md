@@ -40,7 +40,7 @@ into a rerun. Remove any of those and the test would pass vacuously on the easy 
 
 ## Context refs
 
-- `rust/test-harness/tests/forge_claim__003__stale_recovery.rs:1-419` — the canonical test.
+- `rust/test-harness/tests/forge_claim__003__stale_recovery.rs:1-462` — the canonical test.
 - `rust/core/db/src/forge_control.rs:39-54` — `stale_agent_work`, the windowed discovery predicate.
 - `rust/core/db/src/forge_control.rs:117-202` — `requeue_stale_work`, the board-driven recovery transaction.
 - `rust/core/db/src/forge_control.rs:78-108` — `hold_stale_work`, the terminal recovery transaction.
@@ -54,7 +54,8 @@ into a rerun. Remove any of those and the test would pass vacuously on the easy 
    `forge_claim_003__stale_recovery`. — the file and test exist (landed `5ad32cb6`).
 2. Requirement under test: stale recovery. — met.
 3. Boundary rule: the real `ForgeControlDao` on an isolated disposable DEV target; committed DB truth read back on the
-   pool; PRODUCTION refused before any socket. — met.
+   pool; PRODUCTION refused before any socket; and a rollback probe (`TestDatabase::with_rollback`) proves the committed
+   truth is durable rather than a connection-local snapshot. — met.
 4. PASS only when the production boundary demonstrates the contract exactly. — met: the stale claim is discovered and
    requeued `Ready`/`Ready`, its `updated_at` advances, and it is absent from a second sweep; a live peer stays
    `Running`.
@@ -126,3 +127,36 @@ CHECK_EXIT=0
 
 Unrelated, pre-existing working-tree changes under `rust/test-harness/tests/` (`forge_claim__001__only_owner_starts_run.rs`,
 another in-flight story) were present at run time; they were left untouched and are not part of this node's deliverable.
+
+## Verification — builder (2026-09-30)
+
+The landed canonical file already proved discovery, the board-driven requeue outcomes, the live-peer survival and the
+settled no-op, but criterion 3 (`assert committed database truth **and rollback**`) was not explicitly exercised — the
+"rollback / no-op" case asserted a guard clause, not a rolled-back transaction. This node added a rollback probe using
+the same harness facility as `forge_claim__002` (`TestDatabase::with_rollback`): an uncommitted rewrite of the recovered
+row is read back as `Running` inside its transaction and the committed row reads `Ready` again after rollback. No
+production code changed. Commands run from the repo root, output pasted:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+running 1 test
+test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+TEST_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+running 1 test
+test forge_claim_003__stale_recovery ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.34s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.03s
+CHECK_EXIT=0
+```
+
+The DEV target was verified as `dev` by the harness guard before any assertion ran; PRODUCTION was never connected to.
+The first live attempt failed on a suspended Neon compute (`db.connect: unexpected end of file`) and succeeded on the
+immediate retry — a transient wake-up, not a code fault.

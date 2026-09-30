@@ -22,7 +22,9 @@
 //! harness refuses PRODUCTION before a socket is opened (`test_harness::TestDatabase::guard_target`). The taxonomy
 //! harness is ForgeHarness; the rows here are the production control-plane rows a Forge worker recovers.
 //! The recovery's own transaction commits, and the assertions read the committed rows back across a fresh checkout —
-//! that committed truth is the contract.
+//! that committed truth is the contract. A rollback probe confirms the truth is durable rather than a
+//! connection-local snapshot: an uncommitted rewrite is visible inside its transaction and gone after rollback
+//! (`TestDatabase::with_rollback`).
 //!
 //! Run it (ignored by default, like every DEV database contract in this repo):
 //!   DATABASE_URL_DEV=... cargo test --manifest-path rust/Cargo.toml -p test-harness \
@@ -33,7 +35,7 @@
 //! requeued into a rerun. Remove any of those and the test still passes on the easy path — which is exactly the
 //! vacuous pass this file refuses. Level: L2 Persistence, harness ForgeHarness.
 
-use db::ForgeControlDao;
+use db::{DbFailure, ForgeControlDao};
 use sqlx::{FromRow, PgPool};
 use test_harness::TestDatabase;
 
@@ -283,6 +285,47 @@ async fn forge_claim_003__stale_recovery() {
         story_status(pool, &stale_story).await,
         "Ready",
         "{HARNESS}: the board moves with the item, or nothing dispatches the recovered work"
+    );
+
+    // ---------------------------------------------------------------------------------------------------------
+    // COMMITTED TRUTH SURVIVES A ROLLBACK. Recovery committed on the pool; a later transaction that rewrites the
+    // recovered row sees its own uncommitted write and, rolled back, restores exactly what recovery committed. The
+    // contract reads committed rows, so durable truth — not a connection-local snapshot — is what the assertions
+    // rest on. `with_rollback` can only roll back, so this probe changes no canonical row.
+    // ---------------------------------------------------------------------------------------------------------
+    let probe_id = stale_item.clone();
+    let uncommitted = harness
+        .with_rollback(move |conn| {
+            Box::pin(async move {
+                sqlx::query("update agent_work_item set state = 'Running' where id = $1::uuid")
+                    .bind(&probe_id)
+                    .execute(&mut *conn)
+                    .await
+                    .map_err(|error| {
+                        DbFailure::from_sqlx("test-harness.forge_claim_003.probe_update", &error)
+                    })?;
+                let state: String =
+                    sqlx::query_scalar("select state from agent_work_item where id = $1::uuid")
+                        .bind(&probe_id)
+                        .fetch_one(&mut *conn)
+                        .await
+                        .map_err(|error| {
+                            DbFailure::from_sqlx("test-harness.forge_claim_003.probe_read", &error)
+                        })?;
+                Ok(state)
+            })
+        })
+        .await
+        .expect("the rolled-back probe must run");
+    assert_eq!(
+        uncommitted, "Running",
+        "{HARNESS}: inside its own transaction the probe sees the write it made"
+    );
+    let committed_after_rollback = item(pool, &stale_item).await;
+    assert_eq!(
+        committed_after_rollback.state, "Ready",
+        "{HARNESS}: rollback restored the committed truth recovery wrote; the contract rests on the commit, not on a \
+         connection-local snapshot"
     );
 
     // ---------------------------------------------------------------------------------------------------------
