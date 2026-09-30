@@ -1212,3 +1212,69 @@ recovery, landed/held refusals) keep the test non-vacuous. The workspace check e
 `rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs` in this shared checkout belongs to another
 in-flight story, was left untouched, and is deliberately not part of this candidate. The only change this node commits
 is this packet section; its `SMITH_CANDIDATE` marker carries the same SHA.
+
+## Verification — repair_smith (2026-09-30, task 87981938-249e-4f87-917d-904b53ff67c6)
+
+The `repair_smith` node was re-issued with the self-heal prompt "this run was HELD because it did not deliver:
+smith-candidate. Re-run this role. Fix ONLY what is missing." The canonical test and every acceptance criterion were
+already met; the one honest gap against the architect brief was the **harness**: the brief names harness `ForgeHarness`,
+but the file drove `TestDatabase` + a locally-built `ForgeControlDao` directly. This node closes that gap with the
+smallest seam and lands the candidate commit.
+
+What changed (two files, both in the story's scope):
+
+1. `rust/test-harness/src/forge.rs` — `ForgeHarness` now also wraps the production `ForgeControlDao` and exposes
+   `ForgeHarness::control()`. This is the smallest seam that lets a FORGE.CLAIM test reach the stale-recovery boundary
+   through the mandated harness; it wraps the production DAO and adds no second implementation.
+2. `rust/test-harness/tests/forge_claim__003__stale_recovery.rs` — the test now connects with
+   `ForgeHarness::connect_declared(None, Some("test"))`, reads its target via `harness.database().target()`, its pool via
+   `harness.pool()`, its recovery DAO via `harness.control()`, and its namespace via `harness.database().namespace()`.
+   The rollback probe uses `harness.database().with_rollback(...)`. **No assertion changed**; the subject (the windowed
+   predicate and the board-driven recovery writes) is untouched, and the file is now 482 lines.
+
+Production behaviour and schema did not change: `rust/core/db/src/forge_control.rs` is byte-identical before and after
+(sha256 `a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`), and no migration ran. The live run asserts
+`target() == "dev"` before any assertion and only reads `DATABASE_URL_DEV`
+(`ep-muddy-lab-axtgckj9-pooler`, distinct from the PROD host `ep-flat-art-ax92tn7a-pooler`); PRODUCTION was never
+connected to. The six proof stories are deleted at the end.
+
+Commands run from the repo root, output pasted with exit status:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+running 1 test
+test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; APP_ENV=development cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+running 1 test
+test forge_claim_003__stale_recovery ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.88s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+warning: `workflow` (lib test) generated 2 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 00s
+CHECK_EXIT=0
+```
+
+**Independent non-vacuity check (this node's own).** Inverting the discovery predicate's comparison in
+`stale_agent_work` from `updated_at < now() - interval` to `updated_at > now() - interval`
+(`rust/core/db/src/forge_control.rs:47`) makes the sweep admit the live peer instead of the stale claim, and the
+canonical test fails exactly at its discovery assertion
+(`rust/test-harness/tests/forge_claim__003__stale_recovery.rs:223`, `a claim silently older than the window must be
+discovered as stale`), `test result: FAILED`. The production file was restored with `git checkout --` (sha256 back to
+`a8f0e22a…`, `git status` clean) and the live run is green again (`1 passed`, 24.84s). The mutant run panicked before
+its own cleanup and stranded 6 proof stories under `FORGE-CLAIM-003-%`; this node reaped exactly those
+(`delete from storyboard_story where id like 'FORGE-CLAIM-003-%'`, 6 rows) through a throwaway harness test that was
+deleted immediately, leaving the disposable DEV branch as it was found. The staleness window is therefore load-bearing
+and the contract is not vacuous.
+
+A concurrent writer's in-flight edit to `rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs` and the
+untracked `rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs` were present in the shared
+checkout; both belong to another story, were left untouched, and are deliberately not part of this candidate. The
+candidate this node commits is the git commit this block is committed with; its `SMITH_CANDIDATE` marker carries the
+same SHA.

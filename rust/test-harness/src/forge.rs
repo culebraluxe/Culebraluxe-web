@@ -12,7 +12,7 @@
 //! asserts is the production `ForgeEngineDao` method ([`engine`](ForgeHarness::engine)), and every assertion is read
 //! back from the pool the production DAO wrote to ([`pool`](ForgeHarness::pool)).
 
-use db::{DbFailure, ForgeEngineDao};
+use db::{DbFailure, ForgeControlDao, ForgeEngineDao};
 use sqlx::PgPool;
 
 use crate::database::{HarnessDbError, TestDatabase};
@@ -22,6 +22,7 @@ use crate::database::{HarnessDbError, TestDatabase};
 pub struct ForgeHarness {
     database: TestDatabase,
     engine: ForgeEngineDao,
+    control: ForgeControlDao,
 }
 
 impl ForgeHarness {
@@ -46,7 +47,12 @@ impl ForgeHarness {
 
     fn wrap(database: TestDatabase) -> Self {
         let engine = ForgeEngineDao::new(database.database().clone());
-        Self { database, engine }
+        let control = ForgeControlDao::new(database.database().clone());
+        Self {
+            database,
+            engine,
+            control,
+        }
     }
 
     /// The disposable database every statement in this harness runs against.
@@ -57,6 +63,12 @@ impl ForgeHarness {
     /// The production engine DAO under test. The claim, begin, heartbeat and settle transitions live here.
     pub fn engine(&self) -> &ForgeEngineDao {
         &self.engine
+    }
+
+    /// The production control-plane DAO under test. Stale-claim discovery and the recovery transactions — the
+    /// windowed sweep and its board-driven outcomes — live here, and the worker pass calls exactly these methods.
+    pub fn control(&self) -> &ForgeControlDao {
+        &self.control
     }
 
     /// The pool the DAO wrote to, for reading the committed truth back on a connection the DAO does not own.

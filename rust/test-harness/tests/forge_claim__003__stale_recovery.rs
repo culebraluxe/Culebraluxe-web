@@ -18,9 +18,10 @@
 //!
 //! WHY A REAL DATABASE. The subject *is* a SQL predicate and a committed write: which rows a window admits, and the
 //! pair (item, story) a recovery leaves behind. An in-memory fake would assert a re-statement of the predicate, not
-//! the predicate. So the test runs at the production DAO boundary against a **disposable DEV database**, and the
-//! harness refuses PRODUCTION before a socket is opened (`test_harness::TestDatabase::guard_target`). The taxonomy
-//! harness is ForgeHarness; the rows here are the production control-plane rows a Forge worker recovers.
+//! the predicate. So the test runs at the production DAO boundary against a **disposable DEV database** through the
+//! taxonomy `ForgeHarness` — `ForgeHarness::control` hands it the production `ForgeControlDao` — and the harness
+//! refuses PRODUCTION before a socket is opened (`test_harness::TestDatabase::guard_target`). The rows here are the
+//! production control-plane rows a Forge worker recovers.
 //! The recovery's own transaction commits, and the assertions read the committed rows back across a fresh checkout —
 //! that committed truth is the contract. A rollback probe confirms the truth is durable rather than a
 //! connection-local snapshot: an uncommitted rewrite is visible inside its transaction and gone after rollback
@@ -37,9 +38,9 @@
 //! Remove any of those and the test still passes on the easy path — which is exactly the vacuous pass this file
 //! refuses. Level: L2 Persistence, harness ForgeHarness.
 
-use db::{DbFailure, ForgeControlDao};
+use db::DbFailure;
 use sqlx::{FromRow, PgPool};
-use test_harness::TestDatabase;
+use test_harness::ForgeHarness;
 
 /// The stale window under test. A claim older than this is recoverable; one inside it is not.
 const STALE_MINUTES: i64 = 60;
@@ -128,18 +129,18 @@ async fn story_status(pool: &PgPool, story_id: &str) -> String {
 async fn forge_claim_003__stale_recovery() {
     const HARNESS: &str = "ForgeHarness/L2 Persistence";
 
-    let harness = TestDatabase::connect_declared(None, Some("test")).await.expect(
+    let harness = ForgeHarness::connect_declared(None, Some("test")).await.expect(
         "DATABASE_URL_DEV must point at a disposable DEV database; the harness refuses PROD before connecting",
     );
     assert_eq!(
-        harness.target().as_str(),
+        harness.database().target().as_str(),
         "dev",
         "{HARNESS}: a stale-recovery contract must never run against PROD"
     );
 
-    let pool = harness.database().pool();
-    let control = ForgeControlDao::new(harness.database().clone());
-    let tag = harness.namespace().to_owned();
+    let pool = harness.pool();
+    let control = harness.control();
+    let tag = harness.database().namespace().to_owned();
 
     // Six proof stories, each isolating one clause of the contract. Inserting at a non-`Ready` status avoids the
     // board's Ready-dispatch trigger, so every item below is written by hand and has exactly the state under test.
@@ -303,6 +304,7 @@ async fn forge_claim_003__stale_recovery() {
     // ---------------------------------------------------------------------------------------------------------
     let probe_id = stale_item.clone();
     let uncommitted = harness
+        .database()
         .with_rollback(move |conn| {
             Box::pin(async move {
                 sqlx::query("update agent_work_item set state = 'Running' where id = $1::uuid")
