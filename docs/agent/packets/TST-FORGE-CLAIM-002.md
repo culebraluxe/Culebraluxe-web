@@ -227,3 +227,56 @@ CLEAN_LIVE_EXIT=0
 The live run asserts `target = Dev` before any assertion executes, exercises the production `ForgeEngineDao` claim /
 begin / settle boundary, and deletes its proof stories at the end. All acceptance criteria are met by the candidate;
 the only open item is the unrelated concurrent writer, which does not touch this story.
+
+## Raw verification — repair_smith (2026-09-30)
+
+The `repair_smith` node was re-issued for this story. The canonical test
+`rust/test-harness/tests/forge_claim__002__second_begin_refused.rs` already proved "second begin refused" at the
+production `ForgeEngineDao` boundary, but the migration-259 commit `728c107e` (declared work type) added eleven lines
+above `begin_agent_work_run`, so the production citations in the test header no longer resolved — the named evidence
+pointed at the wrong lines, the drift the `TST-WF-COMMAND-002` QA node was made to correct. This run repairs the
+citations to the current tree and strengthens the core refusal assertion; no production behavior changed and no
+migration was run.
+
+What changed in the canonical test:
+
+1. Citations corrected to the current tree: `begin_agent_work_run` `787 → 798`; the CAS read
+   `where state='Claimed' for update` `795-806 → 806-810`; the Story Run insert `824-848 → 835-859`; the predicate
+   update `853-858 → 864-870`; `claim_specific_agent_work` `640 → 651`.
+2. The refusal is now asserted to commit **nothing at all**: the test captures the item's whole durable row
+   (`state`, `story_run_id`, `started_at`, `updated_at`) after the first begin and compares it byte-for-byte after
+   the refused second begin. Before, only `state` and `story_run_id` were compared, so a boundary that ran the
+   update without its `state='Claimed'` predicate (or inserted the run before checking) could move a timestamp the
+   test never looked at.
+
+Mutation check (the read guard): changing the production read at `rust/core/db/src/forge_engine.rs:808` to drop
+`and state='Claimed'` lets the second begin insert a phantom `storyboard_story_run` and commit it (the update
+predicate refuses the item move, so the method still returns `None`). The strengthened test fails on the run count
+at `rust/test-harness/tests/forge_claim__002__second_begin_refused.rs:171` — `left: 2`, `right: 1`,
+`test result: FAILED` (exit 101). The production file was restored with `git checkout --` and the test is green
+again, so the refusal clause is load-bearing and the contract is not vacuous.
+
+The candidate is the git commit this block is committed with. Commands run from the repo root, output pasted:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__002__second_begin_refused
+running 1 test
+test forge_claim_002__second_begin_refused ... ignored, needs DATABASE_URL_DEV: runs only against the disposable DEV branch (PROD is refused)
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__002__second_begin_refused -- --ignored
+running 1 test
+test forge_claim_002__second_begin_refused ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.50s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 04s
+CHECK_EXIT=0
+```
+
+The live run asserts `target = Dev` before any assertion executes and deletes its proof stories at the end, so the
+disposable DEV branch is left as it was found and PRODUCTION is never connected to.

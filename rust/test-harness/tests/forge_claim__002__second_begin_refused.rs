@@ -2,16 +2,17 @@
 //!
 //! Contract: beginning a claimed work item opens **at most one** Story Run. `Claimed → Running` is a
 //! compare-and-set: the production `begin_agent_work_run` reads the row `where state='Claimed' for update`
-//! (`rust/core/db/src/forge_engine.rs:795-806`) and moves it with the same predicate on the update
-//! (`rust/core/db/src/forge_engine.rs:853-858`). A second call on the same item is therefore refused — it returns
-//! `None` and commits nothing — so one claim can never open two runs, whatever the caller does. The run itself is
-//! opened in that same transaction (`rust/core/db/src/forge_engine.rs:824-848`), so "refused" means no second
-//! `storyboard_story_run` row exists *and* the item's committed state and `story_run_id` are unchanged.
+//! (`rust/core/db/src/forge_engine.rs:806-810`) and moves it with the same predicate on the update
+//! (`rust/core/db/src/forge_engine.rs:864-870`). A second call on the same item is therefore refused — it returns
+//! `None` and commits nothing, not even the row's own `updated_at` — so one claim can never open two runs, whatever
+//! the caller does. The run itself is opened in that same transaction
+//! (`rust/core/db/src/forge_engine.rs:835-859`), so "refused" means no second `storyboard_story_run` row exists
+//! *and* the item's committed state, `story_run_id` and timestamps are unchanged.
 //!
 //! This file exercises the production boundary, not a re-declaration of it. The real `ForgeEngineDao` is driven
 //! through the `ForgeHarness` against an isolated, disposable DEV database; the claim is taken through the
-//! production `claim_specific_agent_work` (`rust/core/db/src/forge_engine.rs:640`), the begin is the production
-//! `begin_agent_work_run` (`rust/core/db/src/forge_engine.rs:787`), and every assertion is read back on the pool the
+//! production `claim_specific_agent_work` (`rust/core/db/src/forge_engine.rs:651`), the begin is the production
+//! `begin_agent_work_run` (`rust/core/db/src/forge_engine.rs:798`), and every assertion is read back on the pool the
 //! DAO committed to. Level: L2 Persistence, harness `ForgeHarness`.
 //!
 //! The negative/fault cases are load-bearing. A test that merely called `begin` twice and asserted `None` would not
@@ -93,9 +94,10 @@ async fn forge_claim_002__second_begin_refused() {
     );
 
     // 4. COMMITTED DATABASE TRUTH — read on the pool, not from the DAO's return value. The item is Running, it names
-    //    the run it opened, and exactly one run exists for the story.
-    let (state_after_first, run_id_column): (String, Option<String>) = sqlx::query_as(
-        "select i.state, i.story_run_id::text
+    //    the run it opened, its start is stamped, and exactly one run exists for the story. The whole durable row is
+    //    captured here so the refusal below is measured against every column the begin wrote, not a hand-picked few.
+    let durable_after_first: (String, Option<String>, String, String) = sqlx::query_as(
+        "select i.state, i.story_run_id::text, coalesce(i.started_at::text, ''), i.updated_at::text
            from agent_work_item i
           where i.id = $1::uuid",
     )
@@ -103,11 +105,18 @@ async fn forge_claim_002__second_begin_refused() {
     .fetch_one(harness.pool())
     .await
     .expect("the begun item is readable");
-    assert_eq!(state_after_first, "Running", "{HARNESS}: Claimed -> Running committed");
     assert_eq!(
-        run_id_column.as_deref(),
+        durable_after_first.0, "Running",
+        "{HARNESS}: Claimed -> Running committed"
+    );
+    assert_eq!(
+        durable_after_first.1.as_deref(),
         Some(first.story_run_id.as_str()),
         "{HARNESS}: the item carries the run it opened"
+    );
+    assert!(
+        !durable_after_first.2.is_empty(),
+        "{HARNESS}: beginning the run stamps started_at"
     );
 
     let (run_story, run_status, run_ended, run_env): (
@@ -154,14 +163,18 @@ async fn forge_claim_002__second_begin_refused() {
         "{HARNESS}: beginning an item that is already Running must be refused"
     );
 
-    // 5a. ...and the refusal left no residue: the same one run, the same committed state, the same run id.
+    // 5a. ...and the refusal left no residue. The entire durable row is byte-identical to what the first begin
+    //     committed, so a refused begin commits *nothing*: not the state, not the run id, not `started_at` and not
+    //     even the `updated_at` the update would have touched had it run. (A boundary that ran the update without
+    //     the `state='Claimed'` predicate — or that inserted the run before checking — would move at least one of
+    //     these, and the row comparison fails.)
     assert_eq!(
         run_count(&harness, &story_a).await,
         1,
         "{HARNESS}: a refused second begin must not open a second run"
     );
-    let (state_after_second, run_id_after_second): (String, Option<String>) = sqlx::query_as(
-        "select i.state, i.story_run_id::text
+    let durable_after_second: (String, Option<String>, String, String) = sqlx::query_as(
+        "select i.state, i.story_run_id::text, coalesce(i.started_at::text, ''), i.updated_at::text
            from agent_work_item i
           where i.id = $1::uuid",
     )
@@ -170,13 +183,8 @@ async fn forge_claim_002__second_begin_refused() {
     .await
     .expect("the item is still readable after the refusal");
     assert_eq!(
-        state_after_second, "Running",
-        "{HARNESS}: a refused begin must not move the item"
-    );
-    assert_eq!(
-        run_id_after_second.as_deref(),
-        Some(first.story_run_id.as_str()),
-        "{HARNESS}: a refused begin must not replace the run the claim already opened"
+        durable_after_second, durable_after_first,
+        "{HARNESS}: a refused begin commits nothing — state, run id and timestamps are unchanged"
     );
     let (still_open_status, still_open_ended): (Option<String>, Option<String>) = sqlx::query_as(
         "select result_status, ended_at::text
