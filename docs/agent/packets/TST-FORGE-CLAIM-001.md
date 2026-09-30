@@ -1769,3 +1769,63 @@ and is **not** part of this candidate; the workspace check compiled it without e
 is `1f4a99e0`; the only working-tree change this node commits is this packet section.
 
 FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":true,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"1f4a99e087ce1974996c46a5edf375e27d00abc5"}
+
+## Verification — qa_verify (task 9df6dd74, re-run, 2026-09-30)
+
+**Verdict: PASS (qaPassed = true).** The engine re-issued `qa_verify` task `9df6dd74` for this story; the canonical
+artifact is byte-identical to the last frozen candidate, so this node re-ran the story's own acceptance commands and
+re-confirmed the contract rather than editing anything. The canonical test
+`rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs` is unchanged
+(`md5 = ca2696143a0c7e97729790fb3f229b18`, identical to the digest recorded under the previous QA section) and holds
+exactly one `#[tokio::test]` (`:172`) and exactly one `async fn forge_claim_001__only_owner_starts_run` (`:175`). The
+production CAS it fences is also unchanged (`md5 rust/core/db/src/forge_engine.rs` = `7d631a70f1b54334586adccb7571bd14`).
+
+Non-vacuity re-confirmed read-only against the current bytes: `begin_agent_work_run` locks the claim
+`select story_id from agent_work_item where id=$1::uuid and state='Claimed' for update`
+(`rust/core/db/src/forge_engine.rs:806-810`) and returns `None` for any non-`Claimed` row *before* the Story Run insert
+in the same transaction (`:835-859`); the state move carries the same predicate `where id=$1::uuid and state='Claimed'`
+(`:864-870`). A second begin, an unclaimed `Ready` item, an unknown id, a requeued claim and a settled claim therefore
+cannot reach the run insert, which is exactly what the test's refusal cases assert. No mutation was applied in this
+node (the checkout is shared with concurrent lanes), so non-vacuity was confirmed by reading the guards, not by
+altering production code.
+
+Commands run from the repo root, output pasted with exit status:
+
+```
+$ md5 -q rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs rust/core/db/src/forge_engine.rs
+ca2696143a0c7e97729790fb3f229b18
+7d631a70f1b54334586adccb7571bd14
+
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ignored, needs DATABASE_URL_DEV (a disposable DEV branch); TestDatabase refuses PROD before any socket
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; APP_ENV=development cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run -- --ignored
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 24.32s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 55s
+CHECK_EXIT=0
+```
+
+The live run calls `TestDatabase::connect_declared(Some("dev"), Some("dev"))`, which resolves the harness PROD refusal
+before any socket (`guard_target`, `rust/test-harness/src/database.rs:68`) and asserts `target = Dev` before any
+assertion executes; `Database::connect_target(DbTarget::Dev)` reads only `DATABASE_URL_DEV` (`rust/core/db/src/pool.rs:58`),
+and `APP_ENV=development` was set explicitly in the shell, so PRODUCTION was never connected to. The test reaps its
+proof stories by its own `TestDatabase` namespace, so the disposable DEV branch is left as it was found. The live run
+exercised the load-bearing refusal suite and the committed-truth rollback probe (`with_rollback`, section 3b), so the
+contract named by this story is non-vacuous. Pre-existing `forge`/`workflow`-crate warnings (`unused import` at
+`core/workflow/src/concurrency.rs:70` and others) were present at run time and are not part of this candidate. Two
+unrelated untracked peer test files (`arch_boundary__011__qa_cannot_own_git_mutations.rs`,
+`wf_join__002__optional_siblings_handled_correctly.rs`) were present at run time, left untouched, and are **not** part
+of this candidate; the workspace check compiled them without error. All acceptance criteria are met; the candidate this
+node verifies remains `1f4a99e0`.
+
+FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":true,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"1f4a99e087ce1974996c46a5edf375e27d00abc5"}
