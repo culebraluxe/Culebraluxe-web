@@ -874,3 +874,56 @@ the disposable DEV branch is left as it was found and PRODUCTION is never connec
 `APP_ENV` was set to `development` for the run, and the test declares DEV explicitly). The `md5` of the canonical test
 and of `rust/core/db/src/forge_engine.rs` are unchanged before and after the runs, so no production or test byte moved.
 The candidate this node delivers is the git commit this block is committed with.
+
+## Verification — lead_post freeze (re-issue, 2026-09-30)
+
+**Integration inspected; candidate frozen for QA.** `lead_post` re-ran after the `repair_smith` self-heal re-run landed
+its candidate and after the last `qa_verify` PASS. The story is serially authored (no split to integrate), the canonical
+test is byte-identical to the QA-verified artifact, and its production CAS is unchanged, so this node re-inspects the
+tree, re-runs the story's own assay commands against the disposable DEV branch, and freezes the exact candidate commit
+for QA. **No test body, production behavior, schema or migration changed**, and no migration ran; the only working-tree
+change this node commits is this packet section.
+
+Byte identity against the QA-verified artifact holds: `md5 rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs`
+= `45a45cc696e8eaabb268ecfdcdb32b48`, identical to the digest recorded under the `repair_smith`/`qa_verify` sections; the
+production CAS file is unchanged at `md5 rust/core/db/src/forge_engine.rs` = `7d631a70f1b54334586adccb7571bd14`. The
+canonical test remains `:1-462` and its production citations resolve against this tree: `claim_specific_agent_work` at
+`rust/core/db/src/forge_engine.rs:651`, `begin_agent_work_run` at `:798`, its CAS read
+`where id=$1::uuid and state='Claimed' for update` at `:806-810`, the Story Run insert in the same transaction at
+`:835-859`, the predicate update `where id=$1::uuid and state='Claimed'` at `:864-870`, `finish_agent_work_run` at
+`:1025`, `requeue_stale_work` at `rust/core/db/src/forge_control.rs:117`, and the harness PROD refusal `guard_target` at
+`rust/test-harness/src/database.rs:68-75`.
+
+Commands run from the repo root, output pasted with exit status:
+
+```
+$ md5 -q rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs rust/core/db/src/forge_engine.rs
+45a45cc696e8eaabb268ecfdcdb32b48
+7d631a70f1b54334586adccb7571bd14
+
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ignored, needs DATABASE_URL_DEV (a disposable DEV branch); TestDatabase refuses PROD before any socket
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run -- --ignored
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.27s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 48s
+CHECK_EXIT=0
+```
+
+The live run asserts `target = Dev` before any assertion executes and reaps its proof stories by namespace at the end, so
+the disposable DEV branch is left as it was found and PRODUCTION is never connected to (only `DATABASE_URL_DEV` was read;
+`.env.local` sets `APP_ENV=development`, and the test declares DEV explicitly). The live run again exercised the
+load-bearing refusal suite — the exclusive second claim, a second begin, a requeued claim, an unclaimed `Ready` item, an
+unknown id and a settled claim are each refused, committing nothing and opening no run — so the contract named by this
+story remains non-vacuous. Pre-existing `forge`/`workflow`-crate warnings were present at run time and are not part of
+this candidate. The candidate this node freezes for QA is the git commit this block is committed with.
