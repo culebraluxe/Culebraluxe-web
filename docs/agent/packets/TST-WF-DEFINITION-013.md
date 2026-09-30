@@ -229,3 +229,49 @@ load-bearing and the contract is not vacuous.
 
 An untracked `arch_boundary__011__qa_cannot_own_git_mutations.rs` (another lane) was present in the working tree at run
 time; it was left untouched and is not part of this candidate.
+
+## QA re-verify — fast_qa_verify (2026-09-30, task e6aff3e5)
+
+The `fast_qa_verify` node (task `e6aff3e5-8c27-403c-87b3-5656ad142ff0`) re-ran the story's own acceptance commands
+against the current tree. Verdict: **PASS**. The canonical file
+`rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs` is tracked, contains the
+test `wf_definition_013__forge_v6_xml_structural_equality_where_intended`, and proves "Forge v6 XML structural equality
+where intended" at the production XML/version-policy boundary. The verified candidate is the `fast_repair_smith`
+commit `dc779bb0`, the last commit to touch the canonical test (unchanged at the current HEAD `b5a810ff`); this node
+changes documentation only — no production or test behavior changed.
+
+Both commands are this node's own run, pasted with their exit status.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+running 1 test
+test wf_definition_013__forge_v6_xml_structural_equality_where_intended ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.51s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.21s
+CHECK_EXIT=0
+```
+
+Mutation check (the structural-equality predicate is load-bearing): forcing `graphs_equal` to a constant `true` at
+`rust/forge/src/engine/version_policy.rs:39-41` makes the test fail exactly at the structural-inequality clause
+`rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:292`
+(`a changed transition target is a structural difference, not a cosmetic one`), `test result: FAILED` (exit 101):
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+test wf_definition_013__forge_v6_xml_structural_equality_where_intended ... FAILED
+thread 'wf_definition_013__forge_v6_xml_structural_equality_where_intended' panicked at .../wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:292:5
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+MUTATION_EXIT=101
+```
+
+The production file was restored byte-for-byte (`cmp` clean against the pre-mutation copy) and the test is green again
+(`TEST_EXIT=0`), so the equality contract is not vacuous and the cosmetic-vs-structural split is genuinely exercised.
+
+An untracked `arch_boundary__011__qa_cannot_own_git_mutations.rs` (another lane) was present in the working tree at run
+time; it was left untouched and is not part of this candidate.
+
+FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"dc779bb05365136faab1971014df312430f749d7"}
