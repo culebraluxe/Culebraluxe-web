@@ -144,8 +144,14 @@ async fn forge_claim_001__only_owner_starts_run() {
     let owned_item = insert_ready_story(&pool, &owned_story).await;
     let (state, claimed_by, story_run_id) = item_row(&pool, &owned_item).await;
     assert_eq!(state, "Ready", "{HARNESS}: a fresh item starts unowned");
-    assert_eq!(claimed_by, None, "{HARNESS}: an unclaimed item names no owner");
-    assert_eq!(story_run_id, None, "{HARNESS}: an unclaimed item opens no run");
+    assert_eq!(
+        claimed_by, None,
+        "{HARNESS}: an unclaimed item names no owner"
+    );
+    assert_eq!(
+        story_run_id, None,
+        "{HARNESS}: an unclaimed item opens no run"
+    );
     assert!(
         run_rows(&pool, &owned_story).await.is_empty(),
         "{HARNESS}: a claim starts no run"
@@ -156,7 +162,10 @@ async fn forge_claim_001__only_owner_starts_run() {
         .await
         .unwrap()
         .expect("the first worker owns a Ready item");
-    assert_eq!(claimed.state, "Claimed", "{HARNESS}: a claim parks at Claimed");
+    assert_eq!(
+        claimed.state, "Claimed",
+        "{HARNESS}: a claim parks at Claimed"
+    );
     assert_eq!(
         claimed.claimed_by.as_deref(),
         Some(OWNER_A),
@@ -187,7 +196,10 @@ async fn forge_claim_001__only_owner_starts_run() {
 
     // Committed database truth, read back through the pool (not the DAO's return value).
     let (state, claimed_by, story_run_id) = item_row(&pool, &owned_item).await;
-    assert_eq!(state, "Running", "{HARNESS}: starting the run moves the item Claimed → Running");
+    assert_eq!(
+        state, "Running",
+        "{HARNESS}: starting the run moves the item Claimed → Running"
+    );
     assert_eq!(
         claimed_by.as_deref(),
         Some(OWNER_A),
@@ -200,9 +212,16 @@ async fn forge_claim_001__only_owner_starts_run() {
     );
 
     let runs = run_rows(&pool, &owned_story).await;
-    assert_eq!(runs.len(), 1, "{HARNESS}: the owner opens exactly one Story Run");
+    assert_eq!(
+        runs.len(),
+        1,
+        "{HARNESS}: the owner opens exactly one Story Run"
+    );
     let (run_id, started, open, run_type, environment) = runs[0].clone();
-    assert_eq!(run_id, run.story_run_id, "{HARNESS}: the committed run is the returned run");
+    assert_eq!(
+        run_id, run.story_run_id,
+        "{HARNESS}: the committed run is the returned run"
+    );
     assert!(started, "{HARNESS}: the run carries a start instant");
     assert!(open, "{HARNESS}: the run is open (ended_at is null)");
     assert_eq!(
@@ -224,7 +243,11 @@ async fn forge_claim_001__only_owner_starts_run() {
     //    once" half of "only the owner starts run".
     // -----------------------------------------------------------------------------------------------------------
     assert!(
-        engine.begin_agent_work_run(&owned_item).await.unwrap().is_none(),
+        engine
+            .begin_agent_work_run(&owned_item)
+            .await
+            .unwrap()
+            .is_none(),
         "{HARNESS}: a row that has left Claimed must never start a second run"
     );
     assert_eq!(
@@ -250,10 +273,20 @@ async fn forge_claim_001__only_owner_starts_run() {
         .await
         .expect("recovery requeues the claim");
     let (state, claimed_by, _) = item_row(&pool, &requeued_item).await;
-    assert_eq!(state, "Ready", "{HARNESS}: a requeued claim goes back to the queue");
-    assert_eq!(claimed_by, None, "{HARNESS}: a requeued claim names no owner");
+    assert_eq!(
+        state, "Ready",
+        "{HARNESS}: a requeued claim goes back to the queue"
+    );
+    assert_eq!(
+        claimed_by, None,
+        "{HARNESS}: a requeued claim names no owner"
+    );
     assert!(
-        engine.begin_agent_work_run(&requeued_item).await.unwrap().is_none(),
+        engine
+            .begin_agent_work_run(&requeued_item)
+            .await
+            .unwrap()
+            .is_none(),
         "{HARNESS}: a requeued (unowned) claim must not start a run"
     );
     assert!(
@@ -267,7 +300,11 @@ async fn forge_claim_001__only_owner_starts_run() {
     // -----------------------------------------------------------------------------------------------------------
     let unowned_item = insert_ready_story(&pool, &unowned_story).await;
     assert!(
-        engine.begin_agent_work_run(&unowned_item).await.unwrap().is_none(),
+        engine
+            .begin_agent_work_run(&unowned_item)
+            .await
+            .unwrap()
+            .is_none(),
         "{HARNESS}: an unclaimed Ready item has no owner and must not start a run"
     );
     assert!(
@@ -288,14 +325,25 @@ async fn forge_claim_001__only_owner_starts_run() {
     //    late begin must still refuse and must not resurrect a run.
     // -----------------------------------------------------------------------------------------------------------
     engine
-        .finish_agent_work_run(&owned_item, AgentWorkOutcome::Cancelled, Some("proof cleanup"))
+        .finish_agent_work_run(
+            &owned_item,
+            AgentWorkOutcome::Cancelled,
+            Some("proof cleanup"),
+        )
         .await
         .unwrap()
         .expect("the owner settles its own run");
     let (state, _, _) = item_row(&pool, &owned_item).await;
-    assert_eq!(state, "Cancelled", "{HARNESS}: the settled item is terminal");
+    assert_eq!(
+        state, "Cancelled",
+        "{HARNESS}: the settled item is terminal"
+    );
     assert!(
-        engine.begin_agent_work_run(&owned_item).await.unwrap().is_none(),
+        engine
+            .begin_agent_work_run(&owned_item)
+            .await
+            .unwrap()
+            .is_none(),
         "{HARNESS}: a settled claim must not start a run"
     );
     assert_eq!(
@@ -315,21 +363,28 @@ async fn forge_claim_001__only_owner_starts_run() {
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(leftovers, 0, "{HARNESS}: the proof must leave no story behind");
-    let leftover_items: i64 = sqlx::query_scalar(
-        "select count(*) from agent_work_item where story_id like $1",
-    )
-    .bind(format!("{PROOF_PREFIX}%"))
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(leftover_items, 0, "{HARNESS}: the proof must leave no work item behind");
-    let leftover_runs: i64 = sqlx::query_scalar(
-        "select count(*) from storyboard_story_run where story_id like $1",
-    )
-    .bind(format!("{PROOF_PREFIX}%"))
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(leftover_runs, 0, "{HARNESS}: the proof must leave no Story Run behind");
+    assert_eq!(
+        leftovers, 0,
+        "{HARNESS}: the proof must leave no story behind"
+    );
+    let leftover_items: i64 =
+        sqlx::query_scalar("select count(*) from agent_work_item where story_id like $1")
+            .bind(format!("{PROOF_PREFIX}%"))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        leftover_items, 0,
+        "{HARNESS}: the proof must leave no work item behind"
+    );
+    let leftover_runs: i64 =
+        sqlx::query_scalar("select count(*) from storyboard_story_run where story_id like $1")
+            .bind(format!("{PROOF_PREFIX}%"))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        leftover_runs, 0,
+        "{HARNESS}: the proof must leave no Story Run behind"
+    );
 }
