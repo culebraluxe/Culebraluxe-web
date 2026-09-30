@@ -51,10 +51,10 @@ use test_harness::fault::{Fault, FaultInjector};
 use test_harness::TestClock;
 use workflow::store::repeat_connection_failures;
 use workflow::{
-    CompleteTaskParams, DefinitionStatus, EngineOptions, Job, JobStatus, MemoryStore, NodeDefinition,
-    ProcessDefinition, ProcessEvent, ProcessGraph, ProcessOutcome, ProcessStatus, Result,
-    StartProcessParams, Store, Task, TaskStatus, TimerSpec, Token, TokenOutcome, TokenStatus,
-    TransitionDefinition, TxStore, Value, WorkflowEngine, WorkflowError,
+    CompleteTaskParams, DefinitionStatus, EngineOptions, Job, JobStatus, MemoryStore,
+    NodeDefinition, ProcessDefinition, ProcessEvent, ProcessGraph, ProcessOutcome, ProcessStatus,
+    Result, StartProcessParams, Store, Task, TaskStatus, TimerSpec, Token, TokenOutcome,
+    TokenStatus, TransitionDefinition, TxStore, Value, WorkflowEngine, WorkflowError,
 };
 
 /// The canonical harness label for this level.
@@ -492,7 +492,8 @@ fn wf_join_002__optional_siblings_handled_correctly() {
         .token_id
         .clone()
         .expect("the review task is linked to its token");
-    complete_task(&engine, &review_task.id).expect("the optional review branch completes into the join");
+    complete_task(&engine, &review_task.id)
+        .expect("the optional review branch completes into the join");
 
     assert_eq!(
         instance_status(reader.memory(), &instance),
@@ -638,19 +639,20 @@ fn wf_join_002__optional_siblings_handled_correctly() {
     // The optional branches that never arrived were retired: one `token.skipped` each, no more. The event carries the
     // branch's own token id, so the durable log names which token was retired — not just which node it sat at. A join
     // that skipped a different token, or emitted the event for a token it did not actually complete, fails here.
-    let mut skipped: Vec<(String, String)> = events_of_type(reader.memory(), &instance, "token.skipped")
-        .into_iter()
-        .map(|event| {
-            (
-                event
-                    .node_id
-                    .expect("every token.skipped event names the skipped branch's node"),
-                event
-                    .token_id
-                    .expect("every token.skipped event names the token that was skipped"),
-            )
-        })
-        .collect();
+    let mut skipped: Vec<(String, String)> =
+        events_of_type(reader.memory(), &instance, "token.skipped")
+            .into_iter()
+            .map(|event| {
+                (
+                    event
+                        .node_id
+                        .expect("every token.skipped event names the skipped branch's node"),
+                    event
+                        .token_id
+                        .expect("every token.skipped event names the token that was skipped"),
+                )
+            })
+            .collect();
     skipped.sort();
     let mut expected_skipped = vec![
         (HOLD_NODE.to_string(), hold_token_id.clone()),
