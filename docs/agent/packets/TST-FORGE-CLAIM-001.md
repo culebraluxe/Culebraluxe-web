@@ -218,3 +218,48 @@ The production file was restored byte-for-byte (`git diff --stat rust/core/db/sr
 re-run is green (`LIVE_EXIT=0`, `1 passed`, 18.79s). The one proof story stranded by the failing mutation run was
 reaped by a PROD-refusing one-off against DEV (scoped to `TST-FORGE-CLAIM-001-` and older than the live window); no
 working-tree change beyond this packet section is part of this node.
+
+## Verification — lead_post integration (2026-09-30)
+
+**Integration frozen.** The canonical test `rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs` is
+committed on the base (`c8c1ab94`, isolated `1a32ee49`) and every acceptance criterion is met by it; there was no
+split to integrate and no production or test code needed to change. The candidate this node freezes for QA is this
+lead_post integration commit (reported as `candidateSha` in the node's `FORGE_EVIDENCE_JSON`, visible as HEAD).
+
+Lead post re-checked the production citations in the test header against the current tree; they resolve without
+drift — `claim_specific_agent_work` at `rust/core/db/src/forge_engine.rs:640`, `begin_agent_work_run` at `:787`, its
+CAS read `where id=$1::uuid and state='Claimed' for update` at `:795-806`, the Story Run insert in the same
+transaction at `:824-848`, the predicate update at `:853-869`, `finish_agent_work_run` at `:1014`, and
+`requeue_stale_work` at `rust/core/db/src/forge_control.rs:117`; the harness PROD refusal `guard_target` at
+`rust/test-harness/src/database.rs:68-75`. The mutation check recorded above (removing the `and state='Claimed'`
+predicate from the CAS read lets a second begin open a second run and the test fails at
+`forge_claim__001__only_owner_starts_run.rs:288`) still stands: the CAS is load-bearing and the contract is not
+vacuous.
+
+This node's own run of the story's two acceptance commands is pasted with its exit status:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ignored, needs DATABASE_URL_DEV (a disposable DEV branch); TestDatabase refuses PROD before any socket
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run -- --ignored
+running 1 test
+test forge_claim_001__only_owner_starts_run ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.29s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 18s
+CHECK_EXIT=0
+```
+
+The live run asserts `target = Dev` before any assertion executes and removes its proof stories at the end, so the
+disposable DEV branch is left as it was found and PRODUCTION is never connected to. Pre-existing warnings in the
+`workflow` crate (`unused import` at `core/workflow/src/concurrency.rs:70`) were present at run time and are not part
+of this story's candidate. No production or test behavior changed in this node; the only working-tree change
+committed here is this packet section.
