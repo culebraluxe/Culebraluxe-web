@@ -2,11 +2,11 @@
 //!
 //! Contract: the command id the `WorkflowEngine` mints for a `command` node is a **pure function** of
 //! `(process_instance_id, node_id, visit_sequence)` — `command_id` at
-//! `rust/core/workflow/src/engine/handle_join.rs:373`, the derivation production runs
+//! `rust/core/workflow/src/engine/handle_join.rs:359`, the derivation production runs
 //! (`handle_command` reads the committed visit count, `visit_sequence = command_visit_count + 1` at
-//! `rust/core/workflow/src/engine/handle_join.rs:215-216`, then hashes the triple). The same triple yields the same
+//! `rust/core/workflow/src/engine/handle_join.rs:201`, then hashes the triple). The same triple yields the same
 //! id whatever the wall clock says; the id is the global dedup key the store refuses to duplicate
-//! (`rust/core/workflow/src/memory.rs:598-609`, mirrored by the production unique index).
+//! (`rust/core/workflow/src/memory.rs:582-606`, mirrored by the production unique index).
 //!
 //! This file exercises the production boundary, not a re-declaration of it. The real `WorkflowEngine<MemoryStore>`
 //! is driven through `start_process` and `complete_task`; its `command` node calls the production `ApplicationPort`

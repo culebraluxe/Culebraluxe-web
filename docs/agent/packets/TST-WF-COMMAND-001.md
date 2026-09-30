@@ -174,3 +174,46 @@ CHECK_EXIT=0
 
 Unrelated, pre-existing working-tree changes under `rust/core/workflow/` and `rust/forge/` (another story's in-flight
 work) were present at run time; they were left untouched and are not part of this story's candidate.
+
+## QA verdict — qa_verify (2026-09-30)
+
+The `qa_verify` node was re-run after a hold that was missing the `qa-verdict` deliverable. The verdict is **PASS**:
+the canonical test at `rust/test-harness/tests/wf_command__001__deterministic_command_id.rs` exists and proves
+"deterministic command ID" at the production `WorkflowEngine`/`ApplicationPort`/`Store` boundary — the same committed
+`(instance, node, visit)` triple yields the same id a day later, a distinct instance/node/visit yields a distinct id,
+a recorded id is refused with `COMMAND_DUPLICATE`, and an already-commanded visit is refused with
+`COMMAND_VISIT_DUPLICATE` even under a fresh id. The production line numbers named in the test header had drifted
+under later commits (`command_id` had moved to `rust/core/workflow/src/engine/handle_join.rs:359`, the visit-sequence
+derivation to `rust/core/workflow/src/engine/handle_join.rs:201`, the store dedup guard to
+`rust/core/workflow/src/memory.rs:582-606`); they were corrected to the current tree so the named evidence still
+resolves. No production behavior changed.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__001__deterministic_command_id
+running 1 test
+test wf_command_001__deterministic_command_id ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+TEST_EXIT=0
+
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness
+test result: ok. 47 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test wf_command_001__deterministic_command_id ... ok
+test wf_command_002__command_generated_once_per_node_visit ... ok
+test wf_command_003__retry_produces_same_identity ... ok
+HARNESS_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.20s
+CHECK_EXIT=0
+```
+
+Mutation check (independent, this node): appending the live `SystemTime::now()` nanos to the canonical preimage inside
+`command_id` (`rust/core/workflow/src/engine/handle_join.rs:359-363`) fails the determinism assertion at
+`rust/test-harness/tests/wf_command__001__deterministic_command_id.rs:317` (`test result: FAILED`, exit 101); the
+production file was restored with `git checkout --` and the test is green again (`TEST_EXIT=0`). A clock or entropy
+added inside the derivation therefore cannot pass this contract, so the test is not vacuous.
+
+Unrelated, pre-existing working-tree changes under `rust/core/workflow/` and `rust/forge/` (parallel concurrency work,
+not this story) were present at run time; they were left untouched and are not part of this story's candidate.
