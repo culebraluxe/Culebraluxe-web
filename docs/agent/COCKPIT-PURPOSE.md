@@ -53,10 +53,16 @@ work up in advance and fire it later, which is the point of batching.
 
 ## THE INVARIANTS THIS DEPENDS ON (measured, not assumed)
 
-- **ONE STORY AT A TIME.** The system-wide single-active lock is real
-  (`legacy/db/agent-work.ts`, migration 025/028): the engine holds exactly one active work item.
-  A batch of five is a queue of five one-at-a-time runs, not five parallel runs. Relaxing
-  this is an ask-first change (see AGENTS.md).
+- **ONE SERIAL CHAIN PER STORY — NOT ONE PER SYSTEM.** This bullet used to read "the system-wide
+  single-active lock is real (`legacy/db/agent-work.ts`, migration 025/028): the engine holds exactly one
+  active work item", and that had been stale: the TypeScript claim was scoped per story on 2026-09-16
+  (`a3fc7099`, "one serial chain PER STORY, not one per system"), PROD carries
+  `agent_work_item_one_serial_active_per_story` and no system-wide index (migration 143), and the Rust port
+  had restored the system-wide refusal on its way in — repaired 2026-09-29, with the regression proof in
+  `rust/core/db/tests/forge_claim__different_stories_can_be_claimed_while_peer_is_running.rs`.
+  WHAT IS TRUE NOW: a story never has two writers, and DIFFERENT stories run at the same time
+  (`FORGE_STORY_WORKERS`, default 4). A batch of five is a queue of five chains, up to four of them live at
+  once. Loosening the per-story rule itself (two chains on ONE story) stays an ask-first change.
 - **BATCH FIRES NOTHING, BUT IT IS A REAL THING.** Staging writes `Batched` (dispatch-nothing status),
   and since migration 178 a batch ALSO has durable rows: `forge_batch` (label, `scheduled_for`,
   `fired_at`, who built it) and `forge_batch_item` (each member's state). So the screen can answer

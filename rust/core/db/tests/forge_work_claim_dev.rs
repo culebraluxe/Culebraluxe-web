@@ -5,7 +5,7 @@
 //!
 //! Why this exists: the Rust port kept every queue DAO and dropped the composition that claims one, so for a week
 //! no row ever left `Ready` — `Done` newest 2026-09-19, `Error` newest 2026-09-18, zero `Claimed`/`Running`/
-//! `Paused` — and the single-active index, the priority ordering, `attempts` and stale recovery were all inert.
+//! `Paused` — and the per-story serial index, the priority ordering, `attempts` and stale recovery were all inert.
 //! Unit tests cannot see that: the defect is a write nobody performed, and only a real database has a queue to
 //! write to. This test walks one item `Ready → Claimed → Running → Done` on DEV and proves, in the same run:
 //! dispatch never claims a story the board says is being worked; the claim is exclusive at the database; a live
@@ -39,18 +39,10 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
     let ready_story = format!("ENG-PROOF-READY-{tag}");
     let busy_story = format!("ENG-PROOF-BUSY-{tag}");
 
-    // Precondition, stated rather than assumed: this proof needs the system-wide single-active slot free, because
-    // that slot is one of the things it is measuring.
-    let active_before: i64 = sqlx::query_scalar(
-        "select count(*) from agent_work_item where state in ('Claimed','Running','Paused')",
-    )
-    .fetch_one(pool)
-    .await
-    .unwrap();
-    assert_eq!(
-        active_before, 0,
-        "DEV already has an active claim; this proof needs the single-active slot free"
-    );
+    // Precondition, stated rather than assumed: this proof needs no global quiet. The queue is serial per STORY
+    // since 2026-09-29 — the system-wide governor is gone — so a peer story running beside this proof is normal
+    // rather than a conflict, and the claim below is scoped to the proof story by construction. A borrowed DEV item
+    // is put back at the end.
 
     // 1. The board is the authority for dispatch: authorizing a story creates exactly one item, by trigger. The
     //    story carries a real specification, because the run is meant to snapshot it and a proof story with no
@@ -128,15 +120,11 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
     // DEV may hold Ready items this proof has no business terminalizing, so a borrowed claim is put back at the end.
     let borrowed = claimed.story_id != ready_story;
 
-    // 4. The claim is exclusive at the database, not by courtesy.
-    assert!(
-        engine
-            .claim_next_agent_work("second-worker")
-            .await
-            .unwrap()
-            .is_none(),
-        "a second worker cannot claim while one item is active (single-active backstop)"
-    );
+    // 4. The claim is exclusive at the database — for THIS story. Since the governor was removed (2026-09-29) a
+    //    second worker may claim a DIFFERENT ready story in the same instant; that is the queue behaving exactly as
+    //    its own indexes describe (`agent_work_item_one_serial_active_per_story`), and what may never happen is a
+    //    second writer on this one. Both halves are asserted: the by-id path refuses outright, and the next-item
+    //    path may hand out a peer story but never this one.
     assert!(
         engine
             .claim_specific_agent_work(&claimed.id, "second-worker")
@@ -145,6 +133,20 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
             .is_none(),
         "an item that is already claimed cannot be claimed again"
     );
+    if let Some(peer) = engine.claim_next_agent_work("second-worker").await.unwrap() {
+        assert_ne!(
+            peer.story_id, claimed.story_id,
+            "two workers must never hold one story: the queue is serial per story, not per system"
+        );
+        engine
+            .finish_agent_work_run(
+                &peer.id,
+                AgentWorkOutcome::Abandoned,
+                Some("proof borrow"),
+            )
+            .await
+            .expect("a borrowed DEV claim must be put back");
+    }
 
     // 5. Claimed → Running, and the heartbeat keeps it out of stale recovery. This is the write that makes a long
     //    run survivable: without it, `stale_agent_work` requeues a live run and the next tick launches a twin.
@@ -415,14 +417,27 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
         "a terminal item is not claimable and must not accept a heartbeat"
     );
 
-    // 8. The queue is left as it was found: nothing active.
+    // 8. The queue is left as it was found: nothing of THIS proof's is open. The count is scoped to the proof
+    //    stories deliberately — since 2026-09-29 a peer story running beside this proof is normal (the queue is
+    //    serial per story, not per system), and a global count would report someone else's live run as this proof's
+    //    failure. Nothing here touches another story's rows.
     let active_after: i64 = sqlx::query_scalar(
-        "select count(*) from agent_work_item where state in ('Claimed','Running','Paused')",
+        "select count(*) from agent_work_item
+          where state in ('Claimed','Running','Paused')
+            and story_id = any($1::text[])",
     )
+    .bind(vec![
+        ready_story.clone(),
+        busy_story.clone(),
+        stuck_story.clone(),
+    ])
     .fetch_one(pool)
     .await
     .unwrap();
-    assert_eq!(active_after, 0, "this proof must end with an empty single-active slot");
+    assert_eq!(
+        active_after, 0,
+        "this proof must end with none of its own claims open"
+    );
 
     if borrowed {
         // Put the borrowed DEV item back the way it was: a freshly queued, unclaimed item. The item goes first and
@@ -466,7 +481,8 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
 
 /// The engine-fault and pre-run-sweep proof against DEV.
 ///
-/// Run with the first walk, single-threaded, because both occupy the system-wide single-active slot:
+/// Run with the first walk, single-threaded, because both write the same queue and the same board and read counts
+/// back out of them:
 ///   DATABASE_URL_DEV=... cargo test -p db --test forge_work_claim_dev -- --ignored --test-threads=1
 ///
 /// What it proves that unit tests cannot: an engine fault **clears the pair back into the queue** instead of holding

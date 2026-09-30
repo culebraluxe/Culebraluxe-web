@@ -721,38 +721,49 @@ impl ForgeEngineDao {
             .await
             .map_err(|error| DbFailure::from_sqlx("forge_engine.claim_next.lock", &error))?;
 
-        let active = sqlx::query_scalar::<_, String>(
-            "select id::text from agent_work_item where state in ('Claimed','Running') limit 1",
-        )
-        .fetch_optional(tx.connection())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("forge_engine.claim_next.active", &error))?;
-        if active.is_some() {
-            tx.commit().await?;
-            return Ok(None);
-        }
-
-        // Eligibility, restored with the claim (2026-09-29): the item must still be `Ready` **and** its story must
-        // still be on the board as `Ready`. Selecting on the queue alone will dispatch a story the board says is
-        // already being worked — the rerun of a live story — and that is the same one-fact-two-writers hole that
-        // left a `Ready` story undispatchable after `forge:clean`. One selection consults both authorities.
+        // ONE SERIAL CHAIN PER STORY, NOT ONE PER SYSTEM (restored 2026-09-29).
         //
-        // The execution policy is the second authority restored the same day: migration 029 says in as many words
-        // that "only 'Unattended OK' work may be claimed by the unattended poller", and this poller claimed a
-        // `Human Gate` item exactly as happily as an unattended one, because nothing read the column.
+        // Here stood a refusal that read `where state in ('Claimed','Running') limit 1` with **no story scope**: if
+        // any story was running anywhere, this returned `None`, so every other ready story queued behind it and the
+        // machine looked serial because the code was stricter than its own schema. Three ready test stories sat
+        // behind one harness run because of it. That is the very regression `a3fc7099` removed from the TypeScript
+        // claim on 2026-09-16 — "THE GOVERNOR IS OFF: one serial chain PER STORY, not one per system … three ready
+        // stories queued behind each other and only one ran" — and the port brought it back.
+        //
+        // The authority for "never two writers on ONE story" is the database's own indexes, which PROD already
+        // carries and which this query must match rather than outbid: `agent_work_item_one_serial_active_per_story`
+        // (unique on `story_id` where the item is open and `parallel_group_id is null`) and
+        // `agent_work_item_one_parallel_slot` (unique per split slot). The advisory lock above serializes claim
+        // *selection* — it is held for the milliseconds this transaction needs to choose a row and stamp it, and
+        // the commit below releases it, so a different story is free to claim at that instant.
+        //
+        // Eligibility is unchanged: the item must still be `Ready` **and** its story must still be on the board as
+        // `Ready` (restored 2026-09-29 — selecting on the queue alone dispatches a story the board says is already
+        // being worked, the rerun of a live story), and migration 029's "only 'Unattended OK' work may be claimed by
+        // the unattended poller" is read from the column rather than assumed.
+        //
+        // `for update of w skip locked` is deliberate even though the advisory lock serializes these transactions
+        // today: it keeps the statement correct for a caller that claims outside that lock, and it states the queue
+        // semantics where they are enforced. The claim stays a compare-and-set — the update re-checks `state='Ready'`
+        // and returns the row it moved, or nothing. Same shape as the outbox claim (`rust/core/db/src/outbox.rs:170`).
         let row = sqlx::query_as::<_, ForgeAgentWorkRow>(
-            "update agent_work_item
-             set state='Claimed', claimed_at=now(), claimed_by=$1,
-                 attempts=attempts+1, updated_at=now()
-             where id=(
+            "with candidate as (
                select w.id from agent_work_item w
                join storyboard_story s on s.id = w.story_id
                where w.state='Ready' and s.status='Ready'
                  and w.execution_policy='Unattended OK'
-               order by w.priority desc, w.queued_at asc, w.id limit 1
+               order by w.priority desc, w.queued_at asc, w.id
+               for update of w skip locked
+               limit 1
              )
-             returning id::text as id, story_id, state, claimed_by, role, kind,
-                       execution_policy, model_policy, stop_after, launch_intent",
+             update agent_work_item w
+             set state='Claimed', claimed_at=now(), claimed_by=$1,
+                 attempts=attempts+1, updated_at=now()
+             from candidate c
+             where w.id = c.id
+               and w.state = 'Ready'
+             returning w.id::text as id, w.story_id, w.state, w.claimed_by, w.role, w.kind,
+                       w.execution_policy, w.model_policy, w.stop_after, w.launch_intent",
         )
         .bind(worker_id)
         .fetch_optional(tx.connection())
