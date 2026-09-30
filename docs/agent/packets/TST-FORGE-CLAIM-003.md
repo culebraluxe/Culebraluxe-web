@@ -496,3 +496,46 @@ recovery, landed/held refusals) keep the test non-vacuous. Unrelated untracked `
 and a `rust/test-harness/src/lib.rs` edit left in the shared checkout by a concurrent writer belong to another
 in-flight story; they were left untouched and are not part of this candidate. The candidate this node commits is this
 packet section.
+
+## Verification — repair_smith re-issue (run 2, 2026-09-30)
+
+The `repair_smith` node was re-issued again (task `a387e27c-7123-409e-a16d-87d1a7a721f5`, self-heal prompt: the prior
+run was HELD for a missing `smith-candidate`). This run re-verifies the artifact against the current tree and lands the
+descendant candidate commit the control plane records. The canonical test
+`rust/test-harness/tests/forge_claim__003__stale_recovery.rs` is **byte-identical** to the QA-frozen candidate (sha256
+`d2e54b8a633747bdf622b33f2d9d42da65edc75cb4ebff9c50fbfc4594ac97dc`, unchanged since `a92ae424`) and every acceptance
+criterion is still met by it, so no production or test body changed and no migration ran.
+
+Every production citation the file and this packet name re-resolves against the current tree: `stale_agent_work` at
+`rust/core/db/src/forge_control.rs:39-54`, `hold_stale_work` at `:78-108`, `requeue_stale_work` at `:117-202`,
+`recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176-224`, `guard_target` at
+`rust/test-harness/src/database.rs:68-75`, and `connect_declared` at `:116-123`.
+
+Commands run from the repo root, output pasted with exit status:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+running 1 test
+test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+running 1 test
+test forge_claim_003__stale_recovery ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.01s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 33s
+CHECK_EXIT=0
+```
+
+The live run connects with `TestDatabase::connect_declared(None, Some("test"))` and asserts `target() == "dev"` before
+any assertion, connects only through `DATABASE_URL_DEV` (`ep-muddy-lab-axtgckj9-pooler`, distinct from the PROD host
+`ep-flat-art-ax92tn7a-pooler`), and deletes its six proof stories at the end, so the disposable DEV branch is left as
+it was found; PRODUCTION is never connected to. The candidate this node commits is this packet section; the unrelated
+untracked `arch_boundary__*`/`source.rs` files and `rust/test-harness/src/lib.rs` edit left in the shared checkout by a
+concurrent writer were left untouched and are not part of it.
