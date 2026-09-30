@@ -18,19 +18,20 @@
 //!
 //! WHERE INTENDED is the point of the contract, and it is demonstrated in both directions:
 //!
-//! - cosmetic XML (a comment — before the root or between nodes, extra whitespace, the declaration, the explicit
-//!   `<x></x>` form of a self-closing tag, an element whose **attributes are reordered**, and an end-state that
-//!   declares the parser's default `outcome="completed"`) parses to a **structurally equal** graph, because the
-//!   parser intentionally drops what is not structure; and
+//! - cosmetic XML (a comment — before the root or between nodes, extra whitespace, whitespace around an attribute's
+//!   `=` or inside a close tag, the declaration, the explicit `<x></x>` form of a self-closing tag, an element whose
+//!   **attributes are reordered**, and an end-state that declares the parser's default `outcome="completed"`) parses
+//!   to a **structurally equal** graph, because the parser intentionally drops what is not structure; and
 //! - a structural edit (a transition target or its condition/required flag, a decision condition or its
-//!   `refresh-facts`, a command type, a task `priority`, a task's `form-key`/`label`/`description`, an end-state
-//!   `outcome`, a dynamic-fork `count-variable`/`plan-variable`/`branch-node`/`minimum`/`maximum`, a display-order
-//!   entry **or the order of two display-order entries**) parses to a **structurally unequal** graph, because those
-//!   are the parts the definition intends to mean.
+//!   `refresh-facts`, a command type or **command-node transition**, a task `priority` or **`responsibility`**, a
+//!   task's `form-key`/`label`/`description`, an end-state `outcome`, a dynamic-fork
+//!   `count-variable`/`plan-variable`/`branch-node`/`minimum`/`maximum`, a display-order entry **or the order of two
+//!   display-order entries**) parses to a **structurally unequal** graph, because those are the parts the definition
+//!   intends to mean.
 //!
 //! A structural edit that would make the graph dishonest (a transition to a node that does not exist, an unknown
-//! element, a duplicate node id) is not a different graph — it is a refusal, so equality can never paper over a
-//! broken definition.
+//! element, a duplicate node id, a root that is not `<process-definition>`, a definition that declares no key) is not
+//! a different graph — it is a refusal, so equality can never paper over a broken definition.
 //!
 //! Level L0 Pure, harness `WorkflowHarness`. No database, no network, no filesystem write, no live provider: the
 //! input is the production XML embedded in the binary and the outputs are the parser's and the pure policies' own.
@@ -65,6 +66,9 @@ fn routing_signature(graph: &workflow::ProcessGraph) -> Vec<String> {
         }
         if let Some(form_key) = &node.form_key {
             row.push_str(&format!("|formKey={form_key}"));
+        }
+        if let Some(groups) = &node.candidate_groups {
+            row.push_str(&format!("|groups={}", groups.join(",")));
         }
         if let Some(transition) = &node.transition {
             row.push_str(&format!("|transition={transition}"));
@@ -319,6 +323,34 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
         "{HARNESS}: an end-state's default outcome is not structure — omitting `outcome=\"completed\"` must parse to an equal graph"
     );
 
+    // 3i. WHERE INTENDED (attribute whitespace) — XML permits whitespace around an attribute's `=` and before a
+    //     self-close, and it is not structure. The parser skips it (`rust/forge/src/engine/xml.rs:130,151-156`), so a
+    //     transition written with spaced attributes and a spaced self-close must parse to a structurally equal graph.
+    //     A parser that read up to the next non-name byte would refuse or misread this source.
+    let spaced_attrs = FORGE_SDLC_V6_XML.replacen(
+        BEGIN_TRANSITION,
+        "<transition name = \"begin\" to = \"classify_work\" />",
+        1,
+    );
+    let spaced_attrs_def = definition_from_xml(&spaced_attrs)
+        .expect("whitespace around attributes and before a self-close still parses");
+    assert!(
+        graphs_equal(&def.definition, &spaced_attrs_def.definition),
+        "{HARNESS}: whitespace around attributes is not structure — it must parse to an equal graph"
+    );
+
+    // 3j. WHERE INTENDED (close-tag whitespace) — whitespace between a close tag's name and its `>` is not structure.
+    //     The parser skips it (`rust/forge/src/engine/xml.rs:182`), so `</start-state >` must parse to the same graph
+    //     as `</start-state>`. A parser that compared the raw close name including the space would refuse the
+    //     definition outright.
+    let spaced_close = FORGE_SDLC_V6_XML.replacen("</start-state>", "</start-state >", 1);
+    let spaced_close_def =
+        definition_from_xml(&spaced_close).expect("a close tag with trailing whitespace still parses");
+    assert!(
+        graphs_equal(&def.definition, &spaced_close_def.definition),
+        "{HARNESS}: whitespace inside a close tag is not structure — it must parse to an equal graph"
+    );
+
     // 4. WHERE INTENDED (structural) — a real structural edit parses, but is NOT equal. Four independent facets are
     //    edited so the equality cannot be pinned to one serialized field: an edge (transition target), a decision
     //    arm's condition, a command node's command type, and the declared display order. Each parse must SUCCEED (the
@@ -514,6 +546,34 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
         "{HARNESS}: a dynamic fork's minimum is structure — changing it is a structural difference"
     );
 
+    // 4f. WHERE INTENDED (responsibility → candidate groups) — a task's (or command's) `responsibility` is the Forge
+    //     position the node runs as; the parser writes it to `candidate_groups` (`rust/forge/src/engine/xml.rs:289-291`)
+    //     and the codec persists it as `candidateGroups` (`rust/core/workflow/src/json_codec.rs:276-281`). Changing it
+    //     is therefore structure. The anchor is the first `responsibility="smith"` the definition declares, so the
+    //     rest of the definition stays identical and the parse cannot silently no-op.
+    let reassigned = FORGE_SDLC_V6_XML.replacen("responsibility=\"smith\"", "responsibility=\"qa\"", 1);
+    let reassigned_def =
+        definition_from_xml(&reassigned).expect("a task with a different position still parses");
+    assert!(
+        !graphs_equal(&def.definition, &reassigned_def.definition),
+        "{HARNESS}: a task's responsibility is structure — changing it is a structural difference"
+    );
+
+    // 4g. WHERE INTENDED (command-node transition) — a command node's `transition` attribute names where the command
+    //     goes when it completes; the parser reads it (`rust/forge/src/engine/xml.rs:300`) and the codec persists it
+    //     (`rust/core/workflow/src/json_codec.rs:303-305`). Changing it is structure, not decoration.
+    let rerouted_command = FORGE_SDLC_V6_XML.replacen(
+        "command-type=\"forge.publish_candidate\" transition=\"complete\"",
+        "command-type=\"forge.publish_candidate\" transition=\"hold\"",
+        1,
+    );
+    let rerouted_command_def = definition_from_xml(&rerouted_command)
+        .expect("a command with a different transition still parses");
+    assert!(
+        !graphs_equal(&def.definition, &rerouted_command_def.definition),
+        "{HARNESS}: a command node's transition is structure — changing it is a structural difference"
+    );
+
     // 5. THE ROUTING STRUCTURE MUST SURVIVE THE PRODUCTION PERSISTENCE BOUNDARY. `deploy_xml` writes the parsed
     //    graph with `graph_to_json` into Neon's `jsonb` column and the engine reads it back with `graph_from_json`;
     //    the routes the engine later follows must be exactly the routes the XML defined. This is the same codec the
@@ -658,6 +718,20 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
     assert!(
         definition_from_xml(&bad_entity).is_err(),
         "{HARNESS}: an unknown entity reference is refused, not decoded into a different-but-equal graph"
+    );
+
+    let wrong_root = FORGE_SDLC_V6_XML
+        .replacen("<process-definition\n", "<definitions\n", 1)
+        .replacen("</process-definition>", "</definitions>", 1);
+    assert!(
+        definition_from_xml(&wrong_root).is_err(),
+        "{HARNESS}: a root that is not <process-definition> is refused, not parsed under another shape"
+    );
+
+    let unkeyed = FORGE_SDLC_V6_XML.replacen("    key=\"FORGE_SDLC\"\n", "", 1);
+    assert!(
+        definition_from_xml(&unkeyed).is_err(),
+        "{HARNESS}: a definition that declares no key is refused, not parsed under a guessed identity"
     );
 
     // 10. NEGATIVE (non-vacuity) — the predicate returns BOTH answers on real graphs. If `graphs_equal` were a

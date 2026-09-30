@@ -27,7 +27,7 @@ structural-equality predicate is `graphs_equal` (`rust/forge/src/engine/version_
 
 ## Context refs
 
-- `rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:1-674` — the canonical test.
+- `rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:1-748` — the canonical test.
 - `rust/forge/src/engine/xml.rs:352-426` — `parse_process_definition_xml` / `definition_from_xml`, the production parser.
 - `rust/forge/src/engine/xml.rs:196-199` — the nested-comment skip inside an element's children.
 - `rust/forge/src/engine/version_policy.rs:39-41` — `graphs_equal`, the production equality predicate.
@@ -511,3 +511,67 @@ An untracked `arch_boundary__011__qa_cannot_own_git_mutations.rs` (another lane)
 time; it was left untouched and is not part of this candidate.
 
 FORGE_EVIDENCE_JSON: {"qaPassed":null,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"b35a936808b153c73b950e1d3725e188b4e1cbc8"}
+
+## Raw verification — fast_repair_smith self-heal re-run (2026-09-30, task 977d3bdb)
+
+This run was HELD because it did not deliver a `smith-candidate`: the smith deliverable is the run's workspace HEAD
+(`OpenCodeHarness::run_role` sets `candidate_sha = git rev-parse HEAD`, `rust/forge/src/engine/opencode.rs:316-324`), and
+a documentation commit from the prior attempt had moved HEAD past the test candidate it recorded. The canonical test was
+already committed and green, so this node lands a fresh, load-bearing commit on the canonical test — the candidate is
+this run's workspace HEAD, which owns the test change — and changes no production code.
+
+What changed in the canonical test (this node's own candidate, `71c08644`):
+
+1. WHERE INTENDED (attribute whitespace) — whitespace around an attribute's `=` and before a self-close is not
+   structure; the parser skips it (`rust/forge/src/engine/xml.rs:130,151-156`), so a transition written
+   `name = "begin" ... />` must parse to a structurally equal graph.
+2. WHERE INTENDED (close-tag whitespace) — whitespace between a close tag's name and its `>` is not structure
+   (`rust/forge/src/engine/xml.rs:182`), so `</start-state >` must parse to a structurally equal graph.
+3. WHERE INTENDED (responsibility → candidate groups) — a task's `responsibility` is read into `candidate_groups`
+   (`rust/forge/src/engine/xml.rs:289-291`) and persisted as `candidateGroups`
+   (`rust/core/workflow/src/json_codec.rs:276-281`), so changing it parses and is structurally unequal.
+4. WHERE INTENDED (command-node transition) — a command node's `transition` is read (`rust/forge/src/engine/xml.rs:300`)
+   and persisted (`rust/core/workflow/src/json_codec.rs:303-305`), so changing it parses and is structurally unequal.
+5. NEGATIVE (refusal) — a root that is not `<process-definition>` and a definition that declares no `key` are both
+   refused.
+6. `routing_signature` now carries candidate groups, so step 5 also proves they survive the production JSON codec.
+
+Each clause is self-proving: every `replacen(.., 1)` targets the single/first occurrence the production v6 XML declares,
+so if an anchor were absent the edited source would be byte-identical and the `assert!` direction would fail — the parse
+never silently no-ops.
+
+Commands below are this node's own run, pasted with their exit status.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+running 1 test
+test wf_definition_013__forge_v6_xml_structural_equality_where_intended ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5m 25s
+CHECK_EXIT=0
+```
+
+Mutation check (this node's own, the close-tag-whitespace clause): deleting the production `c.skip_ws()` before the
+close tag's `>` (`rust/forge/src/engine/xml.rs:182`) makes the test fail exactly at the new clause, `test result:
+FAILED` (exit 101):
+
+```
+thread 'wf_definition_013__forge_v6_xml_structural_equality_where_intended' panicked at test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:348:44:
+a close tag with trailing whitespace still parses: XmlError("malformed close at 2818")
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+MUTATION_EXIT=101
+```
+
+The production file was restored byte-for-byte (`cmp` clean, `shasum 036a9f863cddbb90644638f9820ca55eadcaf79b`) and the
+test is green again (`TEST_EXIT=0`), so the new cosmetic clause is load-bearing and the contract is not vacuous.
+
+An unrelated modified `rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs` (another lane) was
+present in the working tree at run time; it was left untouched and is not part of this candidate.
+
+The candidate for this node is the run's workspace HEAD — the commit this section is recorded with — which owns the
+canonical test change described above. The structured evidence is emitted in the node's reply:
+`{"qaPassed":null,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"<this commit>"}`.
