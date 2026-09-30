@@ -140,7 +140,10 @@ pub mod screen {
         }
 
         /// Deliver several messages in order, collecting each message's commands.
-        pub fn update_all(&mut self, messages: impl IntoIterator<Item = S::Msg>) -> Vec<Cmd<S::Msg>> {
+        pub fn update_all(
+            &mut self,
+            messages: impl IntoIterator<Item = S::Msg>,
+        ) -> Vec<Cmd<S::Msg>> {
             messages.into_iter().map(|msg| self.update(msg)).collect()
         }
 
@@ -283,7 +286,10 @@ mod tests {
 
         let failed = ApiError::network("harness proves the reducer path");
         let follow_up = harness.update(DbTestMsg::Loaded(Err(failed.clone())));
-        assert_eq!(screen::classify(&follow_up), vec![screen::CommandKind::None]);
+        assert_eq!(
+            screen::classify(&follow_up),
+            vec![screen::CommandKind::None]
+        );
         assert_eq!(
             harness.model().read,
             ui::app::cmd::Remote::Failed(failed),

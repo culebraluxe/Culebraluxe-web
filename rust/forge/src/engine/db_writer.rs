@@ -9,7 +9,9 @@ pub struct DbForgeStateWriter;
 impl DbForgeStateWriter {
     pub fn connect_env() -> Result<Self, String> {
         if crate::engine::vendor_session::database_url().is_none() {
-            return Err("DATABASE_URL_PROD is not set; Forge writes story state in production only".into());
+            return Err(
+                "DATABASE_URL_PROD is not set; Forge writes story state in production only".into(),
+            );
         }
         Ok(Self)
     }

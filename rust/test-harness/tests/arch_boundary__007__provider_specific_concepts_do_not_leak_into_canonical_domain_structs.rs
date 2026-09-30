@@ -94,7 +94,6 @@ const BASELINE: [&str; 9] = [
     "wbs.rs type AppleReminderUpsertRequest",
 ];
 
-
 /// The provider token an identifier names, if any.
 ///
 /// Boundaries are `_` and a lower-to-upper case change, so `AppleMessagesHandle` and `mux_asset_id` both name a
@@ -181,7 +180,6 @@ fn top_component(path: &Path, src: &Path) -> String {
         .map(|component| component.as_os_str().to_string_lossy().to_string())
         .unwrap_or_default()
 }
-
 
 #[test]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-ARCH-BOUNDARY-007); the file and the assay use it.

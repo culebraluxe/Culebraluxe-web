@@ -129,7 +129,10 @@ impl ActorBuilder {
 }
 
 /// A `ServiceContext` for an already-built principal.
-pub fn service_context(principal: ServicePrincipal, correlation_id: impl Into<String>) -> ServiceContext {
+pub fn service_context(
+    principal: ServicePrincipal,
+    correlation_id: impl Into<String>,
+) -> ServiceContext {
     ServiceContext {
         actor: ServiceActor {
             id: principal.app_user_id.clone().into(),

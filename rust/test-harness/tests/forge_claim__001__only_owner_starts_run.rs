@@ -366,7 +366,10 @@ async fn forge_claim_001__only_owner_starts_run() {
                     .execute(&mut *conn)
                     .await
                     .map_err(|error| {
-                        DbFailure::from_sqlx("test-harness.forge_claim.rollback_probe_update", &error)
+                        DbFailure::from_sqlx(
+                            "test-harness.forge_claim.rollback_probe_update",
+                            &error,
+                        )
                     })?;
                 let state: String =
                     sqlx::query_scalar("select state from agent_work_item where id = $1::uuid")

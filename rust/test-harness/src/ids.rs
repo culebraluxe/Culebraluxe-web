@@ -60,7 +60,10 @@ impl DeterministicIds {
 
     /// A deterministic, valid v4 UUID.
     pub fn next_uuid(&self) -> Uuid {
-        uuid_from_mix(self.next_u64(), mix(self.seed ^ 0x5DEECE66D, self.sequence()))
+        uuid_from_mix(
+            self.next_u64(),
+            mix(self.seed ^ 0x5DEECE66D, self.sequence()),
+        )
     }
 
     /// A deterministic v4 UUID, formatted.

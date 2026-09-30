@@ -207,9 +207,7 @@ pub(super) fn fetch_all_q<'q>(
 ) -> Result<Vec<PgRow>> {
     let handle = tx.handle.clone();
     let conn = tx.conn();
-    handle
-        .block_on(q.fetch_all(conn))
-        .map_err(driver_failure)
+    handle.block_on(q.fetch_all(conn)).map_err(driver_failure)
 }
 
 pub(super) fn fetch_one_q<'q>(
@@ -218,9 +216,7 @@ pub(super) fn fetch_one_q<'q>(
 ) -> Result<PgRow> {
     let handle = tx.handle.clone();
     let conn = tx.conn();
-    handle
-        .block_on(q.fetch_one(conn))
-        .map_err(driver_failure)
+    handle.block_on(q.fetch_one(conn)).map_err(driver_failure)
 }
 
 pub(super) fn fetch_optional_q<'q>(

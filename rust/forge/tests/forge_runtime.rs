@@ -50,10 +50,11 @@ fn a_second_registration_adopts_the_registered_identity() {
 
     let after = registered(&rt);
     assert_eq!(after.id, before.id, "the registered identity wins");
-    assert_eq!(after.name, before.name, "and the registered row is untouched");
+    assert_eq!(
+        after.name, before.name,
+        "and the registered row is untouched"
+    );
 }
-
-
 
 #[test]
 fn topology_of_compact_graph_is_valid() {
@@ -689,10 +690,7 @@ fn a_hold_that_cannot_be_recorded_fails_the_lane() {
         fn open_hold(&self, _i: &forge::engine::hold::OpenHold) -> Result<String, String> {
             Err("no such story".into())
         }
-        fn record_tool_artifact(
-            &self,
-            _i: &db::NewToolArtifact,
-        ) -> Result<Option<String>, String> {
+        fn record_tool_artifact(&self, _i: &db::NewToolArtifact) -> Result<Option<String>, String> {
             Ok(None)
         }
     }
@@ -721,7 +719,10 @@ fn a_hold_that_cannot_be_recorded_fails_the_lane() {
         Err(error) => error,
     };
     assert!(error.to_string().contains("forge_hold_record"), "{error}");
-    assert!(error.to_string().contains("ENG-GUARD-REPO-RUST-01"), "{error}");
+    assert!(
+        error.to_string().contains("ENG-GUARD-REPO-RUST-01"),
+        "{error}"
+    );
 }
 
 /// The QA lane's own measurement is recorded as a `forge_tool_artifact` row keyed to the run it executed
@@ -757,7 +758,8 @@ fn a_qa_lane_records_its_measurement_as_an_artifact() {
         assignee: None,
         candidates: vec!["qa_verify".into()],
     };
-    executor::ForgeRoleRunner::run(&role, "qa_verify", &task).expect("a clean assay is a clean lane");
+    executor::ForgeRoleRunner::run(&role, "qa_verify", &task)
+        .expect("a clean assay is a clean lane");
 
     let recorded = writer.artifacts.lock().unwrap();
     assert_eq!(recorded.len(), 1, "one measurement, one artifact");
@@ -834,10 +836,7 @@ fn an_artifact_that_cannot_be_recorded_fails_the_lane() {
         fn open_hold(&self, _i: &forge::engine::hold::OpenHold) -> Result<String, String> {
             Ok("hold-1".into())
         }
-        fn record_tool_artifact(
-            &self,
-            _i: &db::NewToolArtifact,
-        ) -> Result<Option<String>, String> {
+        fn record_tool_artifact(&self, _i: &db::NewToolArtifact) -> Result<Option<String>, String> {
             Err("artifact table is unreachable".into())
         }
     }
@@ -865,8 +864,14 @@ fn an_artifact_that_cannot_be_recorded_fails_the_lane() {
         Ok(_) => panic!("a measurement nobody could store is a failed lane"),
         Err(error) => error,
     };
-    assert!(error.to_string().contains("record_tool_artifact"), "{error}");
-    assert!(error.to_string().contains("ENG-PROOF-ARTIFACT-03"), "{error}");
+    assert!(
+        error.to_string().contains("record_tool_artifact"),
+        "{error}"
+    );
+    assert!(
+        error.to_string().contains("ENG-PROOF-ARTIFACT-03"),
+        "{error}"
+    );
 }
 
 #[test]

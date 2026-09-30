@@ -74,14 +74,15 @@ async fn a_second_story_is_claimed_while_a_peer_runs_and_one_story_still_cannot_
     //    ahead of B. The claim reads `priority desc, queued_at asc, id`, so the two claims below are provably about
     //    these two stories and no borrowed row has to be put back.
     for (story, priority) in [(&story_a, 1_000_002i32), (&story_b, 1_000_001i32)] {
-        let lifted =
-            sqlx::query("update agent_work_item set priority = $2 where story_id = $1 and state = 'Ready'")
-                .bind(story)
-                .bind(priority)
-                .execute(pool)
-                .await
-                .expect("lift the proof item above the rest of the queue")
-                .rows_affected();
+        let lifted = sqlx::query(
+            "update agent_work_item set priority = $2 where story_id = $1 and state = 'Ready'",
+        )
+        .bind(story)
+        .bind(priority)
+        .execute(pool)
+        .await
+        .expect("lift the proof item above the rest of the queue")
+        .rows_affected();
         assert_eq!(
             lifted, 1,
             "the board's own trigger must have queued exactly one item for {story}"
@@ -157,11 +158,12 @@ async fn a_second_story_is_claimed_while_a_peer_runs_and_one_story_still_cannot_
     // 5. ONE STORY, ONE WRITER — the rule that did NOT change. A second serial item (`parallel_group_id is null`)
     //    on a story that already has an open one is refused by the database itself, so no claim path can produce
     //    the twin writers the governor was originally there to stop.
-    let doubled =
-        sqlx::query("insert into agent_work_item (story_id, state, priority) values ($1, 'Ready', 1000003)")
-            .bind(&story_a)
-            .execute(pool)
-            .await;
+    let doubled = sqlx::query(
+        "insert into agent_work_item (story_id, state, priority) values ($1, 'Ready', 1000003)",
+    )
+    .bind(&story_a)
+    .execute(pool)
+    .await;
     let error = doubled.expect_err("a second serial item on one story must be refused");
     let constraint = error
         .as_database_error()

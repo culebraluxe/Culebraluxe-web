@@ -62,12 +62,13 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
     .execute(pool)
     .await
     .expect("insert proof story");
-    let _ready_item: String =
-        sqlx::query_scalar("select id::text from agent_work_item where story_id = $1 and state = 'Ready'")
-            .bind(&ready_story)
-            .fetch_one(pool)
-            .await
-            .expect("the Ready trigger created exactly one item");
+    let _ready_item: String = sqlx::query_scalar(
+        "select id::text from agent_work_item where story_id = $1 and state = 'Ready'",
+    )
+    .bind(&ready_story)
+    .fetch_one(pool)
+    .await
+    .expect("the Ready trigger created exactly one item");
 
     // 2. A leftover `Ready` item for a story the board says is `In Progress` — the shape every item in the queue
     //    actually has today, because nothing ever claimed one. Deliberately the highest-priority row in the table,
@@ -110,11 +111,12 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
         claimed_story_status, "Ready",
         "only a story the board still has at Ready may be claimed"
     );
-    let attempts: i32 = sqlx::query_scalar("select attempts from agent_work_item where id = $1::uuid")
-        .bind(&claimed.id)
-        .fetch_one(pool)
-        .await
-        .unwrap();
+    let attempts: i32 =
+        sqlx::query_scalar("select attempts from agent_work_item where id = $1::uuid")
+            .bind(&claimed.id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
     assert!(attempts >= 1, "a claim must count the attempt");
 
     // DEV may hold Ready items this proof has no business terminalizing, so a borrowed claim is put back at the end.
@@ -139,11 +141,7 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
             "two workers must never hold one story: the queue is serial per story, not per system"
         );
         engine
-            .finish_agent_work_run(
-                &peer.id,
-                AgentWorkOutcome::Abandoned,
-                Some("proof borrow"),
-            )
+            .finish_agent_work_run(&peer.id, AgentWorkOutcome::Abandoned, Some("proof borrow"))
             .await
             .expect("a borrowed DEV claim must be put back");
     }
@@ -184,7 +182,10 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
         Some(begin.story_run_id.as_str()),
         "the claim must carry the run it opened"
     );
-    assert_eq!(run_story, claimed.story_id, "the run belongs to the claim's story");
+    assert_eq!(
+        run_story, claimed.story_id,
+        "the run belongs to the claim's story"
+    );
     assert!(
         run_status.is_none(),
         "a run that just started has no ruling yet — an unruled run is not a verdict"
@@ -245,11 +246,12 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
             .is_none(),
         "a row that is no longer `Claimed` must refuse to open: otherwise the engine drives a claim it does not own"
     );
-    let running: String = sqlx::query_scalar("select state from agent_work_item where id = $1::uuid")
-        .bind(&claimed.id)
-        .fetch_one(pool)
-        .await
-        .unwrap();
+    let running: String =
+        sqlx::query_scalar("select state from agent_work_item where id = $1::uuid")
+            .bind(&claimed.id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
     assert_eq!(running, "Running");
     let (before, started): (String, Option<String>) = sqlx::query_as(
         "select updated_at::text, started_at::text from agent_work_item where id = $1::uuid",
@@ -265,11 +267,12 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
         engine.heartbeat_agent_work(&claimed.id).await.unwrap(),
         "a running claim must accept a heartbeat"
     );
-    let after: String = sqlx::query_scalar("select updated_at::text from agent_work_item where id = $1::uuid")
-        .bind(&claimed.id)
-        .fetch_one(pool)
-        .await
-        .unwrap();
+    let after: String =
+        sqlx::query_scalar("select updated_at::text from agent_work_item where id = $1::uuid")
+            .bind(&claimed.id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
     assert!(
         after > before,
         "a heartbeat must move updated_at forward, or a long run is requeued while it is still alive"
@@ -305,7 +308,10 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
             .await
             .unwrap();
     assert_eq!(state, "Done");
-    assert!(finished.is_some(), "a terminal write must stamp finished_at");
+    assert!(
+        finished.is_some(),
+        "a terminal write must stamp finished_at"
+    );
     // 6a. The run the claim opened ends with the claim, in the same write, and it ends with the item's ruling.
     let (closed_status, closed_at): (Option<String>, Option<String>) = sqlx::query_as(
         "select r.result_status, r.ended_at::text
@@ -325,7 +331,11 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
     assert!(closed_at.is_some(), "a settled claim closes its run");
     assert!(
         engine
-            .finish_agent_work_run(&claimed.id, AgentWorkOutcome::Error, Some("late second verdict"))
+            .finish_agent_work_run(
+                &claimed.id,
+                AgentWorkOutcome::Error,
+                Some("late second verdict")
+            )
             .await
             .unwrap()
             .is_none(),
@@ -337,8 +347,14 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
             .fetch_one(pool)
             .await
             .unwrap();
-    assert_eq!(state_after, "Done", "a second settle must not overwrite the verdict");
-    assert_eq!(error_after, None, "a second settle must not write its reason either");
+    assert_eq!(
+        state_after, "Done",
+        "a second settle must not overwrite the verdict"
+    );
+    assert_eq!(
+        error_after, None,
+        "a second settle must not write its reason either"
+    );
 
     // 6b. `Ok` from the engine is not completion. A run that stops `exhausted`, hits the step cap, or blocks on a
     //     missing ready task returns `Ok` with the story still `In Progress`, and crediting that as `Done` leaves a
@@ -396,17 +412,19 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
         .reject_agent_work_configuration(&busy_item, "invalid --work-type PROOF")
         .await
         .expect("rejecting a claim's configuration must write a legal state");
-    let busy_state: String = sqlx::query_scalar("select state from agent_work_item where id = $1::uuid")
-        .bind(&busy_item)
-        .fetch_one(pool)
-        .await
-        .unwrap();
+    let busy_state: String =
+        sqlx::query_scalar("select state from agent_work_item where id = $1::uuid")
+            .bind(&busy_item)
+            .fetch_one(pool)
+            .await
+            .unwrap();
     assert_eq!(busy_state, "Error");
-    let busy_story_status: String = sqlx::query_scalar("select status from storyboard_story where id = $1")
-        .bind(&busy_story)
-        .fetch_one(pool)
-        .await
-        .unwrap();
+    let busy_story_status: String =
+        sqlx::query_scalar("select status from storyboard_story where id = $1")
+            .bind(&busy_story)
+            .fetch_one(pool)
+            .await
+            .unwrap();
     assert_eq!(
         busy_story_status, "Hold",
         "refusing a claim's configuration must move the board too: a `Ready` story beside a terminal item is \
@@ -543,8 +561,6 @@ async fn engine_faults_clear_the_pair_and_the_plane_is_swept_before_each_run() {
         "and the dispatch trigger must not open a second item for a story that already has one"
     );
 
-
-
     // 2. An engine fault clears the pair. The claim is taken through the real DAO, so the guard being measured is
     //    the one that runs in production.
     engine
@@ -615,19 +631,24 @@ async fn engine_faults_clear_the_pair_and_the_plane_is_swept_before_each_run() {
 
     // 4. A broken engine that will not stop stops spinning: at `max_attempts` the pair stops clearing and holds the
     //    story where a human will see it, instead of cycling the same story through the queue forever.
-    sqlx::query("update agent_work_item set attempts = coalesce(max_attempts, 3) where id = $1::uuid")
-        .bind(&stranded_item)
-        .execute(pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "update agent_work_item set attempts = coalesce(max_attempts, 3) where id = $1::uuid",
+    )
+    .bind(&stranded_item)
+    .execute(pool)
+    .await
+    .unwrap();
     let exhausted = engine
-        .finish_agent_work_run(&stranded_item, AgentWorkOutcome::Abandoned, Some("still broken"))
+        .finish_agent_work_run(
+            &stranded_item,
+            AgentWorkOutcome::Abandoned,
+            Some("still broken"),
+        )
         .await
         .unwrap()
         .expect("the exhausted settle must land");
     assert_eq!(exhausted.item_state, "Error");
     assert_eq!(exhausted.story_status, Some("Hold"));
-
 
     // 5. The other two shapes: an item whose story no longer expects a run is cleared, and a `Ready` story whose item
     //    went away gets one — the case the dispatch trigger cannot see, because it fires on a *change* to `Ready`.
@@ -657,11 +678,13 @@ async fn engine_faults_clear_the_pair_and_the_plane_is_swept_before_each_run() {
     .execute(pool)
     .await
     .expect("insert requeued proof story");
-    sqlx::query("update agent_work_item set state='Cancelled', finished_at=now() where story_id = $1")
-        .bind(&requeued_story)
-        .execute(pool)
-        .await
-        .expect("cancel the item the trigger made, leaving a Ready story with nothing to dispatch");
+    sqlx::query(
+        "update agent_work_item set state='Cancelled', finished_at=now() where story_id = $1",
+    )
+    .bind(&requeued_story)
+    .execute(pool)
+    .await
+    .expect("cancel the item the trigger made, leaving a Ready story with nothing to dispatch");
 
     let swept = engine.reconcile_dispatch_queue().await.unwrap();
     assert!(swept.cleared >= 1, "an item over a settled story is junk");
@@ -699,11 +722,12 @@ async fn engine_faults_clear_the_pair_and_the_plane_is_swept_before_each_run() {
     .expect("insert the open proof story");
 
     engine.reconcile_dispatch_queue().await.unwrap();
-    let open_board: String = sqlx::query_scalar("select status from storyboard_story where id = $1")
-        .bind(&open_story)
-        .fetch_one(pool)
-        .await
-        .unwrap();
+    let open_board: String =
+        sqlx::query_scalar("select status from storyboard_story where id = $1")
+            .bind(&open_story)
+            .fetch_one(pool)
+            .await
+            .unwrap();
     assert_eq!(
         open_board, "In Progress",
         "an OPEN card must stay off the engine run queue"

@@ -387,7 +387,10 @@ mod tests {
         // `lib/forge-kind.ts` in `legacy/workflow_app/tests/forge-kind-routing.test.ts:104-125`.
         assert_eq!(FORGE_MODEL_POLICIES, ["cheap", "judgment"]);
         assert_eq!(model_for_policy(Some("cheap")), "deepseek/deepseek-flash");
-        assert_eq!(model_for_policy(Some("judgment")), "deepseek/deepseek-flash");
+        assert_eq!(
+            model_for_policy(Some("judgment")),
+            "deepseek/deepseek-flash"
+        );
         // The live pin IS the flash tier after the upstream rename, so both policies name what bills today.
         assert_eq!(MODEL_FOR_CHEAP, OPENCODE_PINNED_MODEL);
         assert_eq!(MODEL_FOR_JUDGMENT, OPENCODE_PINNED_MODEL);
@@ -401,7 +404,10 @@ mod tests {
     fn the_row_decides_the_model_and_an_explicit_override_still_wins() {
         // The row's policy is what the harness would run on when no explicit model is set.
         let policy_model = resolve_model_for_policy(Some("cheap"));
-        assert_eq!(policy_model, resolve_opencode_model(Some(&policy_model)).unwrap());
+        assert_eq!(
+            policy_model,
+            resolve_opencode_model(Some(&policy_model)).unwrap()
+        );
         assert_eq!(
             resolve_model_for_policy(Some("cheap")),
             model_for_policy(Some("cheap"))

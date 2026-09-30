@@ -4,11 +4,11 @@
 //! actually deterministic, and they prove the PRODUCTION database guard refuses execution *before* any connection is
 //! attempted. Everything here runs in `cargo test -p test-harness` with no database, no network and no environment.
 
+use db::DbTarget;
 use test_harness::database::{
     guard_target, resolve_test_target, unique_namespace, HarnessDbError, TestDatabase,
 };
 use test_harness::{DeterministicIds, FixtureFactory, TestClock, TestLevel};
-use db::DbTarget;
 
 #[test]
 fn the_clock_is_deterministic_and_moves_only_when_asked() {
@@ -24,7 +24,10 @@ fn the_clock_is_deterministic_and_moves_only_when_asked() {
         left_values.push(left.advance_millis(250));
         right_values.push(right.advance_millis(250));
     }
-    assert_eq!(left_values, right_values, "the same moves yield the same instants");
+    assert_eq!(
+        left_values, right_values,
+        "the same moves yield the same instants"
+    );
 }
 
 #[test]
@@ -39,7 +42,10 @@ fn the_id_stream_is_deterministic() {
 
     // A different seed diverges, so the determinism is a seed, not a constant.
     let other = DeterministicIds::new(1235);
-    assert_ne!(DeterministicIds::new(1).next_uuid_string(), other.next_uuid_string());
+    assert_ne!(
+        DeterministicIds::new(1).next_uuid_string(),
+        other.next_uuid_string()
+    );
 }
 
 #[test]
@@ -62,10 +68,16 @@ fn the_production_database_guard_refuses_execution() {
     assert!(resolve_test_target(Some("production"), Some("dev")).is_err());
     assert!(resolve_test_target(None, Some("production")).is_err());
     assert!(resolve_test_target(None, Some("prod")).is_err());
-    assert!(resolve_test_target(None, None).is_err(), "silence is refused, not defaulted");
+    assert!(
+        resolve_test_target(None, None).is_err(),
+        "silence is refused, not defaulted"
+    );
 
     // 3. And a dev/test declaration resolves to DEV, so the guard is not simply refusing everything.
-    assert_eq!(resolve_test_target(None, Some("test")).unwrap(), DbTarget::Dev);
+    assert_eq!(
+        resolve_test_target(None, Some("test")).unwrap(),
+        DbTarget::Dev
+    );
     assert_eq!(
         resolve_test_target(Some("preview"), None).unwrap(),
         DbTarget::Dev
@@ -108,7 +120,10 @@ fn the_database_helpers_own_cleanup_with_a_unique_namespace_per_instance() {
     let first = unique_namespace();
     let second = unique_namespace();
     assert_ne!(first, second, "each test database owns its own schema");
-    assert!(first.starts_with("tsth-"), "the namespace is a safe schema prefix");
+    assert!(
+        first.starts_with("tsth-"),
+        "the namespace is a safe schema prefix"
+    );
 }
 
 #[test]
@@ -203,7 +218,10 @@ fn production_dependency_naming_harness(manifest: &str) -> Option<String> {
     for raw in manifest.lines() {
         let line = raw.split('#').next().unwrap_or("").trim();
         if line.starts_with('[') && line.ends_with(']') {
-            let table = line.trim_matches(|c| c == '[' || c == ']').trim().to_owned();
+            let table = line
+                .trim_matches(|c| c == '[' || c == ']')
+                .trim()
+                .to_owned();
             if table.contains("test-harness") && is_production_table(&table) {
                 return Some(table);
             }
@@ -225,11 +243,15 @@ fn production_dependency_naming_harness(manifest: &str) -> Option<String> {
 fn the_one_way_guard_refuses_a_production_dependency() {
     // The two shapes a production dependency takes, both of which must be refused.
     assert_eq!(
-        production_dependency_naming_harness("[dependencies]\ntest-harness = { path = \"../test-harness\" }\n"),
+        production_dependency_naming_harness(
+            "[dependencies]\ntest-harness = { path = \"../test-harness\" }\n"
+        ),
         Some("dependencies".to_owned())
     );
     assert_eq!(
-        production_dependency_naming_harness("[dependencies.test-harness]\npath = \"../test-harness\"\n"),
+        production_dependency_naming_harness(
+            "[dependencies.test-harness]\npath = \"../test-harness\"\n"
+        ),
         Some("dependencies.test-harness".to_owned())
     );
     assert_eq!(

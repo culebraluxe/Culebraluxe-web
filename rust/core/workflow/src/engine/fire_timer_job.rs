@@ -154,29 +154,30 @@ impl<S: TxStore> WorkflowEngine<S> {
         // Each job is its own transaction. Fire them on a bounded thread pool so one
         // slow timer does not hold the others, and so Neon takes separate connections
         // rather than one serial session. A panic in a worker is a step failure.
-        let outcomes = crate::concurrency::run_bounded(&jobs, crate::concurrency::job_workers(), |job| {
-            if job.job_type == "timer" && job.token_id.is_some() {
-                match self.fire_timer_job(FireTimerParams {
-                    job_id: job.id.clone(),
-                    worker_id: worker_id.to_string(),
-                    variables: json!({}),
-                }) {
-                    Ok(()) => Ok(true),
-                    Err(error) => {
-                        self.fail_job(&job.id, worker_id, &error.to_string(), false)?;
-                        Ok(false)
+        let outcomes =
+            crate::concurrency::run_bounded(&jobs, crate::concurrency::job_workers(), |job| {
+                if job.job_type == "timer" && job.token_id.is_some() {
+                    match self.fire_timer_job(FireTimerParams {
+                        job_id: job.id.clone(),
+                        worker_id: worker_id.to_string(),
+                        variables: json!({}),
+                    }) {
+                        Ok(()) => Ok(true),
+                        Err(error) => {
+                            self.fail_job(&job.id, worker_id, &error.to_string(), false)?;
+                            Ok(false)
+                        }
                     }
+                } else {
+                    self.fail_job(
+                        &job.id,
+                        worker_id,
+                        &format!("no executor registered for job type '{}'", job.job_type),
+                        false,
+                    )?;
+                    Ok(false)
                 }
-            } else {
-                self.fail_job(
-                    &job.id,
-                    worker_id,
-                    &format!("no executor registered for job type '{}'", job.job_type),
-                    false,
-                )?;
-                Ok(false)
-            }
-        });
+            });
         for outcome in outcomes {
             match outcome {
                 Ok(true) => report.fired += 1,

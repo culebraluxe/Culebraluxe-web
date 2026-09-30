@@ -24,8 +24,9 @@ use std::sync::{Arc, Mutex};
 use test_harness::{EngineHarness, TestClock};
 use workflow::{
     command_id, ApplicationCommandOutcome, ApplicationCommandRequest, ApplicationCommandResult,
-    ApplicationPort, DefinitionStatus, NodeDefinition, ProcessCommand, ProcessDefinition, ProcessGraph,
-    ProcessOutcome, ProcessStatus, StartProcessParams, TransitionDefinition, Value, WorkflowSubject,
+    ApplicationPort, DefinitionStatus, NodeDefinition, ProcessCommand, ProcessDefinition,
+    ProcessGraph, ProcessOutcome, ProcessStatus, StartProcessParams, TransitionDefinition, Value,
+    WorkflowSubject,
 };
 
 /// The command node the contract is about.

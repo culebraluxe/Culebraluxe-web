@@ -495,8 +495,10 @@ mod dispatch_cap_tests {
         assert!(architect.contains("architect"));
         let lead = resolve_forge_stop_target(Some(&ForgeStopTarget::Role("lead"))).unwrap();
         assert!(lead.contains("lead_pre"));
-        assert!(resolve_forge_stop_target(None).is_none(), "NULL is the full chain");
+        assert!(
+            resolve_forge_stop_target(None).is_none(),
+            "NULL is the full chain"
+        );
         assert!(resolve_forge_stop_target(Some(&ForgeStopTarget::Role("unknown"))).is_none());
     }
 }
-

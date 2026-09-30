@@ -360,8 +360,14 @@ mod artifact_verdict_tests {
             None
         );
         // No verdict at all is no verdict, whatever the kind.
-        assert_eq!(artifact_verdict_for_run("run-verdict", Some("Complete"), None), None);
-        assert_eq!(artifact_verdict_for_run("qa-assay-evidence", None, None), None);
+        assert_eq!(
+            artifact_verdict_for_run("run-verdict", Some("Complete"), None),
+            None
+        );
+        assert_eq!(
+            artifact_verdict_for_run("qa-assay-evidence", None, None),
+            None
+        );
         // Polarity words, both spellings, and the misspelling that must not pass.
         assert_eq!(verdict_polarity(" passed "), Some(VerdictPolarity::Affirm));
         assert_eq!(verdict_polarity("COMPLETE"), Some(VerdictPolarity::Affirm));
@@ -399,7 +405,11 @@ mod settlement_pair_tests {
         let cases = [
             (AgentWorkOutcome::Done, "Complete", Some("Complete")),
             (AgentWorkOutcome::Error, "In Progress", Some("Failed")),
-            (AgentWorkOutcome::Cancelled, "In Progress", Some("Cancelled")),
+            (
+                AgentWorkOutcome::Cancelled,
+                "In Progress",
+                Some("Cancelled"),
+            ),
             // The engine's own fault: the item goes back to the queue and the run is left unruled.
             (AgentWorkOutcome::Abandoned, "In Progress", None),
         ];
@@ -465,8 +475,16 @@ mod settlement_pair_tests {
     #[test]
     fn a_terminal_or_foreign_board_is_left_alone() {
         for board in ["Complete", "Hold", "Planned", "Batched"] {
-            assert_eq!(pair(AgentWorkOutcome::Error, board).story_status, None, "{board}");
-            assert_eq!(pair(AgentWorkOutcome::Done, board).story_status, None, "{board}");
+            assert_eq!(
+                pair(AgentWorkOutcome::Error, board).story_status,
+                None,
+                "{board}"
+            );
+            assert_eq!(
+                pair(AgentWorkOutcome::Done, board).story_status,
+                None,
+                "{board}"
+            );
         }
     }
 
@@ -481,7 +499,10 @@ mod settlement_pair_tests {
             ] {
                 let settled = pair(outcome, board);
                 let terminal = matches!(settled.item_state, "Done" | "Error" | "Cancelled");
-                assert!(terminal, "{outcome:?}/{board} must name a terminal item state");
+                assert!(
+                    terminal,
+                    "{outcome:?}/{board} must name a terminal item state"
+                );
                 assert_eq!(
                     settled.story_status,
                     Some("Hold"),
@@ -526,7 +547,7 @@ pub struct ForgeHoldRow {
     pub reason: String,
     pub originating_node: Option<String>,
 }
-    /// What `ensure_story_dispatched` found and did. The caller's note to a human is built from this, so the note
+/// What `ensure_story_dispatched` found and did. The caller's note to a human is built from this, so the note
 /// cannot claim a queue slot the database did not create.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EnsureDispatch {
@@ -623,7 +644,9 @@ pub(crate) async fn ensure_story_dispatched_on(
     database: &Database,
     story_id: &str,
 ) -> DbResult<EnsureDispatch> {
-    let mut tx = database.begin("forge_engine.ensure_story_dispatched").await?;
+    let mut tx = database
+        .begin("forge_engine.ensure_story_dispatched")
+        .await?;
     let outcome = match dispatch_story_in(tx.connection(), story_id).await {
         Ok(outcome) => {
             tx.commit().await?;
@@ -636,7 +659,6 @@ pub(crate) async fn ensure_story_dispatched_on(
     };
     Ok(outcome)
 }
-
 
 #[derive(Clone)]
 pub struct ForgeEngineDao {
@@ -811,7 +833,9 @@ impl ForgeEngineDao {
             .bind(work_item_id)
             .fetch_optional(tx.connection())
             .await
-            .map_err(|error| DbFailure::from_sqlx("forge_engine.begin_agent_work_run.read", &error))?;
+            .map_err(|error| {
+                DbFailure::from_sqlx("forge_engine.begin_agent_work_run.read", &error)
+            })?;
             let Some(_story_id) = claimed else {
                 return Ok::<Option<BeginAgentWorkRun>, DbFailure>(None);
             };
@@ -856,7 +880,9 @@ impl ForgeEngineDao {
             .bind(run_execution_environment(self.db.declared_target()))
             .fetch_one(tx.connection())
             .await
-            .map_err(|error| DbFailure::from_sqlx("forge_engine.begin_agent_work_run.run", &error))?;
+            .map_err(|error| {
+                DbFailure::from_sqlx("forge_engine.begin_agent_work_run.run", &error)
+            })?;
 
             // The envelope travels back with the run: the model policy decides which model bills, and the launch
             // intent is the Cockpit's cap on the Lead. Both are read from the row in the same statement that opens
@@ -929,10 +955,7 @@ impl ForgeEngineDao {
             .fetch_optional(tx.connection())
             .await
             .map_err(|error| {
-                DbFailure::from_sqlx(
-                    "forge_engine.reject_agent_work_configuration.read",
-                    &error,
-                )
+                DbFailure::from_sqlx("forge_engine.reject_agent_work_configuration.read", &error)
             })?;
             let Some(board) = board else {
                 return Ok::<(), DbFailure>(());
@@ -1393,10 +1416,7 @@ impl ForgeEngineDao {
     /// A ruling that cannot be **read** fails closed to no verdict and the artifact is still written: the measurement
     /// happened, and a failure to read the run is not a licence to lend it one. The failure is not swallowed —
     /// constructing the `DbFailure` announces it through `db::capture` — and the write proceeds with `verdict: null`.
-    pub async fn record_tool_artifact(
-        &self,
-        input: &NewToolArtifact,
-    ) -> DbResult<ToolArtifactRow> {
+    pub async fn record_tool_artifact(&self, input: &NewToolArtifact) -> DbResult<ToolArtifactRow> {
         let mut tx = self.db.begin("forge_engine.record_tool_artifact").await?;
         let result = async {
             let ruling: Option<String> = match input.story_run_id.as_deref() {

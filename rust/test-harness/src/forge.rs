@@ -89,13 +89,22 @@ impl ForgeHarness {
         .bind(story_id)
         .execute(self.pool())
         .await
-        .map_err(|error| HarnessDbError::from(DbFailure::from_sqlx("test-harness.forge.seed_story", &error)))?;
+        .map_err(|error| {
+            HarnessDbError::from(DbFailure::from_sqlx(
+                "test-harness.forge.seed_story",
+                &error,
+            ))
+        })?;
 
-        sqlx::query_scalar("select id::text from agent_work_item where story_id = $1 and state = 'Ready'")
-            .bind(story_id)
-            .fetch_one(self.pool())
-            .await
-            .map_err(|error| HarnessDbError::from(DbFailure::from_sqlx("test-harness.forge.seed_item", &error)))
+        sqlx::query_scalar(
+            "select id::text from agent_work_item where story_id = $1 and state = 'Ready'",
+        )
+        .bind(story_id)
+        .fetch_one(self.pool())
+        .await
+        .map_err(|error| {
+            HarnessDbError::from(DbFailure::from_sqlx("test-harness.forge.seed_item", &error))
+        })
     }
 
     /// Delete a seeded story. Its work items and runs cascade, so the disposable target is left as it was found.

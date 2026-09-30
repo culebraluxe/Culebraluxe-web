@@ -154,9 +154,7 @@ impl TestDatabase {
     /// `|conn| Box::pin(async move { ... })`.
     pub async fn with_rollback<F, T>(&self, body: F) -> Result<T, HarnessDbError>
     where
-        F: for<'a> FnOnce(
-            &'a mut PgConnection,
-        ) -> Pin<Box<dyn Future<Output = DbResult<T>> + 'a>>,
+        F: for<'a> FnOnce(&'a mut PgConnection) -> Pin<Box<dyn Future<Output = DbResult<T>> + 'a>>,
     {
         let mut transaction = self.begin().await?;
         let outcome = body(transaction.connection()).await;
@@ -171,10 +169,12 @@ impl TestDatabase {
     /// Create a schema that every object this test makes lives inside, and that one call drops with `CASCADE`.
     pub async fn create_isolated_schema(&self) -> Result<IsolatedSchema, HarnessDbError> {
         let name = schema_name(&self.namespace);
-        sqlx::query(sqlx::AssertSqlSafe(format!("create schema if not exists \"{name}\"")))
-            .execute(self.inner.pool())
-            .await
-            .map_err(|error| DbFailure::from_sqlx("test-harness.create_schema", &error))?;
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "create schema if not exists \"{name}\""
+        )))
+        .execute(self.inner.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("test-harness.create_schema", &error))?;
         Ok(IsolatedSchema {
             inner: self.inner.clone(),
             name,
@@ -298,6 +298,9 @@ mod tests {
             first, second,
             "two test databases in one process must not share a namespace/schema"
         );
-        assert!(first.starts_with("tsth-"), "a namespace names a schema prefix safely");
+        assert!(
+            first.starts_with("tsth-"),
+            "a namespace names a schema prefix safely"
+        );
     }
 }

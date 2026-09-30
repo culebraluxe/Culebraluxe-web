@@ -94,7 +94,8 @@ impl DisposableRepo {
 
     /// The current `HEAD` commit id.
     pub fn head_sha(&self) -> io::Result<String> {
-        self.git(&["rev-parse", "HEAD"]).map(|sha| sha.trim().to_owned())
+        self.git(&["rev-parse", "HEAD"])
+            .map(|sha| sha.trim().to_owned())
     }
 
     /// Whether the working tree has no uncommitted changes.
@@ -179,10 +180,7 @@ fn run_git(directory: &Path, args: &[&str]) -> io::Result<String> {
         .args(args)
         .output()
         .map_err(|error| {
-            io::Error::new(
-                error.kind(),
-                format!("could not run git {args:?}: {error}"),
-            )
+            io::Error::new(error.kind(), format!("could not run git {args:?}: {error}"))
         })?;
     if !output.status.success() {
         return Err(io::Error::other(format!(

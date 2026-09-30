@@ -81,7 +81,11 @@ mod tests {
 
         let mut sorted = TestLevel::ALL;
         sorted.sort();
-        assert_eq!(sorted, TestLevel::ALL, "the enum order is the taxonomy order");
+        assert_eq!(
+            sorted,
+            TestLevel::ALL,
+            "the enum order is the taxonomy order"
+        );
     }
 
     #[test]

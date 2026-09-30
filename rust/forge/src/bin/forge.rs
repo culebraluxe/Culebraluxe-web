@@ -134,10 +134,7 @@ fn main() {
         Some(raw) => match parse_forge_stop_after(&raw) {
             Some(target) => Some(target),
             None => {
-                reject_configuration(
-                    work_item.as_deref(),
-                    &format!("invalid --stop-after {raw}"),
-                );
+                reject_configuration(work_item.as_deref(), &format!("invalid --stop-after {raw}"));
                 eprintln!("invalid --stop-after {raw}: expected scout|architect|lead");
                 std::process::exit(2);
             }
@@ -174,11 +171,15 @@ fn main() {
             Some(packet)
         }
         Err(e) if packet_from_env => {
-            eprintln!("story packet: {e} (FORGE_PACKET_FROM_ENV=1: running on the environment packet)");
+            eprintln!(
+                "story packet: {e} (FORGE_PACKET_FROM_ENV=1: running on the environment packet)"
+            );
             None
         }
         Err(e) => {
-            eprintln!("story packet: {e}; refusing to run {story} without its authoritative packet");
+            eprintln!(
+                "story packet: {e}; refusing to run {story} without its authoritative packet"
+            );
             if settle_work_item(
                 work_item.as_deref(),
                 AgentWorkOutcome::Abandoned,
@@ -357,7 +358,9 @@ fn main() {
         {
             Ok(base_commit) => match agent_work::stamp_run_base_commit(run_id, &base_commit) {
                 Ok(true) => eprintln!("run base_commit_hash={base_commit} (in-repo)"),
-                Ok(false) => eprintln!("run base_commit_hash left unset (already stamped or empty)"),
+                Ok(false) => {
+                    eprintln!("run base_commit_hash left unset (already stamped or empty)")
+                }
                 Err(e) => {
                     eprintln!("base_commit_hash: {e}");
                     if settle_work_item(

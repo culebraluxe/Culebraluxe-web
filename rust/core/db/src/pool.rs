@@ -703,8 +703,6 @@ const fn warm_openers(min_connections: u32, max_connections: u32) -> u32 {
     }
 }
 
-
-
 /// Whether the pool must verify a connection before it is handed to a caller.
 ///
 /// Two independent reasons. The first is the age of an idle connection: the pooler may have dropped it, and 72ms of
@@ -926,7 +924,8 @@ mod tests {
             "a broken socket must make the pool verify what it hands out next"
         );
         assert!(
-            SUSPECT_UNTIL_MS.load(Ordering::Relaxed) <= now_ms().saturating_add(recheck_window_ms()),
+            SUSPECT_UNTIL_MS.load(Ordering::Relaxed)
+                <= now_ms().saturating_add(recheck_window_ms()),
             "the window must end when the configured interval passes, not later"
         );
 

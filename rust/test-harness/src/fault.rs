@@ -134,7 +134,11 @@ mod tests {
         );
         assert_eq!(injector.next_fault(), Fault::None);
         assert_eq!(injector.next_fault(), Fault::Panic("boom".into()));
-        assert_eq!(injector.next_fault(), Fault::None, "past the end is the fallback");
+        assert_eq!(
+            injector.next_fault(),
+            Fault::None,
+            "past the end is the fallback"
+        );
         assert_eq!(injector.fired(), 4);
         assert_eq!(injector.remaining(), 0);
     }

@@ -298,10 +298,7 @@ impl TechCockpitDao {
 
     /// The engine's queue verb from the cockpit's own door: the board's "into ENGINE RUN Q" IS this call, and it
     /// is the same implementation the engine DAO and the pre-run sweep use (`forge_engine::dispatch_story_in`).
-    pub async fn ensure_story_dispatched(
-        &self,
-        story_id: &str,
-    ) -> DbResult<crate::EnsureDispatch> {
+    pub async fn ensure_story_dispatched(&self, story_id: &str) -> DbResult<crate::EnsureDispatch> {
         crate::forge_engine::ensure_story_dispatched_on(&self.db, story_id).await
     }
 

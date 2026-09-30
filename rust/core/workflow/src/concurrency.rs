@@ -53,9 +53,11 @@ where
                 handles.push(scope.spawn(|| f(item)));
             }
             for handle in handles {
-                out.push(handle.join().unwrap_or_else(|_| {
-                    Err(WorkflowError::generic("engine worker panicked"))
-                }));
+                out.push(
+                    handle
+                        .join()
+                        .unwrap_or_else(|_| Err(WorkflowError::generic("engine worker panicked"))),
+                );
             }
         });
         index = end;

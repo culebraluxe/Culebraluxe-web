@@ -129,7 +129,11 @@ pub async fn get(router: &Router, path: impl Into<String>) -> TestResponse {
 }
 
 /// A JSON POST through `router`.
-pub async fn post_json<T: Serialize>(router: &Router, path: impl Into<String>, value: &T) -> TestResponse {
+pub async fn post_json<T: Serialize>(
+    router: &Router,
+    path: impl Into<String>,
+    value: &T,
+) -> TestResponse {
     call(router, TestRequest::post(path).json(value)).await
 }
 
@@ -218,9 +222,6 @@ mod tests {
     #[tokio::test]
     async fn headers_are_carried_on_the_response() {
         let response = get(&router(), "/v1/health").await;
-        assert_eq!(
-            response.header("content-type"),
-            Some("application/json")
-        );
+        assert_eq!(response.header("content-type"), Some("application/json"));
     }
 }

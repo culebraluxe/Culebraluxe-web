@@ -2,10 +2,19 @@ use std::fmt;
 
 #[derive(Debug)]
 pub enum WorkflowError {
-    Generic { message: String },
-    Conflict { code: &'static str, message: String },
-    StaleToken { message: String },
-    MissingApplicationPort { message: String },
+    Generic {
+        message: String,
+    },
+    Conflict {
+        code: &'static str,
+        message: String,
+    },
+    StaleToken {
+        message: String,
+    },
+    MissingApplicationPort {
+        message: String,
+    },
     /// The CONNECTION failed; the work did not.
     ///
     /// `Generic` says "this step refused" and must not be repeated. This one says "this step never got to run", and
@@ -14,7 +23,9 @@ pub enum WorkflowError {
     ///
     /// It is produced by mapping the db crate's own classification (`DbFailureKind::DatabaseUnavailable`) rather than
     /// by matching on message text, so the two crates cannot disagree about what a broken socket is.
-    Unavailable { message: String },
+    Unavailable {
+        message: String,
+    },
     Expression(String),
     NotFound(String),
 }
@@ -99,7 +110,9 @@ mod tests {
     /// An operator reading a failure needs to know which side failed, and the code is what the engine logs.
     #[test]
     fn a_connection_failure_says_so_in_its_code_and_text() {
-        let error = WorkflowError::unavailable("error communicating with database: Broken pipe (os error 32)");
+        let error = WorkflowError::unavailable(
+            "error communicating with database: Broken pipe (os error 32)",
+        );
         assert_eq!(error.code(), "DB_UNAVAILABLE");
         assert!(
             error.to_string().contains("Broken pipe"),

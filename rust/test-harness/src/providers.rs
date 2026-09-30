@@ -26,7 +26,10 @@ pub enum ProviderCall {
     Send(SignatureProviderSendRequest),
     Status(String),
     Cancel(String),
-    VerifyWebhook { raw_payload: String, signature: String },
+    VerifyWebhook {
+        raw_payload: String,
+        signature: String,
+    },
     DownloadArtifact(String),
     DownloadAuditTrail(String),
 }
@@ -189,7 +192,9 @@ impl SignatureProvider for FakeSignatureProvider {
         &self,
         signature_request_id: &str,
     ) -> Result<SignatureArtifactDownload, String> {
-        self.record(ProviderCall::DownloadArtifact(signature_request_id.to_owned()));
+        self.record(ProviderCall::DownloadArtifact(
+            signature_request_id.to_owned(),
+        ));
         Ok(self.artifact.clone())
     }
 
@@ -233,7 +238,10 @@ mod tests {
         let fake = FakeSignatureProvider::accepting();
         let result = fake.send(request()).await.unwrap();
         assert!(result.ok);
-        assert_eq!(fake.status("req-1").await.unwrap().status, SignatureRequestStatus::Sent);
+        assert_eq!(
+            fake.status("req-1").await.unwrap().status,
+            SignatureRequestStatus::Sent
+        );
         assert_eq!(fake.call_count(), 2);
         assert_eq!(fake.calls().len(), 2);
         assert!(matches!(fake.calls()[0], ProviderCall::Send(_)));
@@ -251,7 +259,10 @@ mod tests {
     #[test]
     fn status_mapping_is_total() {
         let fake = FakeSignatureProvider::accepting();
-        assert_eq!(fake.map_status("completed"), SignatureRequestStatus::Completed);
+        assert_eq!(
+            fake.map_status("completed"),
+            SignatureRequestStatus::Completed
+        );
         assert_eq!(fake.map_status("nonsense"), SignatureRequestStatus::Error);
     }
 }

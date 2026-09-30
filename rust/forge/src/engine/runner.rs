@@ -9,7 +9,9 @@ use crate::engine::assay::{collect_assay_evidence, AssayEvidence, AssayVerdict, 
 use crate::engine::execution_target::{assert_forge_execution_target, env_pairs_from_process};
 use crate::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::facts::ForgeGateEvidence;
-use crate::engine::hold::{deliverable_enforcement_enabled, parse_deliverable_reprompt_budget, OpenHold};
+use crate::engine::hold::{
+    deliverable_enforcement_enabled, parse_deliverable_reprompt_budget, OpenHold,
+};
 use crate::engine::observer::record_forge_observer;
 use crate::engine::phase::{ForgePhaseAgent, RoleEffectPorts};
 use crate::engine::runtime::ActiveForgeRoleTask;
@@ -303,7 +305,10 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
                 &out.assay_commands,
                 out.acceptance_mapped,
             );
-            let AssayEvidence { evidence: measured, verdict } = collected;
+            let AssayEvidence {
+                evidence: measured,
+                verdict,
+            } = collected;
             evidence = measured;
             // The lane's own measurement becomes a row (migration 130). It is written the moment it exists, not at
             // the end of the story, because the next question anyone asks about a QA lane is what it measured — and
@@ -361,9 +366,13 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
             if let Some(writer) = self.writer {
                 // A hold that cannot be recorded is not a hold that was silently skipped: both writes
                 // propagate, so a gate that failed to record itself is visible as a failed lane.
-                writer.mark_story_human_hold(story_id, &reason).map_err(|error| {
-                    WorkflowError::generic(format!("mark_story_human_hold({story_id}): {error}"))
-                })?;
+                writer
+                    .mark_story_human_hold(story_id, &reason)
+                    .map_err(|error| {
+                        WorkflowError::generic(format!(
+                            "mark_story_human_hold({story_id}): {error}"
+                        ))
+                    })?;
                 writer
                     .open_hold(&OpenHold {
                         process_instance_id: task.process_instance_id.clone(),

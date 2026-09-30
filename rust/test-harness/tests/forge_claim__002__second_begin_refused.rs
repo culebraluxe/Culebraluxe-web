@@ -69,7 +69,10 @@ async fn forge_claim_002__second_begin_refused() {
             .fetch_one(harness.pool())
             .await
             .expect("the queued item is readable");
-    assert_eq!(ready_state, "Ready", "{HARNESS}: dispatch queues the item Ready");
+    assert_eq!(
+        ready_state, "Ready",
+        "{HARNESS}: dispatch queues the item Ready"
+    );
 
     // 2. The claim: Ready -> Claimed through the production claim path.
     let claimed = harness
@@ -133,12 +136,18 @@ async fn forge_claim_002__second_begin_refused() {
     .fetch_one(harness.pool())
     .await
     .expect("the opened run is readable");
-    assert_eq!(run_story, story_a, "{HARNESS}: the run belongs to the claim's story");
+    assert_eq!(
+        run_story, story_a,
+        "{HARNESS}: the run belongs to the claim's story"
+    );
     assert_eq!(
         run_status, None,
         "{HARNESS}: a run that just started has no ruling yet"
     );
-    assert_eq!(run_ended, None, "{HARNESS}: a run that just started has not ended");
+    assert_eq!(
+        run_ended, None,
+        "{HARNESS}: a run that just started has not ended"
+    );
     assert_eq!(
         run_env.as_deref(),
         Some("DEV"),
@@ -195,8 +204,14 @@ async fn forge_claim_002__second_begin_refused() {
     .fetch_one(harness.pool())
     .await
     .expect("the first run is still readable");
-    assert_eq!(still_open_status, None, "{HARNESS}: the refusal did not rule the run");
-    assert_eq!(still_open_ended, None, "{HARNESS}: the refusal did not end the run");
+    assert_eq!(
+        still_open_status, None,
+        "{HARNESS}: the refusal did not rule the run"
+    );
+    assert_eq!(
+        still_open_ended, None,
+        "{HARNESS}: the refusal did not end the run"
+    );
 
     // 5b. COMMITTED TRUTH SURVIVES A ROLLBACK. A transaction that rewrites the item back to `Ready` sees its own
     //     uncommitted write inside the transaction, and rolling back restores exactly what the production begin
@@ -211,7 +226,9 @@ async fn forge_claim_002__second_begin_refused() {
                     .bind(&probe_item)
                     .execute(&mut *conn)
                     .await
-                    .map_err(|error| DbFailure::from_sqlx("test-harness.forge.probe_update", &error))?;
+                    .map_err(|error| {
+                        DbFailure::from_sqlx("test-harness.forge.probe_update", &error)
+                    })?;
                 let state: String =
                     sqlx::query_scalar("select state from agent_work_item where id = $1::uuid")
                         .bind(&probe_item)
@@ -245,7 +262,11 @@ async fn forge_claim_002__second_begin_refused() {
     //     one-begin-per-claim rule holds across the whole lifecycle, not only while the item happens to be Running.
     let settled = harness
         .engine()
-        .finish_agent_work_run(&item_a, AgentWorkOutcome::Error, Some("contract proof settle"))
+        .finish_agent_work_run(
+            &item_a,
+            AgentWorkOutcome::Error,
+            Some("contract proof settle"),
+        )
         .await
         .expect("the production settle runs")
         .expect("a Running item must be settleable exactly once");
@@ -278,7 +299,10 @@ async fn forge_claim_002__second_begin_refused() {
         Some("Failed"),
         "{HARNESS}: the settled run carries the item's ruling"
     );
-    assert!(closed_ended.is_some(), "{HARNESS}: the settled run is closed");
+    assert!(
+        closed_ended.is_some(),
+        "{HARNESS}: the settled run is closed"
+    );
 
     // 6. NEGATIVE — OWNERSHIP, NOT A CALL COUNTER. An item that was never claimed (`Ready`) is refused by the same
     //    guard and opens NO run. A boundary that opened a run for any id handed to it would pass step 5 and fail
@@ -307,7 +331,10 @@ async fn forge_claim_002__second_begin_refused() {
             .fetch_one(harness.pool())
             .await
             .expect("story B's item is readable");
-    assert_eq!(b_state, "Ready", "{HARNESS}: the unclaimed item is untouched");
+    assert_eq!(
+        b_state, "Ready",
+        "{HARNESS}: the unclaimed item is untouched"
+    );
 
     // 6b. NEGATIVE/FAULT — an unknown item id is refused rather than panicking or opening a run for a row that does
     //     not exist.

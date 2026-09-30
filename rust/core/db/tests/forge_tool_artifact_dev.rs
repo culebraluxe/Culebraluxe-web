@@ -143,12 +143,13 @@ async fn a_tool_artifact_carries_its_run_ruling_and_never_a_second_opinion() {
     assert_eq!(agreeing.verdict.as_deref(), Some("PASS"));
 
     // 5. Every row above is a row in the table, keyed to this run — the point of the funnel.
-    let written: i64 =
-        sqlx::query_scalar("select count(*) from forge_tool_artifact where story_run_id = $1::uuid")
-            .bind(&run)
-            .fetch_one(pool)
-            .await
-            .unwrap();
+    let written: i64 = sqlx::query_scalar(
+        "select count(*) from forge_tool_artifact where story_run_id = $1::uuid",
+    )
+    .bind(&run)
+    .fetch_one(pool)
+    .await
+    .unwrap();
     assert_eq!(
         written, 4,
         "four artifacts were recorded against the proof run"

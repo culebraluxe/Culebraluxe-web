@@ -50,7 +50,9 @@ fn worker_identity_from(raw: Option<&str>, fallback_pid: u32) -> String {
 /// run. Default is a quarter of the window: four missed beats before recovery is even allowed to act.
 fn heartbeat_seconds(stale_after_minutes: i64) -> u64 {
     heartbeat_seconds_from(
-        std::env::var("AGENT_WORKER_HEARTBEAT_SECONDS").ok().as_deref(),
+        std::env::var("AGENT_WORKER_HEARTBEAT_SECONDS")
+            .ok()
+            .as_deref(),
         stale_after_minutes,
     )
 }
@@ -122,17 +124,9 @@ fn spawn_heartbeat(work_item_id: String, interval: Duration) -> Arc<AtomicBool> 
     stop
 }
 
-
 /// The engine's work types, verbatim as `--work-type` accepts them (`rust/forge/src/bin/forge.rs:117`) and as
 /// migration 173's ledger and migration 259's column store them.
-const DECLARED_WORK_TYPES: &[&str] = &[
-    "FEATURE",
-    "FAST",
-    "BUG",
-    "HOTFIX",
-    "RESEARCH",
-    "MIGRATION",
-];
+const DECLARED_WORK_TYPES: &[&str] = &["FEATURE", "FAST", "BUG", "HOTFIX", "RESEARCH", "MIGRATION"];
 
 fn work_type_for_kind(kind: Option<&str>) -> &'static str {
     match kind.unwrap_or("").trim().to_ascii_lowercase().as_str() {
