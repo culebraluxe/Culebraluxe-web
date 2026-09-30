@@ -2813,6 +2813,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "test-harness"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "chrono",
+ "db",
+ "domain",
+ "serde",
+ "serde_json",
+ "service",
+ "sqlx",
+ "thiserror 2.0.20",
+ "tokio",
+ "tower",
+ "ui",
+ "uuid",
+ "workflow",
+]
+
+[[package]]
 name = "thin-vec"
 version = "0.2.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"

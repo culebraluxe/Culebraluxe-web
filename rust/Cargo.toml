@@ -11,6 +11,7 @@ members = [
     "integrations",
     "cli",
     "ui",
+    "test-harness",
 ]
 # `experiments/` is deliberately OUTSIDE the workspace. The bench crate there exists to compare stacks we have not
 # adopted - it pulls tokio-postgres and deadpool, which production must not depend on. Excluding it keeps

@@ -1,0 +1,33 @@
+[package]
+name = "test-harness"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# The dedicated, Rust-native contract-test harness (TST-HARNESS-FOUNDATION-001).
+#
+# DEPENDENCY DIRECTION IS ONE-WAY: test-harness depends on production crates; production crates never depend on
+# test-harness. The harness exists to make the production boundaries executable in a test, so every dependency below
+# is a boundary under test (database, service context, workflow engine, MVI screens), not a parallel implementation.
+#
+# The legacy TypeScript test estate is NOT a conversion target. There is no Node, no mjs and no shelling out to a
+# runner: `cargo test -p test-harness` is the whole entry point.
+[dependencies]
+async-trait.workspace = true
+axum.workspace = true
+chrono.workspace = true
+# `db` is named `database` inside this crate; the module path is `test_harness::database`.
+db = { path = "../core/db" }
+domain = { path = "../core/domain" }
+serde.workspace = true
+serde_json.workspace = true
+service = { path = "../core/service" }
+sqlx.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tower.workspace = true
+# The MVI boundary: the harness drives real `Screen` implementations (`ui::app::Screen`), so the contract it makes
+# executable is the one the browser runs, not a re-declared copy of it.
+ui = { path = "../ui" }
+uuid.workspace = true
+workflow = { path = "../core/workflow" }
